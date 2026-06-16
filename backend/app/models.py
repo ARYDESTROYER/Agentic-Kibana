@@ -103,6 +103,28 @@ class RiskBreakdown(BaseModel):
     total: float = 0.0
 
 
+class TriggerReason(BaseModel):
+    """Deterministic explanation of WHY a cluster was triggered (Feature 3).
+
+    Computed in code by correlation, copied onto the Case, and surfaced in the UI
+    ("Why this fired"). Records the PRIMARY triggering rule for a multi-rule entity.
+    """
+
+    rule_value: str = ""
+    mode: str = ""                       # CorrelationMode value
+    n: int = 0
+    window_seconds: int = 0
+    group_by: str = ""                   # EntityType value
+    observed_count: int = 0
+    window_start: int = 0                # epoch millis of the matched window
+    window_end: int = 0
+    entity: str = ""
+    rule_values: list[str] = Field(default_factory=list)
+    severity_min: float | None = None
+    severity_max: float | None = None
+    sentence: str = ""                   # human-readable one-liner
+
+
 class Cluster(BaseModel):
     """A correlated group of events forming one candidate investigation."""
 
@@ -117,6 +139,7 @@ class Cluster(BaseModel):
     count: int = 0
     risk_score: float = 0.0
     risk_breakdown: RiskBreakdown = Field(default_factory=RiskBreakdown)
+    trigger_reason: TriggerReason | None = None
 
     @property
     def window_seconds(self) -> float:
@@ -199,6 +222,8 @@ class Case(BaseModel):
     # Append-only verdict trail: {ts, verdict, confidence, risk_score} on each
     # investigation. Lets the UI show how a case's verdict evolved (P1).
     verdict_history: list[dict[str, Any]] = Field(default_factory=list)
+    # Deterministic "why was this triggered" explanation (Feature 3).
+    trigger_reason: TriggerReason | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -281,10 +306,31 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class ChatContext(BaseModel):
+    """On-screen context snapshot the global chat flyout may attach (Feature 1).
+
+    ALL fields optional + best-effort. ``query``/``selection`` are
+    attacker-influenceable and MUST be fenced as UNTRUSTED in prompts; the context
+    is used only to DEFAULT the es_query tool (data view / time range), never as
+    instructions.
+    """
+
+    app: str | None = None
+    url: str | None = None
+    data_view: str | None = None
+    query: str | None = None
+    language: str | None = None
+    time_range: dict[str, Any] | None = None   # {from, to}
+    case_id: str | None = None
+    selection: str | None = None
+    search_session: str | None = None
+
+
 class ChatRequest(BaseModel):
     message: str
     case_id: str | None = None          # Surface 2: seed with a case
     history: list[ChatTurn] = Field(default_factory=list)
+    context: ChatContext | None = None  # Feature 1: global flyout screen context
 
 
 class DiscoverLink(BaseModel):

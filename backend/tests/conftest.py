@@ -69,6 +69,33 @@ def make_log_event(
     }
 
 
+@pytest.fixture
+def client(secrets, mock_provider):
+    """A TestClient over the full app with a fake ES + mock LLM (own event loop)."""
+    from contextlib import asynccontextmanager
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import router
+
+    overrides = {"anthropic": mock_provider, "openai": mock_provider, "mock": mock_provider}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=secrets, es=InMemoryESClient(), provider_overrides=overrides)
+        await state.startup(start_poller=False)
+        await state.update_prefs(state.prefs.model_copy(update={"setup_complete": True}))
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(router)
+    with TestClient(api) as c:
+        yield c
+
+
 def make_raw_event(
     *,
     id: str = "e1",

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 
 from .agents.chat import ChatEngine
+from .agents.overview import OverviewService
 from .agents.pipeline import InvestigationPipeline
 from .agents.standup import StandupService
 from .audit.audit_log import AuditLogger
@@ -63,6 +64,7 @@ class AppState:
         )
         self.chat_engine = ChatEngine(es, self.gateway, self.audit, self.cases)
         self.standup_service = StandupService(es, self.gateway, self.audit)
+        self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
         self.poller = Poller(es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs)
 
     def get_prefs(self) -> Preferences:

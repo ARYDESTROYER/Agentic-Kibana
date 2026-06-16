@@ -219,6 +219,7 @@ class InvestigationPipeline:
             summary="Candidate cluster awaiting investigation.",
             history=(existing.history if existing else []),
             verdict_history=(existing.verdict_history if existing else []),
+            trigger_reason=_trigger(existing, cluster),
         )
         await self._cases.save(case)
         await self._audit.record(
@@ -283,7 +284,14 @@ class InvestigationPipeline:
             token_cost=round(token_cost, 6),
             history=history,
             verdict_history=verdict_history,
+            trigger_reason=_trigger(existing, cluster),
         )
+
+
+def _trigger(existing: Case | None, cluster: Cluster):
+    """Keep the cluster's freshly-computed trigger reason, falling back to the
+    existing case's (so a manual re-investigate doesn't erase the scan's reason)."""
+    return cluster.trigger_reason or (existing.trigger_reason if existing else None)
 
 
 def _merge_rules(existing: Case | None, cluster: Cluster) -> list[str]:
@@ -328,6 +336,7 @@ def _fail_to_human_case(
         error=truncate(error, 500),
         history=(existing.history if existing else []),
         verdict_history=(existing.verdict_history if existing else []),
+        trigger_reason=_trigger(existing, cluster),
     )
 
 

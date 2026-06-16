@@ -58,6 +58,10 @@ CASES_MAPPING = {
         "token_cost": {"type": "float"},
         "error": {"type": "text"},
         "history": {"type": "object", "enabled": False},
+        "verdict_history": {"type": "object", "enabled": False},
+        "origin_surface": {"type": "keyword"},
+        # Feature 3: not queryable, no mapping explosion.
+        "trigger_reason": {"type": "object", "enabled": False},
     }
 }
 
@@ -107,7 +111,7 @@ def index_template_body(base: str, mapping: dict) -> dict:
     return {
         "index_patterns": [f"{base}-*"],
         "template": {"settings": _COMMON_SETTINGS, "mappings": mapping},
-        "priority": 200,
+        "priority": 600,
         "_meta": {"owner": "tlsoc-agentic-triage", "contract": base},
     }
 

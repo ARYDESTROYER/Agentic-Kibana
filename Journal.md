@@ -96,3 +96,23 @@
 - Tests: n/a (docs). git status = only the 4 new files from this agent.
 - Status: done.
 - Next: orchestrator commit; backend Features 1-4 + RAG agent still running.
+
+### 2026-06-16 ~15:30Z — orchestrator — backend Features 1-4 (authored directly)
+- Context: The big backend agent stalled (infra watchdog) after only Feature 4's
+  pricing helpers; rate-limits had also hit two earlier agents. To guarantee the
+  frontend-blocking contract, I authored Features 1-4 backend myself.
+- Did: Feature 4 `GET /api/models` (grouped from pricing.PRICES + configured).
+  Feature 1 `ChatContext` model + `ChatRequest.context`; `ChatEngine.chat(context=)`
+  fences it as UNTRUSTED and uses time_range/data_view as es_query DEFAULTS only;
+  `CHAT_SYSTEM` note; `/chat` passes context. Feature 2 `agents/overview.py`
+  (`OverviewService`, single-event, enrichment-reusing, cost-ledgered, never
+  raises) + `POST /api/overview` + state wiring. Feature 3 `TriggerReason` model +
+  `Cluster.trigger_reason` + `Case.trigger_reason`; correlation `_window_detail`
+  captures the primary rule's matched window + builds a human sentence; pipeline
+  copies it onto the case in all 3 builders; `CASES_MAPPING` gains
+  `trigger_reason/verdict_history/origin_surface`; template priority bumped to 600.
+- Tests: `pytest -q` = 60 passed (+test_features_backend: models/overview/chat-
+  context/trigger-reason).
+- Status: done. RAG (P1) still outstanding.
+- Next: commit; then RAG (resolved-case memory, ES dense_vector store, embedding
+  guard, min-cosine, chat grounding); then features-frontend; then 8.19.12 rebuild.

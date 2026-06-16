@@ -6,13 +6,14 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import __version__
 from ..config import Preferences
 from ..constants import CaseStatus, DecisionBy, EntityType, SourceSurface
 from ..engine.correlation import cluster_from_events
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
+from ..llm.pricing import models_by_provider
 from ..models import ChatRequest, InvestigateRequest, RawEvent
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
@@ -119,7 +120,8 @@ async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state
 @router.post("/chat")
 async def chat(body: ChatRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
     resp = await state.chat_engine.chat(
-        body.message, state.prefs, case_id=body.case_id, history=body.history
+        body.message, state.prefs, case_id=body.case_id, history=body.history,
+        context=body.context,
     )
     return resp.model_dump(mode="json")
 
@@ -134,6 +136,33 @@ async def investigate(body: InvestigateRequest, state: AppState = Depends(get_st
         raise HTTPException(status_code=400, detail="Could not resolve events for this request")
     case = await state.pipeline.investigate_cluster(cluster, body.source_surface, state.prefs)
     return case.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
+# Per-log AI overview (Feature 2) — single-event, cost-gated, read-only
+# --------------------------------------------------------------------------- #
+class OverviewRequest(BaseModel):
+    source: dict[str, Any] = Field(default_factory=dict)
+    index: str | None = None
+    id: str | None = None
+    data_view: str | None = None
+
+
+@router.post("/overview")
+async def overview(body: OverviewRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    if not body.source:
+        raise HTTPException(status_code=400, detail="No event source provided")
+    return await state.overview_service.overview(
+        body.source, state.prefs, index=body.index, id=body.id, data_view=body.data_view
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Model catalog (Feature 4) — for the settings per-role model pickers
+# --------------------------------------------------------------------------- #
+@router.get("/models")
+async def models(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    return {"providers": models_by_provider(), "configured": state.secrets.configured_status()}
 
 
 # --------------------------------------------------------------------------- #
