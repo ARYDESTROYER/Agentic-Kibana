@@ -34,7 +34,7 @@ export function makeOpenInDiscover(
       dataViewId = undefined;
     }
 
-    const params: Record<string, unknown> = {
+    const params: Record<string, any> = {
       query: { query: kql || '', language: 'kuery' },
       timeRange: { from: timeFrom || 'now-24h', to: timeTo || 'now' },
     };

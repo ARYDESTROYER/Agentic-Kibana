@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   EuiBasicTable,
+  EuiBasicTableColumn,
   EuiButton,
   EuiCallOut,
   EuiFieldText,
@@ -9,7 +10,6 @@ import {
   EuiSelect,
   EuiSpacer,
   EuiTitle,
-  EuiText,
   EuiPanel,
   EuiBadge,
 } from '@elastic/eui';
@@ -69,7 +69,7 @@ export const Investigate: React.FC<InvestigateProps> = ({ api, openInDiscover })
     }
   };
 
-  const columns = [
+  const columns: Array<EuiBasicTableColumn<Case>> = [
     {
       field: 'entity',
       name: 'Entity',

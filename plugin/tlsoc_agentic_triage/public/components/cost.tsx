@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   EuiBasicTable,
+  EuiBasicTableColumn,
   EuiButton,
   EuiCallOut,
   EuiFlexGroup,
@@ -38,17 +39,19 @@ function breakdownTable(
         <EuiSpacer size="xs" />
         <EuiBasicTable
           items={items.map((i, idx) => ({ id: idx, ...i }))}
-          columns={[
-            { field: 'key', name: 'Key', truncateText: true },
-            {
-              field: 'cost',
-              name: 'Cost',
-              render: (c: number) => fmtMoney(c, currency),
-              width: '110px',
-            },
-            { field: 'tokens', name: 'Tokens', width: '90px' },
-            { field: 'calls', name: 'Calls', width: '70px' },
-          ]}
+          columns={
+            [
+              { field: 'key', name: 'Key', truncateText: true },
+              {
+                field: 'cost',
+                name: 'Cost',
+                render: (c: number) => fmtMoney(c, currency),
+                width: '110px',
+              },
+              { field: 'tokens', name: 'Tokens', width: '90px' },
+              { field: 'calls', name: 'Calls', width: '70px' },
+            ] as Array<EuiBasicTableColumn<any>>
+          }
           tableLayout="auto"
         />
       </EuiPanel>
@@ -182,12 +185,14 @@ export const Cost: React.FC<CostProps> = ({ api }) => {
                 <EuiSpacer size="xs" />
                 <EuiBasicTable
                   items={data.top_cost_drivers.map((d, idx) => ({ id: idx, ...d }))}
-                  columns={Object.keys(data.top_cost_drivers[0] || {}).map((k) => ({
-                    field: k,
-                    name: k,
-                    truncateText: true,
-                    render: (v: any) => (v === null || v === undefined ? '' : String(v)),
-                  }))}
+                  columns={
+                    Object.keys(data.top_cost_drivers[0] || {}).map((k) => ({
+                      field: k,
+                      name: k,
+                      truncateText: true,
+                      render: (v: any) => (v === null || v === undefined ? '' : String(v)),
+                    })) as Array<EuiBasicTableColumn<any>>
+                  }
                   tableLayout="auto"
                 />
               </EuiPanel>

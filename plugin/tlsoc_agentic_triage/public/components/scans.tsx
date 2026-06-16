@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   EuiBasicTable,
+  EuiBasicTableColumn,
   EuiButton,
   EuiBadge,
   EuiCallOut,
@@ -41,7 +42,7 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const columns = [
+  const columns: Array<EuiBasicTableColumn<Case>> = [
     {
       field: 'entity',
       name: 'Entity',
