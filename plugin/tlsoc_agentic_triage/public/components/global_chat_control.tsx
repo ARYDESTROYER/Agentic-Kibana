@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { EuiButtonIcon } from '@elastic/eui';
+import { EuiHeaderSectionItemButton, EuiIcon } from '@elastic/eui';
 import type { CoreStart } from '@kbn/core/public';
 import type { DataPublicPluginStart } from '@kbn/data-plugin/public';
 import type { DataViewsPublicPluginStart } from '@kbn/data-views-plugin/public';
@@ -29,15 +29,17 @@ export const GlobalChatControl: React.FC<GlobalChatControlProps> = ({
 
   return (
     <>
-      <EuiButtonIcon
-        iconType="discuss"
-        color="text"
-        display="empty"
-        aria-label="TLSOC Agent Chat"
-        title="TLSOC Agent Chat"
+      <EuiHeaderSectionItemButton
+        aria-label="TLSOC Agent chat"
+        title="TLSOC Agent chat"
+        aria-expanded={open}
+        aria-pressed={open}
         data-test-subj="tlsocGlobalChatButton"
+        notification={open ? true : undefined}
         onClick={() => setOpen((v) => !v)}
-      />
+      >
+        <EuiIcon type="discuss" size="m" />
+      </EuiHeaderSectionItemButton>
       {open ? (
         <GlobalChatFlyout
           core={core}
