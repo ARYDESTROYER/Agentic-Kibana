@@ -224,6 +224,39 @@ For build-time failures see `plugin/BUILD.md`. For runtime/usage issues see
 | Backend **can't create its indices** | The **management** key is missing/under-scoped | The mgmt key needs `read,write,create_index,view_index_metadata,manage` on `tlsoc-agent-*` (re-mint per step 2) | `curl -k -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cat/indices/tlsoc-agent-*?v` lists the indices |
 | **No cases appear** after polling | Nothing in scope, or no poll has run | Lower `severity_threshold`, clear/verify `in_scope_rules`/`excluded_rules`, then trigger a poll | POST `/api/poll` returns non-zero `polled`/`clusters`; **Alerts / Investigate** then lists cases |
 
+## Migration (upgrading an existing deployment to the Cycle 2/3 build)
+
+Short upgrade path for a stack that already runs an earlier build. No data
+migration is required.
+
+1. **Reinstall the matching plugin zip** (now **~68 KB** for 8.19.12). Inside the
+   Kibana container:
+   ```bash
+   docker exec kibana ./bin/kibana-plugin remove tlsocAgenticTriage
+   docker cp agentic-kibana/plugin/dist/tlsocAgenticTriage-8.19.12.zip kibana:/tmp/
+   docker exec kibana ./bin/kibana-plugin install file:///tmp/tlsocAgenticTriage-8.19.12.zip
+   docker restart kibana
+   ```
+   (Use the `8.12.2.zip` instead if that is your running Kibana.)
+2. **Restart the backend.** On startup it **seeds `prefs.rule_catalog`** (the 13
+   `event.module` rules + 5 ModSec sub-rules) — **version-guarded**, so it never
+   overwrites operator edits. The new preference fields
+   (`investigate_lookback`, `rule_catalog`, `rule_model_override`,
+   `trace.include_prompts`) are **additive with safe defaults**, so there is no
+   manual settings migration:
+   ```bash
+   docker compose up -d --build tlsoc-backend     # rebuild picks up code + pricing changes
+   ```
+3. **Elasticsearch indices — nothing new this cycle.** No new index or template is
+   introduced. The resolved-case RAG store (`tlsoc-agent-rag`, `dense_vector`) was
+   added in the prior P1 cycle and is created **lazily on first embed**; the agent
+   trace simply reads the existing `tlsoc-agent-audit`.
+4. **Pricing.** If you edited `backend/app/llm/pricing.py` `PRICES` (e.g. to
+   correct the operator-verifiable approximations), the backend rebuild in step 2
+   picks them up.
+
+No upstream pipeline change; no downtime beyond the Kibana + backend restarts.
+
 ## What you did NOT do (by design)
 
 - You did **not** compile the plugin (the ZIP was pre-built).

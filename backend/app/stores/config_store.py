@@ -40,3 +40,19 @@ class ConfigStore:
         await self._es.index_doc(
             CONFIG_INDEX, prefs.model_dump(mode="json"), doc_id=CONFIG_DOC_ID, refresh=True
         )
+
+    async def seed_rule_catalog(self, prefs: Preferences) -> Preferences:
+        """First-run seeding of the built-in rule catalog (C3-1).
+
+        Idempotent and guarded by ``rule_catalog_seed_version``: it seeds ONLY when
+        the catalog is empty or the stored seed version is older than
+        ``RULE_CATALOG_SEED_VERSION``, and NEVER overwrites a non-empty operator-
+        edited catalog. Persists (and returns) prefs only when something changed."""
+        changed = prefs.maybe_seed_rule_catalog()
+        if changed:
+            logger.info("Seeded built-in rule catalog (%d rules)", len(prefs.rule_catalog))
+            try:
+                await self.save(prefs)
+            except Exception as exc:  # noqa: BLE001 — seeding is best-effort
+                logger.warning("Persisting seeded rule catalog failed (%s); continuing", exc)
+        return prefs

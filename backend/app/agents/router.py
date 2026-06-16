@@ -43,6 +43,9 @@ class Router:
         surface: str,
         case_id: str | None = None,
     ) -> TriageResult:
+        # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
+        # identical to ``prefs.router_model`` when no per-rule override exists.
+        model_cfg = prefs.model_for_rule(Role.ROUTER, cluster.primary_rule())
         user = render_cluster(cluster, enrichment, None, max_events=6)
         messages = [
             {"role": "system", "content": ROUTER_SYSTEM},
@@ -50,11 +53,11 @@ class Router:
         ]
         await self._audit.record(
             action_type=ActionType.PROMPT, surface=surface, actor=Role.ROUTER.value,
-            case_id=case_id, model=prefs.router_model.model, prompt_excerpt=user,
+            case_id=case_id, model=model_cfg.model, prompt_excerpt=user,
         )
         try:
             res = await self._gateway.complete(
-                Role.ROUTER, messages, prefs.router_model, surface=surface, case_id=case_id
+                Role.ROUTER, messages, model_cfg, surface=surface, case_id=case_id
             )
         except GatewayError as exc:
             logger.warning("Router unavailable (%s); defaulting to UNCERTAIN", exc)
@@ -66,7 +69,7 @@ class Router:
         reason = truncate(str(obj.get("reason", "")), 300)
         await self._audit.record(
             action_type=ActionType.DECISION, surface=surface, actor=Role.ROUTER.value,
-            case_id=case_id, model=prefs.router_model.model,
+            case_id=case_id, model=model_cfg.model,
             result_summary=f"bucket={bucket.value} confidence={confidence} reason={reason}",
         )
         return TriageResult(bucket, confidence, reason, res.cost)

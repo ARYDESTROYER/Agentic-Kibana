@@ -259,8 +259,12 @@ class InvestigationPipeline:
             "confidence": verdict.confidence,
             "risk_score": cluster.risk_score,
         })
-        reproduce_query = normalize_kql(verdict.reproduce_query, prefs) if verdict.reproduce_query \
-            else entity_kql(cluster, prefs)
+        # Normalise the reproduce query UNCONDITIONALLY so it always uses the
+        # configured field syntax (e.g. `source.ip : "x"`), never a bare `ip:x` —
+        # covers BOTH the router/benign path and the LLM/formatter path. The
+        # entity_kql fallback is already correct; normalize_kql is idempotent on it.
+        raw_reproduce = verdict.reproduce_query or entity_kql(cluster, prefs)
+        reproduce_query = normalize_kql(raw_reproduce, prefs)
         return Case(
             case_id=case_id,
             cluster_signature=cluster.signature,

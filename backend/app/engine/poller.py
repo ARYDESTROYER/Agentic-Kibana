@@ -66,6 +66,26 @@ class Poller:
         self._task: asyncio.Task | None = None
         self._running = False
 
+    def _correlation_lookback_seconds(self, prefs: Preferences) -> int:
+        """The sliding look-back (seconds) correlation must see each poll.
+
+        Correlation triggers require N events within ``window_seconds`` of the SAME
+        entity. The durable cursor only yields the incremental batch since the last
+        poll (~one poll interval of events in steady state), so a real burst spread
+        across its full window would arrive a few events at a time and never reach
+        the threshold in any single batch (BUG-5). We therefore correlate over the
+        WIDEST configured rule window (never less than one poll interval) plus a
+        small safety margin, so a slow-burn burst is seen whole. The cursor still
+        governs what is "new" for de-dup of investigation/attach (Non-negotiable #4).
+        """
+        windows = [prefs.default_correlation.window_seconds]
+        windows += [r.window_seconds for r in prefs.correlation_rules.values()]
+        widest = max(windows) if windows else prefs.default_correlation.window_seconds
+        interval = max(1, prefs.poll_interval_seconds)
+        # +2 poll intervals of slack absorbs poll jitter / a late-arriving event at
+        # the trailing edge of the window without re-scanning unboundedly.
+        return max(widest, interval) + 2 * interval
+
     async def poll_once(self, prefs: Preferences | None = None) -> dict[str, Any]:
         prefs = prefs or self._get_prefs()
         cursor = await self._cursor_store.load()
@@ -78,12 +98,33 @@ class Poller:
         new_events = [e for e in fetched if not cursor.should_skip(e)]
 
         stats = {"polled": len(fetched), "new": len(new_events),
-                 "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0}
+                 "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
+                 "window_events": 0}
 
+        # Correlate over the FULL sliding look-back window (not just the incremental
+        # batch) so real-time bursts spread across >1 poll interval still trigger.
+        # The cursor read above is what advances the cursor & defines "new"; this is
+        # a second, read-only window over the SAME in-scope log surface (#1, #12).
+        # We only do the wider read when there is genuinely new activity, so a quiet
+        # poll stays cheap and we never re-correlate an unchanged window.
         if new_events:
             from ..engine.correlation import correlate  # local import avoids cycle at import time
 
-            clusters = correlate(new_events, prefs)
+            lookback_ms = self._correlation_lookback_seconds(prefs) * 1000
+            window_from = to_millis(now_utc()) - lookback_ms
+            # Never look back further than a cold start would; the cursor still bounds
+            # what is treated as new, so this only widens the correlation input.
+            window_from = max(window_from, cold_from)
+            window_cursor = Cursor(timestamp_millis=window_from)
+            window_body = poll_query(prefs, window_cursor, window_from)
+            window_resp = await self._es.search_logs(prefs.data_view_pattern, window_body)
+            window_hits = window_resp.get("hits", {}).get("hits", [])
+            window_events = self._dedup_by_id(
+                [RawEvent.from_hit(h, prefs) for h in window_hits] + new_events
+            )
+            stats["window_events"] = len(window_events)
+
+            clusters = correlate(window_events, prefs)
             stats["clusters"] = len(clusters)
             allow = set(prefs.auto_forward_allowlist)
             wildcard = "*" in allow
@@ -125,6 +166,16 @@ class Poller:
         )
         return stats
 
+    @staticmethod
+    def _dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
+        """De-dupe events by document id (the wider window may overlap the
+        incremental batch). First occurrence wins; order is preserved."""
+        seen: dict[str, RawEvent] = {}
+        for ev in events:
+            if ev.id not in seen:
+                seen[ev.id] = ev
+        return list(seen.values())
+
     async def _attach(self, existing, cluster) -> None:
         before = len(existing.member_event_ids)
         merged = list(dict.fromkeys(existing.member_event_ids + cluster.member_event_ids))
@@ -135,6 +186,13 @@ class Poller:
         existing.rule_ids = sorted(set(existing.rule_ids) | set(cluster.rule_values))
         existing.history.append({"ts": existing.updated_at, "event": "attach",
                                  "added_events": len(merged) - before})
+        # Cycle-2 NOTE: an automated burst can attach (by entity signature) to a case
+        # that was opened manually (origin_surface != automated_scan), which has no
+        # deterministic "why this fired" reason. Surface the attaching cluster's
+        # trigger_reason so the "Why this fired" callout renders on it too — without
+        # overwriting a reason the case already has.
+        if existing.trigger_reason is None and cluster.trigger_reason is not None:
+            existing.trigger_reason = cluster.trigger_reason
         await self._cases.save(existing)
 
     # --- background loop ---

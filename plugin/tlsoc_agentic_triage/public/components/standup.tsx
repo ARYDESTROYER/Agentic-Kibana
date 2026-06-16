@@ -18,6 +18,45 @@ interface StandupProps {
   api: TlsocApi;
 }
 
+/**
+ * BUG-3 guard: a small error boundary so a future server-shape mismatch shows a
+ * message instead of blanking the entire tab (React throws "Objects are not
+ * valid as a React child" when a non-primitive leaks into JSX). Class component
+ * because componentDidCatch has no hooks equivalent.
+ */
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    // eslint-disable-next-line no-console
+    console.error('Standup render error', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <EuiCallOut color="danger" size="s" title="Could not render standup">
+          <EuiText size="s">
+            <p>The standup data could not be displayed. Try reloading the standup.</p>
+          </EuiText>
+        </EuiCallOut>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function keyCountTable(title: string, items?: Array<{ key: string; count: number }>) {
   if (!items || items.length === 0) {
     return null;
@@ -40,6 +79,22 @@ function keyCountTable(title: string, items?: Array<{ key: string; count: number
       </EuiPanel>
     </EuiFlexItem>
   );
+}
+
+/**
+ * BUG-3: render a `Record<string, number>` (e.g. cases.by_verdict / by_status)
+ * as a small key/count table by normalising it to the `{key, count}[]` shape the
+ * existing `keyCountTable` helper expects.
+ */
+function recordCountTable(title: string, record?: Record<string, number>) {
+  if (!record) {
+    return null;
+  }
+  const items = Object.entries(record).map(([key, count]) => ({
+    key,
+    count: typeof count === 'number' ? count : Number(count) || 0,
+  }));
+  return keyCountTable(title, items);
 }
 
 export const Standup: React.FC<StandupProps> = ({ api }) => {
@@ -85,56 +140,70 @@ export const Standup: React.FC<StandupProps> = ({ api }) => {
         </>
       ) : null}
 
-      {data ? (
-        <>
-          {data.summary ? (
-            <EuiPanel hasBorder>
-              <EuiTitle size="xs">
-                <h3>Summary</h3>
-              </EuiTitle>
-              <EuiSpacer size="s" />
-              <EuiText size="s">
-                <p style={{ whiteSpace: 'pre-wrap' }}>{data.summary}</p>
-              </EuiText>
-            </EuiPanel>
-          ) : null}
+      <ErrorBoundary>
+        {data ? (
+          <>
+            {data.summary ? (
+              <EuiPanel hasBorder>
+                <EuiTitle size="xs">
+                  <h3>Summary</h3>
+                </EuiTitle>
+                <EuiSpacer size="s" />
+                <EuiText size="s">
+                  <p style={{ whiteSpace: 'pre-wrap' }}>{data.summary}</p>
+                </EuiText>
+              </EuiPanel>
+            ) : null}
 
-          {agg ? (
-            <>
-              <EuiSpacer size="m" />
-              <EuiFlexGroup>
-                <EuiFlexItem>
-                  <EuiPanel hasBorder paddingSize="s">
-                    <EuiStat title={agg.total_events ?? 0} description="Total events" titleSize="m" />
-                  </EuiPanel>
-                </EuiFlexItem>
-                <EuiFlexItem>
-                  <EuiPanel hasBorder paddingSize="s">
-                    <EuiStat title={agg.unique_ips ?? 0} description="Unique IPs" titleSize="m" />
-                  </EuiPanel>
-                </EuiFlexItem>
-                <EuiFlexItem>
-                  <EuiPanel hasBorder paddingSize="s">
-                    <EuiStat title={agg.cases ?? 0} description="Cases" titleSize="m" />
-                  </EuiPanel>
-                </EuiFlexItem>
-              </EuiFlexGroup>
+            {agg ? (
+              <>
+                <EuiSpacer size="m" />
+                <EuiFlexGroup>
+                  <EuiFlexItem>
+                    <EuiPanel hasBorder paddingSize="s">
+                      <EuiStat
+                        title={agg.total_events ?? 0}
+                        description="Total events"
+                        titleSize="m"
+                      />
+                    </EuiPanel>
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    <EuiPanel hasBorder paddingSize="s">
+                      <EuiStat title={agg.unique_ips ?? 0} description="Unique IPs" titleSize="m" />
+                    </EuiPanel>
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    <EuiPanel hasBorder paddingSize="s">
+                      {/* BUG-3: `cases` is an OBJECT — render the scalar `opened` count. */}
+                      <EuiStat
+                        title={agg.cases?.opened ?? 0}
+                        description="Cases opened"
+                        titleSize="m"
+                      />
+                    </EuiPanel>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
 
-              <EuiSpacer size="m" />
-              <EuiFlexGroup wrap>
-                {keyCountTable('Top rules', agg.by_rule)}
-                {keyCountTable('Top source IPs', agg.top_source_ips)}
-                {keyCountTable('Top users', agg.top_users)}
-                {keyCountTable('Top hosts', agg.top_hosts)}
-              </EuiFlexGroup>
-            </>
-          ) : null}
-        </>
-      ) : (
-        <EuiText color="subdued">
-          <p>Load the standup to see the prose summary and aggregates.</p>
-        </EuiText>
-      )}
+                <EuiSpacer size="m" />
+                <EuiFlexGroup wrap>
+                  {keyCountTable('Top rules', agg.by_rule)}
+                  {keyCountTable('Top source IPs', agg.top_source_ips)}
+                  {keyCountTable('Top users', agg.top_users)}
+                  {keyCountTable('Top hosts', agg.top_hosts)}
+                  {/* BUG-3: render the case breakdowns as key/count tables. */}
+                  {recordCountTable('Cases by verdict', agg.cases?.by_verdict)}
+                  {recordCountTable('Cases by status', agg.cases?.by_status)}
+                </EuiFlexGroup>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <EuiText color="subdued">
+            <p>Load the standup to see the prose summary and aggregates.</p>
+          </EuiText>
+        )}
+      </ErrorBoundary>
     </div>
   );
 };

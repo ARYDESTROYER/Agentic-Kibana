@@ -29,6 +29,7 @@ from .vectorstore import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..models import Case
     from ..stores.cases import CaseStore
 
 logger = logging.getLogger("tlsoc.tools.rag")
@@ -197,6 +198,12 @@ class RagService:
         self._cases = cases
         self._seeded = False
 
+    def set_prefs(self, prefs: Preferences) -> None:
+        """Point the service at the latest preferences so a live settings change
+        (e.g. toggling rag.enabled / use_resolved_cases / min_score) takes effect
+        without a full rewire."""
+        self._prefs = prefs
+
     def _embedding_space(self) -> tuple[str, int]:
         cfg = self._prefs.model_for("embedding")
         # dim is settled at first embed; the model id is the stable space tag.
@@ -235,6 +242,7 @@ class RagService:
                 embedding=vec,
                 embedding_model=model_id,
                 dim=len(vec),
+                doc_id=s.get("doc_id"),
             )
             for s, vec in zip(items, vectors)
         ]
@@ -294,6 +302,53 @@ class RagService:
             return await self._embed_and_add(items)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Indexing resolved cases failed: %s", exc)
+            return 0
+
+    async def index_resolved_case(self, case: "Case", note: str = "") -> int:
+        """Index ONE resolved-case chunk on close as institutional memory (C3-5).
+
+        Triggered from the case-action endpoint when an analyst closes / confirms-FP
+        a case. The chunk combines entity + rules + verdict + risk + trigger reason +
+        the analyst NOTE so future investigations of similar entities learn from the
+        prior decision. Uses a DETERMINISTIC ``doc_id = resolved_case:{case_id}`` so
+        re-closing OVERWRITES rather than duplicating. Gated by ``rag.enabled`` AND
+        ``rag.use_resolved_cases``. FAIL-SAFE: returns 0 (never raises) so a failed
+        embedding/vector-store write never breaks the close action (it still 200s)."""
+        cfg = self._prefs.rag
+        if not (cfg.enabled and cfg.use_resolved_cases):
+            return 0
+        try:
+            entity = f"{case.entity.type.value}:{case.entity.value}"
+            rules = ", ".join(case.rule_ids) or "n/a"
+            verdict = case.verdict.value if case.verdict else "n/a"
+            reason = (
+                case.trigger_reason.sentence
+                if case.trigger_reason and case.trigger_reason.sentence
+                else ""
+            )
+            note = (note or "").strip()
+            text = (
+                f"Resolved case {case.case_id}: verdict {verdict} for entity {entity}. "
+                f"Rules: {rules}. Risk: {round(case.risk_score, 1)}. "
+                f"Trigger: {reason or 'n/a'}. Analyst note: {note or 'n/a'}."
+            )
+            item = {
+                "text": text,
+                "source": "resolved_case",
+                "doc_id": f"resolved_case:{case.case_id}",
+                "metadata": {
+                    "case_id": case.case_id,
+                    "verdict": verdict,
+                    "entity": entity,
+                    "status": case.status.value if case.status else "",
+                    "note": note,
+                },
+            }
+            return await self._embed_and_add([item])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "index_resolved_case failed for %s: %s", getattr(case, "case_id", "?"), exc
+            )
             return 0
 
     async def retrieve(self, query: str, top_k: int | None = None) -> list[RagChunk]:

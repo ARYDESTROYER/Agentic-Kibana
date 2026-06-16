@@ -105,6 +105,9 @@ class AppState:
         except Exception as exc:  # noqa: BLE001
             logger.error("Index bootstrap failed (%s); continuing", exc)
         self.prefs = await self.config_store.load()
+        # First-run seeding of the built-in rule catalog (C3-1): idempotent and
+        # guarded by rule_catalog_seed_version so operator edits are never clobbered.
+        self.prefs = await self.config_store.seed_rule_catalog(self.prefs)
         self.rag = self._build_rag()
         self.pipeline._rag = self.rag
         self.chat_engine._rag = self.rag
@@ -122,6 +125,9 @@ class AppState:
     async def update_prefs(self, prefs: Preferences) -> Preferences:
         await self.config_store.save(prefs)
         self.prefs = prefs
+        # Keep the long-lived RagService pointed at the latest prefs so a settings
+        # change (rag.enabled / use_resolved_cases / min_score / top_k) is live.
+        self.rag.set_prefs(prefs)
         return prefs
 
     async def apply_secrets(self, updates: dict[str, str | bool | None]) -> None:

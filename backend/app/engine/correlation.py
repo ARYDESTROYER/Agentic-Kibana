@@ -35,8 +35,15 @@ def correlate(events: list[RawEvent], prefs: Preferences) -> list[Cluster]:
     for ev in events:
         by_rule[ev.rule or "unknown"].append(ev)
 
+    # Resolve each bucket's rule name to its RuleDefinition (C3-1) so per-rule
+    # correlation honours an inline/named override. When the bucket name has no
+    # matching RuleDefinition (e.g. the catalog is empty, or a rule arrives that
+    # is only configured via ``correlation_rules``) we keep the legacy
+    # ``correlation_for(rule)`` lookup-by-name so behaviour is byte-identical.
+    rule_defs = {rd.name: rd for rd in prefs.rule_catalog}
     for rule, rule_events in by_rule.items():
-        cfg = prefs.correlation_for(rule)
+        rd = rule_defs.get(rule)
+        cfg = prefs.correlation_for_def(rd) if rd is not None else prefs.correlation_for(rule)
         if cfg.mode == CorrelationMode.NEVER:
             continue
         group_by = cfg.group_by

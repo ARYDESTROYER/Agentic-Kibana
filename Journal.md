@@ -189,3 +189,199 @@
 - Tests: n/a (docs); git status shows only the 2 files.
 - Status: done — work-order cycle complete except deferred Feature 5.
 - Next: Feature 5 wizard rewrite against a live 8.19 Kibana (tracked in ROADMAP).
+
+### 2026-06-16 17:00Z — orchestrator — Cycle 2/3 kickoff (fresh container)
+- Context: New session on branch `claude/epic-cannon-p5z5ha` at 948bc45 — the exact
+  deployed commit the Cycle 2 bugs were filed against. Goal: work the Cycle 2 bug
+  list + Cycle 3 feature requests via Opus sub-agents, backend-first (pytest is the
+  only in-container verification; plugin build needs the heavy Kibana checkout).
+- Did: rebuilt backend/.venv (baseline 69→ now 88 tests green); re-cloned
+  `/tmp/kibana-8.19` (v8.19.12) + `yarn kbn bootstrap` (exit 0) in background so the
+  plugin toolchain is warm for the final 8.19.12 zip rebuild. Ran Wave 1 = 3 isolated
+  backend agents on disjoint files (below).
+- Tests: full suite 88 passed after the wave.
+- Status: in-progress — Wave 1 committed (7370f43, 65e695b, ba6d09f).
+- Next: Wave 2 = investigate-path agent (BUG-2 backend + IMPROVEMENT + C3-4) owning
+  routes/pipeline/config/models; then rule-catalog wave (C3-1 + C3-6b); then
+  trace+resolved-RAG wave (C3-3 + C3-5); then frontend; then rebuild 8.19.12 zip.
+
+### 2026-06-16 17:10Z — backend agent (BUG-1) — chat 2-turn analysis
+- Context: BUG-1 (HIGH) — chat never showed analysis; ChatEngine.chat was single-turn
+  and the fetched rows never reached the model (only a preamble + raw table).
+- Did: second model turn `_analyse_results` in agents/chat.py — on tr.ok+tr.data, build
+  a COMPACT facets-first aggregate (counts, time span, top-5 rules/users/hosts/ips,
+  <=5 sample rows), fence() it UNTRUSTED, re-prompt for {answer}, set the final answer
+  + add res2.cost to the ledger; try/except falls back to old summary so chat never
+  hard-fails. No-query/query-failed paths + Feature-1 ChatContext unchanged. CHAT_SYSTEM
+  rewritten for the 2-step contract (only that constant). +tests/test_chat_analysis.py.
+- Tests: pytest 73 passed (at the time). Note: fence() caps at 600 chars; facets are
+  ordered before sample_rows so truncation drops samples first (acceptable).
+- Status: done (committed 7370f43).
+- Next: plugin chat UI already renders answer+table — no contract change.
+
+### 2026-06-16 17:15Z — backend agent (BUG-5) — real-time correlation over full window
+- Context: BUG-5 (HIGH) — poller correlated only the incremental cursor batch, so bursts
+  spread across >1 poll interval never reached the threshold (slow-burn misses).
+- Did: poller.py only — poll_once now does a second read-only sliding look-back read
+  (`max(widest rule window, poll_interval)+2*interval`, clamped to cold-start), de-dupes
+  by event id with new_events, and feeds the FULL window to correlate() (signature
+  unchanged). Cursor still defines "new"; signature idempotency + _attach prevent dup
+  cases / re-investigation. +2 tests: a 6-event/~60s burst arriving as below-threshold
+  batches now creates exactly 1 case; overlapping windows + idle polls create no dup and
+  no re-investigation; verified 0 cases under old per-batch behavior.
+- Tests: pytest 75 passed (at the time).
+- Status: done (committed 65e695b).
+- Next: live-stack sanity that the window read stays within poll_batch_size on noisy windows.
+
+### 2026-06-16 17:30Z — backend agent (C3-6a) — OpenAI catalog + provider param quirks
+- Context: C3-6 PART A (isolated half) — expand the OpenAI price catalog + per-model param
+  quirks; per-rule model wiring (config/pipeline) deferred to the rule-catalog wave.
+- Did: pricing.py — added gpt-4.1, gpt-4.1-mini, gpt-4-turbo, gpt-4, o4-mini, gpt-5,
+  gpt-5-mini with operator-verifiable approx USD/1M prices (commented), kept _DEFAULT_PRICE;
+  provider_for() maps o1/o3/o4* to openai. providers.py — _is_reasoning_or_gpt5(); OpenAI
+  complete omits temperature + sends max_completion_tokens for gpt-5 family + o-series,
+  classic params elsewhere. +tests/test_pricing_catalog.py (13 cases incl. httpx-boundary).
+- Tests: pytest 88 passed.
+- Status: done (committed ba6d09f).
+- Next: per-rule model_for_rule wiring rides with C3-1 rule catalog (shares model_override).
+
+### 2026-06-16 19:45Z — backend agent (Wave2) — investigate path: BUG-2 + IMPROVEMENT + C3-4
+- Context: own the investigate flow — fix the hardcoded now-24h 400 (BUG-2), restore manual
+  "Why this fired"/provenance/reproduce_query (IMPROVEMENT), add human-triggered case
+  re-investigation (C3-4).
+- Did: added Preferences.investigate_lookback + InvestigateRequest.lookback (per-request
+  override). Rewrote routes._cluster_for_request with an auto-widen ladder
+  (configured/requested → now-7d → now-30d → now-365d; skips rungs narrower than the start;
+  first non-empty wins) + a neutral, specific 400 detail for the FE empty-state. Synthesized
+  a manual TriggerReason (mode=manual) so "Why this fired" renders on manual cases; preserve
+  origin_surface across a forced re-investigate. New POST /api/cases/{id}/investigate
+  (load→rebuild via id-requery then config-windowed entity fallback→investigate_cluster(
+  force=True); preserves source/origin surface, appends verdict_history; 404 missing, neutral
+  400 when aged out). Made pipeline._assemble_case normalize reproduce_query UNCONDITIONALLY
+  and fixed a latent normalize_kql regex bug (source.ip → source.source.ip) via a (?<![\w.])
+  negative lookbehind in agents/common.py. Used now-365d (not now-1y; relative_to_millis lacks
+  a year unit). No ES-layer change needed (existing ids_query + search_logs sufficed).
+- Tests: +tests/test_investigate_flow.py (8). Full suite 96 passed (committed 2d07439).
+- Status: done.
+- Next: FE — surface the new POST /cases/{id}/investigate button + render the neutral-400
+  empty-state (errorDetail); expose investigate_lookback in settings.
+
+### 2026-06-16 18:00Z — orchestrator — build toolchain + Wave 3 launch
+- Context: validate the plugin build toolchain (historically flaky) before frontend exists;
+  start the rule-catalog backend wave.
+- Did: yarn kbn bootstrap installed all deps (node_modules 2.4G, 1112 @kbn pkgs) but aborted
+  at the trailing Playwright FIREFOX browser install (blocked CDN — PLAYWRIGHT_SKIP_BROWSER_
+  DOWNLOAD only suppresses the npm postinstall, not Kibana's explicit `playwright install`).
+  Since the optimizer build needs no browsers, run plugin_helpers build directly against the
+  populated node_modules (build-only smoke test in flight). Launched Wave 3 (C3-1 rule catalog
+  + C3-6b per-rule models) after two transient infra errors (Bash classifier + a 0-token Agent
+  500) cost a retry — no work lost (tree was clean).
+- Tests: n/a (orchestration).
+- Status: in-progress.
+- Next: verify build-only zip; commit+push Wave 3; then trace+resolved-RAG wave; then frontend.
+
+### 2026-06-16 19:30Z — orchestrator (direct) — Wave 4: trace (C3-3) + resolved-case RAG (C3-5)
+- Context: agent spawns were repeatedly 529-Overloaded (two Wave-4 sub-agents died at
+  0 tokens), so I implemented this wave directly. All backend Cycle-2/3 work now done.
+- Did: C3-3 — TraceStep model; GET /api/cases/{id}/trace (mgmt-key term case_id, sort ts
+  asc; NEVER 404); AuditLogger.records_for_case(); formatter now writes a Role.FORMATTER
+  audit row (so it appears in the trace); Preferences.trace.include_prompts toggle omits the
+  untrusted prompt excerpt. C3-5 — RagService.index_resolved_case() indexes ONE resolved_case
+  chunk on close/confirm_fp (entity+rules+verdict+risk+trigger+analyst note) with deterministic
+  doc_id=resolved_case:{id}; StoredChunk gains doc_id (InMemory upserts, ES upserts by _id);
+  case_action calls it fail-safe (close still 200 if RAG/embeddings fail); render_cluster groups
+  resolved_case chunks under "## Prior analyst decisions (baseline)". Also: update_prefs now syncs
+  RagService prefs so a live settings toggle (rag.enabled/use_resolved_cases/min_score) takes effect.
+- Tests: +tests/test_trace_rag.py (8). Full suite 121 passed, clean under -W error::UserWarning.
+  Committed 04c7be2.
+- Status: BACKEND COMPLETE for Cycle 2/3. Remaining = frontend phase + 8.19.12 rebuild + docs.
+- Next: own common/index.ts contract (BUG-3 standup shape, TraceStep/TraceResponse, RuleMatch/
+  RuleDefinition); then parallel FE agents (case-detail hub · standup+board · settings editors);
+  consolidated tsc + zip rebuild; docs + migration note.
+
+### 2026-06-16 19:40Z — orchestrator + 3 FE agents — frontend phase (Cycle 2/3) + 8.19.12 rebuild
+- Context: deliver all remaining frontend work after the backend was complete; one coordinated
+  phase + a single verified build (frontend can only be tsc'd/built against the Kibana checkout).
+- Did: orchestrator owned common/index.ts (BUG-3 cases-object shape; +TraceStep/TraceResponse,
+  RuleMatch/RuleDefinition; committed ec7a847). Three parallel FE agents on disjoint files:
+  FE-A case-detail (509b928) — BUG-2 neutral no-events empty-state (errorDetail/isNoEventsError),
+  C3-3 agent_trace.tsx (EuiCommentList, untrusted query/tool/prompt in EuiCodeBlock), C3-4
+  Investigate button (POST cases/{id}/investigate + trace refresh), C3-5 note modal feeding the
+  action, C3-7 case_timeline.tsx (merge history+verdict_history, dedupe decisions ×N). FE-B
+  (a9c97c1) — BUG-3 standup fix + ErrorBoundary, C3-2 board.tsx Kanban (drag→close/reopen/escalate,
+  optimistic+revert) + Board tab in app.tsx. FE-C (49a69a8) — C3-1 rule-catalog editor + C3-6
+  per-rule model table in settings.tsx (reuses the per-role pickers).
+- Tests: consolidated `tsc --noEmit` CLEAN for public/server/common (all 3 agents' code). Built the
+  8.19.12 zip: bundle present, kibanaVersion 8.19.12, 0 backend-URL leaks, 68KB (was 57KB); copied to
+  plugin/dist (b988329). Backend suite remains 121 green.
+- Status: ALL Cycle 2 bugs + Cycle 3 features delivered (BE + FE), verified, pushed. Two deliberate
+  deferrals: Feature 5 (wizard rewrite — the existing 4-step wizard works; rewrite best validated on a
+  live 8.19 stack) and the Cycle-2 "entity-signature attach" NOTE (being handled next).
+- Next: implement the optional NOTE (surface trigger_reason on attached non-scan cases); refresh
+  USAGE/BUILD/CHANGELOG/ROADMAP + migration note; final push.
+
+### 2026-06-16 19:50Z — docs sub-agent — USAGE/BUILD/CHANGELOG/ROADMAP + migration note (Cycle 2/3)
+- Context: refresh user-facing docs for the shipped Cycle-2 bug fixes + Cycle-3 features, grounded
+  against the code on this branch.
+- Did: USAGE.md — 7-tab table + new Board section; documented chat 2-turn analysis, native header
+  button, investigate lookback/auto-widen/empty-state, agent trace + re-investigate + RAG-on-close +
+  merged timeline, standup cases-object + error boundary, settings rule-catalog + per-rule models +
+  expanded catalog + trace toggle, sliding correlation, and new curl examples (/cases/{id}/investigate,
+  /cases/{id}/trace, lookback). BUILD.md — zip ~57→~68KB, new components compile in, recipe unchanged.
+  CHANGELOG.md — Cycle 2/3 subsections. ROADMAP.md — status ticks. DEPLOY.md — new ## Migration section
+  (reinstall zip, version-guarded rule_catalog seed, additive prefs, no new ES index, rebuild on pricing
+  edits). Verified every claim against chat.py/routes.py/standup.py/poller.py/config.py/pricing.py/
+  models.py/app.tsx/board.tsx.
+- Tests: n/a (docs). Orchestrator corrected the cited test count 121→124 (the NOTE added 3 after the
+  agent ran).
+- Status: done.
+
+### 2026-06-16 19:55Z — orchestrator — Cycle 2 + Cycle 3 COMPLETE
+- Context: close out the full work order (Cycle-2 bugs + Cycle-3 features) on branch
+  claude/epic-cannon-p5z5ha (started at the deployed 948bc45).
+- Did: delivered + pushed EVERY Cycle-2 item (BUG-1..5, IMPROVEMENT, NOTE) and EVERY Cycle-3 item
+  (C3-1..C3-7), backend + frontend. Backend across waves 1-4 + the NOTE; frontend via the contract
+  (common/index.ts) + 3 parallel FE agents (case-detail hub / standup+board / settings editors); docs
+  refreshed. Several sub-agent spawns hit transient 529/500/classifier outages — Wave 4 was authored
+  directly after two 0-token agent deaths; all other waves landed via agents.
+- Tests: backend 124 passed (clean under -W error::UserWarning); plugin tsc --noEmit clean for
+  public/server/common; 8.19.12 zip rebuilt + verified (bundle present, kibanaVersion 8.19.12, 0
+  backend-URL leaks, ~68KB) and committed to plugin/dist.
+- Status: DONE. Deferred (deliberate): Feature 5 wizard rewrite (existing 4-step wizard works; rewrite
+  best validated on a live 8.19 stack).
+- Next: live-stack validation on the SIEM server (install the 68KB zip, restart backend → rule_catalog
+  seeds; exercise board drag, agent trace, re-investigate, close-with-note→RAG, settings editors).
+
+### 2026-06-16 18:10Z — orchestrator — plugin build toolchain VALIDATED
+- Context: de-risk the historically-flaky plugin build before frontend changes exist.
+- Did: wrote /tmp/build_only.sh (root-guard yarn shim → --allow-root; PLAYWRIGHT/PUPPETEER/etc.
+  skip vars; BROWSERSLIST_IGNORE_OLD_DATA mandatory). generate_plugin scaffolded the skeleton,
+  copied repo source over it, plugin_helpers build --kibana-version 8.19.12 against the populated
+  node_modules. Result zip VERIFIED: browser bundle present, kibanaVersion 8.19.12, 0 backend-URL
+  leaks, 57494 bytes (== committed zip; source unchanged). Only warning is ci-stats.kibana.dev 403
+  (telemetry, harmless). The final post-frontend rebuild is now just a re-run of this script.
+- Tests: build verification block (bundle/version/leak/size) all pass.
+- Status: done.
+
+### 2026-06-16 18:42Z — frontend agent (BUG-4) — header chat button styling
+- Context: BUG-4 (LOW, cosmetic) — global navControl chat trigger was a dark, low-contrast button.
+- Did: public/components/global_chat_control.tsx now uses Kibana's native EuiHeaderSectionItemButton
+  wrapping EuiIcon type="discuss" (no hardcoded colors → EUI owns theme contrast), with aria-label/
+  title + aria-expanded/pressed and a subtle notification dot while the flyout is open. Behavior/props/
+  flyout wiring preserved; no other files, no new deps.
+- Tests: tsc -p tsconfig.json --noEmit against /tmp/kibana-8.19 → NO PLUGIN TS ERRORS.
+- Status: done (committed 387d27b, pushed).
+
+### 2026-06-16 18:05Z — backend agent (Wave3) — rule catalog (C3-1) + per-rule models (C3-6b)
+- Context: C3-1 config-driven rule catalog (13 real event.module rules + 5 ModSec sub-rules isolating
+  XSS/SQLi/LFI/RCE/scanner via rule.id prefix) + C3-6b per-rule model selection (share model_override).
+- Did: RuleMatch/RuleDefinition + rule_catalog/rule_catalog_seed_version/rule_model_override +
+  match_rule/correlation_for_def/model_for_rule/maybe_seed_rule_catalog/default_rule_catalog in
+  config.py. from_hit classifies via catalog when non-empty (empty path byte-identical); Cluster.
+  primary_rule(). correlate uses correlation_for_def(rd) with legacy correlation_for(name) fallback.
+  router/investigator/formatter resolve models via model_for_rule(role, cluster.primary_rule()).
+  Seeding via ConfigStore.seed_rule_catalog wired into state.startup(), version-guarded, never clobbers
+  operator edits. Verified empty-catalog backward-compat in correlation.py + from_hit diffs.
+- Tests: +tests/test_rule_catalog.py (17). Full suite 113 passed (was 96). Committed e714a35, pushed.
+- Status: done.
+- Next: FE rule-catalog editor + per-rule model table in settings.tsx; common/index.ts types.

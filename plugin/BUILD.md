@@ -194,13 +194,17 @@ node /tmp/kibana-8.19/scripts/plugin_helpers build --kibana-version 8.19.12
 #    -> build/tlsocAgenticTriage-8.19.12.zip
 ```
 
-> **This cycle's features need no recipe change.** The header chat nav control
-> (Feature 1, registered in `public/plugin.ts start()`) and the Discover
-> doc-viewer tab (Feature 2) are plain source under `public/` plus the
-> `optionalPlugins` manifest entry above — they are picked up by the same copy +
-> build steps with no new dependency, env var, or flag. The latest **verified**
-> `tlsocAgenticTriage-8.19.12.zip` is **~57 KB** and contains the header
-> nav-control + doc-viewer code; pass the standard verification block below.
+> **This cycle's features need no recipe change.** The recipe is **unchanged**.
+> All this cycle's new UI is plain source under `public/components/` — the
+> **Board** Kanban (`board.tsx`), the **Agent trace** timeline (`agent_trace.tsx`),
+> the merged **case history** timeline (`case_timeline.tsx`), and the Settings
+> rule-catalog + per-rule model editors (`settings.tsx`) — built only from EUI and
+> existing monorepo packages, plus the earlier header chat nav-control
+> (`public/plugin.ts start()`) and the Discover doc-viewer tab. They are picked up
+> by the same copy + build steps with **no new dependency, env var, or flag**. The
+> latest **verified** `tlsocAgenticTriage-8.19.12.zip` is **~68 KB** (up from
+> ~57 KB as the new components compiled in) and contains all of the above; pass the
+> standard verification block below.
 
 ### Root-guard workaround (ONLY when building 8.19 as root)
 

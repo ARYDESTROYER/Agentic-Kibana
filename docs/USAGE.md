@@ -4,17 +4,18 @@ A deep, example-driven guide to operating the suite once it is deployed (see
 `DEPLOY.md`) and the plugin is installed (see `plugin/BUILD.md`). Everything here
 maps 1:1 to the shipped UI and the backend API contract.
 
-The Kibana app registers a single application, **TLSOC Agentic Triage**, with six
-tabs once setup is complete:
+The Kibana app registers a single application, **TLSOC Agentic Triage**, with
+seven tabs once setup is complete:
 
 | Tab | Surface | What it does |
 |-----|---------|--------------|
-| **Agent Chat** | 1 | Ask read-only questions; get an answer + a result table + one-click Open in Discover |
-| **Alerts / Investigate** | 2 | Browse cases; investigate an IP/user/host into a verdict card; case-seeded follow-up chat |
+| **Agent Chat** | 1 | Ask read-only questions; get a real two-turn analysis + a result table + one-click Open in Discover |
+| **Alerts / Investigate** | 2 | Browse cases; investigate an IP/user/host into a verdict card; case detail + lifecycle + agent trace; case-seeded follow-up chat |
+| **Board** | — | A drag-and-drop Kanban of cases (Open · Needs human (escalated) · Closed); dragging a card runs the matching lifecycle action |
 | **Automated Scans** | 3 | The auto-investigation queue + a "new since 24h" notification badge |
 | **Daily Standup** | 4 | Aggregate-then-summarise: stats + a prose summary |
 | **Cost** | — | Today's spend, tokens, call count, and top cost drivers (24h window) |
-| **Settings** | 5 | Every UI-editable preference (also where the wizard lands) |
+| **Settings** | 5 | Every UI-editable preference (incl. the rule catalog + per-rule models); also where the wizard lands |
 
 Until setup is complete the app shows the **first-boot wizard** instead of the
 tabs (the plugin checks `setup/status`; if `setup_complete` is false the wizard
@@ -108,13 +109,23 @@ A read-only natural-language console. Type a question, press **Send** (or
 Cmd/Ctrl+Enter). The agent may turn your intent into a single read-only
 `es_query`, render the first 50 hits as a table, and offer **Open in Discover**.
 
+**Two-turn analysis.** When a question triggers a query, the answer is a **real
+analysis of the results**, not just a "fetching logs" preamble. The first model
+turn decides the query (before any rows exist); after the `es_query` runs, the
+engine builds a **compact, fenced-UNTRUSTED aggregate** of the hits (top
+rules/users/hosts/IPs, the time span, and a few sample rows — never the raw row
+dump) and **re-prompts the model** to produce the analysis you read. If that
+second turn is unavailable, chat degrades gracefully to the first answer plus the
+query's row-count summary (it never hard-fails). Both turns are metered through
+the single gateway, so the Cost tab stays accurate.
+
 **Example question:**
 
 > `list all logs from 10.10.1.152 today`
 
 **What you get back** (an assistant turn):
 
-- A short prose **answer** plus a one-line query summary.
+- A short prose **answer** — the second-turn analysis over the result aggregate.
 - A **result table** with the fixed preview columns:
   `@timestamp · ip · user · host · rule · severity · action`. Example rows:
 
@@ -147,9 +158,10 @@ follow-ups have context.
 The same chat engine is also reachable from a **persistent button on the
 top-right of Kibana's chrome header** — visible from **any** Kibana app, not just
 this one (it is registered in `plugin.ts start()` via
-`core.chrome.navControls.registerRight`). Click the **discuss** icon to open an
-`EuiFlyout` hosting the same read-only `Chat` component (one engine, two entry
-points).
+`core.chrome.navControls.registerRight`). The button is a native
+`EuiHeaderSectionItemButton`, so it renders with correct contrast in both the
+light and dark Kibana themes. Click the **discuss** icon to open an `EuiFlyout`
+hosting the same read-only `Chat` component (one engine, two entry points).
 
 What makes it context-aware: at **send time** the flyout snapshots the on-screen
 context and ships it with the request. The header chip previews what it will
@@ -217,11 +229,20 @@ The triage workbench. Three regions, top to bottom:
 Choose **IP / User / Host**, type a value (placeholder
 `e.g. 10.0.0.5 / alice / web-01`), and click **Investigate**. This POSTs
 `investigate` with `{ "entity": { "type": "ip", "value": "10.10.1.152" }, "source_surface": "investigate" }`.
-The backend pulls the last 24h of in-scope events for that entity (applying the
-same scope + suppression filters the poller uses), correlates them into a cluster,
-and runs the full pipeline → enrich → deterministic risk → cheap-router triage →
-strong investigator (only if uncertain/serious) → deterministic Case Manager
-decision. It returns a **case**, rendered as a **verdict card**.
+The backend pulls in-scope events for that entity (applying the same scope +
+suppression filters the poller uses), correlates them into a cluster, and runs the
+full pipeline → enrich → deterministic risk → cheap-router triage → strong
+investigator (only if uncertain/serious) → deterministic Case Manager decision. It
+returns a **case**, rendered as a **verdict card**.
+
+**Lookback + auto-widen.** The starting lookback is the configurable
+`investigate_lookback` preference (default `now-24h`), and a single request may
+override it with a `lookback` field. If the configured window yields **zero**
+events, the backend automatically widens through a ladder
+(`configured → now-7d → now-30d → now-365d`) before giving up, so an entity whose
+only activity is older than the default window still resolves. When nothing is
+found in even the widest window, the UI shows a **neutral empty-state**
+("No events found for … in the last …"), not a red error.
 
 **Example verdict card** (the case fields the card shows):
 
@@ -282,10 +303,39 @@ Opening a row loads the **stored** case by id (`GET cases/{id}`) — it does **n
 re-investigate — and the selection survives tab switches. The case-detail view
 shows the verdict, status, confidence/risk badges, entity, rules, summary, the
 `trigger_reason` ("why this fired"), evidence, MITRE, recommended action,
-**Reproduce in Discover**, and the audit **History**. Lifecycle buttons —
+**Reproduce in Discover**, and the **History**. Lifecycle buttons —
 **Close / Confirm FP / Escalate / Reopen** — are contextualised by current status
 and post to `cases/{id}/action` (see the table below); a separate, explicit
-**Re-investigate (LLM)** action exists for when you do want to re-run the pipeline.
+**Investigate / Re-investigate (LLM)** action exists for when you do want to
+re-run the pipeline.
+
+**Investigate in place (`POST cases/{id}/investigate`).** The button re-runs the
+**same** agent pipeline for a stored case, in place, with `force=True` (so an
+already-investigated OPEN case is genuinely re-investigated). It rebuilds the
+cluster — preferring an exact id-based re-query of the member events, falling back
+to a config-windowed (`investigate_lookback`, with the same auto-widen ladder)
+entity re-query — and **preserves the case's original provenance**
+(`source_surface` / `origin_surface`), so a scan-originated case stays in the
+Automated Scans tab. If the activity has aged out of the retained window, you get
+the same neutral "Nothing to investigate" notice rather than an error.
+
+**Agent trace ("why the agent decided this").** A collapsible **Agent trace**
+panel renders an ordered pipeline timeline (`GET cases/{id}/trace`) projected from
+the append-only `tlsoc-agent-audit` index: router → investigator → tool calls →
+verdict → formatter → case-manager decision. It re-fetches after a
+re-investigation. Whether raw **prompt excerpts** appear is gated by the
+`trace.include_prompts` preference (on by default) — turn it off to hide the
+fenced untrusted log data those excerpts carry.
+
+**Close with a note → resolved-case memory.** The close / confirm-FP modal has a
+**note** textarea. On close, the resolved case (entity, rules, verdict, risk,
+analyst note, trigger reason) is indexed into the **resolved-case RAG baseline**,
+so future investigations of similar entities surface a "Prior analyst decisions
+(baseline)" block. This is gated by `rag.enabled` + `rag.use_resolved_cases`, and
+a RAG/embedding failure can never break the analyst's action (it is fail-safe).
+
+**History timeline.** The History is a single merged, de-duplicated chronological
+timeline (`EuiCommentList`) of the case's audit events and analyst actions.
 
 ### Analyst actions on a case (API)
 
@@ -303,6 +353,24 @@ Valid actions and their effect:
 
 Every action sets `decision_by=analyst`, stamps `updated_at`, and appends an
 `analyst_action` entry to the case **history** (audit trail).
+
+---
+
+## 4b. Board (Kanban)
+
+A drag-and-drop board of cases across the **three real case statuses**:
+
+- **Open** — candidates / reopened cases.
+- **Needs human (escalated)** — `needs_human` *is* the escalated lane (there is no
+  separate "escalated" status).
+- **Closed** — confirmed / auto-closed.
+
+Each column is fetched independently (the cases list filtered by status). Dragging
+a card to another column runs the matching lifecycle action on
+`POST cases/{id}/action`: drop into **Closed** → `close`, into **Open** →
+`reopen`, into **Needs human** → `escalate`. The same code-only invariants apply
+(a TRUE_POSITIVE is never auto-closed; closing indexes the case into the
+resolved-case RAG baseline). Cards link back into the Investigate case detail.
 
 ---
 
@@ -352,18 +420,27 @@ are never sent to a model**.
 You get:
 
 - A **Summary** prose block.
-- Three **stat tiles**: Total events · Unique IPs · Cases.
+- Three **stat tiles**: Total events · Unique IPs · Cases opened.
+- The case breakdown rendered as **by-verdict** and **by-status** tables.
 - Up to four **key/count tables**: Top rules · Top source IPs · Top users · Top
   hosts.
 
-**Example aggregate** (shape returned in `aggregate`):
+> The whole tab is wrapped in an **error boundary** so a malformed field can never
+> blank the page (a fix for the earlier blanking regression).
+
+**Example aggregate** (shape returned in `aggregate`). Note **`cases` is an
+object** (`opened` + `by_status` + `by_verdict`), not a bare count:
 
 ```json
 {
   "total_events": 48213,
   "unique_ips": 1042,
-  "cases": 7,
-  "by_rule": [{ "key": "sshd", "count": 9120 }, { "key": "suricata", "count": 4310 }],
+  "cases": {
+    "opened": 7,
+    "by_status": [{ "key": "needs_human", "count": 4 }, { "key": "closed", "count": 3 }],
+    "by_verdict": [{ "key": "TRUE_POSITIVE", "count": 2 }, { "key": "FALSE_POSITIVE", "count": 5 }]
+  },
+  "by_rule": [{ "key": "web_auth", "count": 9120 }, { "key": "modsec_xss", "count": 4310 }],
   "top_source_ips": [{ "key": "10.10.1.152", "count": 412 }],
   "top_users": [{ "key": "alice", "count": 360 }],
   "top_hosts": [{ "key": "web-01", "count": 5021 }]
@@ -417,7 +494,8 @@ entity mapping, severity/rules, polling, the **seven per-role models** (router,
 investigator, formatter, standup, chat, **`overview_model`** for the per-log AI
 overview, and embedding), decision thresholds, the correlation table + risk
 weights + `asset_networks`, caps + kill switch, suppression rules, the
-auto-forward allowlist, enrichment, RAG (incl. `min_score`), standup, and
+auto-forward allowlist, enrichment, RAG (incl. `min_score`), standup, the
+**rule catalog** + **per-rule model overrides**, the **trace** toggle, and
 read-only mode — all round-tripped through `GET`/`PUT /api/tlsoc/settings` by
 saving the full prefs object so nothing is dropped.
 
@@ -430,6 +508,40 @@ grouped by provider) — and the UI warns inline when the selected provider has 
 configured key. You may also type a **custom** model name. The `overview_model`
 controls the cost of the per-log AI overview (Section 3) and defaults to the cheap
 `claude-haiku-4-5-20251001`.
+
+> The catalog now includes an expanded OpenAI set (`gpt-4.1`, `gpt-4.1-mini`,
+> `gpt-4-turbo`, `gpt-4`, `o4-mini`, `gpt-5`, `gpt-5-mini`) alongside the Anthropic
+> models. The gateway handles per-model parameter quirks automatically — `gpt-5`
+> and the `o`-series omit `temperature` and use `max_completion_tokens` — so you
+> can select them without extra config. Listed prices are **operator-verifiable
+> approximations**; edit `backend/app/llm/pricing.py` and rebuild the backend image
+> to correct them.
+
+### Rule catalog + per-rule model overrides
+
+The **rule catalog** is a config-driven, editable set of detection rules
+(`rule_catalog`). Each `RuleDefinition` has a `name`, `enabled` flag, a `match`
+(`{ field, op, value }`), an optional per-rule `correlation` override, an optional
+per-role `model_override`, and a `priority` (lower wins, evaluated first). On first
+run the backend **seeds** the catalog with the 13 real upstream `event.module`
+rules plus 5 ModSecurity sub-rules (`modsec_xss` / `modsec_sqli` / `modsec_lfi` /
+`modsec_rce` / `modsec_scanner`, matched by OWASP CRS `rule.id` prefix at a lower
+priority so they classify before the generic `modsec_audit_log` rule). This is how
+**XSS-specific (and other CRS-specific) triggering** is enabled. Seeding is
+**version-guarded**: it fills an empty catalog or bumps the seed version, but
+**never clobbers operator edits** — once you edit the catalog it is yours.
+
+**Per-rule model selection** lets a specific rule run on a different model.
+Precedence (highest first): a matching `RuleDefinition.model_override[role]` →
+`rule_model_override[rule_value]` → the per-role default. With no override the
+behaviour is identical to the per-role models, so it is opt-in. A Settings table
+edits these mappings.
+
+### Trace
+
+`trace.include_prompts` (default **on**) controls whether the case-detail
+**Agent trace** (Section 4) returns raw prompt excerpts. Turn it off to keep the
+fenced untrusted log data those excerpts carry out of the timeline.
 
 ### Configured credentials
 
@@ -482,11 +594,20 @@ inline; invalid JSON shows a hint and is not saved until valid. Example:
 
 ```json
 {
-  "sshd":     { "mode": "threshold", "n": 5,  "window_seconds": 120, "group_by": "ip" },
-  "suricata": { "mode": "every",     "n": 1,  "window_seconds": 60,  "group_by": "ip" },
-  "noisy_rule": { "mode": "never",   "n": 1,  "window_seconds": 60,  "group_by": "host" }
+  "web_auth":   { "mode": "threshold", "n": 5, "window_seconds": 120, "group_by": "ip" },
+  "modsec_xss": { "mode": "every",     "n": 1, "window_seconds": 60,  "group_by": "ip" },
+  "ml_stats":   { "mode": "never",     "n": 1, "window_seconds": 60,  "group_by": "host" }
 }
 ```
+
+> Rule values come from the **rule catalog** (above) — e.g. the seeded
+> `event.module` rules (`web_auth`, `modsec_audit_log`, …) and the ModSec
+> sub-rules (`modsec_xss`, `modsec_sqli`, …). A `RuleDefinition.correlation`
+> override and this map both set per-rule correlation; the rule's own definition
+> takes precedence. Correlation also runs over a **sliding look-back window** that
+> spans more than one poll batch (the widest configured rule window plus a margin),
+> so a real-time burst spread across several poll intervals still reaches its
+> threshold (BUG-5).
 
 - **mode**: `threshold` (investigate when ≥ `n` within `window_seconds`, grouped),
   `every` (investigate every occurrence — for rare/high-sev rules), `never`
@@ -545,12 +666,30 @@ curl -s "localhost:8088/api/cases?entity=10.10.1.152"
 # Get one case
 curl -s localhost:8088/api/cases/case-abc123
 
-# Analyst action on a case
+# Analyst action on a case. A close/confirm_fp also indexes the case (entity +
+# rules + verdict + risk + note + trigger reason) into the resolved-case RAG
+# baseline when rag.enabled + rag.use_resolved_cases (C3-5).
 curl -s -X POST localhost:8088/api/cases/case-abc123/action \
   -H 'content-type: application/json' \
   -d '{"action":"escalate","note":"paging on-call","analyst":"alice"}'
 
-# Investigate an entity (one open case per entity; returns the case)
+# Re-investigate a STORED case in place (C3-4). Re-runs the same pipeline with
+# force=True; preserves provenance. NEUTRAL 400 if the activity aged out.
+curl -s -X POST localhost:8088/api/cases/case-abc123/investigate
+
+# Agent-pipeline trace for a case (C3-3): ordered router/investigator/tool-call/
+# verdict/formatter/case-manager steps projected from the audit index. Prompt
+# excerpts included only when prefs.trace.include_prompts is true.
+curl -s localhost:8088/api/cases/case-abc123/trace
+
+# Investigate an entity (one open case per entity; returns the case). Optional
+# "lookback" (e.g. "now-7d") overrides the configured investigate_lookback; on 0
+# hits the backend auto-widens (configured -> now-7d -> now-30d -> now-365d).
+curl -s -X POST localhost:8088/api/investigate \
+  -H 'content-type: application/json' \
+  -d '{"entity":{"type":"ip","value":"10.10.1.152"},"lookback":"now-7d","source_surface":"investigate"}'
+
+# Investigate an entity (default lookback; one open case per entity; returns the case)
 curl -s -X POST localhost:8088/api/investigate \
   -H 'content-type: application/json' \
   -d '{"entity":{"type":"ip","value":"10.10.1.152"},"source_surface":"investigate"}'

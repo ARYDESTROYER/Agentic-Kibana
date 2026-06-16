@@ -20,6 +20,27 @@ import type { OpenInDiscover } from '../lib/discover';
 import { CaseDetail } from './case_detail';
 import { Chat } from './chat';
 
+/** Shape of a Kibana HttpFetchError; we read the backend's JSON `body` detail
+ * and `response.status` so a NEUTRAL 400 ("No events found") becomes an info
+ * empty-state instead of a red danger error. */
+interface HttpFetchErrorLike {
+  body?: { statusCode?: number; message?: string; error?: string; detail?: string };
+  response?: { status?: number };
+  message?: string;
+}
+
+function errorDetail(err: unknown): string {
+  const e = err as HttpFetchErrorLike;
+  return e?.body?.detail ?? e?.body?.message ?? e?.message ?? 'Request failed';
+}
+
+function isNoEventsError(err: unknown): boolean {
+  const e = err as HttpFetchErrorLike;
+  const status = e?.body?.statusCode ?? e?.response?.status;
+  if (status === 400) return true;
+  return errorDetail(err).toLowerCase().includes('no events');
+}
+
 interface InvestigateProps {
   api: TlsocApi;
   openInDiscover: OpenInDiscover;
@@ -38,6 +59,8 @@ export const Investigate: React.FC<InvestigateProps> = ({
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // BUG-2: NEUTRAL "no events found" outcome — info empty-state, not a red error.
+  const [notice, setNotice] = useState<string | null>(null);
   const [investigating, setInvestigating] = useState(false);
 
   // manual investigation inputs
@@ -54,7 +77,7 @@ export const Investigate: React.FC<InvestigateProps> = ({
       const resp = await api.get<{ cases: Case[]; total: number }>('cases', { limit: 100 });
       setCases(resp.cases || []);
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorDetail(e));
     } finally {
       setLoading(false);
     }
@@ -73,6 +96,7 @@ export const Investigate: React.FC<InvestigateProps> = ({
   const investigate = async (entity: Entity, group_by: Entity['type']) => {
     setInvestigating(true);
     setError(null);
+    setNotice(null);
     try {
       const theCase = await api.post<Case>('investigate', {
         entity,
@@ -85,7 +109,13 @@ export const Investigate: React.FC<InvestigateProps> = ({
         onSelectCase(theCase.case_id);
       }
     } catch (e) {
-      setError((e as Error).message);
+      // BUG-2: a NEUTRAL 400 ("No events found for ...") is an empty-state, not
+      // a failure. Only real 5xx / unexpected errors render as danger.
+      if (isNoEventsError(e)) {
+        setNotice(errorDetail(e));
+      } else {
+        setError(errorDetail(e));
+      }
     } finally {
       setInvestigating(false);
     }
@@ -161,6 +191,16 @@ export const Investigate: React.FC<InvestigateProps> = ({
       {error ? (
         <>
           <EuiCallOut color="danger" size="s" title={error} />
+          <EuiSpacer size="s" />
+        </>
+      ) : null}
+
+      {/* BUG-2: NEUTRAL no-events outcome — info, not an error. */}
+      {notice ? (
+        <>
+          <EuiCallOut color="primary" size="s" iconType="iInCircle" title="No events found">
+            <p>{notice}</p>
+          </EuiCallOut>
           <EuiSpacer size="s" />
         </>
       ) : null}

@@ -16,6 +16,14 @@ PRICES: dict[str, tuple[float, float]] = {
     # --- OpenAI ---
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.60),
+    # operator-verifiable approximate USD/1M tokens — edit in pricing.py and rebuild
+    "gpt-4.1": (2.0, 8.0),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4-turbo": (10.0, 30.0),
+    "gpt-4": (30.0, 60.0),
+    "o4-mini": (1.10, 4.40),
+    "gpt-5": (1.25, 10.0),
+    "gpt-5-mini": (0.25, 2.0),
     # --- Embeddings (input only) ---
     "text-embedding-3-small": (0.02, 0.0),
     "text-embedding-3-large": (0.13, 0.0),
@@ -29,12 +37,16 @@ _DEFAULT_PRICE = (1.0, 3.0)
 def provider_for(model: str) -> str:
     """Group a price-table model id by its provider (Feature 4).
 
-    ``claude-*`` -> anthropic; ``gpt-*`` / ``text-embedding-*`` -> openai;
-    ``mock`` -> mock. Anything unrecognised is bucketed under ``other`` so a new
-    model never disappears from the catalog."""
+    ``claude-*`` -> anthropic; ``gpt-*`` / ``o1``/``o3``/``o4``-series /
+    ``text-embedding-*`` -> openai; ``mock`` -> mock. Anything unrecognised is
+    bucketed under ``other`` so a new model never disappears from the catalog."""
     if model.startswith("claude-"):
         return "anthropic"
-    if model.startswith("gpt-") or model.startswith("text-embedding-"):
+    if (
+        model.startswith("gpt-")
+        or model.startswith("text-embedding-")
+        or model.startswith(("o1", "o3", "o4"))
+    ):
         return "openai"
     if model.startswith("mock"):
         return "mock"

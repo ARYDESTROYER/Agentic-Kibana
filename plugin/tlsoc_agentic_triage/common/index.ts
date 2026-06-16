@@ -131,6 +131,52 @@ export interface ModelsResponse {
   configured: Record<string, boolean>;
 }
 
+/**
+ * One agent-pipeline step from `GET /api/tlsoc/cases/{id}/trace` (C3-3). Projected
+ * from `tlsoc-agent-audit`. `prompt_excerpt`/`tool_output_summary` carry fenced
+ * UNTRUSTED log data — render them ONLY inside an `EuiCodeBlock`, never as markup.
+ */
+export interface TraceStep {
+  ts?: string;
+  actor?: string;
+  action_type?: string;
+  model?: string;
+  query_text?: string;
+  tool_name?: string;
+  tool_input?: unknown;
+  tool_output_summary?: string;
+  result_summary?: string;
+  prompt_excerpt?: string;
+}
+
+export interface TraceResponse {
+  case_id: string;
+  steps: TraceStep[];
+  total: number;
+}
+
+/** A single match predicate in a rule-catalog entry (C3-1). */
+export interface RuleMatch {
+  field: string;
+  op: 'equals' | 'prefix' | 'tag' | 'exists';
+  value?: string | null;
+}
+
+/**
+ * A config-driven detection rule (C3-1). Lives in `prefs.rule_catalog`. The
+ * settings editor reads/writes these; `model_override` is a per-role model map
+ * (C3-6b) keyed by role name.
+ */
+export interface RuleDefinition {
+  name: string;
+  enabled?: boolean;
+  description?: string;
+  match: RuleMatch;
+  correlation?: Record<string, unknown> | null;
+  model_override?: Record<string, { provider?: string; model?: string }>;
+  priority?: number;
+}
+
 export interface SetupStatus {
   setup_complete: boolean;
   configured: Record<string, boolean>;
@@ -176,7 +222,13 @@ export interface StandupResponse {
     top_hosts?: Array<{ key: string; count: number }>;
     unique_ips?: number;
     events_over_time?: Array<{ ts: string; count: number }>;
-    cases?: number;
+    // BUG-3: the backend returns `cases` as an OBJECT, not a number. Typing it as
+    // a number caused React to try to render an object → the whole tab blanked.
+    cases?: {
+      opened?: number;
+      by_status?: Record<string, number>;
+      by_verdict?: Record<string, number>;
+    };
   };
   summary?: string;
   cost?: Record<string, unknown>;

@@ -16,6 +16,7 @@ import {
   EuiHorizontalRule,
   EuiIconTip,
   EuiPanel,
+  EuiSelect,
   EuiSpacer,
   EuiSuperSelect,
   EuiSwitch,
@@ -23,7 +24,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import type { CoreStart } from '@kbn/core/public';
-import type { ModelsResponse, SettingsResponse } from '../../common';
+import type { ModelsResponse, RuleDefinition, RuleMatch, SettingsResponse } from '../../common';
 import type { TlsocApi } from '../lib/api';
 
 interface SettingsProps {
@@ -46,6 +47,19 @@ const MODEL_ROLES: Array<{ key: string; label: string }> = [
 const CORRELATION_MODES = ['every', 'threshold', 'never'];
 const ENTITY_TYPES = ['ip', 'user', 'host'];
 
+/** Match operators a rule-catalog entry (C3-1) can use. */
+const RULE_MATCH_OPS: Array<RuleMatch['op']> = ['equals', 'prefix', 'tag', 'exists'];
+
+/**
+ * Roles a per-rule model_override (C3-6) can target. These mirror the per-role
+ * MODEL_ROLES keys; an unset entry falls back to the per-role model.
+ */
+const RULE_MODEL_ROLES: Array<{ key: string; label: string }> = [
+  { key: 'router_model', label: 'Router' },
+  { key: 'investigator_model', label: 'Investigator' },
+  { key: 'formatter_model', label: 'Formatter' },
+];
+
 /** Which configured-secret key gates a given provider (best-effort). */
 function providerKeyName(provider: string): string | null {
   if (provider === 'anthropic') return 'anthropic_api_key';
@@ -64,6 +78,9 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
   // Secret update form (kept entirely in component memory; never read back).
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({});
   const [savingSecrets, setSavingSecrets] = useState(false);
+
+  // Draft for the "add per-rule model override" row (component memory only).
+  const [newRuleModelName, setNewRuleModelName] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,20 +227,31 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
   );
 
   // --- model picker ----------------------------------------------------------
-  const modelPicker = (roleKey: string) => {
-    const provider = String(getPref([roleKey, 'provider'], 'anthropic'));
-    const model = String(getPref([roleKey, 'model'], ''));
-    const providerOptions = ['anthropic', 'openai', 'mock', ...Object.keys(providers)]
-      .filter((p, i, arr) => arr.indexOf(p) === i)
-      .map((p) => ({ value: p, inputDisplay: p }));
+  // Core, path-based provider+model picker. Both the per-role pickers (with
+  // temp/max_tokens) and the per-rule overrides (provider/model only) reuse this
+  // so the provider list, model catalog, custom-model affordance, and missing-key
+  // warning behave identically everywhere.
+  const providerOptions = useMemo(
+    () =>
+      ['anthropic', 'openai', 'mock', ...Object.keys(providers)]
+        .filter((p, i, arr) => arr.indexOf(p) === i)
+        .map((p) => ({ value: p, inputDisplay: p })),
+    [providers]
+  );
+
+  const modelPickerAt = (basePath: Path, providerDflt = 'anthropic') => {
+    const provider = String(getPref([...basePath, 'provider'], providerDflt));
+    const model = String(getPref([...basePath, 'model'], ''));
     const modelChoices = (providers[provider] || []).map((m) => ({ label: m }));
     const selected = model ? [{ label: model }] : [];
 
     const keyName = providerKeyName(provider);
     const missingKey = keyName ? !configured[keyName] : false;
+    // Unpriced/custom model: a typed value that isn't in the live catalog.
+    const customModel = !!model && !(providers[provider] || []).includes(model);
 
     return (
-      <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+      <>
         <EuiFlexItem style={{ minWidth: 140 }}>
           <EuiFormRow label="Provider" display="rowCompressed">
             <EuiSuperSelect
@@ -231,7 +259,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               disabled={readOnly}
               options={providerOptions}
               valueOfSelected={provider}
-              onChange={(v) => setPref([roleKey, 'provider'], v)}
+              onChange={(v) => setPref([...basePath, 'provider'], v)}
             />
           </EuiFormRow>
         </EuiFlexItem>
@@ -245,6 +273,10 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
                   Provider <strong>{provider}</strong> has no configured key — calls will fail until
                   one is set.
                 </EuiText>
+              ) : customModel ? (
+                <EuiText size="xs" color="subdued">
+                  Custom model — may be unpriced in the cost ledger.
+                </EuiText>
               ) : undefined
             }
             labelAppend={
@@ -253,6 +285,12 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
                   type="warning"
                   color="warning"
                   content={`No ${keyName} configured for provider "${provider}".`}
+                />
+              ) : customModel ? (
+                <EuiIconTip
+                  type="iInCircle"
+                  color="subdued"
+                  content={`"${model}" is not in the live catalog for "${provider}" — cost may be unpriced.`}
                 />
               ) : undefined
             }
@@ -263,41 +301,47 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               singleSelection={{ asPlainText: true }}
               options={modelChoices}
               selectedOptions={selected}
-              onChange={(opts) => setPref([roleKey, 'model'], opts[0]?.label || '')}
-              onCreateOption={(val) => setPref([roleKey, 'model'], val)}
+              onChange={(opts) => setPref([...basePath, 'model'], opts[0]?.label || '')}
+              onCreateOption={(val) => setPref([...basePath, 'model'], val)}
               placeholder="Select or type a model"
               customOptionText="Use custom model {searchValue}"
             />
           </EuiFormRow>
         </EuiFlexItem>
-        <EuiFlexItem grow={false} style={{ minWidth: 110 }}>
-          <EuiFormRow label="Temp" display="rowCompressed">
-            <EuiFieldNumber
-              compressed
-              disabled={readOnly}
-              step={0.1}
-              value={getPref([roleKey, 'temperature'], 0.1)}
-              onChange={(e) =>
-                setPref([roleKey, 'temperature'], e.target.value === '' ? '' : Number(e.target.value))
-              }
-            />
-          </EuiFormRow>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false} style={{ minWidth: 120 }}>
-          <EuiFormRow label="Max tokens" display="rowCompressed">
-            <EuiFieldNumber
-              compressed
-              disabled={readOnly}
-              value={getPref([roleKey, 'max_tokens'], 1500)}
-              onChange={(e) =>
-                setPref([roleKey, 'max_tokens'], e.target.value === '' ? '' : Number(e.target.value))
-              }
-            />
-          </EuiFormRow>
-        </EuiFlexItem>
-      </EuiFlexGroup>
+      </>
     );
   };
+
+  const modelPicker = (roleKey: string) => (
+    <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+      {modelPickerAt([roleKey], 'anthropic')}
+      <EuiFlexItem grow={false} style={{ minWidth: 110 }}>
+        <EuiFormRow label="Temp" display="rowCompressed">
+          <EuiFieldNumber
+            compressed
+            disabled={readOnly}
+            step={0.1}
+            value={getPref([roleKey, 'temperature'], 0.1)}
+            onChange={(e) =>
+              setPref([roleKey, 'temperature'], e.target.value === '' ? '' : Number(e.target.value))
+            }
+          />
+        </EuiFormRow>
+      </EuiFlexItem>
+      <EuiFlexItem grow={false} style={{ minWidth: 120 }}>
+        <EuiFormRow label="Max tokens" display="rowCompressed">
+          <EuiFieldNumber
+            compressed
+            disabled={readOnly}
+            value={getPref([roleKey, 'max_tokens'], 1500)}
+            onChange={(e) =>
+              setPref([roleKey, 'max_tokens'], e.target.value === '' ? '' : Number(e.target.value))
+            }
+          />
+        </EuiFormRow>
+      </EuiFlexItem>
+    </EuiFlexGroup>
+  );
 
   // --- correlation rule editor ----------------------------------------------
   const correlationRules: Record<string, any> = getPref(['correlation_rules'], {}) || {};
@@ -374,6 +418,56 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
         delete ac[oldKey];
         next.asset_criticality = ac;
       }
+      return next;
+    });
+  };
+
+  // --- detection rule-catalog editor (C3-1) ---------------------------------
+  const ruleCatalog: RuleDefinition[] = getPref(['rule_catalog'], []) || [];
+  const addRule = () => {
+    const idx = ruleCatalog.length + 1;
+    setPref(
+      ['rule_catalog'],
+      [
+        ...ruleCatalog,
+        {
+          name: `rule_${idx}`,
+          enabled: true,
+          description: '',
+          match: { field: 'event.module', op: 'equals', value: '' },
+          priority: 0,
+        } as RuleDefinition,
+      ]
+    );
+  };
+  const removeRule = (idx: number) =>
+    setPref(
+      ['rule_catalog'],
+      ruleCatalog.filter((_, i) => i !== idx)
+    );
+  // Toggle the optional per-rule correlation override block on/off.
+  const toggleRuleCorrelation = (idx: number, on: boolean) =>
+    setPref(
+      ['rule_catalog', idx, 'correlation'],
+      on ? { mode: 'threshold', n: 5, window_seconds: 120, group_by: 'ip' } : null
+    );
+
+  // --- per-rule model overrides table (C3-6) --------------------------------
+  // A map { ruleName: { router_model: {provider, model}, ... } }. Empty/unset
+  // entries fall back to the per-role model. Rows offer the catalog rule names
+  // plus a free-entry row.
+  const ruleModelOverride: Record<string, any> = getPref(['rule_model_override'], {}) || {};
+  const ruleModelNames = Object.keys(ruleModelOverride);
+  const catalogRuleNames = ruleCatalog.map((r) => r?.name).filter(Boolean) as string[];
+  const addRuleModelRow = (name: string) => {
+    const clean = (name || '').trim();
+    if (!clean || ruleModelOverride[clean] !== undefined) return;
+    setPref(['rule_model_override', clean], {});
+  };
+  const removeRuleModelRow = (name: string) => {
+    setPrefs((prev) => {
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      if (next.rule_model_override) delete next.rule_model_override[name];
       return next;
     });
   };
@@ -764,6 +858,258 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiFlexItem>
             </EuiFlexGroup>
           ))}
+        </>
+      )}
+
+      {/* Detection rule catalog (C3-1) */}
+      {section(
+        'sec-rule-catalog',
+        'Detection rule catalog',
+        <>
+          <EuiText size="xs" color="subdued">
+            <p>
+              Config-driven detection rules. Each rule matches an event field and can carry its own
+              correlation override. The catalog is seeded by the backend (event.module rules plus
+              ModSec sub-rules such as <code>modsec_xss</code>); tune, enable/disable, add, or remove
+              rules here. This is how rule-specific triggering (e.g. XSS) is enabled.
+            </p>
+          </EuiText>
+          <EuiSpacer size="s" />
+          <EuiFlexGroup justifyContent="flexEnd" alignItems="center">
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addRule}>
+                Add rule
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          {ruleCatalog.length === 0 ? (
+            <EuiText size="xs" color="subdued">
+              <p>No rules defined. The backend seeds defaults on first run; click "Add rule" to define one.</p>
+            </EuiText>
+          ) : (
+            ruleCatalog.map((rule, idx) => {
+              const corr = rule?.correlation || null;
+              return (
+                <EuiPanel key={idx} hasBorder paddingSize="s" style={{ marginBottom: 8 }}>
+                  <EuiFlexGroup gutterSize="s" responsive={false} alignItems="center">
+                    <EuiFlexItem grow={false}>
+                      <EuiFormRow label="Enabled" display="rowCompressed">
+                        <EuiSwitch
+                          compressed
+                          label=""
+                          aria-label={`Enable rule ${rule?.name || idx}`}
+                          disabled={readOnly}
+                          checked={rule?.enabled !== false}
+                          onChange={(e) => setPref(['rule_catalog', idx, 'enabled'], e.target.checked)}
+                        />
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                    <EuiFlexItem>
+                      <EuiFormRow label="Name" display="rowCompressed">
+                        <EuiFieldText
+                          compressed
+                          disabled={readOnly}
+                          value={rule?.name ?? ''}
+                          onChange={(e) => setPref(['rule_catalog', idx, 'name'], e.target.value)}
+                        />
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false} style={{ minWidth: 110 }}>
+                      <EuiFormRow label="Priority" display="rowCompressed">
+                        {numberField(['rule_catalog', idx, 'priority'], 0, 1)}
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false}>
+                      <EuiButtonIcon
+                        color="danger"
+                        iconType="trash"
+                        aria-label={`Remove rule ${rule?.name || idx}`}
+                        isDisabled={readOnly}
+                        onClick={() => removeRule(idx)}
+                      />
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+                  <EuiFormRow label="Description" display="rowCompressed" fullWidth>
+                    <EuiFieldText
+                      compressed
+                      fullWidth
+                      disabled={readOnly}
+                      value={rule?.description ?? ''}
+                      onChange={(e) => setPref(['rule_catalog', idx, 'description'], e.target.value)}
+                    />
+                  </EuiFormRow>
+                  <EuiText size="xs"><strong>Match</strong></EuiText>
+                  <EuiSpacer size="xs" />
+                  <EuiFlexGroup gutterSize="s" responsive={false} wrap alignItems="flexEnd">
+                    <EuiFlexItem style={{ minWidth: 160 }}>
+                      <EuiFormRow label="Field" display="rowCompressed">
+                        <EuiFieldText
+                          compressed
+                          disabled={readOnly}
+                          value={rule?.match?.field ?? ''}
+                          onChange={(e) => setPref(['rule_catalog', idx, 'match', 'field'], e.target.value)}
+                        />
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false} style={{ minWidth: 120 }}>
+                      <EuiFormRow label="Op" display="rowCompressed">
+                        <EuiSelect
+                          compressed
+                          disabled={readOnly}
+                          options={RULE_MATCH_OPS.map((o) => ({ value: o, text: o }))}
+                          value={String(rule?.match?.op ?? 'equals')}
+                          onChange={(e) =>
+                            setPref(['rule_catalog', idx, 'match', 'op'], e.target.value as RuleMatch['op'])
+                          }
+                        />
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                    <EuiFlexItem style={{ minWidth: 160 }}>
+                      <EuiFormRow label="Value" display="rowCompressed">
+                        <EuiFieldText
+                          compressed
+                          disabled={readOnly || rule?.match?.op === 'exists'}
+                          value={rule?.match?.value ?? ''}
+                          onChange={(e) => setPref(['rule_catalog', idx, 'match', 'value'], e.target.value)}
+                        />
+                      </EuiFormRow>
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+
+                  <EuiSpacer size="xs" />
+                  <EuiSwitch
+                    compressed
+                    label="Correlation override for this rule"
+                    disabled={readOnly}
+                    checked={!!corr}
+                    onChange={(e) => toggleRuleCorrelation(idx, e.target.checked)}
+                  />
+                  {corr ? (
+                    <>
+                      <EuiSpacer size="xs" />
+                      <EuiFlexGroup gutterSize="s" responsive={false} wrap alignItems="flexEnd">
+                        <EuiFlexItem style={{ minWidth: 130 }}>
+                          <EuiFormRow label="Mode" display="rowCompressed">
+                            <EuiSuperSelect
+                              compressed
+                              disabled={readOnly}
+                              options={CORRELATION_MODES.map((m) => ({ value: m, inputDisplay: m }))}
+                              valueOfSelected={String((corr as any)?.mode ?? 'threshold')}
+                              onChange={(v) => setPref(['rule_catalog', idx, 'correlation', 'mode'], v)}
+                            />
+                          </EuiFormRow>
+                        </EuiFlexItem>
+                        <EuiFlexItem style={{ minWidth: 70 }}>
+                          <EuiFormRow label="N" display="rowCompressed">
+                            {numberField(['rule_catalog', idx, 'correlation', 'n'], 5)}
+                          </EuiFormRow>
+                        </EuiFlexItem>
+                        <EuiFlexItem style={{ minWidth: 110 }}>
+                          <EuiFormRow label="Window (s)" display="rowCompressed">
+                            {numberField(['rule_catalog', idx, 'correlation', 'window_seconds'], 120)}
+                          </EuiFormRow>
+                        </EuiFlexItem>
+                        <EuiFlexItem style={{ minWidth: 110 }}>
+                          <EuiFormRow label="Group by" display="rowCompressed">
+                            <EuiSuperSelect
+                              compressed
+                              disabled={readOnly}
+                              options={ENTITY_TYPES.map((m) => ({ value: m, inputDisplay: m }))}
+                              valueOfSelected={String((corr as any)?.group_by ?? 'ip')}
+                              onChange={(v) => setPref(['rule_catalog', idx, 'correlation', 'group_by'], v)}
+                            />
+                          </EuiFormRow>
+                        </EuiFlexItem>
+                      </EuiFlexGroup>
+                    </>
+                  ) : null}
+                </EuiPanel>
+              );
+            })
+          )}
+        </>
+      )}
+
+      {/* Per-rule model overrides (C3-6) */}
+      {section(
+        'sec-rule-models',
+        'Per-rule model overrides',
+        <>
+          <EuiText size="xs" color="subdued">
+            <p>
+              Override the model used for specific rules. Each row sets the provider/model for one or
+              more roles; an empty entry falls back to the per-role model above. Models populate from
+              the live catalog and you may type a custom (possibly unpriced) model.
+            </p>
+          </EuiText>
+          <EuiSpacer size="s" />
+          <EuiFlexGroup gutterSize="s" responsive={false} alignItems="flexEnd" wrap>
+            <EuiFlexItem style={{ minWidth: 260 }}>
+              <EuiFormRow label="Rule" display="rowCompressed">
+                <EuiComboBox
+                  compressed
+                  isDisabled={readOnly}
+                  singleSelection={{ asPlainText: true }}
+                  options={catalogRuleNames
+                    .filter((n) => ruleModelOverride[n] === undefined)
+                    .map((n) => ({ label: n }))}
+                  selectedOptions={newRuleModelName ? [{ label: newRuleModelName }] : []}
+                  onChange={(opts) => setNewRuleModelName(opts[0]?.label || '')}
+                  onCreateOption={(val) => setNewRuleModelName(val)}
+                  placeholder="Pick a catalog rule or type a name"
+                  customOptionText="Use rule name {searchValue}"
+                />
+              </EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="xs"
+                iconType="plusInCircle"
+                disabled={readOnly || !newRuleModelName.trim()}
+                onClick={() => {
+                  addRuleModelRow(newRuleModelName);
+                  setNewRuleModelName('');
+                }}
+              >
+                Add override
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <EuiSpacer size="s" />
+          {ruleModelNames.length === 0 ? (
+            <EuiText size="xs" color="subdued">
+              <p>No per-rule model overrides; all rules use the per-role models.</p>
+            </EuiText>
+          ) : (
+            ruleModelNames.map((name) => (
+              <EuiPanel key={name} hasBorder paddingSize="s" style={{ marginBottom: 8 }}>
+                <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="s"><strong>{name}</strong></EuiText>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiButtonIcon
+                      color="danger"
+                      iconType="trash"
+                      aria-label={`Remove override ${name}`}
+                      isDisabled={readOnly}
+                      onClick={() => removeRuleModelRow(name)}
+                    />
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+                {RULE_MODEL_ROLES.map((r) => (
+                  <React.Fragment key={r.key}>
+                    <EuiText size="xs"><strong>{r.label}</strong></EuiText>
+                    <EuiSpacer size="xs" />
+                    <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+                      {modelPickerAt(['rule_model_override', name, r.key], 'anthropic')}
+                    </EuiFlexGroup>
+                    <EuiSpacer size="xs" />
+                  </React.Fragment>
+                ))}
+              </EuiPanel>
+            ))
+          )}
         </>
       )}
 

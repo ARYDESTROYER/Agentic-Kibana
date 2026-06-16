@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..constants import AUDIT_WRITE_ALIAS, ActionType
+from ..constants import AUDIT_READ_PATTERN, AUDIT_WRITE_ALIAS, ActionType
 from ..es.base import BaseESClient
 from ..models import AuditDoc
 from ..utils import truncate
@@ -60,3 +60,22 @@ class AuditLogger:
                 result_summary=truncate(result_summary, 1000) if result_summary else None,
             )
         )
+
+    async def records_for_case(self, case_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """Read all audit rows for a case, OLDEST first (C3-3 trace timeline).
+
+        Read-only on the management-scoped audit index. Never raises — returns an
+        empty list on any error so the trace endpoint NEVER 404s/500s."""
+        try:
+            resp = await self._es.search(
+                AUDIT_READ_PATTERN,
+                {
+                    "query": {"term": {"case_id": case_id}},
+                    "sort": [{"ts": {"order": "asc"}}],
+                    "size": limit,
+                },
+            )
+            return [h.get("_source", {}) or {} for h in resp.get("hits", {}).get("hits", [])]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audit read for case %s failed: %s", case_id, exc)
+            return []

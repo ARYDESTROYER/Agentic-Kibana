@@ -10,10 +10,71 @@ kept). History is reconstructed from `git log`.
 ## [Unreleased]
 
 Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in
-[`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified; backend `pytest -q`
-= 69 passed.
+[`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified (~68 KB); backend
+`pytest -q` = 124 passed; plugin `tsc` clean. (Offline-verified only — there is no
+live-stack validation this cycle.)
 
-### Added (done)
+### Cycle 2 — bug fixes (done)
+- **BUG-1 — chat does a real 2-turn analysis.** Turn 1 only chooses the query
+  (before any rows exist); after the `es_query` runs, the engine re-prompts over a
+  **compact, fenced-UNTRUSTED aggregate** of the results (top facets + time span +
+  a few sample rows, never the raw dump) so chat shows analysis, not just a
+  "fetching logs" preamble + table. Degrades to the turn-1 answer + row-count
+  summary on any model error; both turns are metered (`agents/chat.py`,
+  `prompts.CHAT_SYSTEM`).
+- **BUG-2 — investigate no longer 400s on a fixed `now-24h` window.** New
+  `Preferences.investigate_lookback` + per-request `InvestigateRequest.lookback` +
+  an auto-widen ladder (configured → `now-7d` → `now-30d` → `now-365d`); the
+  frontend renders a **neutral empty-state** ("No events found …") instead of a
+  red error.
+- **BUG-3 — the Standup tab no longer blanks.** `aggregate.cases` is now an object
+  (`{ opened, by_status, by_verdict }`); the FE renders the opened tile +
+  by-verdict / by-status tables, wrapped in an **error boundary**.
+- **BUG-4 — header chat button contrast.** The global chat button is a native
+  `EuiHeaderSectionItemButton` (correct light/dark contrast).
+- **BUG-5 — correlation over a sliding look-back window.** Correlation now runs
+  over the widest configured rule window (plus a margin, never less than a poll
+  interval), not just the incremental poll batch, so a real-time burst spread
+  across more than one poll interval still reaches its threshold
+  (`engine/poller.py`).
+- **IMPROVEMENT — manual-investigation provenance.** Manual investigations get a
+  synthesized `TriggerReason` ("Why this fired"), a preserved `origin_surface`, and
+  a normalized `reproduce_query`.
+
+### Cycle 3 — features (done)
+- **C3-1 — config-driven rule catalog.** `Preferences.rule_catalog` of
+  `RuleDefinition { name, enabled, match{field,op,value}, correlation,
+  model_override, priority }`; seeds the 13 real `event.module` rules + 5
+  ModSec sub-rules (`modsec_xss`/`sqli`/`lfi`/`rce`/`scanner` by `rule.id` prefix,
+  lower priority) into `tlsoc-agent-config` on first run. **Version-guarded** —
+  never clobbers operator edits. Editable in Settings; this is how XSS-specific
+  triggering is enabled.
+- **C3-2 — Board tab.** A drag-and-drop Kanban of cases
+  (Open · Needs human (escalated) · Closed); a drag maps to `close` / `reopen` /
+  `escalate`.
+- **C3-3 — agent trace.** `GET /api/cases/{id}/trace` + an "Agent trace" timeline
+  on the case detail (router / investigator / tool-calls / verdict / formatter /
+  case-manager, projected from `tlsoc-agent-audit`). `prefs.trace.include_prompts`
+  gates whether prompt excerpts are returned.
+- **C3-4 — re-investigate a stored case.** `POST /api/cases/{id}/investigate` + an
+  Investigate button on stored cases; re-runs the agent in place (`force=True`),
+  preserving provenance.
+- **C3-5 — resolved-case RAG baseline.** Closing / confirm-FP indexes the case
+  (entity + rules + verdict + risk + analyst note + trigger reason) into the
+  resolved-case RAG store; the close modal has a note textarea; future
+  investigations see a "Prior analyst decisions (baseline)" block. Gated by
+  `rag.enabled` + `rag.use_resolved_cases`; fail-safe.
+- **C3-6 — expanded model catalog + per-rule models.** Added OpenAI
+  `gpt-4.1` / `gpt-4.1-mini` / `gpt-4-turbo` / `gpt-4` / `o4-mini` / `gpt-5` /
+  `gpt-5-mini` to `pricing.py` (operator-verifiable approximate prices) + per-model
+  param quirks (`gpt-5`/o-series omit `temperature`, use `max_completion_tokens`) +
+  per-rule model overrides (`Preferences.rule_model_override`; `model_for_rule`
+  precedence: `RuleDefinition.model_override` → `rule_model_override` → per-role)
+  with a Settings table.
+- **C3-7 — merged case history timeline.** The case history is now a merged,
+  de-duplicated `EuiCommentList` timeline.
+
+### Added (prior cycle — done)
 - **Feature 1 — Global header chat button + context-aware flyout.** `plugin.ts`
   registers `core.chrome.navControls.registerRight`; `global_chat_control` +
   `global_chat_flyout` reuse the Chat engine; `lib/screen_context.ts` snapshots
