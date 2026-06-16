@@ -1,33 +1,58 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  EuiAccordion,
   EuiBadge,
   EuiButton,
   EuiButtonEmpty,
   EuiCallOut,
-  EuiConfirmModal,
   EuiDescriptionList,
   EuiFlexGroup,
   EuiFlexItem,
   EuiLoadingSpinner,
+  EuiModal,
+  EuiModalBody,
+  EuiModalFooter,
+  EuiModalHeader,
+  EuiModalHeaderTitle,
   EuiPanel,
   EuiSpacer,
   EuiText,
+  EuiTextArea,
   EuiTitle,
 } from '@elastic/eui';
 import type { Case, Entity } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
 import { TriggerReasonCallout } from './trigger_reason_callout';
+import { AgentTrace } from './agent_trace';
+import { CaseTimeline } from './case_timeline';
 
 type LifecycleAction = 'close' | 'confirm_fp' | 'escalate' | 'reopen';
 
-interface HistoryEntry {
-  ts?: string;
-  event?: string;
-  action?: string;
-  analyst?: string;
-  note?: string;
-  [k: string]: unknown;
+/** Shape of a Kibana HttpFetchError; we read `body` (the backend's JSON detail)
+ * and `response.status` to distinguish a NEUTRAL 400 (e.g. "No events found")
+ * from a real 5xx / unexpected failure. */
+interface HttpFetchErrorLike {
+  body?: { statusCode?: number; message?: string; error?: string; detail?: string };
+  response?: { status?: number };
+  message?: string;
+}
+
+/** Extracts the most specific human-readable detail from a fetch error,
+ * preferring the backend's JSON body detail/message over the generic message. */
+function errorDetail(err: unknown): string {
+  const e = err as HttpFetchErrorLike;
+  return e?.body?.detail ?? e?.body?.message ?? e?.message ?? 'Request failed';
+}
+
+/** True when the error represents a NEUTRAL "nothing to investigate" 400 — the
+ * cluster aged out / no events found — which should render as an info empty
+ * state, NOT a red danger error. */
+function isNoEventsError(err: unknown): boolean {
+  const e = err as HttpFetchErrorLike;
+  const status = e?.body?.statusCode ?? e?.response?.status;
+  if (status === 400) return true;
+  return errorDetail(err).toLowerCase().includes('no events');
 }
 
 interface CaseDetailProps {
@@ -81,6 +106,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [pendingAction, setPendingAction] = useState<LifecycleAction | null>(null);
+  // C3-5: the analyst note captured in the lifecycle confirm modal.
+  const [actionNote, setActionNote] = useState('');
+  // C3-4: human-triggered (re-)investigation state.
+  const [investigating, setInvestigating] = useState(false);
+  // NEUTRAL no-events outcome of an investigate attempt (info, not danger).
+  const [investigateNotice, setInvestigateNotice] = useState<string | null>(null);
+  // Bumped after a successful (re-)investigation so the trace re-fetches.
+  const [traceKey, setTraceKey] = useState(0);
 
   const fetchCase = useCallback(async () => {
     setLoading(true);
@@ -92,7 +125,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
         onCaseUpdated(fetched);
       }
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorDetail(e));
       setTheCase(null);
     } finally {
       setLoading(false);
@@ -112,7 +145,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
     try {
       const updated = await api.post<Case>('cases/' + caseId + '/action', {
         action,
-        note: '',
+        // C3-5: pass the analyst note; the backend indexes close/confirm_fp
+        // notes into RAG memory, so the note matters.
+        note: actionNote.trim(),
         analyst: 'analyst',
       });
       // Re-fetch from the backend so we render the canonical stored case.
@@ -121,10 +156,36 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
         onCaseUpdated(updated);
       }
     } catch (e) {
-      setError((e as Error).message);
+      setError(errorDetail(e));
     } finally {
       setActing(false);
       setPendingAction(null);
+      setActionNote('');
+    }
+  };
+
+  // C3-4: human-triggered (re-)investigation. Refetches the case + trace on
+  // success so the verdict + timeline update. A NEUTRAL 400 (the cluster aged
+  // out of the retained window) renders as an info notice, NOT a red error.
+  const runInvestigate = async () => {
+    setInvestigating(true);
+    setError(null);
+    setInvestigateNotice(null);
+    try {
+      const updated = await api.post<Case>('cases/' + caseId + '/investigate', {});
+      setTheCase(updated);
+      setTraceKey((k) => k + 1);
+      if (onCaseUpdated) {
+        onCaseUpdated(updated);
+      }
+    } catch (e) {
+      if (isNoEventsError(e)) {
+        setInvestigateNotice(errorDetail(e));
+      } else {
+        setError(errorDetail(e));
+      }
+    } finally {
+      setInvestigating(false);
     }
   };
 
@@ -169,7 +230,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
 
   const c = theCase;
   const status = (c.status || '').toLowerCase();
-  const history = (c.history as HistoryEntry[] | undefined) || [];
+  // A case with no verdict yet is a deterministic candidate awaiting the agent.
+  const isCandidate = !c.verdict;
 
   // Contextualize lifecycle buttons by current status.
   const canClose = status === 'open' || status === 'needs_human';
@@ -214,6 +276,16 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
       {error ? (
         <>
           <EuiCallOut color="danger" size="s" title={error} />
+          <EuiSpacer size="s" />
+        </>
+      ) : null}
+
+      {/* BUG-2 / C3-4: a NEUTRAL no-events outcome is an info state, not an error. */}
+      {investigateNotice ? (
+        <>
+          <EuiCallOut color="primary" size="s" iconType="iInCircle" title="Nothing to investigate">
+            <p>{investigateNotice}</p>
+          </EuiCallOut>
           <EuiSpacer size="s" />
         </>
       ) : null}
@@ -275,6 +347,25 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
             <TriggerReasonCallout triggerReason={c.trigger_reason} />
           </>
         ) : null}
+
+        {/* C3-4: human-triggered (re-)investigation by the agent. */}
+        <EuiSpacer size="m" />
+        {isCandidate ? (
+          <EuiText size="xs" color="subdued">
+            <p>Candidate awaiting investigation by the agent.</p>
+          </EuiText>
+        ) : null}
+        <EuiSpacer size="xs" />
+        <EuiButton
+          fill
+          size="s"
+          iconType="play"
+          isLoading={investigating}
+          isDisabled={investigating || acting}
+          onClick={runInvestigate}
+        >
+          {isCandidate ? 'Investigate' : 'Re-investigate (LLM)'}
+        </EuiButton>
 
         {/* Lifecycle controls — contextualized by current status */}
         <EuiSpacer size="m" />
@@ -405,44 +496,68 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
           </>
         ) : null}
 
-        {history.length > 0 ? (
-          <>
-            <EuiSpacer size="m" />
-            <EuiTitle size="xs">
-              <h4>History</h4>
-            </EuiTitle>
-            <EuiSpacer size="xs" />
-            <ul>
-              {history.map((h, i) => (
-                <li key={i}>
-                  <EuiText size="xs" color="subdued">
-                    <p>
-                      {h.ts ? `${h.ts} — ` : ''}
-                      {h.event || 'event'}
-                      {h.action ? ` (${h.action})` : ''}
-                      {h.analyst ? ` by ${h.analyst}` : ''}
-                      {h.note ? `: ${h.note}` : ''}
-                    </p>
-                  </EuiText>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
+        {/* C3-3: agent-pipeline trace, collapsed by default. */}
+        <EuiSpacer size="m" />
+        <EuiAccordion
+          id={`agent-trace-${c.case_id}`}
+          buttonContent="Agent trace"
+          paddingSize="s"
+        >
+          <AgentTrace api={api} caseId={caseId} refreshKey={traceKey} />
+        </EuiAccordion>
+
+        {/* C3-7: merged + deduped chronological history timeline. */}
+        <EuiSpacer size="m" />
+        <EuiTitle size="xs">
+          <h4>History</h4>
+        </EuiTitle>
+        <EuiSpacer size="xs" />
+        <CaseTimeline theCase={c} />
       </EuiPanel>
 
+      {/* C3-5: lifecycle confirm modal with an analyst note (indexed into RAG
+          memory for close / confirm_fp). */}
       {pendingAction ? (
-        <EuiConfirmModal
-          title={confirmCopy[pendingAction].title}
-          onCancel={() => setPendingAction(null)}
-          onConfirm={() => runAction(pendingAction)}
-          cancelButtonText="Cancel"
-          confirmButtonText={confirmCopy[pendingAction].confirm}
-          buttonColor={pendingAction === 'escalate' ? 'warning' : 'primary'}
-          isLoading={acting}
-        >
-          <p>{confirmCopy[pendingAction].body}</p>
-        </EuiConfirmModal>
+        <EuiModal onClose={() => setPendingAction(null)} initialFocus="[name=analyst-note]">
+          <EuiModalHeader>
+            <EuiModalHeaderTitle>{confirmCopy[pendingAction].title}</EuiModalHeaderTitle>
+          </EuiModalHeader>
+          <EuiModalBody>
+            <EuiText size="s">
+              <p>{confirmCopy[pendingAction].body}</p>
+            </EuiText>
+            <EuiSpacer size="m" />
+            <EuiText size="xs" color="subdued">
+              <p>
+                Note (optional)
+                {pendingAction === 'close' || pendingAction === 'confirm_fp'
+                  ? ' — saved to agent memory to inform future investigations.'
+                  : ''}
+              </p>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            <EuiTextArea
+              name="analyst-note"
+              fullWidth
+              placeholder="Why are you taking this action?"
+              value={actionNote}
+              onChange={(e) => setActionNote(e.target.value)}
+            />
+          </EuiModalBody>
+          <EuiModalFooter>
+            <EuiButtonEmpty onClick={() => setPendingAction(null)} isDisabled={acting}>
+              Cancel
+            </EuiButtonEmpty>
+            <EuiButton
+              fill
+              color={pendingAction === 'escalate' ? 'warning' : 'primary'}
+              onClick={() => runAction(pendingAction)}
+              isLoading={acting}
+            >
+              {confirmCopy[pendingAction].confirm}
+            </EuiButton>
+          </EuiModalFooter>
+        </EuiModal>
       ) : null}
     </div>
   );
