@@ -125,6 +125,9 @@ class AppState:
     async def update_prefs(self, prefs: Preferences) -> Preferences:
         await self.config_store.save(prefs)
         self.prefs = prefs
+        # Keep the long-lived RagService pointed at the latest prefs so a settings
+        # change (rag.enabled / use_resolved_cases / min_score / top_k) is live.
+        self.rag.set_prefs(prefs)
         return prefs
 
     async def apply_secrets(self, updates: dict[str, str | bool | None]) -> None:

@@ -14,7 +14,7 @@ import logging
 
 from ..audit.audit_log import AuditLogger
 from ..config import ModelConfig, Preferences
-from ..constants import Role
+from ..constants import ActionType, Role
 from ..llm.gateway import GatewayError, LLMGateway
 from ..models import VerdictResult
 from ..utils import extract_json, truncate
@@ -67,5 +67,15 @@ class Formatter:
             mitre=formatted.mitre or draft.mitre,
             recommended_action=formatted.recommended_action or draft.recommended_action,
             reproduce_query=formatted.reproduce_query or draft.reproduce_query,
+        )
+        # Audit the formatter step (C3-3) so it appears in the case trace timeline.
+        await self._audit.record(
+            action_type=ActionType.PROMPT, surface=surface, actor=Role.FORMATTER.value,
+            case_id=case_id, model=model_cfg.model,
+            prompt_excerpt=json.dumps(payload, default=str),
+            result_summary=(
+                f"formatted verdict {merged.verdict.value} "
+                f"(confidence {merged.confidence})"
+            ),
         )
         return merged, res.cost

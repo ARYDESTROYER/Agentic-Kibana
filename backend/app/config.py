@@ -245,6 +245,14 @@ class RagConfig(BaseModel):
     use_suppression_rules: bool = True
 
 
+class TraceConfig(BaseModel):
+    """Agent-pipeline trace surfacing (C3-3). ``include_prompts`` lets an operator
+    hide raw prompt excerpts (which carry fenced untrusted log data) from the
+    case-detail trace timeline."""
+
+    include_prompts: bool = True
+
+
 class StandupConfig(BaseModel):
     enabled: bool = True
     window_hours: int = 24
@@ -362,6 +370,7 @@ class Preferences(BaseModel):
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
     rag: RagConfig = Field(default_factory=RagConfig)
     standup: StandupConfig = Field(default_factory=StandupConfig)
+    trace: TraceConfig = Field(default_factory=TraceConfig)
 
     # --- Misc ---
     setup_complete: bool = False

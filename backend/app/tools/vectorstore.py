@@ -40,6 +40,9 @@ class StoredChunk:
     # dimensionality. Used to detect a model/dim change and trigger a reseed.
     embedding_model: str = ""
     dim: int = 0
+    # Optional stable id for upsert semantics (C3-5 resolved-case memory): adding a
+    # chunk with an existing doc_id REPLACES it instead of creating a duplicate.
+    doc_id: str | None = None
 
 
 class EmbeddingSpaceMismatch(RuntimeError):
@@ -72,7 +75,13 @@ class InMemoryVectorStore(VectorStore):
         self._chunks: list[StoredChunk] = []
 
     async def add(self, chunks: list[StoredChunk]) -> None:
-        self._chunks.extend(c for c in chunks if c.embedding)
+        for c in chunks:
+            if not c.embedding:
+                continue
+            # Upsert: a chunk with a known doc_id replaces the prior one (no dupes).
+            if c.doc_id is not None:
+                self._chunks = [x for x in self._chunks if x.doc_id != c.doc_id]
+            self._chunks.append(c)
 
     async def search(self, query_vector: list[float], top_k: int) -> list[tuple[StoredChunk, float]]:
         scored: list[tuple[StoredChunk, float]] = []
@@ -158,6 +167,7 @@ class ESVectorStore(VectorStore):
                     "dim": c.dim or len(c.embedding),
                     "embedding": c.embedding,
                 },
+                doc_id=c.doc_id,
                 refresh=True,
             )
 

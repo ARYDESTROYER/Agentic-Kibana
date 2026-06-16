@@ -63,9 +63,19 @@ def render_cluster(cluster: Cluster, enrichment: EnrichmentResult | None,
         lines.append(f"- {fence(json.dumps(compact, default=str))}")
 
     if rag_chunks:
-        lines.append("\n## Retrieved knowledge (runbooks / MITRE / suppression)")
-        for ch in rag_chunks:
-            lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
+        # Split prior analyst decisions (resolved cases) into their own baseline
+        # block (C3-5) so the model weights institutional history distinctly from
+        # static runbook/MITRE knowledge.
+        baseline = [ch for ch in rag_chunks if ch.source == "resolved_case"]
+        knowledge = [ch for ch in rag_chunks if ch.source != "resolved_case"]
+        if knowledge:
+            lines.append("\n## Retrieved knowledge (runbooks / MITRE / suppression)")
+            for ch in knowledge:
+                lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
+        if baseline:
+            lines.append("\n## Prior analyst decisions (baseline)")
+            for ch in baseline:
+                lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
     return "\n".join(lines)
 
 

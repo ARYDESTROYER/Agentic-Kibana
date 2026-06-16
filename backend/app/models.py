@@ -270,6 +270,27 @@ class AuditDoc(BaseModel):
     result_summary: str | None = None
 
 
+class TraceStep(BaseModel):
+    """One agent-pipeline step surfaced from tlsoc-agent-audit (C3-3).
+
+    A read-only projection of an ``AuditDoc`` for the case-detail trace timeline.
+    All fields optional except ``ts``/``actor``. ``prompt_excerpt`` /
+    ``tool_output_summary`` carry fenced UNTRUSTED log data — the FE renders them
+    in code blocks; the trace endpoint can omit ``prompt_excerpt`` when
+    ``prefs.trace.include_prompts`` is false."""
+
+    ts: str = ""
+    actor: str = ""
+    action_type: str | None = None
+    model: str | None = None
+    query_text: str | None = None
+    tool_name: str | None = None
+    tool_input: Any = None
+    tool_output_summary: str | None = None
+    result_summary: str | None = None
+    prompt_excerpt: str | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Section 7.3 — tlsoc-agent-usage-* (token & cost ledger)
 # --------------------------------------------------------------------------- #

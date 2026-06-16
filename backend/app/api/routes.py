@@ -14,7 +14,7 @@ from ..constants import CaseStatus, DecisionBy, EntityType, SourceSurface
 from ..engine.correlation import cluster_from_events
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
-from ..models import ChatRequest, Cluster, InvestigateRequest, RawEvent, TriggerReason
+from ..models import ChatRequest, Cluster, InvestigateRequest, RawEvent, TraceStep, TriggerReason
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
 from .deps import get_state
@@ -224,6 +224,14 @@ async def case_action(
         "analyst": body.analyst, "note": body.note,
     })
     await state.cases.save(case)
+    # On close / confirm-FP, index the resolved case as RAG baseline memory (C3-5)
+    # so future investigations of similar entities learn from this decision + note.
+    # Fail-safe: a RAG/embedding failure must NEVER break the analyst's action.
+    if body.action in ("close", "confirm_fp"):
+        try:
+            await state.rag.index_resolved_case(case, note=body.note)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Resolved-case RAG index failed for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
 
 
@@ -257,6 +265,25 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
         cluster, case.source_surface, state.prefs, force=True
     )
     return updated.model_dump(mode="json")
+
+
+@router.get("/cases/{case_id}/trace")
+async def case_trace(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Ordered agent-pipeline trace for a case (C3-3).
+
+    Projects the already-recorded ``tlsoc-agent-audit`` rows (router → investigator
+    → tool calls → verdict → formatter → case-manager decision) into a timeline.
+    Read-only on the management-scoped audit index. NEVER 404s — an unknown or
+    not-yet-investigated case simply returns empty ``steps``. ``prompt_excerpt`` is
+    omitted when ``prefs.trace.include_prompts`` is false."""
+    rows = await state.audit.records_for_case(case_id)
+    include_prompts = state.prefs.trace.include_prompts
+    steps = [_trace_step(row, include_prompts) for row in rows]
+    return {
+        "case_id": case_id,
+        "steps": [s.model_dump(mode="json") for s in steps],
+        "total": len(steps),
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -510,3 +537,20 @@ def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
     if req.event_ids:
         return "No events found for the selected document ids"
     return "Could not resolve events for this request"
+
+
+def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
+    """Project a raw audit row into a TraceStep (C3-3). Honors the include_prompts
+    toggle by dropping the (untrusted) prompt excerpt when disabled."""
+    return TraceStep(
+        ts=str(row.get("ts", "")),
+        actor=str(row.get("actor", "")),
+        action_type=row.get("action_type"),
+        model=row.get("model"),
+        query_text=row.get("query_text"),
+        tool_name=row.get("tool_name"),
+        tool_input=row.get("tool_input"),
+        tool_output_summary=row.get("tool_output_summary"),
+        result_summary=row.get("result_summary"),
+        prompt_excerpt=(row.get("prompt_excerpt") if include_prompts else None),
+    )
