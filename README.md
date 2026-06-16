@@ -1,8 +1,13 @@
 # TLSOC Agentic Triage Suite
 
 > Agentic SOC triage for the TrustLab / IIT Bombay ELK pipeline.
-> **Phase 1 POC** — Elastic / Kibana **8.12.2**. A loosely-coupled backend does
-> all the agentic work; a thin Kibana plugin renders five surfaces.
+> **Phase 1 POC** — Elastic / Kibana **8.12.2** and **8.19.12**. A loosely-coupled
+> backend does all the agentic work; a thin Kibana plugin renders five surfaces.
+
+**Docs:** build → [`plugin/BUILD.md`](plugin/BUILD.md) · deploy →
+[`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md) · fix →
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) · compatibility →
+[`COMPATIBILITY.md`](COMPATIBILITY.md).
 
 The suite sits **next to** an existing production pipeline
 (`rsyslog → Kafka → foss-soc-engine → Logstash → Elasticsearch (all-logs-*) → Kibana`)
@@ -25,6 +30,22 @@ auto-closing a true positive.
 │  owns: tlsoc-agent-{cases,audit,usage,config,cursor}                  │
 └──────── read-only key → all-logs-*  ·  mgmt key → tlsoc-agent-* ──────┘
 ```
+
+## Supported Kibana versions
+
+Two pre-built, committed plugin artifacts ship in `plugin/dist/`. **Install the
+version-matched zip** for your running Kibana — the installer rejects a
+mismatch.
+
+| Kibana version | Plugin zip                                    | Node to build | Bazel |
+|----------------|-----------------------------------------------|---------------|-------|
+| **8.12.2**     | `plugin/dist/tlsocAgenticTriage-8.12.2.zip`   | 18.18.2       | yes   |
+| **8.19.12**    | `plugin/dist/tlsocAgenticTriage-8.19.12.zip`  | 22.22.0       | no (removed in 8.19) |
+
+Portability is achieved from a single source tree: `@kbn/*` import aliases plus
+`--kibana-version` stamping at build time (see [`COMPATIBILITY.md`](COMPATIBILITY.md)
+and [`plugin/BUILD.md`](plugin/BUILD.md)). No backend or contract change is needed
+between versions.
 
 ## Repository layout
 
@@ -67,8 +88,15 @@ With no ES keys it uses an in-memory store; with no LLM keys, model-dependent
 paths fail safe to a human. Set the env vars from `.env.example` for a real run.
 
 ### Rebuild the plugin zip → see **[plugin/BUILD.md](plugin/BUILD.md)**
-Requires the cloned Kibana 8.12.2 source and Node 18.18.2. The committed
-`plugin/dist/tlsocAgenticTriage-8.12.2.zip` is the deploy artifact.
+Requires the cloned Kibana source for the target version and its pinned Node
+(8.12.2 → Node 18.18.2 + bazel; 8.19.12 → Node 22.22.0, no bazel). The committed
+`plugin/dist/tlsocAgenticTriage-8.12.2.zip` and
+`plugin/dist/tlsocAgenticTriage-8.19.12.zip` are the deploy artifacts.
+
+### Use the suite → see **[docs/USAGE.md](docs/USAGE.md)**
+Wizard, all six surfaces with examples, Settings reference, a power-user `curl`
+API section, and an end-to-end walkthrough. Stuck? →
+**[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**.
 
 ## The non-negotiables (and where they live)
 

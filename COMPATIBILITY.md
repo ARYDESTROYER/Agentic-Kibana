@@ -68,6 +68,37 @@ existing service**.
   produce to Kafka, does not change Logstash pipelines, and does not write to
   `all-logs-*`.
 
+### Kibana version support
+
+The plugin supports **Kibana 8.12.2 and 8.19.12**, shipped as two committed,
+pre-built zips (`plugin/dist/tlsocAgenticTriage-8.12.2.zip` and
+`-8.19.12.zip`). Install the one matching the running Kibana — the installer
+rejects a version mismatch.
+
+Portability is achieved from a **single source tree**, not a fork:
+
+- **`@kbn/*` import aliases.** The source uses `@kbn/core/*`,
+  `@kbn/navigation-plugin/public`, `@kbn/data-plugin/public`,
+  `@kbn/data-views-plugin/public`, and `@kbn/share-plugin/public`. These resolve
+  in both versions even though 8.19 relocated several plugins to
+  `src/platform/plugins/shared`. The 8.12 → 8.19 delta was **import paths only**
+  (deep relative → `@kbn/*` aliases) — no EUI, logic, or contract change.
+- **`--kibana-version` stamping.** One source produces both artifacts: the build
+  command stamps the target version into the zip's manifest (overriding the
+  manifest's declared value), so the same code yields a `8.12.2` and a `8.19.12`
+  plugin.
+- **Legacy `kibana.json` manifest on both.** Third-party plugins use the legacy
+  external-plugin manifest (`kibana.json`) for both 8.12 and 8.19. (A
+  `kibana.jsonc` "package plugin" manifest exists in the source for
+  forward-compat reference only and is **not** used by the build — 8.19's
+  `plugin_helpers build` rejects package plugins.) See `plugin/BUILD.md`.
+
+No upstream pipeline assumption changes between versions: the plugin remains a
+thin viewer that talks to Kibana only (the server-side proxy at `/api/tlsoc/*`),
+the backend and its API contract are identical, and Elasticsearch/Logstash/Kafka
+are untouched regardless of Kibana version. `DISCOVER_APP_LOCATOR` and the
+`dataViews` API the plugin relies on are unchanged across 8.12 and 8.19.
+
 ## C. The security boundary — two scoped keys, never the superuser
 
 The spec mandates a **read-only** ES key for the agent. The backend also has to

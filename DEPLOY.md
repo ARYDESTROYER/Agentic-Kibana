@@ -4,10 +4,12 @@ This guide is written for a **fresh session with SSH access to the running SIEM
 server and nothing else** (no build context). The Kibana plugin is **already
 built and committed** — you will **not** compile anything on the server.
 
-> **CRITICAL — no plugin compilation on the server.** The plugin ZIP
-> (`plugin/dist/tlsocAgenticTriage-8.12.2.zip`) was built in a separate session
+> **CRITICAL — no plugin compilation on the server.** The plugin ZIPs
+> (`plugin/dist/tlsocAgenticTriage-8.12.2.zip` and
+> `plugin/dist/tlsocAgenticTriage-8.19.12.zip`) were built in a separate session
 > against the cloned Kibana source. The fragile `yarn kbn bootstrap` toolchain
-> must **never** run on the SIEM server. Here you only unzip + restart.
+> must **never** run on the SIEM server. Here you only unzip + restart. **Install
+> the zip that matches your running Kibana version** (see the table in step 5).
 
 ---
 
@@ -112,15 +114,32 @@ curl -k -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cat/indices/tlsoc-a
 
 ## 5. Install the PRE-BUILT plugin into the Kibana container (no compilation)
 
+**First, pick the zip that matches your running Kibana version.** Check it with
+`docker exec kibana ./bin/kibana --version` (or read it from the Kibana image
+tag), then choose:
+
+| Running Kibana | Install this committed zip                         |
+|----------------|----------------------------------------------------|
+| **8.12.2**     | `plugin/dist/tlsocAgenticTriage-8.12.2.zip`        |
+| **8.19.12**    | `plugin/dist/tlsocAgenticTriage-8.19.12.zip`       |
+
+Installing the wrong-version zip fails with a clear version-mismatch error (the
+installer refuses it). Substitute the matching filename below.
+
 ```bash
 # Copy the committed, already-built zip into the running Kibana container:
+# --- Kibana 8.12.2 ---
 docker cp agentic-kibana/plugin/dist/tlsocAgenticTriage-8.12.2.zip kibana:/tmp/
-
-# Install it with kibana-plugin (uses the official installer; correct structure):
 docker exec kibana ./bin/kibana-plugin install file:///tmp/tlsocAgenticTriage-8.12.2.zip
+
+# --- Kibana 8.19.12 (use this instead, if that is your version) ---
+# docker cp agentic-kibana/plugin/dist/tlsocAgenticTriage-8.19.12.zip kibana:/tmp/
+# docker exec kibana ./bin/kibana-plugin install file:///tmp/tlsocAgenticTriage-8.19.12.zip
 
 docker restart kibana
 docker logs kibana -f      # watch for the plugin id "tlsocAgenticTriage" initializing
+#   Look for a line like: "Plugin "tlsocAgenticTriage" is initializing..." /
+#   the plugins:tlsocAgenticTriage logger, and NO "incompatible"/"failed to load".
 ```
 
 > **Backend URL:** the plugin defaults to `http://tlsoc-backend:8088`, which
@@ -136,6 +155,29 @@ docker logs kibana -f      # watch for the plugin id "tlsocAgenticTriage" initia
 > **Accepted Phase-1 limitation:** `/usr/share/kibana/plugins` is ephemeral. A
 > `docker compose down/up` or image pull removes the plugin — just re-run this
 > step. Phase 2 replaces this with a derived image or a volume mount.
+
+### Post-install verification checklist
+
+Confirm all four before continuing to the wizard:
+
+1. **Plugin appears in nav.** Open Kibana → the left nav (or the app launcher)
+   lists **TLSOC Agentic Triage**. Opening it shows either the setup wizard or the
+   six tabs (Agent Chat · Alerts / Investigate · Automated Scans · Daily Standup ·
+   Cost · Settings).
+2. **Backend health is reachable THROUGH the Kibana proxy.** From the Kibana
+   container:
+   ```bash
+   docker exec kibana curl -fsS http://localhost:5601/api/tlsoc/health ; echo
+   #   -> {"status":"ok","version":"1.0.0","es_connected":true,...}
+   ```
+   (Adjust for a `server.basePath`/auth if your Kibana uses them; the in-browser
+   app uses the authenticated session automatically.)
+3. **The Kibana log shows the plugin initialized** with no `incompatible` /
+   `failed to load` lines (`docker logs kibana | grep tlsocAgenticTriage`).
+4. **The wizard renders** (if `setup_complete` is false) — the four-step horizontal
+   stepper "TLSOC Agentic Triage — first-time setup" is visible.
+
+If any check fails, see the **Deploy failure playbook** below before proceeding.
 
 ## 6. First-boot wizard
 
@@ -168,15 +210,19 @@ populate as cases/audit/usage accrue.
 - Open a case → **Investigate** → verdict card → **Reproduce in Discover**.
 - Check the **Cost** tab and the imported **Cost & Tokens** dashboard.
 
-## Troubleshooting
+## Troubleshooting — deploy failure playbook
 
-| Symptom | Fix |
-|---|---|
-| `es_connected:false` | Check `TLSOC_ES_*` keys, that `ca.crt` mounted, and `ES_URL=https://elasticsearch:9200`. |
-| Backend can't write indices | The **management** key is missing/under-scoped (needs `create_index` on `tlsoc-agent-*`). |
-| Plugin not visible | Re-run step 5; confirm `docker logs kibana` shows `tlsocAgenticTriage`. |
-| Plugin can't reach backend | Confirm the backend container is named `tlsoc-backend` and both share the network, or set `tlsocAgenticTriage.backendUrl`. |
-| No cases appear | Lower `severity_threshold`, ensure rules are in scope, and POST `/api/poll`. |
+For build-time failures see `plugin/BUILD.md`. For runtime/usage issues see
+`docs/TROUBLESHOOTING.md`. Deploy-specific failures:
+
+| Symptom | Likely cause | Fix | How to confirm |
+|---|---|---|---|
+| Plugin **not visible** in Kibana nav | Install didn't take, or Kibana wasn't restarted; or the plugin folder was wiped by a `compose down/up` | Re-run step 5 (matching-version zip), then `docker restart kibana` | `docker logs kibana \| grep tlsocAgenticTriage` shows it initializing |
+| Install error: **`... is not compatible with Kibana <Y>`** / `version X ... expected ...` | Wrong-version zip for the running Kibana | Install the version-matched zip (8.12.2 ↔ `8.12.2.zip`, 8.19.12 ↔ `8.19.12.zip`) | `docker exec kibana ./bin/kibana --version`; `unzip -p <zip> kibana/tlsocAgenticTriage/kibana.json \| grep kibanaVersion` |
+| App loads but every call shows a **502 / "Failed to reach TLSOC backend"** | Backend down, wrong container name, or wrong `backendUrl` | Bring up `tlsoc-backend`; keep its name `tlsoc-backend` so the default `http://tlsoc-backend:8088` resolves; otherwise set `tlsocAgenticTriage.backendUrl` in kibana.yml and restart Kibana | `docker exec kibana curl -sS http://localhost:5601/api/tlsoc/health`; `docker logs tlsoc-backend` |
+| Health returns **`es_connected:false`** | One/both ES keys wrong, `ca.crt` not mounted, or `ES_URL` wrong | Re-check `TLSOC_ES_API_KEY` (read-only) and `TLSOC_ES_MGMT_API_KEY`, that `./certs/ca/ca.crt` is mounted to `/certs/ca.crt:ro`, and `ES_URL=https://elasticsearch:9200` | `docker exec tlsoc-backend curl -s localhost:8088/api/health`; `docker logs tlsoc-backend` |
+| Backend **can't create its indices** | The **management** key is missing/under-scoped | The mgmt key needs `read,write,create_index,view_index_metadata,manage` on `tlsoc-agent-*` (re-mint per step 2) | `curl -k -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cat/indices/tlsoc-agent-*?v` lists the indices |
+| **No cases appear** after polling | Nothing in scope, or no poll has run | Lower `severity_threshold`, clear/verify `in_scope_rules`/`excluded_rules`, then trigger a poll | POST `/api/poll` returns non-zero `polled`/`clusters`; **Alerts / Investigate** then lists cases |
 
 ## What you did NOT do (by design)
 
