@@ -26,6 +26,29 @@ PRICES: dict[str, tuple[float, float]] = {
 _DEFAULT_PRICE = (1.0, 3.0)
 
 
+def provider_for(model: str) -> str:
+    """Group a price-table model id by its provider (Feature 4).
+
+    ``claude-*`` -> anthropic; ``gpt-*`` / ``text-embedding-*`` -> openai;
+    ``mock`` -> mock. Anything unrecognised is bucketed under ``other`` so a new
+    model never disappears from the catalog."""
+    if model.startswith("claude-"):
+        return "anthropic"
+    if model.startswith("gpt-") or model.startswith("text-embedding-"):
+        return "openai"
+    if model.startswith("mock"):
+        return "mock"
+    return "other"
+
+
+def models_by_provider() -> dict[str, list[str]]:
+    """The price-table models grouped by provider, each list sorted (Feature 4)."""
+    grouped: dict[str, list[str]] = {"anthropic": [], "openai": [], "mock": []}
+    for model in PRICES:
+        grouped.setdefault(provider_for(model), []).append(model)
+    return {provider: sorted(models) for provider, models in grouped.items()}
+
+
 def cost_for(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     in_price, out_price = PRICES.get(model, _DEFAULT_PRICE)
     if model.startswith("mock"):
