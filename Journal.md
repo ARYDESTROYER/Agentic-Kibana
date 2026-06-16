@@ -279,3 +279,37 @@
 - Tests: n/a (orchestration).
 - Status: in-progress.
 - Next: verify build-only zip; commit+push Wave 3; then trace+resolved-RAG wave; then frontend.
+
+### 2026-06-16 18:10Z — orchestrator — plugin build toolchain VALIDATED
+- Context: de-risk the historically-flaky plugin build before frontend changes exist.
+- Did: wrote /tmp/build_only.sh (root-guard yarn shim → --allow-root; PLAYWRIGHT/PUPPETEER/etc.
+  skip vars; BROWSERSLIST_IGNORE_OLD_DATA mandatory). generate_plugin scaffolded the skeleton,
+  copied repo source over it, plugin_helpers build --kibana-version 8.19.12 against the populated
+  node_modules. Result zip VERIFIED: browser bundle present, kibanaVersion 8.19.12, 0 backend-URL
+  leaks, 57494 bytes (== committed zip; source unchanged). Only warning is ci-stats.kibana.dev 403
+  (telemetry, harmless). The final post-frontend rebuild is now just a re-run of this script.
+- Tests: build verification block (bundle/version/leak/size) all pass.
+- Status: done.
+
+### 2026-06-16 18:42Z — frontend agent (BUG-4) — header chat button styling
+- Context: BUG-4 (LOW, cosmetic) — global navControl chat trigger was a dark, low-contrast button.
+- Did: public/components/global_chat_control.tsx now uses Kibana's native EuiHeaderSectionItemButton
+  wrapping EuiIcon type="discuss" (no hardcoded colors → EUI owns theme contrast), with aria-label/
+  title + aria-expanded/pressed and a subtle notification dot while the flyout is open. Behavior/props/
+  flyout wiring preserved; no other files, no new deps.
+- Tests: tsc -p tsconfig.json --noEmit against /tmp/kibana-8.19 → NO PLUGIN TS ERRORS.
+- Status: done (committed 387d27b, pushed).
+
+### 2026-06-16 18:05Z — backend agent (Wave3) — rule catalog (C3-1) + per-rule models (C3-6b)
+- Context: C3-1 config-driven rule catalog (13 real event.module rules + 5 ModSec sub-rules isolating
+  XSS/SQLi/LFI/RCE/scanner via rule.id prefix) + C3-6b per-rule model selection (share model_override).
+- Did: RuleMatch/RuleDefinition + rule_catalog/rule_catalog_seed_version/rule_model_override +
+  match_rule/correlation_for_def/model_for_rule/maybe_seed_rule_catalog/default_rule_catalog in
+  config.py. from_hit classifies via catalog when non-empty (empty path byte-identical); Cluster.
+  primary_rule(). correlate uses correlation_for_def(rd) with legacy correlation_for(name) fallback.
+  router/investigator/formatter resolve models via model_for_rule(role, cluster.primary_rule()).
+  Seeding via ConfigStore.seed_rule_catalog wired into state.startup(), version-guarded, never clobbers
+  operator edits. Verified empty-catalog backward-compat in correlation.py + from_hit diffs.
+- Tests: +tests/test_rule_catalog.py (17). Full suite 113 passed (was 96). Committed e714a35, pushed.
+- Status: done.
+- Next: FE rule-catalog editor + per-rule model table in settings.tsx; common/index.ts types.
