@@ -3,6 +3,7 @@ import {
   EuiBasicTable,
   EuiBasicTableColumn,
   EuiButton,
+  EuiButtonIcon,
   EuiBadge,
   EuiCallOut,
   EuiFlexGroup,
@@ -13,6 +14,7 @@ import {
 import type { Case } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
+import { TriggerReasonCallout } from './trigger_reason_callout';
 
 interface ScansProps {
   api: TlsocApi;
@@ -25,6 +27,28 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover, onOpenCase })
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Feature 3: per-row expansion to reveal the "why this fired" explanation.
+  const [expanded, setExpanded] = useState<Record<string, React.ReactNode>>({});
+
+  const toggleExpand = (item: Case, e?: React.MouseEvent) => {
+    if (e) {
+      // Don't let the expander click also trigger the row's "open case" handler.
+      e.stopPropagation();
+    }
+    const id = item.case_id;
+    if (!id) {
+      return;
+    }
+    setExpanded((prev) => {
+      const next = { ...prev };
+      if (next[id]) {
+        delete next[id];
+      } else {
+        next[id] = <TriggerReasonCallout triggerReason={item.trigger_reason} />;
+      }
+      return next;
+    });
+  };
 
   const loadScans = async () => {
     setLoading(true);
@@ -32,6 +56,7 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover, onOpenCase })
     try {
       const resp = await api.get<{ cases: Case[]; total: number }>('scans', { limit: 100 });
       setCases(resp.cases || []);
+      setExpanded({});
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -58,6 +83,22 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover, onOpenCase })
     { field: 'risk_score', name: 'Risk' },
     { field: 'status', name: 'Status', render: (s: string) => <EuiBadge>{s || '-'}</EuiBadge> },
     { field: 'created_at', name: 'Created' },
+    {
+      align: 'right',
+      width: '40px',
+      isExpander: true,
+      name: '',
+      render: (item: Case) =>
+        item.trigger_reason ? (
+          <EuiButtonIcon
+            onClick={(e: React.MouseEvent) => toggleExpand(item, e)}
+            aria-label={
+              item.case_id && expanded[item.case_id] ? 'Collapse why this fired' : 'Why this fired'
+            }
+            iconType={item.case_id && expanded[item.case_id] ? 'arrowUp' : 'iInCircle'}
+          />
+        ) : null,
+    },
     {
       name: 'Actions',
       actions: [
@@ -117,6 +158,8 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover, onOpenCase })
         columns={columns}
         loading={loading}
         tableLayout="auto"
+        itemId="case_id"
+        itemIdToExpandedRowMap={expanded}
         noItemsMessage="No automated scans yet."
         rowProps={
           onOpenCase

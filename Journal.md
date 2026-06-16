@@ -116,3 +116,25 @@
 - Status: done. RAG (P1) still outstanding.
 - Next: commit; then RAG (resolved-case memory, ES dense_vector store, embedding
   guard, min-cosine, chat grounding); then features-frontend; then 8.19.12 rebuild.
+
+### 2026-06-16 ~16:10Z — frontend agent + orchestrator — Features 1/3/4 (FE) + 8.19.12 rebuild
+- Context: Deliver the user's two pain points (header chat button + full settings)
+  plus trigger-reason rendering, then rebuild the 8.19.12 zip.
+- Did (agent): plugin.ts start() registers core.chrome.navControls.registerRight
+  (global header button via toMountPoint+core.rendering); new global_chat_control
+  + global_chat_flyout (reuses the Chat component with a send-time screen-context
+  collector); lib/screen_context.ts (best-effort, per-source try/catch; query/
+  selection only ever go in the request body); chat.tsx optional getContext prop;
+  settings.tsx full rewrite (every Preferences field, per-role model pickers from
+  GET /models, correlation/asset/suppression/network editors, kill switch, secrets
+  status + update-keys, read-only mode); trigger_reason_callout wired into
+  case_detail + scans; common/index.ts synced (origin_surface/verdict_history/
+  trigger_reason + ChatContext/TriggerReason/ModelsResponse).
+- Did (orchestrator): built the authoritative tlsocAgenticTriage-8.19.12.zip from
+  repo source (Node 22.22.0, root-guard yarn shim, BROWSERSLIST_IGNORE_OLD_DATA).
+- Tests: pytest 60 passed; tsc clean for public/+common; zip verified — bundle
+  present, kibanaVersion 8.19.12, 0 backend URLs in browser bundle, navControls +
+  "TLSOC Agent" compiled in (header button confirmed in the artifact).
+- Status: done. Pain points delivered in the rebuilt zip.
+- Next (queued): Feature 2 (Discover doc-viewer + in-app overview button),
+  Feature 5 (wizard rewrite), P1 RAG; refresh USAGE/BUILD docs.

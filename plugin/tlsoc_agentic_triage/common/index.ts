@@ -23,6 +23,54 @@ export interface DiscoverSpec {
   time_to?: string;
 }
 
+/**
+ * Best-effort snapshot of the surface the analyst is looking at when they send a
+ * chat message. Collected at send time and forwarded to the backend, which
+ * fences any attacker-influenceable values (query/selection) as untrusted data.
+ * Mirrors the backend `context` arg of `POST /api/tlsoc/chat`.
+ */
+export interface ChatContext {
+  app?: string;
+  url?: string;
+  data_view?: string;
+  query?: string;
+  language?: string;
+  time_range?: { from?: string; to?: string };
+  case_id?: string;
+  selection?: string;
+  search_session?: string;
+}
+
+/** A single append-only verdict-trail entry on a Case (P1). */
+export interface VerdictHistoryEntry {
+  ts?: string;
+  verdict?: string;
+  confidence?: number;
+  risk_score?: number;
+  [k: string]: unknown;
+}
+
+/**
+ * Deterministic "why was this triggered" explanation (Feature 3). Computed by
+ * correlation in the backend and copied onto the Case. Mirrors
+ * backend `models.TriggerReason`.
+ */
+export interface TriggerReason {
+  rule_value?: string;
+  mode?: string;
+  n?: number;
+  window_seconds?: number;
+  group_by?: string;
+  observed_count?: number;
+  window_start?: number;
+  window_end?: number;
+  entity?: string;
+  rule_values?: string[];
+  severity_min?: number | null;
+  severity_max?: number | null;
+  sentence?: string;
+}
+
 export interface ChatTable {
   columns: string[];
   rows: Array<Array<string | number | null>>;
@@ -50,6 +98,8 @@ export interface Case {
   created_at?: string;
   updated_at?: string;
   source_surface?: string;
+  /** The first surface this case was ever created from; stable provenance (P1). */
+  origin_surface?: string;
   rule_ids?: string[];
   entity?: Entity;
   member_event_ids?: string[];
@@ -69,6 +119,16 @@ export interface Case {
   token_cost?: number;
   error?: string;
   history?: unknown[];
+  /** Append-only verdict trail across investigations (P1). */
+  verdict_history?: VerdictHistoryEntry[];
+  /** Deterministic "why was this triggered" explanation (Feature 3). */
+  trigger_reason?: TriggerReason | null;
+}
+
+/** Model catalog for the per-role pickers — `GET /api/tlsoc/models`. */
+export interface ModelsResponse {
+  providers: Record<string, string[]>;
+  configured: Record<string, boolean>;
 }
 
 export interface SetupStatus {

@@ -1,47 +1,75 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  EuiAccordion,
   EuiBadge,
   EuiButton,
+  EuiButtonEmpty,
+  EuiButtonIcon,
   EuiCallOut,
-  EuiCheckbox,
-  EuiDescriptionList,
+  EuiComboBox,
+  EuiDescribedFormGroup,
   EuiFieldNumber,
   EuiFieldText,
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiHorizontalRule,
+  EuiIconTip,
   EuiPanel,
   EuiSpacer,
-  EuiTitle,
+  EuiSuperSelect,
+  EuiSwitch,
   EuiText,
-  EuiTextArea,
+  EuiTitle,
 } from '@elastic/eui';
-import type { SettingsResponse } from '../../common';
+import type { CoreStart } from '@kbn/core/public';
+import type { ModelsResponse, SettingsResponse } from '../../common';
 import type { TlsocApi } from '../lib/api';
 
 interface SettingsProps {
   api: TlsocApi;
+  core: CoreStart;
 }
 
-interface CorrelationRule {
-  mode?: string;
-  n?: number;
-  window_seconds?: number;
-  group_by?: string;
+type Path = Array<string | number>;
+
+const MODEL_ROLES: Array<{ key: string; label: string }> = [
+  { key: 'router_model', label: 'Router (cheap triage)' },
+  { key: 'investigator_model', label: 'Investigator (strong ReAct)' },
+  { key: 'formatter_model', label: 'Formatter' },
+  { key: 'standup_model', label: 'Standup' },
+  { key: 'chat_model', label: 'Chat' },
+  { key: 'overview_model', label: 'AI overview (per-event)' },
+  { key: 'embedding_model', label: 'Embedding' },
+];
+
+const CORRELATION_MODES = ['every', 'threshold', 'never'];
+const ENTITY_TYPES = ['ip', 'user', 'host'];
+
+/** Which configured-secret key gates a given provider (best-effort). */
+function providerKeyName(provider: string): string | null {
+  if (provider === 'anthropic') return 'anthropic_api_key';
+  if (provider === 'openai') return 'openai_api_key';
+  return null; // mock / other never need a key
 }
 
-export const Settings: React.FC<SettingsProps> = ({ api }) => {
+export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [prefs, setPrefs] = useState<Record<string, any>>({});
+  const [models, setModels] = useState<ModelsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const load = async () => {
+  // Secret update form (kept entirely in component memory; never read back).
+  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({});
+  const [savingSecrets, setSavingSecrets] = useState(false);
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      // Seed editable state from the LIVE GET so PUTs aren't stale.
       const resp = await api.get<SettingsResponse>('settings');
       setData(resp);
       setPrefs(resp.prefs || {});
@@ -50,31 +78,43 @@ export const Settings: React.FC<SettingsProps> = ({ api }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [api]);
+
+  const loadModels = useCallback(async () => {
+    try {
+      const m = await api.get<ModelsResponse>('models');
+      setModels(m);
+    } catch {
+      /* model catalog is best-effort; pickers fall back to free text */
+    }
+  }, [api]);
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    loadModels();
+  }, [load, loadModels]);
 
   const readOnly = !!data?.read_only;
+  const configured = data?.configured || {};
+  const providers = models?.providers || {};
 
-  const setPref = (path: string[], value: any) => {
+  const setPref = (path: Path, value: any) => {
     setPrefs((prev) => {
-      const next = JSON.parse(JSON.stringify(prev));
-      let obj = next;
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      let obj: any = next;
       for (let i = 0; i < path.length - 1; i++) {
-        if (typeof obj[path[i]] !== 'object' || obj[path[i]] === null) {
-          obj[path[i]] = {};
+        const key = path[i];
+        if (typeof obj[key] !== 'object' || obj[key] === null) {
+          obj[key] = typeof path[i + 1] === 'number' ? [] : {};
         }
-        obj = obj[path[i]];
+        obj = obj[key];
       }
       obj[path[path.length - 1]] = value;
       return next;
     });
   };
 
-  const getPref = (path: string[], dflt?: any) => {
+  const getPref = (path: Path, dflt?: any) => {
     let obj: any = prefs;
     for (const p of path) {
       if (obj === null || obj === undefined) return dflt;
@@ -83,24 +123,272 @@ export const Settings: React.FC<SettingsProps> = ({ api }) => {
     return obj === undefined || obj === null ? dflt : obj;
   };
 
-  const save = async (partial: Record<string, any>) => {
+  const toast = useMemo(() => core.notifications.toasts, [core.notifications.toasts]);
+
+  // PUT the FULL prefs object so nothing is dropped.
+  const save = async () => {
     setSaving(true);
     setError(null);
-    setOkMsg(null);
     try {
-      const resp = await api.put<{ ok: boolean; prefs: Record<string, any> }>('settings', partial);
+      const resp = await api.put<{ ok: boolean; prefs: Record<string, any> }>('settings', prefs);
       setPrefs(resp.prefs);
-      setOkMsg('Settings saved.');
+      // Refresh read_only / configured view in case read-only was just toggled.
+      await load();
+      toast.addSuccess('Settings saved.');
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as Error).message || 'Failed to save settings';
+      setError(msg);
+      toast.addDanger(msg);
     } finally {
       setSaving(false);
     }
   };
 
-  const configured = data?.configured || {};
+  const saveSecrets = async () => {
+    const body: Record<string, string> = {};
+    Object.entries(secretDraft).forEach(([k, v]) => {
+      if (v && v.trim()) body[k] = v.trim();
+    });
+    if (!Object.keys(body).length) {
+      toast.addWarning('No secret values entered.');
+      return;
+    }
+    setSavingSecrets(true);
+    try {
+      await api.post('setup/secrets', body);
+      setSecretDraft({});
+      await load();
+      toast.addSuccess('Keys updated (in-memory until restart).');
+    } catch (e) {
+      toast.addDanger((e as Error).message || 'Failed to update keys');
+    } finally {
+      setSavingSecrets(false);
+    }
+  };
 
-  const correlationRules: Record<string, CorrelationRule> = getPref(['correlation_rules'], {}) || {};
+  // --- small field helpers ---------------------------------------------------
+  const textField = (path: Path, dflt = '') => (
+    <EuiFieldText
+      disabled={readOnly}
+      value={String(getPref(path, dflt))}
+      onChange={(e) => setPref(path, e.target.value)}
+    />
+  );
+
+  const numberField = (path: Path, dflt: number, step?: number) => (
+    <EuiFieldNumber
+      disabled={readOnly}
+      value={getPref(path, dflt)}
+      step={step}
+      onChange={(e) => setPref(path, e.target.value === '' ? '' : Number(e.target.value))}
+    />
+  );
+
+  const switchField = (path: Path, label: string, dflt = false) => (
+    <EuiSwitch
+      disabled={readOnly}
+      label={label}
+      checked={!!getPref(path, dflt)}
+      onChange={(e) => setPref(path, e.target.checked)}
+    />
+  );
+
+  const csvField = (path: Path) => (
+    <EuiFieldText
+      disabled={readOnly}
+      value={(getPref(path, []) || []).join(', ')}
+      onChange={(e) =>
+        setPref(
+          path,
+          e.target.value
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        )
+      }
+    />
+  );
+
+  // --- model picker ----------------------------------------------------------
+  const modelPicker = (roleKey: string) => {
+    const provider = String(getPref([roleKey, 'provider'], 'anthropic'));
+    const model = String(getPref([roleKey, 'model'], ''));
+    const providerOptions = ['anthropic', 'openai', 'mock', ...Object.keys(providers)]
+      .filter((p, i, arr) => arr.indexOf(p) === i)
+      .map((p) => ({ value: p, inputDisplay: p }));
+    const modelChoices = (providers[provider] || []).map((m) => ({ label: m }));
+    const selected = model ? [{ label: model }] : [];
+
+    const keyName = providerKeyName(provider);
+    const missingKey = keyName ? !configured[keyName] : false;
+
+    return (
+      <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+        <EuiFlexItem style={{ minWidth: 140 }}>
+          <EuiFormRow label="Provider" display="rowCompressed">
+            <EuiSuperSelect
+              compressed
+              disabled={readOnly}
+              options={providerOptions}
+              valueOfSelected={provider}
+              onChange={(v) => setPref([roleKey, 'provider'], v)}
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+        <EuiFlexItem style={{ minWidth: 220 }}>
+          <EuiFormRow
+            label="Model"
+            display="rowCompressed"
+            helpText={
+              missingKey ? (
+                <EuiText size="xs" color="warning">
+                  Provider <strong>{provider}</strong> has no configured key — calls will fail until
+                  one is set.
+                </EuiText>
+              ) : undefined
+            }
+            labelAppend={
+              missingKey ? (
+                <EuiIconTip
+                  type="warning"
+                  color="warning"
+                  content={`No ${keyName} configured for provider "${provider}".`}
+                />
+              ) : undefined
+            }
+          >
+            <EuiComboBox
+              compressed
+              isDisabled={readOnly}
+              singleSelection={{ asPlainText: true }}
+              options={modelChoices}
+              selectedOptions={selected}
+              onChange={(opts) => setPref([roleKey, 'model'], opts[0]?.label || '')}
+              onCreateOption={(val) => setPref([roleKey, 'model'], val)}
+              placeholder="Select or type a model"
+              customOptionText="Use custom model {searchValue}"
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false} style={{ minWidth: 110 }}>
+          <EuiFormRow label="Temp" display="rowCompressed">
+            <EuiFieldNumber
+              compressed
+              disabled={readOnly}
+              step={0.1}
+              value={getPref([roleKey, 'temperature'], 0.1)}
+              onChange={(e) =>
+                setPref([roleKey, 'temperature'], e.target.value === '' ? '' : Number(e.target.value))
+              }
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false} style={{ minWidth: 120 }}>
+          <EuiFormRow label="Max tokens" display="rowCompressed">
+            <EuiFieldNumber
+              compressed
+              disabled={readOnly}
+              value={getPref([roleKey, 'max_tokens'], 1500)}
+              onChange={(e) =>
+                setPref([roleKey, 'max_tokens'], e.target.value === '' ? '' : Number(e.target.value))
+              }
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+    );
+  };
+
+  // --- correlation rule editor ----------------------------------------------
+  const correlationRules: Record<string, any> = getPref(['correlation_rules'], {}) || {};
+  const addCorrelationRule = () => {
+    const name = `rule_${Object.keys(correlationRules).length + 1}`;
+    setPref(['correlation_rules', name], {
+      mode: 'threshold',
+      n: 5,
+      window_seconds: 120,
+      group_by: 'ip',
+    });
+  };
+  const removeCorrelationRule = (name: string) => {
+    setPrefs((prev) => {
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      if (next.correlation_rules) delete next.correlation_rules[name];
+      return next;
+    });
+  };
+  const renameCorrelationRule = (oldName: string, newName: string) => {
+    if (!newName || newName === oldName) return;
+    setPrefs((prev) => {
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      const cr = next.correlation_rules || {};
+      if (cr[oldName] !== undefined && cr[newName] === undefined) {
+        cr[newName] = cr[oldName];
+        delete cr[oldName];
+        next.correlation_rules = cr;
+      }
+      return next;
+    });
+  };
+
+  // --- asset networks editor -------------------------------------------------
+  const assetNetworks: any[] = getPref(['asset_networks'], []) || [];
+  const addAssetNetwork = () =>
+    setPref(['asset_networks'], [...assetNetworks, { cidr: '', criticality: 0 }]);
+  const removeAssetNetwork = (idx: number) =>
+    setPref(
+      ['asset_networks'],
+      assetNetworks.filter((_, i) => i !== idx)
+    );
+
+  // --- suppression rules editor ---------------------------------------------
+  const suppressionRules: any[] = getPref(['suppression_rules'], []) || [];
+  const addSuppression = () =>
+    setPref(['suppression_rules'], [...suppressionRules, { field: '', value: '', reason: '' }]);
+  const removeSuppression = (idx: number) =>
+    setPref(
+      ['suppression_rules'],
+      suppressionRules.filter((_, i) => i !== idx)
+    );
+
+  // --- asset_criticality map editor (entity value -> 0..100) ----------------
+  const assetCriticality: Record<string, number> = getPref(['asset_criticality'], {}) || {};
+  const addAssetCriticality = () => {
+    const key = `entity_${Object.keys(assetCriticality).length + 1}`;
+    setPref(['asset_criticality', key], 0);
+  };
+  const removeAssetCriticality = (key: string) => {
+    setPrefs((prev) => {
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      if (next.asset_criticality) delete next.asset_criticality[key];
+      return next;
+    });
+  };
+  const renameAssetCriticality = (oldKey: string, newKey: string) => {
+    if (!newKey || newKey === oldKey) return;
+    setPrefs((prev) => {
+      const next = JSON.parse(JSON.stringify(prev ?? {}));
+      const ac = next.asset_criticality || {};
+      if (ac[oldKey] !== undefined && ac[newKey] === undefined) {
+        ac[newKey] = ac[oldKey];
+        delete ac[oldKey];
+        next.asset_criticality = ac;
+      }
+      return next;
+    });
+  };
+
+  const section = (id: string, title: string, children: React.ReactNode, initialOpen = false) => (
+    <>
+      <EuiPanel hasBorder paddingSize="m">
+        <EuiAccordion id={id} buttonContent={<EuiTitle size="xs"><h3>{title}</h3></EuiTitle>} initialIsOpen={initialOpen}>
+          <EuiSpacer size="s" />
+          {children}
+        </EuiAccordion>
+      </EuiPanel>
+      <EuiSpacer size="m" />
+    </>
+  );
 
   return (
     <div>
@@ -111,259 +399,581 @@ export const Settings: React.FC<SettingsProps> = ({ api }) => {
           </EuiTitle>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
-            Reload
-          </EuiButton>
+          <EuiFlexGroup gutterSize="s" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
+                Reload
+              </EuiButton>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton
+                size="s"
+                fill
+                iconType="save"
+                onClick={save}
+                isLoading={saving}
+                isDisabled={readOnly && getPref(['read_only_settings_mode'], false) === true}
+              >
+                Save settings
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer size="s" />
 
       {readOnly ? (
         <>
-          <EuiCallOut color="warning" size="s" title="Settings are in read-only mode" />
-          <EuiSpacer size="s" />
+          <EuiCallOut
+            color="warning"
+            iconType="lock"
+            title="Settings are in read-only mode"
+          >
+            <EuiText size="s">
+              <p>
+                All inputs below are disabled. To re-enable editing, turn off read-only mode and
+                save.
+              </p>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <EuiSwitch
+              label="Read-only settings mode"
+              checked={!!getPref(['read_only_settings_mode'], true)}
+              onChange={(e) => setPref(['read_only_settings_mode'], e.target.checked)}
+            />
+            <EuiSpacer size="s" />
+            <EuiButton
+              size="s"
+              onClick={save}
+              isLoading={saving}
+              isDisabled={getPref(['read_only_settings_mode'], true) === true}
+            >
+              Save to unlock
+            </EuiButton>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
         </>
       ) : null}
+
       {error ? (
         <>
           <EuiCallOut color="danger" size="s" title={error} />
-          <EuiSpacer size="s" />
+          <EuiSpacer size="m" />
         </>
       ) : null}
-      {okMsg ? (
+
+      {/* Data scope + entity mapping + rules */}
+      {section(
+        'sec-data',
+        'Data scope, entity mapping & rules',
         <>
-          <EuiCallOut color="success" size="s" title={okMsg} />
+          <EuiDescribedFormGroup
+            title={<h4>Data scope</h4>}
+            description="Which logs the agent reads and the time field used."
+          >
+            <EuiFormRow label="Data view pattern">{textField(['data_view_pattern'], 'all-logs-*')}</EuiFormRow>
+            <EuiFormRow label="Time field">{textField(['time_field'], '@timestamp')}</EuiFormRow>
+          </EuiDescribedFormGroup>
+          <EuiDescribedFormGroup
+            title={<h4>Entity mapping</h4>}
+            description="Field names that hold the source IP, user, and host."
+          >
+            <EuiFormRow label="Source IP field">{textField(['source_ip_field'], 'source.ip')}</EuiFormRow>
+            <EuiFormRow label="User field">{textField(['user_field'], 'user.name')}</EuiFormRow>
+            <EuiFormRow label="Host field">{textField(['host_field'], 'host.name')}</EuiFormRow>
+          </EuiDescribedFormGroup>
+          <EuiDescribedFormGroup
+            title={<h4>Severity & rules</h4>}
+            description="How rules and severity are identified; which rules are in/out of scope."
+          >
+            <EuiFormRow label="Rule field">{textField(['rule_field'], 'event.module')}</EuiFormRow>
+            <EuiFormRow label="Rule name field">{textField(['rule_name_field'], 'rule.name')}</EuiFormRow>
+            <EuiFormRow label="Severity field">{textField(['severity_field'], 'event.severity')}</EuiFormRow>
+            <EuiFormRow label="Severity threshold">{numberField(['severity_threshold'], 0, 0.1)}</EuiFormRow>
+            <EuiFormRow label="In-scope rules (comma separated; empty = all)">{csvField(['in_scope_rules'])}</EuiFormRow>
+            <EuiFormRow label="Excluded rules (comma separated)">{csvField(['excluded_rules'])}</EuiFormRow>
+          </EuiDescribedFormGroup>
+        </>,
+        true
+      )}
+
+      {/* Polling */}
+      {section(
+        'sec-polling',
+        'Polling',
+        <EuiFlexGroup wrap>
+          <EuiFlexItem>
+            <EuiFormRow label="Poll interval (seconds)">{numberField(['poll_interval_seconds'], 30)}</EuiFormRow>
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiFormRow label="Poll batch size">{numberField(['poll_batch_size'], 500)}</EuiFormRow>
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiFormRow label="Cold-start lookback (minutes)">
+              {numberField(['cold_start_lookback_minutes'], 60)}
+            </EuiFormRow>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiFormRow label="Enabled" hasEmptyLabelSpace>
+              {switchField(['polling_enabled'], 'Polling enabled', true)}
+            </EuiFormRow>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      )}
+
+      {/* Per-role models */}
+      {section(
+        'sec-models',
+        'Per-role models',
+        <>
+          <EuiText size="xs" color="subdued">
+            <p>Each role routes through the single cost-metered gateway. Models populate from the live catalog; you may also type a custom model.</p>
+          </EuiText>
           <EuiSpacer size="s" />
-        </>
-      ) : null}
-
-      {/* Secret status (never shows values) */}
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Configured credentials</h3>
-        </EuiTitle>
-        <EuiSpacer size="s" />
-        <EuiFlexGroup wrap gutterSize="s" responsive={false}>
-          {Object.entries(configured).map(([k, v]) => (
-            <EuiFlexItem grow={false} key={k}>
-              <EuiBadge color={v ? 'success' : 'default'}>
-                {k}: {v ? 'configured ✓' : 'not set'}
-              </EuiBadge>
-            </EuiFlexItem>
+          {MODEL_ROLES.map((r, i) => (
+            <React.Fragment key={r.key}>
+              {i > 0 ? <EuiHorizontalRule margin="s" /> : null}
+              <EuiText size="s"><strong>{r.label}</strong></EuiText>
+              <EuiSpacer size="xs" />
+              {modelPicker(r.key)}
+            </React.Fragment>
           ))}
-        </EuiFlexGroup>
-      </EuiPanel>
+        </>
+      )}
 
-      <EuiSpacer size="m" />
+      {/* Decision thresholds */}
+      {section(
+        'sec-thresholds',
+        'Decision thresholds',
+        <>
+          <EuiText size="s"><strong>FP auto-close</strong> (a TRUE_POSITIVE can never auto-close)</EuiText>
+          <EuiSpacer size="xs" />
+          {switchField(['fp_auto_close', 'enabled'], 'FP auto-close enabled', false)}
+          <EuiSpacer size="s" />
+          <EuiFlexGroup wrap>
+            <EuiFlexItem>
+              <EuiFormRow label="Min confidence">{numberField(['fp_auto_close', 'min_confidence'], 0.95, 0.01)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Max risk score">{numberField(['fp_auto_close', 'max_risk_score'], 30, 1)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Objection window (minutes)">
+                {numberField(['fp_auto_close', 'objection_window_minutes'], 60)}
+              </EuiFormRow>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <EuiHorizontalRule margin="s" />
+          <EuiFlexGroup wrap>
+            <EuiFlexItem>
+              <EuiFormRow label="Escalation confidence">{numberField(['escalation_confidence'], 0.6, 0.01)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Critical severity">{numberField(['critical_severity'], 7, 0.1)}</EuiFormRow>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </>
+      )}
 
-      {/* Polling + thresholds */}
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Polling &amp; detection</h3>
-        </EuiTitle>
-        <EuiSpacer size="s" />
-        <EuiFlexGroup wrap>
-          <EuiFlexItem>
-            <EuiFormRow label="Poll interval (seconds)">
-              <EuiFieldNumber
+      {/* Correlation */}
+      {section(
+        'sec-correlation',
+        'Correlation, risk weights & assets',
+        <>
+          <EuiText size="s"><strong>Default correlation</strong></EuiText>
+          <EuiSpacer size="xs" />
+          <EuiFlexGroup wrap responsive={false}>
+            <EuiFlexItem style={{ minWidth: 150 }}>
+              <EuiFormRow label="Mode">
+                <EuiSuperSelect
+                  disabled={readOnly}
+                  options={CORRELATION_MODES.map((m) => ({ value: m, inputDisplay: m }))}
+                  valueOfSelected={String(getPref(['default_correlation', 'mode'], 'threshold'))}
+                  onChange={(v) => setPref(['default_correlation', 'mode'], v)}
+                />
+              </EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem style={{ minWidth: 90 }}>
+              <EuiFormRow label="N">{numberField(['default_correlation', 'n'], 5)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem style={{ minWidth: 140 }}>
+              <EuiFormRow label="Window (s)">{numberField(['default_correlation', 'window_seconds'], 120)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem style={{ minWidth: 130 }}>
+              <EuiFormRow label="Group by">
+                <EuiSuperSelect
+                  disabled={readOnly}
+                  options={ENTITY_TYPES.map((m) => ({ value: m, inputDisplay: m }))}
+                  valueOfSelected={String(getPref(['default_correlation', 'group_by'], 'ip'))}
+                  onChange={(v) => setPref(['default_correlation', 'group_by'], v)}
+                />
+              </EuiFormRow>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+            <EuiFlexItem grow={false}><EuiText size="s"><strong>Per-rule correlation</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addCorrelationRule}>
+                Add rule
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          {Object.keys(correlationRules).length === 0 ? (
+            <EuiText size="xs" color="subdued"><p>No per-rule overrides; the default applies to all rules.</p></EuiText>
+          ) : (
+            Object.entries(correlationRules).map(([name, rule]: [string, any]) => (
+              <EuiFlexGroup key={name} gutterSize="s" responsive={false} wrap alignItems="flexEnd">
+                <EuiFlexItem style={{ minWidth: 160 }}>
+                  <EuiFormRow label="Rule value" display="rowCompressed">
+                    <EuiFieldText
+                      compressed
+                      disabled={readOnly}
+                      defaultValue={name}
+                      onBlur={(e) => renameCorrelationRule(name, e.target.value.trim())}
+                    />
+                  </EuiFormRow>
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 130 }}>
+                  <EuiFormRow label="Mode" display="rowCompressed">
+                    <EuiSuperSelect
+                      compressed
+                      disabled={readOnly}
+                      options={CORRELATION_MODES.map((m) => ({ value: m, inputDisplay: m }))}
+                      valueOfSelected={String(rule?.mode ?? 'threshold')}
+                      onChange={(v) => setPref(['correlation_rules', name, 'mode'], v)}
+                    />
+                  </EuiFormRow>
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 70 }}>
+                  <EuiFormRow label="N" display="rowCompressed">{numberField(['correlation_rules', name, 'n'], 5)}</EuiFormRow>
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 110 }}>
+                  <EuiFormRow label="Window (s)" display="rowCompressed">
+                    {numberField(['correlation_rules', name, 'window_seconds'], 120)}
+                  </EuiFormRow>
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 110 }}>
+                  <EuiFormRow label="Group by" display="rowCompressed">
+                    <EuiSuperSelect
+                      compressed
+                      disabled={readOnly}
+                      options={ENTITY_TYPES.map((m) => ({ value: m, inputDisplay: m }))}
+                      valueOfSelected={String(rule?.group_by ?? 'ip')}
+                      onChange={(v) => setPref(['correlation_rules', name, 'group_by'], v)}
+                    />
+                  </EuiFormRow>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiButtonIcon
+                    color="danger"
+                    iconType="trash"
+                    aria-label={`Remove rule ${name}`}
+                    isDisabled={readOnly}
+                    onClick={() => removeCorrelationRule(name)}
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            ))
+          )}
+
+          <EuiHorizontalRule margin="s" />
+          <EuiText size="s"><strong>Risk weights</strong> (normalised to 0-100)</EuiText>
+          <EuiSpacer size="xs" />
+          <EuiFlexGroup wrap responsive={false}>
+            {['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'].map((w) => (
+              <EuiFlexItem key={w} style={{ minWidth: 120 }}>
+                <EuiFormRow label={w}>{numberField(['risk_weights', w], 0, 0.05)}</EuiFormRow>
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+            <EuiFlexItem grow={false}><EuiText size="s"><strong>Asset networks (CIDR → criticality)</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addAssetNetwork}>
+                Add network
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          {assetNetworks.map((net: any, idx: number) => (
+            <EuiFlexGroup key={idx} gutterSize="s" responsive={false} alignItems="flexEnd">
+              <EuiFlexItem>
+                <EuiFormRow label="CIDR" display="rowCompressed">
+                  <EuiFieldText
+                    compressed
+                    disabled={readOnly}
+                    value={net?.cidr ?? ''}
+                    onChange={(e) => setPref(['asset_networks', idx, 'cidr'], e.target.value)}
+                  />
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false} style={{ minWidth: 140 }}>
+                <EuiFormRow label="Criticality (0-100)" display="rowCompressed">
+                  {numberField(['asset_networks', idx, 'criticality'], 0, 1)}
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiButtonIcon
+                  color="danger"
+                  iconType="trash"
+                  aria-label={`Remove network ${idx}`}
+                  isDisabled={readOnly}
+                  onClick={() => removeAssetNetwork(idx)}
+                />
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          ))}
+
+          <EuiHorizontalRule margin="s" />
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+            <EuiFlexItem grow={false}><EuiText size="s"><strong>Asset criticality (entity value → 0-100)</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addAssetCriticality}>
+                Add entity
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          {Object.entries(assetCriticality).map(([k, v]: [string, any]) => (
+            <EuiFlexGroup key={k} gutterSize="s" responsive={false} alignItems="flexEnd">
+              <EuiFlexItem>
+                <EuiFormRow label="Entity value" display="rowCompressed">
+                  <EuiFieldText
+                    compressed
+                    disabled={readOnly}
+                    defaultValue={k}
+                    onBlur={(e) => renameAssetCriticality(k, e.target.value.trim())}
+                  />
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false} style={{ minWidth: 140 }}>
+                <EuiFormRow label="Criticality" display="rowCompressed">
+                  {numberField(['asset_criticality', k], 0, 1)}
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiButtonIcon
+                  color="danger"
+                  iconType="trash"
+                  aria-label={`Remove ${k}`}
+                  isDisabled={readOnly}
+                  onClick={() => removeAssetCriticality(k)}
+                />
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          ))}
+        </>
+      )}
+
+      {/* Cost gate / caps */}
+      {section(
+        'sec-caps',
+        'Cost gate, caps & suppression',
+        <>
+          <EuiCallOut
+            color={getPref(['caps', 'kill_switch'], false) ? 'danger' : 'primary'}
+            iconType={getPref(['caps', 'kill_switch'], false) ? 'alert' : 'stopFilled'}
+            title="Kill switch"
+            size="s"
+          >
+            <EuiText size="s">
+              <p>When on, ALL investigations stop immediately.</p>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            {switchField(['caps', 'kill_switch'], 'Kill switch (stop all investigations)', false)}
+          </EuiCallOut>
+          <EuiSpacer size="s" />
+          <EuiFlexGroup wrap>
+            <EuiFlexItem>
+              <EuiFormRow label="Max tool calls">{numberField(['caps', 'max_tool_calls'], 8)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Max tokens">{numberField(['caps', 'max_tokens'], 20000)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Timeout (seconds)">{numberField(['caps', 'timeout_seconds'], 120)}</EuiFormRow>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
+            <EuiFlexItem grow={false}><EuiText size="s"><strong>Suppression rules</strong> (matching events are dropped)</EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addSuppression}>
+                Add rule
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          {suppressionRules.map((s: any, idx: number) => (
+            <EuiFlexGroup key={idx} gutterSize="s" responsive={false} wrap alignItems="flexEnd">
+              <EuiFlexItem>
+                <EuiFormRow label="Field" display="rowCompressed">
+                  <EuiFieldText
+                    compressed
+                    disabled={readOnly}
+                    value={s?.field ?? ''}
+                    onChange={(e) => setPref(['suppression_rules', idx, 'field'], e.target.value)}
+                  />
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem>
+                <EuiFormRow label="Value" display="rowCompressed">
+                  <EuiFieldText
+                    compressed
+                    disabled={readOnly}
+                    value={s?.value ?? ''}
+                    onChange={(e) => setPref(['suppression_rules', idx, 'value'], e.target.value)}
+                  />
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem>
+                <EuiFormRow label="Reason" display="rowCompressed">
+                  <EuiFieldText
+                    compressed
+                    disabled={readOnly}
+                    value={s?.reason ?? ''}
+                    onChange={(e) => setPref(['suppression_rules', idx, 'reason'], e.target.value)}
+                  />
+                </EuiFormRow>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiButtonIcon
+                  color="danger"
+                  iconType="trash"
+                  aria-label={`Remove suppression ${idx}`}
+                  isDisabled={readOnly}
+                  onClick={() => removeSuppression(idx)}
+                />
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          ))}
+        </>
+      )}
+
+      {/* Automated scans + enrichment + RAG + standup */}
+      {section(
+        'sec-scans',
+        'Automated scans, enrichment, RAG & standup',
+        <>
+          <EuiText size="s"><strong>Automated scans</strong></EuiText>
+          <EuiSpacer size="xs" />
+          {switchField(['background_scan_enabled'], 'Background scan enabled', false)}
+          <EuiSpacer size="s" />
+          <EuiFormRow label="Auto-forward allowlist (comma separated rule values)">
+            {csvField(['auto_forward_allowlist'])}
+          </EuiFormRow>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiText size="s"><strong>Enrichment</strong></EuiText>
+          <EuiSpacer size="xs" />
+          {switchField(['enrichment', 'enabled'], 'Enrichment enabled', true)}
+          {switchField(['enrichment', 'use_abuseipdb'], 'Use AbuseIPDB', true)}
+          {switchField(['enrichment', 'use_virustotal'], 'Use VirusTotal', true)}
+          {switchField(['enrichment', 'use_geoip'], 'Use GeoIP', true)}
+          <EuiSpacer size="s" />
+          <EuiFormRow label="Cache TTL (seconds)">{numberField(['enrichment', 'cache_ttl_seconds'], 21600)}</EuiFormRow>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiText size="s"><strong>RAG</strong></EuiText>
+          <EuiSpacer size="xs" />
+          {switchField(['rag', 'enabled'], 'RAG enabled', true)}
+          {switchField(['rag', 'use_runbooks'], 'Use runbooks', true)}
+          {switchField(['rag', 'use_mitre'], 'Use MITRE', true)}
+          {switchField(['rag', 'use_resolved_cases'], 'Use resolved cases', true)}
+          {switchField(['rag', 'use_suppression_rules'], 'Use suppression rules', true)}
+          <EuiSpacer size="s" />
+          <EuiFlexGroup wrap>
+            <EuiFlexItem>
+              <EuiFormRow label="Top K">{numberField(['rag', 'top_k'], 4)}</EuiFormRow>
+            </EuiFlexItem>
+            {getPref(['rag', 'min_score'], undefined) !== undefined ? (
+              <EuiFlexItem>
+                <EuiFormRow label="Min score">{numberField(['rag', 'min_score'], 0, 0.01)}</EuiFormRow>
+              </EuiFlexItem>
+            ) : null}
+          </EuiFlexGroup>
+
+          <EuiHorizontalRule margin="s" />
+          <EuiText size="s"><strong>Standup</strong></EuiText>
+          <EuiSpacer size="xs" />
+          {switchField(['standup', 'enabled'], 'Standup enabled', true)}
+          <EuiSpacer size="s" />
+          <EuiFlexGroup wrap>
+            <EuiFlexItem>
+              <EuiFormRow label="Window (hours)">{numberField(['standup', 'window_hours'], 24)}</EuiFormRow>
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFormRow label="Interval (seconds)">{numberField(['standup', 'interval_seconds'], 86400)}</EuiFormRow>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </>
+      )}
+
+      {/* Secrets + read-only mode */}
+      {section(
+        'sec-secrets',
+        'Credentials & access mode',
+        <>
+          <EuiText size="s"><strong>Configured credentials</strong> (status only — values are never shown)</EuiText>
+          <EuiSpacer size="s" />
+          <EuiFlexGroup wrap gutterSize="s" responsive={false}>
+            {Object.entries(configured).map(([k, v]) => (
+              <EuiFlexItem grow={false} key={k}>
+                <EuiBadge color={v ? 'success' : 'default'}>
+                  {k}: {v ? 'configured ✓' : 'not set'}
+                </EuiBadge>
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+
+          <EuiSpacer size="m" />
+          <EuiText size="s"><strong>Update keys</strong></EuiText>
+          <EuiText size="xs" color="subdued">
+            <p>
+              Keys sent here are stored IN-MEMORY in the backend and are lost on restart. For durable
+              configuration, set the matching <code>TLSOC_*</code> variables in <code>.env</code>.
+            </p>
+          </EuiText>
+          <EuiSpacer size="s" />
+          {[
+            ['es_api_key', 'ES read-only API key'],
+            ['es_mgmt_api_key', 'ES management API key'],
+            ['anthropic_api_key', 'Anthropic API key'],
+            ['openai_api_key', 'OpenAI API key'],
+            ['abuseipdb_api_key', 'AbuseIPDB API key'],
+            ['virustotal_api_key', 'VirusTotal API key'],
+            ['embedding_api_key', 'Embedding API key'],
+          ].map(([key, label]) => (
+            <EuiFormRow key={key} label={label}>
+              <EuiFieldText
+                type="password"
                 disabled={readOnly}
-                value={getPref(['poll_interval_seconds'], 30)}
-                onChange={(e) => setPref(['poll_interval_seconds'], Number(e.target.value))}
+                placeholder={configured[key] ? '•••••••• (configured)' : 'not set'}
+                value={secretDraft[key] || ''}
+                onChange={(e) => setSecretDraft((prev) => ({ ...prev, [key]: e.target.value }))}
               />
             </EuiFormRow>
-          </EuiFlexItem>
-          <EuiFlexItem>
-            <EuiFormRow label="Severity threshold">
-              <EuiFieldNumber
-                disabled={readOnly}
-                value={getPref(['severity_threshold'], 0)}
-                step={0.1}
-                onChange={(e) => setPref(['severity_threshold'], Number(e.target.value))}
-              />
-            </EuiFormRow>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-        <EuiCheckbox
-          id="polling_enabled"
-          disabled={readOnly}
-          label="Polling enabled"
-          checked={!!getPref(['polling_enabled'], true)}
-          onChange={(e) => setPref(['polling_enabled'], e.target.checked)}
-        />
-        <EuiCheckbox
-          id="background_scan_enabled"
-          disabled={readOnly}
-          label="Background scan enabled"
-          checked={!!getPref(['background_scan_enabled'], false)}
-          onChange={(e) => setPref(['background_scan_enabled'], e.target.checked)}
-        />
-        <EuiSpacer size="s" />
-        <EuiFormRow label="Auto-forward allowlist (comma separated rule values)">
-          <EuiFieldText
-            disabled={readOnly}
-            value={(getPref(['auto_forward_allowlist'], []) || []).join(', ')}
-            onChange={(e) =>
-              setPref(
-                ['auto_forward_allowlist'],
-                e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean)
-              )
-            }
+          ))}
+          <EuiSpacer size="s" />
+          <EuiButton size="s" onClick={saveSecrets} isLoading={savingSecrets} isDisabled={readOnly}>
+            Update keys
+          </EuiButton>
+
+          <EuiHorizontalRule margin="m" />
+          <EuiText size="s"><strong>Access mode</strong></EuiText>
+          <EuiSpacer size="xs" />
+          <EuiSwitch
+            label="Read-only settings mode (disables editing across this page)"
+            checked={!!getPref(['read_only_settings_mode'], false)}
+            onChange={(e) => setPref(['read_only_settings_mode'], e.target.checked)}
           />
-        </EuiFormRow>
-      </EuiPanel>
-
-      <EuiSpacer size="m" />
-
-      {/* Caps / kill switch */}
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Caps &amp; kill switch</h3>
-        </EuiTitle>
-        <EuiSpacer size="s" />
-        <EuiFlexGroup wrap>
-          <EuiFlexItem>
-            <EuiFormRow label="Max tool calls">
-              <EuiFieldNumber
-                disabled={readOnly}
-                value={getPref(['caps', 'max_tool_calls'], 8)}
-                onChange={(e) => setPref(['caps', 'max_tool_calls'], Number(e.target.value))}
-              />
-            </EuiFormRow>
-          </EuiFlexItem>
-          <EuiFlexItem>
-            <EuiFormRow label="Max tokens">
-              <EuiFieldNumber
-                disabled={readOnly}
-                value={getPref(['caps', 'max_tokens'], 20000)}
-                onChange={(e) => setPref(['caps', 'max_tokens'], Number(e.target.value))}
-              />
-            </EuiFormRow>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-        <EuiCheckbox
-          id="kill_switch"
-          disabled={readOnly}
-          label="Kill switch (stop all investigations)"
-          checked={!!getPref(['caps', 'kill_switch'], false)}
-          onChange={(e) => setPref(['caps', 'kill_switch'], e.target.checked)}
-        />
-      </EuiPanel>
-
-      <EuiSpacer size="m" />
-
-      {/* FP auto-close + toggles */}
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Automation toggles</h3>
-        </EuiTitle>
-        <EuiSpacer size="s" />
-        <EuiCheckbox
-          id="fp_auto_close_enabled"
-          disabled={readOnly}
-          label="FP auto-close enabled"
-          checked={!!getPref(['fp_auto_close', 'enabled'], false)}
-          onChange={(e) => setPref(['fp_auto_close', 'enabled'], e.target.checked)}
-        />
-        <EuiCheckbox
-          id="enrichment_enabled"
-          disabled={readOnly}
-          label="Enrichment enabled"
-          checked={!!getPref(['enrichment', 'enabled'], true)}
-          onChange={(e) => setPref(['enrichment', 'enabled'], e.target.checked)}
-        />
-        <EuiCheckbox
-          id="rag_enabled"
-          disabled={readOnly}
-          label="RAG enabled"
-          checked={!!getPref(['rag', 'enabled'], true)}
-          onChange={(e) => setPref(['rag', 'enabled'], e.target.checked)}
-        />
-        <EuiCheckbox
-          id="standup_enabled"
-          disabled={readOnly}
-          label="Standup enabled"
-          checked={!!getPref(['standup', 'enabled'], true)}
-          onChange={(e) => setPref(['standup', 'enabled'], e.target.checked)}
-        />
-      </EuiPanel>
-
-      <EuiSpacer size="m" />
-
-      {/* Correlation rules editor */}
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Per-rule correlation</h3>
-        </EuiTitle>
-        <EuiSpacer size="xs" />
-        <EuiText size="xs" color="subdued">
-          <p>
-            Map of rule value to {'{ mode, n, window_seconds, group_by }'}. Edit as JSON; saved on
-            "Save settings".
-          </p>
-        </EuiText>
-        <EuiSpacer size="xs" />
-        <EuiTextArea
-          fullWidth
-          disabled={readOnly}
-          rows={6}
-          value={JSON.stringify(correlationRules, null, 2)}
-          onChange={(e) => {
-            try {
-              const parsed = JSON.parse(e.target.value);
-              setPref(['correlation_rules'], parsed);
-              setError(null);
-            } catch {
-              // keep raw; surface a hint only
-              setError('correlation_rules: invalid JSON (not saved until valid)');
-            }
-          }}
-        />
-      </EuiPanel>
-
-      <EuiSpacer size="m" />
-
-      <EuiButton
-        fill
-        isLoading={saving}
-        isDisabled={readOnly}
-        onClick={() =>
-          save({
-            poll_interval_seconds: getPref(['poll_interval_seconds'], 30),
-            polling_enabled: !!getPref(['polling_enabled'], true),
-            severity_threshold: getPref(['severity_threshold'], 0),
-            background_scan_enabled: !!getPref(['background_scan_enabled'], false),
-            auto_forward_allowlist: getPref(['auto_forward_allowlist'], []),
-            fp_auto_close: { enabled: !!getPref(['fp_auto_close', 'enabled'], false) },
-            caps: {
-              max_tool_calls: getPref(['caps', 'max_tool_calls'], 8),
-              max_tokens: getPref(['caps', 'max_tokens'], 20000),
-              kill_switch: !!getPref(['caps', 'kill_switch'], false),
-            },
-            enrichment: { enabled: !!getPref(['enrichment', 'enabled'], true) },
-            rag: { enabled: !!getPref(['rag', 'enabled'], true) },
-            standup: { enabled: !!getPref(['standup', 'enabled'], true) },
-            correlation_rules: getPref(['correlation_rules'], {}),
-          })
-        }
-      >
-        Save settings
-      </EuiButton>
-
-      <EuiSpacer size="m" />
-      <EuiDescriptionList
-        compressed
-        type="column"
-        listItems={[
-          { title: 'Data view pattern', description: String(getPref(['data_view_pattern'], '-')) },
-          {
-            title: 'Entity mapping',
-            description: `ip=${getPref(['source_ip_field'], '-')} user=${getPref(['user_field'], '-')} host=${getPref(['host_field'], '-')}`,
-          },
-        ]}
-      />
+          <EuiText size="xs" color="subdued">
+            <p>Toggle and click "Save settings" to apply.</p>
+          </EuiText>
+        </>
+      )}
     </div>
   );
 };

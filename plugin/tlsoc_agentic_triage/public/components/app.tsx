@@ -150,7 +150,7 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
       case 'cost':
         return <Cost api={api} />;
       case 'settings':
-        return <Settings api={api} />;
+        return <Settings api={api} core={core} />;
       default:
         return null;
     }

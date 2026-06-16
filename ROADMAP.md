@@ -17,9 +17,12 @@ commit + push.
   **P2** (risk/timeout/normalize/CIDR) — committed, 60 tests green.
 - ☑ **Backend** Features 1-4 (chat context, /api/overview, trigger-reason,
   /api/models) — committed (c572069), tested.
-- ◐ **Frontend** Features 1/3/4 + common sync — in progress (agent).
-- ☐ Remaining: Feature 2 (doc-viewer + in-app overview button), Feature 5
-  (wizard rewrite), **P1 RAG**, then rebuild + triple-verify the 8.19.12 zip.
+- ☑ **Frontend** Feature 1 (header chat button + context flyout), Feature 4
+  (comprehensive settings + per-role models), Feature 3 (trigger-reason render),
+  `common/index.ts` sync — committed; **8.19.12 zip rebuilt + verified** (bundle
+  present, manifest 8.19.12, header navControl compiled in, 0 backend-URL leak).
+- ☐ Remaining: Feature 2 (Discover doc-viewer tab + in-app overview button),
+  Feature 5 (wizard rewrite), **P1 RAG**; refresh USAGE/BUILD docs.
 
 ## Work order (this cycle)
 

@@ -13,7 +13,7 @@ import {
   EuiTextArea,
   EuiPanel,
 } from '@elastic/eui';
-import type { ChatResponse, ChatTurn, ChatTable } from '../../common';
+import type { ChatContext, ChatResponse, ChatTurn, ChatTable } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
 
@@ -22,6 +22,13 @@ interface ChatProps {
   openInDiscover: OpenInDiscover;
   caseId?: string;
   placeholder?: string;
+  /**
+   * Optional, called AT SEND TIME to snapshot the surface the analyst is on. When
+   * present, the result is attached as `body.context`. The in-app Chat tab passes
+   * nothing (unchanged behavior); the global flyout passes a screen-context
+   * collector so one chat engine serves two entry points.
+   */
+  getContext?: () => ChatContext | Promise<ChatContext>;
 }
 
 interface RenderedTurn extends ChatTurn {
@@ -54,7 +61,13 @@ function ChatTableView({ table }: { table: ChatTable }) {
   );
 }
 
-export const Chat: React.FC<ChatProps> = ({ api, openInDiscover, caseId, placeholder }) => {
+export const Chat: React.FC<ChatProps> = ({
+  api,
+  openInDiscover,
+  caseId,
+  placeholder,
+  getContext,
+}) => {
   const [turns, setTurns] = useState<RenderedTurn[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -75,6 +88,15 @@ export const Chat: React.FC<ChatProps> = ({ api, openInDiscover, caseId, placeho
       const body: Record<string, unknown> = { message, history };
       if (caseId) {
         body.case_id = caseId;
+      }
+      if (getContext) {
+        try {
+          // Snapshot the surface at send time. The backend fences any
+          // attacker-influenceable values (query/selection) as untrusted data.
+          body.context = await getContext();
+        } catch {
+          /* context is best-effort; never block the send on it */
+        }
       }
       const resp = await api.post<ChatResponse>('chat', body);
       setTurns([

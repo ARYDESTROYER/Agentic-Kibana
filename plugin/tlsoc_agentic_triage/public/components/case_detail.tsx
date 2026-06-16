@@ -17,6 +17,7 @@ import {
 import type { Case, Entity } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
+import { TriggerReasonCallout } from './trigger_reason_callout';
 
 type LifecycleAction = 'close' | 'confirm_fp' | 'escalate' | 'reopen';
 
@@ -264,6 +265,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
             <EuiText size="s">
               <p>{c.summary}</p>
             </EuiText>
+          </>
+        ) : null}
+
+        {/* Feature 3: deterministic "why was this triggered" explanation. */}
+        {c.trigger_reason ? (
+          <>
+            <EuiSpacer size="s" />
+            <TriggerReasonCallout triggerReason={c.trigger_reason} />
           </>
         ) : null}
 
