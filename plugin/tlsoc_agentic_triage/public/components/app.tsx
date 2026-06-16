@@ -21,6 +21,7 @@ import { makeOpenInDiscover } from '../lib/discover';
 
 import { Chat } from './chat';
 import { Investigate } from './investigate';
+import { Board } from './board';
 import { Scans } from './scans';
 import { Standup } from './standup';
 import { Cost } from './cost';
@@ -108,6 +109,7 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
   const tabs = [
     { id: 'chat', name: 'Agent Chat' },
     { id: 'investigate', name: 'Alerts / Investigate' },
+    { id: 'board', name: 'Board' },
     {
       id: 'scans',
       name: 'Automated Scans',
@@ -132,6 +134,16 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
             openInDiscover={openInDiscover}
             selectedCaseId={selectedCaseId}
             onSelectCase={setSelectedCaseId}
+          />
+        );
+      case 'board':
+        return (
+          <Board
+            api={api}
+            onOpenCase={(caseId) => {
+              setSelectedCaseId(caseId);
+              setSelectedTab('investigate');
+            }}
           />
         );
       case 'scans':
