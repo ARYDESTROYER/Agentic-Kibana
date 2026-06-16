@@ -362,3 +362,7 @@ class InvestigateRequest(BaseModel):
     event_ids: list[str] = Field(default_factory=list)
     rule_values: list[str] = Field(default_factory=list)
     source_surface: SourceSurface = SourceSurface.INVESTIGATE
+    # Optional per-request override of the starting lookback window for an entity
+    # investigation (additive; the proxy forwards it). Falls back to
+    # ``Preferences.investigate_lookback``. The route auto-widens from here on 0 hits.
+    lookback: str | None = None

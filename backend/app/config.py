@@ -207,6 +207,13 @@ class Preferences(BaseModel):
     data_view_pattern: str = "all-logs-*"
     time_field: str = "@timestamp"
 
+    # --- Manual investigate (Surface 2) ---
+    # Starting lookback window for a manual entity investigation. If the configured
+    # window yields zero events the investigate path auto-widens through a ladder
+    # (this window -> now-7d -> now-30d -> now-1y) before giving up, so an entity
+    # whose only activity is older than the default window still resolves.
+    investigate_lookback: str = "now-24h"
+
     # --- Entity field mapping (Section 5.3) ---
     source_ip_field: str = "source.ip"
     user_field: str = "user.name"

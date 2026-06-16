@@ -123,8 +123,11 @@ _BARE_TOKEN_FIELDS = {
     "host": "host_field",
 }
 # `<token> : value` or `<token>:value`, value optionally quoted (single/double).
+# The negative lookbehind ``(?<![\w.])`` ensures we only rewrite a STANDALONE bare
+# token (``ip:x``), never the tail of an already-configured dotted field path
+# (``source.ip : "x"`` must stay unchanged — otherwise it became ``source.source.ip``).
 _BARE_TOKEN_RE = re.compile(
-    r"\b(ip|user|host)\s*:\s*(\"[^\"]*\"|'[^']*'|[^\s\"']+)",
+    r"(?<![\w.])(ip|user|host)\s*:\s*(\"[^\"]*\"|'[^']*'|[^\s\"']+)",
     re.IGNORECASE,
 )
 

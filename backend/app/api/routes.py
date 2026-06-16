@@ -14,7 +14,7 @@ from ..constants import CaseStatus, DecisionBy, EntityType, SourceSurface
 from ..engine.correlation import cluster_from_events
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
-from ..models import ChatRequest, InvestigateRequest, RawEvent
+from ..models import ChatRequest, Cluster, InvestigateRequest, RawEvent, TriggerReason
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
 from .deps import get_state
@@ -131,9 +131,11 @@ async def chat(body: ChatRequest, state: AppState = Depends(get_state)) -> dict[
 # --------------------------------------------------------------------------- #
 @router.post("/investigate")
 async def investigate(body: InvestigateRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    cluster = await _cluster_for_request(state, body)
+    cluster, widest = await _cluster_for_request(state, body)
     if cluster is None:
-        raise HTTPException(status_code=400, detail="Could not resolve events for this request")
+        # NEUTRAL, specific detail so the FE shows an empty-state, not a scary error.
+        detail = _no_events_detail(body, widest)
+        raise HTTPException(status_code=400, detail=detail)
     case = await state.pipeline.investigate_cluster(cluster, body.source_surface, state.prefs)
     return case.model_dump(mode="json")
 
@@ -225,6 +227,38 @@ async def case_action(
     return case.model_dump(mode="json")
 
 
+@router.post("/cases/{case_id}/investigate")
+async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Human-triggered (re-)investigation of a stored case (C3-4).
+
+    Rebuilds the cluster from the case — preferring an exact id-based re-query,
+    falling back to a config-windowed entity re-query — then re-runs the SAME
+    shared pipeline with ``force=True`` so an already-investigated OPEN case is
+    re-investigated in place. The case's ORIGINAL provenance (``source_surface`` /
+    ``origin_surface``) is preserved by the pipeline, so an automated-scan case
+    stays in the Automated Scans tab. Returns a NEUTRAL 400 if no events remain
+    (the cluster aged out of the configured window).
+    """
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    cluster = await _cluster_for_case(state, case)
+    if cluster is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No events remain for {case.entity.type.value} {case.entity.value} "
+                f"in the last {state.prefs.investigate_lookback}; the activity may have "
+                "aged out of the retained log window."
+            ),
+        )
+    # force=True so an already-investigated OPEN case is genuinely re-investigated.
+    updated = await state.pipeline.investigate_cluster(
+        cluster, case.source_surface, state.prefs, force=True
+    )
+    return updated.model_dump(mode="json")
+
+
 # --------------------------------------------------------------------------- #
 # Automated scans (Surface 3)
 # --------------------------------------------------------------------------- #
@@ -293,43 +327,186 @@ def _millis_to_iso(millis: int) -> str:
     return datetime.fromtimestamp(millis / 1000.0, tz=timezone.utc).isoformat()
 
 
-async def _cluster_for_request(state: AppState, req: InvestigateRequest):
+# Auto-widen ladder (BUG-2): increasing windows tried IN ORDER on 0 hits. The
+# configured/requested start window is always tried first; ladder rungs narrower
+# than the start are skipped so we never shrink the search below what was asked.
+# ``now-365d`` is the ~1-year widest rung (the relative-time parser supports
+# s/m/h/d/w, not a ``y`` unit, so a year is expressed in days).
+_WIDEN_LADDER = ("now-7d", "now-30d", "now-365d")
+
+
+def _entity_field(prefs: Preferences, entity_type: EntityType) -> str:
+    return {
+        EntityType.IP: prefs.source_ip_field,
+        EntityType.USER: prefs.user_field,
+        EntityType.HOST: prefs.host_field,
+    }[entity_type]
+
+
+def _scoped_entity_body(prefs: Preferences, field: str, value: str, from_millis: int) -> dict[str, Any]:
+    """Entity query with the SAME scope + suppression filters the poller uses, so a
+    manual investigation never pulls out-of-scope or suppressed events."""
+    body = entity_query(
+        prefs, field, value, from_millis=from_millis, size=200,
+        extra_filters=scope_filters(prefs),
+    )
+    must_not = scope_must_not(prefs)
+    if must_not:
+        body["query"]["bool"]["must_not"] = must_not
+    return body
+
+
+def _widen_windows(start_window: str) -> list[str]:
+    """Ordered windows to try: the configured/requested start, then each ladder
+    rung that is WIDER than (i.e. reaches further back than) the start."""
+    windows = [start_window]
+    start_ms = relative_to_millis(start_window)
+    for rung in _WIDEN_LADDER:
+        # A wider window resolves to an EARLIER epoch (further in the past).
+        if relative_to_millis(rung) < start_ms:
+            windows.append(rung)
+    return windows
+
+
+async def _entity_events_widening(
+    state: AppState, entity_type: EntityType, value: str, start_window: str
+) -> tuple[list[RawEvent], str]:
+    """Fetch an entity's in-scope events, auto-widening the lookback on 0 hits.
+
+    Returns (events, widest_window_tried). Stops at the first window that yields
+    events; if all are empty the events list is empty and widest_window_tried is
+    the broadest window attempted."""
     prefs = state.prefs
+    field = _entity_field(prefs, entity_type)
+    windows = _widen_windows(start_window)
+    widest = windows[-1]
+    for window in windows:
+        body = _scoped_entity_body(prefs, field, value, relative_to_millis(window))
+        resp = await state.es.search_logs(prefs.data_view_pattern, body)
+        hits = resp.get("hits", {}).get("hits", [])
+        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        if events:
+            return events, window
+    return [], widest
+
+
+async def _cluster_for_request(
+    state: AppState, req: InvestigateRequest
+) -> tuple[Cluster | None, str]:
+    """Resolve an InvestigateRequest to a Cluster (with a synthesized manual
+    TriggerReason). Returns (cluster_or_None, widest_window_tried)."""
+    prefs = state.prefs
+    start_window = req.lookback or prefs.investigate_lookback
+
     if req.event_ids:
         resp = await state.es.search_logs(
             prefs.data_view_pattern, ids_query(req.event_ids, size=len(req.event_ids))
         )
-    elif req.entity:
-        field = {
-            EntityType.IP: prefs.source_ip_field,
-            EntityType.USER: prefs.user_field,
-            EntityType.HOST: prefs.host_field,
-        }[req.entity.type]
-        # Apply the same scope + suppression filters the poller uses, so a manual
-        # investigation never pulls out-of-scope or suppressed events.
-        body = entity_query(
-            prefs, field, req.entity.value,
-            from_millis=relative_to_millis("now-24h"), size=200,
-            extra_filters=scope_filters(prefs),
-        )
-        must_not = scope_must_not(prefs)
-        if must_not:
-            body["query"]["bool"]["must_not"] = must_not
-        resp = await state.es.search_logs(prefs.data_view_pattern, body)
-    else:
-        return None
-
-    hits = resp.get("hits", {}).get("hits", [])
-    events = [RawEvent.from_hit(h, prefs) for h in hits]
-    if not events:
-        return None
-
-    if req.entity:
-        entity_type, value = req.entity.type, req.entity.value
-    else:
+        hits = resp.get("hits", {}).get("hits", [])
+        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        if not events:
+            return None, start_window
         entity_type = req.group_by
         value = events[0].entity_value(entity_type)
         if not value:
-            return None
+            return None, start_window
+        members = [e for e in events if e.entity_value(entity_type) == value] or events
+        window = start_window
+    elif req.entity:
+        entity_type, value = req.entity.type, req.entity.value
+        events, window = await _entity_events_widening(state, entity_type, value, start_window)
+        if not events:
+            return None, window
+        members = [e for e in events if e.entity_value(entity_type) == value] or events
+    else:
+        return None, start_window
+
+    cluster = cluster_from_events(entity_type, value, members)
+    cluster.trigger_reason = _manual_trigger_reason(cluster, window)
+    return cluster, window
+
+
+async def _cluster_for_case(state: AppState, case) -> Cluster | None:
+    """Rebuild a cluster from a stored case for a human-triggered re-investigation.
+
+    Prefers an exact id-based re-query of the case's member events; falls back to a
+    config-windowed (``prefs.investigate_lookback``) entity re-query using the same
+    scope filters as the manual investigate path. Read-only on the log surface.
+
+    The original deterministic trigger reason (if the case has one) is PRESERVED so
+    a re-investigate never overwrites a scan-derived "Why this fired"; only a case
+    lacking one gets a synthesized MANUAL trigger reason."""
+    prefs = state.prefs
+    entity_type, value = case.entity.type, case.entity.value
+    has_trigger = case.trigger_reason is not None
+
+    def _finalize(cluster: Cluster, window: str) -> Cluster:
+        # Only synthesize a manual reason when the case lacks one; otherwise leave
+        # the cluster's reason None so the pipeline's _trigger() keeps the existing.
+        if not has_trigger:
+            cluster.trigger_reason = _manual_trigger_reason(cluster, window)
+        else:
+            cluster.trigger_reason = None
+        return cluster
+
+    # Preferred: re-fetch the exact member events by id (read-only).
+    if case.member_event_ids:
+        resp = await state.es.search_logs(
+            prefs.data_view_pattern,
+            ids_query(case.member_event_ids, size=len(case.member_event_ids)),
+        )
+        hits = resp.get("hits", {}).get("hits", [])
+        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        members = [e for e in events if e.entity_value(entity_type) == value] or events
+        if members:
+            cluster = cluster_from_events(entity_type, value, members)
+            return _finalize(cluster, prefs.investigate_lookback)
+
+    # Fallback: re-query the entity over the configured window (with auto-widen).
+    events, window = await _entity_events_widening(
+        state, entity_type, value, prefs.investigate_lookback
+    )
+    if not events:
+        return None
     members = [e for e in events if e.entity_value(entity_type) == value] or events
-    return cluster_from_events(entity_type, value, members)
+    cluster = cluster_from_events(entity_type, value, members)
+    return _finalize(cluster, window)
+
+
+def _manual_trigger_reason(cluster: Cluster, window: str) -> TriggerReason:
+    """Synthesize a MANUAL TriggerReason so "Why this fired" renders for manually
+    investigated cases (Feature 3 / IMPROVEMENT). Mode is ``manual``; structured
+    fields are filled from the resolved cluster."""
+    entity_type = cluster.entity.type.value
+    entity_value = cluster.entity.value
+    n = cluster.count
+    rules = ", ".join(cluster.rule_values) or "no specific rule"
+    sentence = (
+        f"Manually investigated: {n} event{'s' if n != 1 else ''} for "
+        f"{entity_type} {entity_value} in the last {window} across rules [{rules}]"
+    )
+    return TriggerReason(
+        rule_value=(cluster.rule_values[0] if cluster.rule_values else ""),
+        mode="manual",
+        n=n,
+        window_seconds=0,
+        group_by=entity_type,
+        observed_count=n,
+        window_start=cluster.first_seen_millis,
+        window_end=cluster.last_seen_millis,
+        entity=f"{entity_type}:{entity_value}",
+        rule_values=list(cluster.rule_values),
+        sentence=sentence,
+    )
+
+
+def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
+    """NEUTRAL, specific 400 detail for an empty manual investigation."""
+    if req.entity:
+        return (
+            f"No events found for {req.entity.type.value} {req.entity.value} "
+            f"in the last {widest}"
+        )
+    if req.event_ids:
+        return "No events found for the selected document ids"
+    return "Could not resolve events for this request"
