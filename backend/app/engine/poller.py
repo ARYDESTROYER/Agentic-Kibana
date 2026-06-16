@@ -186,6 +186,13 @@ class Poller:
         existing.rule_ids = sorted(set(existing.rule_ids) | set(cluster.rule_values))
         existing.history.append({"ts": existing.updated_at, "event": "attach",
                                  "added_events": len(merged) - before})
+        # Cycle-2 NOTE: an automated burst can attach (by entity signature) to a case
+        # that was opened manually (origin_surface != automated_scan), which has no
+        # deterministic "why this fired" reason. Surface the attaching cluster's
+        # trigger_reason so the "Why this fired" callout renders on it too — without
+        # overwriting a reason the case already has.
+        if existing.trigger_reason is None and cluster.trigger_reason is not None:
+            existing.trigger_reason = cluster.trigger_reason
         await self._cases.save(existing)
 
     # --- background loop ---
