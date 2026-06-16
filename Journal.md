@@ -189,3 +189,58 @@
 - Tests: n/a (docs); git status shows only the 2 files.
 - Status: done — work-order cycle complete except deferred Feature 5.
 - Next: Feature 5 wizard rewrite against a live 8.19 Kibana (tracked in ROADMAP).
+
+### 2026-06-16 17:00Z — orchestrator — Cycle 2/3 kickoff (fresh container)
+- Context: New session on branch `claude/epic-cannon-p5z5ha` at 948bc45 — the exact
+  deployed commit the Cycle 2 bugs were filed against. Goal: work the Cycle 2 bug
+  list + Cycle 3 feature requests via Opus sub-agents, backend-first (pytest is the
+  only in-container verification; plugin build needs the heavy Kibana checkout).
+- Did: rebuilt backend/.venv (baseline 69→ now 88 tests green); re-cloned
+  `/tmp/kibana-8.19` (v8.19.12) + `yarn kbn bootstrap` (exit 0) in background so the
+  plugin toolchain is warm for the final 8.19.12 zip rebuild. Ran Wave 1 = 3 isolated
+  backend agents on disjoint files (below).
+- Tests: full suite 88 passed after the wave.
+- Status: in-progress — Wave 1 committed (7370f43, 65e695b, ba6d09f).
+- Next: Wave 2 = investigate-path agent (BUG-2 backend + IMPROVEMENT + C3-4) owning
+  routes/pipeline/config/models; then rule-catalog wave (C3-1 + C3-6b); then
+  trace+resolved-RAG wave (C3-3 + C3-5); then frontend; then rebuild 8.19.12 zip.
+
+### 2026-06-16 17:10Z — backend agent (BUG-1) — chat 2-turn analysis
+- Context: BUG-1 (HIGH) — chat never showed analysis; ChatEngine.chat was single-turn
+  and the fetched rows never reached the model (only a preamble + raw table).
+- Did: second model turn `_analyse_results` in agents/chat.py — on tr.ok+tr.data, build
+  a COMPACT facets-first aggregate (counts, time span, top-5 rules/users/hosts/ips,
+  <=5 sample rows), fence() it UNTRUSTED, re-prompt for {answer}, set the final answer
+  + add res2.cost to the ledger; try/except falls back to old summary so chat never
+  hard-fails. No-query/query-failed paths + Feature-1 ChatContext unchanged. CHAT_SYSTEM
+  rewritten for the 2-step contract (only that constant). +tests/test_chat_analysis.py.
+- Tests: pytest 73 passed (at the time). Note: fence() caps at 600 chars; facets are
+  ordered before sample_rows so truncation drops samples first (acceptable).
+- Status: done (committed 7370f43).
+- Next: plugin chat UI already renders answer+table — no contract change.
+
+### 2026-06-16 17:15Z — backend agent (BUG-5) — real-time correlation over full window
+- Context: BUG-5 (HIGH) — poller correlated only the incremental cursor batch, so bursts
+  spread across >1 poll interval never reached the threshold (slow-burn misses).
+- Did: poller.py only — poll_once now does a second read-only sliding look-back read
+  (`max(widest rule window, poll_interval)+2*interval`, clamped to cold-start), de-dupes
+  by event id with new_events, and feeds the FULL window to correlate() (signature
+  unchanged). Cursor still defines "new"; signature idempotency + _attach prevent dup
+  cases / re-investigation. +2 tests: a 6-event/~60s burst arriving as below-threshold
+  batches now creates exactly 1 case; overlapping windows + idle polls create no dup and
+  no re-investigation; verified 0 cases under old per-batch behavior.
+- Tests: pytest 75 passed (at the time).
+- Status: done (committed 65e695b).
+- Next: live-stack sanity that the window read stays within poll_batch_size on noisy windows.
+
+### 2026-06-16 17:30Z — backend agent (C3-6a) — OpenAI catalog + provider param quirks
+- Context: C3-6 PART A (isolated half) — expand the OpenAI price catalog + per-model param
+  quirks; per-rule model wiring (config/pipeline) deferred to the rule-catalog wave.
+- Did: pricing.py — added gpt-4.1, gpt-4.1-mini, gpt-4-turbo, gpt-4, o4-mini, gpt-5,
+  gpt-5-mini with operator-verifiable approx USD/1M prices (commented), kept _DEFAULT_PRICE;
+  provider_for() maps o1/o3/o4* to openai. providers.py — _is_reasoning_or_gpt5(); OpenAI
+  complete omits temperature + sends max_completion_tokens for gpt-5 family + o-series,
+  classic params elsewhere. +tests/test_pricing_catalog.py (13 cases incl. httpx-boundary).
+- Tests: pytest 88 passed.
+- Status: done (committed ba6d09f).
+- Next: per-rule model_for_rule wiring rides with C3-1 rule catalog (shares model_override).
