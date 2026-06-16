@@ -9,27 +9,33 @@ kept). History is reconstructed from `git log`.
 
 ## [Unreleased]
 
-In-flight work order for this cycle (live status in [`ROADMAP.md`](ROADMAP.md);
-session notes in [`Journal.md`](Journal.md)). Every item ends with: rebuild the
-8.19.12 zip, `pytest -q` green, plugin build verified, docs + Journal updated.
+Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in
+[`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified; backend `pytest -q`
+= 69 passed.
 
-### Added (in progress)
-- **Feature 1 — Global header chat button + context-aware flyout.** Right-nav
-  chat control + flyout; `lib/screen_context.ts`; backend `ChatContext` /
-  `ChatRequest.context` fenced through the chat engine.
-- **Feature 2 — Per-log "AI overview".** Discover doc-viewer tab + in-app per-row
-  overview; backend `POST /api/overview` single-event agent with the cheap
-  `overview_model`.
-- **Feature 3 — "Why was this triggered".** `TriggerReason` model + matched-window
-  detail carried onto the case and rendered in the UI.
-- **Feature 4 — Comprehensive settings + per-task model selection.** Settings UI
-  rendering every `Preferences` field; per-role model pickers; `GET /api/models`.
-- **Feature 5 — First-run setup wizard rewrite.** 4-step `EuiSteps` (ES + test,
-  data scope, entity mapping, LLM + per-role models + enrichment); in-memory
-  secret warning.
-- **RAG improvements (P1).** `use_resolved_cases` as retrievable memory; persist
-  the vector store via ES `dense_vector` kNN behind the `VectorStore` ABC;
-  mixed-embedding-space guards; min-cosine relevance threshold; ground chat in RAG.
+### Added (done)
+- **Feature 1 — Global header chat button + context-aware flyout.** `plugin.ts`
+  registers `core.chrome.navControls.registerRight`; `global_chat_control` +
+  `global_chat_flyout` reuse the Chat engine; `lib/screen_context.ts` snapshots
+  app/data-view/time-range/query/selection at send time; backend `ChatContext` /
+  `ChatRequest.context`, fenced as UNTRUSTED and used only as es_query defaults.
+- **Feature 2 — Per-log "AI overview".** Discover doc-viewer tab ("TLSOC AI
+  Overview", guarded `unifiedDocViewer` registration) + in-app per-row overview
+  button; backend `POST /api/overview` single-event agent on the cheap
+  `overview_model`, metered through the gateway, reusing IP enrichment.
+- **Feature 3 — "Why was this triggered".** `TriggerReason` (deterministic matched
+  window + human sentence) carried onto every case and rendered in scans + case
+  detail; case index-template priority raised to 600.
+- **Feature 4 — Comprehensive settings + per-task model selection.** `settings.tsx`
+  renders EVERY `Preferences` field; per-role model pickers from `GET /api/models`.
+- **RAG (P1).** `use_resolved_cases` retrievable memory; ES `dense_vector` kNN
+  store behind the `VectorStore` ABC; mixed-embedding-space guard (clear+reseed,
+  no truncation); min-cosine threshold; richer query; chat grounded in RAG.
+
+### Deferred
+- **Feature 5 — wizard rewrite.** The original 4-step wizard is functional; the
+  enhancement (dataViews create, auto-suggest, per-role models) is best validated
+  against a live 8.19 Kibana. Tracked in ROADMAP.
 
 ### Changed (done this cycle)
 - **P0 — Case detail + lifecycle in the UI.** Selected case lifted into app

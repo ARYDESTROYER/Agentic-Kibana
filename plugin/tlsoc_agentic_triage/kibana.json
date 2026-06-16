@@ -10,5 +10,5 @@
   "server": true,
   "ui": true,
   "requiredPlugins": ["navigation", "data", "dataViews", "share"],
-  "optionalPlugins": []
+  "optionalPlugins": ["unifiedDocViewer"]
 }

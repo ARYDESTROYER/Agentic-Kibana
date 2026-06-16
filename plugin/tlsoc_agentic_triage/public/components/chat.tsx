@@ -12,10 +12,30 @@ import {
   EuiText,
   EuiTextArea,
   EuiPanel,
+  EuiModal,
+  EuiModalBody,
+  EuiModalHeader,
+  EuiModalHeaderTitle,
 } from '@elastic/eui';
 import type { ChatContext, ChatResponse, ChatTurn, ChatTable } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
+import { LogOverview } from './log_overview';
+
+/** Reconstruct a nested ES-ish _source from a projected chat-table row so the
+ * single-event AI overview (Feature 2) can extract entities + enrich the IP. */
+function rowToSource(raw: Record<string, any>): Record<string, any> {
+  const sev = raw.severity;
+  return {
+    '@timestamp': raw['@timestamp'],
+    source: raw.ip ? { ip: raw.ip } : undefined,
+    user: raw.user ? { name: raw.user } : undefined,
+    host: raw.host ? { name: raw.host } : undefined,
+    rule: raw.rule ? { name: raw.rule } : undefined,
+    event: { action: raw.action, severity: sev === '' || sev == null ? undefined : Number(sev) },
+    message: raw.message,
+  };
+}
 
 interface ChatProps {
   api: TlsocApi;
@@ -36,17 +56,33 @@ interface RenderedTurn extends ChatTurn {
   discover?: ChatResponse['discover'];
 }
 
-function ChatTableView({ table }: { table: ChatTable }) {
-  const columns = table.columns.map((c, i) => ({
+function ChatTableView({ table, api }: { table: ChatTable; api: TlsocApi }) {
+  const [overviewFor, setOverviewFor] = useState<Record<string, any> | null>(null);
+  const columns: any[] = table.columns.map((c, i) => ({
     field: `c${i}`,
     name: c,
     truncateText: true,
   }));
+  columns.push({
+    name: 'AI',
+    actions: [
+      {
+        name: 'AI overview',
+        description: 'Generate an AI overview of this event',
+        icon: 'inspect',
+        type: 'icon',
+        onClick: (item: any) => setOverviewFor(item.__raw),
+      },
+    ],
+  });
   const items = table.rows.map((row, ri) => {
     const obj: Record<string, any> = { id: ri };
+    const raw: Record<string, any> = {};
     row.forEach((cell, ci) => {
       obj[`c${ci}`] = cell === null || cell === undefined ? '' : String(cell);
+      raw[table.columns[ci]] = cell;
     });
+    obj.__raw = raw;
     return obj;
   });
   return (
@@ -56,6 +92,16 @@ function ChatTableView({ table }: { table: ChatTable }) {
         <EuiText size="xs" color="subdued">
           <p>Results truncated.</p>
         </EuiText>
+      ) : null}
+      {overviewFor ? (
+        <EuiModal onClose={() => setOverviewFor(null)} style={{ minWidth: 480 }}>
+          <EuiModalHeader>
+            <EuiModalHeaderTitle>AI overview</EuiModalHeaderTitle>
+          </EuiModalHeader>
+          <EuiModalBody>
+            <LogOverview api={api} source={rowToSource(overviewFor)} />
+          </EuiModalBody>
+        </EuiModal>
       ) : null}
     </>
   );
@@ -152,7 +198,7 @@ export const Chat: React.FC<ChatProps> = ({
                 {t.table ? (
                   <>
                     <EuiSpacer size="s" />
-                    <ChatTableView table={t.table} />
+                    <ChatTableView table={t.table} api={api} />
                   </>
                 ) : null}
                 {t.discover ? (

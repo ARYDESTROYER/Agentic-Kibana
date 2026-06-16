@@ -155,3 +155,24 @@
 - Status: done. plugin/ untouched; non-negotiables preserved.
 - Next: orchestrator commit; expose rag.min_score in Settings (already covered by
   the full-prefs settings page).
+
+### 2026-06-16 ~18:00Z — orchestrator — Feature 2 (per-log AI overview) + 8.19.12 rebuild
+- Context: The Feature 2/5 frontend agent STALLED (infra watchdog, 4th frontend
+  infra failure) with zero repo changes. The original wizard already has working
+  4-step EuiSteps, so Feature 5 is a polish-rewrite of a functional wizard ->
+  DEFERRED (tracked). I implemented Feature 2 directly.
+- Did: new public/components/log_overview.tsx (renders POST /api/overview result);
+  doc_viewer_overview.tsx (resolves http via getStartServices for the Discover
+  tab); plugin.ts setup() registers a guarded, loosely-typed unifiedDocViewer
+  doc-viewer tab "TLSOC AI Overview" (optionalPlugins, try/catch -> can't break
+  setup); in-app per-row "AI overview" button in the chat result table (opens a
+  modal; reconstructs a nested _source so IP enrichment works); types.ts
+  AppPluginSetupDependencies; kibana.json optionalPlugins=[unifiedDocViewer].
+  Rebuilt the 8.19.12 zip from source.
+- Tests: pytest 69 green; tsc clean for public/+common; zip verified — bundle
+  present, kibanaVersion 8.19.12, optionalPlugins set, 0 backend-URL leak,
+  Feature 1/2 compiled in. dist zip 57493 bytes.
+- Status: Feature 2 done. Feature 5 (wizard rewrite) DEFERRED — the existing
+  wizard works; rewrite is polish + risky to do blind (no live Kibana).
+- Next: USAGE/CHANGELOG refresh; Feature 5 wizard-rewrite when a live 8.19 stack
+  is available to validate dataViews.createAndSave.

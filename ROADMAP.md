@@ -21,8 +21,16 @@ commit + push.
   (comprehensive settings + per-role models), Feature 3 (trigger-reason render),
   `common/index.ts` sync — committed; **8.19.12 zip rebuilt + verified** (bundle
   present, manifest 8.19.12, header navControl compiled in, 0 backend-URL leak).
-- ☐ Remaining: Feature 2 (Discover doc-viewer tab + in-app overview button),
-  Feature 5 (wizard rewrite), **P1 RAG**; refresh USAGE/BUILD docs.
+- ☑ **Backend P1 RAG** — resolved-case memory, ES dense_vector store, embedding
+  guard, min-cosine, richer query, chat grounding — committed (260a170), 69 tests.
+- ☑ **Feature 2** — per-log AI overview (Discover doc-viewer tab + in-app button
+  → POST /api/overview) — committed; 8.19.12 zip rebuilt + verified.
+- ☐ **Feature 5** (wizard rewrite) — DEFERRED: the original 4-step wizard is
+  functional; the rewrite (dataViews.createAndSave, auto-suggest, per-role models)
+  is polish best validated against a live 8.19 Kibana. Tracked for next cycle.
+- Note: 4 frontend sub-agent runs hit infra failures (rate-limit/watchdog); the
+  contract-critical + Feature-2 work was authored directly to guarantee tested
+  results.
 
 ## Work order (this cycle)
 

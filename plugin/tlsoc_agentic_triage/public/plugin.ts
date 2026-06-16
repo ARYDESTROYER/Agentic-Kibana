@@ -4,10 +4,12 @@ import { toMountPoint } from '@kbn/react-kibana-mount';
 import {
   TlsocAgenticTriagePluginSetup,
   TlsocAgenticTriagePluginStart,
+  AppPluginSetupDependencies,
   AppPluginStartDependencies,
 } from './types';
 import { PLUGIN_ID, PLUGIN_NAME } from '../common';
 import { GlobalChatControl } from './components/global_chat_control';
+import { DocViewerOverview } from './components/doc_viewer_overview';
 
 export class TlsocAgenticTriagePlugin
   implements Plugin<TlsocAgenticTriagePluginSetup, TlsocAgenticTriagePluginStart>
@@ -15,7 +17,10 @@ export class TlsocAgenticTriagePlugin
   /** Tear-down for the header nav control registered in start(). */
   private unmountGlobalChat?: () => void;
 
-  public setup(core: CoreSetup): TlsocAgenticTriagePluginSetup {
+  public setup(
+    core: CoreSetup,
+    plugins?: AppPluginSetupDependencies
+  ): TlsocAgenticTriagePluginSetup {
     // Register a single application into the side navigation menu.
     core.application.register({
       id: PLUGIN_ID,
@@ -28,6 +33,27 @@ export class TlsocAgenticTriagePlugin
         return renderApp(coreStart, depsStart as AppPluginStartDependencies, params);
       },
     });
+
+    // Feature 2: register a custom Discover doc-viewer tab ("TLSOC AI Overview").
+    // unifiedDocViewer is an OPTIONAL dependency and its registry shape can change
+    // between versions, so the whole registration is guarded — a mismatch logs and
+    // skips, it never breaks plugin setup.
+    try {
+      const registry = (plugins as any)?.unifiedDocViewer?.registry;
+      if (registry && typeof registry.add === 'function') {
+        const getStartServices = () => core.getStartServices();
+        registry.add({
+          id: 'tlsocAiOverview',
+          title: 'TLSOC AI Overview',
+          order: 100,
+          component: (docProps: any) =>
+            React.createElement(DocViewerOverview, { docProps, getStartServices }),
+        });
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[tlsocAgenticTriage] doc-viewer registration skipped', e);
+    }
 
     return {};
   }
