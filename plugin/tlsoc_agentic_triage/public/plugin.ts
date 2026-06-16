@@ -1,4 +1,4 @@
-import { AppMountParameters, CoreSetup, CoreStart, Plugin } from '../../../src/core/public';
+import { AppMountParameters, CoreSetup, CoreStart, Plugin } from '@kbn/core/public';
 import {
   TlsocAgenticTriagePluginSetup,
   TlsocAgenticTriagePluginStart,

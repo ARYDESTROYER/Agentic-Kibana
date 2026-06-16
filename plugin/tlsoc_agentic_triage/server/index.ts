@@ -1,4 +1,4 @@
-import { PluginInitializerContext, PluginConfigDescriptor } from '../../../src/core/server';
+import { PluginInitializerContext, PluginConfigDescriptor } from '@kbn/core/server';
 import { configSchema, TlsocConfig } from './config';
 
 //  This exports static code and TypeScript types,

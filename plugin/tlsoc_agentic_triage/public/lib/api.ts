@@ -1,4 +1,4 @@
-import type { CoreStart } from '../../../../src/core/public';
+import type { CoreStart } from '@kbn/core/public';
 import { PROXY_BASE } from '../../common';
 
 /**

@@ -1,5 +1,5 @@
-import type { DataViewsPublicPluginStart } from '../../../../src/plugins/data_views/public';
-import type { SharePluginStart } from '../../../../src/plugins/share/public';
+import type { DataViewsPublicPluginStart } from '@kbn/data-views-plugin/public';
+import type { SharePluginStart } from '@kbn/share-plugin/public';
 
 const DISCOVER_APP_LOCATOR = 'DISCOVER_APP_LOCATOR';
 

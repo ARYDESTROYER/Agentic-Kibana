@@ -9,11 +9,11 @@ import {
   EuiTabs,
   EuiText,
 } from '@elastic/eui';
-import type { CoreStart } from '../../../../src/core/public';
-import type { NavigationPublicPluginStart } from '../../../../src/plugins/navigation/public';
-import type { DataPublicPluginStart } from '../../../../src/plugins/data/public';
-import type { DataViewsPublicPluginStart } from '../../../../src/plugins/data_views/public';
-import type { SharePluginStart } from '../../../../src/plugins/share/public';
+import type { CoreStart } from '@kbn/core/public';
+import type { NavigationPublicPluginStart } from '@kbn/navigation-plugin/public';
+import type { DataPublicPluginStart } from '@kbn/data-plugin/public';
+import type { DataViewsPublicPluginStart } from '@kbn/data-views-plugin/public';
+import type { SharePluginStart } from '@kbn/share-plugin/public';
 
 import { PLUGIN_NAME, SetupStatus } from '../../common';
 import { TlsocApi } from '../lib/api';

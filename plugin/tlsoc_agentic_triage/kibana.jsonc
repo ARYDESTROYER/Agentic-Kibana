@@ -1,0 +1,16 @@
+{
+  "type": "plugin",
+  "id": "@kbn/tlsoc-agentic-triage-plugin",
+  "owner": {
+    "name": "TLSOC",
+    "githubTeam": "tlsoc"
+  },
+  "description": "TLSOC Agentic Triage — thin viewer over the TLSOC agentic triage backend.",
+  "plugin": {
+    "id": "tlsocAgenticTriage",
+    "server": true,
+    "browser": true,
+    "requiredPlugins": ["navigation", "data", "dataViews", "share"],
+    "optionalPlugins": []
+  }
+}

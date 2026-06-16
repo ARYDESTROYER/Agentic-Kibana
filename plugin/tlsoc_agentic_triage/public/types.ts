@@ -1,7 +1,7 @@
-import { NavigationPublicPluginStart } from '../../../src/plugins/navigation/public';
-import { DataPublicPluginStart } from '../../../src/plugins/data/public';
-import { DataViewsPublicPluginStart } from '../../../src/plugins/data_views/public';
-import { SharePluginStart } from '../../../src/plugins/share/public';
+import { NavigationPublicPluginStart } from '@kbn/navigation-plugin/public';
+import { DataPublicPluginStart } from '@kbn/data-plugin/public';
+import { DataViewsPublicPluginStart } from '@kbn/data-views-plugin/public';
+import { SharePluginStart } from '@kbn/share-plugin/public';
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface TlsocAgenticTriagePluginSetup {}

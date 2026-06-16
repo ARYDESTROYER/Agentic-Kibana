@@ -1,5 +1,5 @@
 import { schema } from '@kbn/config-schema';
-import { IRouter, Logger } from '../../../../src/core/server';
+import { IRouter, Logger } from '@kbn/core/server';
 
 /**
  * Build the upstream URL for a forwarded request.

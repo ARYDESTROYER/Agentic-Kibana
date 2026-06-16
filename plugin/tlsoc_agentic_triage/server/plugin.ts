@@ -4,7 +4,7 @@ import {
   CoreStart,
   Plugin,
   Logger,
-} from '../../../src/core/server';
+} from '@kbn/core/server';
 
 import { TlsocAgenticTriagePluginSetup, TlsocAgenticTriagePluginStart } from './types';
 import { defineRoutes } from './routes';

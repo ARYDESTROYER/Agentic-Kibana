@@ -16,7 +16,7 @@ import {
   EuiTextArea,
   EuiTitle,
 } from '@elastic/eui';
-import type { DataViewsPublicPluginStart } from '../../../../src/plugins/data_views/public';
+import type { DataViewsPublicPluginStart } from '@kbn/data-views-plugin/public';
 import type { TlsocApi } from '../lib/api';
 
 interface WizardProps {
