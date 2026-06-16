@@ -16,14 +16,21 @@ This module defines the schema and the loader for the secret tier. The preferenc
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import CorrelationMode, EntityType
+from .utils import dotted_get
 
 Provider = Literal["anthropic", "openai", "mock"]
+
+# Bump this when the seeded rule catalog ships new built-in rules. Seeding only
+# fires when the stored catalog is EMPTY or its ``rule_catalog_seed_version`` is
+# missing/older than this value — operator-edited (non-empty) catalogs are NEVER
+# overwritten (see ``maybe_seed_rule_catalog`` in ``app.stores.config_store``).
+RULE_CATALOG_SEED_VERSION = 1
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +131,66 @@ class CorrelationRule(BaseModel):
     n: int = Field(default=5, ge=1)
     window_seconds: int = Field(default=120, ge=1)
     group_by: EntityType = EntityType.IP
+
+
+class RuleMatch(BaseModel):
+    """A single field predicate used to classify a raw log into a detection rule.
+
+    ``field`` is a dotted path read with the same tolerant ``dotted_get`` the rest
+    of the suite uses (handles nested objects AND flattened keys). Operators:
+
+    * ``equals``  — ``str(value-at-field) == value``
+    * ``prefix``  — ``str(value-at-field).startswith(value)``  (e.g. ModSec rule.id "941…")
+    * ``tag``     — ``value`` is a member of the field's list/array (e.g. rule.tags)
+    * ``exists``  — the field is present and non-empty
+    """
+
+    field: str
+    op: Literal["equals", "prefix", "tag", "exists"]
+    value: str | None = None
+
+    def matches(self, src: dict[str, Any]) -> bool:
+        found = dotted_get(src, self.field)
+        if self.op == "exists":
+            if found is None:
+                return False
+            if isinstance(found, (list, tuple, set, dict, str)):
+                return len(found) > 0
+            return True
+        if self.op == "tag":
+            if self.value is None:
+                return False
+            if isinstance(found, (list, tuple, set)):
+                return self.value in {str(x) for x in found}
+            return str(found) == self.value if found is not None else False
+        if found is None or self.value is None:
+            return False
+        if self.op == "equals":
+            return str(found) == self.value
+        if self.op == "prefix":
+            return str(found).startswith(self.value)
+        return False
+
+
+class RuleDefinition(BaseModel):
+    """A config-driven, pre-baked-but-editable detection rule (C3-1).
+
+    Each definition classifies a raw event (via ``match``) into a named rule, can
+    carry its own ``correlation`` override and per-role ``model_override`` (C3-6b),
+    and is evaluated in ascending ``priority`` (then list order) so ModSec
+    sub-rules (lower priority) win over the generic ``modsec_audit_log`` rule."""
+
+    # ``model_override`` collides with Pydantic's protected ``model_`` namespace;
+    # disable the guard (this is plain data, not a Pydantic config attribute).
+    model_config = {"protected_namespaces": ()}
+
+    name: str
+    enabled: bool = True
+    description: str = ""
+    match: RuleMatch
+    correlation: CorrelationRule | None = None
+    model_override: dict[str, ModelConfig] = Field(default_factory=dict)
+    priority: int = 100
 
 
 class RiskWeights(BaseModel):
@@ -262,6 +329,18 @@ class Preferences(BaseModel):
     escalation_confidence: float = 0.6      # >= this on TRUE_POSITIVE = high-priority human
     critical_severity: float = 7.0
 
+    # --- Rule catalog (C3-1): config-driven, pre-baked-but-editable detection
+    # rules incl. ModSec sub-rules. Seeded on first run only (see
+    # ``rule_catalog_seed_version``); an empty catalog preserves today's single
+    # ``rule_field`` behaviour byte-for-byte. ---
+    rule_catalog: list[RuleDefinition] = Field(default_factory=list)
+    # Tracks which seed version produced the built-in rules; lets seeding be a
+    # no-op once current and NEVER clobber an operator-edited (non-empty) catalog.
+    rule_catalog_seed_version: int = 0
+    # --- Per-rule model selection (C3-6b): keyed by rule name. Lower precedence
+    # than a matching RuleDefinition.model_override, higher than model_for(). ---
+    rule_model_override: dict[str, ModelConfig] = Field(default_factory=dict)
+
     # --- Correlation (Section 6.2) ---
     default_correlation: CorrelationRule = Field(default_factory=CorrelationRule)
     correlation_rules: dict[str, CorrelationRule] = Field(default_factory=dict)
@@ -292,6 +371,35 @@ class Preferences(BaseModel):
         """Return the correlation rule for a given rule value, or the default."""
         return self.correlation_rules.get(rule_value, self.default_correlation)
 
+    def match_rule(self, src: dict[str, Any]) -> RuleDefinition | None:
+        """Classify a raw log ``_source`` against the rule catalog (C3-1).
+
+        Evaluates ENABLED rules in ascending ``priority`` (ties broken by their
+        order in the catalog) and returns the FIRST whose ``match`` matches, so a
+        lower-priority ModSec sub-rule wins over the generic ``modsec_audit_log``
+        rule. Returns ``None`` when nothing matches (caller falls back to today's
+        single-``rule_field`` derivation)."""
+        ordered = sorted(
+            (rd for rd in self.rule_catalog if rd.enabled),
+            key=lambda rd: rd.priority,
+        )
+        for rd in ordered:
+            if rd.match.matches(src):
+                return rd
+        return None
+
+    def correlation_for_def(self, rd: "RuleDefinition | None") -> CorrelationRule:
+        """Resolve the correlation rule for a matched RuleDefinition (C3-1).
+
+        Precedence mirrors how ``correlate`` resolves a bucket today:
+        ``rd.correlation`` (inline override) → ``correlation_rules[rd.name]`` →
+        ``default_correlation``. With no matched def, falls back to the default."""
+        if rd is not None and rd.correlation is not None:
+            return rd.correlation
+        if rd is not None:
+            return self.correlation_rules.get(rd.name, self.default_correlation)
+        return self.default_correlation
+
     def model_for(self, role: str) -> ModelConfig:
         mapping = {
             "router": self.router_model,
@@ -303,3 +411,99 @@ class Preferences(BaseModel):
             "embedding": self.embedding_model,
         }
         return mapping.get(role, self.router_model)
+
+    def maybe_seed_rule_catalog(self) -> bool:
+        """Idempotently seed the built-in rule catalog IN PLACE (C3-1).
+
+        Seeds ONLY when the stored catalog is empty OR its
+        ``rule_catalog_seed_version`` is older than ``RULE_CATALOG_SEED_VERSION``.
+        A non-empty, operator-edited catalog at the current seed version is NEVER
+        overwritten. Returns True if the catalog was (re)seeded."""
+        if self.rule_catalog and self.rule_catalog_seed_version >= RULE_CATALOG_SEED_VERSION:
+            return False
+        if self.rule_catalog:
+            # Catalog already has operator content — bump the version marker so we
+            # don't re-evaluate every boot, but DO NOT clobber their edits.
+            self.rule_catalog_seed_version = RULE_CATALOG_SEED_VERSION
+            return False
+        self.rule_catalog = default_rule_catalog()
+        self.rule_catalog_seed_version = RULE_CATALOG_SEED_VERSION
+        return True
+
+    def model_for_rule(self, role: str, rule_value: str | None) -> ModelConfig:
+        """Per-rule model selection (C3-6b).
+
+        Precedence: (1) a matching ``RuleDefinition.model_override[role]`` for
+        ``rule_value``, (2) ``rule_model_override[rule_value]``, (3) the role
+        default ``model_for(role)``. Identical to ``model_for(role)`` whenever no
+        per-rule override exists, so behaviour is unchanged out of the box.
+
+        ``role`` may be a ``Role`` enum or its string value (mirrors
+        ``model_for``); we key everything on its string form."""
+        role_str = str(getattr(role, "value", role))
+        if rule_value:
+            for rd in self.rule_catalog:
+                if rd.name == rule_value and role_str in rd.model_override:
+                    return rd.model_override[role_str]
+            override = self.rule_model_override.get(rule_value)
+            if override is not None:
+                return override
+        return self.model_for(role_str)
+
+
+# --------------------------------------------------------------------------- #
+# Built-in rule catalog (C3-1) — seeded on first run only.
+# --------------------------------------------------------------------------- #
+# The 13 real upstream detection rules, each identified by ``event.module``.
+_REAL_EVENT_MODULES: tuple[str, ...] = (
+    "mail_apache_access",
+    "mail_auth",
+    "mail_fim",
+    "ml_stats",
+    "modsec_audit_log",
+    "openvas_report",
+    "postfix",
+    "roundcube_login",
+    "suricata_mail",
+    "waf-nginx-access",
+    "waf_auth",
+    "web_apache_access",
+    "web_auth",
+)
+
+# ModSecurity sub-detections, keyed by the OWASP CRS ``rule.id`` prefix. These
+# get a LOWER ``priority`` than the generic ``modsec_audit_log`` rule so a ModSec
+# event classifies as its specific sub-rule first, falling back to the generic.
+_MODSEC_SUBRULES: tuple[tuple[str, str, str], ...] = (
+    ("modsec_xss", "941", "ModSecurity OWASP CRS XSS (rule.id 941xxx)"),
+    ("modsec_sqli", "942", "ModSecurity OWASP CRS SQL injection (rule.id 942xxx)"),
+    ("modsec_lfi", "930", "ModSecurity OWASP CRS LFI / file inclusion (rule.id 930xxx)"),
+    ("modsec_rce", "932", "ModSecurity OWASP CRS RCE (rule.id 932xxx)"),
+    ("modsec_scanner", "913", "ModSecurity OWASP CRS scanner detection (rule.id 913xxx)"),
+)
+
+
+def default_rule_catalog() -> list[RuleDefinition]:
+    """Build the pre-baked rule catalog: the 13 ``event.module`` rules plus the 5
+    ModSec sub-rules. ModSec sub-rules carry a lower ``priority`` (50) than the
+    generic rules (100) so they classify first; nothing here is hardcoded beyond
+    seeding these real detections — operators can edit/disable/extend freely."""
+    rules: list[RuleDefinition] = [
+        RuleDefinition(
+            name=name,
+            description=f"Upstream detection '{name}' (event.module).",
+            match=RuleMatch(field="event.module", op="equals", value=name),
+            priority=100,
+        )
+        for name in _REAL_EVENT_MODULES
+    ]
+    rules.extend(
+        RuleDefinition(
+            name=name,
+            description=desc,
+            match=RuleMatch(field="rule.id.keyword", op="prefix", value=prefix),
+            priority=50,
+        )
+        for name, prefix, desc in _MODSEC_SUBRULES
+    )
+    return rules

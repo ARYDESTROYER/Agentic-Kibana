@@ -13,7 +13,7 @@ import json
 import logging
 
 from ..audit.audit_log import AuditLogger
-from ..config import Preferences
+from ..config import ModelConfig, Preferences
 from ..constants import Role
 from ..llm.gateway import GatewayError, LLMGateway
 from ..models import VerdictResult
@@ -37,7 +37,11 @@ class Formatter:
         *,
         surface: str,
         case_id: str | None = None,
+        model_cfg: ModelConfig | None = None,
     ) -> tuple[VerdictResult, float]:
+        # Per-rule model selection (C3-6b): the investigator passes the rule-resolved
+        # formatter model; absent an override this is exactly ``prefs.formatter_model``.
+        model_cfg = model_cfg or prefs.formatter_model
         payload = {
             "reasoning": truncate(reasoning, 4000),
             "draft_verdict": draft.model_dump(mode="json"),
@@ -48,7 +52,7 @@ class Formatter:
         ]
         try:
             res = await self._gateway.complete(
-                Role.FORMATTER, messages, prefs.formatter_model, surface=surface, case_id=case_id
+                Role.FORMATTER, messages, model_cfg, surface=surface, case_id=case_id
             )
         except GatewayError as exc:
             logger.warning("Formatter unavailable (%s); preserving draft verdict", exc)

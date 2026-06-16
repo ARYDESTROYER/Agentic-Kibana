@@ -57,6 +57,11 @@ class Investigator:
         case_id: str | None = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
+        # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
+        # identical to ``prefs.investigator_model``/``prefs.formatter_model`` when
+        # no per-rule override exists.
+        primary_rule = cluster.primary_rule()
+        model_cfg = prefs.model_for_rule(Role.INVESTIGATOR, primary_rule)
         try:
             system = INVESTIGATOR_SYSTEM.format(tool_defs=tool_defs_text(self._tools.definitions()))
             context = render_cluster(cluster, enrichment, rag_chunks)
@@ -66,7 +71,7 @@ class Investigator:
             ]
             await self._audit.record(
                 action_type=ActionType.PROMPT, surface=surface, actor=Role.INVESTIGATOR.value,
-                case_id=case_id, model=prefs.investigator_model.model, prompt_excerpt=context,
+                case_id=case_id, model=model_cfg.model, prompt_excerpt=context,
             )
 
             draft: VerdictResult | None = None
@@ -79,7 +84,7 @@ class Investigator:
                     break
                 try:
                     res = await self._gateway.complete(
-                        Role.INVESTIGATOR, messages, prefs.investigator_model,
+                        Role.INVESTIGATOR, messages, model_cfg,
                         surface=surface, case_id=case_id,
                     )
                 except GatewayError as exc:
@@ -137,7 +142,8 @@ class Investigator:
                 )
 
             verdict, fcost = await self._formatter.format(
-                draft, reasoning, prefs, surface=surface, case_id=case_id
+                draft, reasoning, prefs, surface=surface, case_id=case_id,
+                model_cfg=prefs.model_for_rule(Role.FORMATTER, primary_rule),
             )
             cost += fcost
             if not verdict.reproduce_query:
@@ -145,7 +151,7 @@ class Investigator:
 
             await self._audit.record(
                 action_type=ActionType.VERDICT, surface=surface, actor=Role.INVESTIGATOR.value,
-                case_id=case_id, model=prefs.investigator_model.model,
+                case_id=case_id, model=model_cfg.model,
                 result_summary=f"verdict={verdict.verdict.value} confidence={verdict.confidence}",
             )
             return verdict, cost

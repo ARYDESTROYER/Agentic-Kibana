@@ -59,6 +59,17 @@ class RawEvent(BaseModel):
     def from_hit(cls, hit: dict[str, Any], prefs: Preferences) -> "RawEvent":
         src = hit.get("_source", {}) or {}
         ts = parse_es_timestamp(dotted_get(src, prefs.time_field))
+        # Rule identity (C3-1): when the rule catalog is non-empty, classify via
+        # ``prefs.match_rule`` (so ModSec events resolve to their XSS/SQLi/...
+        # sub-rule); on no catalog match, fall back to today's single-field value.
+        # When the catalog is EMPTY this is byte-identical to the original
+        # single-``rule_field`` derivation (critical backward compat).
+        fallback_rule = _as_str(dotted_get(src, prefs.rule_field))
+        if prefs.rule_catalog:
+            matched = prefs.match_rule(src)
+            rule = matched.name if matched is not None else fallback_rule
+        else:
+            rule = fallback_rule
         ev = cls(
             id=str(hit.get("_id", "")),
             index=str(hit.get("_index", "")),
@@ -67,7 +78,7 @@ class RawEvent(BaseModel):
             ip=_as_str(dotted_get(src, prefs.source_ip_field)),
             user=_as_str(dotted_get(src, prefs.user_field)),
             host=_as_str(dotted_get(src, prefs.host_field)),
-            rule=_as_str(dotted_get(src, prefs.rule_field)),
+            rule=rule,
             rule_name=_as_str(dotted_get(src, prefs.rule_name_field)),
             severity=coerce_float(dotted_get(src, prefs.severity_field), 0.0),
         )
@@ -146,6 +157,21 @@ class Cluster(BaseModel):
         if self.last_seen_millis and self.first_seen_millis:
             return max(0.0, (self.last_seen_millis - self.first_seen_millis) / 1000.0)
         return 0.0
+
+    def primary_rule(self) -> str | None:
+        """The rule that best identifies this cluster, for per-rule model selection
+        (C3-6b). Prefers the deterministic ``trigger_reason.rule_value`` (the
+        PRIMARY triggering rule), else the dominant member-event rule (most
+        frequent, ties broken alphabetically), else None."""
+        if self.trigger_reason and self.trigger_reason.rule_value:
+            return self.trigger_reason.rule_value
+        counts: dict[str, int] = {}
+        for ev in self.member_events:
+            if ev.rule:
+                counts[ev.rule] = counts.get(ev.rule, 0) + 1
+        if not counts:
+            return self.rule_values[0] if self.rule_values else None
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
 
 
 # --------------------------------------------------------------------------- #
