@@ -1,0 +1,89 @@
+"""Small async cache with a Redis backend and an in-memory fallback.
+
+Enrichment is Redis-cached (Section 6.5 / Non-negotiable #8) to protect both cost
+and tight free-tier API limits. If Redis is unreachable the cache degrades to a
+process-local dict so the suite still runs — it simply loses cross-restart and
+cross-replica sharing.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Any
+
+logger = logging.getLogger("tlsoc.cache")
+
+
+class Cache:
+    def __init__(self, redis_url: str | None = None) -> None:
+        self._url = redis_url
+        self._redis: Any = None
+        self._mem: dict[str, tuple[float, str]] = {}  # key -> (expiry_epoch, value)
+        self._warned = False
+
+    async def connect(self) -> None:
+        if not self._url:
+            return
+        try:
+            import redis.asyncio as aioredis  # local import keeps redis optional
+
+            client = aioredis.from_url(self._url, encoding="utf-8", decode_responses=True)
+            await client.ping()
+            self._redis = client
+            logger.info("Cache connected to Redis at %s", self._url)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Redis unavailable (%s); using in-memory cache fallback", exc)
+            self._redis = None
+
+    async def get(self, key: str) -> str | None:
+        if self._redis is not None:
+            try:
+                return await self._redis.get(key)
+            except Exception as exc:  # noqa: BLE001
+                self._fallback_warn(exc)
+        return self._mem_get(key)
+
+    async def set(self, key: str, value: str, ttl_seconds: int) -> None:
+        if self._redis is not None:
+            try:
+                await self._redis.set(key, value, ex=ttl_seconds)
+                return
+            except Exception as exc:  # noqa: BLE001
+                self._fallback_warn(exc)
+        self._mem[key] = (time.time() + ttl_seconds, value)
+
+    async def get_json(self, key: str) -> Any | None:
+        raw = await self.get(key)
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    async def set_json(self, key: str, value: Any, ttl_seconds: int) -> None:
+        await self.set(key, json.dumps(value), ttl_seconds)
+
+    def _mem_get(self, key: str) -> str | None:
+        item = self._mem.get(key)
+        if not item:
+            return None
+        expiry, value = item
+        if expiry < time.time():
+            self._mem.pop(key, None)
+            return None
+        return value
+
+    def _fallback_warn(self, exc: Exception) -> None:
+        if not self._warned:
+            logger.warning("Redis error (%s); falling back to in-memory cache", exc)
+            self._warned = True
+
+    async def aclose(self) -> None:
+        if self._redis is not None:
+            try:
+                await self._redis.aclose()
+            except Exception:  # noqa: BLE001
+                pass

@@ -1,0 +1,39 @@
+# ---- Secrets (NEVER commit) ----
+.env
+*.env
+!*.env.example
+*.key
+*.pem
+certs/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env.local
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.log
+
+# ---- Node / Kibana plugin build scratch ----
+node_modules/
+plugin/.cache/
+plugin/target/
+plugin/build/node_modules/
+*.tsbuildinfo
+
+# ---- Local runtime data ----
+data/
+chroma/
+*.sqlite3
+
+# ---- OS ----
+.DS_Store
+Thumbs.db

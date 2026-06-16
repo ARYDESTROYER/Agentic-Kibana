@@ -1,0 +1,14 @@
+{
+  "id": "tlsocAgenticTriage",
+  "version": "1.0.0",
+  "kibanaVersion": "8.12.2",
+  "owner": {
+    "name": "TLSOC",
+    "githubTeam": "tlsoc"
+  },
+  "description": "TLSOC Agentic Triage — thin viewer over the TLSOC agentic triage backend.",
+  "server": true,
+  "ui": true,
+  "requiredPlugins": ["navigation", "data", "dataViews", "share"],
+  "optionalPlugins": []
+}

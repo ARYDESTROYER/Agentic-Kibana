@@ -1,0 +1,63 @@
+{
+  "index_patterns": [
+    "tlsoc-agent-audit-*"
+  ],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "ts": {
+          "type": "date"
+        },
+        "case_id": {
+          "type": "keyword"
+        },
+        "surface": {
+          "type": "keyword"
+        },
+        "actor": {
+          "type": "keyword"
+        },
+        "action_type": {
+          "type": "keyword"
+        },
+        "model": {
+          "type": "keyword"
+        },
+        "prompt_excerpt": {
+          "type": "text"
+        },
+        "query_text": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 2048
+            }
+          }
+        },
+        "tool_name": {
+          "type": "keyword"
+        },
+        "tool_input": {
+          "type": "object",
+          "enabled": false
+        },
+        "tool_output_summary": {
+          "type": "text"
+        },
+        "result_summary": {
+          "type": "text"
+        }
+      }
+    }
+  },
+  "priority": 200,
+  "_meta": {
+    "owner": "tlsoc-agentic-triage",
+    "contract": "tlsoc-agent-audit"
+  }
+}

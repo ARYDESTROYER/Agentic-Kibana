@@ -1,0 +1,118 @@
+{
+  "index_patterns": [
+    "tlsoc-agent-cases-*"
+  ],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "case_id": {
+          "type": "keyword"
+        },
+        "cluster_signature": {
+          "type": "keyword"
+        },
+        "created_at": {
+          "type": "date"
+        },
+        "updated_at": {
+          "type": "date"
+        },
+        "source_surface": {
+          "type": "keyword"
+        },
+        "rule_ids": {
+          "type": "keyword"
+        },
+        "entity": {
+          "properties": {
+            "type": {
+              "type": "keyword"
+            },
+            "value": {
+              "type": "keyword"
+            }
+          }
+        },
+        "member_event_ids": {
+          "type": "keyword"
+        },
+        "risk_score": {
+          "type": "float"
+        },
+        "verdict": {
+          "type": "keyword"
+        },
+        "confidence": {
+          "type": "float"
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "text"
+            },
+            "event_ids": {
+              "type": "keyword"
+            },
+            "query": {
+              "type": "keyword"
+            }
+          }
+        },
+        "mitre": {
+          "type": "keyword"
+        },
+        "recommended_action": {
+          "type": "text"
+        },
+        "reproduce_query": {
+          "type": "keyword"
+        },
+        "status": {
+          "type": "keyword"
+        },
+        "decision_by": {
+          "type": "keyword"
+        },
+        "objection_window_expires_at": {
+          "type": "date"
+        },
+        "title": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 512
+            }
+          }
+        },
+        "summary": {
+          "type": "text"
+        },
+        "risk_breakdown": {
+          "type": "object",
+          "enabled": true
+        },
+        "token_cost": {
+          "type": "float"
+        },
+        "error": {
+          "type": "text"
+        },
+        "history": {
+          "type": "object",
+          "enabled": false
+        }
+      }
+    }
+  },
+  "priority": 200,
+  "_meta": {
+    "owner": "tlsoc-agentic-triage",
+    "contract": "tlsoc-agent-cases"
+  }
+}

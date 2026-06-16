@@ -1,0 +1,56 @@
+{
+  "index_patterns": [
+    "tlsoc-agent-usage-*"
+  ],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "ts": {
+          "type": "date"
+        },
+        "surface": {
+          "type": "keyword"
+        },
+        "case_id": {
+          "type": "keyword"
+        },
+        "role": {
+          "type": "keyword"
+        },
+        "model": {
+          "type": "keyword"
+        },
+        "prompt_tokens": {
+          "type": "long"
+        },
+        "completion_tokens": {
+          "type": "long"
+        },
+        "total_tokens": {
+          "type": "long"
+        },
+        "cost": {
+          "type": "double"
+        },
+        "currency": {
+          "type": "keyword"
+        },
+        "latency_ms": {
+          "type": "long"
+        },
+        "outcome": {
+          "type": "keyword"
+        }
+      }
+    }
+  },
+  "priority": 200,
+  "_meta": {
+    "owner": "tlsoc-agentic-triage",
+    "contract": "tlsoc-agent-usage"
+  }
+}

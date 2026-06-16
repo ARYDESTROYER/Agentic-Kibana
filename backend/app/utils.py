@@ -1,0 +1,211 @@
+"""Small, dependency-light helpers used across the backend."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso_now() -> str:
+    return now_utc().isoformat()
+
+
+def to_millis(dt: datetime) -> int:
+    return int(dt.timestamp() * 1000)
+
+
+def parse_es_timestamp(value: Any) -> datetime | None:
+    """Parse an Elasticsearch @timestamp value (ISO string or epoch millis)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        # Heuristic: > 1e12 is epoch millis, otherwise seconds.
+        ts = float(value)
+        if ts > 1e12:
+            ts /= 1000.0
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        s = value.strip()
+        # Elasticsearch commonly emits "...Z"; fromisoformat handles "+00:00".
+        s = s.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def dotted_get(doc: dict[str, Any], path: str, default: Any = None) -> Any:
+    """Read a dotted field path from a (possibly nested) document.
+
+    Handles both nested objects ({"source": {"ip": x}}) and flattened keys
+    ({"source.ip": x}), which Elasticsearch sources may use interchangeably.
+    """
+    if not path:
+        return default
+    if path in doc:  # flattened key present verbatim
+        return doc[path]
+    cur: Any = doc
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return default
+    return cur
+
+
+def first_nonempty(*values: Any) -> Any:
+    for v in values:
+        if v not in (None, "", [], {}):
+            return v
+    return None
+
+
+def new_id(prefix: str = "") -> str:
+    uid = uuid.uuid4().hex
+    return f"{prefix}{uid}" if prefix else uid
+
+
+def stable_signature(*parts: Any) -> str:
+    """Deterministic, order-defined signature used as the case idempotency key.
+
+    The SAME logical cluster must always produce the SAME signature so re-polling
+    a window does not create duplicate cases (Section 6.1 / 11.4).
+    """
+    norm = "|".join(_norm_part(p) for p in parts)
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:32]
+
+
+def _norm_part(p: Any) -> str:
+    if isinstance(p, (list, tuple, set)):
+        return ",".join(sorted(str(x) for x in p))
+    return str(p)
+
+
+def coerce_float(value: Any, default: float = 0.0) -> float:
+    """Best-effort numeric coercion for heterogeneous severity values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        m = re.search(r"-?\d+(\.\d+)?", s)
+        if m:
+            try:
+                return float(m.group(0))
+            except ValueError:
+                return default
+        # Common severity words mapped to a rough numeric scale.
+        words = {
+            "info": 1, "informational": 1, "low": 3, "medium": 5,
+            "warning": 5, "high": 7, "error": 7, "critical": 9, "severe": 9,
+            "emergency": 10, "alert": 9,
+        }
+        return float(words.get(s.lower(), default))
+    return default
+
+
+def truncate(text: str | None, limit: int = 500) -> str:
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def extract_json(text: str | None) -> dict | None:
+    """Best-effort extraction of a single JSON object from an LLM response.
+
+    Handles raw JSON, ```json fenced blocks, and JSON embedded in prose by
+    locating the outermost balanced ``{...}``. Returns ``None`` if nothing
+    parseable is found (callers then fail safe).
+    """
+    if not text:
+        return None
+    text = text.strip()
+    try:
+        obj = json.loads(text)
+        return obj if isinstance(obj, dict) else None
+    except (json.JSONDecodeError, ValueError):
+        pass
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fence:
+        try:
+            obj = json.loads(fence.group(1))
+            return obj if isinstance(obj, dict) else None
+        except (json.JSONDecodeError, ValueError):
+            pass
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        obj = json.loads(text[start: i + 1])
+                        return obj if isinstance(obj, dict) else None
+                    except (json.JSONDecodeError, ValueError):
+                        return None
+    return None
+
+
+_REL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def relative_to_millis(expr: Any, now: datetime | None = None) -> int:
+    """Resolve a time expression to epoch millis.
+
+    Accepts ``"now"``, ``"now-24h"``, ``"now-30m"``, ``"now+1d"``, an ISO string,
+    or an int/float already in epoch millis.
+    """
+    now = now or now_utc()
+    if expr is None:
+        return to_millis(now)
+    if isinstance(expr, (int, float)):
+        v = float(expr)
+        return int(v if v > 1e12 else v * 1000)
+    s = str(expr).strip().lower()
+    if s in ("now", ""):
+        return to_millis(now)
+    if s.startswith("now"):
+        rest = s[3:]
+        if not rest:
+            return to_millis(now)
+        sign = 1 if rest[0] == "+" else -1
+        body = rest[1:]
+        m = re.match(r"(\d+)([smhdw])", body)
+        if m:
+            amount = int(m.group(1)) * _REL_UNITS[m.group(2)]
+            return to_millis(now) + sign * amount * 1000
+        return to_millis(now)
+    dt = parse_es_timestamp(s)
+    return to_millis(dt) if dt else to_millis(now)
