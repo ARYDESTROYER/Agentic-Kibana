@@ -299,6 +299,27 @@
   RuleDefinition); then parallel FE agents (case-detail hub · standup+board · settings editors);
   consolidated tsc + zip rebuild; docs + migration note.
 
+### 2026-06-16 19:40Z — orchestrator + 3 FE agents — frontend phase (Cycle 2/3) + 8.19.12 rebuild
+- Context: deliver all remaining frontend work after the backend was complete; one coordinated
+  phase + a single verified build (frontend can only be tsc'd/built against the Kibana checkout).
+- Did: orchestrator owned common/index.ts (BUG-3 cases-object shape; +TraceStep/TraceResponse,
+  RuleMatch/RuleDefinition; committed ec7a847). Three parallel FE agents on disjoint files:
+  FE-A case-detail (509b928) — BUG-2 neutral no-events empty-state (errorDetail/isNoEventsError),
+  C3-3 agent_trace.tsx (EuiCommentList, untrusted query/tool/prompt in EuiCodeBlock), C3-4
+  Investigate button (POST cases/{id}/investigate + trace refresh), C3-5 note modal feeding the
+  action, C3-7 case_timeline.tsx (merge history+verdict_history, dedupe decisions ×N). FE-B
+  (a9c97c1) — BUG-3 standup fix + ErrorBoundary, C3-2 board.tsx Kanban (drag→close/reopen/escalate,
+  optimistic+revert) + Board tab in app.tsx. FE-C (49a69a8) — C3-1 rule-catalog editor + C3-6
+  per-rule model table in settings.tsx (reuses the per-role pickers).
+- Tests: consolidated `tsc --noEmit` CLEAN for public/server/common (all 3 agents' code). Built the
+  8.19.12 zip: bundle present, kibanaVersion 8.19.12, 0 backend-URL leaks, 68KB (was 57KB); copied to
+  plugin/dist (b988329). Backend suite remains 121 green.
+- Status: ALL Cycle 2 bugs + Cycle 3 features delivered (BE + FE), verified, pushed. Two deliberate
+  deferrals: Feature 5 (wizard rewrite — the existing 4-step wizard works; rewrite best validated on a
+  live 8.19 stack) and the Cycle-2 "entity-signature attach" NOTE (being handled next).
+- Next: implement the optional NOTE (surface trigger_reason on attached non-scan cases); refresh
+  USAGE/BUILD/CHANGELOG/ROADMAP + migration note; final push.
+
 ### 2026-06-16 18:10Z — orchestrator — plugin build toolchain VALIDATED
 - Context: de-risk the historically-flaky plugin build before frontend changes exist.
 - Did: wrote /tmp/build_only.sh (root-guard yarn shim → --allow-root; PLAYWRIGHT/PUPPETEER/etc.
