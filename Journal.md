@@ -244,3 +244,38 @@
 - Tests: pytest 88 passed.
 - Status: done (committed ba6d09f).
 - Next: per-rule model_for_rule wiring rides with C3-1 rule catalog (shares model_override).
+
+### 2026-06-16 19:45Z — backend agent (Wave2) — investigate path: BUG-2 + IMPROVEMENT + C3-4
+- Context: own the investigate flow — fix the hardcoded now-24h 400 (BUG-2), restore manual
+  "Why this fired"/provenance/reproduce_query (IMPROVEMENT), add human-triggered case
+  re-investigation (C3-4).
+- Did: added Preferences.investigate_lookback + InvestigateRequest.lookback (per-request
+  override). Rewrote routes._cluster_for_request with an auto-widen ladder
+  (configured/requested → now-7d → now-30d → now-365d; skips rungs narrower than the start;
+  first non-empty wins) + a neutral, specific 400 detail for the FE empty-state. Synthesized
+  a manual TriggerReason (mode=manual) so "Why this fired" renders on manual cases; preserve
+  origin_surface across a forced re-investigate. New POST /api/cases/{id}/investigate
+  (load→rebuild via id-requery then config-windowed entity fallback→investigate_cluster(
+  force=True); preserves source/origin surface, appends verdict_history; 404 missing, neutral
+  400 when aged out). Made pipeline._assemble_case normalize reproduce_query UNCONDITIONALLY
+  and fixed a latent normalize_kql regex bug (source.ip → source.source.ip) via a (?<![\w.])
+  negative lookbehind in agents/common.py. Used now-365d (not now-1y; relative_to_millis lacks
+  a year unit). No ES-layer change needed (existing ids_query + search_logs sufficed).
+- Tests: +tests/test_investigate_flow.py (8). Full suite 96 passed (committed 2d07439).
+- Status: done.
+- Next: FE — surface the new POST /cases/{id}/investigate button + render the neutral-400
+  empty-state (errorDetail); expose investigate_lookback in settings.
+
+### 2026-06-16 18:00Z — orchestrator — build toolchain + Wave 3 launch
+- Context: validate the plugin build toolchain (historically flaky) before frontend exists;
+  start the rule-catalog backend wave.
+- Did: yarn kbn bootstrap installed all deps (node_modules 2.4G, 1112 @kbn pkgs) but aborted
+  at the trailing Playwright FIREFOX browser install (blocked CDN — PLAYWRIGHT_SKIP_BROWSER_
+  DOWNLOAD only suppresses the npm postinstall, not Kibana's explicit `playwright install`).
+  Since the optimizer build needs no browsers, run plugin_helpers build directly against the
+  populated node_modules (build-only smoke test in flight). Launched Wave 3 (C3-1 rule catalog
+  + C3-6b per-rule models) after two transient infra errors (Bash classifier + a 0-token Agent
+  500) cost a retry — no work lost (tree was clean).
+- Tests: n/a (orchestration).
+- Status: in-progress.
+- Next: verify build-only zip; commit+push Wave 3; then trace+resolved-RAG wave; then frontend.
