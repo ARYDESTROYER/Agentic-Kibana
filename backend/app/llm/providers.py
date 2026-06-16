@@ -36,6 +36,16 @@ def _estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def _is_reasoning_or_gpt5(model: str) -> bool:
+    """True for OpenAI models that reject ``temperature`` and require
+    ``max_completion_tokens`` instead of ``max_tokens``.
+
+    Covers the GPT-5 family (``gpt-5``, ``gpt-5-mini``, ...) and the o-series
+    reasoning models (``o1``/``o3``/``o4`` prefixes, e.g. ``o4-mini``). All other
+    OpenAI chat models (gpt-4*, gpt-4o*, gpt-3.5*) keep the classic params."""
+    return model.startswith("gpt-5") or model.startswith(("o1", "o3", "o4"))
+
+
 class BaseProvider:
     async def complete(
         self,
@@ -112,12 +122,17 @@ class OpenAIProvider(BaseProvider):
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
 
     async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if _is_reasoning_or_gpt5(model):
+            # GPT-5 family + o-series reasoning models reject ``temperature`` and
+            # use ``max_completion_tokens`` rather than ``max_tokens``.
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["temperature"] = temperature
+            payload["max_tokens"] = max_tokens
         resp = await self._client.post(
             "/v1/chat/completions",
             headers={"Authorization": f"Bearer {self._key}", "content-type": "application/json"},
