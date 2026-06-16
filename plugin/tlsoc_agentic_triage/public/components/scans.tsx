@@ -17,9 +17,11 @@ import type { OpenInDiscover } from '../lib/discover';
 interface ScansProps {
   api: TlsocApi;
   openInDiscover: OpenInDiscover;
+  /** Open the stored case (GET by id) in the Investigate detail view. */
+  onOpenCase?: (caseId: string) => void;
 }
 
-export const Scans: React.FC<ScansProps> = ({ api, openInDiscover }) => {
+export const Scans: React.FC<ScansProps> = ({ api, openInDiscover, onOpenCase }) => {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +59,20 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover }) => {
     { field: 'status', name: 'Status', render: (s: string) => <EuiBadge>{s || '-'}</EuiBadge> },
     { field: 'created_at', name: 'Created' },
     {
-      name: 'Reproduce',
+      name: 'Actions',
       actions: [
+        {
+          name: 'Open',
+          description: 'Open the stored case (no LLM cost)',
+          icon: 'eye',
+          type: 'icon' as const,
+          available: (item: Case) => !!onOpenCase && !!item.case_id,
+          onClick: (item: Case) => {
+            if (onOpenCase && item.case_id) {
+              onOpenCase(item.case_id);
+            }
+          },
+        },
         {
           name: 'Reproduce',
           description: 'Reproduce query in Discover',
@@ -104,6 +118,18 @@ export const Scans: React.FC<ScansProps> = ({ api, openInDiscover }) => {
         loading={loading}
         tableLayout="auto"
         noItemsMessage="No automated scans yet."
+        rowProps={
+          onOpenCase
+            ? (item: Case) => ({
+                onClick: () => {
+                  if (item.case_id) {
+                    onOpenCase(item.case_id);
+                  }
+                },
+                style: { cursor: 'pointer' },
+              })
+            : undefined
+        }
       />
     </div>
   );

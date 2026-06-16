@@ -57,3 +57,30 @@
 - Tests: n/a (docs).
 - Status: in-progress — beginning the work order via sequenced Opus sub-agents.
 - Next: backend contract+logic changes, then plugin, then rebuild 8.19.12 + test.
+
+### 2026-06-16 — backend agent A — P1 (stability/provenance) + P2 (risk/correctness)
+- Context: Work-order P1 + P2 (ran in parallel with the P0 frontend agent).
+- Did: P1 — `Case.origin_surface` + `Case.verdict_history`; `investigate_cluster(force=…)`
+  skips re-investigation of an unchanged already-investigated OPEN case (no LLM,
+  no verdict drift); preserve original `source_surface` on update. P2 — velocity
+  no longer saturates on a same-ms burst (needs ≥3 events + ≥1s window);
+  `caps.timeout_seconds` enforced via `asyncio.wait_for` → NEEDS_HUMAN on timeout;
+  `normalize_kql` maps bare `ip:/user:/host:` to configured fields; CIDR
+  `asset_networks` internal-asset policy in `risk.compute_risk`. Added
+  `overview_model` pref + `Role.OVERVIEW` (prep for Feature 2).
+- Tests: `pytest -q` green (53 passed; +test_pipeline_stability, +risk cases).
+- Status: done for P1+P2. Agent was rate-limited before Features 1-4 backend.
+- Next: Feature 1 chat-context, Feature 2 /api/overview, Feature 3 trigger-reason,
+  Feature 4 /api/models (routes.py still untouched), then RAG.
+
+### 2026-06-16 — frontend agent — P0 (case detail + lifecycle)
+- Context: Work-order P0 ("features feel broken").
+- Did: new `public/components/case_detail.tsx` rehydrates a case via
+  `api.get('cases/'+id)`; selection lifted into `app.tsx` (survives tab switches);
+  table rows OPEN the stored case (GET by id) instead of re-investigating; a
+  separate explicit "Re-investigate (LLM)" action remains; lifecycle controls
+  (Close/Confirm FP/Escalate/Reopen) → `POST cases/{id}/action`; scans rows open
+  detail too.
+- Tests: tsc --noEmit clean for our public/ + common/ against /tmp/kibana-8.19.
+- Status: done (pending final 8.19 zip rebuild at the end).
+- Next: features-frontend (F1-5) builds on this app.tsx selection state.

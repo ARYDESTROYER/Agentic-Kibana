@@ -52,6 +52,10 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState('chat');
   const [newScanCount, setNewScanCount] = useState(0);
+  // App-level case selection so the open case (and its rehydrated detail view)
+  // survives switching tabs and coming back. The detail view re-fetches the case
+  // by id from the backend, so the analysis is never held in transient state.
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   const loadStatus = async () => {
     setLoadingStatus(true);
@@ -122,9 +126,25 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
       case 'chat':
         return <Chat api={api} openInDiscover={openInDiscover} />;
       case 'investigate':
-        return <Investigate api={api} openInDiscover={openInDiscover} />;
+        return (
+          <Investigate
+            api={api}
+            openInDiscover={openInDiscover}
+            selectedCaseId={selectedCaseId}
+            onSelectCase={setSelectedCaseId}
+          />
+        );
       case 'scans':
-        return <Scans api={api} openInDiscover={openInDiscover} />;
+        return (
+          <Scans
+            api={api}
+            openInDiscover={openInDiscover}
+            onOpenCase={(caseId) => {
+              setSelectedCaseId(caseId);
+              setSelectedTab('investigate');
+            }}
+          />
+        );
       case 'standup':
         return <Standup api={api} />;
       case 'cost':
