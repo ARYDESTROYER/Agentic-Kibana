@@ -64,14 +64,24 @@ plugin/
   tree produces both `8.12.2` and `8.19.12` artifacts. The override is stamped
   into the zip's `kibana.json` (verified: the 8.19.12 zip's manifest reads
   `"kibanaVersion": "8.19.12"`).
+- `kibana.json` now also declares `"optionalPlugins": ["unifiedDocViewer"]`
+  (alongside `"requiredPlugins": ["navigation", "data", "dataViews", "share"]`).
+  This is for the Feature 2 Discover doc-viewer tab ("TLSOC AI Overview"). It is
+  **optional**, not required: the doc-viewer registration in `public/plugin.ts`
+  `setup()` is fully guarded (it checks for `unifiedDocViewer.registry.add` and
+  try/catches), so if the plugin is absent or its registry shape differs, the tab
+  is skipped and plugin load is unaffected.
 
 ## No new dependencies (both versions)
 
 Do **not** add npm dependencies. Only packages already in the Kibana monorepo are
 used: `react`, `@elastic/eui`, `@kbn/i18n`, `@kbn/i18n-react`,
 `@kbn/config-schema`, the core/plugin contracts, and the `navigation`, `data`,
-`dataViews`, `share` plugin start contracts. Adding deps breaks the build (in
-8.12 it breaks bazel; in either version it breaks the optimizer resolution).
+`dataViews`, `share` plugin start contracts. The Feature 2 doc-viewer tab consumes
+the **optional** `unifiedDocViewer` contract — accessed defensively via
+`(plugins as any)?.unifiedDocViewer?.registry`, so it needs no static import and
+adds no dependency. Adding deps breaks the build (in 8.12 it breaks bazel; in
+either version it breaks the optimizer resolution).
 
 ## Build env vars (REQUIRED before bootstrap + build — both versions)
 
@@ -183,6 +193,14 @@ cd "$DST"
 node /tmp/kibana-8.19/scripts/plugin_helpers build --kibana-version 8.19.12
 #    -> build/tlsocAgenticTriage-8.19.12.zip
 ```
+
+> **This cycle's features need no recipe change.** The header chat nav control
+> (Feature 1, registered in `public/plugin.ts start()`) and the Discover
+> doc-viewer tab (Feature 2) are plain source under `public/` plus the
+> `optionalPlugins` manifest entry above — they are picked up by the same copy +
+> build steps with no new dependency, env var, or flag. The latest **verified**
+> `tlsocAgenticTriage-8.19.12.zip` is **~57 KB** and contains the header
+> nav-control + doc-viewer code; pass the standard verification block below.
 
 ### Root-guard workaround (ONLY when building 8.19 as root)
 

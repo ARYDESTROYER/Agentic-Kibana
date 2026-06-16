@@ -20,6 +20,11 @@ Until setup is complete the app shows the **first-boot wizard** instead of the
 tabs (the plugin checks `setup/status`; if `setup_complete` is false the wizard
 renders).
 
+Beyond those tabs the plugin adds two **cross-app** surfaces, available from
+anywhere in Kibana: a **global agent chat button** in the chrome header
+(Section 2) and a **per-log AI overview** — a Discover doc-viewer tab plus an
+in-app per-row action (Section 3).
+
 Everything the browser does goes **through Kibana**: the plugin calls
 `/api/tlsoc/<path>` on Kibana, which proxies to `${backendUrl}/api/<path>`. The
 browser never holds a backend URL or a secret.
@@ -30,6 +35,11 @@ browser never holds a backend URL or a secret.
 
 The wizard is a four-step horizontal stepper. Each "Save & continue" persists to
 the backend immediately, so you can leave and resume.
+
+> The current 4-step wizard is **functional** and gets you fully set up. A deeper
+> rewrite (in-wizard data-view create, entity auto-suggest, all per-role models)
+> is a tracked enhancement (Feature 5 in `ROADMAP.md`), best validated against a
+> live 8.19 Kibana; until then, set those extras on the **Settings** page.
 
 ### Step 1 — Elasticsearch keys
 
@@ -132,9 +142,73 @@ Configure an LLM provider key in Settings."* — it never silently errors.
 **Clear conversation** resets the thread. History is sent with each turn so
 follow-ups have context.
 
+### Global agent chat button
+
+The same chat engine is also reachable from a **persistent button on the
+top-right of Kibana's chrome header** — visible from **any** Kibana app, not just
+this one (it is registered in `plugin.ts start()` via
+`core.chrome.navControls.registerRight`). Click the **discuss** icon to open an
+`EuiFlyout` hosting the same read-only `Chat` component (one engine, two entry
+points).
+
+What makes it context-aware: at **send time** the flyout snapshots the on-screen
+context and ships it with the request. The header chip previews what it will
+capture:
+
+- the current **app**,
+- the active **data view** (pattern),
+- the **time range** (`from → to`),
+- the current **query**, and any **selection**.
+
+This snapshot is sent as the `chat` request's `context` field. **Security note:**
+server-side the context is fenced as **UNTRUSTED** — it never becomes
+instructions. It only supplies **es_query defaults** (e.g. the data view to read
+against); the query/selection values are treated as plain data, never executed.
+Each chip is rendered as plain text in the UI too.
+
 ---
 
-## 3. Alerts / Investigate (Surface 2)
+## 3. Per-log AI overview
+
+Get a one-click AI summary of a **single log event** — no full investigation, no
+case. Two entry points, one backend call:
+
+- **In Discover** — a custom doc-viewer tab **"TLSOC AI Overview"** on the
+  expanded document flyout (registered against the optional `unifiedDocViewer`
+  plugin; if it is absent the tab simply does not appear).
+- **In-app** — a per-row **AI overview** action in the Agent Chat result table,
+  which opens the same overview in a modal.
+
+Both call `POST /api/overview` with the event source
+(`{ source, index?, id?, data_view? }`). The backend runs a single-event,
+**read-only** agent on the cheap `overview_model` (see Settings), reuses IP
+enrichment, and is **cost-ledgered** through the same gateway as every other LLM
+call.
+
+**Example response shape:**
+
+```json
+{
+  "overview": "Repeated failed SSH logins from 10.10.1.152 against web-01 for user 'alice'.",
+  "why_it_matters": "A burst of failures from one source IP is a classic brute-force precursor.",
+  "suggested_next_step": "Check whether any login from 10.10.1.152 succeeded shortly after.",
+  "entities": ["10.10.1.152", "alice", "web-01"],
+  "mitre": ["T1110"],
+  "ip_reputation": { "ip": "10.10.1.152", "reputation_score": 88, "is_malicious": true, "country": "RU" },
+  "cost": 0.0003
+}
+```
+
+The card shows **Overview · Why it matters · Suggested next step**, plus
+**Entities**, **MITRE** badges, and an **IP reputation** badge when present.
+
+> Cost note: the overview defaults to the cheap `overview_model`
+> (`claude-haiku-4-5-20251001`), and its tokens/cost land in the **Cost** tab
+> under the `overview` role like any other call.
+
+---
+
+## 4. Alerts / Investigate (Surface 2)
 
 The triage workbench. Three regions, top to bottom:
 
@@ -202,6 +276,17 @@ that entity). **Refresh** reloads. Statuses you'll see: `open` (candidate awaiti
 investigation), `needs_human` (escalated / fail-safe), `closed` (confirmed/auto-
 closed FP).
 
+### Case detail + lifecycle
+
+Opening a row loads the **stored** case by id (`GET cases/{id}`) — it does **not**
+re-investigate — and the selection survives tab switches. The case-detail view
+shows the verdict, status, confidence/risk badges, entity, rules, summary, the
+`trigger_reason` ("why this fired"), evidence, MITRE, recommended action,
+**Reproduce in Discover**, and the audit **History**. Lifecycle buttons —
+**Close / Confirm FP / Escalate / Reopen** — are contextualised by current status
+and post to `cases/{id}/action` (see the table below); a separate, explicit
+**Re-investigate (LLM)** action exists for when you do want to re-run the pipeline.
+
 ### Analyst actions on a case (API)
 
 The card UI focuses on viewing; analyst state changes go through
@@ -221,7 +306,7 @@ Every action sets `decision_by=analyst`, stamps `updated_at`, and appends an
 
 ---
 
-## 4. Automated Scans (Surface 3)
+## 5. Automated Scans (Surface 3)
 
 The background-investigation queue. The poller correlates each new in-scope
 cluster and either:
@@ -235,6 +320,12 @@ cluster and either:
 This tab lists scan-originated cases (`scans?limit=100`) with **Entity · Verdict ·
 Risk · Status · Created** and a **Reproduce** action (Open in Discover for the
 case's `reproduce_query`, shown only when present).
+
+**Why this fired.** Every case now carries a `trigger_reason` — the deterministic
+matched-window detail (which rule, how many events, in what window, grouped on
+which entity) plus a plain-English sentence describing it. It is shown both here
+in the Automated Scans tab and on the **case detail** view (see Surface 2), so you
+can see exactly what tripped the correlation before reading the verdict.
 
 **Notification badge.** While setup is complete, the app polls
 `scans/notifications?since=now-24h` every 30 seconds and shows the count of new
@@ -251,7 +342,7 @@ scans as a badge on the **Automated Scans** tab. Opening the tab clears the badg
 
 ---
 
-## 5. Daily Standup (Surface 4)
+## 6. Daily Standup (Surface 4)
 
 Aggregate-then-summarise. Click **Load standup** (GETs `standup?window_hours=24`).
 The backend first runs near-free Elasticsearch aggregations over the window, then
@@ -291,7 +382,7 @@ If standup is disabled in Settings, the response is
 
 ---
 
-## 6. Cost panel
+## 7. Cost panel
 
 Click into **Cost** (loads automatically; **Refresh** to re-pull
 `usage/summary?window_hours=24`). Because **100% of LLM calls go through the single
@@ -314,11 +405,31 @@ decimals with the ledger's currency.
 
 ---
 
-## 7. Settings (Surface 5) — full reference
+## 8. Settings (Surface 5) — full reference
 
 Settings GET `settings` (prefs + `configured` booleans + `read_only`) and PUT a
 partial patch (deep-merged server-side; validated against the `Preferences`
 schema). When **read-only mode** is on, a warning shows and the form is disabled.
+
+The page now renders **every** `Preferences` field — there is no longer anything
+that is API-only. Organised into collapsible sections, it covers: data scope,
+entity mapping, severity/rules, polling, the **seven per-role models** (router,
+investigator, formatter, standup, chat, **`overview_model`** for the per-log AI
+overview, and embedding), decision thresholds, the correlation table + risk
+weights + `asset_networks`, caps + kill switch, suppression rules, the
+auto-forward allowlist, enrichment, RAG (incl. `min_score`), standup, and
+read-only mode — all round-tripped through `GET`/`PUT /api/tlsoc/settings` by
+saving the full prefs object so nothing is dropped.
+
+### Per-role model selection
+
+Each role has a **provider** picker (SuperSelect) and a **model** picker
+(ComboBox), plus temperature and max-tokens. The model choices are populated from
+the live catalog returned by `GET /api/tlsoc/models` (the price-table models
+grouped by provider) — and the UI warns inline when the selected provider has no
+configured key. You may also type a **custom** model name. The `overview_model`
+controls the cost of the per-log AI overview (Section 3) and defaults to the cheap
+`claude-haiku-4-5-20251001`.
 
 ### Configured credentials
 
@@ -391,16 +502,17 @@ The footer shows the current **Data view pattern** and **Entity mapping**
 
 ### Save
 
-**Save settings** PUTs the patch the form builds (polling, thresholds, scan,
-allowlist, fp_auto_close.enabled, caps, enrichment/rag/standup toggles,
-correlation_rules). Saving with `setup_complete` true, `polling_enabled` true, and
-the kill switch off (re)starts the poller. Other prefs (entity mapping, risk
-weights, per-role models, suppression rules, asset criticality, etc.) are settable
-via the API (see below) and via the wizard.
+**Save settings** PUTs the **full** prefs object the form holds (every section
+above — data scope/entity mapping, polling, per-role models, thresholds,
+correlation + risk weights + asset_networks/asset_criticality, caps, suppression,
+scan + allowlist, enrichment/rag/standup, read-only mode), so nothing is dropped.
+Saving with `setup_complete` true, `polling_enabled` true, and the kill switch off
+(re)starts the poller. The same prefs remain settable directly via the API (see
+below) for ops/automation.
 
 ---
 
-## 8. Power-user API (`curl`)
+## 9. Power-user API (`curl`)
 
 The plugin proxies to the backend, but you can call the backend directly for
 ops/automation. Two ways:
@@ -443,10 +555,27 @@ curl -s -X POST localhost:8088/api/investigate \
   -H 'content-type: application/json' \
   -d '{"entity":{"type":"ip","value":"10.10.1.152"},"source_surface":"investigate"}'
 
-# Chat (Surface 1). Add "case_id" to seed a case-follow-up (Surface 2).
+# Chat (Surface 1). Add "case_id" to seed a case-follow-up (Surface 2). Add
+# "context" (app/data_view/time_range/query/selection) to mimic the header chat
+# button; it is fenced UNTRUSTED server-side and only supplies es_query defaults.
 curl -s -X POST localhost:8088/api/chat \
   -H 'content-type: application/json' \
   -d '{"message":"list all logs from 10.10.1.152 today","history":[]}'
+
+# Per-log AI overview (Section 3). source is the raw event _source; index/id/
+# data_view are optional. Returns overview/why_it_matters/suggested_next_step/
+# entities/mitre/ip_reputation/cost (cheap overview_model, cost-ledgered).
+curl -s -X POST localhost:8088/api/overview \
+  -H 'content-type: application/json' \
+  -d '{"source":{"source.ip":"10.10.1.152","user.name":"alice","event.module":"sshd"},"index":"all-logs-000001","id":"abc123","data_view":"all-logs-*"}'
+# -> {"overview":"...","why_it_matters":"...","suggested_next_step":"...",
+#     "entities":["10.10.1.152","alice"],"mitre":["T1110"],
+#     "ip_reputation":{"ip":"10.10.1.152","reputation_score":88,"is_malicious":true},"cost":0.0003}
+
+# Model catalog for the Settings per-role pickers (price-table models by provider).
+curl -s localhost:8088/api/models
+# -> {"providers":{"anthropic":["claude-haiku-4-5-20251001","claude-sonnet-4-6", ...],
+#     "openai":[...],"mock":[...]},"configured":{"anthropic_api_key":true, ...}}
 
 # Automated scans + the badge counter
 curl -s "localhost:8088/api/scans?limit=20"
@@ -473,7 +602,7 @@ curl -s -X PUT localhost:8088/api/settings \
 
 ---
 
-## 9. End-to-end walkthrough
+## 10. End-to-end walkthrough
 
 A complete loop from an event to a costed, audited decision:
 
@@ -505,7 +634,7 @@ A complete loop from an event to a costed, audited decision:
 
 ---
 
-## 10. Safety guarantees you can rely on
+## 11. Safety guarantees you can rely on
 
 These are enforced in **code**, not prompts:
 

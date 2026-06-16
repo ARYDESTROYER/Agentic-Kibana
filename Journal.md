@@ -176,3 +176,16 @@
   wizard works; rewrite is polish + risky to do blind (no live Kibana).
 - Next: USAGE/CHANGELOG refresh; Feature 5 wizard-rewrite when a live 8.19 stack
   is available to validate dataViews.createAndSave.
+
+### 2026-06-16 ~18:40Z — docs sub-agent — USAGE.md + BUILD.md refresh for shipped features
+- Context: Document this cycle's user-facing features in the usage/build guides.
+- Did: USAGE.md (+144/-15) — global header chat button (F1), new "Per-log AI
+  overview" section (F2) + curl for POST /api/overview & GET /api/models, case
+  detail+lifecycle (P0), "why this fired" (F3), Settings now documents every
+  preference + 7 per-role models, wizard-is-functional note (F5 deferred).
+  BUILD.md (+20/-2) — optionalPlugins:[unifiedDocViewer] (guarded), no recipe
+  change, verified 8.19.12 zip ~57KB. Grounded in routes.py/config.py/pricing.py/
+  plugin.ts/kibana.json/components.
+- Tests: n/a (docs); git status shows only the 2 files.
+- Status: done — work-order cycle complete except deferred Feature 5.
+- Next: Feature 5 wizard rewrite against a live 8.19 Kibana (tracked in ROADMAP).
