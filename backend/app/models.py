@@ -172,6 +172,10 @@ class Case(BaseModel):
     created_at: str = Field(default_factory=iso_now)
     updated_at: str = Field(default_factory=iso_now)
     source_surface: SourceSurface
+    # The FIRST surface this case was ever created from. Unlike ``source_surface``
+    # (which is preserved from the original creation), this never changes and is a
+    # stable provenance marker for the UI (P1).
+    origin_surface: SourceSurface | None = None
     rule_ids: list[str] = Field(default_factory=list)
     entity: Entity
     member_event_ids: list[str] = Field(default_factory=list)
@@ -192,6 +196,9 @@ class Case(BaseModel):
     token_cost: float = 0.0
     error: str | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
+    # Append-only verdict trail: {ts, verdict, confidence, risk_score} on each
+    # investigation. Lets the UI show how a case's verdict evolved (P1).
+    verdict_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #

@@ -189,6 +189,14 @@ class SuppressionRule(BaseModel):
     reason: str = ""
 
 
+class AssetNetwork(BaseModel):
+    """An internal-asset network: every IP inside ``cidr`` carries ``criticality``
+    in the deterministic risk score's asset_criticality component (Section 6.2)."""
+
+    cidr: str
+    criticality: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
 
@@ -231,6 +239,10 @@ class Preferences(BaseModel):
     chat_model: ModelConfig = Field(
         default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=1500)
     )
+    # Single-event AI overview (Feature 2): default to the cheap model.
+    overview_model: ModelConfig = Field(
+        default_factory=lambda: ModelConfig(model="claude-haiku-4-5-20251001", max_tokens=900)
+    )
     embedding_model: ModelConfig = Field(
         default_factory=lambda: ModelConfig(provider="openai", model="text-embedding-3-small")
     )
@@ -245,6 +257,9 @@ class Preferences(BaseModel):
     correlation_rules: dict[str, CorrelationRule] = Field(default_factory=dict)
     risk_weights: RiskWeights = Field(default_factory=RiskWeights)
     asset_criticality: dict[str, float] = Field(default_factory=dict)  # entity value -> 0..100
+    # CIDR-based internal-asset criticality (an IP inside a CIDR inherits its
+    # criticality; max wins; falls back to the exact-value map above).
+    asset_networks: list[AssetNetwork] = Field(default_factory=list)
 
     # --- Cost gate / caps (Section 6.3) ---
     caps: CapsConfig = Field(default_factory=CapsConfig)
@@ -274,6 +289,7 @@ class Preferences(BaseModel):
             "formatter": self.formatter_model,
             "standup": self.standup_model,
             "chat": self.chat_model,
+            "overview": self.overview_model,
             "embedding": self.embedding_model,
         }
         return mapping.get(role, self.router_model)

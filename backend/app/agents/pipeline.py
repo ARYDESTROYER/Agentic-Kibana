@@ -10,6 +10,7 @@ It NEVER raises: any failure yields a NEEDS_HUMAN case (Section 6.7).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ..audit.audit_log import AuditLogger
@@ -28,7 +29,7 @@ from ..tools.enrich import EnrichTool
 from ..tools.es_query import EsQueryTool
 from ..tools.rag import RagService, RagTool
 from ..utils import iso_now, new_id, truncate
-from .common import entity_kql
+from .common import entity_kql, normalize_kql
 from .formatter import Formatter
 from .graph import run_investigation
 from .investigator import Investigator
@@ -69,7 +70,12 @@ class InvestigationPipeline:
         return investigator, enrich
 
     async def investigate_cluster(
-        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences
+        self,
+        cluster: Cluster,
+        source_surface: SourceSurface,
+        prefs: Preferences,
+        *,
+        force: bool = False,
     ) -> Case:
         case_id = new_id("case-")
         existing: Case | None = None
@@ -77,6 +83,25 @@ class InvestigationPipeline:
             existing = await self._cases.find_open_by_signature(cluster.signature)
             if existing:
                 case_id = existing.case_id
+
+            # --- P1: case/verdict stability ---
+            # An already-investigated OPEN case (verdict is not None) with NO material
+            # change (no new member event ids) and no explicit force must be returned
+            # UNCHANGED — no LLM calls — to stop poll/attach-driven verdict drift.
+            # Re-investigate only when force=True, the case is an un-investigated
+            # candidate (verdict is None), or new events were added.
+            if existing and existing.verdict is not None and not force:
+                new_ids = set(cluster.member_event_ids) - set(existing.member_event_ids)
+                if not new_ids:
+                    await self._audit.record(
+                        action_type=ActionType.DECISION, surface=source_surface.value,
+                        actor="pipeline", case_id=case_id,
+                        result_summary=(
+                            "no material change; returning existing case unchanged "
+                            f"(verdict={existing.verdict.value})"
+                        ),
+                    )
+                    return existing
 
             investigator, enrich = self._build_investigator(prefs)
 
@@ -101,11 +126,38 @@ class InvestigationPipeline:
                 )
             else:
                 # LangGraph flow: triage -> (benign shortcut | strong investigator).
-                verdict, flow_cost = await run_investigation(
-                    self._router, investigator, self._rag, cluster, enrichment,
-                    prefs, budget, source_surface.value, case_id,
-                )
-                cost += flow_cost
+                # Enforce caps.timeout_seconds (Section 6.3 #4): a runaway / slow
+                # investigation is capped to a NEEDS_HUMAN verdict, never left to spin.
+                try:
+                    verdict, flow_cost = await asyncio.wait_for(
+                        run_investigation(
+                            self._router, investigator, self._rag, cluster, enrichment,
+                            prefs, budget, source_surface.value, case_id,
+                        ),
+                        timeout=prefs.caps.timeout_seconds,
+                    )
+                    cost += flow_cost
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Investigation for %s exceeded caps.timeout_seconds=%ss; capping to human",
+                        cluster.signature, prefs.caps.timeout_seconds,
+                    )
+                    await self._audit.record(
+                        action_type=ActionType.ERROR, surface=source_surface.value,
+                        actor="pipeline", case_id=case_id,
+                        result_summary=(
+                            f"investigation timed out after {prefs.caps.timeout_seconds}s; "
+                            "capped to NEEDS_HUMAN"
+                        ),
+                    )
+                    verdict = VerdictResult(
+                        verdict=Verdict.NEEDS_HUMAN,
+                        recommended_action=(
+                            f"Investigation exceeded the {prefs.caps.timeout_seconds}s time "
+                            "cap; manual review required."
+                        ),
+                        reproduce_query=entity_kql(cluster, prefs),
+                    )
 
             case = self._assemble_case(case_id, cluster, verdict, source_surface, existing, cost, prefs)
             CaseManager(prefs).apply(case)
@@ -152,7 +204,8 @@ class InvestigationPipeline:
             cluster_signature=cluster.signature,
             created_at=existing.created_at if existing else iso_now(),
             updated_at=iso_now(),
-            source_surface=source_surface,
+            source_surface=_preserved_surface(existing, source_surface),
+            origin_surface=_origin_surface(existing, source_surface),
             rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
             member_event_ids=member_ids,
@@ -165,6 +218,7 @@ class InvestigationPipeline:
                 f"{', '.join(cluster.rule_values) or 'activity'}", 200),
             summary="Candidate cluster awaiting investigation.",
             history=(existing.history if existing else []),
+            verdict_history=(existing.verdict_history if existing else []),
         )
         await self._cases.save(case)
         await self._audit.record(
@@ -191,12 +245,28 @@ class InvestigationPipeline:
         history = existing.history if existing else []
         token_cost = (existing.token_cost if existing else 0.0) + cost
         title = f"{cluster.entity.type.value}:{cluster.entity.value} — {', '.join(cluster.rule_values) or 'activity'}"
+        # P1 provenance: keep the original creating surface; never overwrite it with
+        # the current call's surface (so an automated_scan case stays in the
+        # Automated Scans tab after a manual investigate).
+        surface = _preserved_surface(existing, source_surface)
+        origin = _origin_surface(existing, source_surface)
+        # P1: append to the verdict trail on each (re)investigation.
+        verdict_history = list(existing.verdict_history) if existing else []
+        verdict_history.append({
+            "ts": iso_now(),
+            "verdict": verdict.verdict.value,
+            "confidence": verdict.confidence,
+            "risk_score": cluster.risk_score,
+        })
+        reproduce_query = normalize_kql(verdict.reproduce_query, prefs) if verdict.reproduce_query \
+            else entity_kql(cluster, prefs)
         return Case(
             case_id=case_id,
             cluster_signature=cluster.signature,
             created_at=created_at,
             updated_at=iso_now(),
-            source_surface=source_surface,
+            source_surface=surface,
+            origin_surface=origin,
             rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
             member_event_ids=member_ids,
@@ -207,11 +277,12 @@ class InvestigationPipeline:
             evidence=verdict.evidence,
             mitre=verdict.mitre,
             recommended_action=verdict.recommended_action,
-            reproduce_query=verdict.reproduce_query or entity_kql(cluster, prefs),
+            reproduce_query=reproduce_query,
             title=truncate(title, 200),
             summary=truncate(verdict.recommended_action, 300),
             token_cost=round(token_cost, 6),
             history=history,
+            verdict_history=verdict_history,
         )
 
 
@@ -238,10 +309,13 @@ def _fail_to_human_case(
         cluster_signature=cluster.signature,
         created_at=existing.created_at if existing else iso_now(),
         updated_at=iso_now(),
-        source_surface=source_surface,
-        rule_ids=cluster.rule_values,
+        source_surface=_preserved_surface(existing, source_surface),
+        origin_surface=_origin_surface(existing, source_surface),
+        rule_ids=_merge_rules(existing, cluster),
         entity=cluster.entity,
-        member_event_ids=cluster.member_event_ids,
+        member_event_ids=list(dict.fromkeys(
+            (existing.member_event_ids if existing else []) + cluster.member_event_ids
+        )),
         risk_score=cluster.risk_score,
         risk_breakdown=cluster.risk_breakdown,
         verdict=Verdict.NEEDS_HUMAN,
@@ -252,4 +326,20 @@ def _fail_to_human_case(
         decision_by=DecisionBy.SYSTEM,
         title=f"[FAILED] {cluster.entity.type.value}:{cluster.entity.value}",
         error=truncate(error, 500),
+        history=(existing.history if existing else []),
+        verdict_history=(existing.verdict_history if existing else []),
     )
+
+
+def _preserved_surface(existing: Case | None, source_surface: SourceSurface) -> SourceSurface:
+    """Keep the original creating surface (P1 provenance). For an existing case we
+    NEVER overwrite ``source_surface`` with the current call's surface, so e.g. an
+    automated_scan case stays in the Automated Scans tab after a manual investigate."""
+    return existing.source_surface if existing else source_surface
+
+
+def _origin_surface(existing: Case | None, source_surface: SourceSurface) -> SourceSurface:
+    """The FIRST surface this case ever had. Stable across (re)investigations."""
+    if existing:
+        return existing.origin_surface or existing.source_surface
+    return source_surface

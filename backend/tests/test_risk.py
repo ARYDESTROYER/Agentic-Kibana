@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.config import Preferences
+from app.config import AssetNetwork, Preferences
 from app.constants import EntityType
 from app.engine.correlation import cluster_from_events
 from app.engine.risk import compute_risk

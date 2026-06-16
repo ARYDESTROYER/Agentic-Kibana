@@ -76,6 +76,7 @@ class Role(str, Enum):
     FORMATTER = "formatter"
     STANDUP = "standup"
     CHAT = "chat"            # the shared chat engine (Surface 1/2 follow-up)
+    OVERVIEW = "overview"    # single-event AI overview (Feature 2)
     EMBEDDING = "embedding"  # embedding calls also pass through the gateway
 
 
