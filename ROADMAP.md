@@ -10,6 +10,17 @@ commit + push.
 - ☑ 8.19.12 plugin build (legacy `kibana.json`, Node 22.22.0, import-alias port).
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
+## Progress (this cycle, newest first)
+- ☑ Coordination + extra docs: CLAUDE/Journal/ENVIRONMENT/ROADMAP, SECURITY,
+  RUNBOOK, CONTRIBUTING, CHANGELOG.
+- ☑ **P0** (plugin case detail + lifecycle), **P1** (stability/provenance),
+  **P2** (risk/timeout/normalize/CIDR) — committed, 60 tests green.
+- ☑ **Backend** Features 1-4 (chat context, /api/overview, trigger-reason,
+  /api/models) — committed (c572069), tested.
+- ◐ **Frontend** Features 1/3/4 + common sync — in progress (agent).
+- ☐ Remaining: Feature 2 (doc-viewer + in-app overview button), Feature 5
+  (wizard rewrite), **P1 RAG**, then rebuild + triple-verify the 8.19.12 zip.
+
 ## Work order (this cycle)
 
 ### P0 — Case detail + lifecycle in the UI
