@@ -84,3 +84,15 @@
 - Tests: tsc --noEmit clean for our public/ + common/ against /tmp/kibana-8.19.
 - Status: done (pending final 8.19 zip rebuild at the end).
 - Next: features-frontend (F1-5) builds on this app.tsx selection state.
+
+### 2026-06-16 14:10Z — docs sub-agent — SECURITY/RUNBOOK/CONTRIBUTING/CHANGELOG
+- Context: Create the extra full-scale-deployment docs the user asked about.
+- Did: SECURITY.md (threat model, trust-boundary diagram, two-key model + role
+  descriptors, secrets/injection posture, hardening checklist); docs/RUNBOOK.md
+  (health, dashboards, key rotation, kill switch, ILM/backup, scaling, tool IR,
+  plugin re-install); CONTRIBUTING.md (workflow, conventions, extension points,
+  Journal mandate); CHANGELOG.md (Keep-a-Changelog from git log). 703 lines total,
+  grounded in 12 source files. Docs-only.
+- Tests: n/a (docs). git status = only the 4 new files from this agent.
+- Status: done.
+- Next: orchestrator commit; backend Features 1-4 + RAG agent still running.
