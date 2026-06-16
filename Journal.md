@@ -280,6 +280,25 @@
 - Status: in-progress.
 - Next: verify build-only zip; commit+push Wave 3; then trace+resolved-RAG wave; then frontend.
 
+### 2026-06-16 19:30Z — orchestrator (direct) — Wave 4: trace (C3-3) + resolved-case RAG (C3-5)
+- Context: agent spawns were repeatedly 529-Overloaded (two Wave-4 sub-agents died at
+  0 tokens), so I implemented this wave directly. All backend Cycle-2/3 work now done.
+- Did: C3-3 — TraceStep model; GET /api/cases/{id}/trace (mgmt-key term case_id, sort ts
+  asc; NEVER 404); AuditLogger.records_for_case(); formatter now writes a Role.FORMATTER
+  audit row (so it appears in the trace); Preferences.trace.include_prompts toggle omits the
+  untrusted prompt excerpt. C3-5 — RagService.index_resolved_case() indexes ONE resolved_case
+  chunk on close/confirm_fp (entity+rules+verdict+risk+trigger+analyst note) with deterministic
+  doc_id=resolved_case:{id}; StoredChunk gains doc_id (InMemory upserts, ES upserts by _id);
+  case_action calls it fail-safe (close still 200 if RAG/embeddings fail); render_cluster groups
+  resolved_case chunks under "## Prior analyst decisions (baseline)". Also: update_prefs now syncs
+  RagService prefs so a live settings toggle (rag.enabled/use_resolved_cases/min_score) takes effect.
+- Tests: +tests/test_trace_rag.py (8). Full suite 121 passed, clean under -W error::UserWarning.
+  Committed 04c7be2.
+- Status: BACKEND COMPLETE for Cycle 2/3. Remaining = frontend phase + 8.19.12 rebuild + docs.
+- Next: own common/index.ts contract (BUG-3 standup shape, TraceStep/TraceResponse, RuleMatch/
+  RuleDefinition); then parallel FE agents (case-detail hub · standup+board · settings editors);
+  consolidated tsc + zip rebuild; docs + migration note.
+
 ### 2026-06-16 18:10Z — orchestrator — plugin build toolchain VALIDATED
 - Context: de-risk the historically-flaky plugin build before frontend changes exist.
 - Did: wrote /tmp/build_only.sh (root-guard yarn shim → --allow-root; PLAYWRIGHT/PUPPETEER/etc.
