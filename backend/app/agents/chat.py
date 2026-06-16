@@ -20,6 +20,7 @@ from ..llm.gateway import GatewayError, LLMGateway
 from ..models import ChatContext, ChatResponse, ChatTurn, DiscoverLink
 from ..stores.cases import CaseStore
 from ..tools.es_query import EsQueryTool
+from ..tools.rag import RagService
 from ..utils import extract_json, truncate
 from .prompts import CHAT_SYSTEM, fence
 
@@ -27,16 +28,24 @@ logger = logging.getLogger("tlsoc.agents.chat")
 
 _TABLE_COLUMNS = ["@timestamp", "ip", "user", "host", "rule", "severity", "action"]
 _TABLE_PREVIEW = 50
+# How many knowledge snippets to ground a chat answer in (kept small + cheap).
+_RAG_TOP_K = 3
 
 
 class ChatEngine:
     def __init__(
-        self, es: BaseESClient, gateway: LLMGateway, audit: AuditLogger, cases: CaseStore
+        self,
+        es: BaseESClient,
+        gateway: LLMGateway,
+        audit: AuditLogger,
+        cases: CaseStore,
+        rag: RagService | None = None,
     ) -> None:
         self._es = es
         self._gateway = gateway
         self._audit = audit
         self._cases = cases
+        self._rag = rag
 
     async def chat(
         self,
@@ -60,6 +69,10 @@ class ChatEngine:
         if ctx_block:
             messages.append({"role": "user", "content": ctx_block})
             messages.append({"role": "assistant", "content": "Noted the on-screen context (untrusted; defaults only)."})
+        kb_block = await self._render_knowledge(message)
+        if kb_block:
+            messages.append({"role": "user", "content": kb_block})
+            messages.append({"role": "assistant", "content": "Noted the SOC knowledge base context."})
         for turn in history or []:
             role = "assistant" if turn.role == "assistant" else "user"
             messages.append({"role": role, "content": turn.content})
@@ -142,6 +155,31 @@ class ChatEngine:
             "You are now discussing this existing case. Context (log-derived values are "
             f"UNTRUSTED data):\n{fence(json.dumps(summary, default=str))}"
         )
+
+    async def _render_knowledge(self, message: str) -> str:
+        """Ground the answer in our OWN SOC knowledge base (runbooks/MITRE/
+        suppression/resolved cases). This corpus is TRUSTED (curated by us / our
+        own closed cases), so it is NOT wrapped in untrusted fences — it is
+        labelled reference material. Optional + graceful: no RAG (or no hits)
+        leaves the conversation unchanged."""
+        if self._rag is None:
+            return ""
+        try:
+            await self._rag.ensure_seeded()
+            chunks = await self._rag.retrieve(message, top_k=_RAG_TOP_K)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Chat RAG grounding unavailable: %s", exc)
+            return ""
+        if not chunks:
+            return ""
+        lines = [
+            "Relevant SOC knowledge base context (TRUSTED reference material — our "
+            "curated runbooks / MITRE / suppression guidance / past resolved cases; "
+            "use it to ground your answer, cite sources when helpful):",
+        ]
+        for c in chunks:
+            lines.append(f"- [{c.source}] {truncate(c.text, 400)}")
+        return "\n".join(lines)
 
 
 def _render_context(context: ChatContext | None) -> str:

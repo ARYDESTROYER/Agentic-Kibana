@@ -14,13 +14,22 @@ A Chroma-backed ``VectorStore`` can be dropped in behind the same interface
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
+from ..constants import CaseStatus
 from ..llm.gateway import LLMGateway
 from ..models import RagChunk
 from .base import Tool, ToolResult
-from .vectorstore import InMemoryVectorStore, StoredChunk, VectorStore
+from .vectorstore import (
+    EmbeddingSpaceMismatch,
+    InMemoryVectorStore,
+    StoredChunk,
+    VectorStore,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..stores.cases import CaseStore
 
 logger = logging.getLogger("tlsoc.tools.rag")
 
@@ -166,18 +175,32 @@ SEED_SUPPRESSION_GUIDANCE: list[dict[str, Any]] = [
 
 
 class RagService:
-    """Embeds the enabled seed corpus once and serves nearest-neighbour retrieval."""
+    """Embeds the enabled seed corpus once and serves nearest-neighbour retrieval.
+
+    Beyond the static seed corpus it can index past CLOSED cases as institutional
+    memory (``use_resolved_cases``), so an investigation can surface "we have seen
+    this entity / verdict before". Every stored chunk is tagged with the embedding
+    model + dim so an embedding-space change clears + reseeds rather than silently
+    mixing incompatible vectors.
+    """
 
     def __init__(
         self,
         gateway: LLMGateway,
         prefs: Preferences,
         store: VectorStore | None = None,
+        cases: "CaseStore | None" = None,
     ) -> None:
         self._gateway = gateway
         self._prefs = prefs
         self._store: VectorStore = store or InMemoryVectorStore()
+        self._cases = cases
         self._seeded = False
+
+    def _embedding_space(self) -> tuple[str, int]:
+        cfg = self._prefs.model_for("embedding")
+        # dim is settled at first embed; the model id is the stable space tag.
+        return (cfg.model, 0)
 
     def _enabled_seeds(self) -> list[dict[str, Any]]:
         cfg = self._prefs.rag
@@ -188,39 +211,97 @@ class RagService:
             seeds.extend(SEED_MITRE)
         if cfg.use_suppression_rules:
             seeds.extend(SEED_SUPPRESSION_GUIDANCE)
-        # ``use_resolved_cases`` would pull past closed cases; not part of the
-        # static seed corpus, so nothing is added here for it.
+        # ``use_resolved_cases`` is handled separately by index_resolved_cases()
+        # because it requires an async load from the CaseStore.
         return seeds
 
+    async def _embed_and_add(self, items: list[dict[str, Any]]) -> int:
+        """Embed ``items`` (each {text, source, metadata}) and add to the store.
+
+        Tags each chunk with the active embedding model + dim. Returns the count
+        added. Caller handles failures."""
+        if not items:
+            return 0
+        texts = [s["text"] for s in items]
+        model_id = self._prefs.model_for("embedding").model
+        vectors = await self._gateway.embed(
+            texts, self._prefs.model_for("embedding"), surface="rag"
+        )
+        chunks = [
+            StoredChunk(
+                text=s["text"],
+                source=s.get("source", "unknown"),
+                metadata=dict(s.get("metadata", {})),
+                embedding=vec,
+                embedding_model=model_id,
+                dim=len(vec),
+            )
+            for s, vec in zip(items, vectors)
+        ]
+        await self._store.add(chunks)
+        return len(chunks)
+
     async def ensure_seeded(self) -> None:
-        """Idempotently embed and store the enabled seed sources. Fails closed."""
+        """Idempotently embed and store the enabled sources. Fails closed.
+
+        Includes resolved-case memory when ``prefs.rag.use_resolved_cases``."""
         if self._seeded:
             return
         self._seeded = True  # guard first so a failure does not loop on retry
         try:
-            seeds = self._enabled_seeds()
-            if not seeds:
-                return
-            texts = [s["text"] for s in seeds]
-            vectors = await self._gateway.embed(
-                texts, self._prefs.model_for("embedding"), surface="rag"
-            )
-            chunks = [
-                StoredChunk(
-                    text=s["text"],
-                    source=s.get("source", "unknown"),
-                    metadata=dict(s.get("metadata", {})),
-                    embedding=vec,
-                )
-                for s, vec in zip(seeds, vectors)
-            ]
-            await self._store.add(chunks)
-            logger.info("RAG seeded with %d chunk(s)", len(chunks))
+            added = await self._embed_and_add(self._enabled_seeds())
+            if self._prefs.rag.use_resolved_cases:
+                added += await self.index_resolved_cases()
+            logger.info("RAG seeded with %d chunk(s)", added)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RAG seeding failed; store left empty: %s", exc)
+            logger.warning("RAG seeding failed; store left as-is: %s", exc)
+
+    async def index_resolved_cases(self, limit: int = 200) -> int:
+        """Load CLOSED cases and index one chunk per case as institutional memory.
+
+        The chunk text combines verdict + entity + rules + the top evidence
+        summaries + recommended_action; source="resolved_case"; metadata carries
+        case_id / verdict / entity so the UI/agent can cite the source case.
+        Returns the number of chunks added. Never raises (logs + returns 0)."""
+        if self._cases is None:
+            return 0
+        try:
+            cases, _total = await self._cases.list(
+                status=CaseStatus.CLOSED.value, limit=limit
+            )
+            items: list[dict[str, Any]] = []
+            for case in cases:
+                entity = f"{case.entity.type.value}:{case.entity.value}"
+                rules = ", ".join(case.rule_ids) or "n/a"
+                evidence = "; ".join(e.summary for e in case.evidence[:3]) or "n/a"
+                verdict = case.verdict.value if case.verdict else "n/a"
+                text = (
+                    f"Resolved case {case.case_id}: verdict {verdict} for entity {entity}. "
+                    f"Rules: {rules}. Evidence: {evidence}. "
+                    f"Recommended action: {case.recommended_action or 'n/a'}."
+                )
+                items.append(
+                    {
+                        "text": text,
+                        "source": "resolved_case",
+                        "metadata": {
+                            "case_id": case.case_id,
+                            "verdict": verdict,
+                            "entity": entity,
+                        },
+                    }
+                )
+            return await self._embed_and_add(items)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Indexing resolved cases failed: %s", exc)
+            return 0
 
     async def retrieve(self, query: str, top_k: int | None = None) -> list[RagChunk]:
-        """Return the top-k most relevant chunks for ``query``. Never raises."""
+        """Return the top-k most relevant chunks for ``query``. Never raises.
+
+        Drops chunks scoring below ``prefs.rag.min_score``. On an embedding-space
+        mismatch (model/dim changed) the store is CLEARED + reseeded once, then
+        the query is retried — vectors are never truncated to force a match."""
         cfg = self._prefs.rag
         if not cfg.enabled:
             return []
@@ -233,7 +314,14 @@ class RagService:
             )
             if not vectors:
                 return []
-            results = await self._store.search(vectors[0], k)
+            try:
+                results = await self._store.search(vectors[0], k)
+            except EmbeddingSpaceMismatch as exc:
+                logger.warning("Embedding-space mismatch (%s); clearing + reseeding", exc)
+                await self._reseed()
+                if await self._store.count() == 0:
+                    return []
+                results = await self._store.search(vectors[0], k)
             return [
                 RagChunk(
                     text=chunk.text,
@@ -242,10 +330,17 @@ class RagService:
                     metadata=dict(chunk.metadata),
                 )
                 for chunk, score in results
+                if float(score) >= cfg.min_score
             ]
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG retrieve failed for query %r: %s", query, exc)
             return []
+
+    async def _reseed(self) -> None:
+        """Clear the store and re-run seeding (used after an embedding-space change)."""
+        await self._store.clear()
+        self._seeded = False
+        await self.ensure_seeded()
 
 
 class RagTool(Tool):

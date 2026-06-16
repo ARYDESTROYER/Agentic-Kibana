@@ -7,7 +7,7 @@ from typing import Any
 
 from ..config import Preferences
 from ..constants import Verdict
-from ..models import Cluster, EvidenceItem, VerdictResult
+from ..models import Cluster, EvidenceItem, RawEvent, VerdictResult
 
 
 def _clamp01(value: Any) -> float:
@@ -57,9 +57,52 @@ def coerce_verdict(obj: dict | None) -> VerdictResult:
 
 
 def rag_query(cluster: Cluster) -> str:
-    """A natural-language retrieval query for the RAG tool from a cluster."""
+    """A natural-language retrieval query for the RAG tool from a cluster.
+
+    Pure function. Includes the concrete entity (type + value) and a short
+    event/enrichment summary (count, rules, a couple of distinct hosts/users,
+    a representative message) so retrieval is grounded in THIS cluster rather
+    than a fixed template — which surfaces resolved-case memory for the same
+    entity and more relevant runbooks/MITRE.
+    """
+    entity = f"{cluster.entity.type.value} {cluster.entity.value}".strip()
     rules = " ".join(cluster.rule_values) or "security events"
-    return f"{cluster.entity.type.value} {rules} investigation runbook mitre"
+
+    bits: list[str] = [entity, rules]
+    if cluster.count:
+        bits.append(f"{cluster.count} events")
+
+    # A short, distinct context summary drawn from member events (kept tiny).
+    hosts = _distinct((ev.host for ev in cluster.member_events), limit=2)
+    users = _distinct((ev.user for ev in cluster.member_events), limit=2)
+    if hosts:
+        bits.append("hosts " + " ".join(hosts))
+    if users:
+        bits.append("users " + " ".join(users))
+    msg = _first_message(cluster.member_events)
+    if msg:
+        bits.append(msg)
+
+    bits.append("investigation runbook mitre")
+    return " ".join(b for b in bits if b)
+
+
+def _distinct(values: Any, limit: int) -> list[str]:
+    seen: list[str] = []
+    for v in values:
+        if v and str(v) not in seen:
+            seen.append(str(v))
+        if len(seen) >= limit:
+            break
+    return seen
+
+
+def _first_message(events: list[RawEvent]) -> str:
+    for ev in events:
+        msg = ev.source.get("message") if isinstance(ev.source, dict) else None
+        if msg:
+            return str(msg)[:160]
+    return ""
 
 
 def entity_kql(cluster: Cluster, prefs: Preferences) -> str:

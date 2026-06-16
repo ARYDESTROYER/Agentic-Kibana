@@ -138,3 +138,20 @@
 - Status: done. Pain points delivered in the rebuilt zip.
 - Next (queued): Feature 2 (Discover doc-viewer + in-app overview button),
   Feature 5 (wizard rewrite), P1 RAG; refresh USAGE/BUILD docs.
+
+### 2026-06-16 ~17:00Z — backend/RAG sub-agent — P1 RAG upgrades
+- Context: P1 "RAG improvements" (6 tasks).
+- Did: (1) use_resolved_cases — RagService takes CaseStore; index_resolved_cases()
+  indexes CLOSED cases (verdict+entity+rules+evidence+action, source=resolved_case)
+  from ensure_seeded. (2) ESVectorStore (dense_vector tlsoc-agent-rag, kNN cosine,
+  mgmt client) selected only with a real RealESClient+_mgmt; InMemoryVectorStore
+  stays default/fallback; delete_index added to real+fake ES. (3) StoredChunk tagged
+  with embedding_model+dim; cosine truncation removed; dim mismatch raises
+  EmbeddingSpaceMismatch → clear+reseed (never truncate). (4) RagConfig.min_score=0.2;
+  retrieve drops sub-threshold. (5) richer pure rag_query (entity+count+hosts/users+
+  sample message). (6) RagService wired into ChatEngine; chat adds a TRUSTED
+  (non-fenced, our own corpus) KB block, graceful with/without RAG.
+- Tests: +tests/test_rag_p1.py (9 offline). pytest -q = 69 passed.
+- Status: done. plugin/ untouched; non-negotiables preserved.
+- Next: orchestrator commit; expose rag.min_score in Settings (already covered by
+  the full-prefs settings page).

@@ -134,6 +134,17 @@ class RealESClient(BaseESClient):
         resp = await client.index(index=index, id=doc_id, document=doc, refresh=refresh)
         return str(resp["_id"])
 
+    async def delete_index(self, name: str) -> None:
+        """Drop a management index (used to recreate the RAG vector index on an
+        embedding-space change). Missing index is benign."""
+        client = self._require_mgmt()
+        try:
+            await client.indices.delete(index=name)
+        except Exception as exc:  # noqa: BLE001
+            if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
+                return
+            logger.warning("delete_index(%s) failed: %s", name, exc)
+
     async def get_doc(self, index: str, doc_id: str) -> dict[str, Any] | None:
         client = self._require_mgmt()
         try:

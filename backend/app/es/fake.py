@@ -102,6 +102,13 @@ class InMemoryESClient(BaseESClient):
             self.alias_to_index[index] = backing
         return self._store(index, doc, doc_id)
 
+    async def delete_index(self, name: str) -> None:
+        target = self._resolve(name)
+        self.docs.pop(target, None)
+        for alias, backing in list(self.alias_to_index.items()):
+            if backing == target or alias == name:
+                self.alias_to_index.pop(alias, None)
+
     async def get_doc(self, index: str, doc_id: str) -> dict[str, Any] | None:
         target = self._resolve(index)
         return self.docs.get(target, {}).get(doc_id)

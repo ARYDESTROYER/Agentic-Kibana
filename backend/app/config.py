@@ -169,6 +169,9 @@ class EnrichmentConfig(BaseModel):
 class RagConfig(BaseModel):
     enabled: bool = True
     top_k: int = 4
+    # Minimum cosine similarity a retrieved chunk must clear to be returned.
+    # Drops weakly-related noise before it reaches a prompt.
+    min_score: float = 0.2
     use_runbooks: bool = True
     use_mitre: bool = True
     use_resolved_cases: bool = True

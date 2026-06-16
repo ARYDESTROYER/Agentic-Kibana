@@ -58,14 +58,30 @@ class AppState:
         self.cursor_store = CursorStore(es)
         self.config_store = ConfigStore(es)
         self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
-        self.rag = RagService(self.gateway, self.prefs)
+        self.rag = self._build_rag()
         self.pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit
         )
-        self.chat_engine = ChatEngine(es, self.gateway, self.audit, self.cases)
+        self.chat_engine = ChatEngine(es, self.gateway, self.audit, self.cases, self.rag)
         self.standup_service = StandupService(es, self.gateway, self.audit)
         self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
         self.poller = Poller(es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs)
+
+    def _build_rag(self) -> RagService:
+        """Construct the RAG service, wiring the CaseStore (resolved-case memory)
+        and selecting a persistent ES vector store ONLY when a real management ES
+        client is present. Offline/fake ES (no kNN) uses the in-memory store."""
+        store = None
+        try:
+            from .es.client import RealESClient
+            from .tools.vectorstore import ESVectorStore
+
+            if isinstance(self.es, RealESClient) and getattr(self.es, "_mgmt", None) is not None:
+                store = ESVectorStore(self.es)
+                logger.info("RAG using persistent ES vector store (tlsoc-agent-rag)")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not select ES vector store (%s); using in-memory", exc)
+        return RagService(self.gateway, self.prefs, store=store, cases=self.cases)
 
     def get_prefs(self) -> Preferences:
         return self.prefs
@@ -89,8 +105,9 @@ class AppState:
         except Exception as exc:  # noqa: BLE001
             logger.error("Index bootstrap failed (%s); continuing", exc)
         self.prefs = await self.config_store.load()
-        self.rag = RagService(self.gateway, self.prefs)
+        self.rag = self._build_rag()
         self.pipeline._rag = self.rag
+        self.chat_engine._rag = self.rag
         if start_poller:
             self.poller.start()
         logger.info(
