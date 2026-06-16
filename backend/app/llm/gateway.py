@@ -112,6 +112,12 @@ class LLMGateway:
             model_used = model_cfg.model
         except Exception as exc:  # noqa: BLE001
             logger.info("Embedding provider unavailable (%s); using local hash embeddings", exc)
+            # Record the provider failure so the ledger shows the outage, then fall
+            # back to local hashing so RAG keeps working (graceful degradation).
+            await self._record(Role.EMBEDDING.value, surface, case_id,
+                               model_cfg.model, 0, 0,
+                               int((time.perf_counter() - started) * 1000),
+                               UsageOutcome.ERROR, 0.0)
             result = await self._mock_fallback.embed(texts, "mock-embed")
             model_used = "mock-embed"
         latency = int((time.perf_counter() - started) * 1000)

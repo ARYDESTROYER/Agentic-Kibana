@@ -33,7 +33,8 @@ class CursorStore:
             return Cursor()
 
     async def save(self, cursor: Cursor) -> None:
-        # refresh=True so a restart immediately reads the latest cursor.
-        await self._es.update_doc(
-            CURSOR_INDEX, CURSOR_DOC_ID, cursor.model_dump(mode="json"), refresh=True
+        # Full-document replace + refresh=True so a restart immediately reads the
+        # latest cursor and a shrinking boundary list never leaves stale ids.
+        await self._es.index_doc(
+            CURSOR_INDEX, cursor.model_dump(mode="json"), doc_id=CURSOR_DOC_ID, refresh=True
         )

@@ -35,6 +35,8 @@ class ConfigStore:
             return Preferences()
 
     async def save(self, prefs: Preferences) -> None:
-        await self._es.update_doc(
-            CONFIG_INDEX, CONFIG_DOC_ID, prefs.model_dump(mode="json"), refresh=True
+        # Full-document replace (not a partial update) so a removed nested
+        # preference key never leaves a stale value behind in Elasticsearch.
+        await self._es.index_doc(
+            CONFIG_INDEX, prefs.model_dump(mode="json"), doc_id=CONFIG_DOC_ID, refresh=True
         )

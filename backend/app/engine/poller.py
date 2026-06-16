@@ -21,6 +21,7 @@ from typing import Any, Callable
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
 from ..constants import ActionType, SourceSurface
+from ..engine.cost_gate import passes_suppression
 from ..es.base import BaseESClient
 from ..es.querybuilder import poll_query
 from ..models import Cursor, RawEvent
@@ -87,7 +88,13 @@ class Poller:
             allow = set(prefs.auto_forward_allowlist)
             wildcard = "*" in allow
             for cluster in clusters:
-                existing = await self._pipeline._cases.find_open_by_signature(cluster.signature)
+                # Defence-in-depth suppression (cost-gate layer 2): the poll query
+                # already excludes suppressed events; if an ENTIRE cluster is
+                # suppressed, skip it (suppression is the intended drop mechanism).
+                if not passes_suppression(cluster, prefs):
+                    stats["suppressed"] = stats.get("suppressed", 0) + 1
+                    continue
+                existing = await self._cases.find_open_by_signature(cluster.signature)
                 if existing:
                     await self._attach(existing, cluster)
                     stats["attached"] += 1
@@ -119,15 +126,16 @@ class Poller:
         return stats
 
     async def _attach(self, existing, cluster) -> None:
+        before = len(existing.member_event_ids)
         merged = list(dict.fromkeys(existing.member_event_ids + cluster.member_event_ids))
-        if set(merged) == set(existing.member_event_ids):
+        if len(merged) == before:
             return  # idempotent: nothing new to attach
         existing.member_event_ids = merged
         existing.updated_at = iso_now()
         existing.rule_ids = sorted(set(existing.rule_ids) | set(cluster.rule_values))
         existing.history.append({"ts": existing.updated_at, "event": "attach",
-                                 "added_events": len(merged) - len(existing.member_event_ids)})
-        await self._pipeline._cases.save(existing)
+                                 "added_events": len(merged) - before})
+        await self._cases.save(existing)
 
     # --- background loop ---
     async def _run(self) -> None:

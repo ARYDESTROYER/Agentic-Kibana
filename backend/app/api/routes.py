@@ -12,7 +12,7 @@ from .. import __version__
 from ..config import Preferences
 from ..constants import CaseStatus, DecisionBy, EntityType, SourceSurface
 from ..engine.correlation import cluster_from_events
-from ..es.querybuilder import entity_query, ids_query
+from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..models import ChatRequest, InvestigateRequest, RawEvent
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
@@ -69,7 +69,8 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 @router.post("/setup/secrets")
 async def setup_secrets(body: SecretsUpdate, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    updates = body.model_dump(exclude_unset=True, exclude_none=True)
+    # exclude_unset (not exclude_none) so an explicit null can CLEAR/revoke a key.
+    updates = body.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No secret values provided")
     await state.apply_secrets(updates)
@@ -275,7 +276,16 @@ async def _cluster_for_request(state: AppState, req: InvestigateRequest):
             EntityType.USER: prefs.user_field,
             EntityType.HOST: prefs.host_field,
         }[req.entity.type]
-        body = entity_query(prefs, field, req.entity.value, from_millis=relative_to_millis("now-24h"), size=200)
+        # Apply the same scope + suppression filters the poller uses, so a manual
+        # investigation never pulls out-of-scope or suppressed events.
+        body = entity_query(
+            prefs, field, req.entity.value,
+            from_millis=relative_to_millis("now-24h"), size=200,
+            extra_filters=scope_filters(prefs),
+        )
+        must_not = scope_must_not(prefs)
+        if must_not:
+            body["query"]["bool"]["must_not"] = must_not
         resp = await state.es.search_logs(prefs.data_view_pattern, body)
     else:
         return None

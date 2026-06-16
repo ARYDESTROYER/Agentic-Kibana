@@ -90,11 +90,13 @@ class StandupService:
         }
 
     async def _summarise(self, aggregate: dict[str, Any], prefs: Preferences) -> tuple[str, float]:
-        from .prompts import STANDUP_SYSTEM
+        from .prompts import STANDUP_SYSTEM, fence
 
+        # Fence the aggregate: bucket keys (usernames/IPs/rule names) are
+        # log-derived and therefore untrusted (Non-negotiable #9).
         messages = [
             {"role": "system", "content": STANDUP_SYSTEM},
-            {"role": "user", "content": json.dumps(aggregate, default=str)},
+            {"role": "user", "content": fence(json.dumps(aggregate, default=str))},
         ]
         await self._audit.record(
             action_type=ActionType.PROMPT, surface=Role.STANDUP.value, actor=Role.STANDUP.value,

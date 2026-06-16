@@ -252,7 +252,13 @@ class Cursor(BaseModel):
         return self.timestamp_millis > 0
 
     def should_skip(self, ev: "RawEvent") -> bool:
-        """True if this event was already processed at the cursor boundary."""
+        """True if this event was already processed at the cursor boundary.
+
+        Events with an unparseable/missing timestamp (millis <= 0) are NEVER
+        skipped — they are processed (case-signature idempotency dedups them) so a
+        malformed timestamp cannot silently drop an alert."""
+        if ev.timestamp_millis <= 0:
+            return False
         if ev.timestamp_millis < self.timestamp_millis:
             return True
         if ev.timestamp_millis == self.timestamp_millis and ev.id in set(self.boundary_ids):

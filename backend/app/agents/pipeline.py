@@ -153,7 +153,7 @@ class InvestigationPipeline:
             created_at=existing.created_at if existing else iso_now(),
             updated_at=iso_now(),
             source_surface=source_surface,
-            rule_ids=cluster.rule_values,
+            rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
             member_event_ids=member_ids,
             risk_score=cluster.risk_score,
@@ -197,7 +197,7 @@ class InvestigationPipeline:
             created_at=created_at,
             updated_at=iso_now(),
             source_surface=source_surface,
-            rule_ids=cluster.rule_values,
+            rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
             member_event_ids=member_ids,
             risk_score=cluster.risk_score,
@@ -213,6 +213,16 @@ class InvestigationPipeline:
             token_cost=round(token_cost, 6),
             history=history,
         )
+
+
+def _merge_rules(existing: Case | None, cluster: Cluster) -> list[str]:
+    """Union previously-recorded rules with the new cluster's rules.
+
+    Rules are deliberately NOT part of the cluster signature (Section 6.2), so a
+    newly-seen rule for an already-open entity must ENRICH the case, never replace
+    its rule history."""
+    prior = set(existing.rule_ids) if existing else set()
+    return sorted(prior | set(cluster.rule_values))
 
 
 def _fail_to_human_case(

@@ -127,7 +127,7 @@ class EnrichTool(Tool):
         # 5) Cache only successful (non-error) results.
         if error is None:
             try:
-                await self._cache.set_json(cache_key, result.model_dump(), cfg.cache_ttl_seconds)
+                await self._cache.set_json(cache_key, result.model_dump(mode="json"), cfg.cache_ttl_seconds)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("enrich cache write failed for %s: %s", ip, exc)
 
