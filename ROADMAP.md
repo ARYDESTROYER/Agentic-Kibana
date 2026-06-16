@@ -11,6 +11,20 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Cycle 3 features** (C3-1..C3-7): config-driven rule catalog (13 event.module
+  + 5 ModSec sub-rules, version-guarded seed), Board Kanban tab, agent trace
+  (`GET /cases/{id}/trace`), re-investigate-in-place (`POST /cases/{id}/investigate`),
+  resolved-case RAG baseline on close (note textarea), expanded OpenAI catalog +
+  per-rule model overrides, merged case-history timeline — committed on
+  `claude/epic-cannon-p5z5ha`.
+- ☑ **Cycle 2 bug fixes** (BUG-1..BUG-5 + provenance IMPROVEMENT): chat 2-turn
+  analysis; investigate lookback pref + auto-widen ladder + neutral empty-state;
+  Standup `cases` object + error boundary; native header chat button; sliding
+  correlation look-back; manual-investigation TriggerReason/origin_surface/
+  normalized reproduce_query — committed.
+- ☑ Offline verification: 124 backend tests green, plugin `tsc` clean, 8.19.12 zip
+  rebuilt + verified (~68 KB). No live-stack validation.
+- ☑ Docs updated for Cycle 2/3 (USAGE, BUILD, CHANGELOG, ROADMAP + migration note).
 - ☑ Coordination + extra docs: CLAUDE/Journal/ENVIRONMENT/ROADMAP, SECURITY,
   RUNBOOK, CONTRIBUTING, CHANGELOG.
 - ☑ **P0** (plugin case detail + lifecycle), **P1** (stability/provenance),

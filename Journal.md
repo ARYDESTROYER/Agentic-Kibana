@@ -320,6 +320,38 @@
 - Next: implement the optional NOTE (surface trigger_reason on attached non-scan cases); refresh
   USAGE/BUILD/CHANGELOG/ROADMAP + migration note; final push.
 
+### 2026-06-16 19:50Z — docs sub-agent — USAGE/BUILD/CHANGELOG/ROADMAP + migration note (Cycle 2/3)
+- Context: refresh user-facing docs for the shipped Cycle-2 bug fixes + Cycle-3 features, grounded
+  against the code on this branch.
+- Did: USAGE.md — 7-tab table + new Board section; documented chat 2-turn analysis, native header
+  button, investigate lookback/auto-widen/empty-state, agent trace + re-investigate + RAG-on-close +
+  merged timeline, standup cases-object + error boundary, settings rule-catalog + per-rule models +
+  expanded catalog + trace toggle, sliding correlation, and new curl examples (/cases/{id}/investigate,
+  /cases/{id}/trace, lookback). BUILD.md — zip ~57→~68KB, new components compile in, recipe unchanged.
+  CHANGELOG.md — Cycle 2/3 subsections. ROADMAP.md — status ticks. DEPLOY.md — new ## Migration section
+  (reinstall zip, version-guarded rule_catalog seed, additive prefs, no new ES index, rebuild on pricing
+  edits). Verified every claim against chat.py/routes.py/standup.py/poller.py/config.py/pricing.py/
+  models.py/app.tsx/board.tsx.
+- Tests: n/a (docs). Orchestrator corrected the cited test count 121→124 (the NOTE added 3 after the
+  agent ran).
+- Status: done.
+
+### 2026-06-16 19:55Z — orchestrator — Cycle 2 + Cycle 3 COMPLETE
+- Context: close out the full work order (Cycle-2 bugs + Cycle-3 features) on branch
+  claude/epic-cannon-p5z5ha (started at the deployed 948bc45).
+- Did: delivered + pushed EVERY Cycle-2 item (BUG-1..5, IMPROVEMENT, NOTE) and EVERY Cycle-3 item
+  (C3-1..C3-7), backend + frontend. Backend across waves 1-4 + the NOTE; frontend via the contract
+  (common/index.ts) + 3 parallel FE agents (case-detail hub / standup+board / settings editors); docs
+  refreshed. Several sub-agent spawns hit transient 529/500/classifier outages — Wave 4 was authored
+  directly after two 0-token agent deaths; all other waves landed via agents.
+- Tests: backend 124 passed (clean under -W error::UserWarning); plugin tsc --noEmit clean for
+  public/server/common; 8.19.12 zip rebuilt + verified (bundle present, kibanaVersion 8.19.12, 0
+  backend-URL leaks, ~68KB) and committed to plugin/dist.
+- Status: DONE. Deferred (deliberate): Feature 5 wizard rewrite (existing 4-step wizard works; rewrite
+  best validated on a live 8.19 stack).
+- Next: live-stack validation on the SIEM server (install the 68KB zip, restart backend → rule_catalog
+  seeds; exercise board drag, agent trace, re-investigate, close-with-note→RAG, settings editors).
+
 ### 2026-06-16 18:10Z — orchestrator — plugin build toolchain VALIDATED
 - Context: de-risk the historically-flaky plugin build before frontend changes exist.
 - Did: wrote /tmp/build_only.sh (root-guard yarn shim → --allow-root; PLAYWRIGHT/PUPPETEER/etc.
