@@ -385,3 +385,53 @@
 - Tests: +tests/test_rule_catalog.py (17). Full suite 113 passed (was 96). Committed e714a35, pushed.
 - Status: done.
 - Next: FE rule-catalog editor + per-rule model table in settings.tsx; common/index.ts types.
+
+### 2026-06-18 09:00Z — orchestrator + 6 frontend sub-agents — UI redesign (design system + all surfaces)
+- Context: User asked for a cleaner, more attractive UI across the plugin — better
+  colour scheme + nomenclature, a Board you can actually move cards in, and a much
+  tidier Automated Scans, Cost, and Settings. Branch `claude/amazing-noether-vrm2ly`.
+- Did (orchestrator, authored directly):
+  - NEW shared design system (single source of truth for the look):
+    `public/lib/format.ts` (DASH, humanizeAge, formatTimestamp, fmtMoney/Number/
+    Tokens/Percent, toPercentValue, humanizeToken) and `public/components/ui.tsx`
+    (COLORS palette + tint(); verdictColor/verdictHex/statusHex/riskHex; RiskBadge/
+    VerdictBadge/StatusBadge/ConfidenceBadge; SectionHeader; StatTile; EmptyState).
+    Expanded `public/index.scss` with layout utilities (tlsocIconChip, tlsocStatTile,
+    tlsocBoard__scroll/__column/__dropZone, tlsocCard hover/dragging, tlsocCard__handle).
+  - Dispatched 6 non-overlapping sub-agents; reviewed every diff for EUI-prop/JSX
+    correctness against the bootstrapped 8.19 EUI.
+- Did (sub-agents, one file-set each, presentation-only, no logic/contract change):
+  - board.tsx — SectionHeader; horizontal scroll lane (no more cramped columns);
+    coloured column headers (status dot + count); cards restyled with verdict/status
+    left-accent + shared badges; **fixes "can't move cards"**: a VISIBLE grab handle
+    (customDragHandle + hasInteractiveChildren) AND a per-card actions menu
+    (Open / Close / Escalate / Reopen) — both funnel into the existing confirm flow.
+  - scans.tsx — SectionHeader + 4 KPI StatTiles + a responsive card grid (verdict/
+    status accent, entity icon chip, shared badges, formatTimestamp·age, Open/
+    Reproduce/Why-fired); EmptyState + spinner. Replaced the plain table.
+  - cost.tsx — SectionHeader + 4 StatTiles; By model/role/surface breakdown cards
+    with proportional EuiProgress bars; dependency-free cost-over-time bar list;
+    resilient top-cost-drivers table; EmptyState. No @elastic/charts.
+  - settings.tsx — visual-only: SectionHeader; accordion sections now carry an
+    accented icon chip; configured-credentials shown via EuiHealth; consistent
+    subsection labels. ALL ~91 fields + every handler/path unchanged.
+  - app.tsx — page-header description; restrictWidth 1280; tab nomenclature + per-tab
+    EuiIcon (prepend) + bottomBorder; error → EuiCallOut. Logic untouched.
+  - standup.tsx — SectionHeader + 3 StatTiles + titled summary/breakdown cards +
+    EmptyState; ErrorBoundary + BUG-3 cases-object handling preserved.
+  - investigate.tsx / case_detail.tsx / verdict_card.tsx — adopt shared badges +
+    SectionHeader + formatTimestamp; removed duplicated local verdict/status colour
+    fns. trigger_reason_callout.tsx left as-is (already consistent).
+- Tests: bootstrapped a fresh /tmp/kibana-8.19 (v8.19.12, Node 22.22.0); `tsc -p
+  tsconfig.json --noEmit` → **0 plugin-scoped errors** (the 13 errors are all in
+  `src/`/`x-pack/` kbn-config-schema/kbn-i18n — pre-existing monorepo noise).
+  `plugin_helpers build --kibana-version 8.19.12` rc=0; verification block all green:
+  bundle `tlsocAgenticTriage.plugin.js` present, `"kibanaVersion": "8.19.12"`,
+  backend-URL leak count = 0. Verified zip = **75,631 B (~74 KB)**, copied into
+  `plugin/dist/`. (Bootstrap note: the only bootstrap failure was the post-install
+  `playwright install` Firefox download — blocked by egress, irrelevant to plugin
+  builds; deps + all 1112 `@kbn/*` symlinks installed fine.)
+- Status: done (8.19.12). The legacy 8.12.2 zip is NOT rebuilt this session (needs the
+  Node 18 + bazel checkout) — source is version-agnostic; flagged in BUILD.md for parity.
+- Next: commit + push to claude/amazing-noether-vrm2ly. Optional follow-ups: live-stack
+  visual check on a real 8.19 Kibana; rebuild the 8.12.2 zip for parity.

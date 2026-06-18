@@ -197,6 +197,17 @@ cd /tmp/kibana-8.19/plugins/tlsoc_agentic_triage && node ../../scripts/plugin_he
 - **TS/React:** functional components + hooks + EUI; NO new npm deps (only
   monorepo packages — adding deps breaks the build). Import platform code via
   `@kbn/*` aliases (NOT deep relative paths — they move between versions).
+- **UI design system (the suite's shared look — use it, don't re-roll it):**
+  `public/lib/format.ts` = framework-free formatters (`humanizeAge`,
+  `formatTimestamp`, `fmtMoney/Number/Tokens/Percent`, `humanizeToken`, `DASH`);
+  `public/components/ui.tsx` = the single source of truth for the colour scheme
+  (`COLORS` + `tint()`), semantic helpers (`verdictColor/verdictHex/statusHex/
+  riskHex`) and reusable primitives (`SectionHeader`, `StatTile`, `EmptyState`,
+  `RiskBadge`, `VerdictBadge`, `StatusBadge`, `ConfidenceBadge`); layout/elevation
+  utility classes live in `public/index.scss` (`tlsocIconChip`, `tlsocStatTile`,
+  `tlsocCard`, `tlsocBoard__*`). Every surface composes these so the console stays
+  consistent. Semantic colours are defined ONCE in `COLORS` and applied via inline
+  style; the scss is plain (no deps) so it builds for both 8.12 and 8.19.
 - **Backend↔plugin contract:** additive request/response fields are safe (proxy
   forwards arbitrary JSON). Keep `common/index.ts` types in sync with `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.

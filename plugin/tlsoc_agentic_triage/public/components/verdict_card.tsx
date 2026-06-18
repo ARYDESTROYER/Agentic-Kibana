@@ -12,24 +12,17 @@ import {
 } from '@elastic/eui';
 import type { Case } from '../../common';
 import type { OpenInDiscover } from '../lib/discover';
+import { ConfidenceBadge, RiskBadge, verdictHex, VerdictBadge } from './ui';
 
 interface VerdictCardProps {
   theCase: Case;
   openInDiscover: OpenInDiscover;
 }
 
-function verdictColor(verdict?: string): 'danger' | 'success' | 'warning' | 'default' {
-  const v = (verdict || '').toUpperCase();
-  if (v.includes('TRUE')) return 'danger';
-  if (v.includes('FALSE')) return 'success';
-  if (v.includes('INCONCLUSIVE') || v.includes('UNKNOWN')) return 'warning';
-  return 'default';
-}
-
 export const VerdictCard: React.FC<VerdictCardProps> = ({ theCase, openInDiscover }) => {
   const c = theCase;
   return (
-    <EuiPanel hasBorder>
+    <EuiPanel hasBorder className="tlsocCard" style={{ borderLeft: `3px solid ${verdictHex(c.verdict)}` }}>
       <EuiFlexGroup alignItems="center" gutterSize="m" wrap>
         <EuiFlexItem grow={false}>
           <EuiTitle size="s">
@@ -37,16 +30,16 @@ export const VerdictCard: React.FC<VerdictCardProps> = ({ theCase, openInDiscove
           </EuiTitle>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
-          <EuiBadge color={verdictColor(c.verdict)}>{c.verdict || 'UNKNOWN'}</EuiBadge>
+          <VerdictBadge verdict={c.verdict} />
         </EuiFlexItem>
         {typeof c.confidence === 'number' ? (
           <EuiFlexItem grow={false}>
-            <EuiBadge color="hollow">confidence {(c.confidence * 100).toFixed(0)}%</EuiBadge>
+            <ConfidenceBadge confidence={c.confidence} />
           </EuiFlexItem>
         ) : null}
         {typeof c.risk_score === 'number' ? (
           <EuiFlexItem grow={false}>
-            <EuiBadge color="hollow">risk {c.risk_score}</EuiBadge>
+            <RiskBadge score={c.risk_score} />
           </EuiFlexItem>
         ) : null}
       </EuiFlexGroup>

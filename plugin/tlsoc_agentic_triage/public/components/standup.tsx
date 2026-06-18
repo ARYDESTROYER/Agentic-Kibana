@@ -5,14 +5,16 @@ import {
   EuiCallOut,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiIcon,
   EuiPanel,
   EuiSpacer,
-  EuiStat,
   EuiText,
   EuiTitle,
 } from '@elastic/eui';
 import type { StandupResponse } from '../../common';
+import { fmtNumber } from '../lib/format';
 import type { TlsocApi } from '../lib/api';
+import { COLORS, EmptyState, SectionHeader, StatTile, tint } from './ui';
 
 interface StandupProps {
   api: TlsocApi;
@@ -57,21 +59,44 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, Error
   }
 }
 
-function keyCountTable(title: string, items?: Array<{ key: string; count: number }>) {
+function keyCountTable(
+  title: string,
+  items?: Array<{ key: string; count: number }>,
+  icon = 'list'
+) {
   if (!items || items.length === 0) {
     return null;
   }
   return (
-    <EuiFlexItem>
-      <EuiPanel hasBorder paddingSize="s">
-        <EuiTitle size="xxs">
-          <h4>{title}</h4>
-        </EuiTitle>
-        <EuiSpacer size="xs" />
+    <EuiFlexItem style={{ minWidth: 280 }}>
+      <EuiPanel hasBorder paddingSize="m" className="tlsocCard" style={{ height: '100%' }}>
+        {/* Card header: accented icon chip + title (matches the shared rhythm). */}
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <span
+              className="tlsocIconChip"
+              style={{ background: tint(COLORS.primary, 0.14), color: COLORS.primary }}
+            >
+              <EuiIcon type={icon} size="m" />
+            </span>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiTitle size="xxs">
+              <h3>{title}</h3>
+            </EuiTitle>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+        <EuiSpacer size="s" />
         <EuiBasicTable
           items={items.map((i, idx) => ({ id: idx, ...i }))}
           columns={[
-            { field: 'key', name: 'Key', truncateText: true },
+            {
+              field: 'key',
+              name: 'Key',
+              truncateText: true,
+              // Subtle styling so the dimension value reads as the primary cell.
+              render: (key: string) => <strong title={key}>{key}</strong>,
+            },
             { field: 'count', name: 'Count', width: '90px' },
           ]}
           tableLayout="auto"
@@ -86,7 +111,7 @@ function keyCountTable(title: string, items?: Array<{ key: string; count: number
  * as a small key/count table by normalising it to the `{key, count}[]` shape the
  * existing `keyCountTable` helper expects.
  */
-function recordCountTable(title: string, record?: Record<string, number>) {
+function recordCountTable(title: string, record?: Record<string, number>, icon = 'list') {
   if (!record) {
     return null;
   }
@@ -94,7 +119,7 @@ function recordCountTable(title: string, record?: Record<string, number>) {
     key,
     count: typeof count === 'number' ? count : Number(count) || 0,
   }));
-  return keyCountTable(title, items);
+  return keyCountTable(title, items, icon);
 }
 
 export const Standup: React.FC<StandupProps> = ({ api }) => {
@@ -119,19 +144,16 @@ export const Standup: React.FC<StandupProps> = ({ api }) => {
 
   return (
     <div>
-      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-        <EuiFlexItem grow={false}>
-          <EuiTitle size="s">
-            <h2>Daily Standup</h2>
-          </EuiTitle>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
+      <SectionHeader
+        icon="reportingApp"
+        title="Daily Standup"
+        description="An aggregate-then-summarise brief of the last 24h — no raw logs are sent to the model."
+        actions={
           <EuiButton fill iconType="play" onClick={load} isLoading={loading}>
             Load standup
           </EuiButton>
-        </EuiFlexItem>
-      </EuiFlexGroup>
-      <EuiSpacer size="m" />
+        }
+      />
 
       {error ? (
         <>
@@ -144,10 +166,23 @@ export const Standup: React.FC<StandupProps> = ({ api }) => {
         {data ? (
           <>
             {data.summary ? (
-              <EuiPanel hasBorder>
-                <EuiTitle size="xs">
-                  <h3>Summary</h3>
-                </EuiTitle>
+              <EuiPanel hasBorder paddingSize="m" className="tlsocCard">
+                {/* Panel header: accented icon chip + title (shared rhythm). */}
+                <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <span
+                      className="tlsocIconChip"
+                      style={{ background: tint(COLORS.primary, 0.14), color: COLORS.primary }}
+                    >
+                      <EuiIcon type="documentEdit" size="m" />
+                    </span>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiTitle size="xxs">
+                      <h3>Summary</h3>
+                    </EuiTitle>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
                 <EuiSpacer size="s" />
                 <EuiText size="s">
                   <p style={{ whiteSpace: 'pre-wrap' }}>{data.summary}</p>
@@ -160,48 +195,51 @@ export const Standup: React.FC<StandupProps> = ({ api }) => {
                 <EuiSpacer size="m" />
                 <EuiFlexGroup>
                   <EuiFlexItem>
-                    <EuiPanel hasBorder paddingSize="s">
-                      <EuiStat
-                        title={agg.total_events ?? 0}
-                        description="Total events"
-                        titleSize="m"
-                      />
-                    </EuiPanel>
+                    <StatTile
+                      label="Total events"
+                      value={fmtNumber(agg.total_events ?? 0)}
+                      icon="visBarVerticalStacked"
+                      accent={COLORS.primary}
+                    />
                   </EuiFlexItem>
                   <EuiFlexItem>
-                    <EuiPanel hasBorder paddingSize="s">
-                      <EuiStat title={agg.unique_ips ?? 0} description="Unique IPs" titleSize="m" />
-                    </EuiPanel>
+                    <StatTile
+                      label="Unique IPs"
+                      value={fmtNumber(agg.unique_ips ?? 0)}
+                      icon="globe"
+                      accent={COLORS.accent}
+                    />
                   </EuiFlexItem>
                   <EuiFlexItem>
-                    <EuiPanel hasBorder paddingSize="s">
-                      {/* BUG-3: `cases` is an OBJECT — render the scalar `opened` count. */}
-                      <EuiStat
-                        title={agg.cases?.opened ?? 0}
-                        description="Cases opened"
-                        titleSize="m"
-                      />
-                    </EuiPanel>
+                    {/* BUG-3: `cases` is an OBJECT — render the scalar `opened` count. */}
+                    <StatTile
+                      label="Cases opened"
+                      value={fmtNumber(agg.cases?.opened ?? 0)}
+                      icon="folderOpen"
+                      accent={COLORS.success}
+                    />
                   </EuiFlexItem>
                 </EuiFlexGroup>
 
                 <EuiSpacer size="m" />
                 <EuiFlexGroup wrap>
-                  {keyCountTable('Top rules', agg.by_rule)}
-                  {keyCountTable('Top source IPs', agg.top_source_ips)}
-                  {keyCountTable('Top users', agg.top_users)}
-                  {keyCountTable('Top hosts', agg.top_hosts)}
+                  {keyCountTable('Top rules', agg.by_rule, 'inspect')}
+                  {keyCountTable('Top source IPs', agg.top_source_ips, 'globe')}
+                  {keyCountTable('Top users', agg.top_users, 'user')}
+                  {keyCountTable('Top hosts', agg.top_hosts, 'storage')}
                   {/* BUG-3: render the case breakdowns as key/count tables. */}
-                  {recordCountTable('Cases by verdict', agg.cases?.by_verdict)}
-                  {recordCountTable('Cases by status', agg.cases?.by_status)}
+                  {recordCountTable('Cases by verdict', agg.cases?.by_verdict, 'tag')}
+                  {recordCountTable('Cases by status', agg.cases?.by_status, 'folderOpen')}
                 </EuiFlexGroup>
               </>
             ) : null}
           </>
         ) : (
-          <EuiText color="subdued">
-            <p>Load the standup to see the prose summary and aggregates.</p>
-          </EuiText>
+          <EmptyState
+            iconType="reportingApp"
+            title="No standup loaded"
+            body="Load the standup to see the prose summary and aggregates."
+          />
         )}
       </ErrorBoundary>
     </div>

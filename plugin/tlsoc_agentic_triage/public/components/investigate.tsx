@@ -8,17 +8,41 @@ import {
   EuiFieldText,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiIcon,
   EuiSelect,
   EuiSpacer,
+  EuiText,
   EuiTitle,
   EuiPanel,
-  EuiBadge,
 } from '@elastic/eui';
 import type { Case, Entity } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
+import { DASH, formatTimestamp, humanizeAge } from '../lib/format';
+import {
+  COLORS,
+  RiskBadge,
+  SectionHeader,
+  StatusBadge,
+  tint,
+  VerdictBadge,
+} from './ui';
 import { CaseDetail } from './case_detail';
 import { Chat } from './chat';
+
+/** Small EUI icon that hints at the entity kind (ip / user / host). */
+function entityIcon(type?: string): string {
+  switch ((type || '').toLowerCase()) {
+    case 'user':
+      return 'user';
+    case 'host':
+      return 'desktop';
+    case 'ip':
+      return 'globe';
+    default:
+      return 'dot';
+  }
+}
 
 /** Shape of a Kibana HttpFetchError; we read the backend's JSON `body` detail
  * and `response.status` so a NEUTRAL 400 ("No events found") becomes an info
@@ -125,22 +149,53 @@ export const Investigate: React.FC<InvestigateProps> = ({
     {
       field: 'entity',
       name: 'Entity',
+      // Prefix with a small icon hinting at the entity kind (ip / user / host).
       render: (entity: Entity | undefined) =>
-        entity ? `${entity.type}: ${entity.value}` : '-',
+        entity ? (
+          <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiIcon type={entityIcon(entity.type)} size="s" color="subdued" />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <span>
+                {entity.type}: {entity.value}
+              </span>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        ) : (
+          DASH
+        ),
     },
     {
       field: 'rule_ids',
       name: 'Rules',
-      render: (rules: string[] | undefined) => (rules && rules.length ? rules.join(', ') : '-'),
+      render: (rules: string[] | undefined) => (rules && rules.length ? rules.join(', ') : DASH),
     },
-    { field: 'risk_score', name: 'Risk' },
-    { field: 'status', name: 'Status', render: (s: string) => <EuiBadge>{s || '-'}</EuiBadge> },
+    { field: 'risk_score', name: 'Risk', render: (s: number | undefined) => <RiskBadge score={s} /> },
+    {
+      field: 'status',
+      name: 'Status',
+      render: (s: string | undefined) => <StatusBadge status={s} />,
+    },
     {
       field: 'verdict',
       name: 'Verdict',
-      render: (v: string) => (v ? <EuiBadge color="hollow">{v}</EuiBadge> : '-'),
+      render: (v: string | undefined) => <VerdictBadge verdict={v} />,
     },
-    { field: 'created_at', name: 'Created' },
+    {
+      field: 'created_at',
+      name: 'Created',
+      // Absolute timestamp with a subdued relative age beneath it.
+      render: (created: string | undefined) => (
+        <span>
+          {formatTimestamp(created)}
+          <br />
+          <EuiText size="xs" color="subdued">
+            <span>{humanizeAge(created)}</span>
+          </EuiText>
+        </span>
+      ),
+    },
     {
       name: 'Actions',
       actions: [
@@ -183,10 +238,11 @@ export const Investigate: React.FC<InvestigateProps> = ({
 
   return (
     <div>
-      <EuiTitle size="s">
-        <h2>Alerts / Investigate</h2>
-      </EuiTitle>
-      <EuiSpacer size="s" />
+      <SectionHeader
+        icon="search"
+        title="Investigate"
+        description="Run a paid LLM investigation by IP / user / host, or open a stored case at no cost."
+      />
 
       {error ? (
         <>
@@ -205,10 +261,23 @@ export const Investigate: React.FC<InvestigateProps> = ({
         </>
       ) : null}
 
-      <EuiPanel hasBorder>
-        <EuiTitle size="xs">
-          <h3>Investigate by IP / user / host</h3>
-        </EuiTitle>
+      <EuiPanel hasBorder className="tlsocCard">
+        {/* Titled header: an accented icon chip + label for the manual entry. */}
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <span
+              className="tlsocIconChip"
+              style={{ background: tint(COLORS.primary, 0.14), color: COLORS.primary }}
+            >
+              <EuiIcon type="search" size="m" />
+            </span>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiTitle size="xs">
+              <h3>Investigate by IP / user / host</h3>
+            </EuiTitle>
+          </EuiFlexItem>
+        </EuiFlexGroup>
         <EuiSpacer size="s" />
         <EuiFlexGroup gutterSize="s" alignItems="flexEnd">
           <EuiFlexItem grow={false} style={{ width: 140 }}>

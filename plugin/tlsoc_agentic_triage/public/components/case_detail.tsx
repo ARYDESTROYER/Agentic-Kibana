@@ -23,6 +23,14 @@ import {
 import type { Case, Entity } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
+import { formatTimestamp } from '../lib/format';
+import {
+  ConfidenceBadge,
+  RiskBadge,
+  StatusBadge,
+  verdictHex,
+  VerdictBadge,
+} from './ui';
 import { TriggerReasonCallout } from './trigger_reason_callout';
 import { AgentTrace } from './agent_trace';
 import { CaseTimeline } from './case_timeline';
@@ -64,24 +72,6 @@ interface CaseDetailProps {
   onCaseUpdated?: (updated: Case) => void;
   /** Optional "back to list" affordance. */
   onBack?: () => void;
-}
-
-function verdictColor(verdict?: string): 'danger' | 'success' | 'warning' | 'default' {
-  const v = (verdict || '').toUpperCase();
-  if (v.includes('TRUE')) return 'danger';
-  if (v.includes('FALSE')) return 'success';
-  if (v.includes('INCONCLUSIVE') || v.includes('UNKNOWN') || v.includes('NEEDS_HUMAN')) {
-    return 'warning';
-  }
-  return 'default';
-}
-
-function statusColor(status?: string): 'danger' | 'success' | 'warning' | 'default' {
-  const s = (status || '').toLowerCase();
-  if (s === 'closed') return 'success';
-  if (s === 'needs_human') return 'warning';
-  if (s === 'open') return 'danger';
-  return 'default';
 }
 
 function entityLabel(entity?: Entity): string {
@@ -290,7 +280,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
         </>
       ) : null}
 
-      <EuiPanel hasBorder>
+      <EuiPanel
+        hasBorder
+        className="tlsocCard"
+        style={{ borderLeft: `3px solid ${verdictHex(c.verdict)}` }}
+      >
         <EuiFlexGroup alignItems="center" gutterSize="m" wrap>
           <EuiFlexItem grow={false}>
             <EuiTitle size="s">
@@ -298,19 +292,19 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
             </EuiTitle>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
-            <EuiBadge color={verdictColor(c.verdict)}>{c.verdict || 'UNKNOWN'}</EuiBadge>
+            <VerdictBadge verdict={c.verdict} />
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
-            <EuiBadge color={statusColor(c.status)}>status: {c.status || 'unknown'}</EuiBadge>
+            <StatusBadge status={c.status} />
           </EuiFlexItem>
           {typeof c.confidence === 'number' ? (
             <EuiFlexItem grow={false}>
-              <EuiBadge color="hollow">confidence {(c.confidence * 100).toFixed(0)}%</EuiBadge>
+              <ConfidenceBadge confidence={c.confidence} />
             </EuiFlexItem>
           ) : null}
           {typeof c.risk_score === 'number' ? (
             <EuiFlexItem grow={false}>
-              <EuiBadge color="hollow">risk {c.risk_score}</EuiBadge>
+              <RiskBadge score={c.risk_score} />
             </EuiFlexItem>
           ) : null}
         </EuiFlexGroup>
@@ -326,8 +320,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({
               description: c.rule_ids && c.rule_ids.length ? c.rule_ids.join(', ') : '-',
             },
             { title: 'Source', description: c.source_surface || '-' },
-            { title: 'Created', description: c.created_at || '-' },
-            { title: 'Updated', description: c.updated_at || '-' },
+            { title: 'Created', description: formatTimestamp(c.created_at) },
+            { title: 'Updated', description: formatTimestamp(c.updated_at) },
           ]}
         />
 

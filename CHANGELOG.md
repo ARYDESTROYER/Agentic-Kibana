@@ -10,9 +10,35 @@ kept). History is reconstructed from `git log`.
 ## [Unreleased]
 
 Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in
-[`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified (~68 KB); backend
+[`Journal.md`](Journal.md)). 8.19.12 zip rebuilt + verified; backend
 `pytest -q` = 124 passed; plugin `tsc` clean. (Offline-verified only — there is no
 live-stack validation this cycle.)
+
+### UI redesign — shared design system + every surface (done)
+- **New shared design system.** `public/lib/format.ts` (date/money/number/percent
+  formatters + `humanizeToken`) and `public/components/ui.tsx` (the single
+  `COLORS` palette + `tint()`; `verdict/status/risk` colour helpers; reusable
+  `SectionHeader`, `StatTile`, `EmptyState`, and `RiskBadge`/`VerdictBadge`/
+  `StatusBadge`/`ConfidenceBadge`); plus layout utilities in `public/index.scss`
+  (`tlsocIconChip`, `tlsocStatTile`, `tlsocCard`, `tlsocBoard__*`). No new deps.
+- **Case Board** now usable: a **visible drag handle** AND a per-card actions menu
+  (Open / Close / Escalate / Reopen) — both routed through the same confirm flow —
+  fix the "can't move the cards" problem; columns sit in a horizontal scroll lane
+  with coloured headers; cards carry a verdict/status accent + shared badges.
+- **Automated Scans** rebuilt from a plain table into a KPI strip + a responsive
+  card grid (entity icon, shared verdict/status/risk/confidence badges, formatted
+  timestamps, Open / Reproduce / Why-this-fired) with a proper empty state.
+- **Cost & Tokens** rebuilt into KPI tiles + weighted breakdown cards (proportional
+  bars), a tidy dependency-free cost-over-time list, and a resilient top-cost-driver
+  table.
+- **Settings** visually refreshed (section header, accented section icons,
+  `EuiHealth` credential status) with **every field and handler unchanged**.
+- **App shell** — page-header description, per-tab icons + clearer nomenclature
+  (Chat / Investigate / Case Board / Automated Scans / Standup / Cost & Tokens /
+  Settings), wider layout. **Standup / Investigate / Case detail / Verdict card**
+  adopt the shared badges + headers for a consistent console.
+- Behaviour, data contracts, and the backend↔plugin API are unchanged — this is a
+  presentation-only pass over the existing surfaces.
 
 ### Cycle 2 — bug fixes (done)
 - **BUG-1 — chat does a real 2-turn analysis.** Turn 1 only chooses the query

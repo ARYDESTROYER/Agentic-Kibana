@@ -194,17 +194,26 @@ node /tmp/kibana-8.19/scripts/plugin_helpers build --kibana-version 8.19.12
 #    -> build/tlsocAgenticTriage-8.19.12.zip
 ```
 
-> **This cycle's features need no recipe change.** The recipe is **unchanged**.
-> All this cycle's new UI is plain source under `public/components/` — the
-> **Board** Kanban (`board.tsx`), the **Agent trace** timeline (`agent_trace.tsx`),
-> the merged **case history** timeline (`case_timeline.tsx`), and the Settings
-> rule-catalog + per-rule model editors (`settings.tsx`) — built only from EUI and
-> existing monorepo packages, plus the earlier header chat nav-control
-> (`public/plugin.ts start()`) and the Discover doc-viewer tab. They are picked up
-> by the same copy + build steps with **no new dependency, env var, or flag**. The
-> latest **verified** `tlsocAgenticTriage-8.19.12.zip` is **~68 KB** (up from
-> ~57 KB as the new components compiled in) and contains all of the above; pass the
-> standard verification block below.
+> **The UI redesign needs no recipe change.** The recipe is **unchanged**. The
+> redesign adds a shared design system entirely under `public/` — `lib/format.ts`
+> (formatters), `components/ui.tsx` (the `COLORS` palette + `SectionHeader`/
+> `StatTile`/`EmptyState`/badge primitives), and an expanded `index.scss` (layout
+> utilities) — and every surface (`board.tsx`, `scans.tsx`, `cost.tsx`,
+> `settings.tsx`, `app.tsx`, `standup.tsx`, `investigate.tsx`, `case_detail.tsx`,
+> `verdict_card.tsx`) composes them. All of it is plain source built only from EUI
+> + existing monorepo packages, so it is picked up by the same copy + build steps
+> with **no new dependency, env var, or flag**. (The `index.scss` is plain SCSS and
+> compiles in the `@kbn/optimizer` for both versions.) The latest **verified**
+> `tlsocAgenticTriage-8.19.12.zip` is **~74 KB** (75,631 bytes — up from ~68 KB as
+> the design system + redesigned surfaces compiled in); plugin-scoped `tsc` is clean
+> (the only `tsc` errors are the pre-existing `kbn-config-schema`/`kbn-i18n` monorepo
+> noise). Pass the standard verification block below.
+>
+> **Note on the 8.12.2 zip:** the redesign source is version-agnostic (EUI + `@kbn/*`
+> aliases only), so the committed `tlsocAgenticTriage-8.12.2.zip` should be rebuilt
+> from the same source for parity via **Recipe A** (Node 18.18.2 + bazel). It was not
+> rebuilt in the redesign session (the sandbox only had the 8.19 checkout bootstrapped);
+> 8.19.12 is the primary target and is the verified artifact.
 
 ### Root-guard workaround (ONLY when building 8.19 as root)
 
