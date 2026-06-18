@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  EuiAccordion,
   EuiButton,
   EuiButtonEmpty,
   EuiButtonIcon,
@@ -18,6 +17,7 @@ import {
   EuiIconTip,
   EuiPanel,
   EuiSelect,
+  EuiSideNav,
   EuiSpacer,
   EuiSuperSelect,
   EuiSwitch,
@@ -86,6 +86,11 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
 
   // Draft for the "add per-rule model override" row (component memory only).
   const [newRuleModelName, setNewRuleModelName] = useState('');
+
+  // Left-nav selection (layout only). The data section is the default surface.
+  const [activeSection, setActiveSection] = useState('sec-data');
+  // Mobile side-nav open state so the section list collapses on narrow screens.
+  const [isSideNavOpenOnMobile, setIsSideNavOpenOnMobile] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -477,49 +482,38 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
     });
   };
 
-  // Collapsible settings section. `opts.icon` renders an accented icon chip next
-  // to the title (matching the SectionHeader rhythm); `opts.accent` tints it;
-  // `opts.initialOpen` controls whether the accordion starts expanded. The data
-  // section stays open by default. Presentation only — no behaviour change.
-  const section = (
-    id: string,
+  // Titled settings panel. `opts.icon` renders an accented icon chip next to the
+  // title (matching the SectionHeader rhythm) and `opts.accent` tints it. The
+  // body renders directly (the left-nav, not an accordion, controls which panel
+  // is shown). Presentation only — no behaviour change.
+  const sectionPanel = (
     title: string,
     children: React.ReactNode,
-    opts: { icon?: string; accent?: string; initialOpen?: boolean } = {}
+    opts: { icon?: string; accent?: string } = {}
   ) => {
     const accent = opts.accent || COLORS.primary;
     return (
-      <>
-        <EuiPanel hasBorder paddingSize="m">
-          <EuiAccordion
-            id={id}
-            buttonContent={
-              <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
-                {opts.icon ? (
-                  <EuiFlexItem grow={false}>
-                    <span
-                      className="tlsocIconChip"
-                      style={{ background: tint(accent, 0.14), color: accent }}
-                    >
-                      <EuiIcon type={opts.icon} size="m" />
-                    </span>
-                  </EuiFlexItem>
-                ) : null}
-                <EuiFlexItem grow={false}>
-                  <EuiTitle size="xs">
-                    <h3>{title}</h3>
-                  </EuiTitle>
-                </EuiFlexItem>
-              </EuiFlexGroup>
-            }
-            initialIsOpen={!!opts.initialOpen}
-          >
-            <EuiSpacer size="s" />
-            {children}
-          </EuiAccordion>
-        </EuiPanel>
+      <EuiPanel hasBorder paddingSize="m">
+        <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
+          {opts.icon ? (
+            <EuiFlexItem grow={false}>
+              <span
+                className="tlsocIconChip"
+                style={{ background: tint(accent, 0.14), color: accent }}
+              >
+                <EuiIcon type={opts.icon} size="m" />
+              </span>
+            </EuiFlexItem>
+          ) : null}
+          <EuiFlexItem grow={false}>
+            <EuiTitle size="xs">
+              <h3>{title}</h3>
+            </EuiTitle>
+          </EuiFlexItem>
+        </EuiFlexGroup>
         <EuiSpacer size="m" />
-      </>
+        {children}
+      </EuiPanel>
     );
   };
 
@@ -534,79 +528,23 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
     </EuiText>
   );
 
-  return (
-    <div>
-      <SectionHeader
-        icon="gear"
-        title="Settings"
-        description="Tune data scope, models, detection, cost caps and credentials. Changes are saved to the backend preferences store."
-        actions={
-          <EuiFlexGroup gutterSize="s" responsive={false}>
-            <EuiFlexItem grow={false}>
-              <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
-                Reload
-              </EuiButton>
-            </EuiFlexItem>
-            <EuiFlexItem grow={false}>
-              <EuiButton
-                size="s"
-                fill
-                iconType="save"
-                onClick={save}
-                isLoading={saving}
-                isDisabled={readOnly && getPref(['read_only_settings_mode'], false) === true}
-              >
-                Save settings
-              </EuiButton>
-            </EuiFlexItem>
-          </EuiFlexGroup>
-        }
-      />
-
-      {readOnly ? (
-        <>
-          <EuiCallOut
-            color="warning"
-            iconType="lock"
-            title="Settings are in read-only mode"
-          >
-            <EuiText size="s">
-              <p>
-                All inputs below are disabled. To re-enable editing, turn off read-only mode and
-                save.
-              </p>
-            </EuiText>
-            <EuiSpacer size="s" />
-            <EuiSwitch
-              label="Read-only settings mode"
-              checked={!!getPref(['read_only_settings_mode'], true)}
-              onChange={(e) => setPref(['read_only_settings_mode'], e.target.checked)}
-            />
-            <EuiSpacer size="s" />
-            <EuiButton
-              size="s"
-              onClick={save}
-              isLoading={saving}
-              isDisabled={getPref(['read_only_settings_mode'], true) === true}
-            >
-              Save to unlock
-            </EuiButton>
-          </EuiCallOut>
-          <EuiSpacer size="m" />
-        </>
-      ) : null}
-
-      {error ? (
-        <>
-          <EuiCallOut color="danger" size="s" title={error} />
-          <EuiSpacer size="m" />
-        </>
-      ) : null}
-
-      {/* Data scope + entity mapping + rules */}
-      {section(
-        'sec-data',
-        'Data scope, entity mapping & rules',
+  // Section descriptors drive both the left-nav list and the right-hand content
+  // panel. Each `content` block is moved verbatim from the previous accordion
+  // call sites — no field, path, handler, or default is altered. The ids/titles/
+  // icons/accents match the original sections one-for-one.
+  const sections: Array<{
+    id: string;
+    title: string;
+    icon: string;
+    accent: string;
+    content: React.ReactNode;
+  }> = [
+    {
+      id: 'sec-data',
+      title: 'Data scope, entity mapping & rules',
+      icon: 'indexSettings',
+      accent: COLORS.primary,
+      content: (
         <>
           <EuiDescribedFormGroup
             title={<h4>Data scope</h4>}
@@ -634,14 +572,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
             <EuiFormRow label="In-scope rules (comma separated; empty = all)">{csvField(['in_scope_rules'])}</EuiFormRow>
             <EuiFormRow label="Excluded rules (comma separated)">{csvField(['excluded_rules'])}</EuiFormRow>
           </EuiDescribedFormGroup>
-        </>,
-        { icon: 'indexSettings', accent: COLORS.primary, initialOpen: true }
-      )}
-
-      {/* Polling */}
-      {section(
-        'sec-polling',
-        'Polling',
+        </>
+      ),
+    },
+    {
+      id: 'sec-polling',
+      title: 'Polling',
+      icon: 'timeRefresh',
+      accent: COLORS.primary,
+      content: (
         <EuiFlexGroup wrap>
           <EuiFlexItem>
             <EuiFormRow label="Poll interval (seconds)">{numberField(['poll_interval_seconds'], 30)}</EuiFormRow>
@@ -659,14 +598,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               {switchField(['polling_enabled'], 'Polling enabled', true)}
             </EuiFormRow>
           </EuiFlexItem>
-        </EuiFlexGroup>,
-        { icon: 'timeRefresh', accent: COLORS.primary }
-      )}
-
-      {/* Per-role models */}
-      {section(
-        'sec-models',
-        'Per-role models',
+        </EuiFlexGroup>
+      ),
+    },
+    {
+      id: 'sec-models',
+      title: 'Per-role models',
+      icon: 'machineLearningApp',
+      accent: COLORS.accent,
+      content: (
         <>
           <EuiText size="xs" color="subdued">
             <p>Each role routes through the single cost-metered gateway. Models populate from the live catalog; you may also type a custom model.</p>
@@ -680,14 +620,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               {modelPicker(r.key)}
             </React.Fragment>
           ))}
-        </>,
-        { icon: 'machineLearningApp', accent: COLORS.accent }
-      )}
-
-      {/* Decision thresholds */}
-      {section(
-        'sec-thresholds',
-        'Decision thresholds',
+        </>
+      ),
+    },
+    {
+      id: 'sec-thresholds',
+      title: 'Decision thresholds',
+      icon: 'controlsHorizontal',
+      accent: COLORS.primary,
+      content: (
         <>
           {subLabel('FP auto-close', '(a TRUE_POSITIVE can never auto-close)')}
           <EuiSpacer size="xs" />
@@ -715,14 +656,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               <EuiFormRow label="Critical severity">{numberField(['critical_severity'], 7, 0.1)}</EuiFormRow>
             </EuiFlexItem>
           </EuiFlexGroup>
-        </>,
-        { icon: 'controlsHorizontal', accent: COLORS.primary }
-      )}
-
-      {/* Correlation */}
-      {section(
-        'sec-correlation',
-        'Correlation, risk weights & assets',
+        </>
+      ),
+    },
+    {
+      id: 'sec-correlation',
+      title: 'Correlation, risk weights & assets',
+      icon: 'graphApp',
+      accent: COLORS.accent,
+      content: (
         <>
           {subLabel('Default correlation')}
           <EuiSpacer size="xs" />
@@ -908,14 +850,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiFlexItem>
             </EuiFlexGroup>
           ))}
-        </>,
-        { icon: 'graphApp', accent: COLORS.accent }
-      )}
-
-      {/* Detection rule catalog (C3-1) */}
-      {section(
-        'sec-rule-catalog',
-        'Detection rule catalog',
+        </>
+      ),
+    },
+    {
+      id: 'sec-rule-catalog',
+      title: 'Detection rule catalog',
+      icon: 'list',
+      accent: COLORS.primary,
+      content: (
         <>
           <EuiText size="xs" color="subdued">
             <p>
@@ -1078,14 +1021,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               );
             })
           )}
-        </>,
-        { icon: 'list', accent: COLORS.primary }
-      )}
-
-      {/* Per-rule model overrides (C3-6) */}
-      {section(
-        'sec-rule-models',
-        'Per-rule model overrides',
+        </>
+      ),
+    },
+    {
+      id: 'sec-rule-models',
+      title: 'Per-rule model overrides',
+      icon: 'tableDensityNormal',
+      accent: COLORS.accent,
+      content: (
         <>
           <EuiText size="xs" color="subdued">
             <p>
@@ -1162,14 +1106,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiPanel>
             ))
           )}
-        </>,
-        { icon: 'tableDensityNormal', accent: COLORS.accent }
-      )}
-
-      {/* Cost gate / caps */}
-      {section(
-        'sec-caps',
-        'Cost gate, caps & suppression',
+        </>
+      ),
+    },
+    {
+      id: 'sec-caps',
+      title: 'Cost gate, caps & suppression',
+      icon: 'controlsVertical',
+      accent: COLORS.danger,
+      content: (
         <>
           <EuiCallOut
             color={getPref(['caps', 'kill_switch'], false) ? 'danger' : 'primary'}
@@ -1248,14 +1193,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiFlexItem>
             </EuiFlexGroup>
           ))}
-        </>,
-        { icon: 'controlsVertical', accent: COLORS.danger }
-      )}
-
-      {/* Automated scans + enrichment + RAG + standup */}
-      {section(
-        'sec-scans',
-        'Automated scans, enrichment, RAG & standup',
+        </>
+      ),
+    },
+    {
+      id: 'sec-scans',
+      title: 'Automated scans, enrichment, RAG & standup',
+      icon: 'inspect',
+      accent: COLORS.success,
+      content: (
         <>
           {subLabel('Automated scans')}
           <EuiSpacer size="xs" />
@@ -1308,14 +1254,15 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               <EuiFormRow label="Interval (seconds)">{numberField(['standup', 'interval_seconds'], 86400)}</EuiFormRow>
             </EuiFlexItem>
           </EuiFlexGroup>
-        </>,
-        { icon: 'inspect', accent: COLORS.success }
-      )}
-
-      {/* Secrets + read-only mode */}
-      {section(
-        'sec-secrets',
-        'Credentials & access mode',
+        </>
+      ),
+    },
+    {
+      id: 'sec-secrets',
+      title: 'Credentials & access mode',
+      icon: 'lock',
+      accent: COLORS.warning,
+      content: (
         <>
           {subLabel('Configured credentials', '(status only — values are never shown)')}
           <EuiSpacer size="s" />
@@ -1377,9 +1324,117 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           <EuiText size="xs" color="subdued">
             <p>Toggle and click "Save settings" to apply.</p>
           </EuiText>
-        </>,
-        { icon: 'lock', accent: COLORS.warning }
-      )}
+        </>
+      ),
+    },
+  ];
+
+  // The currently selected section descriptor (defaults to data). `find` always
+  // resolves because `activeSection` is seeded from, and only set to, ids above.
+  const active = sections.find((s) => s.id === activeSection) || sections[0];
+
+  return (
+    <div>
+      <SectionHeader
+        icon="gear"
+        title="Settings"
+        description="Tune data scope, models, detection, cost caps and credentials. Changes are saved to the backend preferences store."
+        actions={
+          <EuiFlexGroup gutterSize="s" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
+                Reload
+              </EuiButton>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton
+                size="s"
+                fill
+                iconType="save"
+                onClick={save}
+                isLoading={saving}
+                isDisabled={readOnly && getPref(['read_only_settings_mode'], false) === true}
+              >
+                Save settings
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        }
+      />
+
+      {readOnly ? (
+        <>
+          <EuiCallOut
+            color="warning"
+            iconType="lock"
+            title="Settings are in read-only mode"
+          >
+            <EuiText size="s">
+              <p>
+                All inputs below are disabled. To re-enable editing, turn off read-only mode and
+                save.
+              </p>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <EuiSwitch
+              label="Read-only settings mode"
+              checked={!!getPref(['read_only_settings_mode'], true)}
+              onChange={(e) => setPref(['read_only_settings_mode'], e.target.checked)}
+            />
+            <EuiSpacer size="s" />
+            <EuiButton
+              size="s"
+              onClick={save}
+              isLoading={saving}
+              isDisabled={getPref(['read_only_settings_mode'], true) === true}
+            >
+              Save to unlock
+            </EuiButton>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
+
+      {error ? (
+        <>
+          <EuiCallOut color="danger" size="s" title={error} />
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
+
+      {/* Two-column layout: a left section nav + the selected section's panel.
+          The accordions were replaced by this so the ~91 fields are easier to
+          navigate and the wide horizontal space is used. Layout only. */}
+      <EuiFlexGroup gutterSize="l" alignItems="flexStart">
+        <EuiFlexItem grow={false} style={{ minWidth: 220 }}>
+          <div style={{ position: 'sticky', top: 8 }}>
+            <EuiSideNav
+              mobileTitle="Settings sections"
+              isOpenOnMobile={isSideNavOpenOnMobile}
+              toggleOpenOnMobile={() => setIsSideNavOpenOnMobile((open) => !open)}
+              items={[
+                {
+                  id: 'tlsoc-settings-nav',
+                  name: 'Settings',
+                  items: sections.map((s) => ({
+                    id: s.id,
+                    name: s.title,
+                    icon: <EuiIcon type={s.icon} size="s" />,
+                    isSelected: activeSection === s.id,
+                    onClick: () => setActiveSection(s.id),
+                  })),
+                },
+              ]}
+            />
+          </div>
+        </EuiFlexItem>
+        <EuiFlexItem>
+          {sectionPanel(active.title, active.content, {
+            icon: active.icon,
+            accent: active.accent,
+          })}
+        </EuiFlexItem>
+      </EuiFlexGroup>
     </div>
   );
 };

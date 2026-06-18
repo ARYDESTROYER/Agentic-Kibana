@@ -463,3 +463,46 @@
 - Status: done.
 - Next: commit + push. Optional: apply the same card style to Scans/Board for full parity;
   live-stack visual check.
+
+### 2026-06-18 19:45Z — orchestrator + 2 sub-agents — case detail flyout + unified cards + Settings nav
+- Context: User design review: clicking a case only revealed detail far down the page (had to
+  scroll) and several surfaces still felt unpolished. Agreed direction (via AskUserQuestion):
+  right-side FLYOUT for detail; unify the card + open behaviour across Investigate + Scans +
+  Board; add severity accents/hover, sort, filter chips, KPI strip; add a left section-nav to
+  Settings; and use the wasted horizontal space.
+- Did (orchestrator, authored directly):
+  - NEW `lib/cases.ts` — risk banding (critical/high/medium/low), sort (risk/date), and
+    filter (status/risk-band/verdict) pure helpers.
+  - NEW `components/case_card.tsx` — the ONE uniform case card (severity left-accent, entity,
+    prominent restrained risk number, band+verdict chips, rules +N, created + status pill;
+    clickable root; optional dragHandle/cornerActions slots for the Board). Exports MetaLabel/
+    StatusPill/riskNumberColor/fmtRisk.
+  - NEW `components/case_grid.tsx` — KPI strip + controls (count, sort EuiSelect, refresh,
+    filter EuiPopover) + removable active-filter chips + an auto-filling responsive CSS grid
+    (`.tlsocCaseGrid` repeat(auto-fill,minmax(320px,1fr))).
+  - NEW `components/case_detail_flyout.tsx` — right-side EuiFlyout (size l): header (entity +
+    verdict/status/risk/confidence badges) + tabs (Overview · Agent trace · History · Ask) +
+    sticky EuiFlyoutFooter with contextual lifecycle actions + Re-investigate; reuses
+    TriggerReasonCallout/AgentTrace/CaseTimeline/Chat; confirm modal with note; neutral
+    no-events handling.
+  - `app.tsx` — renders ONE global flyout over any tab (selectedCaseId), full-width
+    (`restrictWidth={false}`), a `casesVersion` refresh signal bumped on flyout change so
+    grids re-sync; surfaces now just call `onOpenCase` (no tab switch).
+  - Rewrote `investigate.tsx` + `scans.tsx` as thin wrappers around `CaseGrid` (Investigate
+    keeps the search panel; Scans points at the `scans` endpoint).
+  - `index.scss` — `.tlsocCaseCard` + `.tlsocCaseGrid`. Removed dead `case_detail.tsx`
+    (superseded by the flyout; was imported only by the old Investigate).
+- Did (sub-agents):
+  - board.tsx — uses the shared `CaseCard` (dragHandle + per-card actions menu), opens the
+    global flyout on click instead of switching tabs, re-fetches on `refreshSignal`; drag +
+    quick-move confirm flow preserved.
+  - settings.tsx — replaced the accordion stack with a two-column layout: a left `EuiSideNav`
+    listing all 10 sections + the selected section's content on the right (sticky nav, uses
+    the wide space). EVERY field/handler/path unchanged.
+- Tests: `tsc -p tsconfig.json --noEmit` against /tmp/kibana-8.19 → 0 plugin-scoped errors;
+  full icon sweep of all new/changed files verified against EUI icon_map.js (all valid);
+  8.19.12 zip rebuilt + verified (bundle present, kibanaVersion 8.19.12, 0 backend-URL leak,
+  78,330 B ~76 KB) → copied into plugin/dist/.
+- Status: done.
+- Next: commit + push. Optional follow-ups: dark-mode-safe palette pass; rebuild the 8.12.2
+  zip for parity; live-stack visual check of the flyout + side-nav.

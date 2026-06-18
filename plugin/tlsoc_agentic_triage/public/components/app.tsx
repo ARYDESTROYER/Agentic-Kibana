@@ -30,6 +30,7 @@ import { Standup } from './standup';
 import { Cost } from './cost';
 import { Settings } from './settings';
 import { Wizard } from './wizard';
+import { CaseDetailFlyout } from './case_detail_flyout';
 
 interface AppDeps {
   basename: string;
@@ -56,10 +57,15 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState('chat');
   const [newScanCount, setNewScanCount] = useState(0);
-  // App-level case selection so the open case (and its rehydrated detail view)
-  // survives switching tabs and coming back. The detail view re-fetches the case
-  // by id from the backend, so the analysis is never held in transient state.
+  // App-level case selection — clicking a case on ANY surface opens it in the
+  // global detail flyout (rendered once, below), so the interaction is identical
+  // everywhere and never depends on which tab you're on. The flyout re-fetches the
+  // case by id, so nothing is held in transient state.
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  // Bumped whenever the flyout changes a case (lifecycle / re-investigate) so the
+  // list surfaces re-fetch and stay in sync.
+  const [casesVersion, setCasesVersion] = useState(0);
+  const openCase = (caseId: string) => setSelectedCaseId(caseId);
 
   const loadStatus = async () => {
     setLoadingStatus(true);
@@ -138,30 +144,20 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
         return (
           <Investigate
             api={api}
-            openInDiscover={openInDiscover}
             selectedCaseId={selectedCaseId}
-            onSelectCase={setSelectedCaseId}
+            onOpenCase={openCase}
+            refreshSignal={casesVersion}
           />
         );
       case 'board':
-        return (
-          <Board
-            api={api}
-            onOpenCase={(caseId) => {
-              setSelectedCaseId(caseId);
-              setSelectedTab('investigate');
-            }}
-          />
-        );
+        return <Board api={api} onOpenCase={openCase} refreshSignal={casesVersion} />;
       case 'scans':
         return (
           <Scans
             api={api}
-            openInDiscover={openInDiscover}
-            onOpenCase={(caseId) => {
-              setSelectedCaseId(caseId);
-              setSelectedTab('investigate');
-            }}
+            selectedCaseId={selectedCaseId}
+            onOpenCase={openCase}
+            refreshSignal={casesVersion}
           />
         );
       case 'standup':
@@ -177,7 +173,7 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
 
   return (
     <I18nProvider>
-      <EuiPageTemplate restrictWidth="1280px">
+      <EuiPageTemplate restrictWidth={false}>
         <EuiPageTemplate.Header
           pageTitle={PLUGIN_NAME}
           description="Agentic SOC triage over your ELK pipeline — read-only, audited, and cost-metered."
@@ -234,6 +230,17 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
           </EuiText>
         </EuiPageTemplate.Section>
       </EuiPageTemplate>
+
+      {/* Global case-detail flyout — opens over whichever surface you're on. */}
+      {selectedCaseId ? (
+        <CaseDetailFlyout
+          api={api}
+          caseId={selectedCaseId}
+          openInDiscover={openInDiscover}
+          onClose={() => setSelectedCaseId(null)}
+          onChanged={() => setCasesVersion((v) => v + 1)}
+        />
+      ) : null}
     </I18nProvider>
   );
 };
