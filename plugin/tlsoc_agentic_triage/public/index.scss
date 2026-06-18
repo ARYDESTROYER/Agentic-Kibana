@@ -89,6 +89,25 @@
   }
 }
 
+/* The shared, uniform case card (Investigate / Scans / Board). The base box; the
+ * left accent + selected ring are applied inline (severity-driven). */
+.tlsocCaseCard {
+  background: #ffffff;
+  border: 1px solid #e3e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* Auto-filling responsive card grid — fits as many columns as the width allows,
+ * so the surface uses all available horizontal space instead of wasting it. */
+.tlsocCaseGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: stretch;
+}
+
 /* The grab handle on a draggable card. */
 .tlsocCard__handle {
   cursor: grab;

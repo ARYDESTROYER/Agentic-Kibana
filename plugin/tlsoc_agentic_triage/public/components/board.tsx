@@ -23,21 +23,16 @@ import {
 } from '@elastic/eui';
 import type { Case } from '../../common';
 import type { TlsocApi } from '../lib/api';
-import { humanizeAge, humanizeToken } from '../lib/format';
-import {
-  ConfidenceBadge,
-  EmptyState,
-  RiskBadge,
-  SectionHeader,
-  statusHex,
-  verdictHex,
-  VerdictBadge,
-} from './ui';
+import { humanizeToken } from '../lib/format';
+import { CaseCard } from './case_card';
+import { EmptyState, SectionHeader, statusHex } from './ui';
 
 interface BoardProps {
   api: TlsocApi;
-  /** Open the stored case (GET by id) in the Investigate detail view. */
-  onOpenCase?: (caseId: string) => void;
+  /** Open the stored case (GET by id) in the app-level detail flyout. */
+  onOpenCase: (caseId: string) => void;
+  /** Bumped by the app shell to force a re-fetch (e.g. after a flyout edit). */
+  refreshSignal?: number;
 }
 
 /**
@@ -50,6 +45,8 @@ interface BoardProps {
  * carries a VISIBLE grab handle (drag) AND a per-card actions menu (a reliable,
  * click-only fallback). Both routes funnel into the same confirm flow, so the
  * lifecycle action is identical no matter how the analyst initiates the move.
+ * Opening a card no longer switches tabs — it raises the global detail flyout via
+ * `onOpenCase`, and the shared `CaseCard` renders the uniform card body.
  */
 type ColumnId = 'open' | 'needs_human' | 'closed';
 
@@ -96,24 +93,18 @@ const MENU_MOVES: Record<ColumnId, ColumnId[]> = {
 };
 
 /**
- * One case card. The header carries the grab handle (left) and the actions menu
- * (right); the body is click-to-open. Because the parent `EuiDraggable` sets
- * `hasInteractiveChildren`, the handle-drag and the body-click coexist cleanly.
+ * The per-card actions menu rendered as the card's `cornerActions`. It owns its
+ * own open/close state so each card's popover is independent. The card body now
+ * lives in the shared `CaseCard`; this is only the reliable, click-only move path
+ * (plus an explicit "Open case"). Every move funnels into `onRequestMove`, which
+ * the Board routes through the same confirm flow as a cross-column drop.
  */
-const CaseCard: React.FC<{
-  theCase: Case;
+const CardMenu: React.FC<{
   column: ColumnId;
-  isDragging?: boolean;
-  dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
-  onOpen?: () => void;
+  onOpen: () => void;
   onRequestMove: (to: ColumnId) => void;
-}> = ({ theCase: c, column, isDragging, dragHandleProps, onOpen, onRequestMove }) => {
+}> = ({ column, onOpen, onRequestMove }) => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const age = humanizeAge(c.updated_at || c.created_at);
-  const source = c.origin_surface || c.source_surface;
-  // Left accent: prefer the verdict colour (the analytically meaningful signal),
-  // falling back to the lifecycle status colour when there is no verdict yet.
-  const accent = c.verdict ? verdictHex(c.verdict) : statusHex(c.status);
 
   const menuItems = [
     <EuiContextMenuItem
@@ -121,9 +112,8 @@ const CaseCard: React.FC<{
       icon="inspect"
       onClick={() => {
         setMenuOpen(false);
-        onOpen?.();
+        onOpen();
       }}
-      disabled={!onOpen}
     >
       Open case
     </EuiContextMenuItem>,
@@ -142,109 +132,26 @@ const CaseCard: React.FC<{
   ];
 
   return (
-    <EuiPanel
-      hasBorder
-      paddingSize="s"
-      className={`tlsocCard${isDragging ? ' tlsocCard--dragging' : ''}`}
-      style={{ borderLeft: `3px solid ${accent}` }}
+    <EuiPopover
+      isOpen={menuOpen}
+      closePopover={() => setMenuOpen(false)}
+      anchorPosition="downRight"
+      panelPaddingSize="none"
+      button={
+        <EuiButtonIcon
+          iconType="boxesVertical"
+          aria-label="Case actions"
+          color="text"
+          onClick={() => setMenuOpen((o) => !o)}
+        />
+      }
     >
-      {/* Header: grab handle (drag) on the left, actions menu on the right. */}
-      <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
-        <EuiFlexItem grow={false}>
-          <span
-            className="tlsocCard__handle"
-            aria-label="Drag to move case"
-            {...dragHandleProps}
-          >
-            <EuiIcon type="grab" />
-          </span>
-        </EuiFlexItem>
-        <EuiFlexItem>
-          {/* Entity (or title/id fallback) — the primary identifier of the card. */}
-          <EuiText
-            size="s"
-            onClick={onOpen}
-            style={onOpen ? { cursor: 'pointer' } : undefined}
-          >
-            <strong style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              {c.entity ? `${c.entity.type}: ${c.entity.value}` : c.title || c.case_id}
-            </strong>
-          </EuiText>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
-          <EuiPopover
-            isOpen={menuOpen}
-            closePopover={() => setMenuOpen(false)}
-            anchorPosition="downRight"
-            panelPaddingSize="none"
-            button={
-              <EuiButtonIcon
-                iconType="boxesVertical"
-                aria-label="Case actions"
-                color="text"
-                onClick={() => setMenuOpen((o) => !o)}
-              />
-            }
-          >
-            <EuiContextMenuPanel items={menuItems} />
-          </EuiPopover>
-        </EuiFlexItem>
-      </EuiFlexGroup>
-
-      {/* The rest of the card body is click-to-open. */}
-      <div onClick={onOpen} style={onOpen ? { cursor: 'pointer' } : undefined}>
-        {c.rule_ids && c.rule_ids.length ? (
-          <>
-            <EuiSpacer size="xs" />
-            <EuiText size="xs" color="subdued">
-              {c.rule_ids.join(', ')}
-            </EuiText>
-          </>
-        ) : null}
-
-        <EuiSpacer size="xs" />
-        <EuiFlexGroup gutterSize="xs" wrap responsive={false} alignItems="center">
-          <EuiFlexItem grow={false}>
-            <RiskBadge score={c.risk_score} />
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <VerdictBadge verdict={c.verdict} />
-          </EuiFlexItem>
-          {typeof c.confidence === 'number' ? (
-            <EuiFlexItem grow={false}>
-              <ConfidenceBadge confidence={c.confidence} />
-            </EuiFlexItem>
-          ) : null}
-        </EuiFlexGroup>
-
-        {c.trigger_reason?.sentence ? (
-          <>
-            <EuiSpacer size="xs" />
-            <EuiText size="xs" color="subdued">
-              {c.trigger_reason.sentence}
-            </EuiText>
-          </>
-        ) : null}
-
-        <EuiSpacer size="xs" />
-        <EuiFlexGroup justifyContent="spaceBetween" gutterSize="xs" responsive={false}>
-          <EuiFlexItem grow={false}>
-            <EuiText size="xs" color="subdued">
-              {source || 'unknown'}
-            </EuiText>
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <EuiText size="xs" color="subdued">
-              {age}
-            </EuiText>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-      </div>
-    </EuiPanel>
+      <EuiContextMenuPanel items={menuItems} />
+    </EuiPopover>
   );
 };
 
-export const Board: React.FC<BoardProps> = ({ api, onOpenCase }) => {
+export const Board: React.FC<BoardProps> = ({ api, onOpenCase, refreshSignal }) => {
   const [columns, setColumns] = useState<ColumnState>(emptyColumns);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -275,10 +182,12 @@ export const Board: React.FC<BoardProps> = ({ api, onOpenCase }) => {
     }
   };
 
+  // Drive the initial load AND every re-fetch off `refreshSignal`, so the board
+  // re-syncs whenever a case is changed elsewhere (e.g. in the global flyout).
   useEffect(() => {
     loadBoard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshSignal]);
 
   const moveCard = (caseId: string, from: ColumnId, to: ColumnId, toIndex: number): ColumnState => {
     const next: ColumnState = {
@@ -449,18 +358,30 @@ export const Board: React.FC<BoardProps> = ({ api, onOpenCase }) => {
                           hasInteractiveChildren
                         >
                           {(provided, state) => (
-                            <CaseCard
-                              theCase={c}
-                              column={col.id}
-                              isDragging={state.isDragging}
-                              dragHandleProps={provided.dragHandleProps ?? undefined}
-                              onOpen={
-                                onOpenCase && c.case_id
-                                  ? () => onOpenCase(c.case_id)
-                                  : undefined
-                              }
-                              onRequestMove={(to) => requestMove(c.case_id, col.id, to)}
-                            />
+                            // The shared card owns hover/elevation; we only nudge
+                            // opacity while dragging for a subtle lift cue.
+                            <div style={state.isDragging ? { opacity: 0.9 } : undefined}>
+                              <CaseCard
+                                theCase={c}
+                                onOpen={() => c.case_id && onOpenCase(c.case_id)}
+                                dragHandle={
+                                  <span
+                                    className="tlsocCard__handle"
+                                    aria-label="Drag to move case"
+                                    {...(provided.dragHandleProps ?? undefined)}
+                                  >
+                                    <EuiIcon type="grab" />
+                                  </span>
+                                }
+                                cornerActions={
+                                  <CardMenu
+                                    column={col.id}
+                                    onOpen={() => c.case_id && onOpenCase(c.case_id)}
+                                    onRequestMove={(to) => requestMove(c.case_id, col.id, to)}
+                                  />
+                                }
+                              />
+                            </div>
                           )}
                         </EuiDraggable>
                       ))

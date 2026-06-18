@@ -14,6 +14,24 @@ Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in
 `pytest -q` = 124 passed; plugin `tsc` clean. (Offline-verified only — there is no
 live-stack validation this cycle.)
 
+### Case detail flyout + unified cards + Settings nav (done)
+- **Click-to-open now opens a right-side flyout** (`case_detail_flyout.tsx`) over any
+  surface — no more scrolling to a detail panel at the bottom. The flyout has a header
+  (entity + verdict/status/risk/confidence), tabs (Overview · Agent trace · History ·
+  Ask) and a sticky footer with the contextual lifecycle actions + Re-investigate.
+- **One unified case card** (`case_card.tsx`) and **one grid** (`case_grid.tsx`) now back
+  Investigate, Automated Scans, and the Board: a severity-banded accent, a prominent
+  (restrained) risk number, verdict/status chips, hover + selected states.
+- **Grid controls:** a KPI strip, a sort control (risk/date), a filter popover
+  (status · risk band · verdict) with removable active-filter chips, and an auto-filling
+  responsive grid that fills the width. Shared case logic lives in `lib/cases.ts`.
+- **Settings** now uses a **left section navigation** (all sub-sections listed on the
+  left, the selected section on the right) instead of an accordion stack — every field
+  preserved.
+- **Full-width layout** (`restrictWidth={false}`) across the app to use the previously
+  wasted horizontal space; a `casesVersion` signal keeps the grids in sync after a
+  lifecycle change in the flyout. Removed the superseded inline `case_detail.tsx`.
+
 ### UI redesign — shared design system + every surface (done)
 - **New shared design system.** `public/lib/format.ts` (date/money/number/percent
   formatters + `humanizeToken`) and `public/components/ui.tsx` (the single
