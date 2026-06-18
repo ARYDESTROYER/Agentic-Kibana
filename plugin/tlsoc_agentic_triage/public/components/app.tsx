@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { I18nProvider } from '@kbn/i18n-react';
 import {
   EuiCallOut,
+  EuiHorizontalRule,
   EuiIcon,
   EuiLoadingSpinner,
   EuiNotificationBadge,
@@ -9,6 +10,7 @@ import {
   EuiSpacer,
   EuiTab,
   EuiTabs,
+  EuiText,
 } from '@elastic/eui';
 import type { CoreStart } from '@kbn/core/public';
 import type { NavigationPublicPluginStart } from '@kbn/navigation-plugin/public';
@@ -219,6 +221,17 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
               {renderContent()}
             </>
           )}
+
+          {/* Subtle global footer. */}
+          <EuiSpacer size="xl" />
+          <EuiHorizontalRule margin="none" />
+          <EuiSpacer size="s" />
+          <EuiText size="xs" color="subdued" textAlign="center">
+            <span>
+              {PLUGIN_NAME} · read-only consumer of your ELK pipeline
+              {status?.es_connected ? ' · Elasticsearch connected' : ''}
+            </span>
+          </EuiText>
         </EuiPageTemplate.Section>
       </EuiPageTemplate>
     </I18nProvider>

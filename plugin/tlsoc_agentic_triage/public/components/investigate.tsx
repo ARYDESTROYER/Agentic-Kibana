@@ -1,48 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  EuiBasicTable,
-  EuiBasicTableColumn,
+  EuiBadge,
   EuiButton,
   EuiCallOut,
-  EuiConfirmModal,
-  EuiFieldText,
+  EuiFieldSearch,
+  EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiHorizontalRule,
   EuiIcon,
+  EuiLoadingSpinner,
+  EuiNotificationBadge,
+  EuiPanel,
+  EuiPopover,
   EuiSelect,
   EuiSpacer,
+  EuiSwitch,
   EuiText,
   EuiTitle,
-  EuiPanel,
 } from '@elastic/eui';
 import type { Case, Entity } from '../../common';
 import type { TlsocApi } from '../lib/api';
 import type { OpenInDiscover } from '../lib/discover';
-import { DASH, formatTimestamp, humanizeAge } from '../lib/format';
-import {
-  COLORS,
-  RiskBadge,
-  SectionHeader,
-  StatusBadge,
-  tint,
-  VerdictBadge,
-} from './ui';
+import { DASH, formatTimestamp, humanizeToken } from '../lib/format';
+import { COLORS, SectionHeader } from './ui';
 import { CaseDetail } from './case_detail';
 import { Chat } from './chat';
-
-/** Small EUI icon that hints at the entity kind (ip / user / host). */
-function entityIcon(type?: string): string {
-  switch ((type || '').toLowerCase()) {
-    case 'user':
-      return 'user';
-    case 'host':
-      return 'desktop';
-    case 'ip':
-      return 'globe';
-    default:
-      return 'dot';
-  }
-}
 
 /** Shape of a Kibana HttpFetchError; we read the backend's JSON `body` detail
  * and `response.status` so a NEUTRAL 400 ("No events found") becomes an info
@@ -65,6 +48,161 @@ function isNoEventsError(err: unknown): boolean {
   return errorDetail(err).toLowerCase().includes('no events');
 }
 
+/** Format a risk score the way the cards present it (two decimals). */
+function fmtRisk(score?: number): string {
+  if (typeof score !== 'number' || Number.isNaN(score)) {
+    return DASH;
+  }
+  return score.toFixed(2);
+}
+
+/**
+ * Risk text colour. Deliberately restrained: only genuinely high scores get a
+ * hot colour so a card wall reads at a glance (most numbers stay near-ink).
+ */
+function riskNumberColor(score?: number): string {
+  if (typeof score !== 'number' || Number.isNaN(score)) {
+    return COLORS.subdued;
+  }
+  if (score >= 80) return COLORS.danger;
+  if (score >= 60) return '#e2725b';
+  return '#1a1c21';
+}
+
+/** Lifecycle status as a solid pill (open = neutral, needs_human = amber,
+ * closed = green). Matches the card footer in the reference design. */
+function StatusPill({ status }: { status?: string }) {
+  const s = (status || '').toLowerCase();
+  if (s === 'open') {
+    return <EuiBadge color="hollow">Open</EuiBadge>;
+  }
+  if (s === 'needs_human') {
+    return <EuiBadge color={COLORS.warning}>Needs human</EuiBadge>;
+  }
+  if (s === 'closed') {
+    return <EuiBadge color={COLORS.success}>Closed</EuiBadge>;
+  }
+  return <EuiBadge color="hollow">{humanizeToken(status)}</EuiBadge>;
+}
+
+/** A tiny uppercase, letter-spaced field label (ENTITY / RISK / RULES / CREATED). */
+const MetaLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <span
+    style={{
+      fontSize: 11,
+      fontWeight: 600,
+      letterSpacing: '0.07em',
+      textTransform: 'uppercase',
+      color: COLORS.subdued,
+    }}
+  >
+    {children}
+  </span>
+);
+
+/**
+ * A single "Active Case" card. The whole card is a selectable control (wrapper
+ * div carries the click + keyboard handlers so the EuiPanel stays a plain div and
+ * can contain block content like the divider). A primary ring marks the selection.
+ */
+const CaseGridCard: React.FC<{ theCase: Case; selected: boolean; onOpen: () => void }> = ({
+  theCase: c,
+  selected,
+  onOpen,
+}) => {
+  const rules = c.rule_ids || [];
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      style={{ cursor: 'pointer', height: '100%' }}
+    >
+      <EuiPanel
+        hasBorder
+        paddingSize="m"
+        className="tlsocCard"
+        style={{
+          height: '100%',
+          borderColor: selected ? COLORS.primary : undefined,
+          boxShadow: selected ? `0 0 0 1px ${COLORS.primary}` : undefined,
+        }}
+      >
+        {/* ENTITY / RISK labels */}
+        <EuiFlexGroup justifyContent="spaceBetween" responsive={false} gutterSize="s">
+          <EuiFlexItem grow={false}>
+            <MetaLabel>Entity</MetaLabel>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <MetaLabel>Risk</MetaLabel>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+        <EuiSpacer size="xs" />
+
+        {/* Entity value (monospace, primary) + prominent, colour-coded risk. */}
+        <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false} gutterSize="s">
+          <EuiFlexItem>
+            <span
+              style={{
+                fontFamily: 'monospace',
+                fontWeight: 600,
+                fontSize: 15,
+                color: COLORS.primary,
+                wordBreak: 'break-all',
+              }}
+            >
+              {c.entity ? `${c.entity.type}: ${c.entity.value}` : c.title || c.case_id}
+            </span>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <span style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, color: riskNumberColor(c.risk_score) }}>
+              {fmtRisk(c.risk_score)}
+            </span>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+
+        <EuiSpacer size="m" />
+        <MetaLabel>Rules</MetaLabel>
+        <EuiSpacer size="xs" />
+        {rules.length ? (
+          <EuiFlexGroup gutterSize="xs" wrap responsive={false}>
+            {rules.map((r) => (
+              <EuiFlexItem grow={false} key={r}>
+                <EuiBadge color="hollow">{r}</EuiBadge>
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+        ) : (
+          <EuiText size="xs" color="subdued">
+            <span>{DASH}</span>
+          </EuiText>
+        )}
+
+        <EuiHorizontalRule margin="m" />
+
+        {/* CREATED + status pill. */}
+        <EuiFlexGroup justifyContent="spaceBetween" alignItems="flexEnd" responsive={false} gutterSize="s">
+          <EuiFlexItem grow={false}>
+            <MetaLabel>Created</MetaLabel>
+            <EuiText size="s">
+              <span>{formatTimestamp(c.created_at)}</span>
+            </EuiText>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <StatusPill status={c.status} />
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiPanel>
+    </div>
+  );
+};
+
 interface InvestigateProps {
   api: TlsocApi;
   openInDiscover: OpenInDiscover;
@@ -73,6 +211,12 @@ interface InvestigateProps {
   /** Open the stored case (GET by id) — does NOT re-investigate. */
   onSelectCase: (caseId: string | null) => void;
 }
+
+const STATUS_FILTERS: Array<{ id: string; label: string }> = [
+  { id: 'open', label: 'Open' },
+  { id: 'needs_human', label: 'Needs human' },
+  { id: 'closed', label: 'Closed' },
+];
 
 export const Investigate: React.FC<InvestigateProps> = ({
   api,
@@ -91,8 +235,13 @@ export const Investigate: React.FC<InvestigateProps> = ({
   const [manualType, setManualType] = useState<Entity['type']>('ip');
   const [manualValue, setManualValue] = useState('');
 
-  // explicit paid re-investigation confirm target
-  const [reinvestigateTarget, setReinvestigateTarget] = useState<Case | null>(null);
+  // client-side status filter (the "Filters" control)
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [statusOn, setStatusOn] = useState<Record<string, boolean>>({
+    open: true,
+    needs_human: true,
+    closed: true,
+  });
 
   const loadCases = async () => {
     setLoading(true);
@@ -113,9 +262,9 @@ export const Investigate: React.FC<InvestigateProps> = ({
   }, []);
 
   /**
-   * PAID investigation. Only call on an explicit user action (the manual entry
-   * or the clearly-labelled "Re-investigate (LLM)" row action). Selecting the
-   * resulting case opens its stored detail view.
+   * PAID investigation. Only call on an explicit user action (the search box's
+   * Investigate button / Enter). Selecting the resulting case opens its stored
+   * detail view.
    */
   const investigate = async (entity: Entity, group_by: Entity['type']) => {
     setInvestigating(true);
@@ -145,109 +294,39 @@ export const Investigate: React.FC<InvestigateProps> = ({
     }
   };
 
-  const columns: Array<EuiBasicTableColumn<Case>> = [
-    {
-      field: 'entity',
-      name: 'Entity',
-      // Prefix with a small icon hinting at the entity kind (ip / user / host).
-      render: (entity: Entity | undefined) =>
-        entity ? (
-          <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
-            <EuiFlexItem grow={false}>
-              <EuiIcon type={entityIcon(entity.type)} size="s" color="subdued" />
-            </EuiFlexItem>
-            <EuiFlexItem grow={false}>
-              <span>
-                {entity.type}: {entity.value}
-              </span>
-            </EuiFlexItem>
-          </EuiFlexGroup>
-        ) : (
-          DASH
-        ),
-    },
-    {
-      field: 'rule_ids',
-      name: 'Rules',
-      render: (rules: string[] | undefined) => (rules && rules.length ? rules.join(', ') : DASH),
-    },
-    { field: 'risk_score', name: 'Risk', render: (s: number | undefined) => <RiskBadge score={s} /> },
-    {
-      field: 'status',
-      name: 'Status',
-      render: (s: string | undefined) => <StatusBadge status={s} />,
-    },
-    {
-      field: 'verdict',
-      name: 'Verdict',
-      render: (v: string | undefined) => <VerdictBadge verdict={v} />,
-    },
-    {
-      field: 'created_at',
-      name: 'Created',
-      // Absolute timestamp with a subdued relative age beneath it.
-      render: (created: string | undefined) => (
-        <span>
-          {formatTimestamp(created)}
-          <br />
-          <EuiText size="xs" color="subdued">
-            <span>{humanizeAge(created)}</span>
-          </EuiText>
-        </span>
-      ),
-    },
-    {
-      name: 'Actions',
-      actions: [
-        {
-          name: 'Open',
-          description: 'Open the stored case (no LLM cost)',
-          icon: 'eye',
-          type: 'icon' as const,
-          // Open the saved case by id — this does NOT re-run a paid investigation.
-          onClick: (item: Case) => {
-            if (item.case_id) {
-              onSelectCase(item.case_id);
-            }
-          },
-        },
-        {
-          name: 'Re-investigate (LLM)',
-          description: 'Re-run a PAID LLM investigation for this entity',
-          icon: 'inspect',
-          type: 'icon' as const,
-          color: 'warning' as const,
-          available: (item: Case) => !!item.entity,
-          // Explicit paid re-run — gated behind a confirm.
-          onClick: (item: Case) => {
-            if (item.entity) {
-              setReinvestigateTarget(item);
-            }
-          },
-        },
-      ],
-    },
-  ];
-
-  // The row click opens the stored case detail view.
-  const onRowClick = (item: Case) => {
-    if (item.case_id) {
-      onSelectCase(item.case_id);
+  const runManualInvestigate = () => {
+    const value = manualValue.trim();
+    if (!value) {
+      return;
     }
+    investigate({ type: manualType, value }, manualType);
   };
+
+  // Client-side status filter over the loaded cases. Unknown statuses always show.
+  const visibleCases = useMemo(
+    () =>
+      cases.filter((c) => {
+        const s = (c.status || '').toLowerCase();
+        if (s in statusOn) {
+          return statusOn[s];
+        }
+        return true;
+      }),
+    [cases, statusOn]
+  );
+  const hiddenFilterCount = STATUS_FILTERS.filter((s) => !statusOn[s.id]).length;
 
   return (
     <div>
       <SectionHeader
-        icon="search"
-        title="Investigate"
-        description="Run a paid LLM investigation by IP / user / host, or open a stored case at no cost."
+        title="Security Investigation"
+        description="Triage emerging threats and analyze entity behavior across the infrastructure."
       />
 
       {error ? (
         <>
           <EuiCallOut color="danger" size="s" title={error} />
-          <EuiSpacer size="s" />
+          <EuiSpacer size="m" />
         </>
       ) : null}
 
@@ -257,45 +336,41 @@ export const Investigate: React.FC<InvestigateProps> = ({
           <EuiCallOut color="primary" size="s" iconType="iInCircle" title="No events found">
             <p>{notice}</p>
           </EuiCallOut>
-          <EuiSpacer size="s" />
+          <EuiSpacer size="m" />
         </>
       ) : null}
 
-      <EuiPanel hasBorder className="tlsocCard">
-        {/* Titled header: an accented icon chip + label for the manual entry. */}
-        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
-          <EuiFlexItem grow={false}>
-            <span
-              className="tlsocIconChip"
-              style={{ background: tint(COLORS.primary, 0.14), color: COLORS.primary }}
-            >
-              <EuiIcon type="search" size="m" />
-            </span>
-          </EuiFlexItem>
-          <EuiFlexItem grow={false}>
-            <EuiTitle size="xs">
-              <h3>Investigate by IP / user / host</h3>
-            </EuiTitle>
-          </EuiFlexItem>
-        </EuiFlexGroup>
+      {/* Manual entry: investigate by IP / user / host. */}
+      <EuiPanel hasBorder paddingSize="l">
+        <MetaLabel>Investigate by IP / user / host</MetaLabel>
         <EuiSpacer size="s" />
-        <EuiFlexGroup gutterSize="s" alignItems="flexEnd">
-          <EuiFlexItem grow={false} style={{ width: 140 }}>
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+          <EuiFlexItem grow={false} style={{ minWidth: 150 }}>
             <EuiSelect
               value={manualType}
               onChange={(e) => setManualType(e.target.value as Entity['type'])}
               options={[
-                { value: 'ip', text: 'IP' },
+                { value: 'ip', text: 'IP Address' },
                 { value: 'user', text: 'User' },
                 { value: 'host', text: 'Host' },
               ]}
+              aria-label="Entity type"
             />
           </EuiFlexItem>
-          <EuiFlexItem>
-            <EuiFieldText
-              placeholder="e.g. 10.0.0.5 / alice / web-01"
+          <EuiFlexItem style={{ minWidth: 240 }}>
+            <EuiFieldSearch
+              fullWidth
+              placeholder="Enter entity identifier (e.g. 10.130.171.247 or j.doe)..."
               value={manualValue}
+              isClearable
               onChange={(e) => setManualValue(e.target.value)}
+              onSearch={(v) => {
+                const value = v.trim();
+                if (value) {
+                  investigate({ type: manualType, value }, manualType);
+                }
+              }}
+              aria-label="Entity identifier"
             />
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
@@ -303,9 +378,7 @@ export const Investigate: React.FC<InvestigateProps> = ({
               fill
               isLoading={investigating}
               isDisabled={!manualValue.trim()}
-              onClick={() =>
-                investigate({ type: manualType, value: manualValue.trim() }, manualType)
-              }
+              onClick={runManualInvestigate}
             >
               Investigate
             </EuiButton>
@@ -313,8 +386,119 @@ export const Investigate: React.FC<InvestigateProps> = ({
         </EuiFlexGroup>
       </EuiPanel>
 
+      <EuiSpacer size="l" />
+
+      {/* Active cases header: count + Refresh / Filters. */}
+      <EuiFlexGroup justifyContent="spaceBetween" alignItems="flexEnd" gutterSize="m" responsive={false} wrap>
+        <EuiFlexItem grow={false}>
+          <EuiTitle size="s">
+            <h3>Active Cases</h3>
+          </EuiTitle>
+          <EuiText size="s" color="subdued">
+            <span>
+              {loading
+                ? 'Loading cases…'
+                : `Reviewing ${visibleCases.length} prioritized alert${
+                    visibleCases.length === 1 ? '' : 's'
+                  } requiring analyst intervention.`}
+            </span>
+          </EuiText>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiFlexGroup gutterSize="s" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={loadCases} isLoading={loading}>
+                Refresh
+              </EuiButton>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiPopover
+                isOpen={filtersOpen}
+                closePopover={() => setFiltersOpen(false)}
+                anchorPosition="downRight"
+                panelPaddingSize="m"
+                button={
+                  <EuiButton
+                    size="s"
+                    iconType="filter"
+                    onClick={() => setFiltersOpen((o) => !o)}
+                  >
+                    Filters
+                    {hiddenFilterCount > 0 ? (
+                      <>
+                        {' '}
+                        <EuiNotificationBadge color="subdued">
+                          {hiddenFilterCount}
+                        </EuiNotificationBadge>
+                      </>
+                    ) : null}
+                  </EuiButton>
+                }
+              >
+                <div style={{ minWidth: 200 }}>
+                  <EuiText size="xs" color="subdued">
+                    <strong>Filter by status</strong>
+                  </EuiText>
+                  <EuiSpacer size="s" />
+                  {STATUS_FILTERS.map((s) => (
+                    <div key={s.id} style={{ marginBottom: 8 }}>
+                      <EuiSwitch
+                        compressed
+                        label={s.label}
+                        checked={!!statusOn[s.id]}
+                        onChange={(e) =>
+                          setStatusOn((prev) => ({ ...prev, [s.id]: e.target.checked }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </EuiPopover>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+
       <EuiSpacer size="m" />
 
+      {/* The case grid — three across on wide viewports, filling the width. */}
+      {loading && cases.length === 0 ? (
+        <EuiFlexGroup justifyContent="center" alignItems="center" style={{ minHeight: 180 }}>
+          <EuiFlexItem grow={false}>
+            <EuiLoadingSpinner size="xl" />
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      ) : visibleCases.length === 0 ? (
+        <EuiPanel color="subdued" hasShadow={false} paddingSize="l">
+          <EuiText size="s" color="subdued" textAlign="center">
+            <p>
+              {cases.length === 0
+                ? 'No cases yet. Investigate an entity above to open one.'
+                : 'No cases match the current filters.'}
+            </p>
+          </EuiText>
+        </EuiPanel>
+      ) : (
+        <EuiFlexGrid columns={3} gutterSize="m">
+          {visibleCases.map((c) => (
+            <EuiFlexItem key={c.case_id || JSON.stringify(c.entity)}>
+              <CaseGridCard
+                theCase={c}
+                selected={!!c.case_id && c.case_id === selectedCaseId}
+                onOpen={() => {
+                  if (c.case_id) {
+                    onSelectCase(c.case_id);
+                  }
+                }}
+              />
+            </EuiFlexItem>
+          ))}
+        </EuiFlexGrid>
+      )}
+
+      <EuiSpacer size="xl" />
+
+      {/* Detail panel: the selected case (+ follow-up chat), else a prompt. */}
       {selectedCaseId ? (
         <>
           <CaseDetail
@@ -323,10 +507,8 @@ export const Investigate: React.FC<InvestigateProps> = ({
             openInDiscover={openInDiscover}
             onBack={() => onSelectCase(null)}
             onCaseUpdated={(updated) => {
-              // Keep the cases list row in sync with the latest stored case.
-              setCases((prev) =>
-                prev.map((c) => (c.case_id === updated.case_id ? updated : c))
-              );
+              // Keep the cases grid in sync with the latest stored case.
+              setCases((prev) => prev.map((c) => (c.case_id === updated.case_id ? updated : c)));
             }}
           />
           <EuiSpacer size="m" />
@@ -342,61 +524,26 @@ export const Investigate: React.FC<InvestigateProps> = ({
               placeholder="Ask a follow-up about this case..."
             />
           </EuiPanel>
-          <EuiSpacer size="m" />
         </>
-      ) : null}
-
-      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-        <EuiFlexItem grow={false}>
-          <EuiTitle size="xs">
-            <h3>Cases</h3>
-          </EuiTitle>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
-          <EuiButton size="s" iconType="refresh" onClick={loadCases} isLoading={loading}>
-            Refresh
-          </EuiButton>
-        </EuiFlexItem>
-      </EuiFlexGroup>
-      <EuiSpacer size="s" />
-      <EuiBasicTable
-        items={cases}
-        columns={columns}
-        loading={loading}
-        tableLayout="auto"
-        noItemsMessage="No cases yet."
-        rowProps={(item: Case) => ({
-          onClick: () => onRowClick(item),
-          style: { cursor: 'pointer' },
-        })}
-      />
-
-      {reinvestigateTarget && reinvestigateTarget.entity ? (
-        <EuiConfirmModal
-          title="Re-run a paid LLM investigation?"
-          onCancel={() => setReinvestigateTarget(null)}
-          onConfirm={() => {
-            const target = reinvestigateTarget;
-            setReinvestigateTarget(null);
-            if (target && target.entity) {
-              investigate(target.entity, target.entity.type);
-            }
+      ) : (
+        <div
+          style={{
+            border: '2px dashed #d3dae6',
+            borderRadius: 10,
+            minHeight: 280,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 14,
           }}
-          cancelButtonText="Cancel"
-          confirmButtonText="Re-investigate (LLM)"
-          buttonColor="warning"
-          isLoading={investigating}
         >
-          <p>
-            This starts a NEW paid LLM investigation for{' '}
-            <strong>
-              {reinvestigateTarget.entity.type}: {reinvestigateTarget.entity.value}
-            </strong>
-            . To just review the existing analysis at no cost, use the &quot;Open&quot; action
-            instead.
-          </p>
-        </EuiConfirmModal>
-      ) : null}
+          <EuiIcon type="search" size="xxl" color="subdued" />
+          <EuiText color="subdued">
+            <span>Select a case to begin Agentic Triage</span>
+          </EuiText>
+        </div>
+      )}
     </div>
   );
 };

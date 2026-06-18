@@ -25,6 +25,13 @@ live-stack validation this cycle.)
   (Open / Close / Escalate / Reopen) — both routed through the same confirm flow —
   fix the "can't move the cards" problem; columns sit in a horizontal scroll lane
   with coloured headers; cards carry a verdict/status accent + shared badges.
+- **Investigate ("Security Investigation")** rebuilt to a supplied reference design:
+  an IP/user/host search bar (`EuiFieldSearch`), an **Active Cases** 3-column card
+  grid (ENTITY/RISK/RULES/CREATED with a prominent colour-coded risk number and a
+  status pill), Refresh + a functional **Filters** popover, and a tall "Select a case
+  to begin Agentic Triage" prompt that swaps to the case detail + follow-up chat on
+  selection. A subtle global footer was added to the app shell. Uses the previously
+  wasted horizontal/vertical space.
 - **Automated Scans** rebuilt from a plain table into a KPI strip + a responsive
   card grid (entity icon, shared verdict/status/risk/confidence badges, formatted
   timestamps, Open / Reproduce / Why-this-fired) with a proper empty state.

@@ -435,3 +435,31 @@
   Node 18 + bazel checkout) — source is version-agnostic; flagged in BUILD.md for parity.
 - Next: commit + push to claude/amazing-noether-vrm2ly. Optional follow-ups: live-stack
   visual check on a real 8.19 Kibana; rebuild the 8.12.2 zip for parity.
+
+### 2026-06-18 11:25Z — orchestrator — Investigate page → reference "Security Investigation" design
+- Context: User supplied a reference mock for the Investigate tab and asked to implement it +
+  "use the wasted free space" + make it prettier.
+- Did: Rewrote `public/components/investigate.tsx` to match the reference. Header is now
+  "Security Investigation" (subtitle "Triage emerging threats and analyze entity behavior
+  across the infrastructure."). Manual entry uses an uppercase meta-label + entity-type
+  `EuiSelect` ("IP Address"/User/Host) + `EuiFieldSearch` (magnifier + Enter-to-investigate)
+  + a filled Investigate button. Replaced the cases `EuiBasicTable` with a 3-column
+  `EuiFlexGrid` of "Active Case" cards — each shows ENTITY/RISK meta labels, the entity in
+  monospace/primary, a prominent colour-coded risk number (riskNumberColor: ≥80 danger,
+  ≥60 orange, else ink), RULES pills, a divider, CREATED timestamp and a status pill
+  (open=hollow / needs_human=amber / closed=green). Whole card is a keyboard-accessible
+  selectable control with a primary ring on the selected case. Added an "Active Cases"
+  sub-header (live count) with Refresh + a functional **Filters** popover (client-side
+  status toggles + a hidden-count badge). When no case is selected the detail area shows a
+  tall dashed "Select a case to begin Agentic Triage" prompt; selecting one renders the
+  existing CaseDetail + follow-up Chat. Dropped the old per-row re-investigate modal
+  (CaseDetail already exposes Re-investigate). Also added a subtle global footer to
+  `app.tsx` (PLUGIN_NAME + read-only note + ES-connected when known). No new deps; logic/
+  contracts unchanged.
+- Tests: tsc -p tsconfig.json --noEmit against /tmp/kibana-8.19 → 0 plugin-scoped errors;
+  all new EUI icons verified against icon_map.js (filter/search/refresh/iInCircle OK);
+  rebuilt + verified 8.19.12 zip (bundle present, kibanaVersion 8.19.12, 0 backend-URL leak,
+  76,850 B ~75 KB) → copied into plugin/dist/.
+- Status: done.
+- Next: commit + push. Optional: apply the same card style to Scans/Board for full parity;
+  live-stack visual check.
