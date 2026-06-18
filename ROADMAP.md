@@ -11,6 +11,15 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **UI redesign** — new shared design system (`public/lib/format.ts`,
+  `public/components/ui.tsx`, expanded `public/index.scss`) and a presentation-only
+  refresh of every surface: Case Board (drag handle + per-card actions menu fix the
+  "can't move cards" issue; scroll lane; accented cards), Automated Scans (KPI strip
+  + card grid), Cost & Tokens (KPI tiles + weighted breakdowns + bar list), Settings
+  (section icons + EuiHealth credentials, all fields preserved), app shell (per-tab
+  icons + nomenclature), and Standup/Investigate/Case-detail/Verdict-card
+  consistency. No new deps, no logic/contract change. 6 parallel sub-agents +
+  orchestrator review; tsc clean + 8.19.12 zip rebuilt + verified.
 - ☑ **Cycle 3 features** (C3-1..C3-7): config-driven rule catalog (13 event.module
   + 5 ModSec sub-rules, version-guarded seed), Board Kanban tab, agent trace
   (`GET /cases/{id}/trace`), re-investigate-in-place (`POST /cases/{id}/investigate`),

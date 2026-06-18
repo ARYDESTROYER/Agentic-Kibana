@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EuiAccordion,
-  EuiBadge,
   EuiButton,
   EuiButtonEmpty,
   EuiButtonIcon,
@@ -13,7 +12,9 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiHealth,
   EuiHorizontalRule,
+  EuiIcon,
   EuiIconTip,
   EuiPanel,
   EuiSelect,
@@ -25,7 +26,11 @@ import {
 } from '@elastic/eui';
 import type { CoreStart } from '@kbn/core/public';
 import type { ModelsResponse, RuleDefinition, RuleMatch, SettingsResponse } from '../../common';
+import { humanizeToken } from '../lib/format';
 import type { TlsocApi } from '../lib/api';
+// Shared visual language (frozen): palette + section-header primitive. Reused so
+// Settings shares the same accent/icon-chip rhythm as the other surfaces.
+import { COLORS, SectionHeader, tint } from './ui';
 
 interface SettingsProps {
   api: TlsocApi;
@@ -472,27 +477,70 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
     });
   };
 
-  const section = (id: string, title: string, children: React.ReactNode, initialOpen = false) => (
-    <>
-      <EuiPanel hasBorder paddingSize="m">
-        <EuiAccordion id={id} buttonContent={<EuiTitle size="xs"><h3>{title}</h3></EuiTitle>} initialIsOpen={initialOpen}>
-          <EuiSpacer size="s" />
-          {children}
-        </EuiAccordion>
-      </EuiPanel>
-      <EuiSpacer size="m" />
-    </>
+  // Collapsible settings section. `opts.icon` renders an accented icon chip next
+  // to the title (matching the SectionHeader rhythm); `opts.accent` tints it;
+  // `opts.initialOpen` controls whether the accordion starts expanded. The data
+  // section stays open by default. Presentation only — no behaviour change.
+  const section = (
+    id: string,
+    title: string,
+    children: React.ReactNode,
+    opts: { icon?: string; accent?: string; initialOpen?: boolean } = {}
+  ) => {
+    const accent = opts.accent || COLORS.primary;
+    return (
+      <>
+        <EuiPanel hasBorder paddingSize="m">
+          <EuiAccordion
+            id={id}
+            buttonContent={
+              <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
+                {opts.icon ? (
+                  <EuiFlexItem grow={false}>
+                    <span
+                      className="tlsocIconChip"
+                      style={{ background: tint(accent, 0.14), color: accent }}
+                    >
+                      <EuiIcon type={opts.icon} size="m" />
+                    </span>
+                  </EuiFlexItem>
+                ) : null}
+                <EuiFlexItem grow={false}>
+                  <EuiTitle size="xs">
+                    <h3>{title}</h3>
+                  </EuiTitle>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            }
+            initialIsOpen={!!opts.initialOpen}
+          >
+            <EuiSpacer size="s" />
+            {children}
+          </EuiAccordion>
+        </EuiPanel>
+        <EuiSpacer size="m" />
+      </>
+    );
+  };
+
+  // Consistent small subsection label (replaces ad-hoc <EuiText><strong>…</strong>).
+  // Optional `hint` is rendered subdued next to the label. Textual + cheap.
+  const subLabel = (label: React.ReactNode, hint?: React.ReactNode) => (
+    <EuiText size="s">
+      <strong>{label}</strong>
+      {hint ? (
+        <span style={{ color: COLORS.subdued, fontWeight: 400 }}> {hint}</span>
+      ) : null}
+    </EuiText>
   );
 
   return (
     <div>
-      <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-        <EuiFlexItem grow={false}>
-          <EuiTitle size="s">
-            <h2>Settings</h2>
-          </EuiTitle>
-        </EuiFlexItem>
-        <EuiFlexItem grow={false}>
+      <SectionHeader
+        icon="gear"
+        title="Settings"
+        description="Tune data scope, models, detection, cost caps and credentials. Changes are saved to the backend preferences store."
+        actions={
           <EuiFlexGroup gutterSize="s" responsive={false}>
             <EuiFlexItem grow={false}>
               <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
@@ -512,9 +560,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiButton>
             </EuiFlexItem>
           </EuiFlexGroup>
-        </EuiFlexItem>
-      </EuiFlexGroup>
-      <EuiSpacer size="s" />
+        }
+      />
 
       {readOnly ? (
         <>
@@ -588,7 +635,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
             <EuiFormRow label="Excluded rules (comma separated)">{csvField(['excluded_rules'])}</EuiFormRow>
           </EuiDescribedFormGroup>
         </>,
-        true
+        { icon: 'indexSettings', accent: COLORS.primary, initialOpen: true }
       )}
 
       {/* Polling */}
@@ -612,7 +659,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               {switchField(['polling_enabled'], 'Polling enabled', true)}
             </EuiFormRow>
           </EuiFlexItem>
-        </EuiFlexGroup>
+        </EuiFlexGroup>,
+        { icon: 'timeRefresh', accent: COLORS.primary }
       )}
 
       {/* Per-role models */}
@@ -627,12 +675,13 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           {MODEL_ROLES.map((r, i) => (
             <React.Fragment key={r.key}>
               {i > 0 ? <EuiHorizontalRule margin="s" /> : null}
-              <EuiText size="s"><strong>{r.label}</strong></EuiText>
+              {subLabel(r.label)}
               <EuiSpacer size="xs" />
               {modelPicker(r.key)}
             </React.Fragment>
           ))}
-        </>
+        </>,
+        { icon: 'machineLearningApp', accent: COLORS.accent }
       )}
 
       {/* Decision thresholds */}
@@ -640,7 +689,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
         'sec-thresholds',
         'Decision thresholds',
         <>
-          <EuiText size="s"><strong>FP auto-close</strong> (a TRUE_POSITIVE can never auto-close)</EuiText>
+          {subLabel('FP auto-close', '(a TRUE_POSITIVE can never auto-close)')}
           <EuiSpacer size="xs" />
           {switchField(['fp_auto_close', 'enabled'], 'FP auto-close enabled', false)}
           <EuiSpacer size="s" />
@@ -666,7 +715,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               <EuiFormRow label="Critical severity">{numberField(['critical_severity'], 7, 0.1)}</EuiFormRow>
             </EuiFlexItem>
           </EuiFlexGroup>
-        </>
+        </>,
+        { icon: 'controlsHorizontal', accent: COLORS.primary }
       )}
 
       {/* Correlation */}
@@ -674,7 +724,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
         'sec-correlation',
         'Correlation, risk weights & assets',
         <>
-          <EuiText size="s"><strong>Default correlation</strong></EuiText>
+          {subLabel('Default correlation')}
           <EuiSpacer size="xs" />
           <EuiFlexGroup wrap responsive={false}>
             <EuiFlexItem style={{ minWidth: 150 }}>
@@ -707,7 +757,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
 
           <EuiHorizontalRule margin="s" />
           <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-            <EuiFlexItem grow={false}><EuiText size="s"><strong>Per-rule correlation</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>{subLabel('Per-rule correlation')}</EuiFlexItem>
             <EuiFlexItem grow={false}>
               <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addCorrelationRule}>
                 Add rule
@@ -773,7 +823,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           )}
 
           <EuiHorizontalRule margin="s" />
-          <EuiText size="s"><strong>Risk weights</strong> (normalised to 0-100)</EuiText>
+          {subLabel('Risk weights', '(normalised to 0-100)')}
           <EuiSpacer size="xs" />
           <EuiFlexGroup wrap responsive={false}>
             {['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'].map((w) => (
@@ -785,7 +835,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
 
           <EuiHorizontalRule margin="s" />
           <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-            <EuiFlexItem grow={false}><EuiText size="s"><strong>Asset networks (CIDR → criticality)</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>{subLabel('Asset networks (CIDR → criticality)')}</EuiFlexItem>
             <EuiFlexItem grow={false}>
               <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addAssetNetwork}>
                 Add network
@@ -823,7 +873,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
 
           <EuiHorizontalRule margin="s" />
           <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-            <EuiFlexItem grow={false}><EuiText size="s"><strong>Asset criticality (entity value → 0-100)</strong></EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>{subLabel('Asset criticality (entity value → 0-100)')}</EuiFlexItem>
             <EuiFlexItem grow={false}>
               <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addAssetCriticality}>
                 Add entity
@@ -858,7 +908,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiFlexItem>
             </EuiFlexGroup>
           ))}
-        </>
+        </>,
+        { icon: 'graphApp', accent: COLORS.accent }
       )}
 
       {/* Detection rule catalog (C3-1) */}
@@ -1027,7 +1078,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               );
             })
           )}
-        </>
+        </>,
+        { icon: 'list', accent: COLORS.primary }
       )}
 
       {/* Per-rule model overrides (C3-6) */}
@@ -1110,7 +1162,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiPanel>
             ))
           )}
-        </>
+        </>,
+        { icon: 'tableDensityNormal', accent: COLORS.accent }
       )}
 
       {/* Cost gate / caps */}
@@ -1145,7 +1198,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
 
           <EuiHorizontalRule margin="s" />
           <EuiFlexGroup justifyContent="spaceBetween" alignItems="center">
-            <EuiFlexItem grow={false}><EuiText size="s"><strong>Suppression rules</strong> (matching events are dropped)</EuiText></EuiFlexItem>
+            <EuiFlexItem grow={false}>{subLabel('Suppression rules', '(matching events are dropped)')}</EuiFlexItem>
             <EuiFlexItem grow={false}>
               <EuiButtonEmpty size="xs" iconType="plusInCircle" disabled={readOnly} onClick={addSuppression}>
                 Add rule
@@ -1195,7 +1248,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               </EuiFlexItem>
             </EuiFlexGroup>
           ))}
-        </>
+        </>,
+        { icon: 'controlsVertical', accent: COLORS.danger }
       )}
 
       {/* Automated scans + enrichment + RAG + standup */}
@@ -1203,7 +1257,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
         'sec-scans',
         'Automated scans, enrichment, RAG & standup',
         <>
-          <EuiText size="s"><strong>Automated scans</strong></EuiText>
+          {subLabel('Automated scans')}
           <EuiSpacer size="xs" />
           {switchField(['background_scan_enabled'], 'Background scan enabled', false)}
           <EuiSpacer size="s" />
@@ -1212,7 +1266,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           </EuiFormRow>
 
           <EuiHorizontalRule margin="s" />
-          <EuiText size="s"><strong>Enrichment</strong></EuiText>
+          {subLabel('Enrichment')}
           <EuiSpacer size="xs" />
           {switchField(['enrichment', 'enabled'], 'Enrichment enabled', true)}
           {switchField(['enrichment', 'use_abuseipdb'], 'Use AbuseIPDB', true)}
@@ -1222,7 +1276,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           <EuiFormRow label="Cache TTL (seconds)">{numberField(['enrichment', 'cache_ttl_seconds'], 21600)}</EuiFormRow>
 
           <EuiHorizontalRule margin="s" />
-          <EuiText size="s"><strong>RAG</strong></EuiText>
+          {subLabel('RAG')}
           <EuiSpacer size="xs" />
           {switchField(['rag', 'enabled'], 'RAG enabled', true)}
           {switchField(['rag', 'use_runbooks'], 'Use runbooks', true)}
@@ -1242,7 +1296,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           </EuiFlexGroup>
 
           <EuiHorizontalRule margin="s" />
-          <EuiText size="s"><strong>Standup</strong></EuiText>
+          {subLabel('Standup')}
           <EuiSpacer size="xs" />
           {switchField(['standup', 'enabled'], 'Standup enabled', true)}
           <EuiSpacer size="s" />
@@ -1254,7 +1308,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
               <EuiFormRow label="Interval (seconds)">{numberField(['standup', 'interval_seconds'], 86400)}</EuiFormRow>
             </EuiFlexItem>
           </EuiFlexGroup>
-        </>
+        </>,
+        { icon: 'inspect', accent: COLORS.success }
       )}
 
       {/* Secrets + read-only mode */}
@@ -1262,20 +1317,24 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
         'sec-secrets',
         'Credentials & access mode',
         <>
-          <EuiText size="s"><strong>Configured credentials</strong> (status only — values are never shown)</EuiText>
+          {subLabel('Configured credentials', '(status only — values are never shown)')}
           <EuiSpacer size="s" />
-          <EuiFlexGroup wrap gutterSize="s" responsive={false}>
+          {/* Health dots read configured-state at a glance: green = configured,
+              subdued = not set. Same iteration over `configured` as before. */}
+          <EuiFlexGroup wrap gutterSize="l" responsive={false}>
             {Object.entries(configured).map(([k, v]) => (
               <EuiFlexItem grow={false} key={k}>
-                <EuiBadge color={v ? 'success' : 'default'}>
-                  {k}: {v ? 'configured ✓' : 'not set'}
-                </EuiBadge>
+                <EuiHealth color={v ? COLORS.success : COLORS.subdued}>
+                  <span style={{ color: v ? undefined : COLORS.subdued }}>
+                    {humanizeToken(k)}: {v ? 'configured' : 'not set'}
+                  </span>
+                </EuiHealth>
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>
 
           <EuiSpacer size="m" />
-          <EuiText size="s"><strong>Update keys</strong></EuiText>
+          {subLabel('Update keys')}
           <EuiText size="xs" color="subdued">
             <p>
               Keys sent here are stored IN-MEMORY in the backend and are lost on restart. For durable
@@ -1308,7 +1367,7 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           </EuiButton>
 
           <EuiHorizontalRule margin="m" />
-          <EuiText size="s"><strong>Access mode</strong></EuiText>
+          {subLabel('Access mode')}
           <EuiSpacer size="xs" />
           <EuiSwitch
             label="Read-only settings mode (disables editing across this page)"
@@ -1318,7 +1377,8 @@ export const Settings: React.FC<SettingsProps> = ({ api, core }) => {
           <EuiText size="xs" color="subdued">
             <p>Toggle and click "Save settings" to apply.</p>
           </EuiText>
-        </>
+        </>,
+        { icon: 'lock', accent: COLORS.warning }
       )}
     </div>
   );

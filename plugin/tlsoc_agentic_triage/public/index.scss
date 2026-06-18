@@ -1,4 +1,100 @@
+/* TLSOC Agentic Triage — shared UI utilities.
+ *
+ * Layout/elevation/transition primitives only. All semantic colours live in
+ * `components/ui.tsx` (the COLORS palette) and are applied via inline style so a
+ * single TS source of truth drives the scheme. Keep this file dependency-free
+ * plain SCSS so it compiles in the @kbn/optimizer for both 8.12 and 8.19.
+ */
+
 .tlsocAgenticTriage__chatHistory {
-  max-height: 420px;
+  max-height: 460px;
   overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Accented, rounded icon chip used in section headers, stat tiles, empty states. */
+.tlsocIconChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex: 0 0 auto;
+
+  &--lg {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+  }
+}
+
+/* KPI tile. */
+.tlsocStatTile {
+  height: 100%;
+  transition: box-shadow 150ms ease, transform 150ms ease;
+
+  &:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+  }
+
+  &__value {
+    font-size: 26px;
+    line-height: 1.15;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+}
+
+.tlsocEmptyState {
+  border-style: dashed;
+}
+
+/* ------------------------------------------------------------- case board -- */
+
+/* Horizontal lane container — scrolls instead of cramping columns on narrow
+ * viewports, so cards always have a comfortable width. */
+.tlsocBoard__scroll {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  align-items: flex-start;
+}
+
+.tlsocBoard__column {
+  flex: 1 0 320px;
+  min-width: 320px;
+  max-width: 420px;
+}
+
+/* The scrollable drop area inside a column. */
+.tlsocBoard__dropZone {
+  min-height: 120px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+/* A case card. Soft elevation + lift on hover to signal interactivity. */
+.tlsocCard {
+  transition: box-shadow 150ms ease, transform 150ms ease, border-color 150ms ease;
+
+  &:hover {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.10);
+    transform: translateY(-1px);
+  }
+
+  &--dragging {
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+  }
+}
+
+/* The grab handle on a draggable card. */
+.tlsocCard__handle {
+  cursor: grab;
+  color: #98a2b3;
+
+  &:active {
+    cursor: grabbing;
+  }
 }

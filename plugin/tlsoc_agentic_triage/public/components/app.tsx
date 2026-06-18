@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { I18nProvider } from '@kbn/i18n-react';
 import {
+  EuiCallOut,
+  EuiIcon,
   EuiLoadingSpinner,
   EuiNotificationBadge,
   EuiPageTemplate,
   EuiSpacer,
   EuiTab,
   EuiTabs,
-  EuiText,
 } from '@elastic/eui';
 import type { CoreStart } from '@kbn/core/public';
 import type { NavigationPublicPluginStart } from '@kbn/navigation-plugin/public';
@@ -106,21 +107,25 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
     };
   }, [status?.setup_complete, api]);
 
+  // Each tab carries a well-known EUI icon (shown via EuiTab `prepend`) so the
+  // nav reads at a glance. The Automated Scans tab also `append`s a notification
+  // badge when new scans have arrived since it was last opened.
   const tabs = [
-    { id: 'chat', name: 'Agent Chat' },
-    { id: 'investigate', name: 'Alerts / Investigate' },
-    { id: 'board', name: 'Board' },
+    { id: 'chat', name: 'Chat', icon: 'discuss' },
+    { id: 'investigate', name: 'Investigate', icon: 'search' },
+    { id: 'board', name: 'Case Board', icon: 'apps' },
     {
       id: 'scans',
       name: 'Automated Scans',
+      icon: 'inspect',
       append:
         newScanCount > 0 ? (
           <EuiNotificationBadge size="m">{newScanCount}</EuiNotificationBadge>
         ) : undefined,
     },
-    { id: 'standup', name: 'Daily Standup' },
-    { id: 'cost', name: 'Cost' },
-    { id: 'settings', name: 'Settings' },
+    { id: 'standup', name: 'Standup', icon: 'reportingApp' },
+    { id: 'cost', name: 'Cost & Tokens', icon: 'visGauge' },
+    { id: 'settings', name: 'Settings', icon: 'gear' },
   ];
 
   const renderContent = () => {
@@ -170,26 +175,29 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
 
   return (
     <I18nProvider>
-      <EuiPageTemplate restrictWidth="1200px">
-        <EuiPageTemplate.Header pageTitle={PLUGIN_NAME} />
+      <EuiPageTemplate restrictWidth="1280px">
+        <EuiPageTemplate.Header
+          pageTitle={PLUGIN_NAME}
+          description="Agentic SOC triage over your ELK pipeline — read-only, audited, and cost-metered."
+        />
         <EuiPageTemplate.Section>
           {loadingStatus ? (
             <>
               <EuiLoadingSpinner size="l" /> <span>Loading TLSOC status...</span>
             </>
           ) : statusError ? (
-            <EuiText color="danger">
-              <p>Could not reach the TLSOC backend: {statusError}</p>
+            <EuiCallOut color="danger" iconType="alert" title="Could not reach the TLSOC backend">
+              <p>{statusError}</p>
               <p>
                 Verify the backend is running and `tlsocAgenticTriage.backendUrl` is correct in
                 kibana.yml.
               </p>
-            </EuiText>
+            </EuiCallOut>
           ) : status && !status.setup_complete ? (
             <Wizard api={api} dataViews={dataViews} onComplete={loadStatus} />
           ) : (
             <>
-              <EuiTabs>
+              <EuiTabs bottomBorder>
                 {tabs.map((t) => (
                   <EuiTab
                     key={t.id}
@@ -200,6 +208,7 @@ export const TlsocAgenticTriageApp = ({ core, dataViews, share }: AppDeps) => {
                         setNewScanCount(0);
                       }
                     }}
+                    prepend={<EuiIcon type={t.icon} size="s" />}
                     append={t.append}
                   >
                     {t.name}
