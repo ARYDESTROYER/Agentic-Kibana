@@ -19,13 +19,14 @@ from ..constants import (
 )
 from ..es.base import BaseESClient
 from ..models import Case
+from .base import CaseRepository
 
 logger = logging.getLogger("tlsoc.cases")
 
 _OPEN_STATUSES = [CaseStatus.OPEN.value, CaseStatus.NEEDS_HUMAN.value]
 
 
-class CaseStore:
+class CaseStore(CaseRepository):
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
 

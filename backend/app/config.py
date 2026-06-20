@@ -89,6 +89,25 @@ class Secrets(BaseSettings):
     # automatically falls back to an in-memory store so the spine still runs.
     es_store_enabled: bool = True
 
+    # --- State backend selector (Epoch A: vendor-agnostic OWN-state) ---
+    # Where the suite's OWN bookkeeping (cases/audit/usage/config/cursor/RAG
+    # vectors) is persisted. The agent's READ-ONLY log surface ALWAYS stays on the
+    # connector layer (es_api_key) regardless of this setting — this only moves the
+    # suite's management state off Elasticsearch so self-hosting needs no ES.
+    #
+    #   "elasticsearch" (DEFAULT) — today's path: own-state in tlsoc-agent-* indices.
+    #   "sqlite"                  — own-state in a local SQLite file (zero services).
+    #   "postgres"                — own-state in PostgreSQL (+pgvector for RAG).
+    #
+    # SQL backends use ``state_db_url`` (a SQLAlchemy async URL). asyncpg/pgvector
+    # are imported LAZILY, only when state_backend == "postgres", so a deployment
+    # (or the test env) without those packages still imports + runs on SQLite/ES.
+    state_backend: Literal["elasticsearch", "postgres", "sqlite"] = "elasticsearch"
+    # e.g. "postgresql+asyncpg://user:pass@host:5432/tlsoc" or
+    # "sqlite+aiosqlite:///./tlsoc.db". When None and state_backend is a SQL
+    # backend, a sane default is derived (sqlite → ./tlsoc.db).
+    state_db_url: str | None = None
+
     # Per-source connector secrets (e.g. a webhook bearer token, a Splunk API
     # token), keyed by SourceInstance id → {field: value}. Lives in the SECRET
     # tier (in memory / env), NEVER in Preferences/the config index (#10). The UI
