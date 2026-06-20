@@ -21,8 +21,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .constants import CorrelationMode, EntityType
-from .utils import dotted_get
+from .constants import CorrelationMode, EntityType, IngestMode, SourceType
+from .utils import dotted_get, iso_now
 
 Provider = Literal["anthropic", "openai", "mock"]
 
@@ -275,8 +275,45 @@ class AssetNetwork(BaseModel):
     criticality: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class SourceInstance(BaseModel):
+    """One configured log source (a connector instance).
+
+    This is what makes the suite multi-source: an operator adds N sources (an
+    Elasticsearch, a Splunk, a Wazuh, a webhook, …) via the first-run wizard, each
+    backed by a connector (``backend/app/connectors/``). ``config`` holds the
+    connector's NON-secret settings (host, index/topic, entity field mappings,
+    bind port, …); secret VALUES never live here — only the names of the secret
+    fields that have been configured (``configured_secrets``). Secret values live
+    in the secret tier keyed ``<id>.<field>`` and the UI only ever sees
+    ``configured ✓`` (non-negotiable #10).
+
+    An empty ``Preferences.sources`` preserves today's behaviour byte-for-byte:
+    the single implicit Elasticsearch source wired from ``Secrets``.
+    """
+
+    # ``source_type`` etc. are plain data, not Pydantic config — disable the guard.
+    model_config = {"protected_namespaces": ()}
+
+    id: str
+    source_type: SourceType
+    display_name: str = ""
+    enabled: bool = True
+    ingest_mode: IngestMode = IngestMode.PULL
+    # The primary log surface the agent's es_query tool + poller read from. Exactly
+    # one enabled source should be primary; ``primary_source`` falls back gracefully.
+    is_primary: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)        # non-secret connector config
+    configured_secrets: list[str] = Field(default_factory=list)  # secret field names set (not values)
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
+
+    # --- Configured log sources (vendor-agnostic ingest). Empty == the legacy
+    # single implicit Elasticsearch source from Secrets (full back-compat). ---
+    sources: list[SourceInstance] = Field(default_factory=list)
 
     # --- Data scope (Section 5.2) ---
     data_view_pattern: str = "all-logs-*"
@@ -379,6 +416,17 @@ class Preferences(BaseModel):
     def correlation_for(self, rule_value: str) -> CorrelationRule:
         """Return the correlation rule for a given rule value, or the default."""
         return self.correlation_rules.get(rule_value, self.default_correlation)
+
+    def primary_source(self) -> "SourceInstance | None":
+        """The source the poller + es_query read from.
+
+        Prefers the enabled source explicitly flagged ``is_primary``; else the
+        first enabled source; else None (→ caller uses the legacy implicit
+        Elasticsearch source from Secrets, preserving today's behaviour)."""
+        primary = next((s for s in self.sources if s.enabled and s.is_primary), None)
+        if primary is not None:
+            return primary
+        return next((s for s in self.sources if s.enabled), None)
 
     def match_rule(self, src: dict[str, Any]) -> RuleDefinition | None:
         """Classify a raw log ``_source`` against the rule catalog (C3-1).
