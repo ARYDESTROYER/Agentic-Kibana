@@ -1,6 +1,11 @@
 # AGNOSTIC_ARCHITECTURE.md — vendor-agnostic, self-hosted agentic SOC
 
-> **Status:** design / proposal (approved direction, not yet implemented).
+> **Status:** IN PROGRESS — core delivered (see `ROADMAP.md` for live status).
+> Done: OCSF schema + connector SPI; Elastic + OpenSearch pull connectors (live);
+> 16 push receivers + push runtime (`/api/ingest`); wizard backend
+> (`/api/connectors`, `/api/sources`); standalone `webui/` SPA + first-run wizard.
+> In progress: Epoch A (SQL/Postgres StateStore). Pending: Wazuh connector, deep
+> UI surface port, scale-out. Backend suite: 192 green.
 > **Owner decisions locked (2026-06-20):** canonical schema = **OCSF**; internal
 > state = **decoupled from Elasticsearch (Postgres + pgvector)**; first new
 > connector after ELK + OpenSearch = **Wazuh**; UI = **standalone web app**

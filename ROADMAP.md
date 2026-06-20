@@ -65,24 +65,32 @@ is already ~90% source-agnostic (`RawEvent` projection + configurable field maps
 MCP-shaped tools); the work is concentrated in 3 seams: query/log-access, internal
 storage, and the Kibana-bound UI.
 
-- ☐ **Epoch A — Decouple internal state.** `StateStore` SPI (CaseRepository/
-  AuditRepository/UsageRepository/KVStore) + Postgres impl; RAG on pgvector via the
-  existing `VectorStore` ABC; keep ES impl behind the abstraction. *Do first.*
-- ◐ **Epoch B — Connector SPI + query IR + OCSF.** DONE: `OCSFEvent` (version-
+- ◐ **Epoch A — Decouple internal state.** IN PROGRESS (sub-agent): `StateStore`
+  repositories (Cases/Audit/Usage/KV) + RAG vector store behind ABCs; SQL backend
+  via SQLAlchemy (SQLite dev/test, Postgres + pgvector prod, lazy pg import); ES
+  kept as the default behind the abstraction. So a self-hosted deploy can run on
+  Postgres with NO Elasticsearch for the app's own state.
+- ☑ **Epoch B — Connector SPI + query IR + OCSF.** DONE: `OCSFEvent` (version-
   pinned) + ECS/generic→OCSF mappers; `RawEvent.from_ocsf`; `StructuredQuery` IR;
   `PullConnector`/`PushReceiver` SPI + `ConnectorManifest`/`AuthField`; registry
   with `tlsoc.connectors` entry-point discovery; **Elastic + OpenSearch** pull
   connectors (byte-parity); **es_query tool + poller rewired live through the
   connector** (behaviour-preserving); **16 push receivers** (webhook/HEC/syslog +
   Kafka/SQS/Kinesis/EventHub/PubSub/RabbitMQ/NATS/MQTT/Redis/S3/GCS/Blob/file,
-  lazy-dep) + format parsers; multi-source config (`SourceInstance`) + wizard
-  backend (`/api/connectors`, `/api/sources`, `/api/connectors/test`);
-  `docs/INGESTION.md`. 188 tests green. REMAINING: receiver runtime (webhook route
-  + asyncio lifecycle), per-source secret storage, standup-aggregation + routes
-  entity-path onto the connector.
+  lazy-dep) + format parsers; **push RUNTIME** (POST `/api/ingest/{id}` + asyncio
+  receiver lifecycle + shared `IngestService`); per-source secrets; multi-source
+  config (`SourceInstance`) + wizard backend; `docs/INGESTION.md`. 192 tests green.
+  REMAINING: standup-aggregation + routes entity-path onto the connector; TLS
+  syslog; S3 Parquet.
 - ☐ **Epoch C — Wazuh connector** (reuse OpenSearch connector + alert→OCSF mapper).
-- ☐ **Epoch D — Standalone web UI** (reuse React/EUI components; per-source query
-  rendering + deep-links; "add a source" wizard; retire the Kibana plugin).
+- ◐ **Epoch D — Standalone web UI.** DONE: `webui/` Vite+React+TS+EUI SPA; the
+  **first-run wizard** (welcome+demo / sources / providers+per-role models /
+  detection / review) driven by connector manifests; reusable dynamic
+  `ConnectorForm`/`ConnectorPicker`; Sources manager; sectioned full-Preferences
+  Settings; Shell + health + dark mode; typed API client. Build green (strict tsc +
+  vite). REMAINING: port analytics surfaces (Cases/Chat/Investigate/Scans/Standup/
+  Cost) in depth (currently preview stubs); serve `dist/` from the backend or a
+  reverse proxy; per-source query rendering/deep-links; formally retire the plugin.
 - ☐ **Epoch E — Scale-out (as needed):** Kafka/Redpanda buffer; stateless workers;
   semantic cache; batch API; per-tenant keys/budgets; ClickHouse analytics.
 
