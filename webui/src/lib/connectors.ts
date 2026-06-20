@@ -10,7 +10,7 @@
  * are not persisted by this UI beyond the setup/secrets call.
  */
 import { api } from './api';
-import type { ConnectorFormValue, } from '../components/common/ConnectorForm';
+import type { ConnectorFormValue } from '../components/common/ConnectorForm';
 import type { ConnectorManifest, SecretsUpdate, SourceUpsert } from './types';
 
 /** Secret keys the backend accepts on POST /api/setup/secrets. */
@@ -39,7 +39,7 @@ const CONFIG_TO_SECRET_KEY: Record<string, keyof SecretsUpdate> = {
  *   - `secretKeys`: every secret field key the operator just set (for provenance)
  */
 export function splitFormValue(
-  manifest: ConnectorManifest,
+  _manifest: ConnectorManifest,
   value: ConnectorFormValue,
 ): { secrets: SecretsUpdate | null; config: Record<string, unknown>; secretKeys: string[] } {
   const secrets: Partial<SecretsUpdate> = {};

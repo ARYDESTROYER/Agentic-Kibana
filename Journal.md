@@ -608,3 +608,36 @@
 - Next: Epoch A (StateStore → Postgres + pgvector); standalone web UI + wizard
   (sub-agent in flight); later: TLS for syslog, S3 Parquet, restart receivers on
   live source change, standup-aggregation + routes entity-path onto the connector.
+
+### 2026-06-21 00:00Z — frontend agent (webui) — standalone SPA + first-run wizard
+- Context: New deliverable — a vendor-agnostic, self-hosted web UI decoupled from
+  Kibana; talks to the FastAPI backend directly. Headline = first-run wizard +
+  connector/source management (Epoch D start).
+- Did: Created webui/ (Vite+React+TS+@elastic/eui 95). Typed API client
+  (src/lib/api.ts, ApiError); types mirroring ConnectorManifest/AuthField/
+  SourceInstance/Preferences/ConnectionTest/ModelsResponse/Case; framework-free
+  format.ts; plugin COLORS palette reproduced as standalone theming. Reusable
+  dynamic ConnectorForm + ConnectorPicker + SourceEditor + ModelPicker +
+  SecretInput. 5-step first-run Wizard (Welcome+demo-mode / Sources / Providers+
+  per-role models / Detection+correlation+risk+allowlist+kill-switch / Review→
+  /setup/complete); auto-shows when setup_complete is false; re-runnable from
+  Settings. Sources manager (list/add/edit/test/delete/primary). Sectioned
+  Settings (full Preferences + secret status). Shell (nav + /health + dark mode).
+  Preview pages for Cases/Chat/Investigate/Scans/Standup/Cost.
+- Tests: npm install clean; npm run build (tsc --noEmit strict + vite build) green,
+  no type errors (orchestrator re-verified: 2319 modules, dist built). No browser
+  run (CDNs blocked) — static build + tsc is the verification.
+- Status: done — wizard + sources + settings functional; analytics surfaces are
+  preview stubs.
+- Next: port analytics surfaces in depth; serve dist/ from backend or reverse
+  proxy; improve /api/connectors/test to test UNSAVED form values (see below).
+
+### 2026-06-21 01:00Z — orchestrator — webui build verification + commit
+- Context: Verify + land the standalone SPA the sub-agent built.
+- Did: re-ran `npm run build` (strict tsc + vite) → green; committed webui/ (WIP
+  snapshot earlier as ccc1aa9, finalized here); node_modules/dist git-ignored.
+- Tests: webui build green; backend suite unaffected (192).
+- Status: done. Standalone UI is the primary front door (Kibana plugin retiring).
+- Next: improve POST /api/connectors/test to accept unsaved {source_type,config,
+  secrets} and build a throwaway connector (better wizard "Test connection" UX),
+  then Epoch A (StateStore → Postgres + pgvector).

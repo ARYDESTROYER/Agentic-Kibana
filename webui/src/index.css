@@ -1,0 +1,13 @@
+/* Base reset; EUI theme stylesheets are injected at runtime (see lib/euiTheme.ts). */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}

@@ -18,7 +18,7 @@
  *
  * Fields are grouped by their `group` (e.g. "Connection", "Field mapping").
  */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   EuiComboBox,
   EuiFieldNumber,
