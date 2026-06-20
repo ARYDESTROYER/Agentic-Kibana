@@ -11,11 +11,12 @@ import logging
 from ..constants import CURSOR_DOC_ID, CURSOR_INDEX
 from ..es.base import BaseESClient
 from ..models import Cursor
+from .base import CursorRepository
 
 logger = logging.getLogger("tlsoc.cursor_store")
 
 
-class CursorStore:
+class CursorStore(CursorRepository):
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
 

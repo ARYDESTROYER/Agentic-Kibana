@@ -641,3 +641,31 @@
 - Next: improve POST /api/connectors/test to accept unsaved {source_type,config,
   secrets} and build a throwaway connector (better wizard "Test connection" UX),
   then Epoch A (StateStore → Postgres + pgvector).
+
+### 2026-06-21 — backend agent (statestore) — Epoch A: SQL StateStore
+- Context: Decouple the suite's OWN state (cases/audit/usage/config/cursor/RAG)
+  from Elasticsearch so self-hosting needs no ES; keep ES default; only management
+  state moves — the read-only log surface stays on the connector layer.
+- Did: repository ABCs (app/stores/base.py) mirroring the existing store
+  signatures; ES stores + AuditLogger subclass them. SQLAlchemy 2.x async SQL
+  backend under app/stores/sql/ (engine factory, ORM tables cases/audit/usage/kv/
+  rag_chunks, Sql{Case,Audit,Usage}Repository + SqlKVStore/SqlConfigStore/
+  SqlCursorStore + SqlVectorStore). Audit INSERT-only (preserves #2). Secrets
+  state_backend + state_db_url. state.py _build_state_backend() selects ES vs SQL
+  from one async engine; SQL startup create_all + SKIP bootstrap_indices; _build_rag
+  → SqlVectorStore on SQL; shutdown disposes the engine; es kept for the log
+  surface. bootstrap_indices guarded for non-ES backends. asyncpg/pgvector lazy
+  (postgres only). Added sqlalchemy/aiosqlite (dev) + sqlalchemy/aiosqlite/asyncpg/
+  pgvector (prod) to requirements.
+- Tests: pytest 216 passed (192 existing + 24 new), SQLite only, no postgres/
+  asyncpg installed. test_state_store_sql.py (case round-trip/list filters+total/
+  sort/find_open_by_signature/count_new_scans; append-only audit + ordered search;
+  usage window summary; KV/config/cursor; SqlVectorStore cosine/upsert/dim-mismatch)
+  + test_state_backend_e2e.py (AppState boots on sqlite, poll→investigate→persist
+  case to SQL, ES kept for logs). Orchestrator reviewed SqlAuditRepository (append-
+  only confirmed) + wiring; full suite re-verified green.
+- Status: done. A self-hosted deploy can now run on Postgres with NO Elasticsearch
+  for the app's own state.
+- Next: document TLSOC_STATE_BACKEND/TLSOC_STATE_DB_URL (ENVIRONMENT/DEPLOY) +
+  surface the selector in the wizard; real-Postgres integration test in a deploy
+  session (pg deps blocked in sandbox).

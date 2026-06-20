@@ -4,3 +4,9 @@ pytest==8.1.1
 pytest-asyncio==0.23.6
 pytest-cov==5.0.0
 respx==0.21.0
+
+# SQL state backend (Epoch A) for tests: SQLite via SQLAlchemy async. asyncpg /
+# pgvector are NOT installed in the test env — the SQL backend's Postgres deps are
+# imported lazily, so the full suite runs on SQLite alone.
+sqlalchemy>=2.0
+aiosqlite>=0.19

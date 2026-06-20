@@ -14,12 +14,13 @@ from typing import Any
 from ..constants import AUDIT_READ_PATTERN, AUDIT_WRITE_ALIAS, ActionType
 from ..es.base import BaseESClient
 from ..models import AuditDoc
+from ..stores.base import AuditRepository
 from ..utils import truncate
 
 logger = logging.getLogger("tlsoc.audit")
 
 
-class AuditLogger:
+class AuditLogger(AuditRepository):
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
 

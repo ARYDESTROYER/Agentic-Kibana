@@ -1,0 +1,360 @@
+"""Epoch A — SQL StateStore tests (offline, SQLite-only).
+
+Asserts the SQL-backed OWN-state repositories reproduce the SAME behaviours as
+the Elasticsearch stores: Case round-trip + filtered/paged listing +
+find_open_by_signature + count_new_scans; append-only audit + ordered search;
+usage record + windowed summary; KV config/cursor round-trip; and the
+SqlVectorStore cosine ordering + dim-mismatch guard.
+
+Everything runs on ``sqlite+aiosqlite`` — no postgres/asyncpg required.
+"""
+
+from __future__ import annotations
+
+import pytest
+import pytest_asyncio
+
+from app.config import Preferences
+from app.constants import ActionType, CaseStatus, EntityType, SourceSurface, Verdict
+from app.models import AuditDoc, Case, Cursor, Entity, EvidenceItem, UsageDoc
+from app.stores.sql import (
+    SqlAuditRepository,
+    SqlCaseRepository,
+    SqlConfigStore,
+    SqlCursorStore,
+    SqlKVStore,
+    SqlUsageRepository,
+    SqlVectorStore,
+    build_async_engine,
+    create_all,
+)
+from app.stores.sql.models import AuditRow
+from app.tools.vectorstore import EmbeddingSpaceMismatch, StoredChunk
+from app.utils import iso_now, now_utc, to_millis
+
+
+@pytest_asyncio.fixture
+async def engine():
+    """A fresh in-memory SQLite engine with the state schema created."""
+    # A file-less shared in-memory DB scoped to this engine instance.
+    eng = build_async_engine("sqlite+aiosqlite:///:memory:")
+    await create_all(eng)
+    yield eng
+    await eng.dispose()
+
+
+def _case(
+    *,
+    case_id: str,
+    signature: str,
+    status: CaseStatus = CaseStatus.OPEN,
+    surface: SourceSurface = SourceSurface.INVESTIGATE,
+    ip: str = "203.0.113.10",
+    created_at: str | None = None,
+) -> Case:
+    return Case(
+        case_id=case_id,
+        cluster_signature=signature,
+        source_surface=surface,
+        status=status,
+        entity=Entity(type=EntityType.IP, value=ip),
+        created_at=created_at or iso_now(),
+        updated_at=created_at or iso_now(),
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Cases
+# --------------------------------------------------------------------------- #
+async def test_case_round_trip(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    c = _case(case_id="c1", signature="sig-1")
+    c.verdict = Verdict.TRUE_POSITIVE
+    c.evidence = [EvidenceItem(summary="brute force", event_ids=["e1", "e2"])]
+    await repo.save(c)
+
+    got = await repo.get("c1")
+    assert got is not None
+    assert got.case_id == "c1"
+    assert got.cluster_signature == "sig-1"
+    assert got.verdict == Verdict.TRUE_POSITIVE
+    assert got.evidence[0].summary == "brute force"
+    assert await repo.get("missing") is None
+
+
+async def test_case_save_is_idempotent_overwrite(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    await repo.save(_case(case_id="c1", signature="sig-1", status=CaseStatus.OPEN))
+    await repo.save(_case(case_id="c1", signature="sig-1", status=CaseStatus.CLOSED))
+    got = await repo.get("c1")
+    assert got is not None and got.status == CaseStatus.CLOSED
+    _cases, total = await repo.list()
+    assert total == 1  # overwrite, not duplicate
+
+
+async def test_case_list_filters_and_total(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    await repo.save(_case(case_id="c1", signature="s1", status=CaseStatus.OPEN, ip="1.1.1.1"))
+    await repo.save(_case(case_id="c2", signature="s2", status=CaseStatus.CLOSED, ip="2.2.2.2"))
+    await repo.save(
+        _case(case_id="c3", signature="s3", status=CaseStatus.OPEN,
+              surface=SourceSurface.AUTOMATED_SCAN, ip="1.1.1.1")
+    )
+
+    open_cases, total_open = await repo.list(status=CaseStatus.OPEN.value)
+    assert total_open == 2
+    assert {c.case_id for c in open_cases} == {"c1", "c3"}
+
+    scans, total_scans = await repo.list(source_surface=SourceSurface.AUTOMATED_SCAN.value)
+    assert total_scans == 1 and scans[0].case_id == "c3"
+
+    by_entity, total_entity = await repo.list(entity_value="1.1.1.1")
+    assert total_entity == 2 and {c.case_id for c in by_entity} == {"c1", "c3"}
+
+    # Pagination: limit/offset shrink the page but total reflects the full match.
+    page, total = await repo.list(status=CaseStatus.OPEN.value, limit=1, offset=0)
+    assert total == 2 and len(page) == 1
+
+
+async def test_case_list_sort_order(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    await repo.save(_case(case_id="old", signature="s1", created_at="2026-01-01T00:00:00+00:00"))
+    await repo.save(_case(case_id="new", signature="s2", created_at="2026-06-01T00:00:00+00:00"))
+    desc, _ = await repo.list(sort_field="created_at", sort_order="desc")
+    assert [c.case_id for c in desc] == ["new", "old"]
+    asc, _ = await repo.list(sort_field="created_at", sort_order="asc")
+    assert [c.case_id for c in asc] == ["old", "new"]
+
+
+async def test_find_open_by_signature(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    # A CLOSED case with this signature must NOT match.
+    await repo.save(_case(case_id="closed", signature="sig-x", status=CaseStatus.CLOSED))
+    assert await repo.find_open_by_signature("sig-x") is None
+
+    await repo.save(_case(case_id="open1", signature="sig-x", status=CaseStatus.OPEN))
+    await repo.save(_case(case_id="nh1", signature="sig-x", status=CaseStatus.NEEDS_HUMAN))
+    found = await repo.find_open_by_signature("sig-x")
+    assert found is not None and found.case_id in {"open1", "nh1"}
+    assert await repo.find_open_by_signature("nope") is None
+
+
+async def test_count_new_scans(engine) -> None:
+    repo = SqlCaseRepository(engine)
+    await repo.save(
+        _case(case_id="s_old", signature="s1", surface=SourceSurface.AUTOMATED_SCAN,
+              created_at="2026-01-01T00:00:00+00:00")
+    )
+    await repo.save(
+        _case(case_id="s_new", signature="s2", surface=SourceSurface.AUTOMATED_SCAN,
+              created_at="2026-06-01T00:00:00+00:00")
+    )
+    # A non-scan case after the boundary must not be counted.
+    await repo.save(
+        _case(case_id="inv", signature="s3", surface=SourceSurface.INVESTIGATE,
+              created_at="2026-06-02T00:00:00+00:00")
+    )
+    n = await repo.count_new_scans("2026-03-01T00:00:00+00:00")
+    assert n == 1
+
+
+# --------------------------------------------------------------------------- #
+# Audit — append-only
+# --------------------------------------------------------------------------- #
+async def test_audit_append_and_ordered_search(engine) -> None:
+    audit = SqlAuditRepository(engine)
+    await audit.record(action_type=ActionType.POLL, case_id="c1", actor="poller",
+                       result_summary="first", surface="scan")
+    await audit.record(action_type=ActionType.VERDICT, case_id="c1", actor="investigator",
+                       result_summary="second")
+    await audit.record(action_type=ActionType.DECISION, case_id="other", actor="system")
+
+    rows = await audit.records_for_case("c1")
+    assert len(rows) == 2
+    # OLDEST first.
+    assert rows[0]["result_summary"] == "first"
+    assert rows[1]["result_summary"] == "second"
+    assert [r["case_id"] for r in rows] == ["c1", "c1"]
+    # An unknown case never raises — returns [].
+    assert await audit.records_for_case("ghost") == []
+
+
+async def test_audit_is_append_only(engine) -> None:
+    """Non-negotiable #2: the audit repository exposes NO mutation path, and a new
+    record never rewrites a prior row."""
+    audit = SqlAuditRepository(engine)
+    # The interface has no update/delete.
+    assert not hasattr(audit, "update")
+    assert not hasattr(audit, "delete")
+
+    await audit.write(AuditDoc(action_type=ActionType.PROMPT, case_id="c1", result_summary="r1"))
+    await audit.write(AuditDoc(action_type=ActionType.PROMPT, case_id="c1", result_summary="r2"))
+
+    # Two distinct immutable rows persisted (insert-only).
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    sm = async_sessionmaker(engine, expire_on_commit=False)
+    async with sm() as session:
+        all_rows = (await session.execute(select(AuditRow))).scalars().all()
+    assert len(all_rows) == 2
+    summaries = sorted(r.doc["result_summary"] for r in all_rows)
+    assert summaries == ["r1", "r2"]
+
+
+async def test_audit_write_truncates_via_record(engine) -> None:
+    audit = SqlAuditRepository(engine)
+    long_text = "x" * 5000
+    await audit.record(action_type=ActionType.TOOL_CALL, case_id="c1",
+                       tool_output_summary=long_text, prompt_excerpt=long_text)
+    rows = await audit.records_for_case("c1")
+    assert len(rows[0]["tool_output_summary"]) <= 1001
+    assert len(rows[0]["prompt_excerpt"]) <= 1001
+
+
+# --------------------------------------------------------------------------- #
+# Usage — record + windowed summary (Python aggregation)
+# --------------------------------------------------------------------------- #
+async def test_usage_record_and_summary(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    now = now_utc()
+    ts = now.isoformat()
+    await usage.write(UsageDoc(ts=ts, surface="investigate", role="investigator",
+                              model="claude", cost=0.10, total_tokens=100, case_id="c1"))
+    await usage.write(UsageDoc(ts=ts, surface="chat", role="chat",
+                              model="gpt", cost=0.05, total_tokens=50, case_id="c1"))
+    await usage.write(UsageDoc(ts=ts, surface="investigate", role="router",
+                              model="claude", cost=0.02, total_tokens=20, case_id="c2"))
+
+    s = await usage.summary(window_hours=24)
+    assert s["call_count"] == 3
+    assert round(s["total_cost"], 2) == 0.17
+    assert s["total_tokens"] == 170
+    assert s["currency"] == "USD"
+    # Top model by cost is claude (0.12 > 0.05).
+    assert s["by_model"][0]["key"] == "claude"
+    assert round(s["by_model"][0]["cost"], 2) == 0.12
+
+    # case_id filter narrows the aggregation.
+    s_c1 = await usage.summary(window_hours=24, case_id="c1")
+    assert s_c1["call_count"] == 2
+    assert round(s_c1["total_cost"], 2) == 0.15
+
+
+async def test_usage_summary_window_excludes_old(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    old = now_utc().replace(year=2020).isoformat()
+    fresh = now_utc().isoformat()
+    await usage.write(UsageDoc(ts=old, role="router", model="m", cost=9.0, total_tokens=9))
+    await usage.write(UsageDoc(ts=fresh, role="router", model="m", cost=1.0, total_tokens=1))
+    s = await usage.summary(window_hours=24)
+    assert s["call_count"] == 1
+    assert round(s["total_cost"], 2) == 1.0
+
+
+async def test_usage_summary_empty(engine) -> None:
+    usage = SqlUsageRepository(engine)
+    s = await usage.summary(window_hours=12)
+    assert s["call_count"] == 0
+    assert s["total_cost"] == 0.0
+    assert s["window_hours"] == 12
+    assert s["by_model"] == []
+
+
+# --------------------------------------------------------------------------- #
+# KV / config / cursor
+# --------------------------------------------------------------------------- #
+async def test_kv_round_trip_and_upsert(engine) -> None:
+    kv = SqlKVStore(engine)
+    assert await kv.get("ns", "k") is None
+    await kv.put("ns", "k", {"a": 1})
+    assert await kv.get("ns", "k") == {"a": 1}
+    await kv.put("ns", "k", {"a": 2, "b": 3})
+    assert await kv.get("ns", "k") == {"a": 2, "b": 3}  # replaced, not merged
+
+
+async def test_config_store_load_save(engine) -> None:
+    store = SqlConfigStore(SqlKVStore(engine))
+    # Cold load → defaults.
+    prefs = await store.load()
+    assert isinstance(prefs, Preferences)
+
+    prefs.polling_enabled = not prefs.polling_enabled
+    prefs.setup_complete = True
+    await store.save(prefs)
+
+    loaded = await store.load()
+    assert loaded.polling_enabled == prefs.polling_enabled
+    assert loaded.setup_complete is True
+
+
+async def test_config_store_seed_rule_catalog(engine) -> None:
+    store = SqlConfigStore(SqlKVStore(engine))
+    prefs = Preferences()
+    assert not prefs.rule_catalog
+    seeded = await store.seed_rule_catalog(prefs)
+    assert seeded.rule_catalog, "expected built-in rules seeded"
+    # Persisted.
+    reloaded = await store.load()
+    assert reloaded.rule_catalog
+
+
+async def test_cursor_store_load_save(engine) -> None:
+    store = SqlCursorStore(SqlKVStore(engine))
+    cold = await store.load()
+    assert isinstance(cold, Cursor) and not cold.is_set()
+
+    await store.save(Cursor(timestamp_millis=1234567890123, boundary_ids=["e1", "e2"]))
+    loaded = await store.load()
+    assert loaded.timestamp_millis == 1234567890123
+    assert loaded.boundary_ids == ["e1", "e2"]
+
+
+# --------------------------------------------------------------------------- #
+# SqlVectorStore
+# --------------------------------------------------------------------------- #
+async def test_vectorstore_add_query_cosine_order(engine) -> None:
+    vs = SqlVectorStore(engine)
+    assert await vs.count() == 0
+    await vs.add([
+        StoredChunk(text="cat", source="s", embedding=[1.0, 0.0], embedding_model="m", dim=2),
+        StoredChunk(text="dog", source="s", embedding=[0.0, 1.0], embedding_model="m", dim=2),
+        StoredChunk(text="mid", source="s", embedding=[0.7, 0.7], embedding_model="m", dim=2),
+    ])
+    assert await vs.count() == 3
+
+    results = await vs.search([1.0, 0.0], top_k=3)
+    assert [c.text for c, _ in results] == ["cat", "mid", "dog"]
+    # Cosine: identical vector scores ~1.0; orthogonal ~0.0.
+    assert results[0][1] == pytest.approx(1.0, abs=1e-6)
+    assert results[-1][1] == pytest.approx(0.0, abs=1e-6)
+
+    assert await vs.embedding_space() == ("m", 2)
+
+
+async def test_vectorstore_upsert_by_doc_id(engine) -> None:
+    vs = SqlVectorStore(engine)
+    await vs.add([StoredChunk(text="v1", source="s", embedding=[1.0, 0.0],
+                              embedding_model="m", dim=2, doc_id="d1")])
+    await vs.add([StoredChunk(text="v2", source="s", embedding=[0.0, 1.0],
+                              embedding_model="m", dim=2, doc_id="d1")])
+    assert await vs.count() == 1
+    results = await vs.search([0.0, 1.0], top_k=1)
+    assert results[0][0].text == "v2"
+
+
+async def test_vectorstore_dim_mismatch_guard(engine) -> None:
+    vs = SqlVectorStore(engine)
+    await vs.add([StoredChunk(text="x", source="s", embedding=[1.0, 0.0, 0.0],
+                              embedding_model="m", dim=3)])
+    with pytest.raises(EmbeddingSpaceMismatch):
+        await vs.search([1.0, 0.0], top_k=1)  # query dim 2 != stored dim 3
+
+
+async def test_vectorstore_clear(engine) -> None:
+    vs = SqlVectorStore(engine)
+    await vs.add([StoredChunk(text="x", source="s", embedding=[1.0], embedding_model="m", dim=1)])
+    assert await vs.count() == 1
+    await vs.clear()
+    assert await vs.count() == 0
+    assert await vs.embedding_space() is None

@@ -52,15 +52,17 @@ class AppState:
         self._provider_overrides = provider_overrides
         self._receivers: list = []
         self._receiver_tasks: list = []
+        # Async SQL engine for the SQL state backend (None on the ES backend).
+        # Built lazily in _build_state_backend and disposed on shutdown.
+        self._sql_engine = None
         self._wire()
 
     def _wire(self) -> None:
         es = self.es
-        self.usage_store = UsageStore(es)
-        self.audit = AuditLogger(es)
-        self.cases = CaseStore(es)
-        self.cursor_store = CursorStore(es)
-        self.config_store = ConfigStore(es)
+        # OWN-state backend (Epoch A): cases/audit/usage/config/cursor live EITHER
+        # in Elasticsearch (default) or a SQL database (sqlite/postgres). The
+        # agent's read-only LOG surface always stays on the connector layer below.
+        self._build_state_backend()
         self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
         self.rag = self._build_rag()
         # The agent's read-only log surface as a connector (source-agnostic). The
@@ -85,6 +87,50 @@ class AppState:
         # correlate → case path the poller uses.
         self.ingest_service = IngestService(self.cases, self.audit, self.pipeline, self.get_prefs)
 
+    def _is_sql_backend(self) -> bool:
+        return self.secrets.state_backend in ("sqlite", "postgres")
+
+    def _build_state_backend(self) -> None:
+        """Wire the suite's OWN-state stores per ``secrets.state_backend``.
+
+        Default (``elasticsearch``): the ES-backed stores over ``self.es``,
+        exactly as before. SQL (``sqlite``/``postgres``): build (or reuse) an
+        async SQLAlchemy engine from ``state_db_url`` and wire the Sql* repos.
+        Either way the resulting attributes (usage_store/audit/cases/cursor_store/
+        config_store) satisfy the same repository interfaces, so every downstream
+        caller is unchanged. asyncpg/pgvector are imported lazily, only on the
+        postgres path, so this method imports/runs on SQLite with no pg deps."""
+        if self._is_sql_backend():
+            from .stores.sql import (
+                SqlAuditRepository,
+                SqlCaseRepository,
+                SqlConfigStore,
+                SqlCursorStore,
+                SqlKVStore,
+                SqlUsageRepository,
+                build_async_engine,
+            )
+            from .stores.sql.engine import resolve_db_url
+
+            if self._sql_engine is None:
+                url = resolve_db_url(self.secrets.state_backend, self.secrets.state_db_url)
+                self._sql_engine = build_async_engine(url)
+            engine = self._sql_engine
+            kv = SqlKVStore(engine)
+            self.usage_store = SqlUsageRepository(engine)
+            self.audit = SqlAuditRepository(engine)
+            self.cases = SqlCaseRepository(engine)
+            self.cursor_store = SqlCursorStore(kv)
+            self.config_store = SqlConfigStore(kv)
+            logger.info("OWN-state backend: SQL (%s)", self.secrets.state_backend)
+            return
+        es = self.es
+        self.usage_store = UsageStore(es)
+        self.audit = AuditLogger(es)
+        self.cases = CaseStore(es)
+        self.cursor_store = CursorStore(es)
+        self.config_store = ConfigStore(es)
+
     def _build_log_source(self):
         """Construct the primary pull connector for the agent's log surface.
 
@@ -103,9 +149,20 @@ class AppState:
 
     def _build_rag(self) -> RagService:
         """Construct the RAG service, wiring the CaseStore (resolved-case memory)
-        and selecting a persistent ES vector store ONLY when a real management ES
-        client is present. Offline/fake ES (no kNN) uses the in-memory store."""
+        and selecting a persistent vector store. On the SQL state backend the
+        SqlVectorStore is used (pgvector on Postgres, JSON+Python cosine on
+        SQLite); on the ES backend a persistent ES vector store is used ONLY when a
+        real management ES client is present. Otherwise the in-memory store."""
         store = None
+        if self._is_sql_backend() and self._sql_engine is not None:
+            try:
+                from .stores.sql import SqlVectorStore
+
+                store = SqlVectorStore(self._sql_engine)
+                logger.info("RAG using persistent SQL vector store (%s)", self.secrets.state_backend)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not select SQL vector store (%s); using in-memory", exc)
+            return RagService(self.gateway, self.prefs, store=store, cases=self.cases)
         try:
             from .es.client import RealESClient
             from .tools.vectorstore import ESVectorStore
@@ -146,10 +203,7 @@ class AppState:
 
     async def startup(self, *, start_poller: bool = True) -> None:
         await self.cache.connect()
-        try:
-            await bootstrap_indices(self.es)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Index bootstrap failed (%s); continuing", exc)
+        await self._bootstrap_state_backend()
         self.prefs = await self.config_store.load()
         # First-run seeding of the built-in rule catalog (C3-1): idempotent and
         # guarded by rule_catalog_seed_version so operator edits are never clobbered.
@@ -164,6 +218,25 @@ class AppState:
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",
             type(self.es).__name__, self.prefs.setup_complete, self.prefs.polling_enabled,
         )
+
+    async def _bootstrap_state_backend(self) -> None:
+        """Create the OWN-state schema for the active backend.
+
+        SQL backend → create the SQL tables (idempotent) and SKIP ES index
+        bootstrap entirely (a SQL deployment needs no Elasticsearch for its own
+        state). ES backend → bootstrap the tlsoc-agent-* indices as before."""
+        if self._is_sql_backend() and self._sql_engine is not None:
+            try:
+                from .stores.sql import create_all
+
+                await create_all(self._sql_engine)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("SQL state schema bootstrap failed (%s); continuing", exc)
+            return
+        try:
+            await bootstrap_indices(self.es)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Index bootstrap failed (%s); continuing", exc)
 
     async def _start_receivers(self) -> None:
         """Start background PUSH receivers for enabled configured sources.
@@ -249,7 +322,7 @@ class AppState:
             self.es = _build_es_client(self.secrets)
             self._wire()
             try:
-                await bootstrap_indices(self.es)
+                await self._bootstrap_state_backend()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Re-bootstrap after credential change failed: %s", exc)
             self.prefs = await self.config_store.load()
@@ -268,6 +341,12 @@ class AppState:
             await self.es.close()
         except Exception:  # noqa: BLE001
             pass
+        if self._sql_engine is not None:
+            try:
+                await self._sql_engine.dispose()
+            except Exception:  # noqa: BLE001
+                pass
+            self._sql_engine = None
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:
