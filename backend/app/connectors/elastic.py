@@ -68,6 +68,28 @@ class ElasticConnector(PullConnector):
         self._es = es
         super().__init__(config, connector_id)
 
+    # Per-source field-mapping/scope keys that this connector's ``config`` may
+    # override on top of the global Preferences (so a source whose schema differs
+    # from ECS — e.g. Wazuh — reads correctly without changing global prefs).
+    _OVERLAY_KEYS = (
+        "data_view_pattern", "time_field", "source_ip_field", "user_field",
+        "host_field", "rule_field", "rule_name_field", "severity_field",
+        "severity_threshold", "in_scope_rules", "excluded_rules",
+    )
+
+    def _effective_prefs(self, prefs: Preferences) -> Preferences:
+        """Overlay this source's ``config`` field-mapping/scope keys onto ``prefs``.
+
+        With an empty ``config`` (the default primary Elastic source) this returns
+        ``prefs`` unchanged — behaviour is byte-identical to before. With a Wazuh /
+        non-ECS source it yields a prefs whose field mapping + index pattern match
+        that source, so poll/search/normalisation extract the right fields."""
+        overrides = {
+            k: self.config[k] for k in self._OVERLAY_KEYS
+            if k in self.config and self.config[k] is not None
+        }
+        return prefs.model_copy(update=overrides) if overrides else prefs
+
     # --------------------------------------------------------------------- #
     # Wizard-facing self-description
     # --------------------------------------------------------------------- #
@@ -240,6 +262,7 @@ class ElasticConnector(PullConnector):
         a :class:`RawEvent` by the same ``RawEvent.from_hit`` path. The poller
         owns cursor advancement and dedup — the connector only fetches.
         """
+        prefs = self._effective_prefs(prefs)
         body = poll_query(prefs, cursor, from_millis)
         resp = await self._es.search_logs(prefs.data_view_pattern, body)
         hits = resp.get("hits", {}).get("hits", [])
@@ -256,6 +279,7 @@ class ElasticConnector(PullConnector):
         field, size capped at 200 (default 50). An ``ids`` query short-circuits
         to ``fetch_by_ids`` parity. The empty-filter case renders KQL ``"*"``.
         """
+        prefs = self._effective_prefs(prefs)
         size = min(int(query.size or _DEFAULT_SIZE), _MAX_SIZE)
 
         # ids short-circuit — identical to es_query's `if ids:` branch.
@@ -311,6 +335,7 @@ class ElasticConnector(PullConnector):
         Mirrors ``es_query``'s ids branch: an ``ids_query`` body and the KQL
         rendering ``_id in ("a", "b")`` with no time bounds.
         """
+        prefs = self._effective_prefs(prefs)
         body = ids_query(list(ids), size=size)
         kql = "_id in (%s)" % ", ".join(f'"{i}"' for i in ids)
         resp = await self._es.search_logs(prefs.data_view_pattern, body)
@@ -325,6 +350,7 @@ class ElasticConnector(PullConnector):
         Delegates to the existing ECS→OCSF mapper, stamping this connector's
         ``source_type`` and ``connector_id`` for provenance.
         """
+        prefs = self._effective_prefs(prefs)
         return ecs_to_ocsf(
             raw, prefs, source_type=self.source_type, connector_id=self.connector_id
         )
@@ -337,6 +363,7 @@ class ElasticConnector(PullConnector):
         the operator gets immediate feedback that their field mapping is sane.
         Failures degrade gracefully to a ping-only / error result.
         """
+        prefs = self._effective_prefs(prefs)
         try:
             ok = await self._es.ping()
         except Exception as exc:  # noqa: BLE001

@@ -139,13 +139,19 @@ class AppState:
         language. Defaults to Elasticsearch when no source is configured yet."""
         from .connectors.elastic import ElasticConnector
         from .connectors.opensearch import OpenSearchConnector
+        from .connectors.wazuh import WazuhConnector
         from .constants import SourceType
 
         primary = self.prefs.primary_source()
-        if primary is not None and primary.source_type == SourceType.OPENSEARCH:
-            return OpenSearchConnector(self.es, connector_id=primary.id)
-        connector_id = primary.id if primary is not None else None
-        return ElasticConnector(self.es, connector_id=connector_id)
+        if primary is None:
+            return ElasticConnector(self.es)
+        cfg = primary.config or {}
+        cid = primary.id
+        if primary.source_type == SourceType.OPENSEARCH:
+            return OpenSearchConnector(self.es, config=cfg, connector_id=cid)
+        if primary.source_type == SourceType.WAZUH:
+            return WazuhConnector(self.es, config=cfg, connector_id=cid)
+        return ElasticConnector(self.es, config=cfg, connector_id=cid)
 
     def _build_rag(self) -> RagService:
         """Construct the RAG service, wiring the CaseStore (resolved-case memory)

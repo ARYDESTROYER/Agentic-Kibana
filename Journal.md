@@ -669,3 +669,28 @@
 - Next: document TLSOC_STATE_BACKEND/TLSOC_STATE_DB_URL (ENVIRONMENT/DEPLOY) +
   surface the selector in the wizard; real-Postgres integration test in a deploy
   session (pg deps blocked in sandbox).
+
+### 2026-06-21 — orchestrator — Epoch C: Wazuh connector + per-source field mapping
+- Context: Complete the "ELK + OpenSearch + Wazuh" story; first third-party
+  (non-ECS) connector proves the connector abstraction.
+- Did: Added per-source field-mapping to the Elastic connector family —
+  `ElasticConnector._effective_prefs(prefs)` overlays the source's `config`
+  field-mapping/scope keys (data_view_pattern/time_field/*_field/severity_threshold/
+  in_scope_rules/excluded_rules) onto the global prefs; applied at the top of
+  poll/search/fetch_by_ids/to_ocsf/test_connection (empty config → returns prefs
+  unchanged → byte-identical legacy behaviour). New app/connectors/wazuh.py
+  (WazuhConnector(ElasticConnector), source_type=WAZUH; manifest with Wazuh indexer
+  connection fields + Wazuh alert-schema config defaults: wazuh-alerts-*,
+  timestamp, data.srcip, data.srcuser, agent.name, rule.id, rule.description,
+  rule.level). Registered in the registry; state._build_log_source now passes
+  primary.config to the connector and handles WAZUH/OPENSEARCH/ELASTICSEARCH.
+  .env.example documents TLSOC_STATE_BACKEND/TLSOC_STATE_DB_URL.
+- Tests: +tests/test_connector_wazuh.py (5: poll extracts Wazuh schema; to_ocsf
+  entity mapping; search filters by data.srcip + KQL; manifest/registry; overlay
+  no-op-when-empty + applied). Full suite 221 passed (216 + 5).
+- Status: done. Three sources live (ELK, OpenSearch, Wazuh); per-source field
+  mapping works.
+- Next: deep UI surface port (Cases/Chat/Investigate/Scans/Standup/Cost beyond
+  previews) + serve dist/ from backend; standup-aggregation + routes entity-path
+  onto the connector; ENVIRONMENT/DEPLOY prose for the state backend; pre-save
+  /api/connectors/test; Epoch E scale-out.

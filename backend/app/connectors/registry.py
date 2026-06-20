@@ -20,13 +20,14 @@ from .base import Connector, ConnectorManifest, PullConnector, PushReceiver
 from .elastic import ElasticConnector
 from .opensearch import OpenSearchConnector
 from .receivers import BUILTIN_RECEIVERS
+from .wazuh import WazuhConnector
 
 logger = logging.getLogger("tlsoc.connectors.registry")
 
 ENTRY_POINT_GROUP = "tlsoc.connectors"
 
 # Built-in PULL connectors (push receivers come from BUILTIN_RECEIVERS).
-_BUILTIN_PULL: list[type[Connector]] = [ElasticConnector, OpenSearchConnector]
+_BUILTIN_PULL: list[type[Connector]] = [ElasticConnector, OpenSearchConnector, WazuhConnector]
 
 
 class ConnectorRegistry:
