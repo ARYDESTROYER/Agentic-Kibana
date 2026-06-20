@@ -89,6 +89,26 @@ class Secrets(BaseSettings):
     # automatically falls back to an in-memory store so the spine still runs.
     es_store_enabled: bool = True
 
+    # Per-source connector secrets (e.g. a webhook bearer token, a Splunk API
+    # token), keyed by SourceInstance id → {field: value}. Lives in the SECRET
+    # tier (in memory / env), NEVER in Preferences/the config index (#10). The UI
+    # only ever sees the field NAMES via SourceInstance.configured_secrets.
+    connector_secrets: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+    def source_secrets(self, source_id: str) -> dict[str, str]:
+        """The configured secret values for one source (empty if none)."""
+        return dict(self.connector_secrets.get(source_id, {}))
+
+    def set_source_secret(self, source_id: str, field: str, value: str | None) -> None:
+        """Set/clear one per-source secret field (value=None clears/revokes it)."""
+        bucket = self.connector_secrets.setdefault(source_id, {})
+        if value is None or value == "":
+            bucket.pop(field, None)
+        else:
+            bucket[field] = value
+        if not bucket:
+            self.connector_secrets.pop(source_id, None)
+
     def provider_key(self, provider: Provider) -> str | None:
         if provider == "openai":
             return self.openai_api_key

@@ -582,3 +582,29 @@
 - Next: receiver RUNTIME (webhook FastAPI route + asyncio lifecycle in AppState so
   push sources actually flow), per-source secret storage, then Epoch A (StateStore
   → Postgres + pgvector), then the standalone web UI + full first-run wizard.
+
+### 2026-06-21 00:30Z — orchestrator — push ingestion RUNTIME (every-way-in works)
+- Context: Make push sources actually flow end-to-end (not just exist as classes),
+  on a single shared ingest path with the poller.
+- Did: app/engine/ingest.py — extracted the shared correlate→attach/investigate/
+  register logic (handle_clusters, attach_cluster, dedup_by_id) + IngestService
+  (the entrypoint receivers feed; never raises on a bad batch). Refactored
+  poller.poll_once to use handle_clusters/dedup_by_id (kept a thin _attach
+  delegator for the existing tests); removed the duplicated loop. config.py: Secrets
+  gains connector_secrets (per-source secret tier, never persisted to config) +
+  source_secrets()/set_source_secret(). state.py: wires self.ingest_service; starts
+  enabled background PUSH receivers (syslog/queues/object-store) as guarded asyncio
+  tasks whose emit feeds IngestService (HTTP webhook/HEC are route-driven, skipped);
+  _stop_receivers on shutdown. routes.py: POST /api/ingest/{source_id} (webhook/HEC
+  → verify auth → parse → OCSF → IngestService; 401 on auth fail), POST
+  /api/sources/{id}/secrets (per-source secrets → secret tier; records field NAMES
+  on the SourceInstance). FIX: generic_to_ocsf no longer short-circuits to the ECS
+  path on a loose @timestamp heuristic — that dropped the record id (collapsing a
+  batch to 1 via id-dedup) and missed generic field names (src_ip vs source.ip);
+  now always uses the alias path (covers ECS + generic) with per-record uid.
+- Tests: +tests/test_ingest_push.py (4: webhook→case end-to-end, 404, bearer-auth
+  enforced via per-source secret, NDJSON body). Full suite 192 passed (188 + 4).
+- Status: done. Push + pull both flow through one ingest path.
+- Next: Epoch A (StateStore → Postgres + pgvector); standalone web UI + wizard
+  (sub-agent in flight); later: TLS for syslog, S3 Parquet, restart receivers on
+  live source change, standup-aggregation + routes entity-path onto the connector.

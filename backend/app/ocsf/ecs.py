@@ -172,10 +172,6 @@ def _first(record: dict[str, Any], aliases: tuple[str, ...]) -> Any:
     return None
 
 
-def _looks_ecs(record: dict[str, Any]) -> bool:
-    return "@timestamp" in record or isinstance(record.get("event"), dict) or isinstance(record.get("source"), dict)
-
-
 def generic_to_ocsf(
     record: dict[str, Any],
     prefs: Preferences,
@@ -186,15 +182,13 @@ def generic_to_ocsf(
 ) -> OCSFEvent:
     """Map an arbitrary JSON record to OCSF.
 
-    If the record looks ECS-shaped we reuse the ECS path; otherwise we probe a
-    wide alias set for the entities/severity/time the engine needs. The whole
-    record is preserved under ``raw_data`` regardless.
+    Probes a wide alias set (covering BOTH ECS field names like ``source.ip`` and
+    common generic names like ``src_ip``) for the entities/severity/time the
+    engine needs, so it handles ECS-shaped and ad-hoc records alike. The whole
+    record is preserved under ``raw_data``. A per-record id (``id``/``_id``/
+    ``uuid``/``event.id``) becomes the stable event uid so a batch of distinct
+    alerts is never collapsed by id-dedup.
     """
-    if _looks_ecs(record):
-        ev = ecs_to_ocsf({"_id": uid or "", "_source": record}, prefs,
-                          source_type=source_type, connector_id=connector_id)
-        return ev
-
     ip = _as_str(_first(record, _IP_ALIASES))
     user = _as_str(_first(record, _USER_ALIASES))
     host = _as_str(_first(record, _HOST_ALIASES))

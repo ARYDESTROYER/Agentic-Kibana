@@ -11,6 +11,7 @@ without a restart.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .agents.chat import ChatEngine
@@ -20,6 +21,7 @@ from .agents.standup import StandupService
 from .audit.audit_log import AuditLogger
 from .cache import Cache
 from .config import Preferences, Secrets
+from .engine.ingest import IngestService
 from .engine.poller import Poller
 from .es.base import BaseESClient
 from .es.indices import bootstrap_indices
@@ -48,6 +50,8 @@ class AppState:
         self.prefs = Preferences()
         self.cache = Cache(secrets.redis_url)
         self._provider_overrides = provider_overrides
+        self._receivers: list = []
+        self._receiver_tasks: list = []
         self._wire()
 
     def _wire(self) -> None:
@@ -77,6 +81,9 @@ class AppState:
             es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs,
             source=self.log_source,
         )
+        # Shared ingest path for PUSH receivers (webhook/syslog/queues/…): the same
+        # correlate → case path the poller uses.
+        self.ingest_service = IngestService(self.cases, self.audit, self.pipeline, self.get_prefs)
 
     def _build_log_source(self):
         """Construct the primary pull connector for the agent's log surface.
@@ -152,10 +159,58 @@ class AppState:
         self.chat_engine._rag = self.rag
         if start_poller:
             self.poller.start()
+            await self._start_receivers()
         logger.info(
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",
             type(self.es).__name__, self.prefs.setup_complete, self.prefs.polling_enabled,
         )
+
+    async def _start_receivers(self) -> None:
+        """Start background PUSH receivers for enabled configured sources.
+
+        HTTP push receivers (webhook/HEC) are driven by the ``/api/ingest/{id}``
+        route, not a task, so they are skipped here. Every other receiver
+        (syslog/queues/object-store/file) runs as a guarded asyncio task whose
+        ``emit`` feeds the shared :class:`IngestService`. A receiver that can't
+        start (missing optional dep, bind error) is logged and skipped — it never
+        blocks startup."""
+        await self._stop_receivers()
+        from .connectors.registry import get_registry
+        from .constants import IngestMode
+
+        reg = get_registry()
+        for src in self.prefs.sources:
+            if not src.enabled or not reg.is_receiver(src.source_type):
+                continue
+            cls = reg.get(src.source_type)
+            if cls is None:
+                continue
+            if IngestMode.PUSH_HTTP in cls.manifest().ingest_modes:
+                continue  # route-driven, no background task
+            try:
+                effective = {**src.config, **self.secrets.source_secrets(src.id)}
+                receiver = cls(config=effective, connector_id=src.id)
+
+                async def _emit(events, _self=self):
+                    await _self.ingest_service.ingest(events, _self.prefs)
+
+                task = asyncio.create_task(receiver.start(_emit, self.prefs))
+                self._receivers.append(receiver)
+                self._receiver_tasks.append(task)
+                logger.info("Started push receiver %s (%s)", src.id, src.source_type.value)
+            except Exception as exc:  # noqa: BLE001 — one bad source must not block startup
+                logger.error("Could not start receiver %s (%s): %s", src.id, src.source_type.value, exc)
+
+    async def _stop_receivers(self) -> None:
+        for receiver in self._receivers:
+            try:
+                await receiver.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        for task in self._receiver_tasks:
+            task.cancel()
+        self._receivers = []
+        self._receiver_tasks = []
 
     async def reload_prefs(self) -> Preferences:
         self.prefs = await self.config_store.load()
@@ -206,6 +261,7 @@ class AppState:
             await self.poller.stop()
         except Exception:  # noqa: BLE001
             pass
+        await self._stop_receivers()
         await self.gateway.aclose()
         await self.cache.aclose()
         try:

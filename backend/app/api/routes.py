@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -195,6 +195,56 @@ async def delete_source(source_id: str, state: AppState = Depends(get_state)) ->
     await state.update_prefs(prefs)
     state.rebuild_log_source()
     return {"ok": True, "sources": [s.model_dump(mode="json") for s in remaining]}
+
+
+@router.post("/sources/{source_id}/secrets")
+async def set_source_secrets(
+    source_id: str, body: dict[str, str | None], state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Set/clear a source's secret fields (e.g. a webhook token, a Splunk key).
+
+    Values go to the secret tier (in memory), NEVER to the persisted config; only
+    the configured field NAMES are recorded on the SourceInstance (#10)."""
+    src = next((s for s in state.prefs.sources if s.id == source_id), None)
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    for field, value in body.items():
+        state.secrets.set_source_secret(source_id, field, value)
+    configured = sorted(state.secrets.source_secrets(source_id).keys())
+    updated = src.model_copy(update={"configured_secrets": configured})
+    others = [s for s in state.prefs.sources if s.id != source_id]
+    await state.update_prefs(state.prefs.model_copy(update={"sources": others + [updated]}))
+    return {"ok": True, "configured_secrets": configured}
+
+
+@router.post("/ingest/{source_id}")
+async def ingest_push(
+    source_id: str, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """HTTP push ingestion endpoint for a configured webhook/HEC source.
+
+    A source/SIEM/EDR/SOAR POSTs alerts here; the matching receiver verifies auth,
+    parses + normalises to OCSF, and the events flow into the SAME correlate→case
+    pipeline the poller feeds. Per-source secrets (token/HMAC) are merged from the
+    secret tier at call time (never persisted)."""
+    src = next((s for s in state.prefs.sources if s.id == source_id and s.enabled), None)
+    if src is None:
+        raise HTTPException(status_code=404, detail="No enabled source with that id")
+    reg = get_registry()
+    cls = reg.get(src.source_type)
+    if cls is None or not reg.is_receiver(src.source_type):
+        raise HTTPException(status_code=400, detail="Source is not a push receiver")
+    receiver = cls(config={**src.config, **state.secrets.source_secrets(source_id)}, connector_id=src.id)
+    if not hasattr(receiver, "handle_request"):
+        raise HTTPException(status_code=400, detail="Source is not an HTTP push receiver")
+    body = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    try:
+        events = receiver.handle_request(body, headers, state.prefs)
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    stats = await state.ingest_service.ingest(events, state.prefs)
+    return {"ok": True, **stats}
 
 
 # --------------------------------------------------------------------------- #
