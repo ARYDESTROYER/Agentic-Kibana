@@ -532,3 +532,53 @@
   "self-hostable" payoff, contained blast radius — then Epoch B (connector SPI +
   query IR + OCSF; Elastic-parity + OpenSearch connectors). Keep `pytest -q` green
   at every step; the 12 non-negotiables still hold.
+
+### 2026-06-20 21:45Z — backend agent (connectors) — Elastic/OpenSearch pull connectors
+- Context: Implement the first two PULL connectors against the connector SPI
+  (app/connectors/base.py) + OCSF schema, as faithful wrappers of the read-only ES
+  access, so a later rewire of es_query.py/poller.py is behavior-preserving.
+- Did: app/connectors/elastic.py (ElasticConnector(PullConnector); ping/poll/
+  search/fetch_by_ids/to_ocsf/test_connection; rich manifest with es_url/es_api_key
+  [secret]/es_ca_cert/es_verify_certs + 8 ECS-default config_fields) reusing
+  poll_query/ids_query and reproducing es_query.py's body+KQL exactly;
+  app/connectors/opensearch.py (subclass; source_type=OPENSEARCH; manifest only;
+  query_language=lucene); tests/test_connectors_elastic.py (11 offline tests).
+- Tests: 135 passed (124 existing + 11 new); parity confirmed programmatically.
+- Status: done. Next: orchestrator wires registry + rewires es_query/poller.
+
+### 2026-06-20 22:30Z — backend agent (receivers) — push/queue/object-store ingestion
+- Context: Support EVERY common way logs are forwarded to us, against the SPI + OCSF.
+- Did: app/connectors/receivers/{formats,common,webhook,syslog,queues,objectstore,
+  __init__}.py. formats.py = stdlib detect/parse json/ndjson/CEF/LEEF/syslog-3164/
+  5424/GELF/kv (never raises). PayloadReceiver base (records→generic_to_ocsf→
+  RawEvent.from_ocsf). WebhookReceiver (bearer/HMAC/none) + HECReceiver (Splunk
+  envelope). SyslogReceiver (asyncio UDP/TCP). 9 broker receivers (Kafka/SQS/
+  Kinesis/EventHub/PubSub/RabbitMQ/NATS/MQTT/RedisStreams) + S3/GCS/AzureBlob/File,
+  all lazy-importing optional deps. BUILTIN_RECEIVERS (16). 
+- Tests: tests/test_receivers.py (48) — formats, webhook auth, HEC unwrap, syslog,
+  all manifests valid with NO optional deps. Full suite 183 passed.
+- Status: done. Next: orchestrator wires registry + receiver runtime/lifecycle.
+
+### 2026-06-20 23:30Z — orchestrator — connector registry + live rewire + wizard backend
+- Context: Make the connector abstraction the LIVE path and stand up the
+  multi-source wizard backend (Epoch B integration), after the two sub-agents.
+- Did: app/connectors/registry.py (SourceType→class map, manifests() for the
+  wizard, tlsoc.connectors entry-point discovery; 18 builtins = 2 pull + 16
+  receivers). Rewired the agent's log surface through the connector, behaviour-
+  preserving: es_query.py tool now compiles a StructuredQuery and calls
+  source.search()/fetch_by_ids() (identical ToolResult, incl. the 0-severity
+  edge); poller.poll_once reads via source.poll() for both the incremental and
+  sliding-window reads; pipeline/chat take an optional `source` (default
+  ElasticConnector(es) for back-compat, test_rag_p1 still constructs ChatEngine
+  directly); state._wire builds self.log_source (_build_log_source picks Elastic/
+  OpenSearch by primary_source) and injects it; added state.rebuild_log_source().
+  Routes: GET /api/connectors (+/{source_type}), POST /api/connectors/test,
+  GET/POST/DELETE /api/sources (SourceInstance CRUD; new primary unsets others).
+  config.py SourceInstance + Preferences.sources + primary_source() (empty ==
+  legacy single implicit Elastic source). docs/INGESTION.md authored.
+- Tests: 188 passed (183 + 5 new tests/test_connectors_api.py); zero regressions
+  through the rewire. NOTE: real baseline is 188 now (CLAUDE.md's "49"/"124" stale).
+- Status: done. Connector path is live; wizard backend ready.
+- Next: receiver RUNTIME (webhook FastAPI route + asyncio lifecycle in AppState so
+  push sources actually flow), per-source secret storage, then Epoch A (StateStore
+  → Postgres + pgvector), then the standalone web UI + full first-run wizard.

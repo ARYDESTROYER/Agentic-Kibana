@@ -20,10 +20,11 @@ from typing import Any, Callable
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
+from ..connectors.base import PullConnector
+from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, SourceSurface
 from ..engine.cost_gate import passes_suppression
 from ..es.base import BaseESClient
-from ..es.querybuilder import poll_query
 from ..models import Cursor, RawEvent
 from ..stores.cursor_store import CursorStore
 from ..utils import iso_now, now_utc, to_millis
@@ -56,8 +57,13 @@ class Poller:
         audit: AuditLogger,
         pipeline: InvestigationPipeline,
         get_prefs: Callable[[], Preferences],
+        source: PullConnector | None = None,
     ) -> None:
         self._es = es
+        # The read-only log surface the poller reads from. Defaults to wrapping
+        # ``es`` in an ElasticConnector (behaviour identical to the legacy direct
+        # ES read); state wiring injects the configured primary connector.
+        self._source = source or ElasticConnector(es)
         self._cases = cases
         self._cursor_store = cursor_store
         self._audit = audit
@@ -90,11 +96,11 @@ class Poller:
         prefs = prefs or self._get_prefs()
         cursor = await self._cursor_store.load()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
-        body = poll_query(prefs, cursor, cold_from)
 
-        resp = await self._es.search_logs(prefs.data_view_pattern, body)
-        hits = resp.get("hits", {}).get("hits", [])
-        fetched = [RawEvent.from_hit(h, prefs) for h in hits]
+        # Read the incremental batch through the connector (source-agnostic). The
+        # connector reproduces the legacy poll_query read exactly; the cursor still
+        # governs what is "new" and the dedup/advance logic below is unchanged.
+        fetched = await self._source.poll(prefs, cursor, cold_from)
         new_events = [e for e in fetched if not cursor.should_skip(e)]
 
         stats = {"polled": len(fetched), "new": len(new_events),
@@ -116,12 +122,8 @@ class Poller:
             # what is treated as new, so this only widens the correlation input.
             window_from = max(window_from, cold_from)
             window_cursor = Cursor(timestamp_millis=window_from)
-            window_body = poll_query(prefs, window_cursor, window_from)
-            window_resp = await self._es.search_logs(prefs.data_view_pattern, window_body)
-            window_hits = window_resp.get("hits", {}).get("hits", [])
-            window_events = self._dedup_by_id(
-                [RawEvent.from_hit(h, prefs) for h in window_hits] + new_events
-            )
+            window_fetched = await self._source.poll(prefs, window_cursor, window_from)
+            window_events = self._dedup_by_id(window_fetched + new_events)
             stats["window_events"] = len(window_events)
 
             clusters = correlate(window_events, prefs)

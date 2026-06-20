@@ -59,13 +59,40 @@ class AppState:
         self.config_store = ConfigStore(es)
         self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
         self.rag = self._build_rag()
+        # The agent's read-only log surface as a connector (source-agnostic). The
+        # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
+        # is identical to the legacy direct-ES path; swapping the primary source
+        # type later re-points the whole graph here.
+        self.log_source = self._build_log_source()
         self.pipeline = InvestigationPipeline(
-            es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit
+            es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit,
+            source=self.log_source,
         )
-        self.chat_engine = ChatEngine(es, self.gateway, self.audit, self.cases, self.rag)
+        self.chat_engine = ChatEngine(
+            es, self.gateway, self.audit, self.cases, self.rag, source=self.log_source
+        )
         self.standup_service = StandupService(es, self.gateway, self.audit)
         self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
-        self.poller = Poller(es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs)
+        self.poller = Poller(
+            es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs,
+            source=self.log_source,
+        )
+
+    def _build_log_source(self):
+        """Construct the primary pull connector for the agent's log surface.
+
+        Both Elasticsearch and OpenSearch wrap the same scoped read-only ES client
+        with identical read behaviour; the choice only affects provenance/query
+        language. Defaults to Elasticsearch when no source is configured yet."""
+        from .connectors.elastic import ElasticConnector
+        from .connectors.opensearch import OpenSearchConnector
+        from .constants import SourceType
+
+        primary = self.prefs.primary_source()
+        if primary is not None and primary.source_type == SourceType.OPENSEARCH:
+            return OpenSearchConnector(self.es, connector_id=primary.id)
+        connector_id = primary.id if primary is not None else None
+        return ElasticConnector(self.es, connector_id=connector_id)
 
     def _build_rag(self) -> RagService:
         """Construct the RAG service, wiring the CaseStore (resolved-case memory)
@@ -82,6 +109,18 @@ class AppState:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not select ES vector store (%s); using in-memory", exc)
         return RagService(self.gateway, self.prefs, store=store, cases=self.cases)
+
+    def rebuild_log_source(self) -> None:
+        """Re-point the agent's log surface after the configured sources change.
+
+        Rebuilds the primary connector from ``self.prefs`` and updates the live
+        components that hold it (poller, pipeline, chat), so a wizard-driven source
+        change takes effect without a restart. (Elastic/OpenSearch wrap the same
+        scoped ES client, so this is behaviour-identical for those two.)"""
+        self.log_source = self._build_log_source()
+        self.poller._source = self.log_source
+        self.pipeline._source = self.log_source
+        self.chat_engine._source = self.log_source
 
     def get_prefs(self) -> Preferences:
         return self.prefs

@@ -68,10 +68,18 @@ storage, and the Kibana-bound UI.
 - ☐ **Epoch A — Decouple internal state.** `StateStore` SPI (CaseRepository/
   AuditRepository/UsageRepository/KVStore) + Postgres impl; RAG on pgvector via the
   existing `VectorStore` ABC; keep ES impl behind the abstraction. *Do first.*
-- ☐ **Epoch B — Connector SPI + query IR + OCSF.** `OCSFEvent` (version-pinned);
-  `RawEvent` as a projection over OCSF; `StructuredQuery` IR; `SourceConnector` SPI
-  + entry-point registry; refactor `es_query`/poller/standup onto it; ship Elastic
-  (parity) + OpenSearch connectors. *Riskiest refactor — keep `pytest -q` green.*
+- ◐ **Epoch B — Connector SPI + query IR + OCSF.** DONE: `OCSFEvent` (version-
+  pinned) + ECS/generic→OCSF mappers; `RawEvent.from_ocsf`; `StructuredQuery` IR;
+  `PullConnector`/`PushReceiver` SPI + `ConnectorManifest`/`AuthField`; registry
+  with `tlsoc.connectors` entry-point discovery; **Elastic + OpenSearch** pull
+  connectors (byte-parity); **es_query tool + poller rewired live through the
+  connector** (behaviour-preserving); **16 push receivers** (webhook/HEC/syslog +
+  Kafka/SQS/Kinesis/EventHub/PubSub/RabbitMQ/NATS/MQTT/Redis/S3/GCS/Blob/file,
+  lazy-dep) + format parsers; multi-source config (`SourceInstance`) + wizard
+  backend (`/api/connectors`, `/api/sources`, `/api/connectors/test`);
+  `docs/INGESTION.md`. 188 tests green. REMAINING: receiver runtime (webhook route
+  + asyncio lifecycle), per-source secret storage, standup-aggregation + routes
+  entity-path onto the connector.
 - ☐ **Epoch C — Wazuh connector** (reuse OpenSearch connector + alert→OCSF mapper).
 - ☐ **Epoch D — Standalone web UI** (reuse React/EUI components; per-source query
   rendering + deep-links; "add a source" wizard; retire the Kibana plugin).

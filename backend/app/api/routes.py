@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .. import __version__
-from ..config import Preferences
-from ..constants import CaseStatus, DecisionBy, EntityType, SourceSurface
+from ..config import Preferences, SourceInstance
+from ..connectors.registry import get_registry
+from ..constants import CaseStatus, DecisionBy, EntityType, IngestMode, SourceSurface, SourceType
 from ..engine.correlation import cluster_from_events
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
@@ -85,6 +86,115 @@ async def setup_complete(state: AppState = Depends(get_state)) -> dict[str, Any]
     if prefs.polling_enabled:
         state.poller.start()
     return {"ok": True, "setup_complete": True}
+
+
+# --------------------------------------------------------------------------- #
+# Connectors + multi-source configuration (vendor-agnostic ingest).
+#
+# The first-run wizard lists connectors (each with its auth/config field schema),
+# the operator configures one or more SOURCES, tests the connection, and saves.
+# --------------------------------------------------------------------------- #
+class SourceUpsert(BaseModel):
+    """Add or update a configured log source (a connector instance)."""
+
+    id: str
+    source_type: str
+    display_name: str = ""
+    enabled: bool = True
+    ingest_mode: str | None = None       # defaults to the connector's first mode
+    is_primary: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConnectorTestRequest(BaseModel):
+    """Test a source's connectivity. With no body, tests the wired primary source."""
+
+    source_type: str | None = None
+
+
+@router.get("/connectors")
+async def list_connectors(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Every available connector + its wizard field schema (auth/config)."""
+    reg = get_registry()
+    return {"connectors": [m.model_dump(mode="json") for m in reg.manifests()]}
+
+
+@router.get("/connectors/{source_type}")
+async def get_connector(source_type: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    reg = get_registry()
+    try:
+        st = SourceType(source_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown source type: {source_type}") from exc
+    manifest = reg.manifest(st)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail=f"No connector for: {source_type}")
+    return manifest.model_dump(mode="json")
+
+
+@router.post("/connectors/test")
+async def test_connector(
+    body: ConnectorTestRequest, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Validate connectivity. Currently tests the live primary log source (the
+    agent's read surface) — the wizard's 'Test connection' for the main source."""
+    result = await state.log_source.test_connection(state.prefs)
+    return result.model_dump(mode="json")
+
+
+@router.get("/sources")
+async def list_sources(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    return {"sources": [s.model_dump(mode="json") for s in state.prefs.sources]}
+
+
+@router.post("/sources")
+async def upsert_source(body: SourceUpsert, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    reg = get_registry()
+    try:
+        st = SourceType(body.source_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Unknown source type: {body.source_type}") from exc
+    manifest = reg.manifest(st)
+    if manifest is None:
+        raise HTTPException(status_code=400, detail=f"No connector for: {body.source_type}")
+
+    if body.ingest_mode:
+        try:
+            mode = IngestMode(body.ingest_mode)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid ingest_mode: {body.ingest_mode}") from exc
+    else:
+        mode = manifest.ingest_modes[0] if manifest.ingest_modes else IngestMode.PULL
+
+    instance = SourceInstance(
+        id=body.id,
+        source_type=st,
+        display_name=body.display_name or manifest.display_name,
+        enabled=body.enabled,
+        ingest_mode=mode,
+        is_primary=body.is_primary,
+        config=body.config,
+    )
+    # Upsert by id; a new primary unsets any previous primary.
+    others = [s for s in state.prefs.sources if s.id != body.id]
+    if instance.is_primary:
+        for s in others:
+            s.is_primary = False
+    prefs = state.prefs.model_copy(update={"sources": others + [instance]})
+    await state.update_prefs(prefs)
+    state.rebuild_log_source()
+    return {"ok": True, "sources": [s.model_dump(mode="json") for s in prefs.sources]}
+
+
+@router.delete("/sources/{source_id}")
+async def delete_source(source_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    remaining = [s for s in state.prefs.sources if s.id != source_id]
+    if len(remaining) == len(state.prefs.sources):
+        raise HTTPException(status_code=404, detail="Source not found")
+    prefs = state.prefs.model_copy(update={"sources": remaining})
+    await state.update_prefs(prefs)
+    state.rebuild_log_source()
+    return {"ok": True, "sources": [s.model_dump(mode="json") for s in remaining]}
 
 
 # --------------------------------------------------------------------------- #
