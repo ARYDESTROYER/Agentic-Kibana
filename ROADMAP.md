@@ -55,6 +55,29 @@ commit + push.
   contract-critical + Feature-2 work was authored directly to guarantee tested
   results.
 
+## EPIC — Vendor-agnostic, self-hosted agentic SOC (approved direction 2026-06-20)
+
+Full design: [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md).
+Locked decisions: canonical schema **OCSF**; internal state **decoupled from ES
+(Postgres + pgvector)**; first new connector after ELK+OpenSearch = **Wazuh**;
+UI = **standalone web app** (retire the Kibana plugin). The reasoning/agent layer
+is already ~90% source-agnostic (`RawEvent` projection + configurable field maps +
+MCP-shaped tools); the work is concentrated in 3 seams: query/log-access, internal
+storage, and the Kibana-bound UI.
+
+- ☐ **Epoch A — Decouple internal state.** `StateStore` SPI (CaseRepository/
+  AuditRepository/UsageRepository/KVStore) + Postgres impl; RAG on pgvector via the
+  existing `VectorStore` ABC; keep ES impl behind the abstraction. *Do first.*
+- ☐ **Epoch B — Connector SPI + query IR + OCSF.** `OCSFEvent` (version-pinned);
+  `RawEvent` as a projection over OCSF; `StructuredQuery` IR; `SourceConnector` SPI
+  + entry-point registry; refactor `es_query`/poller/standup onto it; ship Elastic
+  (parity) + OpenSearch connectors. *Riskiest refactor — keep `pytest -q` green.*
+- ☐ **Epoch C — Wazuh connector** (reuse OpenSearch connector + alert→OCSF mapper).
+- ☐ **Epoch D — Standalone web UI** (reuse React/EUI components; per-source query
+  rendering + deep-links; "add a source" wizard; retire the Kibana plugin).
+- ☐ **Epoch E — Scale-out (as needed):** Kafka/Redpanda buffer; stateless workers;
+  semantic cache; batch API; per-tenant keys/budgets; ClickHouse analytics.
+
 ## Work order (this cycle)
 
 ### P0 — Case detail + lifecycle in the UI

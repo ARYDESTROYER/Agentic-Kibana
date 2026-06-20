@@ -506,3 +506,29 @@
 - Status: done.
 - Next: commit + push. Optional follow-ups: dark-mode-safe palette pass; rebuild the 8.12.2
   zip for parity; live-stack visual check of the flyout + side-nav.
+
+### 2026-06-20 — orchestrator — Vendor-agnostic SOC transition: research + design
+- Context: User asked to convert the ELK/Kibana-coupled suite into an open-source,
+  self-hosted, vendor-agnostic agentic SOC that integrates with any SIEM/EDR/XDR
+  (start ELK + OpenSearch), and to research data ingestion + scaling to millions of
+  logs/day. Discussion/architecture turn (no code changes yet).
+- Did: ran 4 parallel sub-agents — (A) codebase ELK-coupling audit, (B) agnostic
+  schema/prior-art, (C) per-vendor ingestion mechanics, (D) scaling to millions/day.
+  Key finding: the reasoning/agent layer is already ~90% source-agnostic (`RawEvent`
+  projection + configurable field maps in `Preferences` + MCP-shaped tools + a
+  cursor that needs only timestamp+stable-id); coupling is concentrated in 3 seams
+  (query/log-access = ES DSL passed straight through; internal storage = 100% ES;
+  UI = Kibana plugin). Locked 4 decisions with the user: canonical schema **OCSF**;
+  internal state **decoupled from ES → Postgres + pgvector**; first new connector
+  after ELK+OpenSearch = **Wazuh**; UI = **standalone web app** (retire the Kibana
+  plugin). Wrote `docs/AGNOSTIC_ARCHITECTURE.md` (full design: OCSF normalization,
+  connector SPI via entry-points + manifest + OCSF type, pull/push ingestion +
+  cursor patterns, the volume funnel + build-now/build-later scaling, StateStore
+  decoupling, standalone-UI plan, 5-epoch roadmap, risks/licensing). Added the EPIC
+  block to `ROADMAP.md` (Epochs A–E).
+- Tests: n/a (research + docs only; no code touched, suite untouched).
+- Status: done (design approved); implementation not started.
+- Next: Epoch A first (StateStore SPI + Postgres impl + pgvector RAG) — highest
+  "self-hostable" payoff, contained blast radius — then Epoch B (connector SPI +
+  query IR + OCSF; Elastic-parity + OpenSearch connectors). Keep `pytest -q` green
+  at every step; the 12 non-negotiables still hold.
