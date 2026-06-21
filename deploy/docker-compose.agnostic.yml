@@ -1,0 +1,104 @@
+# =============================================================================
+# Agentic SOC — self-contained, vendor-agnostic deployment (NO Elasticsearch
+# required for the app's own state). Brings up:
+#   * tlsoc-postgres : PostgreSQL + pgvector — the app's OWN state (cases/audit/
+#                      usage/config/cursor/RAG). This replaces the tlsoc-agent-*
+#                      Elasticsearch indices.
+#   * tlsoc-redis    : enrichment + dedup cache (optional but recommended).
+#   * tlsoc-backend  : FastAPI + LangGraph agent (state_backend=postgres).
+#   * tlsoc-webui    : the standalone React/EUI SPA (nginx) — the first-run
+#                      wizard + console. Talks to the backend via /api proxy.
+#
+# Your SIEM/EDR/XDR is NOT part of this stack — you connect to it from the UI's
+# first-run wizard ("add a source"). Pull sources today: Elasticsearch /
+# OpenSearch / Wazuh (point ES_URL + a read-only ES_API_KEY at that cluster).
+# Push sources (webhook/HEC/syslog/Kafka/SQS/…): no ES needed at all.
+#
+# Run from the repo root:
+#   cp .env.example .env   # fill in TLSOC_PG_PASSWORD + at least one LLM key
+#   docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+# Then open http://localhost:8080 and complete the setup wizard.
+# =============================================================================
+
+name: tlsoc-agentic-soc
+
+services:
+  tlsoc-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: tlsoc-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${TLSOC_PG_USER:-tlsoc}
+      - POSTGRES_PASSWORD=${TLSOC_PG_PASSWORD:?set TLSOC_PG_PASSWORD in .env}
+      - POSTGRES_DB=${TLSOC_PG_DB:-tlsoc}
+    volumes:
+      - tlsoc-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TLSOC_PG_USER:-tlsoc} -d ${TLSOC_PG_DB:-tlsoc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tlsoc-redis:
+    image: redis:7-alpine
+    container_name: tlsoc-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  tlsoc-backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: tlsoc-agentic-triage-backend:1.0.0
+    container_name: tlsoc-backend
+    restart: unless-stopped
+    depends_on:
+      tlsoc-postgres:
+        condition: service_healthy
+    environment:
+      # --- OWN-state backend: PostgreSQL + pgvector (no Elasticsearch) ---
+      - STATE_BACKEND=postgres
+      - STATE_DB_URL=postgresql+asyncpg://${TLSOC_PG_USER:-tlsoc}:${TLSOC_PG_PASSWORD}@tlsoc-postgres:5432/${TLSOC_PG_DB:-tlsoc}
+      - REDIS_URL=${TLSOC_REDIS_URL:-redis://tlsoc-redis:6379/0}
+      # --- LLM providers (configure at least one) ---
+      - ANTHROPIC_API_KEY=${TLSOC_ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${TLSOC_OPENAI_API_KEY:-}
+      # --- Enrichment + embeddings (optional) ---
+      - ABUSEIPDB_API_KEY=${TLSOC_ABUSEIPDB_API_KEY:-}
+      - VIRUSTOTAL_API_KEY=${TLSOC_VIRUSTOTAL_API_KEY:-}
+      - EMBEDDING_API_KEY=${TLSOC_EMBEDDING_API_KEY:-}
+      # --- Optional: a read-only key for an Elasticsearch/OpenSearch/Wazuh LOG
+      #     source. You can instead add this in the wizard. Pull-source field
+      #     mapping is per-source (set in the wizard); these point at the cluster. ---
+      - ES_URL=${TLSOC_ES_URL:-}
+      - ES_API_KEY=${TLSOC_ES_API_KEY:-}
+      - ES_CA_CERT=${TLSOC_ES_CA_CERT:-}
+      - ES_VERIFY_CERTS=${TLSOC_ES_VERIFY_CERTS:-true}
+      - LOG_LEVEL=${TLSOC_LOG_LEVEL:-INFO}
+    volumes:
+      # Mount a CA cert here if your log cluster uses a private CA (then set
+      # TLSOC_ES_CA_CERT=/certs/ca.crt). Safe to leave commented out.
+      # - ./certs/ca.crt:/certs/ca.crt:ro
+      []
+    ports:
+      # Direct API access (the UI reaches it internally via the /api proxy).
+      - "8088:8088"
+    # Inbound PUSH ingestion ports (syslog/raw-socket receivers) bind inside the
+    # container; publish the ones you configure in the wizard, e.g.:
+    #   - "1514:1514/udp"   # syslog UDP
+    #   - "1514:1514/tcp"   # syslog TCP
+
+  tlsoc-webui:
+    build:
+      context: ../webui
+      dockerfile: Dockerfile
+    image: tlsoc-agentic-triage-webui:1.0.0
+    container_name: tlsoc-webui
+    restart: unless-stopped
+    depends_on:
+      - tlsoc-backend
+    ports:
+      - "8080:80"   # open http://localhost:8080
+
+volumes:
+  tlsoc-pgdata:
