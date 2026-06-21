@@ -7,6 +7,39 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-21 — Vigil-inspired overhaul (Wave 1) + plugin archived
+
+A deep end-to-end study of the open-source **Vigil** AI-SOC (10 Opus research
+agents; see `docs/VIGIL_STUDY.md`) drove an additive overhaul that keeps our
+spine (typed OCSF, `StateStore`, the single LLM gateway, deterministic case
+manager) fully intact. Backend offline suite: **244 tests green**; webui builds
+clean (`tsc` + Vite).
+
+### Added
+- **Multi-agent roster** (`backend/app/agents/personas.py`): a declarative
+  `AgentPersona` registry (identity / web-app / network-recon / malware /
+  threat-intel + generalist) over the ONE investigator. The cluster is routed to a
+  specialist deterministically; the persona specialises the system prompt and is
+  recorded on the case + audit. `GET /api/personas`. Surfaced as a badge on the
+  case-detail flyout.
+- **Plain-text runbooks** (`backend/app/runbooks/*.md` + `engine/runbooks.py`):
+  Markdown playbooks with frontmatter, selected per cluster and injected as TRUSTED
+  guidance into the investigator, and indexed into the RAG corpus. `GET /api/runbooks`.
+- **Hybrid RAG retrieval** (`tools/rag.py`): drawer-floor-first vector search +
+  dependency-free BM25 re-ranking — recovers exact IOC/rule tokens that embed as
+  noise. Toggle `rag.hybrid` (default on).
+- **Tool safety tiers** (`constants.ToolTier` + `tools/base.py`): safe / managed /
+  requires_approval / forbidden capability firewall; the investigator gates
+  non-safe tools (proposes them for human approval, never auto-executes).
+- **Cost provenance** (`llm/pricing.py`): `pricing_source` (exact / heuristic /
+  zero / default) + a tier-prefix price heuristic, threaded onto every `UsageDoc`.
+
+### Changed
+- **Hardened untrusted-data fencing** (`agents/prompts.py` `fence()`): neutralises
+  forged close-markers and carries `source=`/`tool=` provenance (non-negotiable #9).
+- **Archived the legacy Kibana plugin** → `archive/kibana-plugin/` (history
+  preserved). The standalone webui is now the sole supported surface.
+
 ## [2.0.0] — 2026-06-21 — Vendor-agnostic, self-hosted agentic SOC
 
 The project transitions from an ELK/Kibana-coupled triage suite into an

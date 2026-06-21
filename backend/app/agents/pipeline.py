@@ -22,6 +22,7 @@ from ..constants import ActionType, CaseStatus, DecisionBy, EntityType, SourceSu
 from ..engine.case_manager import CaseManager
 from ..engine.cost_gate import CaseBudget
 from ..engine.risk import compute_risk
+from ..engine.runbooks import select_runbook
 from ..es.base import BaseESClient
 from ..llm.gateway import LLMGateway
 from ..models import Case, Cluster, EnrichmentResult, VerdictResult
@@ -35,6 +36,7 @@ from .common import entity_kql, normalize_kql
 from .formatter import Formatter
 from .graph import run_investigation
 from .investigator import Investigator
+from .personas import select_persona
 from .router import Router
 
 logger = logging.getLogger("tlsoc.agents.pipeline")
@@ -125,6 +127,18 @@ class InvestigationPipeline:
             budget = CaseBudget(prefs.caps)
             cost = 0.0
 
+            # Multi-agent roster + plain-text runbooks (Vigil-inspired): both are
+            # selected deterministically from the cluster. The persona specialises
+            # the investigator; the matched runbook is injected as TRUSTED guidance.
+            persona = select_persona(cluster, prefs)
+            inject_runbook = (
+                getattr(prefs, "runbooks", None) is None or prefs.runbooks.inject
+            )
+            runbook = select_runbook(cluster, prefs) if inject_runbook else None
+            runbook_text = (
+                f"{runbook.title}\n{runbook.body}" if runbook else None
+            )
+
             if budget.kill_switch:
                 verdict = VerdictResult(
                     verdict=Verdict.NEEDS_HUMAN,
@@ -140,6 +154,7 @@ class InvestigationPipeline:
                         run_investigation(
                             self._router, investigator, self._rag, cluster, enrichment,
                             prefs, budget, source_surface.value, case_id,
+                            persona=persona, runbook_text=runbook_text,
                         ),
                         timeout=prefs.caps.timeout_seconds,
                     )
@@ -166,7 +181,10 @@ class InvestigationPipeline:
                         reproduce_query=entity_kql(cluster, prefs),
                     )
 
-            case = self._assemble_case(case_id, cluster, verdict, source_surface, existing, cost, prefs)
+            case = self._assemble_case(
+                case_id, cluster, verdict, source_surface, existing, cost, prefs,
+                persona_id=persona.id,
+            )
             CaseManager(prefs).apply(case)
             await self._cases.save(case)
             await self._audit.record(
@@ -245,6 +263,7 @@ class InvestigationPipeline:
         existing: Case | None,
         cost: float,
         prefs: Preferences,
+        persona_id: str = "",
     ) -> Case:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
@@ -296,6 +315,7 @@ class InvestigationPipeline:
             history=history,
             verdict_history=verdict_history,
             trigger_reason=_trigger(existing, cluster),
+            agent_persona=persona_id or (existing.agent_persona if existing else ""),
         )
 
 

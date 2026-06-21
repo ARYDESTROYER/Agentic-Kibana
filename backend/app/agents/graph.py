@@ -33,8 +33,14 @@ async def run_investigation(
     budget: CaseBudget,
     surface: str,
     case_id: str | None,
+    persona=None,
+    runbook_text: str | None = None,
 ) -> tuple[VerdictResult, float]:
-    """Run triage → verdict, preferring the LangGraph state graph."""
+    """Run triage → verdict, preferring the LangGraph state graph.
+
+    The (deterministically pre-selected) ``persona`` specialises the investigator
+    and ``runbook_text`` is injected as TRUSTED guidance — both no-ops on the cheap
+    benign/triage path."""
 
     async def do_triage():
         return await router.triage(cluster, enrichment, prefs, surface=surface, case_id=case_id)
@@ -57,7 +63,8 @@ async def run_investigation(
             await rag.ensure_seeded()
             rag_chunks = await rag.retrieve(rag_query(cluster), prefs.rag.top_k)
         return await investigator.investigate(
-            cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id
+            cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id,
+            persona=persona, runbook_text=runbook_text,
         )
 
     try:

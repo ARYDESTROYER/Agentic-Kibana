@@ -328,6 +328,50 @@ async def models(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# Agent personas (multi-agent roster) + plain-text runbooks — read-only catalog
+# for the settings/console surfaces. Selection itself is deterministic in code.
+# --------------------------------------------------------------------------- #
+@router.get("/personas")
+async def personas(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    from ..agents.personas import all_personas
+
+    return {
+        "enabled": state.prefs.personas.enabled,
+        "personas": [
+            {
+                "id": p.id,
+                "label": p.label,
+                "specialization": p.specialization,
+                "focus_tools": list(p.focus_tools),
+                "keywords": list(p.keywords),
+            }
+            for p in all_personas()
+        ],
+    }
+
+
+@router.get("/runbooks")
+async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    from ..engine.runbooks import load_runbooks
+
+    return {
+        "enabled": state.prefs.runbooks.enabled,
+        "inject": state.prefs.runbooks.inject,
+        "runbooks": [
+            {
+                "id": rb.id,
+                "title": rb.title,
+                "summary": rb.summary,
+                "persona": rb.persona,
+                "applies_to_rules": list(rb.applies_to_rules),
+                "applies_to_techniques": list(rb.applies_to_techniques),
+            }
+            for rb in load_runbooks()
+        ],
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Cases
 # --------------------------------------------------------------------------- #
 @router.get("/cases")

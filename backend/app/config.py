@@ -282,6 +282,40 @@ class RagConfig(BaseModel):
     use_mitre: bool = True
     use_resolved_cases: bool = True
     use_suppression_rules: bool = True
+    # Hybrid retrieval (MemPalace-inspired "drawer-floor-first"): the vector search
+    # is the floor; survivors that clear ``min_score`` are re-ranked by a convex
+    # blend of vector similarity and a dependency-free BM25 lexical score, which
+    # sharply improves recall on IOC/log/rule text that embeds as noise. ``min_score``
+    # still gates on the raw vector score, so disabling hybrid is exact prior behaviour.
+    hybrid: bool = True
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
+    hybrid_overfetch: int = 4  # candidate pool = top_k * this, before re-rank
+
+
+class PersonaConfig(BaseModel):
+    """Multi-agent investigator roster (Vigil-inspired). When ``enabled`` the
+    cluster is routed to a specialized persona (identity/web/recon/malware/threat-
+    intel) deterministically; the generalist is used otherwise. ``overrides`` pins
+    a specific persona id for a given rule name (operator control). Disabling this
+    reverts to the single generalist investigator — byte-for-byte the old behaviour
+    aside from the (empty) persona addendum."""
+
+    enabled: bool = True
+    overrides: dict[str, str] = Field(default_factory=dict)  # rule name -> persona id
+
+
+class RunbookConfig(BaseModel):
+    """Plain-text runbooks (Vigil's "your playbooks are plain-text files" pillar).
+
+    Runbooks ship as Markdown files under ``backend/app/runbooks/`` and are (a) the
+    source of the RAG ``runbook`` corpus when ``rag.use_runbooks`` is on and (b)
+    injected as TRUSTED operator guidance into the investigator prompt for the
+    best-matching cluster when ``inject`` is on. Disabling falls back to the
+    in-code seed runbooks and no direct injection."""
+
+    enabled: bool = True
+    inject: bool = True
 
 
 class TraceConfig(BaseModel):
@@ -447,6 +481,10 @@ class Preferences(BaseModel):
     rag: RagConfig = Field(default_factory=RagConfig)
     standup: StandupConfig = Field(default_factory=StandupConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
+    # Multi-agent roster + plain-text runbooks (Vigil-inspired). Both default ON and
+    # degrade to prior behaviour when disabled.
+    personas: PersonaConfig = Field(default_factory=PersonaConfig)
+    runbooks: RunbookConfig = Field(default_factory=RunbookConfig)
 
     # --- Misc ---
     setup_complete: bool = False

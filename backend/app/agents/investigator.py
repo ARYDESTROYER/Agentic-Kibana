@@ -14,7 +14,7 @@ import logging
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
-from ..constants import ActionType, Role, Verdict
+from ..constants import ActionType, Role, ToolTier, Verdict
 from ..engine.cost_gate import CaseBudget
 from ..llm.gateway import GatewayError, LLMGateway
 from ..models import Cluster, EnrichmentResult, RagChunk, VerdictResult
@@ -22,8 +22,9 @@ from ..tools.base import ToolRegistry
 from ..utils import extract_json, truncate
 from .common import coerce_verdict, entity_kql
 from .formatter import Formatter
+from .personas import AgentPersona
 from .prompts import (
-    INVESTIGATOR_SYSTEM,
+    build_investigator_system,
     fence,
     render_cluster,
     tool_defs_text,
@@ -55,6 +56,8 @@ class Investigator:
         *,
         surface: str,
         case_id: str | None = None,
+        persona: AgentPersona | None = None,
+        runbook_text: str | None = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
         # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
@@ -63,8 +66,13 @@ class Investigator:
         primary_rule = cluster.primary_rule()
         model_cfg = prefs.model_for_rule(Role.INVESTIGATOR, primary_rule)
         try:
-            system = INVESTIGATOR_SYSTEM.format(tool_defs=tool_defs_text(self._tools.definitions()))
-            context = render_cluster(cluster, enrichment, rag_chunks)
+            # Multi-agent roster: the assigned persona specialises the system prompt
+            # (focus + methodology) without relaxing any read-only / fencing rule.
+            addendum = persona.system_addendum if persona else ""
+            system = build_investigator_system(
+                tool_defs_text(self._tools.definitions()), addendum
+            )
+            context = render_cluster(cluster, enrichment, rag_chunks, runbook=runbook_text)
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": context + "\n\nBegin the investigation. Respond with JSON only."},
@@ -72,6 +80,7 @@ class Investigator:
             await self._audit.record(
                 action_type=ActionType.PROMPT, surface=surface, actor=Role.INVESTIGATOR.value,
                 case_id=case_id, model=model_cfg.model, prompt_excerpt=context,
+                result_summary=f"persona={persona.id if persona else 'generalist'}",
             )
 
             draft: VerdictResult | None = None
@@ -118,6 +127,28 @@ class Investigator:
                         messages.append({"role": "user",
                                          "content": f"Unknown tool '{name}'. Available: {self._tools.names()}"})
                         continue
+                    # Capability firewall (#3 generalised): an autonomous agent may
+                    # only call SAFE/MANAGED tools. Outward/irreversible tools must be
+                    # PROPOSED for human approval, never executed here; forbidden tools
+                    # are hard-blocked. Every built-in tool is SAFE today, so this is
+                    # defense-in-depth that activates the moment a write tool is added.
+                    if tool.tier in (ToolTier.FORBIDDEN, ToolTier.REQUIRES_APPROVAL):
+                        await self._audit.record(
+                            action_type=ActionType.DECISION, surface=surface,
+                            actor=Role.INVESTIGATOR.value, case_id=case_id, tool_name=name,
+                            result_summary=f"tool '{name}' blocked by tier={tool.tier.value}",
+                        )
+                        messages.append({"role": "assistant", "content": res.text})
+                        guidance = (
+                            f"Tool '{name}' is FORBIDDEN for autonomous use; do not call it."
+                            if tool.tier == ToolTier.FORBIDDEN
+                            else (
+                                f"Tool '{name}' requires human approval and was NOT executed. "
+                                "Describe the action in 'recommended_action' for an analyst instead."
+                            )
+                        )
+                        messages.append({"role": "user", "content": guidance})
+                        continue
                     tool_input = obj.get("input") or {}
                     tr = await tool.run(**tool_input)
                     await self._audit.record(
@@ -130,7 +161,10 @@ class Investigator:
                     messages.append({"role": "assistant", "content": res.text})
                     messages.append({
                         "role": "user",
-                        "content": f"Tool '{name}' result:\n{fence(json.dumps(observation, default=str))}",
+                        "content": (
+                            f"Tool '{name}' result:\n"
+                            f"{fence(json.dumps(observation, default=str), source='tool', tool=name)}"
+                        ),
                     })
                     continue
 

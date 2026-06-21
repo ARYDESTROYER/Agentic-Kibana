@@ -822,3 +822,33 @@
 - Status: in-progress — starting Wave 1 (agent personas · plain-text runbooks ·
   hybrid RAG · tool safety tiers · stronger fencing + pricing provenance).
 - Next: implement Wave 1 additively, keep pytest + webui build green, then commit.
+
+### 2026-06-21 — orchestrator — Wave-1 overhaul shipped (personas · runbooks · hybrid RAG)
+- Context: Implement the Vigil-inspired overhaul the user named (multi-agent,
+  runbooks, RAG) additively on our spine, keep everything green.
+- Did:
+  - **Multi-agent roster**: `agents/personas.py` (`AgentPersona` registry +
+    deterministic `select_persona`); investigator composes the persona addendum
+    (`prompts.build_investigator_system`); persona threaded through `graph.run_
+    investigation` + `pipeline`; recorded on `Case.agent_persona` + audit; `GET
+    /api/personas`; badge on the webui case-detail flyout.
+  - **Plain-text runbooks**: `engine/runbooks.py` (dep-free frontmatter parser +
+    loader + `select_runbook`) + 7 seed `runbooks/*.md`; matched runbook injected as
+    TRUSTED guidance via `render_cluster(runbook=...)` and indexed into RAG
+    (concise descriptor); `GET /api/runbooks`; `RunbookConfig`.
+  - **Hybrid RAG**: drawer-floor-first vector + dep-free BM25 re-rank in `tools/rag.py`
+    (`_hybrid_rerank`); `RagConfig.hybrid/vector_weight/bm25_weight/overfetch`.
+  - **Tool tiers**: `constants.ToolTier` + `tools/base.Tool.tier`; investigator gates
+    non-safe tools (propose, never execute).
+  - **Hardened fencing + provenance**: `fence()` escapes forged close-markers + adds
+    source/tool tags; `pricing.pricing_source` (+ tier heuristic) onto `UsageDoc`.
+  - Archived the Kibana plugin (`git mv plugin → archive/kibana-plugin`) + archive
+    README. Wrote `docs/VIGIL_STUDY.md`. Refreshed CLAUDE.md / ROADMAP / CHANGELOG.
+  - Added `tests/test_vigil_wave1.py` (23 tests) covering all of the above.
+- Tests: `pytest` **244 passed** (was 221); webui `tsc --noEmit` clean; `vite build`
+  clean (2322 modules). Baseline was green before changes.
+- Status: done (Wave 1). All 12 non-negotiables intact; spine (cost_gate /
+  case_manager / durable cursor / OCSF / one gateway) untouched.
+- Next: Wave 2 — auth-by-default + CI route-coverage test (the #1 gap) +
+  CSRF/headers/rate-limit; approval workflow + pre-flight projected-cost gate +
+  $-budget. See docs/VIGIL_STUDY.md §5.

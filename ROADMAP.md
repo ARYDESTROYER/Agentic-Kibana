@@ -11,6 +11,17 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Vigil-inspired overhaul — Wave 1** (additive, spine intact; 244 tests green;
+  webui clean). Multi-agent persona roster (`agents/personas.py`, `GET /personas`),
+  plain-text runbooks (`runbooks/*.md` + `engine/runbooks.py`, `GET /runbooks`),
+  hybrid BM25+vector RAG (`tools/rag.py`), tool safety tiers (`ToolTier`), hardened
+  fencing + `pricing_source` provenance. Legacy Kibana plugin archived →
+  `archive/kibana-plugin/`. Full study + multi-wave plan in `docs/VIGIL_STUDY.md`.
+  - ☐ **Wave 2:** auth-by-default + CI route-coverage test; CSRF/headers/rate-limit;
+    approval workflow + pre-flight projected-cost gate + `$`-budget ceiling.
+  - ☐ **Wave 3:** cross-case memory + temporal KG; MITRE-from-STIX; detection-rule
+    RAG corpus; HITL / Auto-Ops / reasoning-trace webui surfaces.
+  - ☐ **Wave 4 / Epoch E:** ARQ workers + KEDA; Helm chart; OTEL + Grafana.
 - ☑ **UI redesign** — new shared design system (`public/lib/format.ts`,
   `public/components/ui.tsx`, expanded `public/index.scss`) and a presentation-only
   refresh of every surface: Case Board (drag handle + per-card actions menu fix the

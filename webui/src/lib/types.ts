@@ -324,6 +324,7 @@ export interface Case {
   summary?: string;
   token_cost?: number;
   error?: string;
+  agent_persona?: string;
   [key: string]: unknown;
 }
 
