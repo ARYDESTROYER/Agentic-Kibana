@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -18,7 +18,7 @@ from ..llm.pricing import models_by_provider
 from ..models import ChatRequest, Cluster, InvestigateRequest, RawEvent, TraceStep, TriggerReason
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
-from .deps import get_state
+from .deps import _bearer, get_state
 
 logger = logging.getLogger("tlsoc.api")
 router = APIRouter(prefix="/api")
@@ -356,7 +356,6 @@ async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
     return {
         "enabled": state.prefs.runbooks.enabled,
-        "inject": state.prefs.runbooks.inject,
         "runbooks": [
             {
                 "id": rb.id,
@@ -369,6 +368,110 @@ async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
             for rb in load_runbooks()
         ],
     }
+
+
+@router.get("/playbooks")
+async def playbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    pbs = state.playbooks.all()
+    return {
+        "enabled": state.prefs.playbooks.enabled,
+        "count": len(pbs),
+        "playbooks": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "version": p.version,
+                "description": p.manifest.description,
+                "priority": p.manifest.priority,
+                "match": {
+                    "rule_ids": list(p.manifest.match.rule_ids),
+                    "entity_types": list(p.manifest.match.entity_types),
+                    "mitre": list(p.manifest.match.mitre),
+                    "min_event_count": p.manifest.match.min_event_count,
+                    "any_tags": list(p.manifest.match.any_tags),
+                },
+                "suggested_tools": list(p.manifest.suggested_tools),
+                "rag_queries": list(p.manifest.rag_queries),
+            }
+            for p in pbs
+        ],
+    }
+
+
+@router.post("/playbooks/reload")
+async def playbooks_reload(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Hot-reload playbooks from disk (atomic; a broken file never replaces a good
+    live set). Returns the load summary."""
+    return state.reload_playbooks()
+
+
+@router.get("/playbooks/selection/{case_id}")
+async def playbook_selection(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Why a given case selected the playbook it did (from the audit trail)."""
+    case = await state.cases.get(case_id)
+    reason = ""
+    try:
+        records = await state.audit.records_for_case(case_id)
+        for r in records:
+            actor = r.get("actor") if isinstance(r, dict) else getattr(r, "actor", "")
+            if actor == "playbook_selector":
+                reason = r.get("result_summary") if isinstance(r, dict) else getattr(r, "result_summary", "")
+                break
+    except Exception:  # noqa: BLE001 — explainability is best-effort
+        reason = ""
+    return {
+        "case_id": case_id,
+        "playbook_id": (case.playbook_id if case else ""),
+        "reason": reason,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Auth (Wave 2; OPTIONAL — the gate is a no-op when auth is disabled). The
+# no-auth "old version" remains the default and fully available.
+# --------------------------------------------------------------------------- #
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/auth/login")
+async def auth_login(
+    body: LoginBody, response: Response, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    token = auth.authenticate(body.username, body.password)
+    if not token:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    response.set_cookie(
+        "tlsoc_token", token, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure,
+        max_age=state.secrets.auth_token_hours * 3600,
+    )
+    return {"ok": True, "user": {"username": body.username}}
+
+
+@router.get("/auth/me")
+async def auth_me(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    auth = state.auth
+    if not auth.is_enabled:
+        return {"enabled": False, "authenticated": False, "user": None}
+    token = request.cookies.get("tlsoc_token") or _bearer(request)
+    user = auth.verify(token) if token else None
+    return {
+        "enabled": True,
+        "authenticated": user is not None,
+        "user": ({"username": user.username} if user else None),
+    }
+
+
+@router.post("/auth/logout")
+async def auth_logout(response: Response, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    # Mirror the set_cookie attributes so the cookie is reliably cleared.
+    response.delete_cookie("tlsoc_token", samesite="lax", secure=state.secrets.auth_cookie_secure)
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------- #

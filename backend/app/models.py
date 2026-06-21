@@ -270,6 +270,9 @@ class Case(BaseModel):
     # (multi-agent roster, Vigil-inspired). Empty == the generalist. Recorded for
     # the UI/audit so you can see WHICH specialist handled the cluster.
     agent_persona: str = ""
+    # The Markdown playbook selected for this case (deterministic match), empty when
+    # none matched / playbooks disabled. Recorded for the UI/audit "why".
+    playbook_id: str = ""
     # Helpful, non-contract-breaking extras for the UI / audit:
     title: str = ""
     summary: str = ""

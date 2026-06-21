@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import TYPE_CHECKING
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
@@ -30,7 +31,30 @@ from .prompts import (
     tool_defs_text,
 )
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..playbooks.manifest import Playbook
+
 logger = logging.getLogger("tlsoc.agents.investigator")
+
+
+def _playbook_block(playbook: "Playbook") -> str:
+    """Compose the operator-procedure text for the selected playbook: name +
+    version + body, with the advisory front-matter hints (escalate_if /
+    suggested_verdict_bias) appended as clearly-labelled ADVISORY lines. These are
+    guidance only — the deterministic auto-close policy decides close/escalate."""
+    m = playbook.manifest
+    parts = [f"{m.name} (v{m.version})", playbook.body.strip()]
+    advisory: list[str] = []
+    if m.escalate_if:
+        advisory.append(f"- escalate_if (advisory): {m.escalate_if}")
+    if m.suggested_verdict_bias:
+        advisory.append(f"- suggested_verdict_bias (advisory): {m.suggested_verdict_bias}")
+    if advisory:
+        parts.append(
+            "Advisory hints (NOT binding — the deterministic policy decides the "
+            "outcome):\n" + "\n".join(advisory)
+        )
+    return "\n\n".join(p for p in parts if p)
 
 
 class Investigator:
@@ -57,7 +81,7 @@ class Investigator:
         surface: str,
         case_id: str | None = None,
         persona: AgentPersona | None = None,
-        runbook_text: str | None = None,
+        playbook: "Playbook | None" = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
         # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
@@ -72,7 +96,11 @@ class Investigator:
             system = build_investigator_system(
                 tool_defs_text(self._tools.definitions()), addendum
             )
-            context = render_cluster(cluster, enrichment, rag_chunks, runbook=runbook_text)
+            # Markdown playbook (operator procedure) — injected as a distinct TRUSTED
+            # block, separate from the fenced UNTRUSTED evidence. It can only guide;
+            # the deterministic policy decides close/escalate.
+            playbook_text = _playbook_block(playbook) if playbook is not None else None
+            context = render_cluster(cluster, enrichment, rag_chunks, playbook=playbook_text)
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": context + "\n\nBegin the investigation. Respond with JSON only."},
@@ -80,7 +108,10 @@ class Investigator:
             await self._audit.record(
                 action_type=ActionType.PROMPT, surface=surface, actor=Role.INVESTIGATOR.value,
                 case_id=case_id, model=model_cfg.model, prompt_excerpt=context,
-                result_summary=f"persona={persona.id if persona else 'generalist'}",
+                result_summary=(
+                    f"persona={persona.id if persona else 'generalist'} "
+                    f"playbook={f'{playbook.id} v{playbook.version}' if playbook else 'none'}"
+                ),
             )
 
             draft: VerdictResult | None = None

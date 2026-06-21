@@ -33,6 +33,7 @@ export type PageId =
   | 'chat'
   | 'scans'
   | 'standup'
+  | 'catalog'
   | 'sources'
   | 'cost'
   | 'settings';
@@ -42,6 +43,10 @@ interface ShellProps {
   onNavigate: (p: PageId) => void;
   darkMode: boolean;
   onToggleDark: (v: boolean) => void;
+  /** When auth is enabled + authenticated, the signed-in username (shows a logout control). */
+  username?: string | null;
+  /** Called when the user clicks "Log out" (only rendered when `username` is set). */
+  onLogout?: () => void;
   children: React.ReactNode;
 }
 
@@ -65,6 +70,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { id: 'scans', name: 'Automated scans', icon: 'reportingApp' },
       { id: 'standup', name: 'Standup', icon: 'visText' },
+      { id: 'catalog', name: 'Playbooks & Agents', icon: 'inspect' },
     ],
   },
   {
@@ -77,7 +83,15 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   },
 ];
 
-export const Shell: React.FC<ShellProps> = ({ page, onNavigate, darkMode, onToggleDark, children }) => {
+export const Shell: React.FC<ShellProps> = ({
+  page,
+  onNavigate,
+  darkMode,
+  onToggleDark,
+  username,
+  onLogout,
+  children,
+}) => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthErr, setHealthErr] = useState(false);
 
@@ -164,6 +178,28 @@ export const Shell: React.FC<ShellProps> = ({ page, onNavigate, darkMode, onTogg
                   aria-label="Toggle dark mode"
                 />
               </EuiFlexItem>
+              {username ? (
+                <EuiFlexItem grow={false}>
+                  <EuiToolTip content={`Signed in as ${username}`}>
+                    <EuiBadge color="hollow" iconType="user">
+                      {username}
+                    </EuiBadge>
+                  </EuiToolTip>
+                </EuiFlexItem>
+              ) : null}
+              {onLogout ? (
+                <EuiFlexItem grow={false}>
+                  <EuiButtonEmpty
+                    size="xs"
+                    iconType="exit"
+                    color="text"
+                    onClick={onLogout}
+                    aria-label="Log out"
+                  >
+                    Log out
+                  </EuiButtonEmpty>
+                </EuiFlexItem>
+              ) : null}
             </EuiFlexGroup>
           </EuiHeaderSectionItem>
         </EuiHeaderSection>

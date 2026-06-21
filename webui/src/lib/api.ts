@@ -10,6 +10,7 @@
  * can show a meaningful error state.
  */
 import type {
+  AuthMe,
   Case,
   CasesResponse,
   ChatResponse,
@@ -18,7 +19,10 @@ import type {
   ConnectorManifest,
   ConnectorsResponse,
   HealthResponse,
+  LoginResult,
   ModelsResponse,
+  PersonasResponse,
+  PlaybooksResponse,
   Preferences,
   SecretsUpdate,
   SettingsResponse,
@@ -43,6 +47,17 @@ export class ApiError extends Error {
 }
 
 const API_BASE = '/api';
+
+/**
+ * Optional global 401 handler. When auth is enabled the app registers a callback
+ * here; any non-auth API call that returns 401 invokes it so the app can bounce
+ * the user back to the login screen. When auth is disabled no callback is
+ * registered, so this is inert and the no-auth experience is unchanged.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  onUnauthorized = handler;
+}
 
 function buildQuery(query?: Record<string, unknown>): string {
   if (!query) return '';
@@ -91,6 +106,9 @@ async function request<T>(
   try {
     res = await fetch(url, {
       method,
+      // Send the auth cookie (HttpOnly) on every call so the optional login flow
+      // works; harmless (and required for same-origin) when auth is disabled.
+      credentials: 'include',
       headers:
         opts.body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
@@ -101,6 +119,12 @@ async function request<T>(
   }
   const body = await parseBody(res);
   if (!res.ok) {
+    // A 401 from a non-auth endpoint means the session lapsed (or auth was just
+    // turned on); bounce to the login screen. The auth endpoints handle their own
+    // 401s inline (expected on a bad password), so they are excluded.
+    if (res.status === 401 && onUnauthorized && !clean.startsWith('auth/')) {
+      onUnauthorized();
+    }
     throw new ApiError(res.status, extractMessage(res.status, body), body);
   }
   return body as T;
@@ -113,6 +137,18 @@ export const api = {
   post: <T = unknown>(path: string, body?: unknown) => request<T>('POST', path, { body }),
   put: <T = unknown>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
   del: <T = unknown>(path: string) => request<T>('DELETE', path),
+
+  // ---- Auth (optional; OFF-safe) ---------------------------------------- //
+  auth: {
+    me: () => request<AuthMe>('GET', 'auth/me'),
+    login: (username: string, password: string) =>
+      request<LoginResult>('POST', 'auth/login', { body: { username, password } }),
+    logout: () => request<{ ok: boolean }>('POST', 'auth/logout'),
+  },
+
+  // ---- Personas + playbooks (read-only catalog) ------------------------- //
+  getPersonas: () => request<PersonasResponse>('GET', 'personas'),
+  getPlaybooks: () => request<PlaybooksResponse>('GET', 'playbooks'),
 
   // ---- Health + setup --------------------------------------------------- //
   health: () => request<HealthResponse>('GET', 'health'),

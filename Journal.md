@@ -852,3 +852,41 @@
 - Next: Wave 2 — auth-by-default + CI route-coverage test (the #1 gap) +
   CSRF/headers/rate-limit; approval workflow + pre-flight projected-cost gate +
   $-budget. See docs/VIGIL_STUDY.md §5.
+
+### 2026-06-21 — orchestrator — Wave 2: Markdown playbooks + optional auth (+AutoClosePolicy)
+- Context: User approved Wave 2 ("but ensure the old version without auth is also
+  available") + supplied a detailed brief for a Markdown playbook/workflow system
+  (single-agent, deterministic selection, injection, AutoClosePolicy refactor).
+- Did (sub-agent fleet, disjoint files; orchestrator owned all shared-file
+  integration + the safety-critical refactors):
+  - **Playbook engine** (`app/playbooks/{manifest,loader,registry}.py`): strict
+    `PlaybookManifest`, dep-free front-matter (reuses engine.runbooks.parse_frontmatter),
+    deterministic `select_playbook` (rule_ids/entity_types/min_event_count hard;
+    mitre/tags advisory — clusters carry no MITRE pre-investigation), atomic
+    validate-then-swap reload. 3 seed playbooks in `backend/playbooks/`.
+  - **Injection**: matched playbook → distinct `<<<PLAYBOOK>>>` TRUSTED block in
+    render_cluster, separate from fenced UNTRUSTED evidence + a PRECEDENCE line in
+    INVESTIGATOR_SYSTEM; `rag_queries` augment retrieval (bounded by top_k, deduped);
+    selection/fallback audited; `Case.playbook_id`. Pipeline/graph/investigator
+    threaded; Wave-1 runbook injection retired (runbooks = RAG knowledge only).
+  - **AutoClosePolicy** (`case_manager.decide` pure over policy): per-verdict-class
+    enable/min-confidence/max-risk/objection-window; FP on above a bar; TP opt-in
+    (default OFF); NEEDS_HUMAN never (code-enforced); `fp_auto_close` migrated.
+  - **Optional auth (default OFF — old no-auth version preserved & default)**:
+    `app/auth/` (PBKDF2 + stdlib HS256) + `app/middleware/` (headers/csrf/ratelimit);
+    router-level `require_auth` (no-op when off) + tiny PUBLIC allowlist (normalised
+    path, tight ingest regex); `/api/auth/{login,me,logout}`, `/api/playbooks*`;
+    CI route-coverage test. webui: login gate (no-op when off) + Playbooks/Agents catalog.
+  - **2 review sub-agents** (auth-security, playbook-safety): playbook = ship-ready
+    (all 7 invariants hold); auth = 1 HIGH (prefix not normalised) + MEDIUM/LOW.
+    Applied fixes: normalised path + tight ingest regex; `auth_cookie_secure`;
+    rate-limit default OFF + XFF only when trusted; real full-iteration timing
+    dummy; PLAYBOOK-marker neutralisation in fence(); atomic state.reload_playbooks();
+    CI test hardened (no Mount/WS under /api; ingest regex tightness). Docs:
+    SECURITY.md auth section, .env.example, playbooks/README note, CLAUDE/CHANGELOG/ROADMAP.
+- Tests: `pytest` **302 passed** (was 244 → +playbook/auth/wave2/coverage suites);
+  webui `tsc + vite build` clean. All 12 non-negotiables hold (#3 generalised to the
+  policy model — documented).
+- Status: done (Wave 2 core). Deferred (noted): approval workflow + pre-flight
+  cost projection + $-budget; webui CSRF token wiring.
+- Next: Wave-2 leftovers above, then Wave 3 (memory/KG, MITRE-from-STIX, HITL UI).

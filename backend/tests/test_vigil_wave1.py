@@ -27,7 +27,6 @@ from app.engine.runbooks import (
     corpus_items,
     load_runbooks,
     parse_frontmatter,
-    select_runbook,
 )
 from app.llm.pricing import cost_for, pricing_source
 from app.state import AppState
@@ -128,43 +127,14 @@ def test_load_runbooks_ships_seed_files() -> None:
     assert {"brute_force", "web_attack", "port_scan", "malware"} <= rbs
 
 
-def test_select_runbook_matches_rule() -> None:
-    prefs = Preferences()
-    rb = select_runbook(_cluster(rule="sshd"), prefs)
-    assert rb is not None and rb.id == "brute_force"
-    rb2 = select_runbook(_cluster(rule="modsecurity"), prefs)
-    assert rb2 is not None and rb2.id == "web_attack"
-
-
-def test_select_runbook_none_when_disabled() -> None:
-    prefs = Preferences()
-    prefs.runbooks.enabled = False
-    assert select_runbook(_cluster(rule="sshd"), prefs) is None
-
-
 def test_runbook_corpus_items_shape() -> None:
+    # Runbooks remain the RAG knowledge corpus (procedure injection moved to the
+    # playbook system — see tests/test_playbook_*.py and test_vigil_wave2.py).
     items = corpus_items()
     assert items and all(i["source"] == "runbook" for i in items)
     assert all(i["doc_id"].startswith("runbook:") for i in items)
-    # Concise descriptor (keyword-rich), not the full multi-paragraph body.
     bf = next(i for i in items if i["metadata"]["runbook_id"] == "brute_force")
     assert "ssh" in bf["text"].lower()
-
-
-async def test_runbook_injected_into_investigator_prompt(app_state: AppState, mock_provider) -> None:
-    mock_provider.push("router", json.dumps({"bucket": "needs_strong_model", "confidence": 0.9, "reason": "x"}))
-    mock_provider.push("investigator", json.dumps({
-        "action": "final", "reasoning": "r",
-        "verdict": {"verdict": "NEEDS_HUMAN", "confidence": 0.2, "evidence": [],
-                    "mitre": [], "recommended_action": "review", "reproduce_query": ""},
-    }))
-    await app_state.pipeline.investigate_cluster(
-        _cluster(rule="sshd"), SourceSurface.INVESTIGATE, app_state.prefs
-    )
-    inv_calls = [c for c in mock_provider.calls if c["role"] == "investigator"]
-    user_msg = inv_calls[0]["messages"][1]["content"]
-    assert "Active runbook" in user_msg
-    assert "brute force" in user_msg.lower()
 
 
 # --------------------------------------------------------------------------- #

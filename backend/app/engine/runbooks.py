@@ -27,11 +27,8 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-
-from ..config import Preferences
-from ..models import Cluster
 
 logger = logging.getLogger("tlsoc.engine.runbooks")
 
@@ -188,41 +185,6 @@ def corpus_items(runbooks: list[Runbook] | None = None) -> list[dict]:
     """RAG corpus documents for all runbooks."""
     return [rb.as_corpus_item() for rb in (runbooks if runbooks is not None else load_runbooks())]
 
-
-def select_runbook(cluster: Cluster, prefs: Preferences) -> Runbook | None:
-    """Pick the single best-matching runbook for a cluster, or None.
-
-    Scores each runbook against the cluster's primary rule, rule set and entity
-    type. Rule matches weigh most, then keyword hits, then entity-type affinity.
-    Deterministic (ties broken by runbook id). Returns None when nothing scores."""
-    cfg = getattr(prefs, "runbooks", None)
-    if cfg is not None and not cfg.enabled:
-        return None
-    runbooks = load_runbooks()
-    if not runbooks:
-        return None
-
-    primary = (cluster.primary_rule() or "").lower()
-    rules_l = {r.lower() for r in cluster.rule_values}
-    rules_l.add(primary)
-    entity_type = cluster.entity.type.value
-    haystack = " ".join([primary, *rules_l, cluster.entity.value]).lower()
-
-    best: tuple[int, str] | None = None
-    best_rb: Runbook | None = None
-    for rb in runbooks:
-        score = 0
-        rb_rules = {r.lower() for r in rb.applies_to_rules}
-        if rb_rules & rules_l:
-            score += 10 * len(rb_rules & rules_l)
-        if any(r in primary or primary in r for r in rb_rules if r and primary):
-            score += 5
-        score += sum(3 for kw in rb.keywords if kw.lower() in haystack)
-        if entity_type in {e.lower() for e in rb.applies_to_entities}:
-            score += 1
-        if score <= 0:
-            continue
-        key = (score, rb.id)
-        if best is None or key > best:
-            best, best_rb = key, rb
-    return best_rb
+# NOTE: per-cluster PROCEDURE selection now lives in ``app/playbooks/`` (the
+# Markdown playbook registry). Runbooks here are RAG knowledge only — there is no
+# ``select_runbook`` anymore.

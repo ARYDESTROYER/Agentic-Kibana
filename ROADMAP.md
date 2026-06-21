@@ -11,6 +11,15 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Vigil-inspired overhaul — Wave 2** (additive; 300 tests green; webui clean).
+  Markdown playbook engine (`app/playbooks/` + `backend/playbooks/*.md`,
+  deterministic selection, atomic reload, `<<<PLAYBOOK>>>` injection distinct from
+  fenced evidence, 3 seed playbooks, `GET/POST /api/playbooks*`); Case-Manager
+  `AutoClosePolicy` (per-verdict-class; TP opt-in off by default; NEEDS_HUMAN never;
+  `fp_auto_close` migrated); optional auth (default OFF — no-auth version preserved):
+  `app/auth/` (PBKDF2 + stdlib HS256) + `app/middleware/` + router-level
+  `require_auth` + CI route-coverage test; webui login gate + Playbooks/Agents catalog.
+  - ☐ Wave-2 leftovers: approval workflow + pre-flight cost projection + `$`-budget.
 - ☑ **Vigil-inspired overhaul — Wave 1** (additive, spine intact; 244 tests green;
   webui clean). Multi-agent persona roster (`agents/personas.py`, `GET /personas`),
   plain-text runbooks (`runbooks/*.md` + `engine/runbooks.py`, `GET /runbooks`),

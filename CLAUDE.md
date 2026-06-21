@@ -125,10 +125,14 @@ backend/app/
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
   tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
                      rag (hybrid BM25+vector retrieval) · vectorstore
-  engine/            correlation · risk · cost_gate · case_manager · signatures ·
-                     poller · ingest (push/queue → OCSF → pipeline) · runbooks
-                     (plain-text playbook loader + selector)
-  runbooks/          plain-text Markdown runbooks (Vigil-inspired playbooks)
+  engine/            correlation · risk · cost_gate · case_manager (AutoClosePolicy) ·
+                     signatures · poller · ingest (push/queue → OCSF) · runbooks
+                     (RAG-knowledge loader)
+  runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
+  playbooks/         Markdown PLAYBOOK engine: manifest · loader · registry
+                     (deterministic per-cluster selection + atomic hot-reload)
+  auth/              passwords (PBKDF2) · tokens (stdlib HS256 JWT) · service
+  middleware/        security_headers · csrf · rate_limit (Starlette middleware)
   agents/            prompts · router · investigator · formatter · chat · standup ·
                      graph (LangGraph) · pipeline · common · personas (multi-agent roster)
   stores/            base (abstract repositories — backend-agnostic StateStore) ·
@@ -137,6 +141,8 @@ backend/app/
                      vectorstore — SQLite/Postgres+pgvector)
   api/               routes (UI contract; incl. /sources, /sources/{id}/secrets) ·
                      deps    state.py (DI hub) · main.py
+backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
+                     dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+@elastic/eui SPA
   package.json       Node 22, @elastic/eui 95; build = tsc --noEmit && vite build
@@ -156,8 +162,14 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
    or the `elastic` superuser. Two physically separate ES clients
    (`es/client.py`): `_ro` (read-only `all-logs-*`) and `_mgmt` (`tlsoc-agent-*`).
 2. Every agent action audited, append-only (`tlsoc-agent-audit-*`).
-3. Verdict from the LLM; **close/escalate decision from deterministic code; a
-   TRUE_POSITIVE is NEVER auto-closed** (`engine/case_manager.py`).
+3. Verdict from the LLM; **the close/escalate decision is made by deterministic
+   code against the operator-configured `AutoClosePolicy`** — never by raw LLM
+   output and never by playbook text (`engine/case_manager.py`, `decide()` is a pure
+   fn over `(verdict, confidence, risk_score, policy)`). Auto-close is a tunable,
+   per-verdict-class policy (enable/min-confidence/max-risk/objection-window):
+   FALSE_POSITIVE on above a bar by default; **TRUE_POSITIVE auto-close is an
+   explicit opt-in, OFF by default**; **NEEDS_HUMAN never auto-closes (code-enforced,
+   not policy-tunable)**. A playbook can recommend but can never change this policy.
 4. Durable polling cursor (no skip / no dup); cases idempotent by cluster
    signature (`engine/poller.py`, `engine/signatures.py`).
 5. ONE chat engine, two entry points (`agents/chat.py`).
@@ -221,7 +233,7 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 244 tests
+# Backend tests (offline; MUST stay green) — currently 300 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
 python -m pytest -q
 
@@ -281,20 +293,38 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: Phase-1 spine + the vendor-agnostic transition + the Vigil-inspired
-overhaul (Wave 1) shipped — **244 backend tests green**; the standalone **webui
+Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
+(**Waves 1 & 2**) shipped — **300 backend tests green**; the standalone **webui
 builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
 See `docs/VIGIL_STUDY.md` for the Vigil study + multi-wave plan and `ROADMAP.md`
 for live status.
+
+Done (Wave 2 — Markdown playbooks + optional auth, additive, spine intact):
+- **Markdown playbook engine** (`app/playbooks/` + `backend/playbooks/*.md`):
+  operator-authored phased procedures, DETERMINISTICALLY selected per cluster
+  (`registry.select_playbook`, no LLM in the default path), injected as a DISTINCT
+  TRUSTED block (`<<<PLAYBOOK>>>`) separate from the fenced UNTRUSTED evidence; a
+  playbook can only RECOMMEND. Atomic hot-reload; `GET /api/playbooks`,
+  `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`. 3 seed
+  playbooks. Selection/fallback audited; `Case.playbook_id` recorded.
+- **AutoClosePolicy** (`engine/case_manager.decide`): per-verdict-class auto-close
+  (see #3) — FP on above a bar, TP opt-in (off), NEEDS_HUMAN never; stored
+  `fp_auto_close` migrated for back-compat.
+- **Optional auth (default OFF — the no-auth "old version" stays the default)**:
+  `app/auth/` (PBKDF2 + stdlib HS256 JWT) + `app/middleware/` (security-headers /
+  CSRF / rate-limit); router-level `require_auth` gate (no-op when disabled) with a
+  tiny `PUBLIC_API_PATHS` allowlist; `/api/auth/{login,me,logout}`; a CI
+  route-coverage test that fails if any `/api` route bypasses auth.
 
 Done (the Vigil-inspired overhaul — Wave 1, additive, spine intact):
 - **Multi-agent roster** — declarative `AgentPersona` registry (`agents/personas.py`):
   the cluster is routed deterministically to a specialist (identity / web / recon /
   malware / threat-intel) that specialises the ONE investigator; persona recorded
   on the case + audit; `GET /api/personas`.
-- **Plain-text runbooks** — Markdown playbooks (`backend/app/runbooks/*.md`) loaded
-  + selected by `engine/runbooks.py`, injected as TRUSTED guidance into the
-  investigator and indexed into RAG; `GET /api/runbooks`.
+- **Plain-text runbooks** — Markdown runbooks (`backend/app/runbooks/*.md`) loaded by
+  `engine/runbooks.py` and indexed into the RAG corpus as retrievable knowledge;
+  `GET /api/runbooks`. (Per-cluster PROCEDURE injection moved to the Wave-2 playbook
+  system; runbooks are RAG knowledge only.)
 - **Hybrid RAG** — drawer-floor-first vector + dependency-free BM25 re-ranking in
   `tools/rag.py` (recovers exact IOC/rule tokens that embed as noise).
 - **Tool safety tiers** — `ToolTier` (safe/managed/requires_approval/forbidden) on
@@ -315,9 +345,10 @@ Done (the vendor-agnostic epochs):
   primary surface.
 
 Remaining (see `ROADMAP.md` + `docs/VIGIL_STUDY.md`):
-- **Wave 2 (recommended next):** auth-by-default + a CI route-coverage test (our
-  flagged #1 gap) + CSRF/security-headers/rate-limit middleware; an approval
-  workflow + pre-flight projected-cost gate + a `$`-budget ceiling.
+- **Wave 2 leftovers:** an approval workflow (HITL action gating) + a pre-flight
+  projected-cost gate + a `$`-budget ceiling (the `ToolTier.requires_approval`
+  groundwork + `AutoClosePolicy` are in place). Optional: default auth ON for a
+  hardened profile (compose), CSRF cookie issuance for the webui.
 - **Wave 3:** cross-case agent memory + a temporal knowledge graph; a real MITRE
   module from a bundled STIX file; detection-rule RAG corpus; HITL / Auto-Ops /
   reasoning-trace webui surfaces.

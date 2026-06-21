@@ -34,13 +34,13 @@ async def run_investigation(
     surface: str,
     case_id: str | None,
     persona=None,
-    runbook_text: str | None = None,
+    playbook=None,
 ) -> tuple[VerdictResult, float]:
     """Run triage → verdict, preferring the LangGraph state graph.
 
     The (deterministically pre-selected) ``persona`` specialises the investigator
-    and ``runbook_text`` is injected as TRUSTED guidance — both no-ops on the cheap
-    benign/triage path."""
+    and the matched ``playbook`` is injected as TRUSTED procedure (and contributes
+    its canned ``rag_queries``) — both no-ops on the cheap benign/triage path."""
 
     async def do_triage():
         return await router.triage(cluster, enrichment, prefs, surface=surface, case_id=case_id)
@@ -61,10 +61,22 @@ async def run_investigation(
         rag_chunks = []
         if prefs.rag.enabled:
             await rag.ensure_seeded()
-            rag_chunks = await rag.retrieve(rag_query(cluster), prefs.rag.top_k)
+            # Base retrieval query + the selected playbook's canned rag_queries.
+            # Each retrieve is bounded by top_k; we merge, de-dupe by text and cap
+            # the union so prompt size stays bounded (and the cost gate still binds).
+            queries = [rag_query(cluster)]
+            if playbook is not None and prefs.playbooks.enabled:
+                queries += list(playbook.manifest.rag_queries)
+            seen: set[str] = set()
+            for q in queries:
+                for ch in await rag.retrieve(q, prefs.rag.top_k):
+                    if ch.text not in seen:
+                        seen.add(ch.text)
+                        rag_chunks.append(ch)
+            rag_chunks = rag_chunks[: max(prefs.rag.top_k * 2, prefs.rag.top_k)]
         return await investigator.investigate(
             cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id,
-            persona=persona, runbook_text=runbook_text,
+            persona=persona, playbook=playbook,
         )
 
     try:

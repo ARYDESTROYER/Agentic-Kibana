@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from ..audit.audit_log import AuditLogger
 from ..cache import Cache
@@ -22,7 +23,6 @@ from ..constants import ActionType, CaseStatus, DecisionBy, EntityType, SourceSu
 from ..engine.case_manager import CaseManager
 from ..engine.cost_gate import CaseBudget
 from ..engine.risk import compute_risk
-from ..engine.runbooks import select_runbook
 from ..es.base import BaseESClient
 from ..llm.gateway import LLMGateway
 from ..models import Case, Cluster, EnrichmentResult, VerdictResult
@@ -39,6 +39,9 @@ from .investigator import Investigator
 from .personas import select_persona
 from .router import Router
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..playbooks.registry import PlaybookRegistry
+
 logger = logging.getLogger("tlsoc.agents.pipeline")
 
 
@@ -53,6 +56,7 @@ class InvestigationPipeline:
         cases: CaseStore,
         audit: AuditLogger,
         source: PullConnector | None = None,
+        playbooks: "PlaybookRegistry | None" = None,
     ) -> None:
         self._es = es
         # The agent's read-only log surface. Defaults to wrapping ``es`` in an
@@ -66,6 +70,9 @@ class InvestigationPipeline:
         self._cases = cases
         self._audit = audit
         self._router = Router(gateway, audit)
+        # Markdown playbook registry (deterministic per-cluster selection). None →
+        # no playbooks (generic investigator), preserving today's behaviour.
+        self._playbooks = playbooks
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -127,16 +134,22 @@ class InvestigationPipeline:
             budget = CaseBudget(prefs.caps)
             cost = 0.0
 
-            # Multi-agent roster + plain-text runbooks (Vigil-inspired): both are
+            # Multi-agent roster + Markdown playbooks (Vigil-inspired): both are
             # selected deterministically from the cluster. The persona specialises
-            # the investigator; the matched runbook is injected as TRUSTED guidance.
+            # the investigator; the matched playbook is injected as TRUSTED operator
+            # procedure (it can only RECOMMEND — code/settings decide close/escalate).
             persona = select_persona(cluster, prefs)
-            inject_runbook = (
-                getattr(prefs, "runbooks", None) is None or prefs.runbooks.inject
-            )
-            runbook = select_runbook(cluster, prefs) if inject_runbook else None
-            runbook_text = (
-                f"{runbook.title}\n{runbook.body}" if runbook else None
+            playbook = None
+            playbook_reason = "playbooks_disabled"
+            if prefs.playbooks.enabled and self._playbooks is not None:
+                playbook, playbook_reason = self._playbooks.select(cluster)
+            await self._audit.record(
+                action_type=ActionType.DECISION, surface=source_surface.value,
+                actor="playbook_selector", case_id=case_id,
+                result_summary=(
+                    f"playbook={f'{playbook.id} v{playbook.version}' if playbook else 'none'} "
+                    f"persona={persona.id} reason={playbook_reason}"
+                ),
             )
 
             if budget.kill_switch:
@@ -154,7 +167,7 @@ class InvestigationPipeline:
                         run_investigation(
                             self._router, investigator, self._rag, cluster, enrichment,
                             prefs, budget, source_surface.value, case_id,
-                            persona=persona, runbook_text=runbook_text,
+                            persona=persona, playbook=playbook,
                         ),
                         timeout=prefs.caps.timeout_seconds,
                     )
@@ -183,7 +196,7 @@ class InvestigationPipeline:
 
             case = self._assemble_case(
                 case_id, cluster, verdict, source_surface, existing, cost, prefs,
-                persona_id=persona.id,
+                persona_id=persona.id, playbook_id=(playbook.id if playbook else ""),
             )
             CaseManager(prefs).apply(case)
             await self._cases.save(case)
@@ -264,6 +277,7 @@ class InvestigationPipeline:
         cost: float,
         prefs: Preferences,
         persona_id: str = "",
+        playbook_id: str = "",
     ) -> Case:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
@@ -316,6 +330,7 @@ class InvestigationPipeline:
             verdict_history=verdict_history,
             trigger_reason=_trigger(existing, cluster),
             agent_persona=persona_id or (existing.agent_persona if existing else ""),
+            playbook_id=playbook_id or (existing.playbook_id if existing else ""),
         )
 
 
