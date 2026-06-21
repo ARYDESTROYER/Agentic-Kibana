@@ -13,6 +13,7 @@ import { api } from './lib/api';
 import { applyEuiTheme } from './lib/euiTheme';
 import { Shell, PageId } from './components/Shell/Shell';
 import { Wizard } from './components/Wizard/Wizard';
+import { OverviewPage } from './components/Overview/OverviewPage';
 import { CasesPage } from './components/Cases/CasesPage';
 import { ChatPage } from './components/Chat/ChatPage';
 import { InvestigatePage } from './components/Investigate/InvestigatePage';
@@ -26,7 +27,7 @@ type Boot = 'loading' | 'wizard' | 'app';
 
 export const App: React.FC = () => {
   const [boot, setBoot] = useState<Boot>('loading');
-  const [page, setPage] = useState<PageId>('cases');
+  const [page, setPage] = useState<PageId>('overview');
   const [forceWizard, setForceWizard] = useState(false);
   const [darkMode, setDarkMode] = useState<boolean>(
     () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
@@ -69,7 +70,7 @@ export const App: React.FC = () => {
           onComplete={() => {
             setForceWizard(false);
             setBoot('app');
-            setPage('cases');
+            setPage('overview');
           }}
           onExit={forceWizard ? () => setForceWizard(false) : undefined}
         />
@@ -79,6 +80,9 @@ export const App: React.FC = () => {
 
   let body: React.ReactNode;
   switch (page) {
+    case 'overview':
+      body = <OverviewPage onNavigate={setPage} />;
+      break;
     case 'chat':
       body = <ChatPage />;
       break;

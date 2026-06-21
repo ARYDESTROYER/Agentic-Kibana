@@ -73,6 +73,28 @@ export function riskHex(score?: number): string {
   return COLORS.danger;
 }
 
+/** Risk band {label,color} for a 0..100 score — used by gauges/badges. */
+export function riskBand(score?: number): { label: string; color: string } {
+  if (typeof score !== 'number' || Number.isNaN(score)) {
+    return { label: 'Unknown', color: COLORS.subdued };
+  }
+  if (score < 30) return { label: 'Low', color: COLORS.success };
+  if (score < 60) return { label: 'Medium', color: COLORS.warning };
+  if (score < 80) return { label: 'High', color: '#e2725b' };
+  return { label: 'Critical', color: COLORS.danger };
+}
+
+/** Stable categorical palette for charts (donuts, bar lists, legends). */
+export const CHART_COLORS = [
+  '#1c66e0', '#8a55c9', '#00a38c', '#e9a200',
+  '#c4341c', '#2aa0a4', '#d6336c', '#7048e8',
+] as const;
+
+/** Pick a chart colour by index (wraps). */
+export function chartColor(i: number): string {
+  return CHART_COLORS[i % CHART_COLORS.length];
+}
+
 /** Accent + icon for each connector category (the wizard groups by these). */
 export const CATEGORY_META: Record<string, { label: string; icon: string; accent: string }> = {
   siem: { label: 'SIEM / Log stores', icon: 'logstashQueue', accent: COLORS.primary },

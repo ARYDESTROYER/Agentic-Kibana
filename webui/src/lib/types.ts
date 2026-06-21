@@ -358,9 +358,12 @@ export interface UsageSummary {
   total_tokens?: number;
   call_count?: number;
   currency?: string;
+  today_cost?: number;
   by_surface?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   by_model?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   by_role?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
+  cost_over_time?: Array<{ ts: number; cost: number }>;
+  top_cost_drivers?: Array<{ key: string; cost: number; tokens: number; calls: number }>;
   [key: string]: unknown;
 }
 
