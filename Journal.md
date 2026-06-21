@@ -707,3 +707,16 @@
 - Tests: n/a (docs). 221 backend green per prior runs.
 - Status: done.
 - Next: trim the legacy plugin section once webui surfaces are fully ported.
+
+### 2026-06-21 — docs agent (deploy) — DEPLOY.md rewrite (agnostic + legacy)
+- Context: Make DEPLOY.md accurate for the vendor-agnostic stack ahead of deploy.
+- Did: Rewrote DEPLOY.md — Mode A (agnostic: deploy/docker-compose.agnostic.yml,
+  postgres+pgvector/redis/backend STATE_BACKEND=postgres/webui:8080, .env, wizard
+  walkthrough, PULL vs PUSH sources, 16 receivers + optional pip deps, /api/ingest
+  + /api/sources/{id}/secrets curl, syslog port publishing, verify); state-backend
+  matrix; secrets model; ops (pg_dump/ES-snapshot backups, upgrades); Mode B
+  (legacy ELK merge + two scoped ES keys + plugin install); hardening. Env-var
+  nuance (backend reads UNPREFIXED names; compose maps TLSOC_*) stated. Orchestrator
+  stripped a stray journal entry the agent had appended into DEPLOY.md.
+- Tests: n/a (docs). Commands cross-checked against the real artifacts.
+- Status: done.
