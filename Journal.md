@@ -790,3 +790,19 @@
 - Next: per docs/ROADMAP_RESEARCH.md — API auth (#1), then observability + prompt
   caching + notifications. Optional UI follow-ups: open Case-detail from Overview/
   Scans cards; bundle code-splitting.
+
+### 2026-06-21 — orchestrator — Vigil deep-study + overhaul kickoff
+- Context: User asked to (1) study github.com/Vigil-SOC/vigil end-to-end with a
+  fleet of Opus sub-agents, (2) propose + execute a heavy architectural overhaul of
+  our suite taking inspiration from Vigil (multi-agent, runbooks, RAG), and (3)
+  archive the legacy Kibana plugin now that we're vendor-neutral.
+- Did (recon): cloned Vigil (11M, v0.2.3) + its mempalace (77M, memory/RAG) and
+  mcp-servers submodules to /tmp. Mapped it: 339 py / 79 tsx; pillars = Agents
+  (services/soc_agents.py + claude_service.py 4156 LoC + daemon/agent_runner.py),
+  Workflows (markdown WORKFLOW.md + orchestrator/plan_generator), MCP+tools+skills,
+  LLM gateway/router/cost/budgets (+ Bifrost), daemon/federation/autonomy, mempalace
+  RAG. Stack: claude-agent-sdk + anthropic (NOT LangGraph), heavy MCP, Postgres.
+- Tests: n/a yet (recon only).
+- Status: in-progress — launching parallel Opus research sub-agents over Vigil + a
+  fresh map of our own repo.
+- Next: synthesize findings → recommendations → archive plugin → overhaul.
