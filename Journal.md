@@ -694,3 +694,16 @@
   previews) + serve dist/ from backend; standup-aggregation + routes entity-path
   onto the connector; ENVIRONMENT/DEPLOY prose for the state backend; pre-save
   /api/connectors/test; Epoch E scale-out.
+
+### 2026-06-21 — docs agent (readme) — README rewrite + CHANGELOG vendor-agnostic entry
+- Context: Refresh docs for the vendor-agnostic transition ahead of first deploy.
+- Did: Full README rewrite (agnostic positioning, source→connectors→OCSF→funnel→
+  case→webui diagram, feature list, agnostic-compose quick start, connectors table,
+  repo layout incl. ocsf/connectors/receivers/stores-sql/webui, honest pull-vs-push
+  limits, doc links). CHANGELOG [2.0.0] entry (OCSF, connector SPI+registry, ELK/
+  OpenSearch/Wazuh pull, 16 receivers + /api/ingest, per-source secrets, wizard
+  backend, SQL StateStore, standalone webui, deploy artifacts, plugin→legacy).
+  Verified endpoints/enums/paths/test-count against source.
+- Tests: n/a (docs). 221 backend green per prior runs.
+- Status: done.
+- Next: trim the legacy plugin section once webui surfaces are fully ported.

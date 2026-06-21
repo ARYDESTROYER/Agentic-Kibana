@@ -7,6 +7,59 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [2.0.0] — 2026-06-21 — Vendor-agnostic, self-hosted agentic SOC
+
+The project transitions from an ELK/Kibana-coupled triage suite into an
+**open-source, self-hosted, vendor-agnostic agentic SOC**. It now ingests from any
+SIEM/EDR/XDR, normalises everything to OCSF, and ships its own standalone web UI —
+the Kibana plugin becomes legacy/optional. Backend offline suite: **221 tests
+green**; standalone web UI builds clean (`tsc` + Vite).
+
+### Added
+
+- **OCSF canonical schema** (`backend/app/ocsf/`). Every record, whatever its
+  origin, is normalised to OCSF (with an ECS→OCSF mapping) before the engine
+  reasons over it.
+- **Connector SPI + registry** (`backend/app/connectors/`). A `PullConnector` /
+  `PushReceiver` SPI, a process-wide registry, and a `tlsoc.connectors`
+  entry-point group so out-of-tree connectors install via `pip` and appear in the
+  wizard with zero core change.
+- **PULL connectors — Elasticsearch, OpenSearch, Wazuh.** Poll an ES-API-compatible
+  search API on a durable cursor (Wazuh reads the OpenSearch-based Wazuh indexer);
+  per-source field mapping is set in the wizard.
+- **16 PUSH / queue / object-store receivers + push runtime.** webhook, Splunk-HEC,
+  syslog, Kafka, AWS SQS, AWS Kinesis, Azure Event Hub, GCP Pub/Sub, RabbitMQ,
+  NATS, MQTT, Redis Streams, S3, GCS, Azure Blob, file. Formats parsed:
+  JSON / NDJSON / CEF / LEEF / GELF / syslog / kv; optional client libs imported
+  lazily (no new hard dependency). HTTP push lands via `POST /api/ingest/{source_id}`;
+  syslog/queue/object-store receivers run as background receivers; all flow into the
+  same `correlate → risk → cost-gate → LLM → case` pipeline the poller feeds.
+- **Per-source secrets.** `POST /api/sources/{id}/secrets` stores secret field
+  values in the in-memory secret tier (never persisted); only the field NAMES are
+  recorded on the source.
+- **Multi-source wizard backend.** `GET /api/connectors` (+ `/{source_type}`) lists
+  every connector and its auth/config field schema; `GET|POST|DELETE /api/sources`
+  and `POST /api/connectors/test` add, update, remove, mark-primary, and test
+  sources.
+- **SQL StateStore** (`backend/app/stores/sql/`). `STATE_BACKEND` selects where the
+  app's OWN state (cases/audit/usage/config/cursor/RAG) lives: `elasticsearch`
+  (default), `postgres` (asyncpg + pgvector), or `sqlite`. With postgres/sqlite, no
+  Elasticsearch is required at all.
+- **Standalone web UI + first-run wizard** (`webui/`, Vite + React +
+  `@elastic/eui`). The new primary front door: a self-hosted SPA talking to the
+  backend directly over `/api`, with a multi-step setup wizard (connector picker +
+  dynamic per-connector form + connection test, LLM providers + per-role models,
+  enrichment/detection defaults), a sources manager, and full Preferences editing.
+- **Deploy artifacts.** `deploy/docker-compose.agnostic.yml` — a self-contained
+  stack (Postgres+pgvector + Redis + backend + web UI; open http://localhost:8080,
+  add the SIEM in the wizard) — plus a web UI container image (`webui/Dockerfile`).
+
+### Changed
+
+- **Kibana plugin is now legacy/optional.** The standalone `webui/` replaces it as
+  the primary UI; the plugin and the legacy `deploy/docker-compose.tlsoc.yml`
+  (merge-into-ELK) path remain for existing ELK deployments.
+
 ## [Unreleased]
 
 Work-order cycle (live status in [`ROADMAP.md`](ROADMAP.md); session notes in

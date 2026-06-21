@@ -1,122 +1,187 @@
-# TLSOC Agentic Triage Suite
+# Agentic SOC — open-source, self-hosted, vendor-agnostic triage
 
-> Agentic SOC triage for the TrustLab / IIT Bombay ELK pipeline.
-> **Phase 1 POC** — Elastic / Kibana **8.12.2** and **8.19.12**. A loosely-coupled
-> backend does all the agentic work; a thin Kibana plugin renders five surfaces.
+> An open-source, self-hosted **agentic AI SOC triage** system. It ingests
+> alerts/logs from **any** SIEM/EDR/XDR, normalises everything to **OCSF**,
+> correlates and risk-gates in deterministic code, runs a two-tier LLM
+> investigation (cheap router → strong investigator), and lets a deterministic
+> case manager close or escalate — **a TRUE_POSITIVE is never auto-closed**. It is
+> a **read-only consumer**: your upstream pipeline is never modified.
 
-**Docs:** build → [`plugin/BUILD.md`](plugin/BUILD.md) · deploy →
-[`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md) · fix →
-[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) · compatibility →
-[`COMPATIBILITY.md`](COMPATIBILITY.md).
+It builds on the prior **TLSOC Agentic Triage Suite** (an ELK/Kibana-coupled
+backend + Kibana plugin) but is now **product-agnostic**: it works against
+Elasticsearch, OpenSearch, Wazuh, Splunk-HEC, syslog, Kafka, cloud queues, object
+stores, plain webhooks, and more — and ships its **own standalone web UI** so it
+no longer depends on Kibana at all.
 
-The suite sits **next to** an existing production pipeline
-(`rsyslog → Kafka → foss-soc-engine → Logstash → Elasticsearch (all-logs-*) → Kibana`)
-as a **read-only consumer**. It polls the high-quality, ECS-normalized log surface
-in Elasticsearch, correlates and risk-scores in deterministic code, runs a
-two-tier LLM investigation, and produces audited, cost-metered cases — never
-auto-closing a true positive.
+**Docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
+· ingestion → [`docs/INGESTION.md`](docs/INGESTION.md) · architecture →
+[`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) · environments →
+[`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) · fix →
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) · security →
+[`SECURITY.md`](SECURITY.md) · contribute → [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+## What it is
+
+Raw alert volume from any source becomes audited, cost-metered, human-reviewable
+**cases**. Two loosely-coupled components do the work: a **backend** (`backend/`,
+FastAPI + LangGraph) that holds all the agentic logic, connectors, OCSF
+normalisation, the deterministic funnel, the LLM gateway + cost ledger, and the
+suite's own state; and a **standalone web UI** (`webui/`, Vite + React +
+`@elastic/eui`) that talks to the backend directly over `/api`. The legacy Kibana
+plugin (`plugin/`) still works but is **optional** — the standalone UI is the
+primary front door.
+
+## Architecture
 
 ```
-┌─────────────────────────── Kibana 8.12.2 ───────────────────────────┐
-│  Plugin (thin viewer): Chat · Investigate · Automated Scans ·        │
-│  Standup · Cost · Settings/Wizard   ── core.http →  /api/tlsoc/* ──┐  │
-└───────────────────────────────────────────────────────────────────┼──┘
-                                                                      │ (Kibana server proxy)
-┌───────────────────────── tlsoc-backend (FastAPI + LangGraph) ──────▼──┐
-│  poll(cursor) → correlate → risk → cost-gate → router → investigator  │
-│  → formatter → Case Manager (deterministic close/escalate)            │
-│  tools: es_query(read-only) · enrich(Redis-cached) · rag_retrieve     │
-│  single LLM gateway → usage/cost ledger                               │
-│  owns: tlsoc-agent-{cases,audit,usage,config,cursor}                  │
-└──────── read-only key → all-logs-*  ·  mgmt key → tlsoc-agent-* ──────┘
+   any SIEM / EDR / XDR / queue / object store / webhook
+                          │
+        ┌─────────────────┴──────────────────┐
+        │  PULL connectors        PUSH receivers (16)
+        │  (we poll a search API) (they forward to us)
+        │  Elastic·OpenSearch·    webhook·HEC·syslog·Kafka·
+        │  Wazuh                  SQS·Kinesis·EventHub·PubSub·
+        │                         RabbitMQ·NATS·MQTT·Redis·
+        │                         S3·GCS·AzureBlob·file
+        └─────────────────┬──────────────────┘
+                          ▼
+         OCSF normalisation  (backend/app/ocsf/)
+                          ▼
+   correlate (deterministic) ─▶ risk gate (deterministic) ─▶ cost gate
+                          ▼
+   router (cheap LLM) ─▶ investigator (strong LLM, ReAct) ─▶ formatter
+                          ▼
+   Case Manager (deterministic close/escalate; never auto-closes a TP)
+                          ▼
+   case + audit + usage store  (Elasticsearch | Postgres+pgvector | SQLite)
+                          ▼
+                 standalone web UI  (webui/, /api)
 ```
 
-## Supported Kibana versions
+Every LLM call goes through one gateway → a usage/cost ledger; every agent action
+is appended to an append-only audit trail; log-derived values are treated as
+UNTRUSTED data in prompts. See [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md)
+for the full design.
 
-Two pre-built, committed plugin artifacts ship in `plugin/dist/`. **Install the
-version-matched zip** for your running Kibana — the installer rejects a
-mismatch.
+## Features
 
-| Kibana version | Plugin zip                                    | Node to build | Bazel |
-|----------------|-----------------------------------------------|---------------|-------|
-| **8.12.2**     | `plugin/dist/tlsocAgenticTriage-8.12.2.zip`   | 18.18.2       | yes   |
-| **8.19.12**    | `plugin/dist/tlsocAgenticTriage-8.19.12.zip`  | 22.22.0       | no (removed in 8.19) |
+- **Vendor-agnostic ingestion.** A connector SPI (`backend/app/connectors/`) with
+  a registry + `tlsoc.connectors` entry points (third-party connectors install via
+  `pip` and appear in the wizard with zero core change). Two physical shapes:
+  - **PULL** — we poll a search API on a durable cursor: **Elasticsearch,
+    OpenSearch, Wazuh** today (per-source field mapping set in the wizard).
+  - **PUSH (16 receivers)** — sources forward to us: webhook, Splunk-HEC, syslog,
+    Kafka, AWS SQS, AWS Kinesis, Azure Event Hub, GCP Pub/Sub, RabbitMQ, NATS,
+    MQTT, Redis Streams, S3, GCS, Azure Blob, file. Formats parsed:
+    JSON / NDJSON / CEF / LEEF / GELF / syslog / kv. Optional client libs are
+    imported lazily, so the core has no new hard dependency.
+- **OCSF canonical schema** (`backend/app/ocsf/`). Whatever the source, every
+  record is normalised to OCSF before the engine reasons over it.
+- **Deterministic funnel + LLM tiering.** Correlation, risk scoring, the cost
+  gate, and the close/escalate decision are deterministic code; only the verdict
+  comes from the LLM, and investigation is tiered (cheap router → strong
+  investigator) to control spend.
+- **Cost ledger.** 100% of LLM calls pass through one gateway that records token
+  usage and cost on every call.
+- **RAG.** Resolved cases are indexed as retrievable baseline memory so future
+  investigations learn from prior analyst decisions (backed by pgvector or an ES
+  dense-vector store, depending on the state backend).
+- **Choice of state backend** (`STATE_BACKEND`): `elasticsearch` (default),
+  `postgres` (asyncpg + pgvector), or `sqlite`. The app's own state
+  (cases/audit/usage/config/cursor/RAG) lives there; with **postgres or sqlite no
+  Elasticsearch is required at all**.
+- **Standalone web UI + first-run wizard.** A self-hosted SPA (`webui/`) with a
+  multi-step setup wizard that lists connectors, renders a dynamic form per
+  connector, tests the connection, configures LLM providers and per-role models,
+  and manages multiple sources — all without Kibana.
 
-Portability is achieved from a single source tree: `@kbn/*` import aliases plus
-`--kibana-version` stamping at build time (see [`COMPATIBILITY.md`](COMPATIBILITY.md)
-and [`plugin/BUILD.md`](plugin/BUILD.md)). No backend or contract change is needed
-between versions.
+## Quick start (deploy)
+
+The fastest path is the self-contained compose file
+[`deploy/docker-compose.agnostic.yml`](deploy/docker-compose.agnostic.yml)
+(Postgres + pgvector + Redis + backend + web UI — no Elasticsearch needed for the
+app's own state):
+
+```bash
+cp .env.example .env        # set TLSOC_PG_PASSWORD + at least one LLM key
+docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+# then open http://localhost:8080 and complete the first-run wizard
+```
+
+You add your SIEM/EDR/XDR **in the wizard** ("add a source"). For the full recipe,
+TLS/CA mounts, push-receiver port publishing, and the legacy ELK path, see
+**[DEPLOY.md](DEPLOY.md)**.
+
+**Legacy path:** to merge into an existing ELK stack and keep the Kibana plugin,
+use [`deploy/docker-compose.tlsoc.yml`](deploy/docker-compose.tlsoc.yml).
+
+## Connectors / how data gets in
+
+| Source / transport | Type | `SourceType` | Mode | How |
+|---|---|---|---|---|
+| Elasticsearch | pull | `elasticsearch` | `pull` | poll `_search` on a durable cursor |
+| OpenSearch | pull | `opensearch` | `pull` | poll `_search` (ES-API compatible) |
+| Wazuh | pull | `wazuh` | `pull` | poll the Wazuh indexer (OpenSearch `wazuh-alerts-*`) |
+| Webhook | push | `webhook` | `push_http` | `POST /api/ingest/{source_id}` (JSON/NDJSON/CEF/LEEF) |
+| Splunk HEC | push | `hec` | `push_http` | `POST /api/ingest/{source_id}` (HEC-compatible) |
+| Syslog | push | `syslog` | `push_syslog` | background UDP/TCP/TLS listener (RFC 3164/5424) |
+| Kafka | push | `kafka` | `queue` | background consumer |
+| AWS SQS / Kinesis | push | `aws_sqs` / `aws_kinesis` | `queue` | background consumer |
+| Azure Event Hub | push | `azure_event_hub` | `queue` | background consumer |
+| GCP Pub/Sub | push | `gcp_pubsub` | `queue` | background consumer |
+| RabbitMQ / NATS / MQTT / Redis Streams | push | `rabbitmq` / `nats` / `mqtt` / `redis_streams` | `queue` | background consumer |
+| S3 / GCS / Azure Blob | push | `s3` / `gcs` / `azure_blob` | `object_store` | list + get on an object cursor |
+| File | push | `file` | `object_store` | local file/directory tail |
+
+Webhook/HEC ingest over `POST /api/ingest/{source_id}`; syslog/queue/object-store
+receivers run as background receivers. Sources are managed through the wizard or
+the backend API (`GET /api/connectors`, `GET|POST|DELETE /api/sources`, per-source
+secrets via `POST /api/sources/{id}/secrets`). Full reference:
+[`docs/INGESTION.md`](docs/INGESTION.md).
+
+**Current limits (be aware):** the PULL path targets **one** ES-API-compatible
+cluster today (Elastic / OpenSearch / Wazuh) via `ES_URL` + a read-only
+`ES_API_KEY`. Multiple distinct pull clusters and **native** Splunk / Sentinel /
+QRadar / Chronicle / CrowdStrike / Defender pull connectors are on the roadmap
+(the `SourceType` enum already reserves their names). **Push / queue / object-store
+ingestion is unlimited** — run as many receivers of as many types as you like, in
+parallel with the pull source.
 
 ## Repository layout
 
 ```
-backend/        FastAPI + LangGraph backend (all agentic logic) + tests + Dockerfile
+backend/                FastAPI + LangGraph backend (all agentic logic) + tests
   app/
-    config.py constants.py models.py utils.py        # contracts
-    es/           client (real) · fake (in-memory) · querybuilder · indices
-    llm/          gateway (the single cost-ledger point) · providers · pricing
-    tools/        es_query · enrich (Redis-cached) · rag · vectorstore
-    engine/       correlation · risk · cost_gate · case_manager · poller · signatures
-    agents/       router · investigator (ReAct) · formatter · chat · standup · graph (LangGraph)
-    stores/       cases · usage · config · cursor    audit/  audit_log
-    api/          routes (the plugin contract)       state.py  main.py
-  tests/          spine + breadth tests (fake ES + mock LLM, no network)
-plugin/           Kibana 8.12.2 plugin source + dist/<built zip> + BUILD.md
-deploy/
-  docker-compose.tlsoc.yml     # the ONE service block to add to TLSOCDockerDeploy
-  mappings/                    # index templates (cases/audit/usage)
-  dashboards/                  # bundled saved-object dashboards (audit + cost)
-.env.example     DEPLOY.md     COMPATIBILITY.md
+    ocsf/               OCSF canonical schema + ECS→OCSF mapping
+    connectors/         connector SPI + registry; elastic · opensearch · wazuh (pull)
+      receivers/        16 push/queue/object-store receivers + format parsers
+    engine/             correlation · risk · cost_gate · case_manager · poller · signatures
+    agents/             router · investigator (ReAct) · formatter · chat · standup · graph
+    stores/             cases · usage · config · cursor (+ audit)
+      sql/              SQL StateStore: engine · models · repositories · vectorstore
+    api/                routes (the backend contract) · deps   state.py · main.py
+webui/                  standalone Vite + React + @elastic/eui SPA (primary UI)
+deploy/                 docker-compose.agnostic.yml (self-contained) ·
+                        docker-compose.tlsoc.yml (legacy ELK) · mappings · dashboards
+docs/                   USAGE · INGESTION · AGNOSTIC_ARCHITECTURE · ENVIRONMENT ·
+                        TROUBLESHOOTING · RUNBOOK
+plugin/                 legacy Kibana plugin (optional; superseded by webui/)
 ```
 
-## Quickstart
+## Configuration
 
-### Deploy (cold, on the SIEM server) → see **[DEPLOY.md](DEPLOY.md)**
-Mint two scoped ES keys, set `.env`, add the compose block, bring up the backend,
-install the **pre-built** plugin zip, run the wizard, import dashboards. No plugin
-compilation happens on the server.
+Secrets and the state backend are set via environment (`.env`; see
+[`.env.example`](.env.example) — `STATE_BACKEND`, `STATE_DB_URL`, LLM keys,
+enrichment keys, optional `ES_URL`/`ES_API_KEY` for a pull source). Everything
+operationally tunable (correlation rules, risk weights, per-role/per-rule models,
+caps, kill switch) lives in UI-editable **Preferences**, surfaced in Settings and
+the first-run wizard. The UI shows secrets as booleans (`configured ✓`), never the
+values.
 
-### Local backend (developer)
-```bash
-cd backend
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
-pytest -q                       # full suite runs offline (fake ES + mock LLM)
-uvicorn app.main:app --port 8088    # runs in-memory with no keys (mock provider paths)
-```
-With no ES keys it uses an in-memory store; with no LLM keys, model-dependent
-paths fail safe to a human. Set the env vars from `.env.example` for a real run.
+## Status & verification
 
-### Rebuild the plugin zip → see **[plugin/BUILD.md](plugin/BUILD.md)**
-Requires the cloned Kibana source for the target version and its pinned Node
-(8.12.2 → Node 18.18.2 + bazel; 8.19.12 → Node 22.22.0, no bazel). The committed
-`plugin/dist/tlsocAgenticTriage-8.12.2.zip` and
-`plugin/dist/tlsocAgenticTriage-8.19.12.zip` are the deploy artifacts.
-
-### Use the suite → see **[docs/USAGE.md](docs/USAGE.md)**
-Wizard, all six surfaces with examples, Settings reference, a power-user `curl`
-API section, and an end-to-end walkthrough. Stuck? →
-**[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**.
-
-## The non-negotiables (and where they live)
-
-| # | Guarantee | Enforced in |
-|---|---|---|
-| 1 | Read-only, scoped ES key for the agent; never the superuser | `es/client.py` (two separate clients), `tools/es_query.py` |
-| 2 | Every agent action audited, append-only, from commit one | `audit/audit_log.py` (`tlsoc-agent-audit-*`) |
-| 3 | Verdict from LLM; **close/escalate decision from code; never auto-close a TP** | `engine/case_manager.py` |
-| 4 | Durable cursor (no skip / no dup); cases keyed by cluster signature | `models.Cursor`, `engine/poller.py`, `engine/signatures.py` |
-| 5 | One chat engine, two entry points | `agents/chat.py` |
-| 6 | 100% of LLM calls through one gateway → usage/cost ledger | `llm/gateway.py` (`tlsoc-agent-usage-*`) |
-| 7 | Aggregate-then-summarise (never raw logs to a model) | `agents/standup.py`, `es/querybuilder.py` |
-| 8 | Enrichment Redis-cached | `tools/enrich.py`, `cache.py` |
-| 9 | Log values are untrusted DATA in prompts (delimited & labelled) | `agents/prompts.py` |
-| 10 | Sane defaults; only keys + scope required to run | `config.py` |
-| 11 | Spine first & tested (Gate 1); breadth degrades gracefully (Gate 2) | `tests/`, graceful fallbacks throughout |
-| 12 | Read-only consumer; upstream untouched; cold-deployable | `COMPATIBILITY.md`, `DEPLOY.md` |
-
-## Phase-2 seams (left clean, not implemented)
-Persistent plugin (derived image / mount) · MCP tool transport (tools are already
-MCP-shaped) · GPU-local models via vLLM/LiteLLM (single gateway abstraction) ·
-prompt-injection hardening (fencing seam in place) · suppression/resolved-case
-feedback into RAG (persisted now, wiring later).
+Verified offline this cycle: **221 backend tests green** (fake/in-memory backends
++ mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite).
+Live-stack validation against a real SIEM is a deploy step. See
+[`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
+status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.
