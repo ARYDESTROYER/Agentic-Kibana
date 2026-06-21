@@ -770,3 +770,23 @@
   flyout + Chat/Investigate/Scans/Standup/Cost) in progress via 3 sub-agents.
 - Next: integrate UI pass-2, full build, commit; then (per roadmap) API auth is the
   top backend priority.
+
+### 2026-06-21 — orchestrator — UI overhaul pass 2 (surfaces)
+- Context: Turn the preview stubs + dead-end Cases table into real, polished
+  surfaces on the pass-1 design kit (3 parallel sub-agents, disjoint files).
+- Did: Case-detail flyout (CaseDetailFlyout.tsx — verdict/evidence/MITRE deep
+  links/risk-breakdown bars/RiskGauge + Agent-trace timeline via /cases/{id}/trace
+  + merged history timeline + sticky lifecycle action footer) and clickable Cases
+  page w/ status filter; Chat console (bubbles, result tables, query/cost
+  footnotes, suggested prompts, typing indicator); Investigate form → rich Case
+  result card + neutral no-events empty state + session history; Scans card grid +
+  KPIs; Standup hero digest + guarded aggregate tiles/barlists; Cost dashboard
+  (window selector, sparkline/minibars, by-model/role/surface charts). All build
+  on common/ui + charts + theme + format + soc* CSS; no kit files changed.
+- Tests: full webui `npm run build` green (tsc strict + vite, 2322 modules). Note:
+  JS bundle ~2.0MB (570KB gz) — fine for an internal console; code-split later.
+- Status: done. UI is materially better (branded shell, dashboard, drill-in,
+  charts).
+- Next: per docs/ROADMAP_RESEARCH.md — API auth (#1), then observability + prompt
+  caching + notifications. Optional UI follow-ups: open Case-detail from Overview/
+  Scans cards; bundle code-splitting.

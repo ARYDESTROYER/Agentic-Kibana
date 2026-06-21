@@ -1,13 +1,65 @@
 /**
- * Standup (preview) — fetches GET /api/standup and renders the generated summary
- * plus the headline aggregate counts. Minimal port.
+ * Standup — the daily digest. Fetches GET /api/standup and renders the generated
+ * summary in a hero card, followed by defensively-parsed aggregate stats and
+ * top-N bar lists (rules / source IPs / users / hosts). The aggregate shape may
+ * vary between deployments, so every access is guarded.
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { EuiButton, EuiCallOut, EuiPanel, EuiSpacer, EuiText } from '@elastic/eui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  EuiButton,
+  EuiCallOut,
+  EuiFlexGroup,
+  EuiFlexItem,
+  EuiPanel,
+  EuiSpacer,
+  EuiText,
+} from '@elastic/eui';
 import type { StandupResponse } from '../../lib/types';
 import { api } from '../../lib/api';
-import { ErrorCallout, Loading, PreviewPill, SectionHeader } from '../common/ui';
-import { fmtNumber } from '../../lib/format';
+import { fmtNumber, humanizeAge, humanizeToken } from '../../lib/format';
+import { COLORS, chartColor } from '../../lib/theme';
+import { BarList } from '../common/charts';
+import type { Segment } from '../common/charts';
+import {
+  Card,
+  EmptyState,
+  ErrorCallout,
+  IconChip,
+  Loading,
+  SectionHeader,
+  StatTile,
+} from '../common/ui';
+
+/* ------------------------------------------------------- defensive readers -- */
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function asNumber(v: unknown): number | undefined {
+  return typeof v === 'number' && !Number.isNaN(v) ? v : undefined;
+}
+
+/**
+ * Coerce a bucket-list-ish value into ranked chart segments. Handles the
+ * canonical `[{key, count}]` shape but also tolerates `{value}`/`{doc_count}`.
+ */
+function toSegments(v: unknown, palette = false): Segment[] {
+  if (!Array.isArray(v)) return [];
+  const out: Segment[] = [];
+  v.forEach((raw, i) => {
+    const b = asRecord(raw);
+    const key = b.key ?? b.label ?? b.name;
+    const value = asNumber(b.count) ?? asNumber(b.value) ?? asNumber(b.doc_count) ?? asNumber(b.cost);
+    if (key === undefined || key === null || value === undefined) return;
+    out.push({
+      label: String(key),
+      value,
+      color: palette ? chartColor(i) : undefined,
+    });
+  });
+  return out;
+}
 
 export const StandupPage: React.FC = () => {
   const [data, setData] = useState<StandupResponse | null>(null);
@@ -18,7 +70,7 @@ export const StandupPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.standup());
+      setData(await api.standup(24));
     } catch (e) {
       setError(e);
     } finally {
@@ -30,50 +82,168 @@ export const StandupPage: React.FC = () => {
     void load();
   }, [load]);
 
-  const agg = (data?.aggregate || {}) as Record<string, unknown>;
-  const totalEvents = typeof agg.total_events === 'number' ? agg.total_events : undefined;
+  const agg = useMemo(() => asRecord(data?.aggregate), [data]);
+
+  const totalEvents = asNumber(agg.total_events);
+  const uniqueIps = asNumber(agg.unique_ips);
+  const cases = asRecord(agg.cases);
+  const casesOpened = asNumber(cases.opened);
+
+  const byRule = useMemo(() => toSegments(agg.by_rule, true), [agg]);
+  const topIps = useMemo(() => toSegments(agg.top_source_ips), [agg]);
+  const topUsers = useMemo(() => toSegments(agg.top_users), [agg]);
+  const topHosts = useMemo(() => toSegments(agg.top_hosts), [agg]);
+  const bySeverity = useMemo(() => toSegments(agg.by_severity, true), [agg]);
+
+  const window = asNumber(data?.window_hours) ?? 24;
+  const hasAggregate =
+    totalEvents !== undefined ||
+    byRule.length > 0 ||
+    topIps.length > 0 ||
+    topUsers.length > 0 ||
+    topHosts.length > 0;
 
   return (
     <div>
       <SectionHeader
         icon="visText"
         title="Standup"
-        description="The daily aggregate summary."
+        description="The daily aggregate digest, summarised from log activity."
         actions={
-          <>
-            <PreviewPill /> <EuiButton size="s" iconType="refresh" onClick={load}>Refresh</EuiButton>
-          </>
+          <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
+            Regenerate
+          </EuiButton>
         }
       />
+
       {error ? (
         <>
-          <ErrorCallout error={error} />
+          <ErrorCallout error={error} title="Could not generate the standup" />
           <EuiSpacer size="m" />
         </>
       ) : null}
+
       {loading ? (
         <Loading label="Generating standup…" />
       ) : data?.enabled === false ? (
         <EuiCallOut color="primary" iconType="iInCircle" title="Standup is disabled">
-          <p>Enable it in Settings → Standup.</p>
+          <p>Enable the daily digest in Settings → Standup to start generating it.</p>
         </EuiCallOut>
       ) : (
         <>
-          <EuiPanel hasBorder paddingSize="l">
-            <EuiText>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{data?.summary || 'No summary available.'}</p>
-            </EuiText>
+          {/* Hero summary */}
+          <EuiPanel hasBorder paddingSize="l" className="socCard">
+            <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
+              <EuiFlexItem grow={false}>
+                <IconChip icon="documentEdit" accent={COLORS.accent} large />
+              </EuiFlexItem>
+              <EuiFlexItem>
+                <EuiText size="xs" color="subdued">
+                  <span>
+                    {window}h window · generated {humanizeAge(data?.generated_at)}
+                  </span>
+                </EuiText>
+                <EuiSpacer size="s" />
+                {data?.summary ? (
+                  <EuiText size="m">
+                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>
+                      {data.summary}
+                    </p>
+                  </EuiText>
+                ) : (
+                  <EuiText size="s" color="subdued">
+                    <p>No summary available for this window yet.</p>
+                  </EuiText>
+                )}
+              </EuiFlexItem>
+            </EuiFlexGroup>
           </EuiPanel>
-          {typeof totalEvents === 'number' ? (
+
+          {hasAggregate ? (
             <>
-              <EuiSpacer size="m" />
-              <EuiText size="s" color="subdued">
-                <span>
-                  Window: {data?.window_hours ?? 24}h · {fmtNumber(totalEvents)} events
-                </span>
-              </EuiText>
+              <EuiSpacer size="l" />
+
+              {/* Headline stat tiles */}
+              <EuiFlexGroup gutterSize="m" wrap>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <StatTile
+                    label="Events"
+                    value={totalEvents !== undefined ? fmtNumber(totalEvents) : '—'}
+                    icon="visBarVerticalStacked"
+                    accent={COLORS.primary}
+                    sub={`last ${window}h`}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <StatTile
+                    label="Unique source IPs"
+                    value={uniqueIps !== undefined ? fmtNumber(uniqueIps) : '—'}
+                    icon="globe"
+                    accent={COLORS.accent}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <StatTile
+                    label="Rule types"
+                    value={byRule.length ? fmtNumber(byRule.length) : '—'}
+                    icon="tag"
+                    accent={COLORS.warning}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <StatTile
+                    label="Cases opened"
+                    value={casesOpened !== undefined ? fmtNumber(casesOpened) : '—'}
+                    icon="folderOpen"
+                    accent={COLORS.success}
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+
+              <EuiSpacer size="l" />
+
+              {/* Top-N breakdowns */}
+              <div className="socGrid">
+                {byRule.length ? (
+                  <Card title="Top rules" icon="tag" accent={COLORS.warning}>
+                    <BarList items={byRule.slice(0, 8)} format={fmtNumber} />
+                  </Card>
+                ) : null}
+                {topIps.length ? (
+                  <Card title="Top source IPs" icon="globe" accent={COLORS.primary}>
+                    <BarList items={topIps.slice(0, 8)} format={fmtNumber} />
+                  </Card>
+                ) : null}
+                {topUsers.length ? (
+                  <Card title="Top users" icon="user" accent={COLORS.accent}>
+                    <BarList items={topUsers.slice(0, 8)} format={fmtNumber} />
+                  </Card>
+                ) : null}
+                {topHosts.length ? (
+                  <Card title="Top hosts" icon="storage" accent={COLORS.success}>
+                    <BarList items={topHosts.slice(0, 8)} format={fmtNumber} />
+                  </Card>
+                ) : null}
+                {bySeverity.length ? (
+                  <Card title="By severity" icon="alert" accent={COLORS.danger}>
+                    <BarList
+                      items={bySeverity.map((s) => ({ ...s, label: humanizeToken(s.label) }))}
+                      format={fmtNumber}
+                    />
+                  </Card>
+                ) : null}
+              </div>
             </>
-          ) : null}
+          ) : (
+            <>
+              <EuiSpacer size="l" />
+              <EmptyState
+                iconType="visText"
+                title="No activity in this window"
+                body="The standup ran but found no aggregated log activity to break down."
+              />
+            </>
+          )}
         </>
       )}
     </div>
