@@ -20,6 +20,7 @@ import {
 } from '@elastic/eui';
 import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
 import { COLORS, riskHex, statusHex, tint, verdictColor } from '../../lib/theme';
+import { Sparkline } from './charts';
 
 /* ----------------------------------------------------------------- badges -- */
 
@@ -224,4 +225,101 @@ export const PreviewPill: React.FC = () => (
   <EuiBadge color={COLORS.accent} iconType="beaker">
     Preview
   </EuiBadge>
+);
+
+/* ---------------------------------------------------------------- card ----- */
+
+interface CardProps {
+  title?: React.ReactNode;
+  icon?: string;
+  accent?: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+  clickable?: boolean;
+  onClick?: () => void;
+  accentLeft?: string;
+  paddingSize?: 'm' | 'l';
+}
+
+/** A titled panel with an optional icon chip + actions row — the workhorse
+ *  container for dashboard widgets and case/source cards. */
+export const Card: React.FC<CardProps> = ({
+  title,
+  icon,
+  accent = COLORS.primary,
+  actions,
+  children,
+  clickable,
+  onClick,
+  accentLeft,
+  paddingSize = 'm',
+}) => (
+  <EuiPanel
+    hasBorder
+    paddingSize={paddingSize}
+    className={`socCard${clickable ? ' socCard--clickable' : ''}${accentLeft ? ' socAccentLeft' : ''}`}
+    style={accentLeft ? { borderLeftColor: accentLeft } : undefined}
+    onClick={onClick}
+  >
+    {(title || actions) && (
+      <>
+        <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
+          {icon ? (
+            <EuiFlexItem grow={false}>
+              <IconChip icon={icon} accent={accent} />
+            </EuiFlexItem>
+          ) : null}
+          <EuiFlexItem>
+            <EuiTitle size="xxs">
+              <h3>{title}</h3>
+            </EuiTitle>
+          </EuiFlexItem>
+          {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
+        </EuiFlexGroup>
+        <EuiSpacer size="m" />
+      </>
+    )}
+    {children}
+  </EuiPanel>
+);
+
+/* ------------------------------------------------------------- trend stat -- */
+
+interface TrendStatProps {
+  label: string;
+  value: React.ReactNode;
+  icon?: string;
+  accent?: string;
+  sub?: React.ReactNode;
+  spark?: number[];
+}
+
+/** A KPI tile with an optional sparkline footer. */
+export const TrendStat: React.FC<TrendStatProps> = ({
+  label,
+  value,
+  icon,
+  accent = COLORS.primary,
+  sub,
+  spark,
+}) => (
+  <EuiPanel hasBorder paddingSize="m" className="socStat" style={{ borderTop: `3px solid ${accent}` }}>
+    <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
+      {icon ? (
+        <EuiFlexItem grow={false}>
+          <IconChip icon={icon} accent={accent} />
+        </EuiFlexItem>
+      ) : null}
+      <EuiFlexItem>
+        <EuiText size="xs" color="subdued"><span>{label}</span></EuiText>
+        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+        {sub ? <EuiText size="xs" color="subdued"><span>{sub}</span></EuiText> : null}
+      </EuiFlexItem>
+    </EuiFlexGroup>
+    {spark && spark.length > 1 ? (
+      <div style={{ marginTop: 8 }}>
+        <Sparkline values={spark} color={accent} height={36} />
+      </div>
+    ) : null}
+  </EuiPanel>
 );

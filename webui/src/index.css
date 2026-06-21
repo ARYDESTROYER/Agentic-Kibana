@@ -1,4 +1,6 @@
-/* Base reset; EUI theme stylesheets are injected at runtime (see lib/euiTheme.ts). */
+/* Base reset + console polish. EUI theme stylesheets are injected at runtime
+   (see lib/euiTheme.ts); these classes layer presentation on top and work in
+   both light and dark EUI themes. */
 html,
 body,
 #root {
@@ -10,4 +12,121 @@ body,
 body {
   font-family:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* --- Brand bar: a thin gradient accent under the fixed header. --- */
+.socBrandAccent {
+  height: 3px;
+  background: linear-gradient(90deg, #1c66e0 0%, #8a55c9 50%, #00a38c 100%);
+}
+
+/* --- Logo mark (gradient rounded square with a glyph). --- */
+.socLogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #1c66e0 0%, #8a55c9 100%);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(28, 102, 224, 0.35);
+}
+
+/* --- Interactive cards: subtle lift on hover (used by case/source cards). --- */
+.socCard {
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+.socCard--clickable {
+  cursor: pointer;
+}
+.socCard--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+/* --- Stat tiles: gentle hover sheen. --- */
+.socStat:hover {
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+/* --- Left accent bar utility (verdict/status/risk coloured edge). --- */
+.socAccentLeft {
+  border-left-width: 4px !important;
+  border-left-style: solid !important;
+}
+
+/* --- A responsive auto-fit grid for dashboard tiles / card boards. --- */
+.socGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.socGrid--cards {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+/* --- Kanban board lanes. --- */
+.socBoard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.socLane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+  padding: 4px;
+}
+
+/* --- Chat transcript bubbles. --- */
+.socChat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.socBubble {
+  max-width: 760px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.socBubble--user {
+  align-self: flex-end;
+  background: linear-gradient(135deg, #1c66e0 0%, #2f74e8 100%);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.socBubble--assistant {
+  align-self: flex-start;
+  background: rgba(105, 112, 125, 0.12);
+  border-bottom-left-radius: 4px;
+}
+
+/* --- Thin, unobtrusive scrollbars for lanes / transcripts. --- */
+.socLane::-webkit-scrollbar,
+.socChat::-webkit-scrollbar {
+  width: 8px;
+}
+.socLane::-webkit-scrollbar-thumb,
+.socChat::-webkit-scrollbar-thumb {
+  background: rgba(105, 112, 125, 0.35);
+  border-radius: 8px;
+}
+
+/* --- Muted monospace for query/code snippets. --- */
+.socMono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  background: rgba(105, 112, 125, 0.1);
+  padding: 2px 6px;
+  border-radius: 6px;
 }

@@ -1,9 +1,21 @@
 /**
- * Cases / dashboard — the default landing surface. Lists recent cases from
- * GET /api/cases with headline counts. Minimal but functional.
+ * Cases / dashboard — the default landing surface and the entry point to the
+ * core analyst workflow. Lists recent cases (GET /api/cases) with headline
+ * counts and a status filter; clicking any row opens the CaseDetailFlyout where
+ * the analyst reviews evidence, the agent trace, the timeline, and takes a
+ * lifecycle action.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { EuiBasicTable, EuiButton, EuiFlexGroup, EuiFlexItem, EuiSpacer } from '@elastic/eui';
+import {
+  EuiBasicTable,
+  EuiButton,
+  EuiFilterButton,
+  EuiFilterGroup,
+  EuiFlexGroup,
+  EuiFlexItem,
+  EuiSpacer,
+} from '@elastic/eui';
+import type { EuiBasicTableColumn } from '@elastic/eui';
 import type { Case } from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS } from '../../lib/theme';
@@ -18,18 +30,32 @@ import {
   StatusBadge,
   VerdictBadge,
 } from '../common/ui';
+import { CaseDetailFlyout } from './CaseDetailFlyout';
+
+type StatusFilter = 'all' | 'open' | 'needs_human' | 'closed';
+
+const FILTERS: Array<{ key: StatusFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'open', label: 'Open' },
+  { key: 'needs_human', label: 'Needs human' },
+  { key: 'closed', label: 'Closed' },
+];
 
 export const CasesPage: React.FC = () => {
   const [cases, setCases] = useState<Case[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.listCases({ limit: 50 });
+      const query: Record<string, unknown> = { limit: 50 };
+      if (statusFilter !== 'all') query.status = statusFilter;
+      const res = await api.listCases(query);
       setCases(res.cases);
       setTotal(res.total);
     } catch (e) {
@@ -37,7 +63,7 @@ export const CasesPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [statusFilter]);
 
   useEffect(() => {
     void load();
@@ -55,13 +81,59 @@ export const CasesPage: React.FC = () => {
     return { open, needsHuman, truePositive };
   }, [cases]);
 
-  const columns = [
-    { field: 'title', name: 'Title', render: (_: unknown, c: Case) => c.title || c.case_id },
-    { field: 'entity', name: 'Entity', render: (_: unknown, c: Case) => (c.entity ? `${c.entity.type}:${c.entity.value}` : '—') },
-    { field: 'verdict', name: 'Verdict', render: (_: unknown, c: Case) => <VerdictBadge verdict={c.verdict} /> },
-    { field: 'risk_score', name: 'Risk', render: (_: unknown, c: Case) => <RiskBadge score={c.risk_score} /> },
-    { field: 'status', name: 'Status', render: (_: unknown, c: Case) => <StatusBadge status={c.status} /> },
-    { field: 'updated_at', name: 'Updated', render: (_: unknown, c: Case) => humanizeAge(c.updated_at || c.created_at) },
+  const columns: Array<EuiBasicTableColumn<Case>> = [
+    {
+      field: 'title',
+      name: 'Title',
+      render: (_: unknown, c: Case) => (
+        <span style={{ fontWeight: 600 }}>{c.title || c.case_id}</span>
+      ),
+    },
+    {
+      field: 'entity',
+      name: 'Entity',
+      render: (_: unknown, c: Case) =>
+        c.entity ? (
+          <span>
+            {c.entity.type}: <span className="socMono">{c.entity.value}</span>
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      field: 'verdict',
+      name: 'Verdict',
+      render: (_: unknown, c: Case) => <VerdictBadge verdict={c.verdict} />,
+    },
+    {
+      field: 'risk_score',
+      name: 'Risk',
+      render: (_: unknown, c: Case) => <RiskBadge score={c.risk_score} />,
+    },
+    {
+      field: 'status',
+      name: 'Status',
+      render: (_: unknown, c: Case) => <StatusBadge status={c.status} />,
+    },
+    {
+      field: 'updated_at',
+      name: 'Updated',
+      render: (_: unknown, c: Case) => humanizeAge(c.updated_at || c.created_at),
+    },
+    {
+      name: '',
+      width: '40px',
+      actions: [
+        {
+          name: 'Open',
+          description: 'Open case detail',
+          icon: 'expand',
+          type: 'icon',
+          onClick: (c: Case) => setSelectedCaseId(c.case_id),
+        },
+      ],
+    },
   ];
 
   return (
@@ -70,7 +142,11 @@ export const CasesPage: React.FC = () => {
         icon="securityApp"
         title="Cases"
         description="Audited, human-reviewable triage cases."
-        actions={<EuiButton size="s" iconType="refresh" onClick={load}>Refresh</EuiButton>}
+        actions={
+          <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
+            Refresh
+          </EuiButton>
+        }
       />
 
       <EuiFlexGroup gutterSize="m">
@@ -90,6 +166,21 @@ export const CasesPage: React.FC = () => {
 
       <EuiSpacer size="l" />
 
+      <EuiFilterGroup>
+        {FILTERS.map((f) => (
+          <EuiFilterButton
+            key={f.key}
+            hasActiveFilters={statusFilter === f.key}
+            isSelected={statusFilter === f.key}
+            onClick={() => setStatusFilter(f.key)}
+          >
+            {f.label}
+          </EuiFilterButton>
+        ))}
+      </EuiFilterGroup>
+
+      <EuiSpacer size="m" />
+
       {error ? (
         <>
           <ErrorCallout error={error} />
@@ -101,12 +192,32 @@ export const CasesPage: React.FC = () => {
       ) : cases.length === 0 ? (
         <EmptyState
           iconType="securityApp"
-          title="No cases yet"
-          body="Run an investigation or enable background scans to start triaging."
+          title={statusFilter === 'all' ? 'No cases yet' : 'No matching cases'}
+          body={
+            statusFilter === 'all'
+              ? 'Run an investigation or enable background scans to start triaging.'
+              : 'No cases match this status filter. Try "All".'
+          }
         />
       ) : (
-        <EuiBasicTable items={cases} columns={columns} rowHeader="title" />
+        <EuiBasicTable
+          items={cases}
+          columns={columns}
+          rowHeader="title"
+          rowProps={(c: Case) => ({
+            onClick: () => setSelectedCaseId(c.case_id),
+            style: { cursor: 'pointer' },
+          })}
+        />
       )}
+
+      {selectedCaseId ? (
+        <CaseDetailFlyout
+          caseId={selectedCaseId}
+          onClose={() => setSelectedCaseId(null)}
+          onChanged={load}
+        />
+      ) : null}
     </div>
   );
 };

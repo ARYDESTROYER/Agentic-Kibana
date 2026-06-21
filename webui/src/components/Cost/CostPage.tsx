@@ -1,82 +1,292 @@
 /**
- * Cost (preview) — fetches GET /api/usage/summary and renders headline KPIs plus
- * a by-model breakdown table. Minimal port.
+ * Cost & usage — the LLM spend dashboard. Every model call goes through the single
+ * gateway and lands in the cost ledger; this surface reads GET /api/usage/summary
+ * and turns it into trend KPIs, a spend-over-time series, and ranked breakdowns by
+ * model / role / surface plus the top individual cost drivers.
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { EuiBasicTable, EuiButton, EuiFlexGroup, EuiFlexItem, EuiSpacer } from '@elastic/eui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  EuiButton,
+  EuiButtonGroup,
+  EuiFlexGroup,
+  EuiFlexItem,
+  EuiSpacer,
+  EuiText,
+} from '@elastic/eui';
 import type { UsageSummary } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS } from '../../lib/theme';
-import { fmtMoney, fmtNumber, fmtTokens } from '../../lib/format';
-import { ErrorCallout, Loading, PreviewPill, SectionHeader, StatTile } from '../common/ui';
+import { COLORS, chartColor } from '../../lib/theme';
+import { DASH, fmtMoney, fmtNumber, fmtTokens, humanizeToken } from '../../lib/format';
+import { BarList, DonutWithLegend, MiniBars } from '../common/charts';
+import type { Segment } from '../common/charts';
+import {
+  Card,
+  EmptyState,
+  ErrorCallout,
+  Loading,
+  SectionHeader,
+  TrendStat,
+} from '../common/ui';
+
+type UsageRow = { key: string; cost: number; tokens: number; calls: number };
+
+const WINDOWS = [
+  { id: '24', label: '24h', hours: 24 },
+  { id: '168', label: '7d', hours: 168 },
+  { id: '720', label: '30d', hours: 720 },
+] as const;
+
+/** Map ledger `by_*` rows to cost-valued chart segments. */
+function costSegments(rows: UsageRow[] | undefined, palette = false): Segment[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter((r) => r && typeof r.cost === 'number')
+    .map((r, i) => ({
+      label: humanizeToken(r.key) ?? r.key,
+      value: r.cost,
+      color: palette ? chartColor(i) : undefined,
+    }));
+}
 
 export const CostPage: React.FC = () => {
+  const [windowId, setWindowId] = useState<string>('24');
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+
+  const hours = useMemo(
+    () => WINDOWS.find((w) => w.id === windowId)?.hours ?? 24,
+    [windowId],
+  );
+  const windowLabel = useMemo(
+    () => WINDOWS.find((w) => w.id === windowId)?.label ?? '24h',
+    [windowId],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.usageSummary(24));
+      setData(await api.usageSummary(hours));
     } catch (e) {
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hours]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const byModel = data?.by_model || [];
+  const currency = data?.currency;
+  const series = useMemo(
+    () =>
+      Array.isArray(data?.cost_over_time)
+        ? data!.cost_over_time!
+            .filter((p) => p && typeof p.cost === 'number')
+            .map((p) => p.cost)
+        : [],
+    [data],
+  );
+
+  const byModel = useMemo(() => costSegments(data?.by_model as UsageRow[]), [data]);
+  const byRole = useMemo(() => costSegments(data?.by_role as UsageRow[]), [data]);
+  const bySurface = useMemo(() => costSegments(data?.by_surface as UsageRow[], true), [data]);
+  const topDrivers = (data?.top_cost_drivers as UsageRow[]) || [];
+
+  const hasAny =
+    (data?.call_count ?? 0) > 0 ||
+    (data?.total_cost ?? 0) > 0 ||
+    byModel.length > 0 ||
+    series.length > 0;
 
   return (
     <div>
       <SectionHeader
         icon="visLine"
         title="Cost & usage"
-        description="LLM spend metered through the single gateway."
+        description="LLM spend metered through the single gateway cost ledger."
         actions={
-          <>
-            <PreviewPill /> <EuiButton size="s" iconType="refresh" onClick={load}>Refresh</EuiButton>
-          </>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiButtonGroup
+                legend="Time window"
+                buttonSize="s"
+                options={WINDOWS.map((w) => ({ id: w.id, label: w.label }))}
+                idSelected={windowId}
+                onChange={(id) => setWindowId(id)}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
+                Refresh
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         }
       />
+
       {error ? (
         <>
-          <ErrorCallout error={error} />
+          <ErrorCallout error={error} title="Could not load usage" />
           <EuiSpacer size="m" />
         </>
       ) : null}
+
       {loading ? (
         <Loading label="Loading usage…" />
+      ) : !hasAny ? (
+        <EmptyState
+          iconType="visLine"
+          title="No LLM spend recorded yet"
+          body={`Nothing went through the gateway in the last ${windowLabel}. As the agent triages cases, cost and token usage will appear here.`}
+        />
       ) : (
         <>
-          <EuiFlexGroup gutterSize="m">
-            <EuiFlexItem>
-              <StatTile label="Total cost (24h)" value={fmtMoney(data?.total_cost, data?.currency)} icon="currency" accent={COLORS.primary} />
+          {/* KPI row */}
+          <EuiFlexGroup gutterSize="m" wrap>
+            <EuiFlexItem style={{ minWidth: 220 }}>
+              <TrendStat
+                label={`Total cost (${windowLabel})`}
+                value={fmtMoney(data?.total_cost, currency)}
+                icon="currency"
+                accent={COLORS.primary}
+                spark={series.length > 1 ? series : undefined}
+              />
             </EuiFlexItem>
-            <EuiFlexItem>
-              <StatTile label="Total tokens" value={fmtTokens(data?.total_tokens)} icon="visGauge" accent={COLORS.accent} />
+            <EuiFlexItem style={{ minWidth: 220 }}>
+              <TrendStat
+                label="Total tokens"
+                value={fmtTokens(data?.total_tokens)}
+                icon="visGauge"
+                accent={COLORS.accent}
+                sub={`across ${fmtNumber(data?.call_count)} calls`}
+              />
             </EuiFlexItem>
-            <EuiFlexItem>
-              <StatTile label="LLM calls" value={fmtNumber(data?.call_count)} icon="compute" accent={COLORS.success} />
+            <EuiFlexItem style={{ minWidth: 220 }}>
+              <TrendStat
+                label="LLM calls"
+                value={fmtNumber(data?.call_count)}
+                icon="compute"
+                accent={COLORS.success}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem style={{ minWidth: 220 }}>
+              <TrendStat
+                label="Today's cost"
+                value={fmtMoney(data?.today_cost, currency)}
+                icon="clock"
+                accent={COLORS.warning}
+              />
             </EuiFlexItem>
           </EuiFlexGroup>
+
           <EuiSpacer size="l" />
-          {byModel.length ? (
-            <EuiBasicTable
-              items={byModel}
-              columns={[
-                { field: 'key', name: 'Model' },
-                { field: 'cost', name: 'Cost', render: (v: number) => fmtMoney(v, data?.currency) },
-                { field: 'tokens', name: 'Tokens', render: (v: number) => fmtTokens(v) },
-                { field: 'calls', name: 'Calls', render: (v: number) => fmtNumber(v) },
-              ]}
-            />
+
+          {/* Charts grid */}
+          <div className="socGrid">
+            <Card title="Spend over time" icon="visArea" accent={COLORS.primary}>
+              {series.length > 1 ? (
+                <>
+                  <MiniBars values={series} color={COLORS.primary} height={120} />
+                  <EuiSpacer size="xs" />
+                  <EuiText size="xs" color="subdued">
+                    <span>{`${series.length} buckets over the last ${windowLabel}`}</span>
+                  </EuiText>
+                </>
+              ) : (
+                <EuiText size="s" color="subdued">
+                  <span>Not enough data points to chart a trend.</span>
+                </EuiText>
+              )}
+            </Card>
+
+            <Card title="By model" icon="machineLearningApp" accent={COLORS.accent}>
+              {byModel.length ? (
+                <BarList items={byModel} format={(n) => fmtMoney(n, currency)} />
+              ) : (
+                <EuiText size="s" color="subdued">
+                  <span>{DASH}</span>
+                </EuiText>
+              )}
+            </Card>
+
+            <Card title="By role" icon="users" accent={COLORS.warning}>
+              {byRole.length ? (
+                <BarList items={byRole} format={(n) => fmtMoney(n, currency)} />
+              ) : (
+                <EuiText size="s" color="subdued">
+                  <span>{DASH}</span>
+                </EuiText>
+              )}
+            </Card>
+
+            <Card title="By surface" icon="appsApp" accent={COLORS.success}>
+              {bySurface.length ? (
+                <DonutWithLegend
+                  segments={bySurface}
+                  centerValue={fmtMoney(data?.total_cost, currency)}
+                  centerLabel="total"
+                />
+              ) : (
+                <EuiText size="s" color="subdued">
+                  <span>{DASH}</span>
+                </EuiText>
+              )}
+            </Card>
+          </div>
+
+          {topDrivers.length ? (
+            <>
+              <EuiSpacer size="l" />
+              <Card title="Top cost drivers" icon="sortDown" accent={COLORS.danger}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {topDrivers.slice(0, 10).map((d, i) => (
+                    <EuiFlexGroup
+                      key={`${d.key}-${i}`}
+                      gutterSize="m"
+                      alignItems="center"
+                      responsive={false}
+                    >
+                      <EuiFlexItem grow={false}>
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 3,
+                            background: chartColor(i),
+                            display: 'inline-block',
+                          }}
+                        />
+                      </EuiFlexItem>
+                      <EuiFlexItem>
+                        <EuiText size="s">
+                          <span style={{ wordBreak: 'break-word' }}>
+                            {humanizeToken(d.key) ?? d.key}
+                          </span>
+                        </EuiText>
+                      </EuiFlexItem>
+                      <EuiFlexItem grow={false}>
+                        <EuiText size="xs" color="subdued">
+                          <span>{fmtTokens(d.tokens)} tok</span>
+                        </EuiText>
+                      </EuiFlexItem>
+                      <EuiFlexItem grow={false}>
+                        <EuiText size="xs" color="subdued">
+                          <span>{fmtNumber(d.calls)} calls</span>
+                        </EuiText>
+                      </EuiFlexItem>
+                      <EuiFlexItem grow={false}>
+                        <EuiText size="s">
+                          <strong>{fmtMoney(d.cost, currency)}</strong>
+                        </EuiText>
+                      </EuiFlexItem>
+                    </EuiFlexGroup>
+                  ))}
+                </div>
+              </Card>
+            </>
           ) : null}
         </>
       )}
