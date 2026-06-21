@@ -806,3 +806,19 @@
 - Status: in-progress — launching parallel Opus research sub-agents over Vigil + a
   fresh map of our own repo.
 - Next: synthesize findings → recommendations → archive plugin → overhaul.
+
+### 2026-06-21 — orchestrator — Vigil study done; plugin archived; Wave-1 begins
+- Context: 10 Opus sub-agents finished reading Vigil end-to-end (agents, workflows,
+  MCP/tools/skills, LLM/cost, daemon/federation/autonomy, RAG/mempalace, data model,
+  frontend, architecture/philosophy) + a fresh ground-truth map of our own repo.
+- Did: (1) wrote docs/VIGIL_STUDY.md — full synthesis, subsystem-by-subsystem
+  Vigil-vs-us verdicts, ranked port list, anti-patterns, 4-wave overhaul plan.
+  (2) Archived the legacy Kibana plugin: `git mv plugin → archive/kibana-plugin`
+  (45 files, history preserved) + archive/README.md explaining the freeze (we're
+  vendor-neutral; webui is the sole primary surface). (3) Established a GREEN test
+  baseline: created backend/.venv, installed requirements-dev, `pytest -q` = 221
+  passed before any code change.
+- Tests: baseline pytest 221 passed.
+- Status: in-progress — starting Wave 1 (agent personas · plain-text runbooks ·
+  hybrid RAG · tool safety tiers · stronger fencing + pricing provenance).
+- Next: implement Wave 1 additively, keep pytest + webui build green, then commit.
