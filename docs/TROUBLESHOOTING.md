@@ -1,300 +1,382 @@
-# TROUBLESHOOTING.md — TLSOC Agentic Triage Suite
+# TROUBLESHOOTING.md — Agentic SOC Triage Suite
 
-A consolidated symptom → likely cause → fix → confirm playbook spanning build,
-deploy, runtime, and usage. Each entry tells you how to **confirm** the fix.
+A consolidated symptom → likely cause → fix → confirm playbook spanning deploy,
+runtime, and usage of the **vendor-agnostic** suite. Each entry tells you how to
+**confirm** the fix.
 
-- Build-specific deep dive: `plugin/BUILD.md` (Troubleshooting table).
-- Deploy-specific deep dive: `DEPLOY.md` (Deploy failure playbook).
 - How everything is supposed to behave: `docs/USAGE.md`.
+- Day-2 operations: `docs/RUNBOOK.md`.
+- Security posture: `SECURITY.md`.
+- Legacy Kibana-plugin build deep dive: `plugin/BUILD.md`.
 
 Quick triage:
 
 ```bash
-# Backend health (run inside the container, or via the optional published port)
-docker exec tlsoc-backend curl -s localhost:8088/api/health ; echo
-#   -> {"status":"ok","version":"1.0.0","es_connected":true,...,"setup_complete":...}
+# Backend health (the agnostic stack publishes :8088; or exec into the container)
+curl -s localhost:8088/api/health ; echo
+#   -> {"status":"ok","version":"1.0.0","es_connected":...,"store_type":"...","setup_complete":...}
 
-# Same health, but THROUGH the Kibana proxy (proves the plugin path works)
-docker exec kibana curl -fsS http://localhost:5601/api/tlsoc/health ; echo
+# Same health THROUGH the web UI's nginx proxy (proves the SPA → backend path)
+curl -fsS http://localhost:8080/api/health ; echo
 
-# Backend logs (errors, index creation, poll lines)
+# Backend logs (errors, schema bootstrap, poll lines, receiver start)
 docker logs tlsoc-backend --tail=100
 
-# Kibana logs (plugin init / incompatibility)
-docker logs kibana | grep tlsocAgenticTriage
+# Web UI (nginx) logs
+docker logs tlsoc-webui --tail=50
 ```
 
----
-
-## A. Build
-
-| Symptom | Likely cause | Fix | How to confirm |
-|---|---|---|---|
-| Zip builds but UI never loads / 404 on the bundle | Browser bundle silently dropped (missing `BROWSERSLIST_IGNORE_OLD_DATA`) | `export BROWSERSLIST_IGNORE_OLD_DATA=true` and rebuild | `unzip -l <zip> \| grep tlsocAgenticTriage.plugin.js` lists `target/public/tlsocAgenticTriage.plugin.js` |
-| `plugin_helpers ... do not support package plugins` | `kibana.jsonc` used as the manifest | Use `kibana.json` (legacy manifest), not `kibana.jsonc` | Build proceeds; `plugins/tlsoc_agentic_triage/kibana.json` present |
-| Bootstrap/build fails on wrong Node | 8.12 needs Node 18.18.2; 8.19 needs Node 22.22.0 | `nvm use` the version pinned by the Kibana checkout | `node -v` prints the expected version |
-| 8.19 build aborts at `build-shared` (root guard) | Building as root | Install the `yarn` shim that appends `--allow-root` to `yarn kbn …` (BUILD.md), or build as non-root | Build completes past `build-shared` |
-| `[status=403]` for playwright/chromium/ci-stats | Egress allowlist (downloads the build doesn't need) | Ignore; ensure skip env vars are set | Artifact verification still passes |
-| Install/runtime says the plugin is incompatible | Built with wrong `--kibana-version` | Rebuild with the running Kibana's version, or install the matching committed zip | `unzip -p <zip> kibana/tlsocAgenticTriage/kibana.json \| grep kibanaVersion` matches Kibana |
-
-See `plugin/BUILD.md` for the full build recipes and verification block.
+> **`store_type` and `es_connected` are backend-conditional.** With
+> `STATE_BACKEND=postgres` or `sqlite`, the suite's OWN state lives in
+> Postgres/SQLite, not Elasticsearch — `es_connected` then reflects only whether a
+> *pull log source* (if any) is reachable, and `store_type` names the SQL store.
+> Push-only deployments may have no ES at all.
 
 ---
 
-## B. Plugin won't load / version mismatch
+## A. State backend won't come up
 
-**Symptom.** The **TLSOC Agentic Triage** app is missing from the Kibana nav, or
-the install command errors.
+### A1. Postgres unreachable / wrong `STATE_DB_URL`
 
-**Likely cause.** Wrong-version zip; Kibana not restarted after install; or the
-ephemeral `plugins/` dir was wiped by a `docker compose down/up`.
+**Symptom.** Backend exits or logs `connection refused` / `could not translate
+host name` / `password authentication failed`; `GET /api/health` never responds.
+
+**Likely cause.** `STATE_BACKEND=postgres` but `STATE_DB_URL` points at the wrong
+host/port/db, the password is wrong, or Postgres isn't up yet.
 
 **Fix.**
-- Install the **version-matched** zip: 8.12.2 → `tlsocAgenticTriage-8.12.2.zip`,
-  8.19.12 → `tlsocAgenticTriage-8.19.12.zip` (the installer rejects a mismatch).
-- `docker restart kibana` after install.
-- If it disappeared after a compose recreate, re-run the install step (Phase-1
-  install is ephemeral by design).
+- The URL must be a **SQLAlchemy async** URL:
+  `postgresql+asyncpg://<user>:<pass>@<host>:5432/<db>` (the `+asyncpg` driver is
+  mandatory — a bare `postgresql://` URL won't load the async driver).
+- In the agnostic compose the host is the service name `tlsoc-postgres`; the
+  password comes from `TLSOC_PG_PASSWORD` in `.env` (compose fails fast if unset).
+- The backend `depends_on: tlsoc-postgres: condition: service_healthy`, so a slow
+  Postgres delays — not breaks — startup; check `docker logs tlsoc-postgres`.
 
-**How to confirm.** `docker exec kibana ./bin/kibana --version` matches the zip;
-`docker logs kibana | grep tlsocAgenticTriage` shows it initializing with no
-`incompatible` / `failed to load`; the app appears in the nav.
+**How to confirm.** `docker exec tlsoc-postgres pg_isready` → `accepting
+connections`; backend logs `Built async SQL engine` + `SQL state schema ensured`;
+`GET /api/health` returns `store_type` naming the SQL store.
+
+### A2. pgvector extension missing
+
+**Symptom.** Backend logs `Could not ensure pgvector extension (...); RAG uses
+JSON cosine`; RAG works but native kNN does not.
+
+**Likely cause.** The Postgres image lacks the `vector` extension or the role
+can't `CREATE EXTENSION`.
+
+**Fix.** Use the **`pgvector/pgvector:pg16`** image (the agnostic compose already
+does) or install the extension package and grant create privilege. The suite is
+**fail-safe**: without pgvector it degrades to JSON + Python cosine, so this is a
+performance/quality note, not an outage.
+
+**How to confirm.** Backend logs `pgvector extension ensured`;
+`docker exec tlsoc-postgres psql -U tlsoc -d tlsoc -c '\dx'` lists `vector`.
+
+### A3. Chose the wrong `STATE_BACKEND`
+
+**Symptom.** "Where did my cases go?" after a redeploy; data that was there is
+gone, or the backend insists on ES it doesn't have.
+
+**Likely cause.** `STATE_BACKEND` changed between runs. The three backends are
+**separate stores** — switching does **not** migrate data.
+
+- `elasticsearch` (default) — own-state in `tlsoc-agent-*` indices (needs the mgmt
+  key; see C).
+- `postgres` — own-state in Postgres + pgvector (`STATE_DB_URL` required).
+- `sqlite` — own-state in a local file (`./tlsoc.db` by default; zero services).
+
+**Fix.** Pick one and keep it. `postgres` **requires** `STATE_DB_URL` (the suite
+never guesses production credentials — it raises
+`state_backend='postgres' requires state_db_url`). `sqlite` is fine for a
+single-node demo but the file must be on a persistent volume to survive restarts.
+
+**How to confirm.** `GET /api/health` `store_type` matches your intent; the data
+you expect is listed by `GET /api/cases`.
 
 ---
 
-## C. App loads but 502s ("Failed to reach TLSOC backend")
+## B. Web UI build / serve issues
 
-**Symptom.** The app shows *"Could not reach the TLSOC backend: …"* or individual
-tabs error with a 502.
+**Symptom.** `npm run build` fails; the SPA shows a blank page or 502s on `/api`.
 
-**Likely cause.** The Kibana server-side proxy reached Kibana fine, but couldn't
-reach the backend: backend down, wrong container name, or wrong `backendUrl`. The
-proxy returns `502 {"error":"bad_gateway","message":"Failed to reach TLSOC
-backend at …"}` on a fetch failure.
+**Likely cause / fix.**
+- **Type errors at build** — `npm run build` runs `tsc --noEmit` first. Run
+  `npm run typecheck` to see the errors; fix and rebuild.
+- **Blank page in production** — the nginx image serves `dist/`; confirm the build
+  stage ran (`docker logs tlsoc-webui` shows nginx, not a build error) and that
+  `dist/index.html` exists.
+- **`/api` 502 from the SPA** — nginx proxies `/api/` to `http://tlsoc-backend:8088`
+  (`webui/nginx.conf`). Confirm the backend container is named **`tlsoc-backend`**
+  and healthy; LLM calls can be slow, so the proxy uses 300s read/send timeouts.
+- **Dev `/api` not reaching the backend** — `npm run dev` proxies `/api` → `:8088`;
+  point it elsewhere with `BACKEND_URL=http://my-backend:8088 npm run dev`.
+
+**How to confirm.** `curl -fsS http://localhost:8080/api/health` returns
+`{"status":"ok",...}`; the SPA loads and the wizard/console renders.
+
+---
+
+## C. Backend can't reach / own its Elasticsearch state (ES backend only)
+
+> Skip this whole section if `STATE_BACKEND` is `postgres`/`sqlite`.
+
+**Symptom.** With `STATE_BACKEND=elasticsearch`, `health` returns
+`es_connected:false`, or `tlsoc-agent-*` indices never appear.
+
+**Likely cause / fix.**
+- **Read-only key** `ES_API_KEY` (or `TLSOC_ES_API_KEY`) present + scoped to the
+  log indices (`read`, `view_index_metadata`).
+- **Management key** `ES_MGMT_API_KEY` present + scoped to `tlsoc-agent-*`
+  (`read`, `write`, `create_index`, `view_index_metadata`, `manage`) — an
+  under-scoped mgmt key means indices never get created.
+- **CA cert** mounted and `ES_CA_CERT`/`ES_VERIFY_CERTS` set; **ES URL** correct
+  (container-name DNS on the shared network).
+
+**How to confirm.** `GET /api/health` → `es_connected:true`,
+`store_type:RealESClient`; `_cat/indices/tlsoc-agent-*` lists the five indices.
+
+> If `es_store_enabled` is on but ES is unreachable, the backend falls back to an
+> **in-memory** store so the spine still runs — data is not durable until fixed.
+
+---
+
+## D. Connector "Test connection" fails
+
+**Symptom.** The wizard / Sources screen "Test connection"
+(`POST /api/connectors/test`) returns `ok:false` with a message.
+
+**Likely cause / fix (by source type):**
+- **Bad URL / unreachable** — for a pull source, the `es_url` (or equivalent) is
+  wrong or not routable from the backend container. Use the in-cluster container
+  name, not `localhost`.
+- **Bad key / auth** — the read-only API key is wrong, revoked, or under-scoped.
+  Re-mint it scoped to the log pattern (read-only).
+- **TLS / cert** — a private CA isn't trusted: supply the CA PEM (`es_ca_cert`) or,
+  for a throwaway lab only, disable verification.
+- **Field-mapping mismatch → connection OK but NO events.** "Test connection"
+  pings reachability; it does **not** prove your `source_ip_field` / `user_field`
+  / `host_field` / `rule_field` / `time_field` match the source's actual fields.
+  If the mapping is wrong, polling returns rows but correlation/scope find nothing
+  → no cases. Verify the field names against a real document in the source and fix
+  them on the source (`POST /api/sources`).
+
+**How to confirm.** Test returns `ok:true`; a manual `POST /api/poll` returns
+non-zero `polled`/`new`, and `GET /api/cases` populates.
+
+---
+
+## E. Webhook / HEC push returns 401
+
+**Symptom.** A source POSTing to `POST /api/ingest/{source_id}` gets `401`
+(`{"detail":"webhook authentication failed"}`).
+
+**Likely cause.** The receiver's `auth_mode` and the presented credential don't
+match.
 
 **Fix.**
-- Bring up `tlsoc-backend` and keep that exact container name so the default
-  `http://tlsoc-backend:8088` resolves on the shared network.
-- If your backend has a different name/host, set
-  `tlsocAgenticTriage.backendUrl` in `kibana.yml` and restart Kibana.
+- **`auth_mode: bearer`** — the sender must send
+  `Authorization: Bearer <token>` (a `Splunk <token>` or bare token are also
+  accepted), and the source's `token` secret (set via
+  `POST /api/sources/{id}/secrets`) must match. If `token` is unset, bearer mode
+  rejects everything.
+- **`auth_mode: hmac`** — the sender must send the hex HMAC-SHA256 of the **exact
+  body** in `signature_header` (default `X-Signature`; a `sha256=` prefix is
+  tolerated), keyed by the source's `shared_secret`. A different body, encoding, or
+  secret fails the constant-time compare.
+- **`auth_mode: none`** — accepts anything; use **only** behind a trusted proxy.
 
-**How to confirm.**
-`docker exec kibana curl -sS http://localhost:5601/api/tlsoc/health` returns
-`{"status":"ok",...}`; `docker logs tlsoc-backend` shows it listening on 8088.
+Remember per-source secrets live in the **in-memory** tier — after a backend
+restart re-set them (`POST /api/sources/{id}/secrets`) or supply them via env.
 
----
-
-## D. Backend `es_connected: false`
-
-**Symptom.** `health` returns `"es_connected": false`; nothing reads logs; index
-creation may also fail.
-
-**Likely cause.** Bad/missing ES keys, CA cert not mounted, or wrong ES URL.
-
-**Fix (check all):**
-- **Read-only key** `TLSOC_ES_API_KEY` present and scoped to your log indices
-  (`read`, `view_index_metadata`).
-- **Management key** `TLSOC_ES_MGMT_API_KEY` present and scoped to `tlsoc-agent-*`.
-- **CA cert** mounted: `./certs/ca/ca.crt → /certs/ca.crt:ro`, and
-  `ES_CA_CERT=/certs/ca.crt`, `ES_VERIFY_CERTS=true`.
-- **ES URL** `ES_URL=https://elasticsearch:9200` (container-name DNS; the server
-  cert SAN includes `DNS:elasticsearch`).
-
-**How to confirm.** `docker exec tlsoc-backend curl -s localhost:8088/api/health`
-→ `"es_connected": true`; `docker logs tlsoc-backend` shows no TLS/auth errors.
-
-> Note: if `es_store_enabled` is on but ES is unreachable, the backend falls back
-> to an **in-memory** store so the spine still runs — `store_type` in `health`
-> will read an in-memory client name, and data is not durable until ES is fixed.
+**How to confirm.** A correctly-signed/bearered POST returns `{"ok":true,...}`
+with a non-zero ingest count; the 401s stop.
 
 ---
 
-## E. Backend can't create its indices
+## F. A queue receiver raises `ConnectionError: pip install <lib>`
 
-**Symptom.** `es_connected:true` but the `tlsoc-agent-*` indices never appear;
-logs show authorization errors on create/write.
+**Symptom.** A configured Kafka/SQS/Kinesis/Event Hub/Pub-Sub/RabbitMQ/NATS/
+MQTT/Redis-Streams/object-store receiver fails to start; logs show
+`<module> is required for this connector. Install it with: pip install <lib>`.
 
-**Likely cause.** The **management** key is missing or under-scoped.
+**Likely cause.** That receiver's optional client library isn't installed. The
+suite imports broker/cloud clients **lazily** (only when the receiver starts), so
+the base image ships **without** them — a deployment that uses none of these stays
+slim and importable.
 
-**Fix.** Re-mint the mgmt key with
-`read,write,create_index,view_index_metadata,manage` on `tlsoc-agent-*`
-(see `DEPLOY.md` step 2 / `.env.example`).
+**Fix.** Install the library named in the error (it's also in the manifest's
+`requires_pip`), then restart the backend:
 
-**How to confirm.**
-`curl -k -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cat/indices/tlsoc-agent-*?v`
-lists `tlsoc-agent-cases-*`, `-audit-*`, `-usage-*`, plus `tlsoc-agent-config` and
-`tlsoc-agent-cursor`.
+| Source type | `requires_pip` |
+|---|---|
+| `kafka` | `confluent-kafka` |
+| `aws_sqs`, `aws_kinesis`, `s3` | `boto3` |
+| `azure_event_hub` | `azure-eventhub` |
+| `gcp_pubsub` | `google-cloud-pubsub` |
+| `rabbitmq` | `aio-pika` |
+| `nats` | `nats-py` |
+| `mqtt` | `paho-mqtt` |
+| `redis_streams` | `redis` |
+| `gcs` | `google-cloud-storage` |
+| `azure_blob` | `azure-storage-blob` |
 
----
+Add it to a derived backend image (recommended) or `pip install` into the running
+container for a quick test. `webhook`, `hec`, `syslog`, and `file` are stdlib-only
+(`requires_pip: []`).
 
-## F. No cases appear
-
-**Symptom.** Alerts / Investigate and Automated Scans are empty after deploy.
-
-**Likely cause.** Nothing is in scope, or no poll has run yet.
-
-**Fix.**
-- Lower **`severity_threshold`** (default 0.0 means "no threshold"; a high value
-  filters everything out).
-- Check **`in_scope_rules`** (empty = all rules) and **`excluded_rules`** — make
-  sure your rules aren't excluded.
-- Check **suppression_rules** aren't dropping the events.
-- Confirm there are recent in-scope events in the data view, then **run a poll**.
-
-**How to confirm.** `POST /api/poll` returns non-zero `polled`/`clusters`; after
-it, `GET /api/cases` lists cases and the **Alerts / Investigate** table populates.
-
----
-
-## G. Duplicate cases (this should not happen)
-
-**Symptom.** You expect to see two cases for the same entity.
-
-**Why it doesn't happen.** Cases are keyed by an **entity-centric cluster
-signature** (one open case per `(entity_type, entity_value)`). Re-polling a window
-**attaches** new events to the existing open case (idempotently — nothing is added
-if there's nothing new) instead of creating a duplicate. The durable cursor uses
-an inclusive lower bound + boundary-id dedup, so events are neither skipped nor
-reprocessed.
-
-**If you genuinely see duplicates.** That implies two *different* open cases for
-the same entity, which the signature prevents — check that you aren't comparing a
-closed (historical) case with a newly-opened one for the same entity (a closed
-case does not block a new open case for later activity), and confirm the entity
-values are byte-identical.
+**How to confirm.** Backend logs `Started push receiver <id> (<type>)` with no
+`Could not start receiver` error.
 
 ---
 
-## H. Enrichment / RAG / Standup "degraded"
+## G. A push / syslog receiver isn't receiving
 
-**Symptom.** Enrichment context is thin, RAG seems weak, or standup shows the
-deterministic fallback summary.
+**Symptom.** A configured syslog/Kafka/queue source shows no events; webhook posts
+work but socket/syslog forwarding doesn't.
 
-**Likely cause.** Missing optional keys — by design these degrade gracefully:
+**Likely cause / fix.**
+- **Port not published.** Socket receivers (syslog) bind a port **inside** the
+  container (default `514`, configurable `bind_host`/`port`/`protocol`). Docker
+  must **publish** that port for external forwarders to reach it — the agnostic
+  compose leaves push ports commented; add e.g. `- "1514:1514/udp"` (and/or
+  `/tcp`) and recreate the backend. Privileged ports (<1024) need
+  `CAP_NET_BIND_SERVICE` or a high host port.
+- **Receiver didn't start.** Background receivers start on app startup and on
+  source save; a missing optional dep (section F) or a config error stops them —
+  check `docker logs tlsoc-backend` for `Started push receiver` vs `Could not
+  start receiver`.
+- **Webhook/HEC are route-driven, not background tasks** — they only receive via
+  `POST /api/ingest/{id}`; there is no port to publish for them.
 
+**How to confirm.** Send a test datagram/message; `GET /api/cases` (or the poll
+stats) shows new activity; logs show the receiver emitting batches.
+
+---
+
+## H. No cases appear
+
+**Symptom.** Cases / Scans are empty after deploy.
+
+**Likely cause / fix.**
+- **Nothing in scope.** Lower `severity_threshold` (a high value filters
+  everything); check `in_scope_rules` (empty = all) and `excluded_rules`; confirm
+  `suppression_rules` aren't dropping the events.
+- **Correlation threshold not met.** The default correlation is `threshold`, `n=5`
+  in a 120s window — a handful of stray events won't form a cluster. Lower `n`,
+  widen `window_seconds`, or use `every` for rare/high-sev rules.
+- **Source field-mapping wrong** (pull) — see D: rows arrive but the entity/rule
+  fields don't resolve, so nothing correlates. Verify the mapping.
+- **No poll / no push yet.** For pull sources run `POST /api/poll`; for push
+  sources confirm the receiver is up (F/G) and the source is sending.
+
+**How to confirm.** `POST /api/poll` returns non-zero counts; `GET /api/cases`
+lists cases.
+
+---
+
+## I. Duplicate cases (this should not happen)
+
+Cases are keyed by an **entity-centric cluster signature** (one open case per
+`(entity_type, entity_value)`). Re-polling **attaches** new events to the existing
+open case instead of creating a duplicate; the durable cursor uses an inclusive
+lower bound + boundary-id dedup. If you genuinely see two *open* cases for the same
+entity, confirm the entity values are byte-identical (a closed historical case does
+not block a new open case for later activity).
+
+---
+
+## J. Enrichment / RAG / Standup "degraded"
+
+**Symptom.** Thin enrichment, weak RAG, or the deterministic standup fallback.
+
+**Likely cause (by design these degrade gracefully).**
 - **Enrichment** (AbuseIPDB/VirusTotal): without keys, reputation context is
-  limited; GeoIP already present in logs is still read.
+  limited; GeoIP already in the source is still read.
 - **RAG embeddings**: without an embedding/OpenAI key, the gateway **falls back to
-  local hashing embeddings** so RAG keeps working.
+  local hashing embeddings**; on Postgres without pgvector, to JSON cosine.
 - **Standup**: if the summariser model is unavailable, it returns the
-  **deterministic** summary (ends with *"(LLM summary unavailable; this is the
-  deterministic aggregate.)"*).
+  **deterministic** summary.
 
-**Fix.** Add the relevant keys (`TLSOC_ABUSEIPDB_API_KEY`,
-`TLSOC_VIRUSTOTAL_API_KEY`, `TLSOC_EMBEDDING_API_KEY` / `TLSOC_OPENAI_API_KEY`),
-or accept the degraded-but-working behavior.
+**Fix.** Add the relevant keys (`ABUSEIPDB_API_KEY`, `VIRUSTOTAL_API_KEY`,
+`EMBEDDING_API_KEY` / `OPENAI_API_KEY`), or accept degraded-but-working behaviour.
 
-**How to confirm.** The usage ledger records provider failures as **`outcome:
-error`** rows — look for them in the **Cost** tab breakdowns or query
-`tlsoc-agent-usage-*` for `outcome: error`. A successful standup summary that is
-*not* the deterministic fallback means the model is reachable.
+**How to confirm.** The usage ledger records provider failures as `outcome: error`
+(visible in the **Cost** summary). A standup summary that is *not* the
+deterministic fallback means the model is reachable.
 
 ---
 
-## I. Cost panel empty
+## K. Cost panel empty
 
-**Symptom.** The Cost tab shows zeros / no breakdowns.
+**Symptom.** `GET /api/usage/summary` shows zeros.
 
-**Likely cause.** No LLM calls have been made yet in the window, or the usage
-index isn't being written (ES not connected / mgmt key issue).
+**Likely cause / fix.** No LLM calls in the window yet, or the usage store isn't
+being written (ES backend not connected / mgmt-key issue; on SQL, a DB write
+failure). Run something that calls a model (investigate, chat, standup), then
+re-check. Candidate cases registered by the poller cost **nothing** (deterministic
+risk only), so a queue of candidates with an empty Cost panel is expected.
 
-**Fix.** Run something that calls a model (investigate an entity, ask a chat
-question, load standup), then refresh. If still empty, check `es_connected` and
-the mgmt-key scope (sections D and E) — usage is written to `tlsoc-agent-usage-*`.
-
-**How to confirm.** `curl -s "localhost:8088/api/usage/summary?window_hours=24"`
-returns non-zero `call_count`/`total_tokens`; the Cost tab tiles update.
-
-> Candidate cases registered by the poller cost **nothing** (deterministic risk
-> only), so a queue full of candidates with an empty Cost panel is expected until
-> an actual investigation or chat runs.
+**How to confirm.** `GET /api/usage/summary?window_hours=24` returns non-zero
+`call_count`/`total_tokens`.
 
 ---
 
-## J. Dashboards import issues
+## L. Kill switch engaged
 
-**Symptom.** The Audit / Cost & Tokens dashboards won't import or show "missing
-references".
-
-**Likely cause.** The `tlsoc-agent-*` data views (index patterns) aren't present,
-or the indices don't exist yet.
-
-**Fix.** Ensure the backend created its indices first (sections D/E), then import
-`deploy/dashboards/tlsoc-dashboards.ndjson` (which bundles the dashboards and the
-three `tlsoc-agent-*` data views). If you need only the patterns, import
-`deploy/dashboards/tlsoc-index-patterns.ndjson`.
-
-**How to confirm.** Stack Management → Saved Objects lists the **Audit** and
-**Cost & Tokens** dashboards and the `tlsoc-agent-*` data views; opening a
-dashboard renders panels (populating as cases/usage accrue).
-
----
-
-## K. Kill switch engaged
-
-**Symptom.** Polling stopped and investigations return a `needs_human` case with
+**Symptom.** Polling stopped; investigations return a `needs_human` case with
 *"Kill switch engaged; investigation skipped."*
 
-**Likely cause.** `caps.kill_switch` is on (a deliberate global emergency stop).
+**Fix.** Settings → **Caps & kill switch** → uncheck **Kill switch** → Save (or
+`PUT /api/settings -d '{"caps":{"kill_switch":false}}'`). With `setup_complete`
+true and `polling_enabled` true, saving restarts the poller.
 
-**Fix.** Settings → **Caps & kill switch** → uncheck **Kill switch** → Save. With
-`setup_complete` true and `polling_enabled` true, saving restarts the poller.
-
-**How to confirm.** `GET /api/settings` shows `caps.kill_switch: false`; a
-subsequent `POST /api/poll` investigates/registers normally.
+**How to confirm.** `GET /api/settings` shows `caps.kill_switch:false`; a
+subsequent `POST /api/poll` runs normally.
 
 ---
 
-## L. "Everything routes to NEEDS_HUMAN"
+## M. "Everything routes to NEEDS_HUMAN"
 
 **Symptom.** Every case lands in `needs_human`, often with low/zero confidence.
 
-**Likely cause.** No or invalid LLM key → the system **fails safe to a human**.
-The router defaults to UNCERTAIN when unavailable, and any pipeline failure yields
-a `needs_human` case rather than dropping the alert. (Chat shows the "assistant
-unavailable (no model configured)" message in the same situation.)
+**Likely cause.** No or invalid LLM key → the system **fails safe to a human**
+(the router defaults to UNCERTAIN; any pipeline failure yields `needs_human`
+rather than dropping the alert). Chat shows "assistant unavailable" in the same
+situation.
 
-**Fix.** Configure a valid provider key (Settings → credentials should show
-`anthropic_api_key: configured ✓` and/or `openai_api_key: configured ✓`); confirm
-the per-role model names are valid for that provider.
+**Fix.** Configure a valid provider key (Settings shows `anthropic_api_key:
+configured ✓` and/or `openai_api_key: configured ✓`); confirm the per-role model
+names are valid for that provider.
 
-**How to confirm.** Settings shows the provider as configured; the usage ledger
-stops logging `outcome: error` for completions; new investigations produce real
-TRUE_POSITIVE / FALSE_POSITIVE verdicts instead of fail-safe `needs_human`.
+**How to confirm.** The provider shows configured; the usage ledger stops logging
+`outcome: error` for completions; new investigations produce real verdicts.
 
-> This is fail-safe behavior, not a bug: it is always preferable to route an alert
-> to a human than to silently dismiss it.
+> This is fail-safe behaviour, not a bug: routing to a human beats silently
+> dismissing an alert.
 
 ---
 
-## M. Settings won't save / read-only
+## N. Settings won't save / read-only
 
-**Symptom.** The Settings form is disabled with a "Settings are in read-only
-mode" banner, or a PUT returns `403 Settings are in read-only mode`.
+**Symptom.** The Settings form is disabled, or a PUT returns `403 Settings are in
+read-only mode`.
 
-**Likely cause.** `read_only_settings_mode` is on.
-
-**Fix.** Disable it (the PUT that turns it off must set
-`read_only_settings_mode: false`). Programmatically:
+**Fix.** Disable `read_only_settings_mode` (the PUT that turns it off must set
+`read_only_settings_mode: false`):
 `curl -X PUT .../api/settings -d '{"read_only_settings_mode": false}'`.
 
-**How to confirm.** `GET /api/settings` returns `"read_only": false`; the form is
-editable again.
+**How to confirm.** `GET /api/settings` returns `"read_only": false`.
 
 ---
 
-## N. Invalid `correlation_rules` JSON
+## O. Invalid `correlation_rules` JSON
 
-**Symptom.** The per-rule correlation editor shows
-*"correlation_rules: invalid JSON (not saved until valid)"* and changes don't
-persist.
+**Symptom.** The per-rule correlation editor shows an invalid-JSON hint and
+changes don't persist; a PUT returns `422 Invalid settings`.
 
-**Likely cause.** The JSON in the textarea is malformed.
+**Fix.** Make it valid JSON — a map of rule value → `{ mode, n, window_seconds,
+group_by }` (see `docs/USAGE.md` §9). A `422` means schema validation failed (e.g.
+`n < 1`, unknown `mode`/`group_by`).
 
-**Fix.** Make it valid JSON: a map of rule value → `{ mode, n, window_seconds,
-group_by }` (see `docs/USAGE.md` §7). Once valid, the hint clears and **Save
-settings** persists it. A `422 Invalid settings` from a PUT means the values
-failed schema validation (e.g. `n < 1`, or an unknown `mode`/`group_by`).
-
-**How to confirm.** Save succeeds; `GET /api/settings` shows your
-`correlation_rules` map.
+**How to confirm.** Save succeeds; `GET /api/settings` reflects your map.

@@ -68,8 +68,32 @@ npm run typecheck    # type check only
 npm run preview      # preview the production build
 ```
 
-The build emits a static `dist/` you can serve from any web server (or from the
-backend itself) behind a reverse proxy that forwards `/api` to the FastAPI app.
+The build emits a static `dist/` you can serve from any web server behind a
+reverse proxy that forwards `/api` to the FastAPI backend.
+
+## Production (Docker)
+
+The container path bundles the build + an nginx that serves the SPA and
+reverse-proxies the API — the browser only ever calls **relative** `/api/*` paths,
+so it never needs to know the backend's address (no CORS, no Kibana proxy):
+
+- **`webui/Dockerfile`** — multi-stage: `node:22-alpine` runs `npm ci` +
+  `npm run build`, then `nginx:1.27-alpine` serves `dist/`.
+- **`webui/nginx.conf`** — `location /api/` proxies to `http://tlsoc-backend:8088`
+  (300s timeouts for long LLM investigations); everything else falls back to
+  `index.html` (SPA routing); hashed assets are long-cached, `index.html` is not.
+
+The agnostic stack builds and runs this image as the `tlsoc-webui` service and
+publishes it on **:8080**:
+
+```bash
+# from the repo root
+docker compose -f deploy/docker-compose.agnostic.yml up -d --build
+# then open http://localhost:8080
+```
+
+In production, terminate TLS at a reverse proxy in front of nginx and add your own
+authentication — the SPA is a thin viewer (see `SECURITY.md`).
 
 ## Notes
 

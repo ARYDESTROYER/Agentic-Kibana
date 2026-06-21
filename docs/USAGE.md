@@ -502,7 +502,7 @@ curl -s -X POST localhost:8088/api/ingest/edr-webhook \
   -H 'content-type: application/json' \
   -d '{ "source.ip": "10.10.1.152", "user.name": "alice", "event.module": "sshd",
         "event.severity": 7, "message": "Failed password for alice" }'
-# -> {"ok":true,"ingested":1,"clusters":...,"investigated":...,"candidates":...}
+# -> {"ok":true,"received":1,"clusters":...,"investigated":...,"candidates":...}
 # A bad/missing token returns 401.
 ```
 

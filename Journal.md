@@ -734,3 +734,18 @@
   note under #9; PRESERVED the Journal mandate, §5 non-negotiables, §9, Journal format.
 - Tests: backend 221 passed; webui build clean.
 - Status: done.
+
+### 2026-06-21 — docs agent (usage/ops/security) — usage/ops/security/contrib refresh
+- Context: Refresh the usage/ops/security/contrib docs for the agnostic suite.
+- Did: docs/USAGE.md (standalone UI + wizard, managing pull/push sources, API curl
+  examples incl. /api/connectors, /api/sources, /api/sources/{id}/secrets,
+  /api/ingest); docs/TROUBLESHOOTING.md (Postgres/pgvector, connector test failures,
+  webhook 401, optional-dep ConnectionError, syslog ports, UI build, no-cases);
+  docs/RUNBOOK.md (state-backend ops + pg backup/restore, receiver lifecycle, key
+  rotation, kill switch/budget, scaling); SECURITY.md (per-source secrets, read-only
+  source creds generalised, webhook HMAC/bearer + untrusted push payloads, OCSF
+  unmapped fencing, state-backend security, TLS reverse proxy); CONTRIBUTING.md
+  ("Writing a connector" via the SPI + manifest + entry-point, updated layout);
+  webui/README.md (dev/build + Docker/nginx production serving).
+- Tests: n/a (docs); cross-checked endpoints/paths against source.
+- Status: done.
