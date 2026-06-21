@@ -749,3 +749,24 @@
   webui/README.md (dev/build + Docker/nginx production serving).
 - Tests: n/a (docs); cross-checked endpoints/paths against source.
 - Status: done.
+
+### 2026-06-21 — orchestrator — research roadmap + UI overhaul (pass 1)
+- Context: User asked to (a) research agentic-AI/SOC open-source platforms for what
+  to add next, and (b) overhaul the "ugly" webui.
+- Did (research): ran parallel sub-agents over open-source agentic SOCs (Vigil,
+  AiSOC, FunnyWolf, SecurityClaw, SocTalk, Tracecat, Nemesis), agentic-AI
+  frameworks/patterns (LangGraph HITL/streaming/checkpointing, Langfuse/OpenLLMetry,
+  DeepEval/promptfoo, Mem0, LlamaFirewall, prompt caching), detection-engineering AI
+  (pySigma/SigmAIQ/Uncoder/SigmaGen, CTI-REALM/CyberSOCEval benchmarks), and a
+  codebase gap analysis. Wrote docs/ROADMAP_RESEARCH.md. CRITICAL finding: the
+  FastAPI API has NO auth and the webui→nginx→backend path is open (old model
+  assumed Kibana session) — flagged as #1 priority.
+- Did (UI pass 1): new design-system foundation — charts.tsx (SVG donut/barlist/
+  sparkline/minibars/gauge), Card+TrendStat primitives, index.css polish, branded
+  Shell (logo/wordmark/grouped nav/health), new Overview dashboard as the default
+  landing. webui build green. Committed e319849.
+- Tests: webui `npm run build` green (tsc+vite). Backend untouched.
+- Status: research done; UI pass-1 foundation shipped; UI pass-2 (Case detail
+  flyout + Chat/Investigate/Scans/Standup/Cost) in progress via 3 sub-agents.
+- Next: integrate UI pass-2, full build, commit; then (per roadmap) API auth is the
+  top backend priority.
