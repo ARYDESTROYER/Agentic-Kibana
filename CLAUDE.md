@@ -18,24 +18,37 @@
 
 ## 1. What this is
 
-The **TLSOC Agentic Triage Suite** is an agentic SOC (Security Operations Center)
-triage system for the TrustLab / IIT Bombay ELK pipeline. It sits **next to** an
-existing production pipeline as a **read-only consumer** and turns raw alert
-volume into audited, cost-metered, human-reviewable cases.
+The **TLSOC Agentic Triage Suite** is a **vendor-agnostic** agentic SOC (Security
+Operations Center) triage system. It turns raw alert volume into audited,
+cost-metered, human-reviewable cases. It was **built next to** the original
+TrustLab / IIT Bombay ELK pipeline and still attaches to it cleanly as a
+**read-only consumer**, but it is no longer tied to that one stack:
 
-Upstream pipeline (we do NOT modify it):
+- **Source-agnostic ingest.** Log sources are pluggable **connectors**
+  (`backend/app/connectors/`): pull (Elasticsearch/OpenSearch/Wazuh) + 16 push /
+  queue / object-store receivers. Every connector normalises native records into
+  **OCSF** (`backend/app/ocsf/`), the canonical internal schema.
+- **Selectable state backend.** The suite's OWN bookkeeping runs on Elasticsearch
+  (default), PostgreSQL+pgvector, or SQLite via `STATE_BACKEND`.
+- **Standalone web UI** is the **primary** surface; the Kibana plugin is legacy.
+
+The original upstream pipeline (when attached, we do NOT modify it):
 ```
 rsyslog (omkafka) → Kafka → foss-soc-engine → Logstash → Elasticsearch (all-logs-*) → Kibana
 ```
 
-Two components, loosely coupled:
-- **Backend** (`backend/`) — FastAPI + LangGraph. ALL the agentic logic: polling,
-  correlation, risk scoring, the two-tier LLM investigation, the deterministic
-  case manager, tools (es_query/enrich/rag), the single LLM gateway + cost ledger,
-  and the suite's own Elasticsearch indices.
-- **Plugin** (`plugin/tlsoc_agentic_triage/`) — a thin Kibana plugin (React + EUI)
-  that renders the surfaces and talks to the backend ONLY through a Kibana
-  server-side proxy.
+Components, loosely coupled:
+- **Backend** (`backend/`) — FastAPI + LangGraph. ALL the agentic logic:
+  connectors + OCSF normalisation, polling/ingestion, correlation, risk scoring,
+  the two-tier LLM investigation, the deterministic case manager, tools
+  (es_query/enrich/rag), the single LLM gateway + cost ledger, and the suite's own
+  state (ES | Postgres | SQLite) behind a `StateStore` abstraction.
+- **Web UI** (`webui/`) — the **primary** surface: a standalone Vite + React +
+  @elastic/eui SPA (the first-run wizard + console), talking to the backend via an
+  `/api` proxy. Ships in the agnostic compose stack as `tlsoc-webui` (nginx).
+- **Plugin** (`plugin/tlsoc_agentic_triage/`) — **LEGACY/optional**: a thin Kibana
+  plugin (React + EUI) for sites that want the console embedded in an existing
+  Kibana; talks to the backend ONLY through a Kibana server-side proxy.
 
 Authoritative companion docs (keep them in sync when you change behavior):
 `README.md` (overview), `plugin/BUILD.md` (build), `DEPLOY.md` (deploy),
@@ -54,51 +67,75 @@ Authoritative companion docs (keep them in sync when you change behavior):
 ## 3. Architecture (end to end)
 
 ```
-┌──────────────────────── Kibana 8.19.12 ─────────────────────────────────┐
-│ Plugin (browser, React/EUI):                                            │
-│  • In-nav app: Chat · Investigate · Automated Scans · Standup · Cost ·  │
-│    Settings/Wizard                                                       │
-│  • (roadmap) global header chat button + flyout; per-log AI overview    │
-│  TlsocApi (public/lib/api.ts) → core.http → /api/tlsoc/{path}           │
-└───────────────────────────────────────────────┬─────────────────────────┘
-                       Kibana server proxy        │ server/routes/index.ts
-                       /api/tlsoc/{path*} ─────────▶ ${backendUrl}/api/{path}
-                       (backendUrl default http://tlsoc-backend:8088)
-┌──────────────────── tlsoc-backend (FastAPI + LangGraph) ─────────────────┐
-│ poll(durable cursor) → correlate (deterministic) → risk (deterministic)  │
-│   → cost-gate → router (cheap LLM) → investigator (strong LLM, ReAct)     │
-│   → formatter → Case Manager (deterministic close/escalate)              │
-│ tools: es_query (READ-ONLY logs) · enrich (Redis-cached) · rag_retrieve   │
-│ single LLM gateway ──▶ usage/cost ledger (every call)                     │
-│ owns indices: tlsoc-agent-{cases,audit,usage,config,cursor}              │
-└──── read-only key → all-logs-*    ·    mgmt key → tlsoc-agent-* ──────────┘
+┌──────────── PRIMARY surface: standalone Web UI (webui/, Vite+React+EUI) ──────────┐
+│ SPA: Wizard · Chat · Investigate · Automated Scans · Standup · Cost · Settings     │
+│ api (webui/src/lib) → /api proxy (nginx) ───────────────────────▶ tlsoc-backend    │
+└────────────────────────────────────────────────────────────────────────┬──────────┘
+  (LEGACY surface) Kibana plugin → core.http /api/tlsoc/{path*}            │
+  → server proxy (server/routes/index.ts) → ${backendUrl}/api/{path} ─────┤
+┌──────────────────── tlsoc-backend (FastAPI + LangGraph) ─────────────────┴──────────┐
+│ SOURCES (SIEM/EDR/queues/object-stores)                                              │
+│   → CONNECTORS  pull (Elastic/OpenSearch/Wazuh) · push/queue/object receivers (16)   │
+│   → OCSF normalisation (canonical schema)                                            │
+│   → poll(durable cursor) / ingest → correlate (det.) → risk (det.)                   │
+│   → cost-gate → router (cheap LLM) → investigator (strong LLM, ReAct)                 │
+│   → formatter → Case Manager (deterministic close/escalate)                          │
+│ tools: es_query (READ-ONLY logs) · enrich (Redis-cached) · rag_retrieve              │
+│ single LLM gateway ──▶ usage/cost ledger (every call)                                │
+│ StateStore (own bookkeeping): Elasticsearch (tlsoc-agent-*) | PostgreSQL+pgvector |  │
+│   SQLite  ── selected by STATE_BACKEND                                               │
+└──── read-only key → log surface (e.g. all-logs-*)   ·   own state → StateStore ──────┘
 ```
 
 Request path detail (memorize it):
-`browser TlsocApi.get('cases')` → `core.http GET /api/tlsoc/cases` → Kibana route
-`/api/tlsoc/{path*}` (`server/routes/index.ts`) → `fetch(${backendUrl}/api/cases)`
-→ FastAPI route in `backend/app/api/routes.py`. **The proxy forwards arbitrary
-JSON bodies, so additive request fields need NO proxy change.**
+- **Primary (webui):** `webui api.get('cases')` → nginx `/api/*` proxy →
+  `${BACKEND}/api/cases` → FastAPI route in `backend/app/api/routes.py`.
+- **Legacy (Kibana plugin):** `browser TlsocApi.get('cases')` → `core.http GET
+  /api/tlsoc/cases` → Kibana route `/api/tlsoc/{path*}` (`server/routes/index.ts`)
+  → `fetch(${backendUrl}/api/cases)` (default `http://tlsoc-backend:8088`) → same
+  FastAPI route.
+
+**Both proxies forward arbitrary JSON bodies, so additive request fields need NO
+proxy change.**
 
 ## 4. Repository layout
 
 ```
 backend/app/
-  config.py          Secrets (env-only) + Preferences (UI-editable, ~91 fields)
-  constants.py       enums, index names, verdict/role/action types, fences
-  models.py          Pydantic data contracts (Case/AuditDoc/UsageDoc/Cursor/...)
+  config.py          Secrets (env-only; incl. STATE_BACKEND/STATE_DB_URL +
+                     per-source connector_secrets) + Preferences (UI-editable,
+                     incl. sources[] SourceInstance list)
+  constants.py       enums (incl. SourceType/IngestMode/CursorKind + OCSF_VERSION),
+                     index names, verdict/role/action types, untrusted fences
+  models.py          Pydantic data contracts (Case/AuditDoc/UsageDoc/Cursor/
+                     RawEvent/...)
   utils.py           dotted_get, time helpers, extract_json, coerce_float, ...
+  ocsf/              OCSF canonical schema: model (OCSFEvent + unmapped/raw_data) ·
+                     ecs (ECS→OCSF mapping) · generic_to_ocsf
+  connectors/        base (Connector/PullConnector/PushReceiver SPI) · registry
+                     (built-ins + tlsoc.connectors entry points) · elastic ·
+                     opensearch · wazuh · receivers/ (webhook · syslog · queues ·
+                     objectstore · formats · common) — 16 push receivers
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
   tools/             base (MCP-shaped) · es_query · enrich · rag · vectorstore
-  engine/            correlation · risk · cost_gate · case_manager · signatures · poller
+  engine/            correlation · risk · cost_gate · case_manager · signatures ·
+                     poller · ingest (push/queue → OCSF → pipeline)
   agents/            prompts · router · investigator · formatter · chat · standup ·
                      graph (LangGraph) · pipeline · common
-  stores/            cases · usage · config_store · cursor_store    audit/audit_log
-  api/               routes (plugin contract) · deps    state.py (DI hub) · main.py
-backend/tests/       offline tests (fake ES + mock LLM) — MUST stay green
-plugin/tlsoc_agentic_triage/
+  stores/            base (abstract repositories — backend-agnostic StateStore) ·
+                     cases · usage · config_store · cursor_store · audit/audit_log
+                     (ES-backed) · sql/ (engine · models · repositories ·
+                     vectorstore — SQLite/Postgres+pgvector)
+  api/               routes (UI contract; incl. /sources, /sources/{id}/secrets) ·
+                     deps    state.py (DI hub) · main.py
+backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
+webui/               PRIMARY surface: standalone Vite+React+TS+@elastic/eui SPA
+  package.json       Node 22, @elastic/eui 95; build = tsc --noEmit && vite build
+  src/               App.tsx · main.tsx · components/ · lib/ (api etc.)
+  Dockerfile         nginx image (tlsoc-webui) with the /api proxy
+plugin/tlsoc_agentic_triage/   LEGACY/optional Kibana surface
   kibana.json        legacy manifest (the BUILD input; kibanaVersion stamped via --kibana-version)
   kibana.jsonc       in-tree-schema reference only (NOT used by the build)
   common/index.ts    shared TS types (Case, etc.)
@@ -109,7 +146,8 @@ plugin/tlsoc_agentic_triage/
   server/            index.ts · plugin.ts · config.ts · routes/index.ts (the proxy)
 plugin/dist/         committed built zips (8.12.2 + 8.19.12) — deploy artifacts
 plugin/BUILD.md      authoritative build guide (both versions)
-deploy/              docker-compose.tlsoc.yml · mappings/ · dashboards/
+deploy/              docker-compose.agnostic.yml (Postgres+Redis+backend+webui) ·
+                     docker-compose.tlsoc.yml (legacy ELK merge) · mappings/ · dashboards/
 docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md
 .env.example  README.md  DEPLOY.md  COMPATIBILITY.md  CLAUDE.md  Journal.md  ROADMAP.md
 ```
@@ -130,7 +168,9 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md
 8. Enrichment Redis-cached (`tools/enrich.py`, `cache.py`).
 9. Log-derived values are UNTRUSTED DATA in prompts — fenced + labelled
    (`agents/prompts.py`, `UNTRUSTED_OPEN/CLOSE`). Applies to chat context,
-   selections, queries — anything attacker-influenceable.
+   selections, queries — anything attacker-influenceable. The OCSF `unmapped`
+   catch-all and `raw_data` (`ocsf/model.py`) carry source-controlled values and
+   are treated as UNTRUSTED the same way.
 10. Sane defaults; only keys + data scope required to run (`config.py`).
 11. Spine first & tested (Gate 1); breadth degrades gracefully (Gate 2).
 12. Read-only consumer; upstream untouched; cold-deployable.
@@ -141,43 +181,63 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 
 ### 6a. This build/dev sandbox (Claude Code on the web)
 - Ephemeral container; repo cloned fresh; **commit + push or it's lost.**
-- Tooling: `/opt/node22` default on PATH (WRONG for Kibana builds); nvm at
-  `/opt/nvm/nvm.sh` (use the per-version pin); Python 3.11 + `backend/.venv`;
-  Docker daemon can be started (`sudo dockerd &`) but **image registries are
-  BLOCKED** (docker.elastic.co + Docker Hub blobs 403) — you CANNOT pull
-  ES/Kibana images or run the real stack here.
+- Tooling: `/opt/node22` (Node 22) default on PATH — **fine for the `webui` build**,
+  WRONG for the Kibana **plugin** build (use the nvm per-version pin at
+  `/opt/nvm/nvm.sh`); Python 3.11 + `backend/.venv`; Docker daemon can be started
+  (`sudo dockerd &`) but **image registries are BLOCKED** (docker.elastic.co +
+  Docker Hub blobs incl. `pgvector/pgvector` 403) — you CANNOT pull ES/Kibana/
+  Postgres images or run any compose stack here.
 - Network: `github.com`, `pypi.org`, `registry.npmjs.org`, `nodejs.org` reachable.
   BLOCKED by the egress allowlist: container registries, some Chrome/Playwright
   CDNs (`edgedl.me.gvt1.com`, `cdn.playwright.dev`,
   `playwright.download.prss.microsoft.com`), `ci-stats.kibana.dev` (telemetry).
+- **webui (primary surface) builds fully here:** `cd webui && npm install &&
+  npm run build` (= `tsc --noEmit && vite build`); no browser/Playwright needed —
+  the static `dist/` bundle IS the check.
+- **Backend tests run fully offline:** `pytest -q` (fake ES + mock LLM). The SQL
+  state backend is testable on **SQLite** (sqlalchemy+aiosqlite) — no Postgres
+  needed; asyncpg/pgvector are imported lazily.
 - Kibana source checkouts live in `/tmp` (e.g. `/tmp/kibana-8.19`, bootstrapped).
   Keep them warm; `rm -rf` an unused one if disk is tight (~18-22GB free).
-- **Consequence:** we verify builds statically (tsc + unzip + manifest checks) and
-  the backend via offline tests; live install on a real Kibana is a DEPLOY step.
+- **Consequence:** we verify the webui + plugin builds statically (tsc + vite /
+  unzip + manifest checks) and the backend via offline tests; building/running the
+  Docker images (agnostic or legacy compose) is a DEPLOY step.
 
-### 6b. Deploy target (the SIEM server — separate session)
-- `TLSOCDockerDeploy` stack running: containers `elasticsearch`, `kibana`,
-  `logstash`, `kafka` (8.19.12), TLS via local CA under `./certs/`, default Compose
-  network, logs in `all-logs-*` (data view default `fosstlsoc-logs-*` per the
-  wizard — confirm on the live stack).
-- The backend joins that network as `tlsoc-backend`; reaches
-  `https://elasticsearch:9200` by container name; mounts `./certs/ca/ca.crt:ro`.
-- Plugin installed via `kibana-plugin install file://…zip` + restart (ephemeral
-  Phase-1; Phase-2 = derived image/mount).
-- Secrets via `.env` (`TLSOC_*` vars). Wizard-pushed secrets are IN-MEMORY only
-  (lost on backend restart) — `.env` is the durable path.
+### 6b. Deploy target (separate session) — two shapes
+- **Agnostic stack** (`deploy/docker-compose.agnostic.yml`): Postgres+pgvector
+  (`tlsoc-postgres`) + Redis + `tlsoc-backend` (`STATE_BACKEND=postgres`) +
+  `tlsoc-webui` (nginx, port 8080). **No Elasticsearch for the app's own state;**
+  connect SIEM/EDR sources from the wizard.
+- **Legacy ELK merge** (`deploy/docker-compose.tlsoc.yml`): `tlsoc-backend`
+  (`STATE_BACKEND=elasticsearch`, own state in `tlsoc-agent-*`) joins an existing
+  `TLSOCDockerDeploy` stack (`elasticsearch`/`kibana`/`logstash`/`kafka`, 8.19.12,
+  TLS via `./certs/`), reaches `https://elasticsearch:9200` by container name,
+  mounts `./certs/ca/ca.crt:ro`; logs in `all-logs-*` (wizard default data view may
+  be `fosstlsoc-logs-*` — confirm live); legacy plugin zip installed into Kibana.
+- Backend env names are **UNPREFIXED** (`ES_API_KEY`/`STATE_BACKEND`/
+  `STATE_DB_URL`/…); compose maps `.env` `TLSOC_*` → them (see ENVIRONMENT.md §2.3).
+- Global secrets via `.env` (`TLSOC_*`); wizard-pushed global secrets are IN-MEMORY
+  only (lost on restart). Per-source connector secrets via the wizard /
+  `POST /api/sources/{id}/secrets` — also the in-memory secret tier.
 
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green)
+# Backend tests (offline; MUST stay green) — currently 221 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
 python -m pytest -q
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
-# Plugin build for 8.19.12 (see plugin/BUILD.md for the full recipe + troubleshooting)
+# Web UI build (PRIMARY surface; Node 22 — /opt/node22 is fine) — tsc + vite
+cd webui && npm install && npm run build   # produces webui/dist/
+
+# Full agnostic stack (DEPLOY target — NOT runnable in this sandbox: images blocked)
+cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
+docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on :8080
+
+# Plugin build for 8.19.12 (LEGACY; see plugin/BUILD.md for the full recipe + troubleshooting)
 source /opt/nvm/nvm.sh && nvm use "$(cat /tmp/kibana-8.19/.nvmrc)"   # Node 22.22.0
 export PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
        CYPRESS_INSTALL_BINARY=0 CHROMEDRIVER_SKIP_DOWNLOAD=true \
@@ -230,18 +290,29 @@ cd /tmp/kibana-8.19/plugins/tlsoc_agentic_triage && node ../../scripts/plugin_he
 
 ## 10. Current status & roadmap
 
-Current: Phase-1 spine complete + 49 backend tests green; both plugin zips built;
-docs complete. Active work order (see `ROADMAP.md` for live status):
-- **P0** Case detail + lifecycle in the UI.
-- **P1** Case/verdict stability + provenance; RAG improvements.
-- **P2** Risk/verdict correctness.
-- **Feature 1** Global header chat button + context-aware flyout.
-- **Feature 2** Per-log "AI overview" (Discover doc-viewer tab + in-app).
-- **Feature 3** "Why was this triggered" trigger-reason on findings.
-- **Feature 4** Comprehensive settings + per-task model selection.
-- **Feature 5** First-run setup wizard rewrite.
-Every item ends with: rebuild the **8.19.12** zip, `pytest -q` green, plugin
-build verified, docs updated, **Journal updated**, commit + push.
+Current: Phase-1 spine + the vendor-agnostic transition shipped — **221 backend
+tests green**; the standalone **webui builds clean** (tsc+vite); both legacy plugin
+zips still build. See `ROADMAP.md` for live status.
+
+Done (the vendor-agnostic epochs):
+- **Epoch A — Selectable state backend.** `StateStore` abstraction
+  (`stores/base.py`) + SQL backend (`stores/sql/`): SQLite (dev/test) and
+  PostgreSQL+pgvector (prod), selected by `STATE_BACKEND`; ES remains the default.
+- **Epoch B — Connector SPI + OCSF.** `connectors/` SPI + registry; OCSF canonical
+  schema (`ocsf/`); pull connectors (Elasticsearch/OpenSearch) + 16 push/queue/
+  object-store receivers (`connectors/receivers/`) + ingestion (`engine/ingest.py`).
+- **Epoch C — Wazuh connector** (reuses the OpenSearch connector + alert→OCSF).
+- **Epoch D — Standalone web UI + wizard** (`webui/`, Vite+React+EUI) — now the
+  primary surface.
+
+Remaining (see `ROADMAP.md`):
+- Deep UI surface port (parity of all console surfaces into the webui).
+- More pull connectors — **Splunk + Microsoft Sentinel** next (enum'd, not yet built).
+- **Epoch E — scale-out** (Kafka/Redpanda buffer, stateless workers) as needed.
+
+Every item ends with: `pytest -q` green (keep the count current), `webui` build
+clean, the legacy **8.19.12** plugin zip still building, docs updated, **Journal
+updated**, commit + push.
 
 ---
 

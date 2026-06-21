@@ -720,3 +720,17 @@
   stripped a stray journal entry the agent had appended into DEPLOY.md.
 - Tests: n/a (docs). Commands cross-checked against the real artifacts.
 - Status: done.
+
+### 2026-06-21 — docs agent (env/compat/claude) — vendor-agnostic doc refresh
+- Context: Align ENVIRONMENT.md, COMPATIBILITY.md, CLAUDE.md with the agnostic
+  transition (OCSF, pluggable connectors, selectable state backend, standalone
+  webui primary / Kibana plugin legacy).
+- Did: COMPATIBILITY.md = matrix (state backends ES8/PG15-16+pgvector/SQLite; pull
+  Elastic/OpenSearch/Wazuh + 16 receivers w/ requires_pip; OCSF 1.4.0; Py3.11/
+  Node22; plugin legacy). ENVIRONMENT.md both envs (webui toolchain, pytest=221,
+  SQL offline on SQLite, TLSOC_*→backend env mapping table, per-source secrets).
+  CLAUDE.md §1/§3/§4/§6/§7/§10 updated (agnostic framing, connectors/ocsf/stores-sql/
+  webui in layout, 49→221 reconciled, Epoch A/B/C/D status), additive OCSF-unmapped
+  note under #9; PRESERVED the Journal mandate, §5 non-negotiables, §9, Journal format.
+- Tests: backend 221 passed; webui build clean.
+- Status: done.
