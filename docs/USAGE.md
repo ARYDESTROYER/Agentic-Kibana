@@ -288,9 +288,9 @@ only).
 ## 7. Standup (Surface)
 
 Aggregate-then-summarise (`GET /api/standup?window_hours=24`). The backend runs
-near-free aggregations over the window in the configured state/log backend, then
-sends ONLY the compact JSON aggregate to the cheap model for prose — **raw logs
-are never sent to a model**. You get a prose **Summary**, stat tiles (total events
+near-free aggregations over the window (events from the log source, case stats from
+the state store), then sends ONLY the compact JSON aggregate to the cheap model for
+prose — **raw logs are never sent to a model**. You get a prose **Summary**, stat tiles (total events
 · unique IPs · cases opened), the case breakdown by-verdict and by-status, and
 top rules / source IPs / users / hosts.
 
