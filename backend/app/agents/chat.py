@@ -15,6 +15,8 @@ from typing import Any
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
+from ..connectors.base import PullConnector
+from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, Role
 from ..es.base import BaseESClient
 from ..llm.gateway import GatewayError, LLMGateway
@@ -44,8 +46,11 @@ class ChatEngine:
         audit: AuditLogger,
         cases: CaseStore,
         rag: RagService | None = None,
+        source: PullConnector | None = None,
     ) -> None:
         self._es = es
+        # Read-only log surface; defaults to wrapping ``es`` (back-compat).
+        self._source = source or ElasticConnector(es)
         self._gateway = gateway
         self._audit = audit
         self._cases = cases
@@ -112,7 +117,7 @@ class ChatEngine:
             if context and context.time_range:
                 query_params.setdefault("time_from", context.time_range.get("from"))
                 query_params.setdefault("time_to", context.time_range.get("to"))
-            tool = EsQueryTool(self._es, prefs)
+            tool = EsQueryTool(self._source, prefs)
             tr = await tool.run(**{k: v for k, v in query_params.items() if v not in (None, "")})
             await self._audit.record(
                 action_type=ActionType.ES_QUERY, surface=Role.CHAT.value, actor=Role.CHAT.value,

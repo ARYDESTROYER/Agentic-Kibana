@@ -137,3 +137,100 @@ VERDICT_KEYS = (
 # pass can treat fenced content as untrusted DATA without restructuring.
 UNTRUSTED_OPEN = "<<<UNTRUSTED_LOG_DATA>>>"
 UNTRUSTED_CLOSE = "<<<END_UNTRUSTED_LOG_DATA>>>"
+
+
+# --------------------------------------------------------------------------- #
+# Vendor-agnostic ingestion (AGNOSTIC_ARCHITECTURE.md).
+#
+# A "source" is any system we read security events from. Every connector
+# normalises its native records into OCSF (the canonical internal schema) before
+# the engine ever sees them. ``SourceType`` enumerates the connectors we know
+# how to build; ``IngestMode`` enumerates HOW data physically reaches us. A
+# single source may support several modes (e.g. Elasticsearch is PULL; Wazuh is
+# PULL via its indexer AND PUSH via integratord).
+# --------------------------------------------------------------------------- #
+class SourceType(str, Enum):
+    # Pull-based SIEM / log stores
+    ELASTICSEARCH = "elasticsearch"
+    OPENSEARCH = "opensearch"
+    SPLUNK = "splunk"
+    SENTINEL = "sentinel"
+    QRADAR = "qradar"
+    CHRONICLE = "chronicle"
+    # EDR / XDR
+    CROWDSTRIKE = "crowdstrike"
+    SENTINELONE = "sentinelone"
+    DEFENDER = "defender"
+    WAZUH = "wazuh"
+    # Generic transports / receivers (push, queues, object stores)
+    WEBHOOK = "webhook"            # generic HTTP(S) JSON/NDJSON/CEF/LEEF push
+    HEC = "hec"                    # Splunk HEC-compatible receiver
+    SYSLOG = "syslog"             # RFC 3164 / 5424 over UDP/TCP/TLS
+    BEATS = "beats"               # Elastic Lumberjack (Filebeat/Winlogbeat)
+    FLUENTD = "fluentd"           # Fluentd/Fluent Bit forward protocol
+    OTLP = "otlp"                 # OpenTelemetry logs (gRPC/HTTP)
+    KAFKA = "kafka"               # Kafka / Redpanda / Confluent
+    PULSAR = "pulsar"
+    RABBITMQ = "rabbitmq"
+    NATS = "nats"
+    MQTT = "mqtt"
+    REDIS_STREAMS = "redis_streams"
+    AWS_SQS = "aws_sqs"
+    AWS_KINESIS = "aws_kinesis"
+    AZURE_EVENT_HUB = "azure_event_hub"
+    GCP_PUBSUB = "gcp_pubsub"
+    S3 = "s3"                      # S3 / Security Lake (OCSF Parquet), object store
+    GCS = "gcs"
+    AZURE_BLOB = "azure_blob"
+    FILE = "file"                  # local file / directory tail
+    GENERIC = "generic"
+
+
+class IngestMode(str, Enum):
+    """How events physically arrive. Drives the connector driver the engine uses."""
+
+    PULL = "pull"                  # we poll a search/query API on a durable cursor
+    PUSH_HTTP = "push_http"        # we run an HTTP listener; the source POSTs to us
+    PUSH_SYSLOG = "push_syslog"    # we run a syslog listener (UDP/TCP/TLS)
+    PUSH_SOCKET = "push_socket"    # raw TCP/UDP/gRPC line/stream listener
+    QUEUE = "queue"                # we consume a broker (Kafka/SQS/PubSub/...): durable offsets
+    OBJECT_STORE = "object_store"  # we list+get objects (S3/GCS/Blob), cursor = key/marker
+    STREAM = "stream"              # long-lived provider stream (e.g. CrowdStrike Event Streams)
+
+
+# Cursor shapes a connector may use to read incrementally without skip/dup.
+class CursorKind(str, Enum):
+    TIMESTAMP = "timestamp"        # watermark + tiebreaker id (the suite default)
+    TOKEN = "token"                # opaque continuation token (session-scoped)
+    OFFSET = "offset"              # durable broker/partition offset
+    OBJECT_KEY = "object_key"      # last processed object key/marker
+
+
+# --------------------------------------------------------------------------- #
+# OCSF (Open Cybersecurity Schema Framework) — the canonical internal schema.
+# We pin a version and store it on every event (classes are renumbered across
+# minor versions). Only the small, high-traffic subset of categories/classes the
+# triage engine reasons over is enumerated here; the full taxonomy lives in OCSF.
+# --------------------------------------------------------------------------- #
+OCSF_VERSION = "1.4.0"
+
+# Categories (category_uid)
+OCSF_CAT_SYSTEM = 1
+OCSF_CAT_FINDINGS = 2
+OCSF_CAT_IAM = 3
+OCSF_CAT_NETWORK = 4
+OCSF_CAT_DISCOVERY = 5
+OCSF_CAT_APPLICATION = 6
+
+# Classes (class_uid) — the ones connectors map into most often.
+OCSF_CLASS_FILE_ACTIVITY = 1001
+OCSF_CLASS_PROCESS_ACTIVITY = 1007
+OCSF_CLASS_AUTHENTICATION = 3002
+OCSF_CLASS_NETWORK_ACTIVITY = 4001
+OCSF_CLASS_HTTP_ACTIVITY = 4002
+OCSF_CLASS_SECURITY_FINDING = 2001
+OCSF_CLASS_DETECTION_FINDING = 2004
+OCSF_CLASS_BASE_EVENT = 0          # fallback when the source class is unknown
+
+# severity_id (OCSF standard 0..6) → a 0..100 score the risk engine uses.
+OCSF_SEVERITY_TO_SCORE = {0: 0.0, 1: 10.0, 2: 30.0, 3: 50.0, 4: 75.0, 5: 90.0, 6: 100.0}

@@ -13,6 +13,17 @@ pydantic-settings==2.2.1
 # --- Elasticsearch (matches stack 8.12.x) ---
 elasticsearch[async]==8.12.1
 
+# --- SQL state backend (Epoch A: vendor-agnostic OWN-state) ---
+# The suite's own bookkeeping (cases/audit/usage/config/cursor/RAG vectors) can
+# run on SQL instead of Elasticsearch. SQLAlchemy (async) is always needed for a
+# SQL backend; asyncpg + pgvector are the PostgreSQL production drivers and are
+# imported LAZILY (only when state_backend=postgres) so an ES/SQLite deployment
+# does not require them at import time. aiosqlite is the SQLite async driver.
+sqlalchemy>=2.0
+aiosqlite>=0.19
+asyncpg>=0.29
+pgvector>=0.2.5
+
 # --- HTTP client (LLM providers, enrichment) ---
 httpx==0.27.0
 

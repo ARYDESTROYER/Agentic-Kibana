@@ -116,9 +116,18 @@ def index_template_body(base: str, mapping: dict) -> dict:
     }
 
 
-async def bootstrap_indices(es: BaseESClient) -> None:
+async def bootstrap_indices(es: BaseESClient | None) -> None:
     """Idempotently create templates, write indices+aliases, and the single-doc
-    bookkeeping indices. Safe to call on every start."""
+    bookkeeping indices. Safe to call on every start.
+
+    Guard (Epoch A): this only makes sense for the Elasticsearch OWN-state
+    backend. When the suite's state lives in SQL (sqlite/postgres) the caller
+    skips this entirely; as a defensive backstop, a ``None`` client (or one that
+    does not expose the management surface) is a no-op rather than an error, so a
+    non-ES state backend can never crash startup here."""
+    if es is None or not hasattr(es, "index_template_exists"):
+        logger.debug("bootstrap_indices skipped (no ES management client)")
+        return
     for base, mapping in CONTRACT_INDICES.items():
         template_name = f"{base}-template"
         if not await es.index_template_exists(template_name):

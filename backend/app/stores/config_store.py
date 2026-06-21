@@ -12,11 +12,12 @@ import logging
 from ..config import Preferences
 from ..constants import CONFIG_DOC_ID, CONFIG_INDEX
 from ..es.base import BaseESClient
+from .base import ConfigRepository
 
 logger = logging.getLogger("tlsoc.config_store")
 
 
-class ConfigStore:
+class ConfigStore(ConfigRepository):
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
 

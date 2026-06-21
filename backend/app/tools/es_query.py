@@ -1,10 +1,15 @@
 """es_query — the ONLY path to the log surface (Section 6.5).
 
-Read-only, always: it executes through ``BaseESClient.search_logs``, which is
-backed exclusively by the scoped read-only API key. It accepts structured,
-validated parameters (never raw free-form DSL from the model) and renders both
-the executed query and an equivalent KQL string for the one-click Discover
-locator (Section 8.1/8.2).
+Read-only, always. The tool accepts structured, validated parameters (never raw
+free-form DSL from the model) and delegates execution to the active
+:class:`~app.connectors.base.PullConnector` (Elasticsearch, OpenSearch, …). The
+connector compiles the structured query to its native dialect, runs it through
+the scoped read-only credential, and returns normalised events plus a
+:class:`~app.connectors.base.QueryRendering` (the native query string + language)
+for the one-click Discover/deep-link locator (Section 8.1/8.2).
+
+Routing through the connector is what makes the log surface source-agnostic: the
+LLM emits the same structured shape regardless of which SIEM backs the deployment.
 """
 
 from __future__ import annotations
@@ -13,10 +18,7 @@ import logging
 from typing import Any
 
 from ..config import Preferences
-from ..es.base import BaseESClient
-from ..es.querybuilder import ids_query
-from ..models import RawEvent
-from ..utils import relative_to_millis
+from ..connectors.base import PullConnector, SearchResult, StructuredQuery
 from .base import Tool, ToolResult
 
 logger = logging.getLogger("tlsoc.tools.es_query")
@@ -48,93 +50,70 @@ class EsQueryTool(Tool):
         "additionalProperties": False,
     }
 
-    def __init__(self, es: BaseESClient, prefs: Preferences) -> None:
-        self._es = es
+    def __init__(self, source: PullConnector, prefs: Preferences) -> None:
+        self._source = source
         self._prefs = prefs
 
     async def run(self, **kwargs: Any) -> ToolResult:
-        p = self._prefs
         size = min(int(kwargs.get("size") or _DEFAULT_SIZE), _MAX_SIZE)
-        ids = kwargs.get("ids")
         try:
-            if ids:
-                body = ids_query(list(ids), size=size)
-                kql = "_id in (%s)" % ", ".join(f'"{i}"' for i in ids)
-                resp = await self._es.search_logs(p.data_view_pattern, body)
-                return self._format(resp, kql, None, None)
-
-            filters: list[dict[str, Any]] = []
-            kql_parts: list[str] = []
-            for key, field in (
-                ("ip", p.source_ip_field),
-                ("user", p.user_field),
-                ("host", p.host_field),
-                ("rule", p.rule_field),
-            ):
-                val = kwargs.get(key)
-                if val not in (None, ""):
-                    filters.append({"term": {field: val}})
-                    kql_parts.append(f'{field} : "{val}"')
-
+            # ``severity_gte`` may legitimately be 0 — DON'T collapse it with ``or``.
             sev = kwargs.get("severity_gte")
-            if sev not in (None, ""):
-                filters.append({"range": {p.severity_field: {"gte": sev}}})
-                kql_parts.append(f"{p.severity_field} >= {sev}")
-
-            contains = kwargs.get("contains")
-            if contains:
-                fields = [p.rule_name_field, "message", "event.original", "event.action"]
-                filters.append({"multi_match": {"query": contains, "fields": fields}})
-                kql_parts.append(f'message : "*{contains}*"')
-
-            time_from = kwargs.get("time_from", "now-24h")
-            time_to = kwargs.get("time_to", "now")
-            from_millis = relative_to_millis(time_from)
-            to_millis = relative_to_millis(time_to)
-            filters.append(
-                {"range": {p.time_field: {"gte": from_millis, "lte": to_millis, "format": "epoch_millis"}}}
+            sev = sev if sev not in (None, "") else None
+            query = StructuredQuery(
+                ip=_clean(kwargs.get("ip")),
+                user=_clean(kwargs.get("user")),
+                host=_clean(kwargs.get("host")),
+                rule=_clean(kwargs.get("rule")),
+                severity_gte=sev,
+                contains=_clean(kwargs.get("contains")),
+                ids=list(kwargs.get("ids") or []),
+                time_from=kwargs.get("time_from", "now-24h"),
+                time_to=kwargs.get("time_to", "now"),
+                size=size,
+                sort_desc=True,
             )
-
-            body = {
-                "size": size,
-                "sort": [{p.time_field: {"order": "desc"}}],
-                "query": {"bool": {"filter": filters}},
-            }
-            resp = await self._es.search_logs(p.data_view_pattern, body)
-            kql = " and ".join(kql_parts) if kql_parts else "*"
-            return self._format(resp, kql, time_from, time_to)
+            result = await self._source.search(self._prefs, query)
+            return self._format(result)
         except Exception as exc:  # noqa: BLE001
             logger.warning("es_query failed: %s", exc)
             return ToolResult(ok=False, error=str(exc), summary=f"es_query error: {exc}")
 
-    def _format(self, resp: dict[str, Any], kql: str, time_from, time_to) -> ToolResult:
-        hits = resp.get("hits", {}).get("hits", [])
-        total = resp.get("hits", {}).get("total", {})
-        total_val = total.get("value", len(hits)) if isinstance(total, dict) else len(hits)
+    def _format(self, result: SearchResult) -> ToolResult:
+        p = self._prefs
         rows = []
-        for h in hits:
-            ev = RawEvent.from_hit(h, self._prefs)
+        for ev in result.events:
+            src = ev.source if isinstance(ev.source, dict) else {}
+            event_obj = src.get("event")
             rows.append({
                 "id": ev.id,
-                "@timestamp": ev.source.get(self._prefs.time_field) or ev.source.get("@timestamp"),
+                "@timestamp": src.get(p.time_field) or src.get("@timestamp"),
                 "ip": ev.ip,
                 "user": ev.user,
                 "host": ev.host,
                 "rule": ev.rule,
                 "rule_name": ev.rule_name,
                 "severity": ev.severity,
-                "action": ev.source.get("event", {}).get("action") if isinstance(ev.source.get("event"), dict) else None,
+                "action": event_obj.get("action") if isinstance(event_obj, dict) else None,
             })
-        summary = f"{total_val} event(s) matched; returning {len(rows)}."
+        summary = f"{result.total} event(s) matched; returning {len(rows)}."
+        r = result.rendering
         return ToolResult(
             ok=True,
             summary=summary,
-            data={"total": total_val, "hits": rows},
-            query=kql,
+            data={"total": result.total, "hits": rows},
+            query=r.query if r else "*",
             meta={
-                "language": "kuery",
-                "data_view": self._prefs.data_view_pattern,
-                "time_from": time_from,
-                "time_to": time_to,
+                "language": r.language if r else "kuery",
+                "data_view": r.data_view if r else p.data_view_pattern,
+                "time_from": r.time_from if r else None,
+                "time_to": r.time_to if r else None,
             },
         )
+
+
+def _clean(value: Any) -> str | None:
+    """Treat empty string as 'unset' (parity with the legacy ``not in (None, "")``)."""
+    if value in (None, ""):
+        return None
+    return str(value)

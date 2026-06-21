@@ -506,3 +506,246 @@
 - Status: done.
 - Next: commit + push. Optional follow-ups: dark-mode-safe palette pass; rebuild the 8.12.2
   zip for parity; live-stack visual check of the flyout + side-nav.
+
+### 2026-06-20 — orchestrator — Vendor-agnostic SOC transition: research + design
+- Context: User asked to convert the ELK/Kibana-coupled suite into an open-source,
+  self-hosted, vendor-agnostic agentic SOC that integrates with any SIEM/EDR/XDR
+  (start ELK + OpenSearch), and to research data ingestion + scaling to millions of
+  logs/day. Discussion/architecture turn (no code changes yet).
+- Did: ran 4 parallel sub-agents — (A) codebase ELK-coupling audit, (B) agnostic
+  schema/prior-art, (C) per-vendor ingestion mechanics, (D) scaling to millions/day.
+  Key finding: the reasoning/agent layer is already ~90% source-agnostic (`RawEvent`
+  projection + configurable field maps in `Preferences` + MCP-shaped tools + a
+  cursor that needs only timestamp+stable-id); coupling is concentrated in 3 seams
+  (query/log-access = ES DSL passed straight through; internal storage = 100% ES;
+  UI = Kibana plugin). Locked 4 decisions with the user: canonical schema **OCSF**;
+  internal state **decoupled from ES → Postgres + pgvector**; first new connector
+  after ELK+OpenSearch = **Wazuh**; UI = **standalone web app** (retire the Kibana
+  plugin). Wrote `docs/AGNOSTIC_ARCHITECTURE.md` (full design: OCSF normalization,
+  connector SPI via entry-points + manifest + OCSF type, pull/push ingestion +
+  cursor patterns, the volume funnel + build-now/build-later scaling, StateStore
+  decoupling, standalone-UI plan, 5-epoch roadmap, risks/licensing). Added the EPIC
+  block to `ROADMAP.md` (Epochs A–E).
+- Tests: n/a (research + docs only; no code touched, suite untouched).
+- Status: done (design approved); implementation not started.
+- Next: Epoch A first (StateStore SPI + Postgres impl + pgvector RAG) — highest
+  "self-hostable" payoff, contained blast radius — then Epoch B (connector SPI +
+  query IR + OCSF; Elastic-parity + OpenSearch connectors). Keep `pytest -q` green
+  at every step; the 12 non-negotiables still hold.
+
+### 2026-06-20 21:45Z — backend agent (connectors) — Elastic/OpenSearch pull connectors
+- Context: Implement the first two PULL connectors against the connector SPI
+  (app/connectors/base.py) + OCSF schema, as faithful wrappers of the read-only ES
+  access, so a later rewire of es_query.py/poller.py is behavior-preserving.
+- Did: app/connectors/elastic.py (ElasticConnector(PullConnector); ping/poll/
+  search/fetch_by_ids/to_ocsf/test_connection; rich manifest with es_url/es_api_key
+  [secret]/es_ca_cert/es_verify_certs + 8 ECS-default config_fields) reusing
+  poll_query/ids_query and reproducing es_query.py's body+KQL exactly;
+  app/connectors/opensearch.py (subclass; source_type=OPENSEARCH; manifest only;
+  query_language=lucene); tests/test_connectors_elastic.py (11 offline tests).
+- Tests: 135 passed (124 existing + 11 new); parity confirmed programmatically.
+- Status: done. Next: orchestrator wires registry + rewires es_query/poller.
+
+### 2026-06-20 22:30Z — backend agent (receivers) — push/queue/object-store ingestion
+- Context: Support EVERY common way logs are forwarded to us, against the SPI + OCSF.
+- Did: app/connectors/receivers/{formats,common,webhook,syslog,queues,objectstore,
+  __init__}.py. formats.py = stdlib detect/parse json/ndjson/CEF/LEEF/syslog-3164/
+  5424/GELF/kv (never raises). PayloadReceiver base (records→generic_to_ocsf→
+  RawEvent.from_ocsf). WebhookReceiver (bearer/HMAC/none) + HECReceiver (Splunk
+  envelope). SyslogReceiver (asyncio UDP/TCP). 9 broker receivers (Kafka/SQS/
+  Kinesis/EventHub/PubSub/RabbitMQ/NATS/MQTT/RedisStreams) + S3/GCS/AzureBlob/File,
+  all lazy-importing optional deps. BUILTIN_RECEIVERS (16). 
+- Tests: tests/test_receivers.py (48) — formats, webhook auth, HEC unwrap, syslog,
+  all manifests valid with NO optional deps. Full suite 183 passed.
+- Status: done. Next: orchestrator wires registry + receiver runtime/lifecycle.
+
+### 2026-06-20 23:30Z — orchestrator — connector registry + live rewire + wizard backend
+- Context: Make the connector abstraction the LIVE path and stand up the
+  multi-source wizard backend (Epoch B integration), after the two sub-agents.
+- Did: app/connectors/registry.py (SourceType→class map, manifests() for the
+  wizard, tlsoc.connectors entry-point discovery; 18 builtins = 2 pull + 16
+  receivers). Rewired the agent's log surface through the connector, behaviour-
+  preserving: es_query.py tool now compiles a StructuredQuery and calls
+  source.search()/fetch_by_ids() (identical ToolResult, incl. the 0-severity
+  edge); poller.poll_once reads via source.poll() for both the incremental and
+  sliding-window reads; pipeline/chat take an optional `source` (default
+  ElasticConnector(es) for back-compat, test_rag_p1 still constructs ChatEngine
+  directly); state._wire builds self.log_source (_build_log_source picks Elastic/
+  OpenSearch by primary_source) and injects it; added state.rebuild_log_source().
+  Routes: GET /api/connectors (+/{source_type}), POST /api/connectors/test,
+  GET/POST/DELETE /api/sources (SourceInstance CRUD; new primary unsets others).
+  config.py SourceInstance + Preferences.sources + primary_source() (empty ==
+  legacy single implicit Elastic source). docs/INGESTION.md authored.
+- Tests: 188 passed (183 + 5 new tests/test_connectors_api.py); zero regressions
+  through the rewire. NOTE: real baseline is 188 now (CLAUDE.md's "49"/"124" stale).
+- Status: done. Connector path is live; wizard backend ready.
+- Next: receiver RUNTIME (webhook FastAPI route + asyncio lifecycle in AppState so
+  push sources actually flow), per-source secret storage, then Epoch A (StateStore
+  → Postgres + pgvector), then the standalone web UI + full first-run wizard.
+
+### 2026-06-21 00:30Z — orchestrator — push ingestion RUNTIME (every-way-in works)
+- Context: Make push sources actually flow end-to-end (not just exist as classes),
+  on a single shared ingest path with the poller.
+- Did: app/engine/ingest.py — extracted the shared correlate→attach/investigate/
+  register logic (handle_clusters, attach_cluster, dedup_by_id) + IngestService
+  (the entrypoint receivers feed; never raises on a bad batch). Refactored
+  poller.poll_once to use handle_clusters/dedup_by_id (kept a thin _attach
+  delegator for the existing tests); removed the duplicated loop. config.py: Secrets
+  gains connector_secrets (per-source secret tier, never persisted to config) +
+  source_secrets()/set_source_secret(). state.py: wires self.ingest_service; starts
+  enabled background PUSH receivers (syslog/queues/object-store) as guarded asyncio
+  tasks whose emit feeds IngestService (HTTP webhook/HEC are route-driven, skipped);
+  _stop_receivers on shutdown. routes.py: POST /api/ingest/{source_id} (webhook/HEC
+  → verify auth → parse → OCSF → IngestService; 401 on auth fail), POST
+  /api/sources/{id}/secrets (per-source secrets → secret tier; records field NAMES
+  on the SourceInstance). FIX: generic_to_ocsf no longer short-circuits to the ECS
+  path on a loose @timestamp heuristic — that dropped the record id (collapsing a
+  batch to 1 via id-dedup) and missed generic field names (src_ip vs source.ip);
+  now always uses the alias path (covers ECS + generic) with per-record uid.
+- Tests: +tests/test_ingest_push.py (4: webhook→case end-to-end, 404, bearer-auth
+  enforced via per-source secret, NDJSON body). Full suite 192 passed (188 + 4).
+- Status: done. Push + pull both flow through one ingest path.
+- Next: Epoch A (StateStore → Postgres + pgvector); standalone web UI + wizard
+  (sub-agent in flight); later: TLS for syslog, S3 Parquet, restart receivers on
+  live source change, standup-aggregation + routes entity-path onto the connector.
+
+### 2026-06-21 00:00Z — frontend agent (webui) — standalone SPA + first-run wizard
+- Context: New deliverable — a vendor-agnostic, self-hosted web UI decoupled from
+  Kibana; talks to the FastAPI backend directly. Headline = first-run wizard +
+  connector/source management (Epoch D start).
+- Did: Created webui/ (Vite+React+TS+@elastic/eui 95). Typed API client
+  (src/lib/api.ts, ApiError); types mirroring ConnectorManifest/AuthField/
+  SourceInstance/Preferences/ConnectionTest/ModelsResponse/Case; framework-free
+  format.ts; plugin COLORS palette reproduced as standalone theming. Reusable
+  dynamic ConnectorForm + ConnectorPicker + SourceEditor + ModelPicker +
+  SecretInput. 5-step first-run Wizard (Welcome+demo-mode / Sources / Providers+
+  per-role models / Detection+correlation+risk+allowlist+kill-switch / Review→
+  /setup/complete); auto-shows when setup_complete is false; re-runnable from
+  Settings. Sources manager (list/add/edit/test/delete/primary). Sectioned
+  Settings (full Preferences + secret status). Shell (nav + /health + dark mode).
+  Preview pages for Cases/Chat/Investigate/Scans/Standup/Cost.
+- Tests: npm install clean; npm run build (tsc --noEmit strict + vite build) green,
+  no type errors (orchestrator re-verified: 2319 modules, dist built). No browser
+  run (CDNs blocked) — static build + tsc is the verification.
+- Status: done — wizard + sources + settings functional; analytics surfaces are
+  preview stubs.
+- Next: port analytics surfaces in depth; serve dist/ from backend or reverse
+  proxy; improve /api/connectors/test to test UNSAVED form values (see below).
+
+### 2026-06-21 01:00Z — orchestrator — webui build verification + commit
+- Context: Verify + land the standalone SPA the sub-agent built.
+- Did: re-ran `npm run build` (strict tsc + vite) → green; committed webui/ (WIP
+  snapshot earlier as ccc1aa9, finalized here); node_modules/dist git-ignored.
+- Tests: webui build green; backend suite unaffected (192).
+- Status: done. Standalone UI is the primary front door (Kibana plugin retiring).
+- Next: improve POST /api/connectors/test to accept unsaved {source_type,config,
+  secrets} and build a throwaway connector (better wizard "Test connection" UX),
+  then Epoch A (StateStore → Postgres + pgvector).
+
+### 2026-06-21 — backend agent (statestore) — Epoch A: SQL StateStore
+- Context: Decouple the suite's OWN state (cases/audit/usage/config/cursor/RAG)
+  from Elasticsearch so self-hosting needs no ES; keep ES default; only management
+  state moves — the read-only log surface stays on the connector layer.
+- Did: repository ABCs (app/stores/base.py) mirroring the existing store
+  signatures; ES stores + AuditLogger subclass them. SQLAlchemy 2.x async SQL
+  backend under app/stores/sql/ (engine factory, ORM tables cases/audit/usage/kv/
+  rag_chunks, Sql{Case,Audit,Usage}Repository + SqlKVStore/SqlConfigStore/
+  SqlCursorStore + SqlVectorStore). Audit INSERT-only (preserves #2). Secrets
+  state_backend + state_db_url. state.py _build_state_backend() selects ES vs SQL
+  from one async engine; SQL startup create_all + SKIP bootstrap_indices; _build_rag
+  → SqlVectorStore on SQL; shutdown disposes the engine; es kept for the log
+  surface. bootstrap_indices guarded for non-ES backends. asyncpg/pgvector lazy
+  (postgres only). Added sqlalchemy/aiosqlite (dev) + sqlalchemy/aiosqlite/asyncpg/
+  pgvector (prod) to requirements.
+- Tests: pytest 216 passed (192 existing + 24 new), SQLite only, no postgres/
+  asyncpg installed. test_state_store_sql.py (case round-trip/list filters+total/
+  sort/find_open_by_signature/count_new_scans; append-only audit + ordered search;
+  usage window summary; KV/config/cursor; SqlVectorStore cosine/upsert/dim-mismatch)
+  + test_state_backend_e2e.py (AppState boots on sqlite, poll→investigate→persist
+  case to SQL, ES kept for logs). Orchestrator reviewed SqlAuditRepository (append-
+  only confirmed) + wiring; full suite re-verified green.
+- Status: done. A self-hosted deploy can now run on Postgres with NO Elasticsearch
+  for the app's own state.
+- Next: document TLSOC_STATE_BACKEND/TLSOC_STATE_DB_URL (ENVIRONMENT/DEPLOY) +
+  surface the selector in the wizard; real-Postgres integration test in a deploy
+  session (pg deps blocked in sandbox).
+
+### 2026-06-21 — orchestrator — Epoch C: Wazuh connector + per-source field mapping
+- Context: Complete the "ELK + OpenSearch + Wazuh" story; first third-party
+  (non-ECS) connector proves the connector abstraction.
+- Did: Added per-source field-mapping to the Elastic connector family —
+  `ElasticConnector._effective_prefs(prefs)` overlays the source's `config`
+  field-mapping/scope keys (data_view_pattern/time_field/*_field/severity_threshold/
+  in_scope_rules/excluded_rules) onto the global prefs; applied at the top of
+  poll/search/fetch_by_ids/to_ocsf/test_connection (empty config → returns prefs
+  unchanged → byte-identical legacy behaviour). New app/connectors/wazuh.py
+  (WazuhConnector(ElasticConnector), source_type=WAZUH; manifest with Wazuh indexer
+  connection fields + Wazuh alert-schema config defaults: wazuh-alerts-*,
+  timestamp, data.srcip, data.srcuser, agent.name, rule.id, rule.description,
+  rule.level). Registered in the registry; state._build_log_source now passes
+  primary.config to the connector and handles WAZUH/OPENSEARCH/ELASTICSEARCH.
+  .env.example documents TLSOC_STATE_BACKEND/TLSOC_STATE_DB_URL.
+- Tests: +tests/test_connector_wazuh.py (5: poll extracts Wazuh schema; to_ocsf
+  entity mapping; search filters by data.srcip + KQL; manifest/registry; overlay
+  no-op-when-empty + applied). Full suite 221 passed (216 + 5).
+- Status: done. Three sources live (ELK, OpenSearch, Wazuh); per-source field
+  mapping works.
+- Next: deep UI surface port (Cases/Chat/Investigate/Scans/Standup/Cost beyond
+  previews) + serve dist/ from backend; standup-aggregation + routes entity-path
+  onto the connector; ENVIRONMENT/DEPLOY prose for the state backend; pre-save
+  /api/connectors/test; Epoch E scale-out.
+
+### 2026-06-21 — docs agent (readme) — README rewrite + CHANGELOG vendor-agnostic entry
+- Context: Refresh docs for the vendor-agnostic transition ahead of first deploy.
+- Did: Full README rewrite (agnostic positioning, source→connectors→OCSF→funnel→
+  case→webui diagram, feature list, agnostic-compose quick start, connectors table,
+  repo layout incl. ocsf/connectors/receivers/stores-sql/webui, honest pull-vs-push
+  limits, doc links). CHANGELOG [2.0.0] entry (OCSF, connector SPI+registry, ELK/
+  OpenSearch/Wazuh pull, 16 receivers + /api/ingest, per-source secrets, wizard
+  backend, SQL StateStore, standalone webui, deploy artifacts, plugin→legacy).
+  Verified endpoints/enums/paths/test-count against source.
+- Tests: n/a (docs). 221 backend green per prior runs.
+- Status: done.
+- Next: trim the legacy plugin section once webui surfaces are fully ported.
+
+### 2026-06-21 — docs agent (deploy) — DEPLOY.md rewrite (agnostic + legacy)
+- Context: Make DEPLOY.md accurate for the vendor-agnostic stack ahead of deploy.
+- Did: Rewrote DEPLOY.md — Mode A (agnostic: deploy/docker-compose.agnostic.yml,
+  postgres+pgvector/redis/backend STATE_BACKEND=postgres/webui:8080, .env, wizard
+  walkthrough, PULL vs PUSH sources, 16 receivers + optional pip deps, /api/ingest
+  + /api/sources/{id}/secrets curl, syslog port publishing, verify); state-backend
+  matrix; secrets model; ops (pg_dump/ES-snapshot backups, upgrades); Mode B
+  (legacy ELK merge + two scoped ES keys + plugin install); hardening. Env-var
+  nuance (backend reads UNPREFIXED names; compose maps TLSOC_*) stated. Orchestrator
+  stripped a stray journal entry the agent had appended into DEPLOY.md.
+- Tests: n/a (docs). Commands cross-checked against the real artifacts.
+- Status: done.
+
+### 2026-06-21 — docs agent (env/compat/claude) — vendor-agnostic doc refresh
+- Context: Align ENVIRONMENT.md, COMPATIBILITY.md, CLAUDE.md with the agnostic
+  transition (OCSF, pluggable connectors, selectable state backend, standalone
+  webui primary / Kibana plugin legacy).
+- Did: COMPATIBILITY.md = matrix (state backends ES8/PG15-16+pgvector/SQLite; pull
+  Elastic/OpenSearch/Wazuh + 16 receivers w/ requires_pip; OCSF 1.4.0; Py3.11/
+  Node22; plugin legacy). ENVIRONMENT.md both envs (webui toolchain, pytest=221,
+  SQL offline on SQLite, TLSOC_*→backend env mapping table, per-source secrets).
+  CLAUDE.md §1/§3/§4/§6/§7/§10 updated (agnostic framing, connectors/ocsf/stores-sql/
+  webui in layout, 49→221 reconciled, Epoch A/B/C/D status), additive OCSF-unmapped
+  note under #9; PRESERVED the Journal mandate, §5 non-negotiables, §9, Journal format.
+- Tests: backend 221 passed; webui build clean.
+- Status: done.
+
+### 2026-06-21 — docs agent (usage/ops/security) — usage/ops/security/contrib refresh
+- Context: Refresh the usage/ops/security/contrib docs for the agnostic suite.
+- Did: docs/USAGE.md (standalone UI + wizard, managing pull/push sources, API curl
+  examples incl. /api/connectors, /api/sources, /api/sources/{id}/secrets,
+  /api/ingest); docs/TROUBLESHOOTING.md (Postgres/pgvector, connector test failures,
+  webhook 401, optional-dep ConnectionError, syslog ports, UI build, no-cases);
+  docs/RUNBOOK.md (state-backend ops + pg backup/restore, receiver lifecycle, key
+  rotation, kill switch/budget, scaling); SECURITY.md (per-source secrets, read-only
+  source creds generalised, webhook HMAC/bearer + untrusted push payloads, OCSF
+  unmapped fencing, state-backend security, TLS reverse proxy); CONTRIBUTING.md
+  ("Writing a connector" via the SPI + manifest + entry-point, updated layout);
+  webui/README.md (dev/build + Docker/nginx production serving).
+- Tests: n/a (docs); cross-checked endpoints/paths against source.
+- Status: done.

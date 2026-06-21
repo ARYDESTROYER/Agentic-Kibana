@@ -16,6 +16,8 @@ import logging
 from ..audit.audit_log import AuditLogger
 from ..cache import Cache
 from ..config import Preferences, Secrets
+from ..connectors.base import PullConnector
+from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, CaseStatus, DecisionBy, EntityType, SourceSurface, Verdict
 from ..engine.case_manager import CaseManager
 from ..engine.cost_gate import CaseBudget
@@ -48,8 +50,13 @@ class InvestigationPipeline:
         rag_service: RagService,
         cases: CaseStore,
         audit: AuditLogger,
+        source: PullConnector | None = None,
     ) -> None:
         self._es = es
+        # The agent's read-only log surface. Defaults to wrapping ``es`` in an
+        # ElasticConnector (full back-compat) so a direct construction without a
+        # source keeps working; state wiring injects the configured connector.
+        self._source = source or ElasticConnector(es)
         self._secrets = secrets
         self._cache = cache
         self._gateway = gateway
@@ -61,7 +68,7 @@ class InvestigationPipeline:
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
         registry = ToolRegistry([
-            EsQueryTool(self._es, prefs),
+            EsQueryTool(self._source, prefs),
             enrich,
             RagTool(self._rag),
         ])

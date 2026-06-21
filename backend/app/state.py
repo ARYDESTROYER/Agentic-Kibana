@@ -11,6 +11,7 @@ without a restart.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .agents.chat import ChatEngine
@@ -20,6 +21,7 @@ from .agents.standup import StandupService
 from .audit.audit_log import AuditLogger
 from .cache import Cache
 from .config import Preferences, Secrets
+from .engine.ingest import IngestService
 from .engine.poller import Poller
 from .es.base import BaseESClient
 from .es.indices import bootstrap_indices
@@ -48,30 +50,125 @@ class AppState:
         self.prefs = Preferences()
         self.cache = Cache(secrets.redis_url)
         self._provider_overrides = provider_overrides
+        self._receivers: list = []
+        self._receiver_tasks: list = []
+        # Async SQL engine for the SQL state backend (None on the ES backend).
+        # Built lazily in _build_state_backend and disposed on shutdown.
+        self._sql_engine = None
         self._wire()
 
     def _wire(self) -> None:
+        es = self.es
+        # OWN-state backend (Epoch A): cases/audit/usage/config/cursor live EITHER
+        # in Elasticsearch (default) or a SQL database (sqlite/postgres). The
+        # agent's read-only LOG surface always stays on the connector layer below.
+        self._build_state_backend()
+        self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
+        self.rag = self._build_rag()
+        # The agent's read-only log surface as a connector (source-agnostic). The
+        # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
+        # is identical to the legacy direct-ES path; swapping the primary source
+        # type later re-points the whole graph here.
+        self.log_source = self._build_log_source()
+        self.pipeline = InvestigationPipeline(
+            es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit,
+            source=self.log_source,
+        )
+        self.chat_engine = ChatEngine(
+            es, self.gateway, self.audit, self.cases, self.rag, source=self.log_source
+        )
+        self.standup_service = StandupService(es, self.gateway, self.audit)
+        self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
+        self.poller = Poller(
+            es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs,
+            source=self.log_source,
+        )
+        # Shared ingest path for PUSH receivers (webhook/syslog/queues/…): the same
+        # correlate → case path the poller uses.
+        self.ingest_service = IngestService(self.cases, self.audit, self.pipeline, self.get_prefs)
+
+    def _is_sql_backend(self) -> bool:
+        return self.secrets.state_backend in ("sqlite", "postgres")
+
+    def _build_state_backend(self) -> None:
+        """Wire the suite's OWN-state stores per ``secrets.state_backend``.
+
+        Default (``elasticsearch``): the ES-backed stores over ``self.es``,
+        exactly as before. SQL (``sqlite``/``postgres``): build (or reuse) an
+        async SQLAlchemy engine from ``state_db_url`` and wire the Sql* repos.
+        Either way the resulting attributes (usage_store/audit/cases/cursor_store/
+        config_store) satisfy the same repository interfaces, so every downstream
+        caller is unchanged. asyncpg/pgvector are imported lazily, only on the
+        postgres path, so this method imports/runs on SQLite with no pg deps."""
+        if self._is_sql_backend():
+            from .stores.sql import (
+                SqlAuditRepository,
+                SqlCaseRepository,
+                SqlConfigStore,
+                SqlCursorStore,
+                SqlKVStore,
+                SqlUsageRepository,
+                build_async_engine,
+            )
+            from .stores.sql.engine import resolve_db_url
+
+            if self._sql_engine is None:
+                url = resolve_db_url(self.secrets.state_backend, self.secrets.state_db_url)
+                self._sql_engine = build_async_engine(url)
+            engine = self._sql_engine
+            kv = SqlKVStore(engine)
+            self.usage_store = SqlUsageRepository(engine)
+            self.audit = SqlAuditRepository(engine)
+            self.cases = SqlCaseRepository(engine)
+            self.cursor_store = SqlCursorStore(kv)
+            self.config_store = SqlConfigStore(kv)
+            logger.info("OWN-state backend: SQL (%s)", self.secrets.state_backend)
+            return
         es = self.es
         self.usage_store = UsageStore(es)
         self.audit = AuditLogger(es)
         self.cases = CaseStore(es)
         self.cursor_store = CursorStore(es)
         self.config_store = ConfigStore(es)
-        self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
-        self.rag = self._build_rag()
-        self.pipeline = InvestigationPipeline(
-            es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit
-        )
-        self.chat_engine = ChatEngine(es, self.gateway, self.audit, self.cases, self.rag)
-        self.standup_service = StandupService(es, self.gateway, self.audit)
-        self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
-        self.poller = Poller(es, self.cases, self.cursor_store, self.audit, self.pipeline, self.get_prefs)
+
+    def _build_log_source(self):
+        """Construct the primary pull connector for the agent's log surface.
+
+        Both Elasticsearch and OpenSearch wrap the same scoped read-only ES client
+        with identical read behaviour; the choice only affects provenance/query
+        language. Defaults to Elasticsearch when no source is configured yet."""
+        from .connectors.elastic import ElasticConnector
+        from .connectors.opensearch import OpenSearchConnector
+        from .connectors.wazuh import WazuhConnector
+        from .constants import SourceType
+
+        primary = self.prefs.primary_source()
+        if primary is None:
+            return ElasticConnector(self.es)
+        cfg = primary.config or {}
+        cid = primary.id
+        if primary.source_type == SourceType.OPENSEARCH:
+            return OpenSearchConnector(self.es, config=cfg, connector_id=cid)
+        if primary.source_type == SourceType.WAZUH:
+            return WazuhConnector(self.es, config=cfg, connector_id=cid)
+        return ElasticConnector(self.es, config=cfg, connector_id=cid)
 
     def _build_rag(self) -> RagService:
         """Construct the RAG service, wiring the CaseStore (resolved-case memory)
-        and selecting a persistent ES vector store ONLY when a real management ES
-        client is present. Offline/fake ES (no kNN) uses the in-memory store."""
+        and selecting a persistent vector store. On the SQL state backend the
+        SqlVectorStore is used (pgvector on Postgres, JSON+Python cosine on
+        SQLite); on the ES backend a persistent ES vector store is used ONLY when a
+        real management ES client is present. Otherwise the in-memory store."""
         store = None
+        if self._is_sql_backend() and self._sql_engine is not None:
+            try:
+                from .stores.sql import SqlVectorStore
+
+                store = SqlVectorStore(self._sql_engine)
+                logger.info("RAG using persistent SQL vector store (%s)", self.secrets.state_backend)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Could not select SQL vector store (%s); using in-memory", exc)
+            return RagService(self.gateway, self.prefs, store=store, cases=self.cases)
         try:
             from .es.client import RealESClient
             from .tools.vectorstore import ESVectorStore
@@ -82,6 +179,18 @@ class AppState:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not select ES vector store (%s); using in-memory", exc)
         return RagService(self.gateway, self.prefs, store=store, cases=self.cases)
+
+    def rebuild_log_source(self) -> None:
+        """Re-point the agent's log surface after the configured sources change.
+
+        Rebuilds the primary connector from ``self.prefs`` and updates the live
+        components that hold it (poller, pipeline, chat), so a wizard-driven source
+        change takes effect without a restart. (Elastic/OpenSearch wrap the same
+        scoped ES client, so this is behaviour-identical for those two.)"""
+        self.log_source = self._build_log_source()
+        self.poller._source = self.log_source
+        self.pipeline._source = self.log_source
+        self.chat_engine._source = self.log_source
 
     def get_prefs(self) -> Preferences:
         return self.prefs
@@ -100,10 +209,7 @@ class AppState:
 
     async def startup(self, *, start_poller: bool = True) -> None:
         await self.cache.connect()
-        try:
-            await bootstrap_indices(self.es)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Index bootstrap failed (%s); continuing", exc)
+        await self._bootstrap_state_backend()
         self.prefs = await self.config_store.load()
         # First-run seeding of the built-in rule catalog (C3-1): idempotent and
         # guarded by rule_catalog_seed_version so operator edits are never clobbered.
@@ -113,10 +219,77 @@ class AppState:
         self.chat_engine._rag = self.rag
         if start_poller:
             self.poller.start()
+            await self._start_receivers()
         logger.info(
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",
             type(self.es).__name__, self.prefs.setup_complete, self.prefs.polling_enabled,
         )
+
+    async def _bootstrap_state_backend(self) -> None:
+        """Create the OWN-state schema for the active backend.
+
+        SQL backend → create the SQL tables (idempotent) and SKIP ES index
+        bootstrap entirely (a SQL deployment needs no Elasticsearch for its own
+        state). ES backend → bootstrap the tlsoc-agent-* indices as before."""
+        if self._is_sql_backend() and self._sql_engine is not None:
+            try:
+                from .stores.sql import create_all
+
+                await create_all(self._sql_engine)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("SQL state schema bootstrap failed (%s); continuing", exc)
+            return
+        try:
+            await bootstrap_indices(self.es)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Index bootstrap failed (%s); continuing", exc)
+
+    async def _start_receivers(self) -> None:
+        """Start background PUSH receivers for enabled configured sources.
+
+        HTTP push receivers (webhook/HEC) are driven by the ``/api/ingest/{id}``
+        route, not a task, so they are skipped here. Every other receiver
+        (syslog/queues/object-store/file) runs as a guarded asyncio task whose
+        ``emit`` feeds the shared :class:`IngestService`. A receiver that can't
+        start (missing optional dep, bind error) is logged and skipped — it never
+        blocks startup."""
+        await self._stop_receivers()
+        from .connectors.registry import get_registry
+        from .constants import IngestMode
+
+        reg = get_registry()
+        for src in self.prefs.sources:
+            if not src.enabled or not reg.is_receiver(src.source_type):
+                continue
+            cls = reg.get(src.source_type)
+            if cls is None:
+                continue
+            if IngestMode.PUSH_HTTP in cls.manifest().ingest_modes:
+                continue  # route-driven, no background task
+            try:
+                effective = {**src.config, **self.secrets.source_secrets(src.id)}
+                receiver = cls(config=effective, connector_id=src.id)
+
+                async def _emit(events, _self=self):
+                    await _self.ingest_service.ingest(events, _self.prefs)
+
+                task = asyncio.create_task(receiver.start(_emit, self.prefs))
+                self._receivers.append(receiver)
+                self._receiver_tasks.append(task)
+                logger.info("Started push receiver %s (%s)", src.id, src.source_type.value)
+            except Exception as exc:  # noqa: BLE001 — one bad source must not block startup
+                logger.error("Could not start receiver %s (%s): %s", src.id, src.source_type.value, exc)
+
+    async def _stop_receivers(self) -> None:
+        for receiver in self._receivers:
+            try:
+                await receiver.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        for task in self._receiver_tasks:
+            task.cancel()
+        self._receivers = []
+        self._receiver_tasks = []
 
     async def reload_prefs(self) -> Preferences:
         self.prefs = await self.config_store.load()
@@ -155,7 +328,7 @@ class AppState:
             self.es = _build_es_client(self.secrets)
             self._wire()
             try:
-                await bootstrap_indices(self.es)
+                await self._bootstrap_state_backend()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Re-bootstrap after credential change failed: %s", exc)
             self.prefs = await self.config_store.load()
@@ -167,12 +340,19 @@ class AppState:
             await self.poller.stop()
         except Exception:  # noqa: BLE001
             pass
+        await self._stop_receivers()
         await self.gateway.aclose()
         await self.cache.aclose()
         try:
             await self.es.close()
         except Exception:  # noqa: BLE001
             pass
+        if self._sql_engine is not None:
+            try:
+                await self._sql_engine.dispose()
+            except Exception:  # noqa: BLE001
+                pass
+            self._sql_engine = None
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

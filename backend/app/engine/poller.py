@@ -20,13 +20,14 @@ from typing import Any, Callable
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
+from ..connectors.base import PullConnector
+from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, SourceSurface
-from ..engine.cost_gate import passes_suppression
+from ..engine.ingest import attach_cluster, dedup_by_id, handle_clusters
 from ..es.base import BaseESClient
-from ..es.querybuilder import poll_query
 from ..models import Cursor, RawEvent
 from ..stores.cursor_store import CursorStore
-from ..utils import iso_now, now_utc, to_millis
+from ..utils import now_utc, to_millis
 from ..agents.pipeline import InvestigationPipeline
 
 logger = logging.getLogger("tlsoc.engine.poller")
@@ -56,8 +57,13 @@ class Poller:
         audit: AuditLogger,
         pipeline: InvestigationPipeline,
         get_prefs: Callable[[], Preferences],
+        source: PullConnector | None = None,
     ) -> None:
         self._es = es
+        # The read-only log surface the poller reads from. Defaults to wrapping
+        # ``es`` in an ElasticConnector (behaviour identical to the legacy direct
+        # ES read); state wiring injects the configured primary connector.
+        self._source = source or ElasticConnector(es)
         self._cases = cases
         self._cursor_store = cursor_store
         self._audit = audit
@@ -90,11 +96,11 @@ class Poller:
         prefs = prefs or self._get_prefs()
         cursor = await self._cursor_store.load()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
-        body = poll_query(prefs, cursor, cold_from)
 
-        resp = await self._es.search_logs(prefs.data_view_pattern, body)
-        hits = resp.get("hits", {}).get("hits", [])
-        fetched = [RawEvent.from_hit(h, prefs) for h in hits]
+        # Read the incremental batch through the connector (source-agnostic). The
+        # connector reproduces the legacy poll_query read exactly; the cursor still
+        # governs what is "new" and the dedup/advance logic below is unchanged.
+        fetched = await self._source.poll(prefs, cursor, cold_from)
         new_events = [e for e in fetched if not cursor.should_skip(e)]
 
         stats = {"polled": len(fetched), "new": len(new_events),
@@ -116,39 +122,18 @@ class Poller:
             # what is treated as new, so this only widens the correlation input.
             window_from = max(window_from, cold_from)
             window_cursor = Cursor(timestamp_millis=window_from)
-            window_body = poll_query(prefs, window_cursor, window_from)
-            window_resp = await self._es.search_logs(prefs.data_view_pattern, window_body)
-            window_hits = window_resp.get("hits", {}).get("hits", [])
-            window_events = self._dedup_by_id(
-                [RawEvent.from_hit(h, prefs) for h in window_hits] + new_events
-            )
+            window_fetched = await self._source.poll(prefs, window_cursor, window_from)
+            window_events = dedup_by_id(window_fetched + new_events)
             stats["window_events"] = len(window_events)
 
             clusters = correlate(window_events, prefs)
-            stats["clusters"] = len(clusters)
-            allow = set(prefs.auto_forward_allowlist)
-            wildcard = "*" in allow
-            for cluster in clusters:
-                # Defence-in-depth suppression (cost-gate layer 2): the poll query
-                # already excludes suppressed events; if an ENTIRE cluster is
-                # suppressed, skip it (suppression is the intended drop mechanism).
-                if not passes_suppression(cluster, prefs):
-                    stats["suppressed"] = stats.get("suppressed", 0) + 1
-                    continue
-                existing = await self._cases.find_open_by_signature(cluster.signature)
-                if existing:
-                    await self._attach(existing, cluster)
-                    stats["attached"] += 1
-                    continue
-                forwarded = prefs.background_scan_enabled and (
-                    wildcard or any(r in allow for r in cluster.rule_values)
-                )
-                if forwarded:
-                    await self._pipeline.investigate_cluster(cluster, SourceSurface.AUTOMATED_SCAN, prefs)
-                    stats["investigated"] += 1
-                else:
-                    await self._pipeline.register_candidate(cluster, SourceSurface.AUTOMATED_SCAN, prefs)
-                    stats["candidates"] += 1
+            # Attach/investigate/register is the SHARED ingest path (identical for
+            # push receivers): see app/engine/ingest.handle_clusters.
+            cluster_stats = await handle_clusters(
+                clusters, prefs, cases=self._cases, pipeline=self._pipeline,
+                source_surface=SourceSurface.AUTOMATED_SCAN,
+            )
+            stats.update(cluster_stats)
 
         # Advance cursor over ALL fetched events (even boundary dupes) so we never
         # re-scan the same window, then persist durably.
@@ -166,34 +151,9 @@ class Poller:
         )
         return stats
 
-    @staticmethod
-    def _dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
-        """De-dupe events by document id (the wider window may overlap the
-        incremental batch). First occurrence wins; order is preserved."""
-        seen: dict[str, RawEvent] = {}
-        for ev in events:
-            if ev.id not in seen:
-                seen[ev.id] = ev
-        return list(seen.values())
-
     async def _attach(self, existing, cluster) -> None:
-        before = len(existing.member_event_ids)
-        merged = list(dict.fromkeys(existing.member_event_ids + cluster.member_event_ids))
-        if len(merged) == before:
-            return  # idempotent: nothing new to attach
-        existing.member_event_ids = merged
-        existing.updated_at = iso_now()
-        existing.rule_ids = sorted(set(existing.rule_ids) | set(cluster.rule_values))
-        existing.history.append({"ts": existing.updated_at, "event": "attach",
-                                 "added_events": len(merged) - before})
-        # Cycle-2 NOTE: an automated burst can attach (by entity signature) to a case
-        # that was opened manually (origin_surface != automated_scan), which has no
-        # deterministic "why this fired" reason. Surface the attaching cluster's
-        # trigger_reason so the "Why this fired" callout renders on it too — without
-        # overwriting a reason the case already has.
-        if existing.trigger_reason is None and cluster.trigger_reason is not None:
-            existing.trigger_reason = cluster.trigger_reason
-        await self._cases.save(existing)
+        """Merge a cluster's new events into an open case (shared ingest logic)."""
+        await attach_cluster(self._cases, existing, cluster)
 
     # --- background loop ---
     async def _run(self) -> None:

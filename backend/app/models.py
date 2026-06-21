@@ -7,11 +7,14 @@ field to Section 7. Internal types (``RawEvent``, ``Cluster``, ``VerdictResult``
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from .config import Preferences
+
+if TYPE_CHECKING:  # avoid an import cycle (ocsf imports config/constants, not models)
+    from .ocsf import OCSFEvent
 from .constants import (
     ActionType,
     CaseStatus,
@@ -83,6 +86,31 @@ class RawEvent(BaseModel):
             severity=coerce_float(dotted_get(src, prefs.severity_field), 0.0),
         )
         return ev
+
+    @classmethod
+    def from_ocsf(cls, ev: "OCSFEvent") -> "RawEvent":
+        """Project a canonical OCSF event onto the engine's ``RawEvent``.
+
+        This is the source-agnostic counterpart to ``from_hit``: any connector
+        normalises to OCSF, and the engine consumes the projection. ``source`` is
+        the event's original record (``raw_data``) so existing downstream readers
+        keep working for ECS-shaped sources; ``ocsf`` carries the full normalised
+        event for source-agnostic consumers. No ``prefs`` needed — OCSF is already
+        normalised.
+        """
+        src = dict(ev.raw_data) if ev.raw_data else ev.model_dump(mode="json")
+        return cls(
+            id=ev.event_id,
+            index=ev.metadata.source_type or "",
+            source=src,
+            timestamp_millis=ev.time,
+            ip=ev.ip,
+            user=ev.user,
+            host=ev.host,
+            rule=ev.rule_uid,
+            rule_name=ev.finding_title,
+            severity=ev.severity_score,
+        )
 
     def entity_value(self, group_by: EntityType) -> str | None:
         return {

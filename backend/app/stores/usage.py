@@ -16,11 +16,12 @@ from ..constants import USAGE_READ_PATTERN, USAGE_WRITE_ALIAS
 from ..es.base import BaseESClient
 from ..models import UsageDoc
 from ..utils import now_utc, parse_es_timestamp, to_millis
+from .base import UsageRepository
 
 logger = logging.getLogger("tlsoc.usage")
 
 
-class UsageStore:
+class UsageStore(UsageRepository):
     def __init__(self, es: BaseESClient) -> None:
         self._es = es
 

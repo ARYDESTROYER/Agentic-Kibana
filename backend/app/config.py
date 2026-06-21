@@ -21,8 +21,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .constants import CorrelationMode, EntityType
-from .utils import dotted_get
+from .constants import CorrelationMode, EntityType, IngestMode, SourceType
+from .utils import dotted_get, iso_now
 
 Provider = Literal["anthropic", "openai", "mock"]
 
@@ -88,6 +88,45 @@ class Secrets(BaseSettings):
     # When true the backend persists to Elasticsearch; when ES is unreachable it
     # automatically falls back to an in-memory store so the spine still runs.
     es_store_enabled: bool = True
+
+    # --- State backend selector (Epoch A: vendor-agnostic OWN-state) ---
+    # Where the suite's OWN bookkeeping (cases/audit/usage/config/cursor/RAG
+    # vectors) is persisted. The agent's READ-ONLY log surface ALWAYS stays on the
+    # connector layer (es_api_key) regardless of this setting — this only moves the
+    # suite's management state off Elasticsearch so self-hosting needs no ES.
+    #
+    #   "elasticsearch" (DEFAULT) — today's path: own-state in tlsoc-agent-* indices.
+    #   "sqlite"                  — own-state in a local SQLite file (zero services).
+    #   "postgres"                — own-state in PostgreSQL (+pgvector for RAG).
+    #
+    # SQL backends use ``state_db_url`` (a SQLAlchemy async URL). asyncpg/pgvector
+    # are imported LAZILY, only when state_backend == "postgres", so a deployment
+    # (or the test env) without those packages still imports + runs on SQLite/ES.
+    state_backend: Literal["elasticsearch", "postgres", "sqlite"] = "elasticsearch"
+    # e.g. "postgresql+asyncpg://user:pass@host:5432/tlsoc" or
+    # "sqlite+aiosqlite:///./tlsoc.db". When None and state_backend is a SQL
+    # backend, a sane default is derived (sqlite → ./tlsoc.db).
+    state_db_url: str | None = None
+
+    # Per-source connector secrets (e.g. a webhook bearer token, a Splunk API
+    # token), keyed by SourceInstance id → {field: value}. Lives in the SECRET
+    # tier (in memory / env), NEVER in Preferences/the config index (#10). The UI
+    # only ever sees the field NAMES via SourceInstance.configured_secrets.
+    connector_secrets: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+    def source_secrets(self, source_id: str) -> dict[str, str]:
+        """The configured secret values for one source (empty if none)."""
+        return dict(self.connector_secrets.get(source_id, {}))
+
+    def set_source_secret(self, source_id: str, field: str, value: str | None) -> None:
+        """Set/clear one per-source secret field (value=None clears/revokes it)."""
+        bucket = self.connector_secrets.setdefault(source_id, {})
+        if value is None or value == "":
+            bucket.pop(field, None)
+        else:
+            bucket[field] = value
+        if not bucket:
+            self.connector_secrets.pop(source_id, None)
 
     def provider_key(self, provider: Provider) -> str | None:
         if provider == "openai":
@@ -275,8 +314,45 @@ class AssetNetwork(BaseModel):
     criticality: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class SourceInstance(BaseModel):
+    """One configured log source (a connector instance).
+
+    This is what makes the suite multi-source: an operator adds N sources (an
+    Elasticsearch, a Splunk, a Wazuh, a webhook, …) via the first-run wizard, each
+    backed by a connector (``backend/app/connectors/``). ``config`` holds the
+    connector's NON-secret settings (host, index/topic, entity field mappings,
+    bind port, …); secret VALUES never live here — only the names of the secret
+    fields that have been configured (``configured_secrets``). Secret values live
+    in the secret tier keyed ``<id>.<field>`` and the UI only ever sees
+    ``configured ✓`` (non-negotiable #10).
+
+    An empty ``Preferences.sources`` preserves today's behaviour byte-for-byte:
+    the single implicit Elasticsearch source wired from ``Secrets``.
+    """
+
+    # ``source_type`` etc. are plain data, not Pydantic config — disable the guard.
+    model_config = {"protected_namespaces": ()}
+
+    id: str
+    source_type: SourceType
+    display_name: str = ""
+    enabled: bool = True
+    ingest_mode: IngestMode = IngestMode.PULL
+    # The primary log surface the agent's es_query tool + poller read from. Exactly
+    # one enabled source should be primary; ``primary_source`` falls back gracefully.
+    is_primary: bool = False
+    config: dict[str, Any] = Field(default_factory=dict)        # non-secret connector config
+    configured_secrets: list[str] = Field(default_factory=list)  # secret field names set (not values)
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
+
+    # --- Configured log sources (vendor-agnostic ingest). Empty == the legacy
+    # single implicit Elasticsearch source from Secrets (full back-compat). ---
+    sources: list[SourceInstance] = Field(default_factory=list)
 
     # --- Data scope (Section 5.2) ---
     data_view_pattern: str = "all-logs-*"
@@ -379,6 +455,17 @@ class Preferences(BaseModel):
     def correlation_for(self, rule_value: str) -> CorrelationRule:
         """Return the correlation rule for a given rule value, or the default."""
         return self.correlation_rules.get(rule_value, self.default_correlation)
+
+    def primary_source(self) -> "SourceInstance | None":
+        """The source the poller + es_query read from.
+
+        Prefers the enabled source explicitly flagged ``is_primary``; else the
+        first enabled source; else None (→ caller uses the legacy implicit
+        Elasticsearch source from Secrets, preserving today's behaviour)."""
+        primary = next((s for s in self.sources if s.enabled and s.is_primary), None)
+        if primary is not None:
+            return primary
+        return next((s for s in self.sources if s.enabled), None)
 
     def match_rule(self, src: dict[str, Any]) -> RuleDefinition | None:
         """Classify a raw log ``_source`` against the rule catalog (C3-1).
