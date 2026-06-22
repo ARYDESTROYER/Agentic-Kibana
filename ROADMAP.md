@@ -11,6 +11,13 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Wave 3 — analytics + eval loop + collaboration + white-label UI + CI** (branch
+  `Testing`; 310 tests green; webui clean). Metrics dashboard (`engine/metrics.py`,
+  `GET /api/metrics`); AI-decision feedback/grading (`/cases/{id}/feedback`,
+  `/feedback/stats`); case collaboration (tags/comments/assignee); org branding
+  white-label (`BrandingConfig`, runtime-themeable accent, logo upload, branded
+  shell/login); case export (json/md); case hover preview; broad UI polish; and a
+  GitHub Actions CI merge gate (`.github/workflows/ci.yml`).
 - ☑ **Vigil-inspired overhaul — Wave 2** (additive; 300 tests green; webui clean).
   Markdown playbook engine (`app/playbooks/` + `backend/playbooks/*.md`,
   deterministic selection, atomic reload, `<<<PLAYBOOK>>>` injection distinct from

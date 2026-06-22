@@ -294,10 +294,25 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1 & 2**) shipped — **300 backend tests green**; the standalone **webui
+(**Waves 1–3**) shipped — **310 backend tests green**; the standalone **webui
 builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
-See `docs/VIGIL_STUDY.md` for the Vigil study + multi-wave plan and `ROADMAP.md`
-for live status.
+Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
+multi-wave plan and `ROADMAP.md` for live status.
+
+Done (Wave 3 — analytics, eval loop, collaboration, white-label UI + CI; additive):
+- **Metrics/analytics** (`engine/metrics.py`, `GET /api/metrics`) + a Metrics page:
+  verdict/status mix, persona/playbook usage, MTTR, per-day trend, feedback rollup.
+- **AI-decision feedback loop** (`Case.feedback`, `POST /api/cases/{id}/feedback`,
+  `GET /api/feedback/stats`) — analyst grades the AI verdict; agreement/quality stats.
+- **Case collaboration** (`Case.tags/comments/assignee` + routes) + flyout/list UI.
+- **Org branding / white-label** (`BrandingConfig` on Preferences; public
+  `GET /api/branding`, protected `PUT`): runtime-themeable accent (CSS vars), logo
+  upload, branding settings panel + branded shell/login.
+- **Case export** (`GET /api/cases/{id}/export?format=json|md`) + flyout menu.
+- **Case hover preview** + a broad webui visual polish pass (skeletons, page headers,
+  KPI deltas, inline-markdown chat, reduced-motion).
+- **CI/CD** (`.github/workflows/ci.yml`): PR merge gate = offline backend suite
+  (incl. auth route-coverage) + webui build; aggregate `CI passed` check.
 
 Done (Wave 2 — Markdown playbooks + optional auth, additive, spine intact):
 - **Markdown playbook engine** (`app/playbooks/` + `backend/playbooks/*.md`):

@@ -890,3 +890,27 @@
 - Status: done (Wave 2 core). Deferred (noted): approval workflow + pre-flight
   cost projection + $-budget; webui CSRF token wiring.
 - Next: Wave-2 leftovers above, then Wave 3 (memory/KG, MITRE-from-STIX, HITL UI).
+
+### 2026-06-22 — orchestrator — Wave 3: analytics, eval loop, collaboration, white-label UI, CI
+- Context: User asked to continue on a non-`claude/*` branch ("Testing"), add must-have
+  agentic-SOC features + heavy UI/UX (case hover highlights, org logo/branding
+  customization), set up a GitHub CI merge gate, research first with sub-agents,
+  double-triple test, update docs.
+- Did (research): 2 Opus agents — a prioritized must-have feature gap analysis +
+  a concrete, conflict-free webui overhaul plan (both kept; informed the build).
+- Did (backend, committed): branding (BrandingConfig + public GET/PUT /branding),
+  AI-decision feedback loop (Case.feedback + /feedback + /feedback/stats), case
+  collaboration (tags/comments/assignee + routes), metrics (engine/metrics.py +
+  /metrics), export (json/md), method-aware public allowlist. +test_vigil_wave3.
+- Did (CI, committed): .github/workflows/ci.yml (backend pytest incl. auth coverage
+  + webui build; aggregate `CI passed`) + CONTRIBUTING branch-protection note.
+- Did (webui, committed): Track A foundation (themeable accent CSS vars,
+  BrandingProvider, Skeleton/PageHeader/Card-flat/KPI-delta, Metrics page, branded
+  shell), then 4 parallel surface agents — CaseHoverCard hover preview + Cases/Scans/
+  Overview; Branding settings panel + branded login; flyout Notes&feedback tab
+  (grading + comments + tags + assignee + export menu); polish (Chat md/Investigate/
+  Cost/Standup/Catalog). No new npm deps.
+- Tests: backend `pytest` 310 passed; webui `npm run build` GREEN (2328 modules).
+- Status: in-progress — webui security/correctness review running; docs being updated;
+  then commit + push.
+- Next: apply review fixes; finish README/USAGE; push branch `Testing`.
