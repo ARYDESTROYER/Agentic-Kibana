@@ -37,11 +37,13 @@ import {
   ErrorCallout,
   IconChip,
   Loading,
+  PageHeader,
   RiskBadge,
-  SectionHeader,
   StatusBadge,
   VerdictBadge,
 } from '../common/ui';
+import { BarList } from '../common/charts';
+import type { Segment } from '../common/charts';
 import { COLORS, riskBand, riskHex } from '../../lib/theme';
 import { DASH, fmtMoney, humanizeAge, humanizeToken } from '../../lib/format';
 
@@ -76,16 +78,22 @@ interface RunRecord {
 
 /* --------------------------------------------------- risk-breakdown view --- */
 
-/** Pull a numeric risk-factor map off the case if the backend included one. */
-function riskFactors(c: Case): Array<{ label: string; value: number }> {
+/** Round a factor to at most two decimals for the bar-list value label. */
+function roundFactor(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Pull a numeric risk-factor map off the case (if the backend included one) and
+ *  shape it as ranked chart `Segment`s for the shared `BarList`. */
+function riskFactors(c: Case): Segment[] {
   const candidates = [c.risk_factors, c.risk_breakdown, c.risk_components];
   for (const raw of candidates) {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      const out: Array<{ label: string; value: number }> = [];
+      const out: Segment[] = [];
       for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
         const n = typeof v === 'number' ? v : Number(v);
         if (!Number.isNaN(n)) {
-          out.push({ label: humanizeToken(k), value: n });
+          out.push({ label: humanizeToken(k), value: n, color: COLORS.primary });
         }
       }
       if (out.length) {
@@ -95,53 +103,6 @@ function riskFactors(c: Case): Array<{ label: string; value: number }> {
   }
   return [];
 }
-
-const RiskBreakdown: React.FC<{ factors: Array<{ label: string; value: number }> }> = ({
-  factors,
-}) => {
-  const max = Math.max(...factors.map((f) => f.value), 1);
-  return (
-    <div>
-      {factors.map((f) => {
-        const pct = Math.max(2, Math.round((f.value / max) * 100));
-        return (
-          <div key={f.label} style={{ marginBottom: 8 }}>
-            <EuiFlexGroup justifyContent="spaceBetween" gutterSize="s" responsive={false}>
-              <EuiFlexItem grow={false}>
-                <EuiText size="xs">
-                  <span>{f.label}</span>
-                </EuiText>
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <EuiText size="xs" color="subdued">
-                  <span>{Math.round(f.value * 100) / 100}</span>
-                </EuiText>
-              </EuiFlexItem>
-            </EuiFlexGroup>
-            <div
-              style={{
-                height: 6,
-                borderRadius: 4,
-                background: 'rgba(105,112,125,0.15)',
-                overflow: 'hidden',
-                marginTop: 2,
-              }}
-            >
-              <div
-                style={{
-                  width: `${pct}%`,
-                  height: '100%',
-                  background: COLORS.primary,
-                  borderRadius: 4,
-                }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
 
 /* ------------------------------------------------------------ result view -- */
 
@@ -236,33 +197,29 @@ const ResultCard: React.FC<{ c: Case }> = ({ c }) => {
             <h4>Evidence</h4>
           </EuiTitle>
           <EuiSpacer size="xs" />
-          {evidence.map((ev, i) => (
-            <EuiPanel
-              key={i}
-              hasBorder
-              paddingSize="s"
-              color="subdued"
-              style={{ marginBottom: 6 }}
-            >
-              <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
-                <EuiFlexItem grow={false}>
-                  <EuiIcon type="dot" color={COLORS.primary} />
-                </EuiFlexItem>
-                <EuiFlexItem>
-                  <EuiText size="s">
-                    <span>{ev.summary}</span>
-                  </EuiText>
-                  {ev.event_ids && ev.event_ids.length ? (
-                    <EuiText size="xs" color="subdued">
-                      <span>
-                        {ev.event_ids.length} event{ev.event_ids.length === 1 ? '' : 's'}
-                      </span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {evidence.map((ev, i) => (
+              <Card key={i} variant="flat" paddingSize="m">
+                <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <EuiIcon type="dot" color={COLORS.primary} />
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    <EuiText size="s">
+                      <span>{ev.summary}</span>
                     </EuiText>
-                  ) : null}
-                </EuiFlexItem>
-              </EuiFlexGroup>
-            </EuiPanel>
-          ))}
+                    {ev.event_ids && ev.event_ids.length ? (
+                      <EuiText size="xs" color="subdued">
+                        <span>
+                          {ev.event_ids.length} event{ev.event_ids.length === 1 ? '' : 's'}
+                        </span>
+                      </EuiText>
+                    ) : null}
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              </Card>
+            ))}
+          </div>
         </>
       ) : null}
 
@@ -294,7 +251,7 @@ const ResultCard: React.FC<{ c: Case }> = ({ c }) => {
             <h4>Risk breakdown</h4>
           </EuiTitle>
           <EuiSpacer size="xs" />
-          <RiskBreakdown factors={factors} />
+          <BarList items={factors} format={(n) => String(roundFactor(n))} />
         </>
       ) : null}
 
@@ -422,9 +379,10 @@ export const InvestigatePage: React.FC = () => {
   };
 
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="inspect"
+        eyebrow="Ad-hoc triage"
         title="Investigate"
         description="Run an ad-hoc, agentic investigation on an IP, user, or host."
       />

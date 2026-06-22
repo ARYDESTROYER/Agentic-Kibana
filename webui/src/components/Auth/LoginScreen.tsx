@@ -24,6 +24,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import { api, ApiError } from '../../lib/api';
+import { useBranding } from '../../lib/branding';
 
 interface LoginScreenProps {
   /** Called after a successful login so the app can re-fetch the session. */
@@ -31,6 +32,13 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => {
+  const { branding } = useBranding();
+  // Fall back to the historical wording / glyph when branding is unset, so the
+  // no-branding login is byte-identical to today.
+  const wordmark = branding.org_name?.trim() || 'Agentic SOC';
+  const tagline = branding.product_name?.trim() || 'Triage console';
+  const logoUrl = branding.logo_data_url?.trim() || '';
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -75,17 +83,25 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
 
         <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} justifyContent="center">
           <EuiFlexItem grow={false}>
-            <span className="socLogo">
-              <EuiIcon type="securityApp" size="m" />
-            </span>
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt=""
+                style={{ width: 30, height: 30, borderRadius: 8, objectFit: 'contain' }}
+              />
+            ) : (
+              <span className="socLogo">
+                <EuiIcon type="securityApp" size="m" />
+              </span>
+            )}
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <div style={{ lineHeight: 1.15 }}>
               <EuiTitle size="s">
-                <h1 style={{ margin: 0 }}>Agentic SOC</h1>
+                <h1 style={{ margin: 0 }}>{wordmark}</h1>
               </EuiTitle>
               <EuiText size="xs" color="subdued">
-                <span>Triage console</span>
+                <span>{tagline}</span>
               </EuiText>
             </div>
           </EuiFlexItem>

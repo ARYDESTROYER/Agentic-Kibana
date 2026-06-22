@@ -5,7 +5,7 @@
  * configured sources, and renders them as KPI tiles + charts + a recent-cases
  * feed. Everything degrades gracefully when a backend call fails.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EuiButton,
   EuiFlexGrid,
@@ -22,14 +22,16 @@ import { fmtMoney, fmtTokens, humanizeAge, humanizeToken } from '../../lib/forma
 import {
   Card,
   ErrorCallout,
-  Loading,
   RiskBadge,
   SectionHeader,
+  Skeleton,
   StatusBadge,
   TrendStat,
   VerdictBadge,
 } from '../common/ui';
 import { BarList, DonutWithLegend, MiniBars } from '../common/charts';
+import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
+import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
 interface OverviewProps {
   onNavigate?: (p: 'cases' | 'sources') => void;
@@ -41,6 +43,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [sources, setSources] = useState<SourceInstance[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+
+  /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
+  const caseCache = useRef<Map<string, Case>>(new Map());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -51,7 +57,12 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
         api.usageSummary(24),
         api.listSources(),
       ]);
-      if (c.status === 'fulfilled') setCases(c.value.cases);
+      if (c.status === 'fulfilled') {
+        setCases(c.value.cases);
+        for (const k of c.value.cases) {
+          if (!caseCache.current.has(k.case_id)) caseCache.current.set(k.case_id, k);
+        }
+      }
       if (u.status === 'fulfilled') setUsage(u.value);
       if (s.status === 'fulfilled') setSources(s.value.sources);
       if (c.status === 'rejected') setError(c.reason);
@@ -118,7 +129,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const enabledSources = sources.filter((s) => s.enabled);
 
   return (
-    <div>
+    <div className="socPageEnter">
       <SectionHeader
         icon="dashboardApp"
         title="Overview"
@@ -134,7 +145,21 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       ) : null}
 
       {loading ? (
-        <Loading label="Loading dashboard…" />
+        <>
+          <EuiFlexGroup gutterSize="m" wrap>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <EuiFlexItem key={i}>
+                <Skeleton height={84} radius={10} />
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+          <EuiSpacer size="l" />
+          <EuiFlexGrid columns={2} gutterSize="l">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} height={180} radius={10} />
+            ))}
+          </EuiFlexGrid>
+        </>
       ) : (
         <>
           <EuiFlexGroup gutterSize="m" wrap>
@@ -233,19 +258,48 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
             actions={<EuiButton size="s" iconType="list" onClick={() => onNavigate?.('cases')}>View all</EuiButton>}
           >
             {recent.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {recent.map((c) => (
-                  <EuiFlexGroup key={c.case_id} alignItems="center" gutterSize="m" responsive={false} wrap>
-                    <EuiFlexItem>
-                      <EuiText size="s"><strong>{c.title || c.case_id}</strong></EuiText>
-                      <EuiText size="xs" color="subdued">
-                        <span>{c.entity ? `${c.entity.type}:${c.entity.value}` : '—'} · {humanizeAge(c.updated_at || c.created_at)}</span>
-                      </EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}><RiskBadge score={c.risk_score} /></EuiFlexItem>
-                    <EuiFlexItem grow={false}><VerdictBadge verdict={c.verdict} /></EuiFlexItem>
-                    <EuiFlexItem grow={false}><StatusBadge status={c.status} /></EuiFlexItem>
-                  </EuiFlexGroup>
+                  <CaseHoverCard
+                    key={c.case_id}
+                    caseId={c.case_id}
+                    preloaded={c}
+                    cache={caseCache}
+                    display="block"
+                    anchor={
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedCaseId(c.case_id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSelectedCaseId(c.case_id);
+                          }
+                        }}
+                        aria-label={`Open case ${c.title || c.case_id}`}
+                        className="socCard--clickable"
+                        style={{
+                          cursor: 'pointer',
+                          borderRadius: 8,
+                          padding: '6px 8px',
+                          outline: 'none',
+                        }}
+                      >
+                        <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} wrap>
+                          <EuiFlexItem>
+                            <EuiText size="s"><strong>{c.title || c.case_id}</strong></EuiText>
+                            <EuiText size="xs" color="subdued">
+                              <span>{c.entity ? `${c.entity.type}:${c.entity.value}` : '—'} · {humanizeAge(c.updated_at || c.created_at)}</span>
+                            </EuiText>
+                          </EuiFlexItem>
+                          <EuiFlexItem grow={false}><RiskBadge score={c.risk_score} /></EuiFlexItem>
+                          <EuiFlexItem grow={false}><VerdictBadge verdict={c.verdict} /></EuiFlexItem>
+                          <EuiFlexItem grow={false}><StatusBadge status={c.status} /></EuiFlexItem>
+                        </EuiFlexGroup>
+                      </div>
+                    }
+                  />
                 ))}
               </div>
             ) : (
@@ -254,6 +308,14 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
           </Card>
         </>
       )}
+
+      {selectedCaseId ? (
+        <CaseDetailFlyout
+          caseId={selectedCaseId}
+          onClose={() => setSelectedCaseId(null)}
+          onChanged={load}
+        />
+      ) : null}
     </div>
   );
 };

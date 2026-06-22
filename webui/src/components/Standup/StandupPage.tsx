@@ -6,8 +6,10 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  EuiBadge,
   EuiButton,
   EuiCallOut,
+  EuiCopy,
   EuiFlexGroup,
   EuiFlexItem,
   EuiPanel,
@@ -17,7 +19,7 @@ import {
 import type { StandupResponse } from '../../lib/types';
 import { api } from '../../lib/api';
 import { fmtNumber, humanizeAge, humanizeToken } from '../../lib/format';
-import { COLORS, chartColor } from '../../lib/theme';
+import { COLORS, chartColor, tint } from '../../lib/theme';
 import { BarList } from '../common/charts';
 import type { Segment } from '../common/charts';
 import {
@@ -25,8 +27,8 @@ import {
   EmptyState,
   ErrorCallout,
   IconChip,
-  Loading,
-  SectionHeader,
+  PageHeader,
+  Skeleton,
   StatTile,
 } from '../common/ui';
 
@@ -103,16 +105,50 @@ export const StandupPage: React.FC = () => {
     topUsers.length > 0 ||
     topHosts.length > 0;
 
+  const summaryText = data?.summary?.trim() ?? '';
+  const hasSummary = summaryText.length > 0;
+
+  // NOTE: the local `window` (window-hours) above shadows the global `window`,
+  // so reach the browser print via globalThis to keep this type-safe.
+  const printSummary = useCallback(() => {
+    if (typeof globalThis !== 'undefined' && typeof globalThis.print === 'function') {
+      globalThis.print();
+    }
+  }, []);
+
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="visText"
+        eyebrow="Daily digest"
         title="Standup"
         description="The daily aggregate digest, summarised from log activity."
         actions={
-          <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
-            Regenerate
-          </EuiButton>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            {hasSummary ? (
+              <EuiFlexItem grow={false}>
+                <EuiCopy textToCopy={summaryText}>
+                  {(copy) => (
+                    <EuiButton size="s" iconType="copyClipboard" onClick={copy}>
+                      Copy summary
+                    </EuiButton>
+                  )}
+                </EuiCopy>
+              </EuiFlexItem>
+            ) : null}
+            {hasSummary ? (
+              <EuiFlexItem grow={false}>
+                <EuiButton size="s" iconType="printer" onClick={printSummary}>
+                  Print
+                </EuiButton>
+              </EuiFlexItem>
+            ) : null}
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
+                Regenerate
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         }
       />
 
@@ -124,7 +160,21 @@ export const StandupPage: React.FC = () => {
       ) : null}
 
       {loading ? (
-        <Loading label="Generating standup…" />
+        <>
+          <EuiPanel hasBorder paddingSize="l" className="socCard">
+            <Skeleton height={20} width="40%" />
+            <EuiSpacer size="m" />
+            <Skeleton rows={4} height={14} />
+          </EuiPanel>
+          <EuiSpacer size="l" />
+          <EuiFlexGroup gutterSize="m" wrap responsive={false}>
+            {[0, 1, 2, 3].map((i) => (
+              <EuiFlexItem key={i} style={{ minWidth: 200 }}>
+                <Skeleton height={84} radius={8} />
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+        </>
       ) : data?.enabled === false ? (
         <EuiCallOut color="primary" iconType="iInCircle" title="Standup is disabled">
           <p>Enable the daily digest in Settings → Standup to start generating it.</p>
@@ -138,11 +188,22 @@ export const StandupPage: React.FC = () => {
                 <IconChip icon="documentEdit" accent={COLORS.accent} large />
               </EuiFlexItem>
               <EuiFlexItem>
-                <EuiText size="xs" color="subdued">
-                  <span>
-                    {window}h window · generated {humanizeAge(data?.generated_at)}
-                  </span>
-                </EuiText>
+                <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false} wrap>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="xs" color="subdued">
+                      <span>{window}h window</span>
+                    </EuiText>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiBadge
+                      color={tint(COLORS.accent, 0.16)}
+                      style={{ color: COLORS.accent }}
+                      iconType="clock"
+                    >
+                      generated {humanizeAge(data?.generated_at)}
+                    </EuiBadge>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
                 <EuiSpacer size="s" />
                 {data?.summary ? (
                   <EuiText size="m">

@@ -2,11 +2,13 @@
  * Case detail flyout — the core analyst workflow surface.
  *
  * Opened with a `caseId`, it fetches the full case (`api.getCase`) and presents:
- *   - a header with title/entity + risk gauge + verdict/status/confidence badges,
- *   - three tabs: Overview (why-it-fired, recommended action, reproduce query,
+ *   - a header with title/entity + risk gauge + verdict/status/confidence badges
+ *     plus an Export menu (JSON / Markdown report, downloaded via a Blob),
+ *   - four tabs: Overview (why-it-fired, recommended action, reproduce query,
  *     evidence cards, MITRE techniques, risk breakdown), Agent trace (the audited
- *     pipeline timeline from `GET /cases/{id}/trace`), and Timeline (the merged
- *     analyst history + verdict evolution),
+ *     pipeline timeline from `GET /cases/{id}/trace`), Timeline (the merged
+ *     analyst history + verdict evolution), and Notes & feedback (AI-decision
+ *     grading, comments thread, tags editor, assignee),
  *   - a sticky footer with lifecycle actions (close / confirm FP / escalate /
  *     reopen / acknowledge) each gated behind a small confirm-with-note modal.
  *
@@ -18,9 +20,12 @@ import {
   EuiBadge,
   EuiButton,
   EuiButtonEmpty,
+  EuiButtonIcon,
   EuiCallOut,
   EuiCodeBlock,
+  EuiComboBox,
   EuiConfirmModal,
+  EuiContextMenu,
   EuiFieldText,
   EuiFlexGroup,
   EuiFlexItem,
@@ -28,22 +33,30 @@ import {
   EuiFlyoutBody,
   EuiFlyoutFooter,
   EuiFlyoutHeader,
+  EuiFormRow,
   EuiHorizontalRule,
+  EuiPopover,
+  EuiRange,
+  EuiSelect,
   EuiSpacer,
   EuiTab,
   EuiTabs,
   EuiText,
+  EuiTextArea,
   EuiTimeline,
   EuiTimelineItem,
   EuiTitle,
 } from '@elastic/eui';
+import type { EuiComboBoxOptionOption } from '@elastic/eui';
 import type { Case } from '../../lib/types';
 import { api } from '../../lib/api';
+import type { CaseFeedbackInput } from '../../lib/api';
 import { COLORS, riskBand, riskHex, tint } from '../../lib/theme';
 import { DASH, fmtMoney, formatTimestamp, humanizeAge, humanizeToken } from '../../lib/format';
 import {
   Card,
   ConfidenceBadge,
+  EmptyState,
   ErrorCallout,
   Loading,
   RiskBadge,
@@ -192,7 +205,7 @@ export const CaseDetailFlyout: React.FC<{
   const [c, setC] = useState<Case | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<'overview' | 'trace' | 'timeline'>('overview');
+  const [tab, setTab] = useState<'overview' | 'trace' | 'timeline' | 'collab'>('overview');
 
   // Agent-trace (lazy: fetched the first time the tab is opened).
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
@@ -203,6 +216,10 @@ export const CaseDetailFlyout: React.FC<{
   const [pending, setPending] = useState<ActionDef | null>(null);
   const [note, setNote] = useState('');
   const [acting, setActing] = useState(false);
+
+  // Export menu (header popover) + in-flight format.
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exporting, setExporting] = useState<'json' | 'md' | null>(null);
 
   const flyoutTitleId = `caseDetail-${caseId}`;
 
@@ -263,6 +280,34 @@ export const CaseDetailFlyout: React.FC<{
     }
   }, [pending, note, caseId, loadCase, onChanged]);
 
+  // Export the case (JSON or Markdown) and trigger a browser download — no deps:
+  // build a Blob from the returned content and click a transient <a download>.
+  const runExport = useCallback(
+    async (fmt: 'json' | 'md') => {
+      setExporting(fmt);
+      try {
+        const res = await api.exportCase(caseId, fmt);
+        const blob = new Blob([res.content], {
+          type: res.content_type || 'application/octet-stream',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.filename || `case-${caseId}.${fmt === 'md' ? 'md' : 'json'}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setExportOpen(false);
+      } catch (e) {
+        setError(e);
+      } finally {
+        setExporting(null);
+      }
+    },
+    [caseId],
+  );
+
   const riskScore = typeof c?.risk_score === 'number' ? c.risk_score : 0;
   const band = riskBand(riskScore);
 
@@ -270,6 +315,7 @@ export const CaseDetailFlyout: React.FC<{
     { id: 'overview', label: 'Overview', icon: 'documentation' },
     { id: 'trace', label: 'Agent trace', icon: 'graphApp' },
     { id: 'timeline', label: 'Timeline', icon: 'clock' },
+    { id: 'collab', label: 'Notes & feedback', icon: 'editorComment' },
   ];
 
   return (
@@ -331,6 +377,47 @@ export const CaseDetailFlyout: React.FC<{
             </EuiFlexItem>
             <EuiFlexItem grow={false}>
               <div style={{ textAlign: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                  <EuiPopover
+                    button={
+                      <EuiButton
+                        size="s"
+                        iconType="exportAction"
+                        iconSide="left"
+                        onClick={() => setExportOpen((o) => !o)}
+                        isLoading={exporting !== null}
+                      >
+                        Export
+                      </EuiButton>
+                    }
+                    isOpen={exportOpen}
+                    closePopover={() => setExportOpen(false)}
+                    panelPaddingSize="none"
+                    anchorPosition="downRight"
+                  >
+                    <EuiContextMenu
+                      initialPanelId={0}
+                      panels={[
+                        {
+                          id: 0,
+                          title: 'Export case',
+                          items: [
+                            {
+                              name: 'JSON',
+                              icon: 'document',
+                              onClick: () => void runExport('json'),
+                            },
+                            {
+                              name: 'Markdown report',
+                              icon: 'documentEdit',
+                              onClick: () => void runExport('md'),
+                            },
+                          ],
+                        },
+                      ]}
+                    />
+                  </EuiPopover>
+                </div>
                 <RiskGauge score={riskScore} color={band.color} size={132} />
                 <EuiText size="xs" style={{ color: band.color, fontWeight: 700, marginTop: -8 }}>
                   <span>{band.label} risk</span>
@@ -370,8 +457,10 @@ export const CaseDetailFlyout: React.FC<{
             error={traceError}
             onRetry={loadTrace}
           />
-        ) : (
+        ) : tab === 'timeline' ? (
           <TimelineTab c={c} />
+        ) : (
+          <CollaborationTab c={c} onUpdated={(next) => { setC(next); onChanged?.(); }} />
         )}
       </EuiFlyoutBody>
 
@@ -881,5 +970,579 @@ const TimelineTab: React.FC<{ c: Case }> = ({ c }) => {
         </EuiTimelineItem>
       ))}
     </EuiTimeline>
+  );
+};
+
+/* ============================================================ Collaboration == */
+
+/** Assessment options — icon + colour coded (green / orange / red). */
+const ASSESSMENTS: Array<{
+  key: 'agree' | 'partial' | 'disagree';
+  label: string;
+  icon: string;
+  color: string;
+}> = [
+  { key: 'agree', label: 'Agree', icon: 'checkInCircleFilled', color: COLORS.success },
+  { key: 'partial', label: 'Partially', icon: 'minusInCircleFilled', color: COLORS.warning },
+  { key: 'disagree', label: 'Disagree', icon: 'crossInACircleFilled', color: COLORS.danger },
+];
+
+const OUTCOME_OPTIONS: Array<{ value: string; text: string }> = [
+  { value: '', text: 'Unknown' },
+  { value: 'true_positive', text: 'True positive' },
+  { value: 'false_positive', text: 'False positive' },
+  { value: 'true_negative', text: 'True negative' },
+  { value: 'false_negative', text: 'False negative' },
+];
+
+function assessmentMeta(key?: string) {
+  return ASSESSMENTS.find((a) => a.key === key);
+}
+
+/** A 1–5 star control (EuiRating is unavailable in this EUI build). */
+const StarRating: React.FC<{
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}> = ({ label, value, onChange }) => (
+  <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+    <EuiFlexItem grow={false} style={{ minWidth: 168 }}>
+      <EuiText size="s">
+        <span>{label}</span>
+      </EuiText>
+    </EuiFlexItem>
+    <EuiFlexItem grow={false}>
+      <EuiFlexGroup gutterSize="none" responsive={false}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <EuiFlexItem grow={false} key={n}>
+            <EuiButtonIcon
+              iconType={n <= value ? 'starFilled' : 'starEmpty'}
+              aria-label={`${label}: ${n} of 5`}
+              color={n <= value ? 'warning' : 'text'}
+              onClick={() => onChange(n === value ? 0 : n)}
+            />
+          </EuiFlexItem>
+        ))}
+      </EuiFlexGroup>
+    </EuiFlexItem>
+    <EuiFlexItem grow={false}>
+      <EuiText size="xs" color="subdued">
+        <span>{value ? `${value}/5` : DASH}</span>
+      </EuiText>
+    </EuiFlexItem>
+  </EuiFlexGroup>
+);
+
+/** Map a 1–5 star rating to a 0..1 score (0 stars → undefined / not recorded). */
+function starsToScore(n: number): number | undefined {
+  if (!n || n < 1) return undefined;
+  return Math.max(0, Math.min(1, n / 5));
+}
+
+const CollaborationTab: React.FC<{
+  c: Case;
+  onUpdated: (next: Case) => void;
+}> = ({ c, onUpdated }) => {
+  const caseId = c.case_id;
+
+  /* -------------------------------------------------------- AI-decision grading */
+  const [assessment, setAssessment] = useState<'agree' | 'partial' | 'disagree'>('agree');
+  const [accuracy, setAccuracy] = useState(0);
+  const [reasoning, setReasoning] = useState(0);
+  const [appropriateness, setAppropriateness] = useState(0);
+  const [outcome, setOutcome] = useState('');
+  const [timeSaved, setTimeSaved] = useState(0);
+  const [fbAnalyst, setFbAnalyst] = useState('');
+  const [fbComment, setFbComment] = useState('');
+  const [submittingFb, setSubmittingFb] = useState(false);
+  const [fbError, setFbError] = useState<unknown>(null);
+
+  const submitFeedback = useCallback(async () => {
+    setSubmittingFb(true);
+    setFbError(null);
+    try {
+      const body: CaseFeedbackInput = { assessment };
+      const a = starsToScore(accuracy);
+      const r = starsToScore(reasoning);
+      const ap = starsToScore(appropriateness);
+      if (a !== undefined) body.accuracy = a;
+      if (r !== undefined) body.reasoning_quality = r;
+      if (ap !== undefined) body.action_appropriateness = ap;
+      if (outcome) body.actual_outcome = outcome;
+      if (timeSaved > 0) body.time_saved_minutes = timeSaved;
+      if (fbAnalyst.trim()) body.analyst = fbAnalyst.trim();
+      if (fbComment.trim()) body.comment = fbComment.trim();
+      const next = await api.caseFeedback(caseId, body);
+      onUpdated(next);
+      // reset the editable parts, keeping the analyst id for the next entry
+      setAccuracy(0);
+      setReasoning(0);
+      setAppropriateness(0);
+      setOutcome('');
+      setTimeSaved(0);
+      setFbComment('');
+    } catch (e) {
+      setFbError(e);
+    } finally {
+      setSubmittingFb(false);
+    }
+  }, [
+    assessment,
+    accuracy,
+    reasoning,
+    appropriateness,
+    outcome,
+    timeSaved,
+    fbAnalyst,
+    fbComment,
+    caseId,
+    onUpdated,
+  ]);
+
+  const priorFeedback = useMemo(
+    () =>
+      [...(c.feedback || [])].sort((x, y) => tsValue(y.ts) - tsValue(x.ts)),
+    [c.feedback],
+  );
+
+  /* ----------------------------------------------------------------- comments */
+  const [commentAuthor, setCommentAuthor] = useState('');
+  const [commentBody, setCommentBody] = useState('');
+  const [submittingComment, setSubmittingComment] = useState(false);
+  const [commentError, setCommentError] = useState<unknown>(null);
+
+  const submitComment = useCallback(async () => {
+    const body = commentBody.trim();
+    if (!body) return;
+    setSubmittingComment(true);
+    setCommentError(null);
+    try {
+      const next = await api.caseComment(caseId, {
+        author: commentAuthor.trim() || undefined,
+        body,
+      });
+      onUpdated(next);
+      setCommentBody('');
+    } catch (e) {
+      setCommentError(e);
+    } finally {
+      setSubmittingComment(false);
+    }
+  }, [commentBody, commentAuthor, caseId, onUpdated]);
+
+  const comments = useMemo(
+    () => [...(c.comments || [])].sort((x, y) => tsValue(x.ts) - tsValue(y.ts)),
+    [c.comments],
+  );
+
+  /* --------------------------------------------------------------------- tags */
+  const tagOptions = useMemo<Array<EuiComboBoxOptionOption<string>>>(
+    () => (c.tags || []).map((t) => ({ label: t })),
+    [c.tags],
+  );
+  const [savingTags, setSavingTags] = useState(false);
+  const [tagsError, setTagsError] = useState<unknown>(null);
+
+  const persistTags = useCallback(
+    async (selected: Array<EuiComboBoxOptionOption<string>>) => {
+      const tags = Array.from(
+        new Set(selected.map((o) => (o.label || '').trim()).filter(Boolean)),
+      );
+      setSavingTags(true);
+      setTagsError(null);
+      try {
+        const next = await api.caseTags(caseId, tags);
+        onUpdated(next);
+      } catch (e) {
+        setTagsError(e);
+      } finally {
+        setSavingTags(false);
+      }
+    },
+    [caseId, onUpdated],
+  );
+
+  const onCreateTag = useCallback(
+    (value: string) => {
+      const v = value.trim();
+      if (!v) return;
+      void persistTags([...tagOptions, { label: v }]);
+    },
+    [tagOptions, persistTags],
+  );
+
+  const onChangeTags = useCallback(
+    (selected: Array<EuiComboBoxOptionOption<string>>) => {
+      void persistTags(selected);
+    },
+    [persistTags],
+  );
+
+  /* ----------------------------------------------------------------- assignee */
+  const [assignee, setAssignee] = useState(c.assignee || '');
+  const [savingAssignee, setSavingAssignee] = useState(false);
+  const [assigneeError, setAssigneeError] = useState<unknown>(null);
+
+  useEffect(() => {
+    setAssignee(c.assignee || '');
+  }, [c.assignee]);
+
+  const saveAssignee = useCallback(async () => {
+    setSavingAssignee(true);
+    setAssigneeError(null);
+    try {
+      const next = await api.caseAssign(caseId, assignee.trim());
+      onUpdated(next);
+    } catch (e) {
+      setAssigneeError(e);
+    } finally {
+      setSavingAssignee(false);
+    }
+  }, [caseId, assignee, onUpdated]);
+
+  return (
+    <div>
+      {/* -------------------------------------------------- assignee + tags */}
+      <EuiFlexGroup gutterSize="m" wrap>
+        <EuiFlexItem>
+          <Card title="Assignee" icon="user" accent={COLORS.accent}>
+            <EuiFormRow
+              label="Owning analyst"
+              helpText="Who is responsible for this case."
+              fullWidth
+              isInvalid={!!assigneeError}
+              error={assigneeError ? 'Could not save assignee.' : undefined}
+            >
+              <EuiFlexGroup gutterSize="s" responsive={false} alignItems="center">
+                <EuiFlexItem>
+                  <EuiFieldText
+                    fullWidth
+                    icon="user"
+                    placeholder="e.g. jdoe"
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void saveAssignee();
+                    }}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiButton
+                    size="s"
+                    iconType="save"
+                    onClick={() => void saveAssignee()}
+                    isLoading={savingAssignee}
+                    isDisabled={assignee.trim() === (c.assignee || '').trim()}
+                  >
+                    Save
+                  </EuiButton>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiFormRow>
+          </Card>
+        </EuiFlexItem>
+        <EuiFlexItem>
+          <Card title="Tags" icon="tag" accent={COLORS.primary}>
+            <EuiFormRow
+              label="Case tags"
+              helpText="Type and press enter to add; click ✕ to remove."
+              fullWidth
+              isInvalid={!!tagsError}
+              error={tagsError ? 'Could not save tags.' : undefined}
+            >
+              <EuiComboBox
+                fullWidth
+                noSuggestions
+                placeholder="Add a tag…"
+                selectedOptions={tagOptions}
+                onCreateOption={onCreateTag}
+                onChange={onChangeTags}
+                isLoading={savingTags}
+                isClearable={false}
+              />
+            </EuiFormRow>
+          </Card>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+
+      <EuiSpacer size="m" />
+
+      {/* ------------------------------------------------ AI-decision grading */}
+      <Card title="Grade the AI decision" icon="inspect" accent={COLORS.warning}>
+        <EuiText size="xs" color="subdued">
+          <span>
+            Help calibrate the agent: rate the verdict, reasoning, and recommended action.
+          </span>
+        </EuiText>
+        <EuiSpacer size="m" />
+
+        <EuiFormRow label="Overall assessment" fullWidth>
+          <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+            {ASSESSMENTS.map((a) => {
+              const active = assessment === a.key;
+              return (
+                <EuiFlexItem grow={false} key={a.key}>
+                  <EuiButton
+                    size="s"
+                    iconType={a.icon}
+                    fill={active}
+                    onClick={() => setAssessment(a.key)}
+                    style={
+                      active
+                        ? { background: a.color, borderColor: a.color }
+                        : { color: a.color, borderColor: tint(a.color, 0.5) }
+                    }
+                  >
+                    {a.label}
+                  </EuiButton>
+                </EuiFlexItem>
+              );
+            })}
+          </EuiFlexGroup>
+        </EuiFormRow>
+
+        <EuiSpacer size="s" />
+        <StarRating label="Accuracy" value={accuracy} onChange={setAccuracy} />
+        <EuiSpacer size="xs" />
+        <StarRating label="Reasoning quality" value={reasoning} onChange={setReasoning} />
+        <EuiSpacer size="xs" />
+        <StarRating
+          label="Action appropriateness"
+          value={appropriateness}
+          onChange={setAppropriateness}
+        />
+
+        <EuiSpacer size="m" />
+        <EuiFlexGroup gutterSize="m" wrap>
+          <EuiFlexItem>
+            <EuiFormRow label="Actual outcome" fullWidth>
+              <EuiSelect
+                fullWidth
+                options={OUTCOME_OPTIONS}
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+              />
+            </EuiFormRow>
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiFormRow label="Analyst id (optional)" fullWidth>
+              <EuiFieldText
+                fullWidth
+                icon="user"
+                placeholder="e.g. jdoe"
+                value={fbAnalyst}
+                onChange={(e) => setFbAnalyst(e.target.value)}
+              />
+            </EuiFormRow>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+
+        <EuiSpacer size="s" />
+        <EuiFormRow label={`Analyst time saved: ${timeSaved} min`} fullWidth>
+          <EuiRange
+            min={0}
+            max={120}
+            step={5}
+            value={timeSaved}
+            onChange={(e) => setTimeSaved(Number((e.target as HTMLInputElement).value))}
+            showLabels
+            showValue
+            valueAppend=" min"
+            fullWidth
+          />
+        </EuiFormRow>
+
+        <EuiSpacer size="s" />
+        <EuiFormRow label="Comment (optional)" fullWidth>
+          <EuiTextArea
+            fullWidth
+            rows={2}
+            placeholder="Anything the agent missed or got right?"
+            value={fbComment}
+            onChange={(e) => setFbComment(e.target.value)}
+          />
+        </EuiFormRow>
+
+        {fbError ? (
+          <>
+            <EuiSpacer size="s" />
+            <ErrorCallout error={fbError} title="Could not submit feedback" />
+          </>
+        ) : null}
+
+        <EuiSpacer size="m" />
+        <EuiFlexGroup justifyContent="flexEnd" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <EuiButton
+              fill
+              size="s"
+              iconType="check"
+              color="warning"
+              onClick={() => void submitFeedback()}
+              isLoading={submittingFb}
+            >
+              Submit grading
+            </EuiButton>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+
+        {priorFeedback.length ? (
+          <>
+            <EuiHorizontalRule margin="m" />
+            <EuiText size="xs" color="subdued">
+              <span>
+                {priorFeedback.length} prior grading{priorFeedback.length === 1 ? '' : 's'}
+              </span>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {priorFeedback.map((f, i) => {
+                const meta = assessmentMeta(f.assessment);
+                return (
+                  <Card key={i} variant="flat" paddingSize="m">
+                    <EuiFlexGroup
+                      gutterSize="s"
+                      alignItems="center"
+                      responsive={false}
+                      wrap
+                    >
+                      <EuiFlexItem grow={false}>
+                        <EuiBadge
+                          color={meta ? tint(meta.color, 0.18) : 'hollow'}
+                          iconType={meta?.icon}
+                          style={meta ? { color: meta.color } : undefined}
+                        >
+                          {meta?.label || humanizeToken(f.assessment) || 'Graded'}
+                        </EuiBadge>
+                      </EuiFlexItem>
+                      {f.actual_outcome ? (
+                        <EuiFlexItem grow={false}>
+                          <EuiBadge color="hollow">
+                            {humanizeToken(f.actual_outcome)}
+                          </EuiBadge>
+                        </EuiFlexItem>
+                      ) : null}
+                      {typeof f.time_saved_minutes === 'number' && f.time_saved_minutes > 0 ? (
+                        <EuiFlexItem grow={false}>
+                          <EuiBadge color="hollow" iconType="clock">
+                            {f.time_saved_minutes} min saved
+                          </EuiBadge>
+                        </EuiFlexItem>
+                      ) : null}
+                      <EuiFlexItem />
+                      <EuiFlexItem grow={false}>
+                        <EuiText size="xs" color="subdued">
+                          <span>
+                            {f.analyst ? `${f.analyst} · ` : ''}
+                            {f.ts ? formatTimestamp(f.ts) : DASH}
+                          </span>
+                        </EuiText>
+                      </EuiFlexItem>
+                    </EuiFlexGroup>
+                    {f.comment ? (
+                      <>
+                        <EuiSpacer size="xs" />
+                        <EuiText size="xs">
+                          <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{f.comment}</p>
+                        </EuiText>
+                      </>
+                    ) : null}
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        ) : null}
+      </Card>
+
+      <EuiSpacer size="m" />
+
+      {/* ------------------------------------------------------------ comments */}
+      <Card title="Comments" icon="editorComment" accent={COLORS.accent}>
+        {comments.length === 0 ? (
+          <EmptyState
+            iconType="editorComment"
+            title="No comments yet"
+            body="Leave a note for the next analyst on this case."
+          />
+        ) : (
+          <EuiTimeline>
+            {comments.map((cm, i) => (
+              <EuiTimelineItem key={i} icon="user" verticalAlign="top">
+                <div>
+                  <EuiFlexGroup
+                    justifyContent="spaceBetween"
+                    alignItems="center"
+                    gutterSize="s"
+                    responsive={false}
+                    wrap
+                  >
+                    <EuiFlexItem grow={false}>
+                      <EuiText size="s">
+                        <strong>{cm.author || 'Analyst'}</strong>
+                      </EuiText>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false}>
+                      <EuiText size="xs" color="subdued">
+                        <span>{cm.ts ? formatTimestamp(cm.ts) : DASH}</span>
+                      </EuiText>
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+                  <EuiSpacer size="xs" />
+                  <EuiText size="s">
+                    <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{cm.body}</p>
+                  </EuiText>
+                </div>
+              </EuiTimelineItem>
+            ))}
+          </EuiTimeline>
+        )}
+
+        <EuiHorizontalRule margin="m" />
+
+        <EuiFormRow label="Author (optional)" fullWidth>
+          <EuiFieldText
+            fullWidth
+            icon="user"
+            placeholder="e.g. jdoe"
+            value={commentAuthor}
+            onChange={(e) => setCommentAuthor(e.target.value)}
+          />
+        </EuiFormRow>
+        <EuiSpacer size="s" />
+        <EuiFormRow label="Add a comment" fullWidth>
+          <EuiTextArea
+            fullWidth
+            rows={3}
+            placeholder="Share context, findings, or a hand-off note…"
+            value={commentBody}
+            onChange={(e) => setCommentBody(e.target.value)}
+          />
+        </EuiFormRow>
+
+        {commentError ? (
+          <>
+            <EuiSpacer size="s" />
+            <ErrorCallout error={commentError} title="Could not post comment" />
+          </>
+        ) : null}
+
+        <EuiSpacer size="s" />
+        <EuiFlexGroup justifyContent="flexEnd" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <EuiButton
+              fill
+              size="s"
+              iconType="plusInCircle"
+              onClick={() => void submitComment()}
+              isLoading={submittingComment}
+              isDisabled={!commentBody.trim()}
+            >
+              Add comment
+            </EuiButton>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </Card>
+    </div>
   );
 };
