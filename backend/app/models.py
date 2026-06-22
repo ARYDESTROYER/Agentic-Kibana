@@ -266,6 +266,13 @@ class Case(BaseModel):
     status: CaseStatus = CaseStatus.OPEN
     decision_by: DecisionBy | None = None
     objection_window_expires_at: str | None = None
+    # The specialized investigator persona deterministically assigned to this case
+    # (multi-agent roster, Vigil-inspired). Empty == the generalist. Recorded for
+    # the UI/audit so you can see WHICH specialist handled the cluster.
+    agent_persona: str = ""
+    # The Markdown playbook selected for this case (deterministic match), empty when
+    # none matched / playbooks disabled. Recorded for the UI/audit "why".
+    playbook_id: str = ""
     # Helpful, non-contract-breaking extras for the UI / audit:
     title: str = ""
     summary: str = ""
@@ -335,6 +342,9 @@ class UsageDoc(BaseModel):
     currency: str = "USD"
     latency_ms: int = 0
     outcome: UsageOutcome = UsageOutcome.OK
+    # Provenance of the price used: exact | heuristic | zero | default (Vigil-
+    # inspired). Lets the cost surface badge an approximate cost vs a verified one.
+    pricing_source: str = "exact"
 
 
 # --------------------------------------------------------------------------- #

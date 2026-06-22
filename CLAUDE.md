@@ -46,23 +46,27 @@ Components, loosely coupled:
 - **Web UI** (`webui/`) — the **primary** surface: a standalone Vite + React +
   @elastic/eui SPA (the first-run wizard + console), talking to the backend via an
   `/api` proxy. Ships in the agnostic compose stack as `tlsoc-webui` (nginx).
-- **Plugin** (`plugin/tlsoc_agentic_triage/`) — **LEGACY/optional**: a thin Kibana
-  plugin (React + EUI) for sites that want the console embedded in an existing
-  Kibana; talks to the backend ONLY through a Kibana server-side proxy.
+- **Plugin** (`archive/kibana-plugin/`) — **ARCHIVED (2026-06-21)**: the original
+  thin Kibana plugin (React + EUI). Retired into `archive/` when we went
+  vendor-neutral (the standalone webui is the sole primary surface). It is no longer
+  built, tested, or shipped; see `archive/README.md`. Do NOT develop it; if a site
+  truly needs the embedded-in-Kibana experience, revive it from the archive.
 
 Authoritative companion docs (keep them in sync when you change behavior):
-`README.md` (overview), `plugin/BUILD.md` (build), `DEPLOY.md` (deploy),
-`docs/USAGE.md` (use + examples), `docs/TROUBLESHOOTING.md` (failures),
-`COMPATIBILITY.md` (upstream compatibility), `docs/ENVIRONMENT.md` (environments),
-`ROADMAP.md` (work tracking).
+`README.md` (overview), `DEPLOY.md` (deploy), `docs/USAGE.md` (use + examples),
+`docs/TROUBLESHOOTING.md` (failures), `COMPATIBILITY.md` (upstream compatibility),
+`docs/ENVIRONMENT.md` (environments), `docs/VIGIL_STUDY.md` (Vigil study + overhaul
+plan), `ROADMAP.md` (work tracking).
 
 ## 2. Target versions
 
-- **Primary target: Elastic / Kibana / Elasticsearch 8.19.12.** New plugin builds
-  MUST produce `plugin/dist/tlsocAgenticTriage-8.19.12.zip`.
-- Legacy target kept: 8.12.2 (`plugin/dist/tlsocAgenticTriage-8.12.2.zip`).
-- One source tree builds both via `@kbn/*` import aliases + `--kibana-version`
-  stamping. See `plugin/BUILD.md` and `COMPATIBILITY.md`.
+- **The webui (the only surface) targets no specific Kibana version** — it is a
+  standalone SPA. The suite connects to Elastic/OpenSearch/Wazuh + 16 push sources
+  as data sources, independent of any Kibana.
+- When attached to a legacy ELK stack, the compatibility target is Elastic/
+  Elasticsearch **8.19.12** (read-only consumer); see `COMPATIBILITY.md`.
+- The Kibana **plugin** that used to target 8.19.12 / 8.12.2 is **archived** (see
+  `archive/kibana-plugin/`); it is no longer built or version-stamped.
 
 ## 3. Architecture (end to end)
 
@@ -119,36 +123,36 @@ backend/app/
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
-  tools/             base (MCP-shaped) · es_query · enrich · rag · vectorstore
-  engine/            correlation · risk · cost_gate · case_manager · signatures ·
-                     poller · ingest (push/queue → OCSF → pipeline)
+  tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
+                     rag (hybrid BM25+vector retrieval) · vectorstore
+  engine/            correlation · risk · cost_gate · case_manager (AutoClosePolicy) ·
+                     signatures · poller · ingest (push/queue → OCSF) · runbooks
+                     (RAG-knowledge loader)
+  runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
+  playbooks/         Markdown PLAYBOOK engine: manifest · loader · registry
+                     (deterministic per-cluster selection + atomic hot-reload)
+  auth/              passwords (PBKDF2) · tokens (stdlib HS256 JWT) · service
+  middleware/        security_headers · csrf · rate_limit (Starlette middleware)
   agents/            prompts · router · investigator · formatter · chat · standup ·
-                     graph (LangGraph) · pipeline · common
+                     graph (LangGraph) · pipeline · common · personas (multi-agent roster)
   stores/            base (abstract repositories — backend-agnostic StateStore) ·
                      cases · usage · config_store · cursor_store · audit/audit_log
                      (ES-backed) · sql/ (engine · models · repositories ·
                      vectorstore — SQLite/Postgres+pgvector)
   api/               routes (UI contract; incl. /sources, /sources/{id}/secrets) ·
                      deps    state.py (DI hub) · main.py
+backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
+                     dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+@elastic/eui SPA
   package.json       Node 22, @elastic/eui 95; build = tsc --noEmit && vite build
   src/               App.tsx · main.tsx · components/ · lib/ (api etc.)
   Dockerfile         nginx image (tlsoc-webui) with the /api proxy
-plugin/tlsoc_agentic_triage/   LEGACY/optional Kibana surface
-  kibana.json        legacy manifest (the BUILD input; kibanaVersion stamped via --kibana-version)
-  kibana.jsonc       in-tree-schema reference only (NOT used by the build)
-  common/index.ts    shared TS types (Case, etc.)
-  public/            plugin.ts · application.tsx · index.ts · types.ts
-                     components/ (app, chat, investigate, verdict_card, scans,
-                                  standup, cost, settings, wizard)
-                     lib/ (api.ts, discover.ts)
-  server/            index.ts · plugin.ts · config.ts · routes/index.ts (the proxy)
-plugin/dist/         committed built zips (8.12.2 + 8.19.12) — deploy artifacts
-plugin/BUILD.md      authoritative build guide (both versions)
+archive/             FROZEN legacy code (not built/tested/shipped) — see archive/README.md
+  kibana-plugin/     the retired Kibana plugin (tlsoc_agentic_triage/ + dist/ + BUILD.md)
 deploy/              docker-compose.agnostic.yml (Postgres+Redis+backend+webui) ·
                      docker-compose.tlsoc.yml (legacy ELK merge) · mappings/ · dashboards/
-docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md
+docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_STUDY.md
 .env.example  README.md  DEPLOY.md  COMPATIBILITY.md  CLAUDE.md  Journal.md  ROADMAP.md
 ```
 
@@ -158,8 +162,14 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md
    or the `elastic` superuser. Two physically separate ES clients
    (`es/client.py`): `_ro` (read-only `all-logs-*`) and `_mgmt` (`tlsoc-agent-*`).
 2. Every agent action audited, append-only (`tlsoc-agent-audit-*`).
-3. Verdict from the LLM; **close/escalate decision from deterministic code; a
-   TRUE_POSITIVE is NEVER auto-closed** (`engine/case_manager.py`).
+3. Verdict from the LLM; **the close/escalate decision is made by deterministic
+   code against the operator-configured `AutoClosePolicy`** — never by raw LLM
+   output and never by playbook text (`engine/case_manager.py`, `decide()` is a pure
+   fn over `(verdict, confidence, risk_score, policy)`). Auto-close is a tunable,
+   per-verdict-class policy (enable/min-confidence/max-risk/objection-window):
+   FALSE_POSITIVE on above a bar by default; **TRUE_POSITIVE auto-close is an
+   explicit opt-in, OFF by default**; **NEEDS_HUMAN never auto-closes (code-enforced,
+   not policy-tunable)**. A playbook can recommend but can never change this policy.
 4. Durable polling cursor (no skip / no dup); cases idempotent by cluster
    signature (`engine/poller.py`, `engine/signatures.py`).
 5. ONE chat engine, two entry points (`agents/chat.py`).
@@ -223,7 +233,7 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 221 tests
+# Backend tests (offline; MUST stay green) — currently 300 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
 python -m pytest -q
 
@@ -237,16 +247,9 @@ cd webui && npm install && npm run build   # produces webui/dist/
 cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
 docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on :8080
 
-# Plugin build for 8.19.12 (LEGACY; see plugin/BUILD.md for the full recipe + troubleshooting)
-source /opt/nvm/nvm.sh && nvm use "$(cat /tmp/kibana-8.19/.nvmrc)"   # Node 22.22.0
-export PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-       CYPRESS_INSTALL_BINARY=0 CHROMEDRIVER_SKIP_DOWNLOAD=true \
-       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 BROWSERSLIST_IGNORE_OLD_DATA=true \
-       NODE_OPTIONS=--max-old-space-size=4096
-# copy plugin/tlsoc_agentic_triage/{public,server,common,kibana.json} over the
-# generated /tmp/kibana-8.19/plugins/tlsoc_agentic_triage, then:
-cd /tmp/kibana-8.19/plugins/tlsoc_agentic_triage && node ../../scripts/plugin_helpers build --kibana-version 8.19.12
-# MANDATORY verify: unzip -l build/*.zip | grep tlsocAgenticTriage.plugin.js
+# NOTE: the Kibana plugin is ARCHIVED (archive/kibana-plugin/) and no longer built.
+# The standalone webui above is the sole supported surface. To revive the plugin,
+# see archive/kibana-plugin/BUILD.md — it is a do-it-yourself exercise.
 ```
 
 ## 8. Conventions
@@ -290,9 +293,45 @@ cd /tmp/kibana-8.19/plugins/tlsoc_agentic_triage && node ../../scripts/plugin_he
 
 ## 10. Current status & roadmap
 
-Current: Phase-1 spine + the vendor-agnostic transition shipped — **221 backend
-tests green**; the standalone **webui builds clean** (tsc+vite); both legacy plugin
-zips still build. See `ROADMAP.md` for live status.
+Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
+(**Waves 1 & 2**) shipped — **300 backend tests green**; the standalone **webui
+builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
+See `docs/VIGIL_STUDY.md` for the Vigil study + multi-wave plan and `ROADMAP.md`
+for live status.
+
+Done (Wave 2 — Markdown playbooks + optional auth, additive, spine intact):
+- **Markdown playbook engine** (`app/playbooks/` + `backend/playbooks/*.md`):
+  operator-authored phased procedures, DETERMINISTICALLY selected per cluster
+  (`registry.select_playbook`, no LLM in the default path), injected as a DISTINCT
+  TRUSTED block (`<<<PLAYBOOK>>>`) separate from the fenced UNTRUSTED evidence; a
+  playbook can only RECOMMEND. Atomic hot-reload; `GET /api/playbooks`,
+  `POST /api/playbooks/reload`, `GET /api/playbooks/selection/{case_id}`. 3 seed
+  playbooks. Selection/fallback audited; `Case.playbook_id` recorded.
+- **AutoClosePolicy** (`engine/case_manager.decide`): per-verdict-class auto-close
+  (see #3) — FP on above a bar, TP opt-in (off), NEEDS_HUMAN never; stored
+  `fp_auto_close` migrated for back-compat.
+- **Optional auth (default OFF — the no-auth "old version" stays the default)**:
+  `app/auth/` (PBKDF2 + stdlib HS256 JWT) + `app/middleware/` (security-headers /
+  CSRF / rate-limit); router-level `require_auth` gate (no-op when disabled) with a
+  tiny `PUBLIC_API_PATHS` allowlist; `/api/auth/{login,me,logout}`; a CI
+  route-coverage test that fails if any `/api` route bypasses auth.
+
+Done (the Vigil-inspired overhaul — Wave 1, additive, spine intact):
+- **Multi-agent roster** — declarative `AgentPersona` registry (`agents/personas.py`):
+  the cluster is routed deterministically to a specialist (identity / web / recon /
+  malware / threat-intel) that specialises the ONE investigator; persona recorded
+  on the case + audit; `GET /api/personas`.
+- **Plain-text runbooks** — Markdown runbooks (`backend/app/runbooks/*.md`) loaded by
+  `engine/runbooks.py` and indexed into the RAG corpus as retrievable knowledge;
+  `GET /api/runbooks`. (Per-cluster PROCEDURE injection moved to the Wave-2 playbook
+  system; runbooks are RAG knowledge only.)
+- **Hybrid RAG** — drawer-floor-first vector + dependency-free BM25 re-ranking in
+  `tools/rag.py` (recovers exact IOC/rule tokens that embed as noise).
+- **Tool safety tiers** — `ToolTier` (safe/managed/requires_approval/forbidden) on
+  the tool base; the investigator gates non-safe tools (proposes, never executes).
+- **Hardened fencing + cost provenance** — `fence()` escapes forged close-markers +
+  carries source/tool provenance (#9); `pricing_source` (exact/heuristic/zero/
+  default) threaded onto every `UsageDoc`.
 
 Done (the vendor-agnostic epochs):
 - **Epoch A — Selectable state backend.** `StateStore` abstraction
@@ -305,14 +344,19 @@ Done (the vendor-agnostic epochs):
 - **Epoch D — Standalone web UI + wizard** (`webui/`, Vite+React+EUI) — now the
   primary surface.
 
-Remaining (see `ROADMAP.md`):
-- Deep UI surface port (parity of all console surfaces into the webui).
+Remaining (see `ROADMAP.md` + `docs/VIGIL_STUDY.md`):
+- **Wave 2 leftovers:** an approval workflow (HITL action gating) + a pre-flight
+  projected-cost gate + a `$`-budget ceiling (the `ToolTier.requires_approval`
+  groundwork + `AutoClosePolicy` are in place). Optional: default auth ON for a
+  hardened profile (compose), CSRF cookie issuance for the webui.
+- **Wave 3:** cross-case agent memory + a temporal knowledge graph; a real MITRE
+  module from a bundled STIX file; detection-rule RAG corpus; HITL / Auto-Ops /
+  reasoning-trace webui surfaces.
+- **Wave 4 / Epoch E:** ARQ workers + KEDA scale-out; a Helm chart; OTEL+Grafana.
 - More pull connectors — **Splunk + Microsoft Sentinel** next (enum'd, not yet built).
-- **Epoch E — scale-out** (Kafka/Redpanda buffer, stateless workers) as needed.
 
 Every item ends with: `pytest -q` green (keep the count current), `webui` build
-clean, the legacy **8.19.12** plugin zip still building, docs updated, **Journal
-updated**, commit + push.
+clean, docs updated, **Journal updated**, commit + push.
 
 ---
 

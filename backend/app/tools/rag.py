@@ -14,10 +14,13 @@ A Chroma-backed ``VectorStore`` can be dropped in behind the same interface
 from __future__ import annotations
 
 import logging
+import math
+import re
 from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
 from ..constants import CaseStatus
+from ..engine.runbooks import corpus_items as runbook_corpus_items
 from ..llm.gateway import LLMGateway
 from ..models import RagChunk
 from .base import Tool, ToolResult
@@ -213,7 +216,16 @@ class RagService:
         cfg = self._prefs.rag
         seeds: list[dict[str, Any]] = []
         if cfg.use_runbooks:
-            seeds.extend(SEED_RUNBOOKS)
+            # Prefer the plain-text runbook FILES (Vigil's "playbooks are files")
+            # when runbooks are enabled and present; fall back to the in-code seed
+            # snippets so RAG always has runbook coverage.
+            file_items: list[dict[str, Any]] = []
+            if getattr(self._prefs, "runbooks", None) is None or self._prefs.runbooks.enabled:
+                try:
+                    file_items = runbook_corpus_items()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Runbook corpus load failed; using seed runbooks: %s", exc)
+            seeds.extend(file_items or SEED_RUNBOOKS)
         if cfg.use_mitre:
             seeds.extend(SEED_MITRE)
         if cfg.use_suppression_rules:
@@ -354,9 +366,14 @@ class RagService:
     async def retrieve(self, query: str, top_k: int | None = None) -> list[RagChunk]:
         """Return the top-k most relevant chunks for ``query``. Never raises.
 
-        Drops chunks scoring below ``prefs.rag.min_score``. On an embedding-space
-        mismatch (model/dim changed) the store is CLEARED + reseeded once, then
-        the query is retried — vectors are never truncated to force a match."""
+        Hybrid (MemPalace-inspired): the vector search is the FLOOR — survivors that
+        clear ``min_score`` (on the raw vector score) are re-ranked by a convex blend
+        of vector similarity and a dependency-free BM25 lexical score, which recovers
+        exact-token matches (IPs, hashes, rule names) that embed as noise. With
+        ``rag.hybrid`` off this is byte-for-byte the prior vector-only behaviour.
+
+        On an embedding-space mismatch (model/dim changed) the store is CLEARED +
+        reseeded once, then the query is retried — vectors are never truncated."""
         cfg = self._prefs.rag
         if not cfg.enabled:
             return []
@@ -364,19 +381,31 @@ class RagService:
             if await self._store.count() == 0:
                 return []
             k = top_k or cfg.top_k
+            # Over-fetch a candidate pool for hybrid re-ranking; identical to ``k``
+            # when hybrid is disabled.
+            pool_k = max(k * cfg.hybrid_overfetch, k) if cfg.hybrid else k
             vectors = await self._gateway.embed(
                 [query], self._prefs.model_for("embedding"), surface="rag"
             )
             if not vectors:
                 return []
             try:
-                results = await self._store.search(vectors[0], k)
+                results = await self._store.search(vectors[0], pool_k)
             except EmbeddingSpaceMismatch as exc:
                 logger.warning("Embedding-space mismatch (%s); clearing + reseeding", exc)
                 await self._reseed()
                 if await self._store.count() == 0:
                     return []
-                results = await self._store.search(vectors[0], k)
+                results = await self._store.search(vectors[0], pool_k)
+            # min_score gates on the RAW vector score (so disabling hybrid, or a
+            # too-strict threshold, behaves exactly as before).
+            survivors = [(c, float(s)) for c, s in results if float(s) >= cfg.min_score]
+            if not survivors:
+                return []
+            if cfg.hybrid and len(survivors) > 1:
+                ranked = _hybrid_rerank(query, survivors, cfg.vector_weight, cfg.bm25_weight)
+            else:
+                ranked = survivors
             return [
                 RagChunk(
                     text=chunk.text,
@@ -384,8 +413,7 @@ class RagService:
                     score=float(score),
                     metadata=dict(chunk.metadata),
                 )
-                for chunk, score in results
-                if float(score) >= cfg.min_score
+                for chunk, score in ranked[:k]
             ]
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG retrieve failed for query %r: %s", query, exc)
@@ -396,6 +424,77 @@ class RagService:
         await self._store.clear()
         self._seeded = False
         await self.ensure_seeded()
+
+
+# --------------------------------------------------------------------------- #
+# Hybrid re-ranking (dependency-free BM25 over the vector candidate pool).
+# --------------------------------------------------------------------------- #
+# Tokens keep '.', '-', '_' so IPs/hashes/domains/rule-names stay whole, but split
+# on ':' so an "ip:1.2.3.4" label/value (or host:port) yields a matchable bare value.
+_TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
+
+
+def _tokenize(text: str) -> list[str]:
+    return [t for t in _TOKEN_RE.findall(text.lower()) if len(t) >= 2]
+
+
+def _minmax(values: list[float]) -> list[float]:
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi - lo < 1e-12:
+        return [1.0 for _ in values]  # all equal → don't zero them out
+    return [(v - lo) / (hi - lo) for v in values]
+
+
+def _hybrid_rerank(
+    query: str,
+    survivors: list[tuple[Any, float]],
+    vector_weight: float,
+    bm25_weight: float,
+    *,
+    k1: float = 1.5,
+    b: float = 0.75,
+) -> list[tuple[Any, float]]:
+    """Re-rank a vector candidate pool by ``vw*vector_norm + bw*bm25_norm``.
+
+    BM25 (Okapi) is computed corpus-relative over the candidate pool only — the
+    chunk text plus its metadata (so an exact IOC/case-id token in metadata counts).
+    Both score families are min-max normalised before blending so the weights mean
+    what they say. Returns (chunk, combined_score) sorted descending."""
+    q_tokens = set(_tokenize(query))
+    docs = [_tokenize(f"{c.text} {c.source} {c.metadata}") for c, _ in survivors]
+    n = len(docs)
+    avgdl = sum(len(d) for d in docs) / n if n else 0.0
+    df: dict[str, int] = {}
+    for d in docs:
+        for tok in set(d):
+            if tok in q_tokens:
+                df[tok] = df.get(tok, 0) + 1
+
+    bm25_scores: list[float] = []
+    for d in docs:
+        dl = len(d)
+        score = 0.0
+        if dl and q_tokens:
+            counts: dict[str, int] = {}
+            for tok in d:
+                if tok in q_tokens:
+                    counts[tok] = counts.get(tok, 0) + 1
+            for tok, f in counts.items():
+                idf = math.log(1 + (n - df[tok] + 0.5) / (df[tok] + 0.5))
+                denom = f + k1 * (1 - b + b * (dl / avgdl if avgdl else 1.0))
+                score += idf * (f * (k1 + 1)) / denom if denom else 0.0
+        bm25_scores.append(score)
+
+    vec_norm = _minmax([v for _, v in survivors])
+    bm25_norm = _minmax(bm25_scores)
+    combined = [
+        (survivors[i][0], vector_weight * vec_norm[i] + bm25_weight * bm25_norm[i])
+        for i in range(n)
+    ]
+    combined.sort(key=lambda t: t[1], reverse=True)
+    return combined
 
 
 class RagTool(Tool):

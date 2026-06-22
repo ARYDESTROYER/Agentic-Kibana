@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from .agents.chat import ChatEngine
 from .agents.overview import OverviewService
@@ -64,6 +65,19 @@ class AppState:
         # agent's read-only LOG surface always stays on the connector layer below.
         self._build_state_backend()
         self.gateway = LLMGateway(self.secrets, self.usage_store, self._provider_overrides)
+        # Auth service (Wave 2). Disabled unless secrets.auth_enabled — the no-auth
+        # "old version" is the default. Building it is cheap and re-runs on rewire.
+        from .auth.service import AuthService
+
+        self.auth = AuthService(
+            enabled=self.secrets.auth_enabled,
+            jwt_secret=self.secrets.auth_jwt_secret or "",
+            token_hours=self.secrets.auth_token_hours,
+            users=self.secrets.auth_user_map(),
+        )
+        # Markdown playbook registry (loaded from disk; deterministic per-cluster
+        # selection). Reloaded in startup() once prefs (and any dir override) load.
+        self.playbooks = self._build_playbooks()
         self.rag = self._build_rag()
         # The agent's read-only log surface as a connector (source-agnostic). The
         # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
@@ -72,7 +86,7 @@ class AppState:
         self.log_source = self._build_log_source()
         self.pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit,
-            source=self.log_source,
+            source=self.log_source, playbooks=self.playbooks,
         )
         self.chat_engine = ChatEngine(
             es, self.gateway, self.audit, self.cases, self.rag, source=self.log_source
@@ -130,6 +144,42 @@ class AppState:
         self.cases = CaseStore(es)
         self.cursor_store = CursorStore(es)
         self.config_store = ConfigStore(es)
+
+    def _playbooks_dir(self) -> Path:
+        """Where playbook *.md files live: the override from prefs, else the default
+        ``backend/playbooks`` (sibling of the ``app`` package)."""
+        override = getattr(self.prefs, "playbooks", None)
+        if override is not None and override.dir:
+            return Path(override.dir)
+        return Path(__file__).resolve().parent.parent / "playbooks"
+
+    def _build_playbooks(self):
+        """Construct + load the PlaybookRegistry (never raises; a bad file is
+        skipped, an empty/missing dir yields zero playbooks → generic behaviour)."""
+        from .playbooks.registry import PlaybookRegistry
+
+        reg = PlaybookRegistry(self._playbooks_dir())
+        try:
+            summary = reg.reload()
+            logger.info(
+                "Loaded %d playbook(s); skipped %d",
+                summary.get("loaded", 0), len(summary.get("skipped", [])),
+            )
+        except Exception as exc:  # noqa: BLE001 — registry should never raise; be safe
+            logger.warning("Playbook load failed (%s); continuing with none", exc)
+        return reg
+
+    def reload_playbooks(self) -> dict:
+        """Hot-reload playbooks from disk via the registry's ATOMIC validate-then-swap
+        (a wholesale-broken dir keeps the prior good live set). Re-points at the
+        configured dir first if it changed. Returns {loaded, skipped, ids}."""
+        from .playbooks.registry import PlaybookRegistry
+
+        if str(self.playbooks._directory) != str(self._playbooks_dir()):
+            self.playbooks = PlaybookRegistry(self._playbooks_dir())
+        summary = self.playbooks.reload()
+        self.pipeline._playbooks = self.playbooks
+        return summary
 
     def _build_log_source(self):
         """Construct the primary pull connector for the agent's log surface.
@@ -217,6 +267,9 @@ class AppState:
         self.rag = self._build_rag()
         self.pipeline._rag = self.rag
         self.chat_engine._rag = self.rag
+        # Reload playbooks now that prefs (incl. any dir override) are available.
+        self.playbooks = self._build_playbooks()
+        self.pipeline._playbooks = self.playbooks
         if start_poller:
             self.poller.start()
             await self._start_receivers()

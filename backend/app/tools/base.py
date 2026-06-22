@@ -12,6 +12,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..constants import ToolTier
+
 
 @dataclass
 class ToolResult:
@@ -29,6 +31,10 @@ class Tool(ABC):
     name: str = "tool"
     description: str = ""
     input_schema: dict[str, Any] = {}
+    # Capability tier (authorisation firewall). Every built-in tool today is SAFE
+    # (read-only). A write/response tool declares a higher tier and the investigator
+    # gates it accordingly (FORBIDDEN → never; REQUIRES_APPROVAL → propose-only).
+    tier: ToolTier = ToolTier.SAFE
 
     @abstractmethod
     async def run(self, **kwargs: Any) -> ToolResult: ...

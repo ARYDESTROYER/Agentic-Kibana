@@ -15,7 +15,7 @@ from ..config import ModelConfig, Provider, Secrets
 from ..constants import Role, UsageOutcome
 from ..models import UsageDoc
 from ..stores.usage import UsageStore
-from .pricing import cost_for
+from .pricing import cost_for, pricing_source
 from .providers import (
     AnthropicProvider,
     BaseProvider,
@@ -151,6 +151,7 @@ class LLMGateway:
             cost=cost if cost is not None else cost_for(model, prompt_tokens, completion_tokens),
             latency_ms=latency_ms,
             outcome=outcome,
+            pricing_source=pricing_source(model),
         )
         await self._usage.write(doc)
 
