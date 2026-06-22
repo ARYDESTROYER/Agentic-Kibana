@@ -101,6 +101,7 @@ class ActionType(str, Enum):
     SCAN = "scan"
     FEEDBACK = "feedback"      # analyst graded an AI verdict (eval loop)
     COLLAB = "collab"          # analyst comment / tag / assignment
+    CONTEXT = "context"        # the injected investigation context (RAG/memory/enrichment) — explainability
 
 
 class ToolTier(str, Enum):

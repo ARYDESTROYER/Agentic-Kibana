@@ -1008,6 +1008,23 @@ async def case_trace(case_id: str, state: AppState = Depends(get_state)) -> dict
     }
 
 
+@router.get("/cases/{case_id}/rationale")
+async def case_rationale(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Case EXPLAINABILITY: a clean, human-readable "why" object assembled from the
+    case + its audit records — WITHOUT calling the LLM.
+
+    Surfaces exactly how a case reached its verdict: the persona/playbook chosen, the
+    operator MEMORY facts consulted, the RAG knowledge retrieved (source + snippet),
+    the IP enrichment/reputation, the read-only tools/queries the agent ran, the
+    investigator's reasoning excerpt, the deterministic close/escalate rationale, the
+    MITRE techniques, and the evidence. Every piece is parsed DEFENSIVELY from the
+    audit rows this run writes (CONTEXT/TOOL_CALL/VERDICT) + the case fields — a
+    missing piece degrades to an empty value, never an error. NEVER 404s."""
+    case = await state.cases.get(case_id)
+    rows = await state.audit.records_for_case(case_id)
+    return _build_rationale(case_id, case, rows)
+
+
 # --------------------------------------------------------------------------- #
 # Automated scans (Surface 3)
 # --------------------------------------------------------------------------- #
@@ -1259,6 +1276,140 @@ def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
     if req.event_ids:
         return "No events found for the selected document ids"
     return "Could not resolve events for this request"
+
+
+def _audit_get(row: Any, key: str, default: Any = None) -> Any:
+    """Read a field from an audit row that may be a dict OR a pydantic AuditDoc."""
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+
+def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]:
+    """Assemble the explainability "why" object from a case + its audit rows.
+
+    Pure + defensive: any missing audit piece degrades to an empty value. Reads the
+    CONTEXT record (knowledge/memory/enrichment), TOOL_CALL records (tools/queries),
+    the VERDICT record (reasoning excerpt), the playbook_selector DECISION (playbook
+    reason) and the case_manager DECISION (deterministic rationale)."""
+    # --- from the CONTEXT record (investigator-injected context) -------------
+    knowledge: list[dict[str, Any]] = []
+    memory_used: list[str] = []
+    enrichment: dict[str, Any] | None = None
+    for row in rows:
+        if _audit_get(row, "action_type") != ActionType.CONTEXT.value:
+            continue
+        ti = _audit_get(row, "tool_input") or {}
+        if isinstance(ti, dict):
+            for k in (ti.get("knowledge") or []):
+                if isinstance(k, dict):
+                    knowledge.append({
+                        "source": str(k.get("source", "unknown")),
+                        "snippet": str(k.get("snippet", "")),
+                    })
+            for m in (ti.get("memory") or []):
+                if isinstance(m, str) and m.strip():
+                    memory_used.append(m)
+            enr = ti.get("enrichment")
+            if isinstance(enr, dict):
+                enrichment = {
+                    "reputation_score": enr.get("reputation_score"),
+                    "is_malicious": enr.get("is_malicious"),
+                    "country": enr.get("country"),
+                }
+        break  # one context record per investigation
+
+    # --- tools / queries (TOOL_CALL + ES_QUERY rows) -------------------------
+    tools: list[dict[str, Any]] = []
+    for row in rows:
+        at = _audit_get(row, "action_type")
+        if at not in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
+            continue
+        tools.append({
+            "tool": _audit_get(row, "tool_name") or (
+                "es_query" if at == ActionType.ES_QUERY.value else ""
+            ),
+            "query": _audit_get(row, "query_text") or "",
+            "summary": _audit_get(row, "tool_output_summary") or "",
+        })
+
+    # --- reasoning excerpt (VERDICT record, written after "reasoning=") -------
+    reasoning = ""
+    for row in rows:
+        if _audit_get(row, "action_type") != ActionType.VERDICT.value:
+            continue
+        rs = str(_audit_get(row, "result_summary") or "")
+        marker = "reasoning="
+        if marker in rs:
+            reasoning = rs.split(marker, 1)[1].strip()
+        break
+
+    # --- playbook reason (playbook_selector DECISION) ------------------------
+    playbook_reason = ""
+    for row in rows:
+        if _audit_get(row, "actor") == "playbook_selector":
+            playbook_reason = str(_audit_get(row, "result_summary") or "")
+            break
+
+    # --- deterministic decision rationale (case_manager DECISION, then the
+    #     case.history "decision" event as a fallback) ------------------------
+    decision_rationale = ""
+    for row in rows:
+        if (
+            _audit_get(row, "actor") == "case_manager"
+            and _audit_get(row, "action_type") == ActionType.DECISION.value
+        ):
+            decision_rationale = str(_audit_get(row, "result_summary") or "")
+            break
+
+    # --- case-derived fields (defensive: case may be None) -------------------
+    verdict = ""
+    confidence = 0.0
+    status = ""
+    decision_by = None
+    persona = ""
+    playbook_id = ""
+    mitre: list[str] = []
+    evidence: list[dict[str, Any]] = []
+    if case is not None:
+        verdict = case.verdict.value if case.verdict else ""
+        confidence = case.confidence
+        status = case.status.value if case.status else ""
+        decision_by = case.decision_by.value if case.decision_by else None
+        persona = case.agent_persona or ""
+        playbook_id = case.playbook_id or ""
+        mitre = list(case.mitre or [])
+        evidence = [
+            {
+                "summary": e.summary,
+                "event_ids": list(e.event_ids or []),
+                "query": e.query,
+            }
+            for e in (case.evidence or [])
+        ]
+        if not decision_rationale:
+            for h in reversed(case.history or []):
+                if isinstance(h, dict) and h.get("event") == "decision" and h.get("rationale"):
+                    decision_rationale = str(h.get("rationale"))
+                    break
+
+    return {
+        "case_id": case_id,
+        "verdict": verdict,
+        "confidence": confidence,
+        "status": status,
+        "decision_by": decision_by,
+        "persona": persona,
+        "playbook": {"id": playbook_id, "reason": playbook_reason},
+        "memory_used": memory_used,
+        "knowledge": knowledge,
+        "enrichment": enrichment,
+        "tools": tools,
+        "reasoning": reasoning,
+        "decision_rationale": decision_rationale,
+        "mitre": mitre,
+        "evidence": evidence,
+    }
 
 
 def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
