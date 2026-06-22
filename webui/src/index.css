@@ -181,10 +181,10 @@ body {
 .socHoverCard {
   max-width: 340px;
   padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--soc-hovercard-bg, rgba(255, 255, 255, 0.98));
-  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
-  border: 1px solid rgba(105, 112, 125, 0.18);
+  /* Background/border/elevation come from the themed EuiPopover panel this sits
+     inside, so the preview is correct in BOTH light and dark mode (the default
+     theme is dark — never force a light background here). */
+  background: transparent;
 }
 
 /* --- Page transition: a gentle fade + rise on mount. --- */

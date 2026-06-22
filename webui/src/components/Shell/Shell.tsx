@@ -234,6 +234,7 @@ export const Shell: React.FC<ShellProps> = ({
               iconType="documentation"
               href="https://github.com"
               target="_blank"
+              rel="noopener noreferrer"
               color="text"
             >
               Docs &amp; help
