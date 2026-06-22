@@ -15,6 +15,9 @@ from ..state import AppState
 PUBLIC_API_PATHS = frozenset(
     {"/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"}
 )
+# Public for GET ONLY (read-only, non-sensitive) — e.g. branding so the login
+# screen can render the org logo before a session exists. Writes stay protected.
+PUBLIC_GET_PATHS = frozenset({"/api/branding"})
 # The inbound ingest receivers self-authenticate (bearer / HMAC inside the
 # receiver). Allow ONLY the exact one-segment receiver route shape — not a loose
 # prefix — so a future nested route under /api/ingest can't be made public by
@@ -52,6 +55,8 @@ async def require_auth(request: Request):
     # slashes, etc. cannot bypass (or be mistaken for) the public allowlist.
     path = posixpath.normpath(request.url.path)
     if path in PUBLIC_API_PATHS or _PUBLIC_INGEST_RE.match(path):
+        return None
+    if request.method == "GET" and path in PUBLIC_GET_PATHS:
         return None
     token = request.cookies.get("tlsoc_token") or _bearer(request)
     user = auth.verify(token) if token else None

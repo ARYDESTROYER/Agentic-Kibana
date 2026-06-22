@@ -91,6 +91,8 @@ class ActionType(str, Enum):
     ERROR = "error"
     POLL = "poll"
     SCAN = "scan"
+    FEEDBACK = "feedback"      # analyst graded an AI verdict (eval loop)
+    COLLAB = "collab"          # analyst comment / tag / assignment
 
 
 class ToolTier(str, Enum):

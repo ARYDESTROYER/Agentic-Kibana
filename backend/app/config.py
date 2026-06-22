@@ -16,9 +16,10 @@ This module defines the schema and the loader for the secret tier. The preferenc
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import CorrelationMode, EntityType, IngestMode, SourceType
@@ -356,6 +357,46 @@ class PlaybookConfig(BaseModel):
     llm_select: bool = False
 
 
+class BrandingConfig(BaseModel):
+    """Operator-customisable branding/appearance (UI-editable, persisted).
+
+    Powers the org logo + name + accent colour + theme shown across the console
+    shell (and the login screen). The logo is stored as a small base64 data URL
+    (bounded) so it round-trips through the config store with no asset hosting.
+    Non-secret; readable pre-auth so the login screen can show the org's brand."""
+
+    model_config = {"protected_namespaces": ()}
+
+    org_name: str = "TLSOC"
+    product_name: str = "Agentic Triage"
+    logo_data_url: str = ""           # "data:image/png;base64,...." (bounded), or ""
+    accent_color: str = ""            # "#RRGGBB" override for the UI accent, or "" = default
+    accent_color2: str = ""           # "#RRGGBB" secondary gradient stop, or "" = default
+    theme: Literal["dark", "light", "system"] = "dark"
+    # Max accepted logo data-URL length (~700KB image). Keeps the config doc small.
+    _MAX_LOGO_LEN: int = 1_400_000
+
+    @field_validator("logo_data_url")
+    @classmethod
+    def _check_logo(cls, v: str) -> str:
+        if not v:
+            return v
+        if not v.startswith("data:image/"):
+            raise ValueError("logo_data_url must be an empty string or a data:image/* URL")
+        if len(v) > 1_400_000:
+            raise ValueError("logo_data_url too large (max ~1MB image)")
+        return v
+
+    @field_validator("accent_color", "accent_color2")
+    @classmethod
+    def _check_accent(cls, v: str) -> str:
+        if not v:
+            return v
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+            raise ValueError("accent colour must be a #RRGGBB hex string or empty")
+        return v
+
+
 class EnrichmentConfig(BaseModel):
     enabled: bool = True
     use_abuseipdb: bool = True
@@ -603,6 +644,8 @@ class Preferences(BaseModel):
     personas: PersonaConfig = Field(default_factory=PersonaConfig)
     runbooks: RunbookConfig = Field(default_factory=RunbookConfig)
     playbooks: PlaybookConfig = Field(default_factory=PlaybookConfig)
+    # Operator-customisable branding/appearance (org logo + name + accent + theme).
+    branding: BrandingConfig = Field(default_factory=BrandingConfig)
 
     # --- Misc ---
     setup_complete: bool = False

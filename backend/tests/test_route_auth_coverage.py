@@ -11,7 +11,12 @@ from __future__ import annotations
 from fastapi.routing import APIRoute
 from starlette.routing import Mount, WebSocketRoute
 
-from app.api.deps import _PUBLIC_INGEST_RE, PUBLIC_API_PATHS, require_auth
+from app.api.deps import (
+    _PUBLIC_INGEST_RE,
+    PUBLIC_API_PATHS,
+    PUBLIC_GET_PATHS,
+    require_auth,
+)
 from app.main import app
 
 
@@ -48,6 +53,8 @@ def test_public_paths_are_minimal_and_known() -> None:
     assert PUBLIC_API_PATHS <= {
         "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
     }
+    # GET-only public paths (read-only, non-sensitive) — also guarded.
+    assert PUBLIC_GET_PATHS <= {"/api/branding"}
 
 
 def test_no_unprotectable_routes_under_api() -> None:
