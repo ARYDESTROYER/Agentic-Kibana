@@ -109,6 +109,16 @@ class InMemoryESClient(BaseESClient):
             if backing == target or alias == name:
                 self.alias_to_index.pop(alias, None)
 
+    async def delete_doc(self, index: str, doc_id: str, refresh: bool = False) -> bool:
+        """Delete a single document by id (used by RAG document management).
+        Missing index/id is benign (returns False)."""
+        target = self._resolve(index)
+        bucket = self.docs.get(target)
+        if bucket is not None and doc_id in bucket:
+            del bucket[doc_id]
+            return True
+        return False
+
     async def get_doc(self, index: str, doc_id: str) -> dict[str, Any] | None:
         target = self._resolve(index)
         return self.docs.get(target, {}).get(doc_id)

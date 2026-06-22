@@ -35,12 +35,14 @@ async def run_investigation(
     case_id: str | None,
     persona=None,
     playbook=None,
+    memory=None,
 ) -> tuple[VerdictResult, float]:
     """Run triage → verdict, preferring the LangGraph state graph.
 
     The (deterministically pre-selected) ``persona`` specialises the investigator
     and the matched ``playbook`` is injected as TRUSTED procedure (and contributes
-    its canned ``rag_queries``) — both no-ops on the cheap benign/triage path."""
+    its canned ``rag_queries``); the operator ``memory`` (durable trusted facts) is
+    injected as a distinct block — all three no-ops on the cheap benign/triage path."""
 
     async def do_triage():
         return await router.triage(cluster, enrichment, prefs, surface=surface, case_id=case_id)
@@ -76,7 +78,7 @@ async def run_investigation(
             rag_chunks = rag_chunks[: max(prefs.rag.top_k * 2, prefs.rag.top_k)]
         return await investigator.investigate(
             cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id,
-            persona=persona, playbook=playbook,
+            persona=persona, playbook=playbook, memory=memory,
         )
 
     try:

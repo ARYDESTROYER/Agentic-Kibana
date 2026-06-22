@@ -83,9 +83,21 @@ for the full design.
   investigator) to control spend.
 - **Cost ledger.** 100% of LLM calls pass through one gateway that records token
   usage and cost on every call.
-- **RAG.** Resolved cases are indexed as retrievable baseline memory so future
-  investigations learn from prior analyst decisions (backed by pgvector or an ES
-  dense-vector store, depending on the state backend).
+- **RAG with management & visibility.** Resolved cases are indexed as retrievable
+  baseline memory so future investigations learn from prior analyst decisions
+  (backed by pgvector or an ES dense-vector store, depending on the state backend).
+  You can also **see and grow the corpus**: import your own documents, browse the
+  documents/chunks, run a live test retrieval (`GET /api/rag/search`), and delete
+  (built-in seeds are guarded behind a `force` flag) — via the **Knowledge** page or
+  the `/api/rag/*` routes.
+- **Agent memory (durable operator facts).** Claude.ai-style memory: add facts in the
+  **Memory** page or conversationally in Chat ("remember:" / "forget"); they are
+  injected into investigations and chat as a DISTINCT **TRUSTED** context block —
+  but **never override the deterministic close/escalate decision**.
+- **Case explainability.** Every case exposes a "Why" view (`GET /api/cases/{id}/
+  rationale`): the agent's reasoning, the knowledge (RAG/runbook) and operator memory
+  it used, the exact commands/queries it ran, enrichment, MITRE — and, prominently,
+  the **deterministic** close/escalate rationale.
 - **Choice of state backend** (`STATE_BACKEND`): `elasticsearch` (default),
   `postgres` (asyncpg + pgvector), or `sqlite`. The app's own state
   (cases/audit/usage/config/cursor/RAG) lives there; with **postgres or sqlite no
@@ -180,7 +192,7 @@ values.
 
 ## Status & verification
 
-Verified offline this cycle: **221 backend tests green** (fake/in-memory backends
+Verified offline this cycle: **340 backend tests green** (fake/in-memory backends
 + mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite).
 Live-stack validation against a real SIEM is a deploy step. See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap

@@ -332,6 +332,115 @@ other call:
 
 ---
 
+## 8c. Knowledge base (RAG) — see and grow the corpus
+
+The agent's retrieval corpus is no longer a black box. The **Knowledge** page
+(`webui/src/components/Knowledge/`, under the new **Platform** nav group) lets you
+inspect exactly what RAG holds and add to it. A **document** is a set of chunks that
+share a `document_id`; the built-in seed knowledge is grouped by source
+(`runbook` / `mitre` / `suppression` / `resolved_case`).
+
+| Action | Endpoint | Notes |
+|---|---|---|
+| Corpus stats (docs, chunks, embedding model + dim, by-source) | `GET /api/rag/stats` | also feeds the Metrics page |
+| Browse documents | `GET /api/rag/documents` | title, source, tags, chunk count |
+| Inspect one document's chunks | `GET /api/rag/documents/{id}` | the chunk drill-in flyout |
+| Import a document | `POST /api/rag/import` | `{ title, text, source?, tags? }` — chunked + embedded + indexed |
+| Delete a document | `DELETE /api/rag/documents/{id}?force=` | seeds need `force=true` (see below) |
+| Run a live test retrieval | `GET /api/rag/search?q=&top_k=` | shows EXACTLY what RAG returns for a query |
+
+**Import a document.** On the Knowledge page, paste text into the import textarea or
+upload a `.txt` / `.md` / `.json` / `.csv` file (read client-side, then sent as
+text). Give it a title (and optional tags); the backend chunks it
+(`engine/chunking.chunk_text` — dependency-free paragraph-pack with overlap),
+embeds each chunk through the single gateway, and indexes it into the same vector
+store the investigator retrieves from. Imported docs are immediately retrievable.
+
+**Browse + inspect chunks.** The documents table lists every document with its
+source, tags, and chunk count; open one to see its individual chunks in a flyout (so
+you can see precisely what text will be retrieved and fed to the model — fenced as
+UNTRUSTED at prompt time, see `SECURITY.md`).
+
+**Run a test retrieval.** Use "Try a retrieval" (`GET /api/rag/search`) to type a
+query and see the ranked snippets RAG would surface for it — the fastest way to
+confirm an imported runbook or IOC list is actually being recalled.
+
+**Delete (and the guarded-seed force flag).** Deleting your own imported document is
+a one-click `DELETE /api/rag/documents/{id}`. The **built-in seed sources**
+(`runbook`, `mitre`, `suppression`, `resolved_case`) are **guarded**: a plain delete
+is refused; you must pass **`?force=true`** to remove seed knowledge (the UI prompts
+for the force confirmation). This prevents accidentally wiping the baseline corpus.
+
+---
+
+## 8d. Agent memory — durable operator facts
+
+The suite carries a small, durable **memory** of operator-supplied facts
+(Claude.ai-style: "remember this"), so the agent applies your standing context to
+every investigation and chat without you repeating it. Each `MemoryEntry` has
+`text`, an optional `category` and `tags`, a `source` (`human` when you edit it
+directly, `agent` when you told the agent to remember it in chat), an `author`, and
+an **`active`** flag. Memory is stored via the existing KV layer (no new index /
+migration) in whatever `STATE_BACKEND` you run.
+
+**How it's used (and its limits).** Active memory is injected into BOTH automated
+investigations and chat as a **DISTINCT `<<<MEMORY>>>` TRUSTED block** — separate
+from the fenced UNTRUSTED evidence, with the precedence
+`policy > base-prompt > playbook > MEMORY > untrusted`. Critically, **memory only
+informs the LLM; it can NEVER override the deterministic Case Manager** (the
+close/escalate decision stays code-controlled — non-negotiable #3). Forged
+`<<<MEMORY>>>` markers in event data are neutralised by `fence()`.
+
+**Add / edit / remove on the Memory page** (`webui/src/components/Memory/`, under the
+**Platform** nav): add a fact, inline-edit its text, toggle it **active/inactive**,
+or delete it. A human-vs-agent **source badge** shows where each fact came from.
+
+**…or in Chat.** Say **"remember: <fact>"** to store a fact (saved with
+`source=agent`, audited) or **"forget …"** to deactivate one. Chat surfaces two
+distinct things in its JSON: a `memory_action` that was **executed** deterministically
+(you see a calm confirmation echo), and a `memory_suggestion` — a dismissible
+"remember this?" prompt that is **never auto-saved**; clicking it calls
+`POST /api/memory`.
+
+| Action | Endpoint |
+|---|---|
+| List memory facts | `GET /api/memory` |
+| Add a fact | `POST /api/memory` (`{ text, category?, tags? }`, `source=human`) |
+| Edit / toggle active | `PUT /api/memory/{id}` |
+| Delete a fact | `DELETE /api/memory/{id}` |
+
+**Active vs inactive.** Only **active** facts are injected into prompts; toggling a
+fact inactive keeps it for the record but stops it influencing the agent — the
+non-destructive way to retire guidance.
+
+---
+
+## 8e. Case "Why" — explainability
+
+Every case can explain itself. The case-detail flyout has a **"Why"** tab backed by
+`GET /api/cases/{id}/rationale`, and the investigator records a **CONTEXT audit
+entry** (`ActionType.CONTEXT`) capturing everything it was handed. The rationale
+object — assembled defensively from the case + audit trail — has these sections:
+
+- **Decision (deterministic) — `decision_rationale`.** Shown prominently. This is the
+  **code-made** close/escalate rationale from the Case Manager — *not* the model's
+  opinion. The verdict/confidence are the LLM's recommendation; the **decision** is
+  deterministic (non-negotiable #3).
+- **Reasoning.** The investigator's reasoning excerpt (carried on the VERDICT record).
+- **Knowledge used.** The RAG / runbook snippets retrieved for this case, each with
+  its **source + snippet** provenance.
+- **Memory applied.** The operator memory facts (§8d) that were in context.
+- **Tools / commands run.** The exact ES queries and tool calls the agent executed.
+- **Enrichment.** Any IP/indicator reputation that was pulled.
+- **Persona / playbook / MITRE / evidence.** The routed specialist persona, the
+  selected playbook (+ why), MITRE techniques, and the evidence list.
+
+Use it to audit *how* a verdict was reached and to confirm the close/escalate was a
+deterministic policy outcome rather than raw model output. (The **Agent trace** tab,
+§3, remains the step-by-step timeline; "Why" is the assembled rationale.)
+
+---
+
 ## 9. Settings — full reference
 
 Settings GET `/api/settings` (`{ prefs, configured, read_only }`) and PUT a
@@ -513,6 +622,7 @@ curl -s -X POST localhost:8088/api/ingest/edr-webhook \
 curl -s "localhost:8088/api/cases?limit=20&status=needs_human"
 curl -s localhost:8088/api/cases/case-abc123                       # one case
 curl -s localhost:8088/api/cases/case-abc123/trace                 # agent trace
+curl -s localhost:8088/api/cases/case-abc123/rationale             # the "Why" object (deterministic decision + reasoning + knowledge + commands + memory)
 
 # Analyst action
 curl -s -X POST localhost:8088/api/cases/case-abc123/action \
@@ -539,6 +649,26 @@ curl -s -X POST localhost:8088/api/overview \
 
 # Model catalog for the per-role pickers
 curl -s localhost:8088/api/models
+
+# Knowledge base (RAG): stats, browse, import, test-retrieve, delete (seeds need force)
+curl -s localhost:8088/api/rag/stats
+curl -s localhost:8088/api/rag/documents
+curl -s localhost:8088/api/rag/documents/doc-abc123                 # one document's chunks
+curl -s "localhost:8088/api/rag/search?q=ssh%20brute%20force&top_k=5"   # live retrieval — see what RAG returns
+curl -s -X POST localhost:8088/api/rag/import \
+  -H 'content-type: application/json' \
+  -d '{"title":"SSH brute-force runbook","text":"...","source":"runbook","tags":["ssh"]}'
+curl -s -X DELETE "localhost:8088/api/rag/documents/doc-abc123"        # imported doc
+curl -s -X DELETE "localhost:8088/api/rag/documents/seed:runbook?force=true"  # guarded seed needs force
+
+# Agent memory (durable operator facts; source=human via REST)
+curl -s localhost:8088/api/memory
+curl -s -X POST localhost:8088/api/memory \
+  -H 'content-type: application/json' \
+  -d '{"text":"10.0.0.0/8 is our internal corporate range","category":"asset","tags":["network"]}'
+curl -s -X PUT localhost:8088/api/memory/mem-abc123 \
+  -H 'content-type: application/json' -d '{"active":false}'          # retire without deleting
+curl -s -X DELETE localhost:8088/api/memory/mem-abc123
 
 # Automated scans + badge
 curl -s "localhost:8088/api/scans?limit=20"

@@ -16,7 +16,9 @@ import {
   EuiFilterGroup,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiSelect,
   EuiSpacer,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { Criteria, EuiBasicTableColumn } from '@elastic/eui';
 import type { Case } from '../../lib/types';
@@ -38,6 +40,11 @@ import { CaseHoverCard } from './CaseHoverCard';
 
 type StatusFilter = 'all' | 'open' | 'needs_human' | 'closed';
 type VerdictFilter = 'all' | 'true' | 'false' | 'needs_human';
+/** Collaboration quick filters (over the loaded rows). */
+type CollabFilter = 'all' | 'unassigned' | 'has_comments';
+
+/** Sentinel select value meaning "no assignee filter applied". */
+const ANY_ASSIGNEE = '__any__';
 
 const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
   { key: 'all', label: 'All' },
@@ -53,7 +60,13 @@ const VERDICT_FILTERS: Array<{ key: VerdictFilter; label: string }> = [
   { key: 'needs_human', label: 'Needs human' },
 ];
 
-type SortField = 'title' | 'risk_score' | 'updated_at' | 'status' | 'verdict';
+const COLLAB_FILTERS: Array<{ key: CollabFilter; label: string }> = [
+  { key: 'all', label: 'Any' },
+  { key: 'unassigned', label: 'Unassigned' },
+  { key: 'has_comments', label: 'Has comments' },
+];
+
+type SortField = 'title' | 'risk_score' | 'updated_at' | 'status' | 'verdict' | 'assignee';
 
 function verdictClass(c: Case): VerdictFilter {
   const v = (c.verdict || '').toUpperCase();
@@ -72,6 +85,8 @@ export const CasesPage: React.FC = () => {
   const [error, setError] = useState<unknown>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [verdictFilter, setVerdictFilter] = useState<VerdictFilter>('all');
+  const [collabFilter, setCollabFilter] = useState<CollabFilter>('all');
+  const [assigneeFilter, setAssigneeFilter] = useState<string>(ANY_ASSIGNEE);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState<SortField>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -117,11 +132,44 @@ export const CasesPage: React.FC = () => {
     return { open, needsHuman, truePositive };
   }, [cases]);
 
+  // Distinct assignees over the loaded rows → options for the assignee <select>.
+  const assigneeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const c of cases) {
+      const a = (c.assignee || '').trim();
+      if (a) seen.add(a);
+    }
+    const names = Array.from(seen).sort((a, b) => a.localeCompare(b));
+    return [
+      { value: ANY_ASSIGNEE, text: 'Any assignee' },
+      ...names.map((n) => ({ value: n, text: n })),
+    ];
+  }, [cases]);
+
+  // If the active assignee filter no longer exists in the loaded rows
+  // (e.g. after a reload), drop it so the list doesn't silently empty out.
+  useEffect(() => {
+    if (
+      assigneeFilter !== ANY_ASSIGNEE &&
+      !assigneeOptions.some((o) => o.value === assigneeFilter)
+    ) {
+      setAssigneeFilter(ANY_ASSIGNEE);
+    }
+  }, [assigneeFilter, assigneeOptions]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = cases;
     if (verdictFilter !== 'all') {
       rows = rows.filter((c) => verdictClass(c) === verdictFilter);
+    }
+    if (collabFilter === 'unassigned') {
+      rows = rows.filter((c) => !(c.assignee || '').trim());
+    } else if (collabFilter === 'has_comments') {
+      rows = rows.filter((c) => Array.isArray(c.comments) && c.comments.length > 0);
+    }
+    if (assigneeFilter !== ANY_ASSIGNEE) {
+      rows = rows.filter((c) => (c.assignee || '').trim() === assigneeFilter);
     }
     if (q) {
       rows = rows.filter((c) => {
@@ -149,6 +197,9 @@ export const CasesPage: React.FC = () => {
           return (a.status || '').localeCompare(b.status || '') * dir;
         case 'verdict':
           return (a.verdict || '').localeCompare(b.verdict || '') * dir;
+        case 'assignee':
+          // Unassigned (empty) sorts after assigned names within each direction.
+          return (a.assignee || '￿').localeCompare(b.assignee || '￿') * dir;
         case 'updated_at':
         default:
           return (
@@ -159,7 +210,7 @@ export const CasesPage: React.FC = () => {
       }
     });
     return sorted;
-  }, [cases, search, verdictFilter, sortField, sortDir]);
+  }, [cases, search, verdictFilter, collabFilter, assigneeFilter, sortField, sortDir]);
 
   const onTableChange = useCallback(({ sort }: Criteria<Case>) => {
     if (sort) {
@@ -211,11 +262,30 @@ export const CasesPage: React.FC = () => {
         ),
     },
     {
+      field: 'assignee',
+      name: 'Assignee',
+      sortable: true,
+      render: (_: unknown, c: Case) => {
+        const assignee = (c.assignee || '').trim();
+        if (!assignee) {
+          return <EuiBadge color="hollow">Unassigned</EuiBadge>;
+        }
+        return (
+          <EuiBadge color={COLORS.primary} iconType="user">
+            {assignee}
+          </EuiBadge>
+        );
+      },
+    },
+    {
       field: 'tags',
       name: 'Tags',
       render: (_: unknown, c: Case) => {
         const tags = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
-        if (!tags.length && !c.assignee) return <span style={{ color: COLORS.subdued }}>—</span>;
+        const commentCount = Array.isArray(c.comments) ? c.comments.length : 0;
+        if (!tags.length && !commentCount) {
+          return <span style={{ color: COLORS.subdued }}>—</span>;
+        }
         return (
           <EuiFlexGroup gutterSize="xs" wrap responsive={false} alignItems="center">
             {tags.slice(0, 3).map((t) => (
@@ -228,11 +298,15 @@ export const CasesPage: React.FC = () => {
                 <EuiBadge color="hollow">+{tags.length - 3}</EuiBadge>
               </EuiFlexItem>
             ) : null}
-            {c.assignee ? (
+            {commentCount > 0 ? (
               <EuiFlexItem grow={false}>
-                <EuiBadge color={COLORS.primary} iconType="user">
-                  {c.assignee}
-                </EuiBadge>
+                <EuiToolTip
+                  content={`${commentCount} analyst comment${commentCount === 1 ? '' : 's'}`}
+                >
+                  <EuiBadge color="hollow" iconType="editorComment">
+                    {commentCount}
+                  </EuiBadge>
+                </EuiToolTip>
               </EuiFlexItem>
             ) : null}
           </EuiFlexGroup>
@@ -347,6 +421,30 @@ export const CasesPage: React.FC = () => {
               </EuiFilterButton>
             ))}
           </EuiFilterGroup>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiFilterGroup>
+            {COLLAB_FILTERS.map((f) => (
+              <EuiFilterButton
+                key={f.key}
+                hasActiveFilters={collabFilter === f.key}
+                isSelected={collabFilter === f.key}
+                onClick={() => setCollabFilter(f.key)}
+              >
+                {f.label}
+              </EuiFilterButton>
+            ))}
+          </EuiFilterGroup>
+        </EuiFlexItem>
+        <EuiFlexItem grow={false} style={{ minWidth: 180 }}>
+          <EuiSelect
+            options={assigneeOptions}
+            value={assigneeFilter}
+            onChange={(e) => setAssigneeFilter(e.target.value)}
+            compressed
+            prepend="Assignee"
+            aria-label="Filter cases by assignee"
+          />
         </EuiFlexItem>
       </EuiFlexGroup>
 

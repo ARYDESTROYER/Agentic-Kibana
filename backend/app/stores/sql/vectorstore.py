@@ -28,6 +28,9 @@ from ...tools.vectorstore import (
     StoredChunk,
     VectorStore,
     _cosine,
+    _document_id_of,
+    _group_documents,
+    _stats_of,
 )
 from .models import RagChunkRow
 
@@ -109,3 +112,61 @@ class SqlVectorStore(VectorStore):
         if row is None:
             return None
         return (row.embedding_model, int(row.dim or len(row.embedding or [])))
+
+    # --------------------------------------------------------------------- #
+    # Document management. The metadata JSON is portable across SQLite/Postgres
+    # but a JSON-path filter is dialect-specific; load + filter in Python (the
+    # corpus is small: seeds + a handful of imported docs). All FAIL-SAFE.
+    # --------------------------------------------------------------------- #
+    async def _load_all(self) -> list[StoredChunk]:
+        try:
+            async with self._sm() as session:
+                rows = (await session.execute(select(RagChunkRow))).scalars().all()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG SQL load failed: %s", exc)
+            return []
+        return [
+            StoredChunk(
+                text=r.text,
+                source=r.source,
+                metadata=dict(r.metadata_json or {}),
+                embedding=list(r.embedding or []),
+                embedding_model=r.embedding_model,
+                dim=int(r.dim or len(r.embedding or [])),
+                doc_id=r.doc_id,
+            )
+            for r in rows
+        ]
+
+    async def list_documents(self) -> list[dict]:
+        return _group_documents(await self._load_all())
+
+    async def list_chunks(self, document_id: str) -> list[StoredChunk]:
+        out = [c for c in await self._load_all() if _document_id_of(c) == document_id]
+        out.sort(key=lambda c: int((c.metadata or {}).get("chunk_index", 0) or 0))
+        return out
+
+    async def delete_document(self, document_id: str) -> int:
+        try:
+            async with self._sm() as session:
+                rows = (await session.execute(select(RagChunkRow))).scalars().all()
+                victims = [
+                    r
+                    for r in rows
+                    if _document_id_of(
+                        StoredChunk(
+                            text=r.text, source=r.source, metadata=dict(r.metadata_json or {})
+                        )
+                    )
+                    == document_id
+                ]
+                for r in victims:
+                    await session.delete(r)
+                await session.commit()
+                return len(victims)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG SQL delete_document(%s) failed: %s", document_id, exc)
+            return 0
+
+    async def stats(self) -> dict:
+        return _stats_of(await self._load_all())

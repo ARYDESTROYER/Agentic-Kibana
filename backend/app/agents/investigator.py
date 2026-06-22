@@ -18,7 +18,7 @@ from ..config import Preferences
 from ..constants import ActionType, Role, ToolTier, Verdict
 from ..engine.cost_gate import CaseBudget
 from ..llm.gateway import GatewayError, LLMGateway
-from ..models import Cluster, EnrichmentResult, RagChunk, VerdictResult
+from ..models import Cluster, EnrichmentResult, MemoryEntry, RagChunk, VerdictResult
 from ..tools.base import ToolRegistry
 from ..utils import extract_json, truncate
 from .common import coerce_verdict, entity_kql
@@ -35,6 +35,41 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..playbooks.manifest import Playbook
 
 logger = logging.getLogger("tlsoc.agents.investigator")
+
+
+def _context_summary(
+    enrichment: EnrichmentResult | None,
+    rag_chunks: list[RagChunk] | None,
+    memory: list[MemoryEntry] | None,
+) -> str:
+    """Compose a concise, human-readable summary of the context INJECTED into the
+    investigation — the explainability backbone (the case-rationale "why").
+
+    Captures, for the trace/rationale: the operator MEMORY facts consulted, the RAG
+    knowledge retrieved (each chunk's ``source`` + a short snippet, e.g.
+    "[runbook] internal scanner benign…"), and the IP enrichment (reputation /
+    malicious / country). These are SUMMARIES — short snippets only, never raw
+    attacker payloads — so the trace stays auditable without leaking unfenced data
+    (#9). The whole string is bounded by the AuditLogger's truncate."""
+    parts: list[str] = []
+
+    facts = [m for m in (memory or []) if (m.text or "").strip()]
+    if facts:
+        sample = "; ".join(truncate(m.text, 80) for m in facts[:5])
+        parts.append(f"memory({len(facts)}): {sample}")
+
+    chunks = rag_chunks or []
+    if chunks:
+        knis = "; ".join(f"[{ch.source}] {truncate(ch.text, 80)}" for ch in chunks[:5])
+        parts.append(f"knowledge({len(chunks)}): {knis}")
+
+    if enrichment is not None:
+        parts.append(
+            f"enrichment: reputation={enrichment.reputation_score} "
+            f"malicious={enrichment.is_malicious} country={enrichment.country}"
+        )
+
+    return " | ".join(parts) if parts else "no injected context"
 
 
 def _playbook_block(playbook: "Playbook") -> str:
@@ -82,6 +117,7 @@ class Investigator:
         case_id: str | None = None,
         persona: AgentPersona | None = None,
         playbook: "Playbook | None" = None,
+        memory: list[MemoryEntry] | None = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
         # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
@@ -100,7 +136,12 @@ class Investigator:
             # block, separate from the fenced UNTRUSTED evidence. It can only guide;
             # the deterministic policy decides close/escalate.
             playbook_text = _playbook_block(playbook) if playbook is not None else None
-            context = render_cluster(cluster, enrichment, rag_chunks, playbook=playbook_text)
+            # Operator MEMORY (durable trusted facts) is injected as a DISTINCT block
+            # ABOVE the untrusted evidence and BELOW the playbook procedure — it can
+            # only INFORM; the deterministic policy still decides close/escalate.
+            context = render_cluster(
+                cluster, enrichment, rag_chunks, playbook=playbook_text, memory=memory,
+            )
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": context + "\n\nBegin the investigation. Respond with JSON only."},
@@ -112,6 +153,36 @@ class Investigator:
                     f"persona={persona.id if persona else 'generalist'} "
                     f"playbook={f'{playbook.id} v{playbook.version}' if playbook else 'none'}"
                 ),
+            )
+
+            # Explainability (the case-rationale "why"): one CONTEXT record capturing
+            # the knowledge/memory/enrichment INJECTED into the investigation. The
+            # human-readable summary goes in result_summary (visible in the trace);
+            # a bounded, structured copy goes in tool_input so the rationale endpoint
+            # can rebuild the panel without re-deriving from prose. Short snippets
+            # only — never raw attacker payloads unfenced (#9).
+            await self._audit.record(
+                action_type=ActionType.CONTEXT, surface=surface, actor="context",
+                case_id=case_id,
+                result_summary=_context_summary(enrichment, rag_chunks, memory),
+                tool_input={
+                    "persona": (persona.id if persona else "generalist"),
+                    "playbook": (f"{playbook.id} v{playbook.version}" if playbook else None),
+                    "memory": [truncate(m.text, 200) for m in (memory or []) if (m.text or "").strip()][:20],
+                    "knowledge": [
+                        {"source": ch.source, "snippet": truncate(ch.text, 200)}
+                        for ch in (rag_chunks or [])[:20]
+                    ],
+                    "enrichment": (
+                        {
+                            "reputation_score": enrichment.reputation_score,
+                            "is_malicious": enrichment.is_malicious,
+                            "country": enrichment.country,
+                        }
+                        if enrichment is not None
+                        else None
+                    ),
+                },
             )
 
             draft: VerdictResult | None = None
@@ -214,10 +285,17 @@ class Investigator:
             if not verdict.reproduce_query:
                 verdict.reproduce_query = entity_kql(cluster, prefs)
 
+            # Carry a reasoning excerpt onto the VERDICT record so the chain-of-thought
+            # summary is visible in the trace/rationale (truncated; the investigator's
+            # own analysis prose, not attacker-controlled log data).
+            reasoning_excerpt = truncate(reasoning, 600) if reasoning else ""
             await self._audit.record(
                 action_type=ActionType.VERDICT, surface=surface, actor=Role.INVESTIGATOR.value,
                 case_id=case_id, model=model_cfg.model,
-                result_summary=f"verdict={verdict.verdict.value} confidence={verdict.confidence}",
+                result_summary=(
+                    f"verdict={verdict.verdict.value} confidence={verdict.confidence}"
+                    + (f" reasoning={reasoning_excerpt}" if reasoning_excerpt else "")
+                ),
             )
             return verdict, cost
         except Exception as exc:  # noqa: BLE001 — never drop an alert

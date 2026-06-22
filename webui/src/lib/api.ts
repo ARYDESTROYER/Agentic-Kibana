@@ -13,6 +13,7 @@ import type {
   AuthMe,
   Branding,
   Case,
+  CaseRationale,
   CasesResponse,
   ChatResponse,
   ChatTurn,
@@ -22,11 +23,18 @@ import type {
   FeedbackStats,
   HealthResponse,
   LoginResult,
+  MemoryEntry,
+  MemoryResponse,
   Metrics,
   ModelsResponse,
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
+  RagDocument,
+  RagDocumentsResponse,
+  RagImportResult,
+  RagSearchResponse,
+  RagStats,
   SecretsUpdate,
   SettingsResponse,
   SetupStatus,
@@ -60,6 +68,29 @@ export interface CaseExport {
   filename: string;
   content_type: string;
   content: string;
+}
+
+/** Payload for POST /api/rag/import (index a document into the RAG corpus). */
+export interface RagImportInput {
+  title: string;
+  text: string;
+  source?: string;
+  tags?: string[];
+}
+
+/** Payload for POST /api/memory (add a durable operator memory). */
+export interface MemoryInput {
+  text: string;
+  category?: string;
+  tags?: string[];
+}
+
+/** Patch for PUT /api/memory/{id} (all fields optional / partial update). */
+export interface MemoryPatch {
+  text?: string;
+  category?: string;
+  tags?: string[];
+  active?: boolean;
 }
 
 /** Error thrown for any non-2xx backend response. */
@@ -257,6 +288,37 @@ export const api = {
   usageSummary: (windowHours = 24) =>
     request<UsageSummary>('GET', 'usage/summary', { query: { window_hours: windowHours } }),
   pollNow: () => request<Record<string, unknown>>('POST', 'poll'),
+
+  // ---- Knowledge / RAG corpus management ------------------------------- //
+  ragStats: () => request<RagStats>('GET', 'rag/stats'),
+  ragDocuments: () => request<RagDocumentsResponse>('GET', 'rag/documents'),
+  ragDocument: (id: string) =>
+    request<RagDocument>('GET', `rag/documents/${encodeURIComponent(id)}`),
+  ragImport: (input: RagImportInput) =>
+    request<RagImportResult>('POST', 'rag/import', { body: input }),
+  ragDeleteDocument: (id: string, force = false) =>
+    request<{ document_id: string; deleted: number | boolean }>(
+      'DELETE',
+      `rag/documents/${encodeURIComponent(id)}`,
+      { query: force ? { force: true } : undefined },
+    ),
+  ragSearch: (q: string, topK?: number) =>
+    request<RagSearchResponse>('GET', 'rag/search', { query: { q, top_k: topK } }),
+
+  // ---- Operator memory (durable agent facts) --------------------------- //
+  getMemory: (activeOnly?: boolean) =>
+    request<MemoryResponse>('GET', 'memory', {
+      query: typeof activeOnly === 'boolean' ? { active_only: activeOnly } : undefined,
+    }),
+  addMemory: (input: MemoryInput) => request<MemoryEntry>('POST', 'memory', { body: input }),
+  updateMemory: (id: string, patch: MemoryPatch) =>
+    request<MemoryEntry>('PUT', `memory/${encodeURIComponent(id)}`, { body: patch }),
+  deleteMemory: (id: string) =>
+    request<{ ok: boolean; id: string }>('DELETE', `memory/${encodeURIComponent(id)}`),
+
+  // ---- Case decision rationale (consumed by the Cases surface) --------- //
+  caseRationale: (id: string) =>
+    request<CaseRationale>('GET', `cases/${encodeURIComponent(id)}/rationale`),
 };
 
 export type Api = typeof api;

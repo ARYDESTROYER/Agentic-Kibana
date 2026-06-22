@@ -11,6 +11,35 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Explainability + RAG management + agent memory + dashboards/collaboration**
+  (branch `Testing`; **340 tests green**; webui clean, 2330 modules; additive,
+  spine + the 12 non-negotiables intact). Three additive backend features + a webui
+  surface pass:
+  - ☑ **RAG ingest + management + visibility** ("see the RAG"): `engine/chunking.py`
+    (`chunk_text`); `VectorStore` ABC `list_documents/list_chunks/delete_document/
+    stats` (InMemory + ES `dense_vector` + SQL); `RagService.import_document/
+    list_documents/get_document/delete_document/rag_stats` (seed sources
+    `runbook/mitre/suppression/resolved_case` guarded unless `force=true`); routes
+    `GET /rag/stats`, `GET /rag/documents`, `GET /rag/documents/{id}`,
+    `POST /rag/import`, `DELETE /rag/documents/{id}?force=`, `GET /rag/search`.
+    `test_rag_management.py` (11).
+  - ☑ **Agent memory (Claude.ai-style durable operator facts):** `stores/memory.py`
+    `MemoryStore` over the existing KVStore (no new index/migration; `EsKVStore` /
+    `SqlKVStore` adapters), `MemoryEntry` model; injected into investigations + chat
+    as a DISTINCT `<<<MEMORY>>>` TRUSTED block (precedence
+    policy>base>playbook>MEMORY>untrusted; `fence()` neutralises forged markers);
+    never overrides the deterministic CaseManager. Edit via REST
+    (`GET/POST/PUT/DELETE /memory`, human) or chat ("remember:"/"forget", agent,
+    audited); chat gained `memory_action` + `memory_suggestion`.
+    `test_memory.py` (14).
+  - ☑ **Case explainability:** `ActionType.CONTEXT` audit record (persona/playbook/
+    memory/knowledge/enrichment) + reasoning excerpt on VERDICT; `GET /cases/{id}/
+    rationale` returns the pure "why" object incl. the DETERMINISTIC
+    `decision_rationale`. `test_explainability.py` (5).
+  - ☑ **webui:** new **Knowledge** + **Memory** pages (new Platform nav); case
+    **"Why"** tab; chat memory action/suggestion UI; Metrics "Knowledge base &
+    memory" section + Overview RAG/memory tiles; Cases-list collaboration (sortable
+    assignee, tags + comment-count badges, filters). UNTRUSTED-safe (#9); no new deps.
 - ☑ **Wave 3 — analytics + eval loop + collaboration + white-label UI + CI** (branch
   `Testing`; 310 tests green; webui clean). Metrics dashboard (`engine/metrics.py`,
   `GET /api/metrics`); AI-decision feedback/grading (`/cases/{id}/feedback`,
@@ -35,8 +64,9 @@ commit + push.
   `archive/kibana-plugin/`. Full study + multi-wave plan in `docs/VIGIL_STUDY.md`.
   - ☐ **Wave 2:** auth-by-default + CI route-coverage test; CSRF/headers/rate-limit;
     approval workflow + pre-flight projected-cost gate + `$`-budget ceiling.
-  - ☐ **Wave 3:** cross-case memory + temporal KG; MITRE-from-STIX; detection-rule
-    RAG corpus; HITL / Auto-Ops / reasoning-trace webui surfaces.
+  - ◐ **Wave 3:** durable operator memory + case explainability + RAG management/
+    visibility DONE (this cycle, above). Still open: temporal KG + cross-case memory
+    linkage; MITRE-from-STIX; detection-rule RAG corpus; HITL / Auto-Ops webui surfaces.
   - ☐ **Wave 4 / Epoch E:** ARQ workers + KEDA; Helm chart; OTEL + Grafana.
 - ☑ **UI redesign** — new shared design system (`public/lib/format.ts`,
   `public/components/ui.tsx`, expanded `public/index.scss`) and a presentation-only

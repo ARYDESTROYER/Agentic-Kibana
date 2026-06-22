@@ -441,6 +441,25 @@ export interface ChatTable {
   truncated?: boolean;
 }
 
+/**
+ * A memory mutation the chat engine performed on this turn (additive). The agent
+ * may "remember"/"forget" facts conversationally; the UI surfaces what changed.
+ */
+export interface ChatMemoryAction {
+  /** The operation the chat engine applied to operator memory. */
+  op: 'add' | 'update' | 'delete' | string;
+  /** The memory text added/updated (when applicable). */
+  text?: string;
+  /** Affected memory entry ids (when applicable). */
+  ids?: string[];
+}
+
+/** A memory the chat engine suggests the operator save (additive; non-binding). */
+export interface ChatMemorySuggestion {
+  text: string;
+  reason?: string;
+}
+
 export interface ChatResponse {
   answer: string;
   table?: ChatTable | null;
@@ -448,6 +467,10 @@ export interface ChatResponse {
   discover?: Record<string, unknown> | null;
   case_id?: string | null;
   cost?: number;
+  /** A memory mutation the agent performed on this turn (additive). */
+  memory_action?: ChatMemoryAction | null;
+  /** A memory the agent suggests the operator save (additive). */
+  memory_suggestion?: ChatMemorySuggestion | null;
 }
 
 export interface UsageSummary {
@@ -549,5 +572,150 @@ export interface Metrics {
   /** Compact cost summary (shares the UsageSummary shape; fields optional). */
   cost: Partial<UsageSummary> & Record<string, unknown>;
   window_hours?: number;
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Knowledge / RAG corpus management (GET/POST/DELETE /api/rag/*).
+// --------------------------------------------------------------------------- //
+/** One retrieved chunk (a search hit or a document's constituent chunk). */
+export interface RagChunk {
+  /** The chunk text (UNTRUSTED — render fenced, never as markup). */
+  text: string;
+  /** The source corpus the chunk came from (e.g. "runbook", "case", "import"). */
+  source: string;
+  /** Relevance score (present on search hits; absent for raw document chunks). */
+  score?: number;
+  /** This chunk's index within its parent document (present on document chunks). */
+  chunk_index?: number;
+  /** Arbitrary per-chunk metadata the backend attached. */
+  metadata?: Record<string, unknown>;
+}
+
+/** A document indexed into the RAG corpus (GET /api/rag/documents). */
+export interface RagDocument {
+  document_id: string;
+  title: string;
+  source: string;
+  chunk_count: number;
+  embedding_model?: string;
+  dim?: number;
+  added_at?: string;
+  tags?: string[];
+  /** Populated only by GET /api/rag/documents/{id} (the drill-in view). */
+  chunks?: RagChunk[];
+  [key: string]: unknown;
+}
+
+/** GET /api/rag/documents — the corpus listing. */
+export interface RagDocumentsResponse {
+  documents: RagDocument[];
+  count: number;
+}
+
+/** GET /api/rag/stats — corpus health header. */
+export interface RagStats {
+  total_chunks: number;
+  by_source: Record<string, number>;
+  embedding_model?: string;
+  dim?: number;
+  document_count: number;
+  [key: string]: unknown;
+}
+
+/** POST /api/rag/import (201/200) — the indexed document summary. */
+export interface RagImportResult {
+  document_id: string;
+  title: string;
+  source: string;
+  chunk_count: number;
+  [key: string]: unknown;
+}
+
+/** GET /api/rag/search — what RAG would retrieve for a query. */
+export interface RagSearchResponse {
+  query: string;
+  count: number;
+  chunks: RagChunk[];
+}
+
+// --------------------------------------------------------------------------- //
+// Operator memory (durable facts the agents always know) — /api/memory/*.
+// --------------------------------------------------------------------------- //
+/** One durable memory entry (mirrors the backend `MemoryEntry`). */
+export interface MemoryEntry {
+  id: string;
+  /** The fact text (UNTRUSTED when agent-authored — render as plain text). */
+  text: string;
+  category?: string;
+  tags?: string[];
+  /** Who authored the memory — a human operator, or an agent (conversationally). */
+  source: 'human' | 'agent' | string;
+  author?: string;
+  created_at?: string;
+  updated_at?: string;
+  /** Inactive entries are retained but not injected into prompts. */
+  active: boolean;
+  [key: string]: unknown;
+}
+
+/** GET /api/memory — the memory listing. */
+export interface MemoryResponse {
+  entries: MemoryEntry[];
+  count: number;
+}
+
+// --------------------------------------------------------------------------- //
+// Case decision rationale (GET /api/cases/{id}/rationale).
+// --------------------------------------------------------------------------- //
+/** A knowledge snippet the investigator drew on (RAG/runbook/playbook). */
+export interface RationaleKnowledge {
+  source: string;
+  snippet: string;
+}
+
+/** A tool invocation the investigator ran during this case. */
+export interface RationaleTool {
+  tool: string;
+  query?: string;
+  summary?: string;
+}
+
+/** The playbook selected for the case + why. */
+export interface RationalePlaybook {
+  id: string;
+  reason?: string;
+}
+
+/** Cached enrichment used in the decision (null when none applied). */
+export interface RationaleEnrichment {
+  reputation_score?: number;
+  is_malicious?: boolean;
+  country?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * GET /api/cases/{id}/rationale — the explainable decision trace consumed by the
+ * Cases surface (the case-detail engineer wires this; defined here as the shared
+ * contract).
+ */
+export interface CaseRationale {
+  case_id: string;
+  verdict?: string;
+  confidence?: number;
+  status?: string;
+  decision_by?: string;
+  persona?: string;
+  playbook?: RationalePlaybook | null;
+  /** Operator memories the investigation drew on. */
+  memory_used?: string[];
+  knowledge?: RationaleKnowledge[];
+  enrichment?: RationaleEnrichment | null;
+  tools?: RationaleTool[];
+  reasoning?: string;
+  decision_rationale?: string;
+  mitre?: string[];
+  evidence?: Evidence[];
   [key: string]: unknown;
 }

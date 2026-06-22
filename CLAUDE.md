@@ -124,10 +124,13 @@ backend/app/
                      querybuilder · indices (templates + bootstrap)
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
   tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
-                     rag (hybrid BM25+vector retrieval) · vectorstore
+                     rag (hybrid BM25+vector retrieval; import/list/get/delete +
+                     stats) · vectorstore (+ list_documents/list_chunks/
+                     delete_document/stats)
   engine/            correlation · risk · cost_gate · case_manager (AutoClosePolicy) ·
                      signatures · poller · ingest (push/queue → OCSF) · runbooks
-                     (RAG-knowledge loader)
+                     (RAG-knowledge loader) · chunking (chunk_text; dep-free
+                     paragraph-pack + overlap)
   runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
   playbooks/         Markdown PLAYBOOK engine: manifest · loader · registry
                      (deterministic per-cluster selection + atomic hot-reload)
@@ -136,7 +139,9 @@ backend/app/
   agents/            prompts · router · investigator · formatter · chat · standup ·
                      graph (LangGraph) · pipeline · common · personas (multi-agent roster)
   stores/            base (abstract repositories — backend-agnostic StateStore) ·
-                     cases · usage · config_store · cursor_store · audit/audit_log
+                     cases · usage · config_store · cursor_store · memory
+                     (MemoryStore over the KVStore — durable operator facts;
+                     EsKVStore/SqlKVStore adapters, no new index) · audit/audit_log
                      (ES-backed) · sql/ (engine · models · repositories ·
                      vectorstore — SQLite/Postgres+pgvector)
   api/               routes (UI contract; incl. /sources, /sources/{id}/secrets) ·
@@ -146,7 +151,9 @@ backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not c
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+@elastic/eui SPA
   package.json       Node 22, @elastic/eui 95; build = tsc --noEmit && vite build
-  src/               App.tsx · main.tsx · components/ · lib/ (api etc.)
+  src/               App.tsx · main.tsx · components/ (incl. Knowledge/ = RAG
+                     corpus page, Memory/ = agent-memory page; both new Platform
+                     nav entries) · lib/ (api etc.)
   Dockerfile         nginx image (tlsoc-webui) with the /api proxy
 archive/             FROZEN legacy code (not built/tested/shipped) — see archive/README.md
   kibana-plugin/     the retired Kibana plugin (tlsoc_agentic_triage/ + dist/ + BUILD.md)
@@ -294,10 +301,46 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **310 backend tests green**; the standalone **webui
+(**Waves 1–3**) shipped — **340 backend tests green**; the standalone **webui
 builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
 Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
 multi-wave plan and `ROADMAP.md` for live status.
+
+Done (this round — explainability, RAG management, agent memory, dashboards/
+collaboration; additive, spine + the 12 non-negotiables intact):
+- **RAG ingest + management + visibility** ("see the RAG") — `engine/chunking.py`
+  (`chunk_text`, dep-free paragraph-pack + overlap); `VectorStore` ABC gained
+  `list_documents/list_chunks/delete_document/stats` (InMemory + ES `dense_vector`
+  + SQL); `RagService.import_document/list_documents/get_document/delete_document/
+  rag_stats` (built-in seed sources `runbook/mitre/suppression/resolved_case`
+  guarded unless `force=true`). Routes: `GET /api/rag/stats`, `GET /api/rag/
+  documents`, `GET /api/rag/documents/{id}`, `POST /api/rag/import`, `DELETE
+  /api/rag/documents/{id}?force=`, `GET /api/rag/search?q=&top_k=` (live retrieval).
+- **Agent memory (Claude.ai-style durable operator facts)** — `stores/memory.py`
+  `MemoryStore` over the existing KVStore (no new index/migration; `EsKVStore` /
+  `SqlKVStore` adapters), `MemoryEntry` model; auto-injected into BOTH automated
+  investigations and chat as a DISTINCT `<<<MEMORY>>>` TRUSTED block
+  (precedence policy>base>playbook>MEMORY>untrusted; `render_memory()` + `fence()`
+  neutralises forged markers). Memory NEVER overrides the deterministic CaseManager
+  (#3) — it only informs the LLM. Edited explicitly via REST
+  (`GET/POST/PUT/DELETE /api/memory`, source=human) or in chat ("remember:"/"forget",
+  source=agent, audited); chat JSON gained `memory_action` (executed) +
+  `memory_suggestion` (UI-confirm, never auto-saved).
+- **Case explainability** — investigator emits a CONTEXT audit record (new
+  `ActionType.CONTEXT`) of the persona/playbook/memory/knowledge/enrichment given,
+  + a reasoning excerpt on VERDICT; `GET /api/cases/{id}/rationale` assembles a
+  pure "why" object (verdict/confidence/status/decision_by, persona, playbook+reason,
+  memory_used, knowledge[RAG/runbook snippets], enrichment, tools[commands/queries
+  run], reasoning, the DETERMINISTIC `decision_rationale`, mitre, evidence).
+- **webui** — new **Knowledge** page (RAG corpus stats, import paste/file upload,
+  documents table + chunk drill-in, guarded force-delete, "try a retrieval") and
+  **Memory** page (add/inline-edit/delete/active-toggle, human-vs-agent source
+  badges) under a new **Platform** nav; case **"Why"** tab (consumes `/rationale`);
+  chat memory-action echo + dismissible "remember this?" suggestion; Metrics
+  "Knowledge base & memory" section + Overview RAG/memory tiles; Cases-list
+  collaboration (sortable assignee, tags + comment-count badges, filters). All
+  attacker-influenceable text renders as plain text / `EuiCodeBlock` (#9 upheld);
+  no new npm deps.
 
 Done (Wave 3 — analytics, eval loop, collaboration, white-label UI + CI; additive):
 - **Metrics/analytics** (`engine/metrics.py`, `GET /api/metrics`) + a Metrics page:
@@ -364,9 +407,10 @@ Remaining (see `ROADMAP.md` + `docs/VIGIL_STUDY.md`):
   projected-cost gate + a `$`-budget ceiling (the `ToolTier.requires_approval`
   groundwork + `AutoClosePolicy` are in place). Optional: default auth ON for a
   hardened profile (compose), CSRF cookie issuance for the webui.
-- **Wave 3:** cross-case agent memory + a temporal knowledge graph; a real MITRE
-  module from a bundled STIX file; detection-rule RAG corpus; HITL / Auto-Ops /
-  reasoning-trace webui surfaces.
+- **Wave 3:** durable operator memory + case explainability + RAG management/
+  visibility shipped this round (see "Done (this round)" above). Still open: a
+  temporal knowledge graph + cross-case memory linkage; a real MITRE module from a
+  bundled STIX file; a detection-rule RAG corpus; HITL / Auto-Ops webui surfaces.
 - **Wave 4 / Epoch E:** ARQ workers + KEDA scale-out; a Helm chart; OTEL+Grafana.
 - More pull connectors — **Splunk + Microsoft Sentinel** next (enum'd, not yet built).
 

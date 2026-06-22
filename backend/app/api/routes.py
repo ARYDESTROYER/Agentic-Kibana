@@ -296,10 +296,23 @@ async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state
 # Chat (Surface 1 + Surface 2 follow-up — one engine)
 # --------------------------------------------------------------------------- #
 @router.post("/chat")
-async def chat(body: ChatRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def chat(
+    body: ChatRequest, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    # Attribute any chat-driven memory add to the authenticated user when auth is on
+    # (best-effort; "" when auth is disabled — the default no-auth profile).
+    author = ""
+    try:
+        auth = getattr(state, "auth", None)
+        if auth is not None and auth.is_enabled:
+            token = request.cookies.get("tlsoc_token") or _bearer(request)
+            user = auth.verify(token) if token else None
+            author = user.username if user else ""
+    except Exception:  # noqa: BLE001 — attribution is best-effort
+        author = ""
     resp = await state.chat_engine.chat(
         body.message, state.prefs, case_id=body.case_id, history=body.history,
-        context=body.context,
+        context=body.context, author=author,
     )
     return resp.model_dump(mode="json")
 
@@ -386,6 +399,164 @@ async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
             for rb in load_runbooks()
         ],
     }
+
+
+# --------------------------------------------------------------------------- #
+# RAG knowledge base — see + manage the corpus the investigator/chat retrieve
+# from. Imports take effect immediately (same in-process corpus as retrieve()).
+# --------------------------------------------------------------------------- #
+class RagImportRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=512)
+    text: str = Field(..., min_length=1)
+    source: str = "imported"
+    tags: list[str] = Field(default_factory=list)
+
+
+_RAG_MAX_TEXT = 1_000_000  # ~1MB cap on a single imported document body
+
+
+@router.get("/rag/stats")
+async def rag_stats(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Corpus stats: total chunks, count by source, embedding model/dim, doc count."""
+    return await state.rag.rag_stats()
+
+
+@router.get("/rag/documents")
+async def rag_documents(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """List all documents in the RAG corpus (seeds grouped as seed:<source>)."""
+    docs = await state.rag.list_documents()
+    return {"documents": docs, "count": len(docs)}
+
+
+@router.get("/rag/documents/{document_id}")
+async def rag_document(document_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """A single document + its chunks. 404 if no such document."""
+    doc = await state.rag.get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return doc
+
+
+@router.post("/rag/import")
+async def rag_import(body: RagImportRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Import a free-text document into the RAG corpus. Chunked + embedded; takes
+    effect immediately for retrieval. 400 on empty/oversized text."""
+    title = (body.title or "").strip()
+    text = body.text or ""
+    if not title or not text.strip():
+        raise HTTPException(status_code=400, detail="title and text are required")
+    if len(text) > _RAG_MAX_TEXT:
+        raise HTTPException(status_code=400, detail="text too large (max ~1MB)")
+    result = await state.rag.import_document(
+        title, text, source=(body.source or "imported").strip() or "imported", tags=body.tags
+    )
+    if not result.get("chunk_count"):
+        raise HTTPException(status_code=400, detail="document produced no indexable chunks")
+    return result
+
+
+@router.delete("/rag/documents/{document_id}")
+async def rag_delete_document(
+    document_id: str,
+    force: bool = False,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Delete an imported document. 404 if missing; 400 if a guarded seed source
+    (runbook/mitre/suppression/resolved_case) unless ``?force=true``."""
+    result = await state.rag.delete_document(document_id, force=force)
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail="document not found")
+    if result.get("guarded"):
+        raise HTTPException(
+            status_code=400,
+            detail="built-in seed corpus is protected; pass force=true to delete",
+        )
+    return {"document_id": document_id, "deleted": result.get("deleted", 0)}
+
+
+@router.get("/rag/search")
+async def rag_search(
+    q: str,
+    top_k: int = 5,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Run a retrieval against the live corpus and return the chunks RAG would feed
+    an investigation — so an operator can SEE what the knowledge base returns."""
+    query = (q or "").strip()
+    if not query:
+        return {"query": "", "chunks": [], "count": 0}
+    await state.rag.ensure_seeded()
+    chunks = await state.rag.retrieve(query, top_k=max(1, min(int(top_k or 5), 50)))
+    return {
+        "query": query,
+        "count": len(chunks),
+        "chunks": [c.model_dump() for c in chunks],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Operator MEMORY — durable facts the agents remember (auto-injected as TRUSTED
+# operator context into BOTH automated investigations and chat). Editing is
+# EXPLICIT (here, source="human") or via chat ("remember:"/"forget", source="agent").
+# Memory NEVER overrides the deterministic case_manager — it only informs the LLM.
+# --------------------------------------------------------------------------- #
+class MemoryCreate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+    category: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class MemoryUpdate(BaseModel):
+    text: str | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+    active: bool | None = None
+
+
+@router.get("/memory")
+async def list_memory(
+    active_only: bool = False, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """List operator memory entries (newest first). ``?active_only=true`` hides
+    de-activated facts."""
+    entries = await state.memory.list(active_only=active_only)
+    return {
+        "entries": [e.model_dump(mode="json") for e in entries],
+        "count": len(entries),
+    }
+
+
+@router.post("/memory")
+async def add_memory(body: MemoryCreate, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Add an operator fact (source='human'). Auto-injected into future
+    investigations + chat as TRUSTED context."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    entry = await state.memory.add(
+        text, category=body.category, tags=body.tags, source="human",
+    )
+    return entry.model_dump(mode="json")
+
+
+@router.put("/memory/{entry_id}")
+async def update_memory(
+    entry_id: str, body: MemoryUpdate, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Edit a memory entry (text/category/tags) or toggle ``active``."""
+    updated = await state.memory.update(entry_id, **body.model_dump(exclude_none=True))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="memory entry not found")
+    return updated.model_dump(mode="json")
+
+
+@router.delete("/memory/{entry_id}")
+async def delete_memory(entry_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Permanently delete a memory entry. 404 if missing."""
+    ok = await state.memory.delete(entry_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="memory entry not found")
+    return {"ok": True, "id": entry_id}
 
 
 @router.get("/playbooks")
@@ -837,6 +1008,23 @@ async def case_trace(case_id: str, state: AppState = Depends(get_state)) -> dict
     }
 
 
+@router.get("/cases/{case_id}/rationale")
+async def case_rationale(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Case EXPLAINABILITY: a clean, human-readable "why" object assembled from the
+    case + its audit records — WITHOUT calling the LLM.
+
+    Surfaces exactly how a case reached its verdict: the persona/playbook chosen, the
+    operator MEMORY facts consulted, the RAG knowledge retrieved (source + snippet),
+    the IP enrichment/reputation, the read-only tools/queries the agent ran, the
+    investigator's reasoning excerpt, the deterministic close/escalate rationale, the
+    MITRE techniques, and the evidence. Every piece is parsed DEFENSIVELY from the
+    audit rows this run writes (CONTEXT/TOOL_CALL/VERDICT) + the case fields — a
+    missing piece degrades to an empty value, never an error. NEVER 404s."""
+    case = await state.cases.get(case_id)
+    rows = await state.audit.records_for_case(case_id)
+    return _build_rationale(case_id, case, rows)
+
+
 # --------------------------------------------------------------------------- #
 # Automated scans (Surface 3)
 # --------------------------------------------------------------------------- #
@@ -1088,6 +1276,140 @@ def _no_events_detail(req: InvestigateRequest, widest: str) -> str:
     if req.event_ids:
         return "No events found for the selected document ids"
     return "Could not resolve events for this request"
+
+
+def _audit_get(row: Any, key: str, default: Any = None) -> Any:
+    """Read a field from an audit row that may be a dict OR a pydantic AuditDoc."""
+    if isinstance(row, dict):
+        return row.get(key, default)
+    return getattr(row, key, default)
+
+
+def _build_rationale(case_id: str, case: Any, rows: list[Any]) -> dict[str, Any]:
+    """Assemble the explainability "why" object from a case + its audit rows.
+
+    Pure + defensive: any missing audit piece degrades to an empty value. Reads the
+    CONTEXT record (knowledge/memory/enrichment), TOOL_CALL records (tools/queries),
+    the VERDICT record (reasoning excerpt), the playbook_selector DECISION (playbook
+    reason) and the case_manager DECISION (deterministic rationale)."""
+    # --- from the CONTEXT record (investigator-injected context) -------------
+    knowledge: list[dict[str, Any]] = []
+    memory_used: list[str] = []
+    enrichment: dict[str, Any] | None = None
+    for row in rows:
+        if _audit_get(row, "action_type") != ActionType.CONTEXT.value:
+            continue
+        ti = _audit_get(row, "tool_input") or {}
+        if isinstance(ti, dict):
+            for k in (ti.get("knowledge") or []):
+                if isinstance(k, dict):
+                    knowledge.append({
+                        "source": str(k.get("source", "unknown")),
+                        "snippet": str(k.get("snippet", "")),
+                    })
+            for m in (ti.get("memory") or []):
+                if isinstance(m, str) and m.strip():
+                    memory_used.append(m)
+            enr = ti.get("enrichment")
+            if isinstance(enr, dict):
+                enrichment = {
+                    "reputation_score": enr.get("reputation_score"),
+                    "is_malicious": enr.get("is_malicious"),
+                    "country": enr.get("country"),
+                }
+        break  # one context record per investigation
+
+    # --- tools / queries (TOOL_CALL + ES_QUERY rows) -------------------------
+    tools: list[dict[str, Any]] = []
+    for row in rows:
+        at = _audit_get(row, "action_type")
+        if at not in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
+            continue
+        tools.append({
+            "tool": _audit_get(row, "tool_name") or (
+                "es_query" if at == ActionType.ES_QUERY.value else ""
+            ),
+            "query": _audit_get(row, "query_text") or "",
+            "summary": _audit_get(row, "tool_output_summary") or "",
+        })
+
+    # --- reasoning excerpt (VERDICT record, written after "reasoning=") -------
+    reasoning = ""
+    for row in rows:
+        if _audit_get(row, "action_type") != ActionType.VERDICT.value:
+            continue
+        rs = str(_audit_get(row, "result_summary") or "")
+        marker = "reasoning="
+        if marker in rs:
+            reasoning = rs.split(marker, 1)[1].strip()
+        break
+
+    # --- playbook reason (playbook_selector DECISION) ------------------------
+    playbook_reason = ""
+    for row in rows:
+        if _audit_get(row, "actor") == "playbook_selector":
+            playbook_reason = str(_audit_get(row, "result_summary") or "")
+            break
+
+    # --- deterministic decision rationale (case_manager DECISION, then the
+    #     case.history "decision" event as a fallback) ------------------------
+    decision_rationale = ""
+    for row in rows:
+        if (
+            _audit_get(row, "actor") == "case_manager"
+            and _audit_get(row, "action_type") == ActionType.DECISION.value
+        ):
+            decision_rationale = str(_audit_get(row, "result_summary") or "")
+            break
+
+    # --- case-derived fields (defensive: case may be None) -------------------
+    verdict = ""
+    confidence = 0.0
+    status = ""
+    decision_by = None
+    persona = ""
+    playbook_id = ""
+    mitre: list[str] = []
+    evidence: list[dict[str, Any]] = []
+    if case is not None:
+        verdict = case.verdict.value if case.verdict else ""
+        confidence = case.confidence
+        status = case.status.value if case.status else ""
+        decision_by = case.decision_by.value if case.decision_by else None
+        persona = case.agent_persona or ""
+        playbook_id = case.playbook_id or ""
+        mitre = list(case.mitre or [])
+        evidence = [
+            {
+                "summary": e.summary,
+                "event_ids": list(e.event_ids or []),
+                "query": e.query,
+            }
+            for e in (case.evidence or [])
+        ]
+        if not decision_rationale:
+            for h in reversed(case.history or []):
+                if isinstance(h, dict) and h.get("event") == "decision" and h.get("rationale"):
+                    decision_rationale = str(h.get("rationale"))
+                    break
+
+    return {
+        "case_id": case_id,
+        "verdict": verdict,
+        "confidence": confidence,
+        "status": status,
+        "decision_by": decision_by,
+        "persona": persona,
+        "playbook": {"id": playbook_id, "reason": playbook_reason},
+        "memory_used": memory_used,
+        "knowledge": knowledge,
+        "enrichment": enrichment,
+        "tools": tools,
+        "reasoning": reasoning,
+        "decision_rationale": decision_rationale,
+        "mitre": mitre,
+        "evidence": evidence,
+    }
 
 
 def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:

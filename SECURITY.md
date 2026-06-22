@@ -159,12 +159,40 @@ The verdict is **advisory only**; the consequential decision is deterministic co
 - Anything else — `NEEDS_HUMAN`, a missing verdict, or any LLM/source/tool failure —
   **fails safe to a human**: an alert is never dropped.
 
+### 4.3 TRUSTED operator context (memory + RAG) — informs, never decides
+
+Two operator-controlled inputs are injected as **TRUSTED** context, distinct from the
+fenced UNTRUSTED evidence: **agent memory** (durable operator facts, `stores/memory.py`)
+in a `<<<MEMORY>>>` block, and the **RAG knowledge** retrieved for the case (runbooks,
+imported documents, prior-case baselines). Their safety posture:
+
+- **They inform the LLM only; they can NEVER override the deterministic Case
+  Manager.** Memory and RAG content can shape the model's *verdict recommendation*,
+  but the consequential close/escalate decision is still the pure function in
+  `engine/case_manager.py:decide` (§4.2, non-negotiable #3). No operator fact and no
+  retrieved snippet can auto-close a case.
+- **Precedence is fixed and explicit:** `policy > base-prompt > playbook > MEMORY >
+  untrusted`. Operator-authored TRUSTED context sits above the untrusted evidence but
+  below the immutable policy/base prompt.
+- **Forged TRUSTED markers in event data are neutralised.** `fence()` in
+  `agents/prompts.py` escapes any attacker-planted `<<<MEMORY>>>` (and `<<<PLAYBOOK>>>`)
+  markers in log-derived data, so untrusted content cannot smuggle itself into a
+  TRUSTED block.
+- **Provenance is preserved.** Memory carries its `source` (`human` for explicit REST
+  edits, `agent` for chat "remember:" actions — which only store user-directed text
+  and are audited); agent-authored memory text and RAG chunk text are still treated as
+  **UNTRUSTED in the UI** and rendered as plain text / `EuiCodeBlock`
+  (never `dangerouslySetInnerHTML`) so a poisoned fact/snippet cannot inject markup
+  into the analyst's browser (non-negotiable #9). The `/api/cases/{id}/rationale`
+  "Why" view surfaces exactly which memory/knowledge a case used and presents the
+  **deterministic** decision rationale prominently.
+
 ## 5. Read-only guarantee, audit, cost ledger, caps & kill switch
 
 | Control | Guarantee | Where |
 |---|---|---|
 | Read-only sources | The suite **never writes to a log source**. Pull tools read only; push receivers have no write path back. | `connectors/*`, `tools/es_query.py`, `prompts.INVESTIGATOR_SYSTEM` |
-| Audit trail (append-only) | Every agent action is audited, append-only. Action types: prompt, es_query, tool_call, verdict, decision, error, poll, scan. | `audit/audit_log.py`, `constants.ActionType` |
+| Audit trail (append-only) | Every agent action is audited, append-only. Action types: prompt, es_query, tool_call, context, verdict, decision, error, poll, scan (+ explicit memory edits). | `audit/audit_log.py`, `constants.ActionType` |
 | Cost ledger | **100% of LLM calls** flow through one gateway, which writes a usage/cost row for **every** call (including failures, `outcome=error`). | `llm/gateway.py`; non-negotiable #6 |
 | Per-case caps | `max_tool_calls` (8), `max_tokens` (20000), `timeout_seconds` (120). | `config.CapsConfig` |
 | Kill switch | A global `caps.kill_switch` stops all investigations; polling is not (re)started while set. | `config.CapsConfig.kill_switch`; `routes.put_settings` |

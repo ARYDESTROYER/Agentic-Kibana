@@ -48,7 +48,7 @@ import {
   EuiTitle,
 } from '@elastic/eui';
 import type { EuiComboBoxOptionOption } from '@elastic/eui';
-import type { Case } from '../../lib/types';
+import type { Case, CaseRationale } from '../../lib/types';
 import { api } from '../../lib/api';
 import type { CaseFeedbackInput } from '../../lib/api';
 import { COLORS, riskBand, riskHex, tint } from '../../lib/theme';
@@ -60,6 +60,8 @@ import {
   ErrorCallout,
   Loading,
   RiskBadge,
+  Skeleton,
+  StatTile,
   StatusBadge,
   VerdictBadge,
 } from '../common/ui';
@@ -205,12 +207,17 @@ export const CaseDetailFlyout: React.FC<{
   const [c, setC] = useState<Case | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<'overview' | 'trace' | 'timeline' | 'collab'>('overview');
+  const [tab, setTab] = useState<'overview' | 'why' | 'trace' | 'timeline' | 'collab'>('overview');
 
   // Agent-trace (lazy: fetched the first time the tab is opened).
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
   const [traceLoading, setTraceLoading] = useState(false);
   const [traceError, setTraceError] = useState<unknown>(null);
+
+  // Decision rationale / "Why" (lazy: fetched the first time the tab is opened).
+  const [rationale, setRationale] = useState<CaseRationale | null>(null);
+  const [rationaleLoading, setRationaleLoading] = useState(false);
+  const [rationaleError, setRationaleError] = useState<unknown>(null);
 
   // Pending lifecycle action (drives the confirm modal).
   const [pending, setPending] = useState<ActionDef | null>(null);
@@ -259,6 +266,25 @@ export const CaseDetailFlyout: React.FC<{
     }
   }, [tab, trace, traceLoading, loadTrace]);
 
+  const loadRationale = useCallback(async () => {
+    setRationaleLoading(true);
+    setRationaleError(null);
+    try {
+      const res = await api.caseRationale(caseId);
+      setRationale(res);
+    } catch (e) {
+      setRationaleError(e);
+    } finally {
+      setRationaleLoading(false);
+    }
+  }, [caseId]);
+
+  useEffect(() => {
+    if (tab === 'why' && rationale === null && !rationaleLoading) {
+      void loadRationale();
+    }
+  }, [tab, rationale, rationaleLoading, loadRationale]);
+
   const runAction = useCallback(async () => {
     if (!pending) return;
     setActing(true);
@@ -271,6 +297,7 @@ export const CaseDetailFlyout: React.FC<{
       setNote('');
       await loadCase();
       setTrace(null); // invalidate the trace so it refetches if reopened
+      setRationale(null); // invalidate the rationale so it refetches if reopened
       onChanged?.();
     } catch (e) {
       setError(e);
@@ -313,6 +340,7 @@ export const CaseDetailFlyout: React.FC<{
 
   const tabs: Array<{ id: typeof tab; label: string; icon: string }> = [
     { id: 'overview', label: 'Overview', icon: 'documentation' },
+    { id: 'why', label: 'Why', icon: 'inspect' },
     { id: 'trace', label: 'Agent trace', icon: 'graphApp' },
     { id: 'timeline', label: 'Timeline', icon: 'clock' },
     { id: 'collab', label: 'Notes & feedback', icon: 'editorComment' },
@@ -450,6 +478,14 @@ export const CaseDetailFlyout: React.FC<{
           error ? null : <EuiText color="subdued">Case not found.</EuiText>
         ) : tab === 'overview' ? (
           <OverviewTab c={c} />
+        ) : tab === 'why' ? (
+          <WhyTab
+            c={c}
+            rationale={rationale}
+            loading={rationaleLoading}
+            error={rationaleError}
+            onRetry={loadRationale}
+          />
         ) : tab === 'trace' ? (
           <TraceTab
             steps={trace}
@@ -752,6 +788,404 @@ const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
   );
 };
 
+/* ===================================================================== Why == */
+
+/** Best-effort label for who/what made the deterministic close/escalate call. */
+function decisionByLabel(decisionBy?: string): { text: string; isHuman: boolean } {
+  const d = (decisionBy || '').toLowerCase();
+  const isHuman = d.includes('human') || d.includes('analyst') || d.includes('operator');
+  return { text: decisionBy ? humanizeToken(decisionBy) : 'Automated pipeline', isHuman };
+}
+
+/**
+ * The "Why" / decision-rationale tab — a skimmable narrative of HOW the case
+ * reached its conclusion: the deterministic decision, the agent's reasoning, the
+ * knowledge (RAG / runbooks / playbooks) it drew on, the commands it ran, the
+ * operator memory applied, enrichment, the selected playbook, and MITRE mapping.
+ *
+ * Everything sourced from logs / the model / retrieved knowledge is UNTRUSTED and
+ * is rendered as plain text or inside `<EuiCodeBlock>` — never as executable markup.
+ */
+const WhyTab: React.FC<{
+  c: Case;
+  rationale: CaseRationale | null;
+  loading: boolean;
+  error: unknown;
+  onRetry: () => void;
+}> = ({ c, rationale, loading, error, onRetry }) => {
+  if (loading) {
+    return (
+      <div>
+        <Skeleton height={88} radius={10} />
+        <EuiSpacer size="m" />
+        <Skeleton rows={4} />
+        <EuiSpacer size="m" />
+        <Skeleton height={120} radius={10} />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <>
+        <ErrorCallout error={error} title="Could not load decision rationale" />
+        <EuiSpacer size="m" />
+        <EuiButton size="s" iconType="refresh" onClick={onRetry}>
+          Retry
+        </EuiButton>
+      </>
+    );
+  }
+  if (!rationale) {
+    return (
+      <EuiCallOut title="No rationale recorded yet" color="primary" iconType="inspect" size="s">
+        <p>
+          The decision rationale appears after an investigation runs. It shows the
+          agent&apos;s reasoning, the knowledge it retrieved, and the deterministic
+          close / escalate decision.
+        </p>
+      </EuiCallOut>
+    );
+  }
+
+  const r = rationale;
+  const verdict = r.verdict ?? c.verdict;
+  const confidence = typeof r.confidence === 'number' ? r.confidence : c.confidence;
+  const status = r.status ?? c.status;
+  const persona = r.persona ?? c.agent_persona;
+  const decision = decisionByLabel(r.decision_by ?? c.decision_by);
+
+  const knowledge = r.knowledge || [];
+  const tools = r.tools || [];
+  const memory = (r.memory_used || []).filter((m) => (m || '').trim());
+  const mitre = r.mitre || [];
+  const enr = r.enrichment || null;
+  const playbook = r.playbook || null;
+
+  /** Source → accent for a knowledge snippet's provenance badge. */
+  const knowledgeAccent = (source?: string): string => {
+    const s = (source || '').toLowerCase();
+    if (s.includes('mitre')) return COLORS.warning;
+    if (s.includes('runbook') || s.includes('playbook')) return COLORS.accent;
+    if (s.includes('case')) return COLORS.success;
+    return COLORS.primary;
+  };
+
+  return (
+    <div>
+      {/* -------------------------------------------------- decision summary */}
+      <Card title="Decision" icon="inspect" accent={COLORS.primary}>
+        <EuiFlexGroup gutterSize="s" wrap responsive={false} alignItems="center">
+          <EuiFlexItem grow={false}>
+            <VerdictBadge verdict={verdict} />
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <StatusBadge status={status} />
+          </EuiFlexItem>
+          {typeof confidence === 'number' ? (
+            <EuiFlexItem grow={false}>
+              <ConfidenceBadge confidence={confidence} />
+            </EuiFlexItem>
+          ) : null}
+          <EuiFlexItem grow={false}>
+            <EuiBadge
+              color={decision.isHuman ? tint(COLORS.success, 0.18) : tint(COLORS.accent, 0.18)}
+              iconType={decision.isHuman ? 'user' : 'machineLearningApp'}
+              style={{ color: decision.isHuman ? COLORS.success : COLORS.accent }}
+              title="Who made the close / escalate decision"
+            >
+              Decided by {decision.text}
+            </EuiBadge>
+          </EuiFlexItem>
+          {persona && persona !== 'generalist' ? (
+            <EuiFlexItem grow={false}>
+              <EuiBadge
+                color={tint(COLORS.primary, 0.18)}
+                iconType="userAvatar"
+                style={{ color: COLORS.primary }}
+                title="Specialized investigator persona assigned to this case"
+              >
+                {humanizeToken(persona)}
+              </EuiBadge>
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
+
+        <EuiSpacer size="m" />
+
+        <EuiCallOut
+          title="Deterministic decision"
+          color="primary"
+          iconType="logstashIf"
+          size="s"
+        >
+          <EuiText size="s">
+            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
+              {r.decision_rationale
+                ? r.decision_rationale
+                : 'The close / escalate decision is made by deterministic code against the operator-configured auto-close policy — never by raw model output. No rationale string was recorded for this case.'}
+            </p>
+          </EuiText>
+        </EuiCallOut>
+      </Card>
+
+      <EuiSpacer size="m" />
+
+      {/* ----------------------------------------------------- agent reasoning */}
+      <Card title="Agent reasoning" icon="discoverApp" accent={COLORS.accent}>
+        {r.reasoning && r.reasoning.trim() ? (
+          <EuiText size="s">
+            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{r.reasoning}</p>
+          </EuiText>
+        ) : (
+          <EuiText size="s" color="subdued">
+            <span>No reasoning excerpt was recorded for this investigation.</span>
+          </EuiText>
+        )}
+      </Card>
+
+      <EuiSpacer size="m" />
+
+      {/* ----------------------------- knowledge used (RAG / runbooks / playbooks) */}
+      <Card title="Knowledge used" icon="documents" accent={COLORS.success}>
+        <EuiText size="xs" color="subdued">
+          <span>
+            Retrieved RAG / runbook / playbook context the investigation drew on
+            (e.g. &ldquo;because the runbook says this IP range is internal&rdquo;).
+          </span>
+        </EuiText>
+        <EuiSpacer size="s" />
+        {knowledge.length === 0 ? (
+          <EmptyState
+            iconType="documents"
+            title="No knowledge retrieved"
+            body="The investigation did not pull any RAG / runbook / playbook snippets."
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {knowledge.map((k, i) => {
+              const accent = knowledgeAccent(k.source);
+              return (
+                <Card key={i} variant="flat" paddingSize="m">
+                  <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+                    <EuiFlexItem grow={false}>
+                      <EuiBadge
+                        color={tint(accent, 0.18)}
+                        iconType="document"
+                        style={{ color: accent }}
+                      >
+                        {humanizeToken(k.source) || 'Knowledge'}
+                      </EuiBadge>
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+                  {k.snippet ? (
+                    <>
+                      <EuiSpacer size="xs" />
+                      <EuiCodeBlock
+                        whiteSpace="pre-wrap"
+                        fontSize="s"
+                        paddingSize="s"
+                        isCopyable
+                      >
+                        {k.snippet}
+                      </EuiCodeBlock>
+                    </>
+                  ) : null}
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <EuiSpacer size="m" />
+
+      {/* ---------------------------------------------- commands the agent ran */}
+      <Card title="Commands the agent ran" icon="console" accent={COLORS.primary}>
+        <EuiText size="xs" color="subdued">
+          <span>The tools / read-only queries the investigator invoked to gather evidence.</span>
+        </EuiText>
+        <EuiSpacer size="s" />
+        {tools.length === 0 ? (
+          <EmptyState
+            iconType="console"
+            title="No tools were invoked"
+            body="This case reached its verdict without running any investigation tools."
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {tools.map((t, i) => (
+              <Card key={i} variant="flat" paddingSize="m">
+                <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+                  <EuiFlexItem grow={false}>
+                    <EuiBadge
+                      color={tint(COLORS.accent, 0.18)}
+                      iconType="wrench"
+                      style={{ color: COLORS.accent }}
+                    >
+                      {t.tool || `Tool ${i + 1}`}
+                    </EuiBadge>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+                {t.query ? (
+                  <>
+                    <EuiSpacer size="xs" />
+                    <EuiCodeBlock
+                      language="sql"
+                      whiteSpace="pre-wrap"
+                      fontSize="s"
+                      paddingSize="s"
+                      isCopyable
+                      className="socMono"
+                    >
+                      {t.query}
+                    </EuiCodeBlock>
+                  </>
+                ) : null}
+                {t.summary ? (
+                  <>
+                    <EuiSpacer size="xs" />
+                    <EuiText size="xs" color="subdued">
+                      <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{t.summary}</p>
+                    </EuiText>
+                  </>
+                ) : null}
+              </Card>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* --------------------------------------------------- operator memory */}
+      {memory.length ? (
+        <>
+          <EuiSpacer size="m" />
+          <Card title="Operator memory applied" icon="storage" accent={COLORS.warning}>
+            <EuiText size="xs" color="subdued">
+              <span>Durable operator facts the investigation was told to honour.</span>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {memory.map((m, i) => (
+                <EuiFlexGroup key={i} gutterSize="s" alignItems="flexStart" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <EuiBadge
+                      color={tint(COLORS.warning, 0.18)}
+                      iconType="bell"
+                      style={{ color: COLORS.warning }}
+                    >
+                      Memory
+                    </EuiBadge>
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    <EuiText size="s">
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{m}</span>
+                    </EuiText>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              ))}
+            </div>
+          </Card>
+        </>
+      ) : null}
+
+      {/* -------------------------------------------------- enrichment + playbook */}
+      {enr || (playbook && playbook.id) ? (
+        <>
+          <EuiSpacer size="m" />
+          <EuiFlexGroup gutterSize="m" wrap>
+            {enr ? (
+              <EuiFlexItem>
+                <Card title="Enrichment" icon="globe" accent={COLORS.danger}>
+                  <EuiFlexGroup gutterSize="m" wrap responsive={false}>
+                    {typeof enr.reputation_score === 'number' ? (
+                      <EuiFlexItem grow={false} style={{ minWidth: 150 }}>
+                        <StatTile
+                          label="Reputation score"
+                          value={Math.round(enr.reputation_score)}
+                          icon="visGauge"
+                          accent={riskHex(enr.reputation_score)}
+                        />
+                      </EuiFlexItem>
+                    ) : null}
+                    {typeof enr.is_malicious === 'boolean' ? (
+                      <EuiFlexItem grow={false} style={{ minWidth: 150 }}>
+                        <StatTile
+                          label="Threat verdict"
+                          value={enr.is_malicious ? 'Malicious' : 'Clean'}
+                          icon={enr.is_malicious ? 'alert' : 'check'}
+                          accent={enr.is_malicious ? COLORS.danger : COLORS.success}
+                        />
+                      </EuiFlexItem>
+                    ) : null}
+                    {enr.country ? (
+                      <EuiFlexItem grow={false} style={{ minWidth: 150 }}>
+                        <StatTile
+                          label="Country"
+                          value={enr.country}
+                          icon="mapMarker"
+                          accent={COLORS.accent}
+                        />
+                      </EuiFlexItem>
+                    ) : null}
+                  </EuiFlexGroup>
+                </Card>
+              </EuiFlexItem>
+            ) : null}
+            {playbook && playbook.id ? (
+              <EuiFlexItem>
+                <Card title="Playbook" icon="indexMapping" accent={COLORS.accent}>
+                  <EuiBadge color={tint(COLORS.accent, 0.18)} style={{ color: COLORS.accent }}>
+                    {playbook.id}
+                  </EuiBadge>
+                  {playbook.reason ? (
+                    <>
+                      <EuiSpacer size="s" />
+                      <EuiText size="s" color="subdued">
+                        <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{playbook.reason}</p>
+                      </EuiText>
+                    </>
+                  ) : null}
+                </Card>
+              </EuiFlexItem>
+            ) : null}
+          </EuiFlexGroup>
+        </>
+      ) : null}
+
+      {/* --------------------------------------------------------------- MITRE */}
+      {mitre.length ? (
+        <>
+          <EuiSpacer size="m" />
+          <Card title="MITRE ATT&CK techniques" icon="graphApp" accent={COLORS.warning}>
+            <EuiFlexGroup gutterSize="s" wrap responsive={false}>
+              {mitre.map((m) => {
+                const url = mitreUrl(m);
+                return (
+                  <EuiFlexItem grow={false} key={m}>
+                    {url ? (
+                      <EuiBadge
+                        color={tint(COLORS.warning, 0.18)}
+                        style={{ color: COLORS.warning }}
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {m}
+                      </EuiBadge>
+                    ) : (
+                      <EuiBadge color="hollow">{m}</EuiBadge>
+                    )}
+                  </EuiFlexItem>
+                );
+              })}
+            </EuiFlexGroup>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+};
+
 /* =============================================================== Agent trace == */
 
 const TraceTab: React.FC<{
@@ -834,8 +1268,21 @@ const TraceTab: React.FC<{
             {s.query_text ? (
               <>
                 <EuiSpacer size="xs" />
+                <EuiText
+                  size="xs"
+                  color="subdued"
+                  style={{
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.6,
+                    fontWeight: 700,
+                  }}
+                >
+                  <span>{s.tool_name ? 'Command run' : 'Query'}</span>
+                </EuiText>
+                <EuiSpacer size="xs" />
                 <EuiCodeBlock
                   language="sql"
+                  whiteSpace="pre-wrap"
                   fontSize="s"
                   paddingSize="s"
                   isCopyable
