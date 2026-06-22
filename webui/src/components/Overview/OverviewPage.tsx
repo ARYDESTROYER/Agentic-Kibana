@@ -15,16 +15,23 @@ import {
   EuiSpacer,
   EuiText,
 } from '@elastic/eui';
-import type { Case, SourceInstance, UsageSummary } from '../../lib/types';
+import type {
+  Case,
+  MemoryResponse,
+  RagStats,
+  SourceInstance,
+  UsageSummary,
+} from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS, riskBand } from '../../lib/theme';
-import { fmtMoney, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
+import { fmtMoney, fmtNumber, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
 import {
   Card,
   ErrorCallout,
   RiskBadge,
   SectionHeader,
   Skeleton,
+  StatTile,
   StatusBadge,
   TrendStat,
   VerdictBadge,
@@ -34,13 +41,43 @@ import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
 interface OverviewProps {
-  onNavigate?: (p: 'cases' | 'sources') => void;
+  onNavigate?: (p: 'cases' | 'sources' | 'knowledge' | 'memory') => void;
 }
+
+/** A StatTile that navigates on click/Enter — used for the knowledge/memory
+ *  at-a-glance tiles. Keyboard-accessible, matching the recent-cases anchors. */
+const NavTile: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  icon: string;
+  accent: string;
+  onNavigate: () => void;
+}> = ({ label, value, icon, accent, onNavigate }) => (
+  <div
+    role="button"
+    tabIndex={0}
+    onClick={onNavigate}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onNavigate();
+      }
+    }}
+    aria-label={`Open ${label}`}
+    className="socCard--clickable"
+    style={{ cursor: 'pointer', borderRadius: 8, outline: 'none' }}
+  >
+    <StatTile label={label} value={value} icon={icon} accent={accent} />
+  </div>
+);
 
 export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [cases, setCases] = useState<Case[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [sources, setSources] = useState<SourceInstance[]>([]);
+  // Point-in-time knowledge-base + memory health for the at-a-glance tiles.
+  const [rag, setRag] = useState<RagStats | null>(null);
+  const [memory, setMemory] = useState<MemoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -52,10 +89,14 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     setLoading(true);
     setError(null);
     try {
-      const [c, u, s] = await Promise.allSettled([
+      // allSettled keeps every call independent — a failing RAG/memory fetch
+      // (or any non-cases call) leaves its tile blank but never blanks the page.
+      const [c, u, s, r, m] = await Promise.allSettled([
         api.listCases({ limit: 200 }),
         api.usageSummary(24),
         api.listSources(),
+        api.ragStats(),
+        api.getMemory(),
       ]);
       if (c.status === 'fulfilled') {
         setCases(c.value.cases);
@@ -65,6 +106,8 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       }
       if (u.status === 'fulfilled') setUsage(u.value);
       if (s.status === 'fulfilled') setSources(s.value.sources);
+      if (r.status === 'fulfilled') setRag(r.value);
+      if (m.status === 'fulfilled') setMemory(m.value);
       if (c.status === 'rejected') setError(c.reason);
     } catch (e) {
       setError(e);
@@ -127,6 +170,8 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     [cases],
   );
   const enabledSources = sources.filter((s) => s.enabled);
+  // Show the knowledge/memory tiles once at least one of the two calls returned.
+  const hasKnowledge = rag !== null || memory !== null;
 
   return (
     <div className="socPageEnter">
@@ -183,6 +228,41 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
               />
             </EuiFlexItem>
           </EuiFlexGroup>
+
+          {hasKnowledge ? (
+            <>
+              <EuiSpacer size="l" />
+              <EuiFlexGroup gutterSize="m" wrap>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <NavTile
+                    label="RAG documents"
+                    value={fmtNumber(rag?.document_count)}
+                    icon="documents"
+                    accent={COLORS.primary}
+                    onNavigate={() => onNavigate?.('knowledge')}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <NavTile
+                    label="RAG chunks"
+                    value={fmtNumber(rag?.total_chunks)}
+                    icon="visText"
+                    accent={COLORS.accent}
+                    onNavigate={() => onNavigate?.('knowledge')}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem style={{ minWidth: 200 }}>
+                  <NavTile
+                    label="Memory facts"
+                    value={fmtNumber(memory?.count)}
+                    icon="bell"
+                    accent={COLORS.warning}
+                    onNavigate={() => onNavigate?.('memory')}
+                  />
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </>
+          ) : null}
 
           <EuiSpacer size="l" />
 

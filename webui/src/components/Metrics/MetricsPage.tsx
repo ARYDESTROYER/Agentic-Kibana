@@ -15,7 +15,7 @@ import {
   EuiSpacer,
   EuiText,
 } from '@elastic/eui';
-import type { Metrics } from '../../lib/types';
+import type { Metrics, MemoryResponse, RagStats } from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS, chartColor, verdictHex } from '../../lib/theme';
 import {
@@ -33,6 +33,7 @@ import {
   EmptyState,
   ErrorCallout,
   PageHeader,
+  SectionHeader,
   Skeleton,
   StatTile,
 } from '../common/ui';
@@ -86,6 +87,11 @@ const MetricsSkeleton: React.FC = () => (
 export const MetricsPage: React.FC = () => {
   const [windowId, setWindowId] = useState<string>('168');
   const [data, setData] = useState<Metrics | null>(null);
+  // Point-in-time knowledge-base + memory health (NOT windowed). Loaded
+  // alongside the windowed metrics but kept non-fatal: a failure here leaves
+  // these null and the rest of the page still renders.
+  const [rag, setRag] = useState<RagStats | null>(null);
+  const [memory, setMemory] = useState<MemoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
@@ -102,7 +108,17 @@ export const MetricsPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.getMetrics(hours));
+      // The windowed metrics drive the page (a failure here surfaces the error
+      // state). The RAG/memory calls are point-in-time extras: each is wrapped
+      // so one failing never blanks the dashboard.
+      const [m, ragStats, mem] = await Promise.all([
+        api.getMetrics(hours),
+        api.ragStats().catch(() => null),
+        api.getMemory().catch(() => null),
+      ]);
+      setData(m);
+      setRag(ragStats);
+      setMemory(mem);
     } catch (e) {
       setError(e);
     } finally {
@@ -153,6 +169,38 @@ export const MetricsPage: React.FC = () => {
     [fb],
   );
 
+  // ---- knowledge base & memory (point-in-time) -------------------------- //
+  const corpusSegments = useMemo(
+    () => recordSegments(rag?.by_source),
+    [rag],
+  );
+
+  const memoryEntries = useMemo(() => memory?.entries ?? [], [memory]);
+  const activeMemoryCount = useMemo(
+    () => memoryEntries.filter((e) => e.active).length,
+    [memoryEntries],
+  );
+  const memorySourceSegments = useMemo<Segment[]>(() => {
+    let human = 0;
+    let agent = 0;
+    let other = 0;
+    for (const e of memoryEntries) {
+      if (e.source === 'human') human += 1;
+      else if (e.source === 'agent') agent += 1;
+      else other += 1;
+    }
+    return [
+      { label: 'Human', value: human, color: COLORS.primary },
+      { label: 'Agent', value: agent, color: COLORS.accent },
+      { label: 'Other', value: other, color: COLORS.subdued },
+    ].filter((s) => s.value > 0);
+  }, [memoryEntries]);
+
+  const hasKnowledge = rag !== null || memory !== null;
+  const embeddingValue = rag?.embedding_model
+    ? humanizeToken(rag.embedding_model)
+    : DASH;
+
   const hasAny = (data?.total_cases ?? 0) > 0;
 
   const header = (
@@ -183,6 +231,95 @@ export const MetricsPage: React.FC = () => {
     />
   );
 
+  // Knowledge base & memory — point-in-time (NOT windowed). Rendered whether or
+  // not cases exist, but only when at least one of the two calls succeeded.
+  const knowledgeSection = hasKnowledge ? (
+    <>
+      <EuiSpacer size="l" />
+      <SectionHeader
+        icon="database"
+        accent={COLORS.accent}
+        title="Knowledge base & memory"
+        description="RAG corpus and durable operator memory the agents draw on — current, independent of the time window above."
+      />
+
+      <EuiFlexGroup gutterSize="m" wrap>
+        <EuiFlexItem style={{ minWidth: 200 }}>
+          <StatTile
+            label="RAG documents (current)"
+            value={fmtNumber(rag?.document_count)}
+            icon="documents"
+            accent={COLORS.primary}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem style={{ minWidth: 200 }}>
+          <StatTile
+            label="RAG chunks (current)"
+            value={fmtNumber(rag?.total_chunks)}
+            icon="visText"
+            accent={COLORS.accent}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem style={{ minWidth: 220 }}>
+          <StatTile
+            label="Embedding model"
+            value={embeddingValue}
+            icon="indexMapping"
+            accent={COLORS.accent2}
+            sub={typeof rag?.dim === 'number' ? `${fmtNumber(rag.dim)} dims` : undefined}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem style={{ minWidth: 200 }}>
+          <StatTile
+            label="Memory facts (current)"
+            value={fmtNumber(memory?.count)}
+            icon="bell"
+            accent={COLORS.warning}
+          />
+        </EuiFlexItem>
+        <EuiFlexItem style={{ minWidth: 200 }}>
+          <StatTile
+            label="Active memory"
+            value={memory ? fmtNumber(activeMemoryCount) : DASH}
+            icon="check"
+            accent={COLORS.success}
+            sub={memory ? `of ${fmtNumber(memory.count)}` : undefined}
+          />
+        </EuiFlexItem>
+      </EuiFlexGroup>
+
+      <EuiSpacer size="l" />
+
+      <div className="socGrid">
+        <Card title="Corpus by source" icon="logstashQueue" accent={COLORS.primary}>
+          {corpusSegments.length ? (
+            <BarList items={corpusSegments} format={(n) => fmtNumber(n)} />
+          ) : (
+            <EuiText size="s" color="subdued">
+              <span>{rag ? 'No RAG corpus indexed yet.' : 'Corpus stats unavailable.'}</span>
+            </EuiText>
+          )}
+        </Card>
+
+        <Card title="Memory by author" icon="users" accent={COLORS.warning}>
+          {memorySourceSegments.length ? (
+            <DonutWithLegend
+              segments={memorySourceSegments}
+              centerValue={fmtNumber(memory?.count)}
+              centerLabel="facts"
+            />
+          ) : (
+            <EuiText size="s" color="subdued">
+              <span>
+                {memory ? 'No memory facts recorded yet.' : 'Memory stats unavailable.'}
+              </span>
+            </EuiText>
+          )}
+        </Card>
+      </div>
+    </>
+  ) : null;
+
   return (
     <div className="socPageEnter">
       {header}
@@ -197,11 +334,14 @@ export const MetricsPage: React.FC = () => {
       {loading ? (
         <MetricsSkeleton />
       ) : !hasAny ? (
-        <EmptyState
-          iconType="stats"
-          title="No cases yet"
-          body={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
-        />
+        <>
+          <EmptyState
+            iconType="stats"
+            title="No cases yet"
+            body={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
+          />
+          {knowledgeSection}
+        </>
       ) : (
         <>
           {/* KPI row */}
@@ -420,6 +560,8 @@ export const MetricsPage: React.FC = () => {
               </Card>
             </EuiFlexItem>
           </EuiFlexGroup>
+
+          {knowledgeSection}
         </>
       )}
     </div>

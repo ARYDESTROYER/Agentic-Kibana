@@ -27,6 +27,8 @@ import { InvestigatePage } from './components/Investigate/InvestigatePage';
 import { ScansPage } from './components/Scans/ScansPage';
 import { StandupPage } from './components/Standup/StandupPage';
 import { CatalogPage } from './components/Catalog/CatalogPage';
+import { KnowledgePage } from './components/Knowledge/KnowledgePage';
+import { MemoryPage } from './components/Memory/MemoryPage';
 import { CostPage } from './components/Cost/CostPage';
 import { MetricsPage } from './components/Metrics/MetricsPage';
 import { SourcesPage } from './components/Sources/SourcesPage';
@@ -179,6 +181,12 @@ const AppShell: React.FC = () => {
       break;
     case 'catalog':
       body = <CatalogPage />;
+      break;
+    case 'knowledge':
+      body = <KnowledgePage />;
+      break;
+    case 'memory':
+      body = <MemoryPage />;
       break;
     case 'cost':
       body = <CostPage />;

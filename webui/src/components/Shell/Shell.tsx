@@ -35,6 +35,8 @@ export type PageId =
   | 'scans'
   | 'standup'
   | 'catalog'
+  | 'knowledge'
+  | 'memory'
   | 'sources'
   | 'cost'
   | 'metrics'
@@ -79,6 +81,8 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Platform',
     items: [
+      { id: 'knowledge', name: 'Knowledge', icon: 'indexMapping' },
+      { id: 'memory', name: 'Memory', icon: 'bell' },
       { id: 'sources', name: 'Sources', icon: 'logstashQueue' },
       { id: 'cost', name: 'Cost & usage', icon: 'visLine' },
       { id: 'settings', name: 'Settings', icon: 'gear' },

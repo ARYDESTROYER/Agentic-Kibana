@@ -28,7 +28,13 @@ import {
   EuiToolTip,
   type EuiBasicTableColumn,
 } from '@elastic/eui';
-import type { ChatResponse, ChatTable, ChatTurn } from '../../lib/types';
+import type {
+  ChatMemoryAction,
+  ChatMemorySuggestion,
+  ChatResponse,
+  ChatTable,
+  ChatTurn,
+} from '../../lib/types';
 import { api, ApiError } from '../../lib/api';
 import { SectionHeader } from '../common/ui';
 import { COLORS, tint } from '../../lib/theme';
@@ -222,6 +228,183 @@ const AnswerMeta: React.FC<{ resp: ChatResponse }> = ({ resp }) => {
   );
 };
 
+/* --------------------------------------------------------------- memory ---- */
+
+/**
+ * Echo of a memory mutation the chat engine ALREADY performed this turn (the
+ * user explicitly directed "remember"/"forget"). This is purely a confirmation —
+ * the change is done server-side, so there is no action here. The memory `text`
+ * is UNTRUSTED (agent/log-derived) and is rendered as plain text only.
+ */
+const MemoryActionEcho: React.FC<{ action: ChatMemoryAction }> = ({ action }) => {
+  const op = (action.op || '').toLowerCase();
+  const isDelete = op === 'delete';
+  const hasText = typeof action.text === 'string' && action.text.trim().length > 0;
+  // A delete confirms even without text; add/update need text to be meaningful.
+  if (!isDelete && !hasText) {
+    return null;
+  }
+  const label = isDelete
+    ? 'Forgot this fact'
+    : op === 'update'
+      ? 'Memory updated'
+      : 'Remembered';
+  return (
+    <div style={{ maxWidth: 760, marginTop: 8 }}>
+      <EuiPanel
+        hasBorder
+        paddingSize="s"
+        color="transparent"
+        style={{ borderColor: tint(COLORS.success, 0.4) }}
+      >
+        <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <EuiIcon type="memory" color={COLORS.success} size="m" aria-hidden />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiText size="xs">
+              <strong style={{ color: COLORS.success }}>{label}</strong>
+              {hasText ? (
+                // UNTRUSTED — plain text node, never markup.
+                <span style={{ color: COLORS.subdued }}>{`: ${action.text}`}</span>
+              ) : null}
+            </EuiText>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiPanel>
+    </div>
+  );
+};
+
+/**
+ * An inline, dismissible prompt offering to save a memory the chat engine
+ * PROPOSED (not yet saved). Local per-message state (this instance is keyed by
+ * the message id via its parent <Bubble>) prevents a handled suggestion from
+ * re-appearing on re-render and prevents a double-save. The suggested `text` /
+ * `reason` are UNTRUSTED and rendered as plain text only.
+ */
+const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = ({
+  suggestion,
+}) => {
+  // One of: pending | saving | saved | dismissed | error.
+  const [state, setState] = useState<'pending' | 'saving' | 'saved' | 'dismissed' | 'error'>(
+    'pending',
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const text = (suggestion.text || '').trim();
+  if (!text || state === 'dismissed') {
+    return null;
+  }
+
+  const remember = async () => {
+    // Guard against double-save: only fire from the pending/error state.
+    if (state === 'saving' || state === 'saved') {
+      return;
+    }
+    setState('saving');
+    setError(null);
+    try {
+      await api.addMemory({ text });
+      setState('saved');
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Could not save to memory.';
+      setError(msg);
+      setState('error');
+    }
+  };
+
+  const saved = state === 'saved';
+  const saving = state === 'saving';
+
+  return (
+    <div style={{ maxWidth: 760, marginTop: 8 }}>
+      <EuiPanel
+        hasBorder
+        paddingSize="s"
+        color="transparent"
+        style={{ borderColor: tint(COLORS.accent, 0.4) }}
+      >
+        <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <EuiIcon type="memory" color={COLORS.accent} size="m" aria-hidden />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <EuiText size="xs" color="subdued">
+              <span>Save this to memory?</span>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            <EuiText size="s">
+              {/* UNTRUSTED — plain text node, never markup. */}
+              <span>{text}</span>
+            </EuiText>
+            {suggestion.reason && suggestion.reason.trim() ? (
+              <>
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="subdued">
+                  {/* UNTRUSTED — plain text node. */}
+                  <span>{suggestion.reason}</span>
+                </EuiText>
+              </>
+            ) : null}
+
+            <EuiSpacer size="s" />
+
+            {saved ? (
+              <EuiText size="xs" style={{ color: COLORS.success }}>
+                <EuiIcon type="check" size="s" style={{ marginRight: 4 }} aria-hidden />
+                <span>Saved to memory</span>
+              </EuiText>
+            ) : (
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+                <EuiFlexItem grow={false}>
+                  <EuiButton
+                    size="s"
+                    fill
+                    iconType="memory"
+                    onClick={() => void remember()}
+                    isLoading={saving}
+                    isDisabled={saving}
+                  >
+                    Remember this
+                  </EuiButton>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiButtonEmpty
+                    size="s"
+                    color="text"
+                    iconType="cross"
+                    onClick={() => setState('dismissed')}
+                    isDisabled={saving}
+                    flush="left"
+                  >
+                    Dismiss
+                  </EuiButtonEmpty>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            )}
+
+            {state === 'error' && error ? (
+              <>
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="danger">
+                  {/* Error message from our own API layer — safe text. */}
+                  <span>{error}</span>
+                </EuiText>
+              </>
+            ) : null}
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiPanel>
+    </div>
+  );
+};
+
 /** A subdued, right/left-aligned timestamp footnote under a bubble. */
 const TimeNote: React.FC<{ at: string; align: 'start' | 'end' }> = ({ at, align }) => (
   <EuiText
@@ -265,6 +448,10 @@ const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
       />
       {item.resp?.table ? <ResultTable table={item.resp.table} /> : null}
       {item.resp ? <AnswerMeta resp={item.resp} /> : null}
+      {item.resp?.memory_action ? <MemoryActionEcho action={item.resp.memory_action} /> : null}
+      {item.resp?.memory_suggestion ? (
+        <MemorySuggestionPrompt suggestion={item.resp.memory_suggestion} />
+      ) : null}
       <TimeNote at={item.at} align="start" />
     </div>
   );
