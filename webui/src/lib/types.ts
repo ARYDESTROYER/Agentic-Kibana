@@ -365,6 +365,30 @@ export interface Evidence {
   query?: string;
 }
 
+/** Analyst feedback / grading attached to a closed case (mirrors backend). */
+export interface CaseFeedback {
+  ts?: string;
+  analyst?: string;
+  /** Analyst's overall assessment of the agent verdict. */
+  assessment?: 'agree' | 'partial' | 'disagree' | string;
+  /** 0..1 quality scores. */
+  accuracy?: number;
+  reasoning_quality?: number;
+  action_appropriateness?: number;
+  /** The real-world outcome the analyst recorded. */
+  actual_outcome?: string;
+  /** Estimated analyst minutes saved by the agent. */
+  time_saved_minutes?: number;
+  comment?: string;
+}
+
+/** A free-form analyst comment on a case (mirrors backend). */
+export interface CaseComment {
+  ts?: string;
+  author?: string;
+  body?: string;
+}
+
 export interface Case {
   case_id: string;
   cluster_signature?: string;
@@ -389,6 +413,15 @@ export interface Case {
   token_cost?: number;
   error?: string;
   agent_persona?: string;
+  playbook_id?: string;
+  /** Analyst grading entries (POST /api/cases/{id}/feedback). */
+  feedback?: CaseFeedback[];
+  /** Free-form analyst tags (POST /api/cases/{id}/tags). */
+  tags?: string[];
+  /** Analyst comments thread (POST /api/cases/{id}/comment). */
+  comments?: CaseComment[];
+  /** Assigned analyst (POST /api/cases/{id}/assign). */
+  assignee?: string;
   [key: string]: unknown;
 }
 
@@ -438,5 +471,83 @@ export interface StandupResponse {
   window_hours?: number;
   summary?: string;
   aggregate?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Branding (GET/PUT /api/branding — PUBLIC; any field may be "").
+// --------------------------------------------------------------------------- //
+/** Operator-configurable white-label branding. Empty strings mean "use default". */
+export interface Branding {
+  /** Org / customer name shown as the wordmark. */
+  org_name: string;
+  /** Product name (e.g. "Triage console"). */
+  product_name: string;
+  /** Inline data: URL for a custom logo (renders in place of the glyph). */
+  logo_data_url: string;
+  /** Primary accent (#rrggbb) or "". */
+  accent_color: string;
+  /** Secondary accent (#rrggbb) or "". */
+  accent_color2: string;
+  /** Default theme; "system" follows the OS preference. */
+  theme: 'dark' | 'light' | 'system' | '';
+}
+
+// --------------------------------------------------------------------------- //
+// Metrics + feedback analytics (GET /api/metrics, GET /api/feedback/stats).
+// --------------------------------------------------------------------------- //
+/** Aggregate analyst-feedback quality stats (also nested in Metrics.feedback). */
+export interface FeedbackStats {
+  graded_cases: number;
+  feedback_count: number;
+  /** 0..1 fraction of cases where the analyst agreed with the agent. */
+  agreement_rate: number;
+  /** 0..1 averages of the per-case quality scores. */
+  avg_accuracy: number;
+  avg_reasoning_quality: number;
+  avg_action_appropriateness: number;
+  /** Total analyst minutes saved across graded cases. */
+  time_saved_minutes: number;
+  /** Distribution of recorded actual outcomes (label → count). */
+  outcome_distribution: Record<string, number>;
+  [key: string]: unknown;
+}
+
+/** One day's case count for the cases-per-day trend. */
+export interface CasesPerDay {
+  date: string;
+  count: number;
+}
+
+/** Verdict-class breakdown returned by /api/metrics. */
+export interface VerdictBreakdown {
+  TRUE_POSITIVE: number;
+  FALSE_POSITIVE: number;
+  NEEDS_HUMAN: number;
+  /** Unverdicted cases. */
+  none: number;
+  [key: string]: number;
+}
+
+/** GET /api/metrics — the analytics dashboard payload. */
+export interface Metrics {
+  total_cases: number;
+  open_cases: number;
+  needs_human_cases: number;
+  closed_cases: number;
+  by_status: Record<string, number>;
+  by_verdict: VerdictBreakdown;
+  persona_usage: Record<string, number>;
+  playbook_usage: Record<string, number>;
+  /** Mean normalised risk score (0..100). */
+  avg_risk_score: number;
+  /** Mean time-to-resolution in minutes. */
+  mttr_minutes: number;
+  resolved_count: number;
+  cases_per_day: CasesPerDay[];
+  feedback: FeedbackStats;
+  /** Compact cost summary (shares the UsageSummary shape; fields optional). */
+  cost: Partial<UsageSummary> & Record<string, unknown>;
+  window_hours?: number;
   [key: string]: unknown;
 }

@@ -16,6 +16,7 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiIcon,
   EuiPanel,
   EuiSideNav,
   EuiSpacer,
@@ -34,11 +35,22 @@ import { api } from '../../lib/api';
 import { ErrorCallout, Loading, SectionHeader } from '../common/ui';
 import { ModelPicker } from '../common/ModelPicker';
 import { SecretInput } from '../common/SecretInput';
+import { BrandingSection } from './BrandingSection';
 import { humanizeToken } from '../../lib/format';
 
-type SectionId = 'data' | 'polling' | 'models' | 'keys' | 'correlation' | 'enrichment' | 'rag' | 'standup' | 'safety';
+type SectionId =
+  | 'data'
+  | 'polling'
+  | 'models'
+  | 'keys'
+  | 'correlation'
+  | 'enrichment'
+  | 'rag'
+  | 'standup'
+  | 'safety'
+  | 'branding';
 
-const SECTIONS: Array<{ id: SectionId; name: string }> = [
+const SECTIONS: Array<{ id: SectionId; name: string; icon?: string }> = [
   { id: 'data', name: 'Data scope' },
   { id: 'polling', name: 'Polling' },
   { id: 'models', name: 'Models' },
@@ -48,6 +60,7 @@ const SECTIONS: Array<{ id: SectionId; name: string }> = [
   { id: 'rag', name: 'RAG' },
   { id: 'standup', name: 'Standup' },
   { id: 'safety', name: 'Automation & safety' },
+  { id: 'branding', name: 'Branding', icon: 'brush' },
 ];
 
 const ROLE_PREF_KEY: Record<string, keyof Preferences> = {
@@ -153,6 +166,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
         items: SECTIONS.map((s) => ({
           id: s.id,
           name: s.name,
+          icon: s.icon ? <EuiIcon type={s.icon} /> : undefined,
           isSelected: section === s.id,
           onClick: () => setSection(s.id),
         })),
@@ -233,8 +247,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
               <RagSection prefs={prefs} update={update} />
             ) : section === 'standup' ? (
               <StandupSection prefs={prefs} update={update} />
-            ) : (
+            ) : section === 'safety' ? (
               <SafetySection prefs={prefs} update={update} />
+            ) : (
+              <BrandingSection readOnly={readOnly} />
             )}
           </EuiPanel>
         </EuiFlexItem>

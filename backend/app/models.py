@@ -240,6 +240,33 @@ class VerdictResult(BaseModel):
     reproduce_query: str = ""
 
 
+class FeedbackEntry(BaseModel):
+    """An analyst's grade of an AI verdict on a case (the eval / quality loop,
+    Vigil-inspired). Append-only on the case; aggregated by /api/feedback/stats to
+    measure agreement rate, grading quality, outcome mix and time saved."""
+
+    ts: str = Field(default_factory=iso_now)
+    analyst: str = ""
+    assessment: str = ""                    # agree | partial | disagree
+    accuracy: float = 0.0                   # 0..1
+    reasoning_quality: float = 0.0          # 0..1
+    action_appropriateness: float = 0.0     # 0..1
+    actual_outcome: str = ""                # true_positive|false_positive|true_negative|false_negative|unknown
+    time_saved_minutes: int = 0
+    comment: str = ""
+    ai_verdict: str = ""                    # snapshot of the AI verdict that was graded
+    ai_confidence: float = 0.0
+
+
+class CaseComment(BaseModel):
+    """An append-only analyst comment on a case (collaboration). ``author``/``body``
+    are user input — render-escaped in the UI, never trusted as prompt instructions."""
+
+    ts: str = Field(default_factory=iso_now)
+    author: str = ""
+    body: str = ""
+
+
 # --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
@@ -273,6 +300,12 @@ class Case(BaseModel):
     # The Markdown playbook selected for this case (deterministic match), empty when
     # none matched / playbooks disabled. Recorded for the UI/audit "why".
     playbook_id: str = ""
+    # Append-only analyst feedback on the AI verdict (the eval/quality loop).
+    feedback: list[FeedbackEntry] = Field(default_factory=list)
+    # Collaboration: free-form analyst tags, threaded comments, and an owner.
+    tags: list[str] = Field(default_factory=list)
+    comments: list[CaseComment] = Field(default_factory=list)
+    assignee: str = ""
     # Helpful, non-contract-breaking extras for the UI / audit:
     title: str = ""
     summary: str = ""

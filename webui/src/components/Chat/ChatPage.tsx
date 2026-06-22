@@ -32,7 +32,7 @@ import type { ChatResponse, ChatTable, ChatTurn } from '../../lib/types';
 import { api, ApiError } from '../../lib/api';
 import { SectionHeader } from '../common/ui';
 import { COLORS, tint } from '../../lib/theme';
-import { fmtMoney } from '../../lib/format';
+import { fmtMoney, formatTimestamp } from '../../lib/format';
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -45,6 +45,70 @@ interface TranscriptItem {
   content: string;
   resp?: ChatResponse;
   isError?: boolean;
+  /** ISO time the turn was added to the transcript (for a subdued footnote). */
+  at: string;
+}
+
+/* ------------------------------------------------------ inline markdown ----- */
+
+/** HTML-escape a raw string so nothing it contains can become live markup. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Render a SINGLE line of already-escaped-safe text with light inline markdown:
+ * `code` spans first (so their contents are not further formatted), then **bold**.
+ * Input MUST already be HTML-escaped; we only inject our own known-safe tags.
+ */
+function renderInline(escaped: string): string {
+  // `code` — capture non-greedy between backticks.
+  let out = escaped.replace(/`([^`]+)`/g, (_m, code: string) => `<code class="socMono">${code}</code>`);
+  // **bold**
+  out = out.replace(/\*\*([^*]+)\*\*/g, (_m, b: string) => `<strong>${b}</strong>`);
+  return out;
+}
+
+/**
+ * Turn an assistant answer into XSS-safe HTML supporting **bold**, `code`, and
+ * bullet lines (lines starting with `- ` or `* `). Everything is HTML-escaped
+ * BEFORE any of our own tags are introduced, so log-derived / model output can
+ * never inject live markup. Dependency-free; local to this file by design.
+ */
+function renderMarkdown(raw: string): string {
+  const lines = raw.split('\n');
+  const html: string[] = [];
+  let inList = false;
+  for (const line of lines) {
+    const escaped = escapeHtml(line);
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(escaped);
+    if (bullet) {
+      if (!inList) {
+        html.push('<ul class="socMd__list">');
+        inList = true;
+      }
+      html.push(`<li>${renderInline(bullet[1])}</li>`);
+      continue;
+    }
+    if (inList) {
+      html.push('</ul>');
+      inList = false;
+    }
+    if (escaped.trim() === '') {
+      html.push('<br/>');
+    } else {
+      html.push(`<div>${renderInline(escaped)}</div>`);
+    }
+  }
+  if (inList) {
+    html.push('</ul>');
+  }
+  return html.join('');
 }
 
 const SUGGESTED_PROMPTS = [
@@ -158,10 +222,26 @@ const AnswerMeta: React.FC<{ resp: ChatResponse }> = ({ resp }) => {
   );
 };
 
+/** A subdued, right/left-aligned timestamp footnote under a bubble. */
+const TimeNote: React.FC<{ at: string; align: 'start' | 'end' }> = ({ at, align }) => (
+  <EuiText
+    size="xs"
+    color="subdued"
+    style={{ alignSelf: align === 'end' ? 'flex-end' : 'flex-start', marginTop: 4 }}
+  >
+    <span>{formatTimestamp(at)}</span>
+  </EuiText>
+);
+
 /** A single assistant or user bubble, with its trailing metadata/table. */
 const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
   if (item.role === 'user') {
-    return <div className="socBubble socBubble--user">{item.content}</div>;
+    return (
+      <div style={{ alignSelf: 'flex-end', display: 'flex', flexDirection: 'column', maxWidth: 760 }}>
+        <div className="socBubble socBubble--user">{item.content}</div>
+        <TimeNote at={item.at} align="end" />
+      </div>
+    );
   }
 
   if (item.isError) {
@@ -170,15 +250,22 @@ const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
         <EuiCallOut size="s" color="danger" iconType="alert" title="The agent could not answer">
           <p style={{ margin: 0 }}>{item.content}</p>
         </EuiCallOut>
+        <TimeNote at={item.at} align="start" />
       </div>
     );
   }
 
   return (
     <div style={{ alignSelf: 'flex-start', display: 'flex', flexDirection: 'column' }}>
-      <div className="socBubble socBubble--assistant">{item.content}</div>
+      <div
+        className="socBubble socBubble--assistant socMd"
+        // Safe: renderMarkdown HTML-escapes the model/log text before injecting
+        // only its own known tags (bold/code/bullets). See renderMarkdown above.
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(item.content) }}
+      />
       {item.resp?.table ? <ResultTable table={item.resp.table} /> : null}
       {item.resp ? <AnswerMeta resp={item.resp} /> : null}
+      <TimeNote at={item.at} align="start" />
     </div>
   );
 };
@@ -235,7 +322,7 @@ export const ChatPage: React.FC = () => {
 
       setTranscript((prev) => [
         ...prev,
-        { id: nextId(), role: 'user', content: message },
+        { id: nextId(), role: 'user', content: message, at: new Date().toISOString() },
       ]);
       setHistory(sentHistory);
       setInput('');
@@ -246,7 +333,7 @@ export const ChatPage: React.FC = () => {
         const answer = resp.answer || '(no answer returned)';
         setTranscript((prev) => [
           ...prev,
-          { id: nextId(), role: 'assistant', content: answer, resp },
+          { id: nextId(), role: 'assistant', content: answer, resp, at: new Date().toISOString() },
         ]);
         setHistory((prev) => [...prev, { role: 'assistant', content: answer }]);
       } catch (e) {
@@ -258,7 +345,7 @@ export const ChatPage: React.FC = () => {
               : 'Unexpected error contacting the agent.';
         setTranscript((prev) => [
           ...prev,
-          { id: nextId(), role: 'assistant', content: msg, isError: true },
+          { id: nextId(), role: 'assistant', content: msg, isError: true, at: new Date().toISOString() },
         ]);
         // Note: we intentionally do NOT push the error into `history` so the
         // model isn't conditioned on its own failure on the next turn.
@@ -283,6 +370,8 @@ export const ChatPage: React.FC = () => {
     }
   };
 
+  // On the empty state we pre-fill the composer (so the user can tweak before
+  // sending); mid-conversation the thin chip row sends immediately.
   const usePrompt = (prompt: string) => {
     setInput(prompt);
     inputRef.current?.focus();
@@ -291,7 +380,18 @@ export const ChatPage: React.FC = () => {
   const isEmpty = transcript.length === 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)' }}>
+    <div
+      className="socPageEnter"
+      style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)' }}
+    >
+      {/* Scoped styling for the inline-markdown bubbles (no shared-CSS edits). */}
+      <style>{`
+        .socMd > div { margin: 0; }
+        .socMd > div + div { margin-top: 4px; }
+        .socMd .socMd__list { margin: 4px 0; padding-left: 18px; }
+        .socMd .socMd__list li { margin: 2px 0; }
+        .socMd code.socMono { white-space: pre-wrap; word-break: break-word; }
+      `}</style>
       <SectionHeader
         icon="discuss"
         accent={COLORS.accent}
@@ -375,6 +475,38 @@ export const ChatPage: React.FC = () => {
       </div>
 
       <EuiHorizontalRule margin="s" />
+
+      {/* Persistent suggested-prompt chips — a thin row above the composer that
+          stays visible mid-conversation. Clicking sends the prompt directly. */}
+      {!isEmpty ? (
+        <EuiFlexGroup
+          gutterSize="xs"
+          wrap
+          responsive={false}
+          alignItems="center"
+          style={{ marginBottom: 8 }}
+        >
+          <EuiFlexItem grow={false}>
+            <EuiText size="xs" color="subdued">
+              <span>Try</span>
+            </EuiText>
+          </EuiFlexItem>
+          {SUGGESTED_PROMPTS.map((p) => (
+            <EuiFlexItem grow={false} key={p}>
+              <EuiBadge
+                color="hollow"
+                iconType="search"
+                onClick={() => void send(p)}
+                onClickAriaLabel={`Send prompt: ${p}`}
+                isDisabled={loading}
+                style={{ cursor: loading ? 'default' : 'pointer' }}
+              >
+                {p}
+              </EuiBadge>
+            </EuiFlexItem>
+          ))}
+        </EuiFlexGroup>
+      ) : null}
 
       {/* Composer */}
       <EuiFlexGroup gutterSize="s" alignItems="flexEnd" responsive={false}>

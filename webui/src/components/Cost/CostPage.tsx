@@ -10,21 +10,24 @@ import {
   EuiButtonGroup,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiPanel,
   EuiSpacer,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { UsageSummary } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, chartColor } from '../../lib/theme';
+import { COLORS, chartColor, TYPE } from '../../lib/theme';
 import { DASH, fmtMoney, fmtNumber, fmtTokens, humanizeToken } from '../../lib/format';
-import { BarList, DonutWithLegend, MiniBars } from '../common/charts';
+import { BarList, DonutWithLegend, MiniBars, Sparkline } from '../common/charts';
 import type { Segment } from '../common/charts';
 import {
   Card,
   EmptyState,
   ErrorCallout,
-  Loading,
-  SectionHeader,
+  IconChip,
+  PageHeader,
+  Skeleton,
   TrendStat,
 } from '../common/ui';
 
@@ -35,6 +38,21 @@ const WINDOWS = [
   { id: '168', label: '7d', hours: 168 },
   { id: '720', label: '30d', hours: 720 },
 ] as const;
+
+/**
+ * Best-effort percentage change of the most-recent half of the spend series vs
+ * the earlier half — a proxy for "this window vs the previous window" when the
+ * backend gives us only a single time series. Returns undefined when there
+ * aren't enough buckets, or the baseline is zero, to make the delta meaningful.
+ */
+function trendDelta(series: number[]): number | undefined {
+  if (!Array.isArray(series) || series.length < 4) return undefined;
+  const mid = Math.floor(series.length / 2);
+  const prev = series.slice(0, mid).reduce((s, v) => s + v, 0);
+  const curr = series.slice(mid).reduce((s, v) => s + v, 0);
+  if (prev <= 0) return undefined;
+  return Math.round(((curr - prev) / prev) * 100);
+}
 
 /** Map ledger `by_*` rows to cost-valued chart segments. */
 function costSegments(rows: UsageRow[] | undefined, palette = false): Segment[] {
@@ -90,6 +108,8 @@ export const CostPage: React.FC = () => {
     [data],
   );
 
+  const spendDelta = useMemo(() => trendDelta(series), [series]);
+
   const byModel = useMemo(() => costSegments(data?.by_model as UsageRow[]), [data]);
   const byRole = useMemo(() => costSegments(data?.by_role as UsageRow[]), [data]);
   const bySurface = useMemo(() => costSegments(data?.by_surface as UsageRow[], true), [data]);
@@ -102,9 +122,10 @@ export const CostPage: React.FC = () => {
     series.length > 0;
 
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="visLine"
+        eyebrow="Spend"
         title="Cost & usage"
         description="LLM spend metered through the single gateway cost ledger."
         actions={
@@ -135,7 +156,21 @@ export const CostPage: React.FC = () => {
       ) : null}
 
       {loading ? (
-        <Loading label="Loading usage…" />
+        <>
+          <EuiFlexGroup gutterSize="m" wrap responsive={false}>
+            {[0, 1, 2, 3].map((i) => (
+              <EuiFlexItem key={i} style={{ minWidth: 220 }}>
+                <Skeleton height={96} radius={8} />
+              </EuiFlexItem>
+            ))}
+          </EuiFlexGroup>
+          <EuiSpacer size="l" />
+          <div className="socGrid">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} height={200} radius={8} />
+            ))}
+          </div>
+        </>
       ) : !hasAny ? (
         <EmptyState
           iconType="visLine"
@@ -144,6 +179,67 @@ export const CostPage: React.FC = () => {
         />
       ) : (
         <>
+          {/* Hero — total spend for the window. */}
+          <EuiPanel
+            hasBorder
+            paddingSize="l"
+            className="socCard"
+            style={{ borderTop: `3px solid ${COLORS.primary}` }}
+          >
+            <EuiFlexGroup gutterSize="l" alignItems="center" responsive={false} wrap>
+              <EuiFlexItem grow={false}>
+                <IconChip icon="currency" accent={COLORS.primary} large />
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiText size="xs" color="subdued">
+                  <span>Total spend · last {windowLabel}</span>
+                </EuiText>
+                <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
+                  <EuiFlexItem grow={false}>
+                    <div
+                      style={{
+                        fontSize: TYPE.kpiLg,
+                        fontWeight: 700,
+                        lineHeight: 1.1,
+                        color: COLORS.primary,
+                      }}
+                    >
+                      {fmtMoney(data?.total_cost, currency)}
+                    </div>
+                  </EuiFlexItem>
+                  {typeof spendDelta === 'number' ? (
+                    <EuiFlexItem grow={false}>
+                      <EuiToolTip content="Change vs the earlier half of this window">
+                        <span
+                          style={{
+                            color: spendDelta > 0 ? COLORS.danger : COLORS.success,
+                            fontSize: TYPE.label,
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {spendDelta > 0 ? '▲' : '▼'} {Math.abs(spendDelta)}%
+                        </span>
+                      </EuiToolTip>
+                    </EuiFlexItem>
+                  ) : null}
+                </EuiFlexGroup>
+                <EuiText size="xs" color="subdued">
+                  <span>
+                    {fmtTokens(data?.total_tokens)} tokens · {fmtNumber(data?.call_count)} calls
+                  </span>
+                </EuiText>
+              </EuiFlexItem>
+              {series.length > 1 ? (
+                <EuiFlexItem style={{ minWidth: 180 }}>
+                  <Sparkline values={series} color={COLORS.primary} height={56} />
+                </EuiFlexItem>
+              ) : null}
+            </EuiFlexGroup>
+          </EuiPanel>
+
+          <EuiSpacer size="l" />
+
           {/* KPI row */}
           <EuiFlexGroup gutterSize="m" wrap>
             <EuiFlexItem style={{ minWidth: 220 }}>

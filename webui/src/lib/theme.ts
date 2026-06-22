@@ -8,25 +8,109 @@
  * the chrome; these tokens encode risk / verdict / status semantics on top.
  */
 
-/** Semantic colour tokens (one accent per meaning). */
+/**
+ * Built-in default accents — the historical brand colours. Kept separate so we
+ * can always fall back to a byte-identical-to-today palette when no branding is
+ * configured (or branding fails to load).
+ */
+export const DEFAULT_ACCENT = '#1c66e0';
+export const DEFAULT_ACCENT2 = '#8a55c9';
+
+/**
+ * Semantic colour tokens (one accent per meaning).
+ *
+ * NOTE: this object is intentionally a plain (mutable) object — NOT `as const` —
+ * so `setAccent()` can re-theme `primary` / `accent2` at runtime without touching
+ * any call site (every consumer reads `COLORS.primary` live). The default values
+ * are the historical brand colours, so first paint with no branding is unchanged.
+ * `accent` (the legacy secondary token name) is kept and aliased to `accent2`.
+ */
 export const COLORS = {
-  primary: '#1c66e0',
+  primary: DEFAULT_ACCENT,
   success: '#00a38c',
   warning: '#e9a200',
   danger: '#c4341c',
-  accent: '#8a55c9',
+  accent: DEFAULT_ACCENT2,
+  /** Secondary accent (alias of `accent`, kept for explicit two-accent reads). */
+  accent2: DEFAULT_ACCENT2,
   subdued: '#69707d',
   surface: '#f7f9fc',
-} as const;
+};
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */
 export function tint(hex: string, alpha = 0.12): string {
-  const h = hex.replace('#', '');
+  const h = (hex || '').replace('#', '');
+  if (h.length < 6) return `rgba(28, 102, 224, ${alpha})`;
   const r = parseInt(h.substring(0, 2), 16);
   const g = parseInt(h.substring(2, 4), 16);
   const b = parseInt(h.substring(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return `rgba(28, 102, 224, ${alpha})`;
+  }
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+/** True for a syntactically valid #rrggbb hex colour. */
+function isHex6(v?: string): v is string {
+  return typeof v === 'string' && /^#?[0-9a-fA-F]{6}$/.test(v.trim());
+}
+
+/** Normalise to a leading-`#` 6-digit hex (or undefined if invalid). */
+function normHex(v?: string): string | undefined {
+  if (!isHex6(v)) return undefined;
+  const s = v.trim();
+  return s.startsWith('#') ? s : `#${s}`;
+}
+
+/**
+ * Re-theme the accent colours at RUNTIME without breaking any call site.
+ *
+ * - Mutates `COLORS.primary` / `COLORS.accent` / `COLORS.accent2` in place so
+ *   existing components that read `COLORS.primary` pick up the new value.
+ * - Writes CSS custom properties on `<html>` so the plain CSS (logo gradient,
+ *   brand accent bar, chat bubble) re-themes too: `--soc-accent`, `--soc-accent2`,
+ *   and a soft `--soc-accent-tint`.
+ *
+ * Passing an invalid / empty value for either argument falls back to the built-in
+ * default for that slot, so calling `setAccent()` with no args restores defaults.
+ */
+export function setAccent(primary?: string, secondary?: string): void {
+  const p = normHex(primary) ?? DEFAULT_ACCENT;
+  const s = normHex(secondary) ?? DEFAULT_ACCENT2;
+  COLORS.primary = p;
+  COLORS.accent = s;
+  COLORS.accent2 = s;
+  if (typeof document !== 'undefined' && document.documentElement) {
+    const root = document.documentElement.style;
+    root.setProperty('--soc-accent', p);
+    root.setProperty('--soc-accent2', s);
+    root.setProperty('--soc-accent-tint', tint(p, 0.14));
+    // Re-theme the user chat bubble's second stop. When the accent is the default
+    // brand blue we keep the original lighter-blue stop so the bubble is unchanged;
+    // a custom brand uses its secondary accent.
+    root.setProperty('--soc-bubble2', p === DEFAULT_ACCENT ? '#2f74e8' : s);
+  }
+}
+
+/**
+ * Typography scale — replaces scattered `fontSize:` literals so every surface
+ * uses one consistent set of display sizes. Values are plain CSS strings to drop
+ * straight into inline `style` (e.g. `style={{ fontSize: TYPE.kpi }}`).
+ */
+export const TYPE = {
+  /** Marketing/landing hero. */
+  hero: '34px',
+  /** Page title. */
+  h1: '24px',
+  /** Section / card title. */
+  h2: '18px',
+  /** KPI tile number. */
+  kpi: '24px',
+  /** Oversized KPI number (single hero stat). */
+  kpiLg: '34px',
+  /** Eyebrow / tile label (uppercase microcopy). */
+  label: '11px',
+} as const;
 
 /** Named EUI badge colour for a verdict. */
 export function verdictColor(

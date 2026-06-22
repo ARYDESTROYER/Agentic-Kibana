@@ -22,12 +22,16 @@ import {
   EuiSpacer,
   EuiTabbedContent,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { AgentPersona, Playbook } from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS, chartColor, tint } from '../../lib/theme';
 import { humanizeToken } from '../../lib/format';
-import { Card, EmptyState, ErrorCallout, Loading, SectionHeader } from '../common/ui';
+import { Card, EmptyState, ErrorCallout, Loading, PageHeader } from '../common/ui';
+
+/** Max badges shown inline before collapsing the remainder into a "+N" pill. */
+const BADGE_CAP = 6;
 
 /* ----------------------------------------------------------- badge groups -- */
 
@@ -37,9 +41,14 @@ const BadgeRow: React.FC<{
   color?: string;
   icon?: string;
   empty?: string;
-}> = ({ label, values, color = 'hollow', icon, empty }) => {
+  /** Cap the visible badges and collapse the overflow into a "+N" pill. */
+  cap?: number;
+}> = ({ label, values, color = 'hollow', icon, empty, cap }) => {
   const items = (values ?? []).map((v) => String(v)).filter(Boolean);
   if (!items.length && !empty) return null;
+  const limit = typeof cap === 'number' ? cap : items.length;
+  const shown = items.slice(0, limit);
+  const overflow = items.length - shown.length;
   return (
     <div style={{ marginTop: 10 }}>
       <EuiText size="xs" color="subdued">
@@ -48,13 +57,20 @@ const BadgeRow: React.FC<{
       <EuiSpacer size="xs" />
       {items.length ? (
         <EuiFlexGroup gutterSize="xs" wrap responsive={false}>
-          {items.map((v, i) => (
+          {shown.map((v, i) => (
             <EuiFlexItem grow={false} key={`${v}-${i}`}>
               <EuiBadge color={color} iconType={icon}>
                 {v}
               </EuiBadge>
             </EuiFlexItem>
           ))}
+          {overflow > 0 ? (
+            <EuiFlexItem grow={false}>
+              <EuiToolTip content={items.slice(limit).join(', ')}>
+                <EuiBadge color="hollow">+{overflow}</EuiBadge>
+              </EuiToolTip>
+            </EuiFlexItem>
+          ) : null}
         </EuiFlexGroup>
       ) : (
         <EuiText size="xs" color="subdued">
@@ -85,12 +101,14 @@ const PersonaCard: React.FC<{ persona: AgentPersona; index: number }> = ({ perso
         color={tint(COLORS.primary, 0.16)}
         icon="wrench"
         empty="No tool focus — uses the default toolset."
+        cap={BADGE_CAP}
       />
       <BadgeRow
         label="Trigger keywords"
         values={persona.keywords}
         color="hollow"
         empty="No keywords — selected as a fallback specialist."
+        cap={BADGE_CAP}
       />
     </Card>
   );
@@ -249,6 +267,7 @@ const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
         values={playbook.suggested_tools}
         color={tint(COLORS.primary, 0.16)}
         icon="wrench"
+        cap={BADGE_CAP}
       />
 
       {(playbook.rag_queries ?? []).length ? (
@@ -362,10 +381,11 @@ export const CatalogPage: React.FC = () => {
   ];
 
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="inspect"
         accent={COLORS.accent}
+        eyebrow="Knowledge"
         title="Playbooks & Agents"
         description="The declarative knowledge the triage spine uses — specialist personas and plain-text runbooks. Read-only."
       />

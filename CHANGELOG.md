@@ -7,6 +7,43 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-22 — Wave 3: metrics, feedback loop, collaboration, white-label UI + CI
+
+Backend offline suite **310 tests green**; webui builds clean. Additive; spine
+untouched. Developed on the `Testing` branch.
+
+### Added
+- **Analytics / metrics dashboard** — `engine/metrics.compute_metrics` (verdict &
+  status mix, persona/playbook usage, avg risk, coarse MTTR, per-day trend) +
+  `GET /api/metrics` (merges the cost ledger), surfaced as a new **Metrics** page.
+- **AI-decision feedback / grading loop** — `Case.feedback` (append-only),
+  `POST /api/cases/{id}/feedback`, `GET /api/feedback/stats` (agreement rate, grade
+  averages, outcome mix, time saved). UI: a grading widget in the case flyout +
+  a feedback-quality panel on the Metrics page. Measures triage quality / builds
+  an eval corpus.
+- **Case collaboration** — `Case.tags/comments/assignee`; `POST /api/cases/{id}/
+  {comment,tags,assign}`; flyout UI (comments thread, tag editor, assignee) + tag
+  chips/filter on the Cases list.
+- **Org branding / white-label** — `BrandingConfig` (org/product name, logo upload
+  as a validated base64 data URL, primary+secondary accent, theme) on Preferences;
+  public `GET /api/branding` + protected `PUT`. UI: a runtime-themeable design
+  system (accent via CSS vars), a Branding settings panel with live preview, and a
+  branded shell + login screen.
+- **Case export** — `GET /api/cases/{id}/export?format=json|md` + a flyout export
+  menu (no-dep Blob download).
+- **Case hover preview** — a rich, debounced, keyboard-accessible hover card on the
+  Cases list / Scans board / Overview rows (verdict, risk gauge, entity, persona,
+  playbook, evidence, MITRE, age).
+- **CI/CD** — `.github/workflows/ci.yml` gates every PR on the offline backend
+  suite (incl. the auth route-coverage test) + the webui build, with an aggregate
+  `CI passed` check to require in branch protection (see CONTRIBUTING.md).
+
+### Changed
+- Web UI visual overhaul: skeleton loaders, `PageHeader`, KPI deltas, flat nested
+  cards, inline-markdown chat, hero numbers, copy/print, capped badge rows, page
+  fade-ins, `prefers-reduced-motion` support. Fixed the dead Scans card click and
+  the Cases stat-tile/total mismatch.
+
 ## [Unreleased] — 2026-06-21 — Wave 2: Markdown playbooks + optional auth
 
 Backend offline suite **300 tests green**; webui builds clean. Additive; the spine

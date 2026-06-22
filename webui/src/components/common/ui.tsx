@@ -19,8 +19,138 @@ import {
   EuiToolTip,
 } from '@elastic/eui';
 import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
-import { COLORS, riskHex, statusHex, tint, verdictColor } from '../../lib/theme';
+import { COLORS, riskHex, statusHex, tint, TYPE, verdictColor } from '../../lib/theme';
 import { Sparkline } from './charts';
+
+/* ------------------------------------------------------------- skeleton ---- */
+
+/**
+ * A shimmering placeholder. Render a single block by default, or `rows` stacked
+ * lines (the last row is shortened, mimicking text). Honours
+ * `prefers-reduced-motion` via the `.socSkeleton` CSS.
+ */
+export const Skeleton: React.FC<{
+  /** Block height (px) — used in single-block mode. */
+  height?: number;
+  /** Block / row width (CSS length). */
+  width?: string | number;
+  /** When set, renders this many text-like rows instead of one block. */
+  rows?: number;
+  /** Border radius (px). */
+  radius?: number;
+  style?: React.CSSProperties;
+}> = ({ height = 16, width = '100%', rows, radius = 6, style }) => {
+  if (rows && rows > 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, ...style }}>
+        {Array.from({ length: rows }).map((_, i) => (
+          <div
+            key={i}
+            className="socSkeleton"
+            style={{
+              height,
+              width: i === rows - 1 ? '60%' : '100%',
+              borderRadius: radius,
+            }}
+          />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="socSkeleton"
+      style={{ height, width, borderRadius: radius, ...style }}
+    />
+  );
+};
+
+/* ------------------------------------------------------------ page header -- */
+
+interface PageHeaderProps {
+  /** Small uppercase eyebrow above the title. */
+  eyebrow?: string;
+  title: string;
+  description?: React.ReactNode;
+  icon?: string;
+  accent?: string;
+  /** Right-aligned actions (window selectors, refresh, etc.). */
+  actions?: React.ReactNode;
+}
+
+/**
+ * The page-level header — an eyebrow + large title + optional right-aligned
+ * actions, built on the same icon-chip language as `SectionHeader`. Use this at
+ * the top of a page; use `SectionHeader` for sub-sections within a page.
+ */
+export const PageHeader: React.FC<PageHeaderProps> = ({
+  eyebrow,
+  title,
+  description,
+  icon,
+  accent = COLORS.primary,
+  actions,
+}) => (
+  <>
+    <EuiFlexGroup
+      justifyContent="spaceBetween"
+      alignItems="center"
+      gutterSize="m"
+      responsive={false}
+      wrap
+    >
+      <EuiFlexItem grow={false}>
+        <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
+          {icon ? (
+            <EuiFlexItem grow={false}>
+              <IconChip icon={icon} accent={accent} large />
+            </EuiFlexItem>
+          ) : null}
+          <EuiFlexItem grow={false}>
+            {eyebrow ? (
+              <div
+                style={{
+                  fontSize: TYPE.label,
+                  letterSpacing: 0.6,
+                  textTransform: 'uppercase',
+                  fontWeight: 700,
+                  color: accent,
+                }}
+              >
+                {eyebrow}
+              </div>
+            ) : null}
+            <div style={{ fontSize: TYPE.h1, fontWeight: 700, lineHeight: 1.15 }}>{title}</div>
+            {description ? (
+              <EuiText size="xs" color="subdued">
+                <span>{description}</span>
+              </EuiText>
+            ) : null}
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiFlexItem>
+      {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
+    </EuiFlexGroup>
+    <EuiSpacer size="l" />
+  </>
+);
+
+/** A coloured ▲/▼ delta chip used by KPI tiles. Positive = `up` semantics. */
+const DeltaChip: React.FC<{ delta: number; goodWhenUp?: boolean }> = ({
+  delta,
+  goodWhenUp = true,
+}) => {
+  if (typeof delta !== 'number' || Number.isNaN(delta) || delta === 0) return null;
+  const up = delta > 0;
+  const good = up === goodWhenUp;
+  const color = good ? COLORS.success : COLORS.danger;
+  return (
+    <span style={{ color, fontSize: TYPE.label, fontWeight: 700, whiteSpace: 'nowrap' }}>
+      {up ? '▲' : '▼'} {Math.abs(delta)}
+      {'%'}
+    </span>
+  );
+};
 
 /* ----------------------------------------------------------------- badges -- */
 
@@ -144,6 +274,10 @@ interface StatTileProps {
   icon?: string;
   accent?: string;
   sub?: React.ReactNode;
+  /** Optional percentage delta vs the previous period (▲/▼ coloured). */
+  delta?: number;
+  /** Whether an UP delta should read as good (green). Defaults true. */
+  deltaGoodWhenUp?: boolean;
 }
 
 export const StatTile: React.FC<StatTileProps> = ({
@@ -152,6 +286,8 @@ export const StatTile: React.FC<StatTileProps> = ({
   icon,
   accent = COLORS.primary,
   sub,
+  delta,
+  deltaGoodWhenUp,
 }) => (
   <EuiPanel hasBorder paddingSize="m" style={{ borderTop: `3px solid ${accent}` }}>
     <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
@@ -164,7 +300,16 @@ export const StatTile: React.FC<StatTileProps> = ({
         <EuiText size="xs" color="subdued">
           <span>{label}</span>
         </EuiText>
-        <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+        <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
+          <EuiFlexItem grow={false}>
+            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+          </EuiFlexItem>
+          {typeof delta === 'number' ? (
+            <EuiFlexItem grow={false}>
+              <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
         {sub ? (
           <EuiText size="xs" color="subdued">
             <span>{sub}</span>
@@ -239,10 +384,13 @@ interface CardProps {
   onClick?: () => void;
   accentLeft?: string;
   paddingSize?: 'm' | 'l';
+  /** 'flat' drops the border (and gets a soft surface tint) — for nested cards. */
+  variant?: 'flat';
 }
 
 /** A titled panel with an optional icon chip + actions row — the workhorse
- *  container for dashboard widgets and case/source cards. */
+ *  container for dashboard widgets and case/source cards. Pass `variant="flat"`
+ *  for a borderless nested card (no double-border when placed inside a Card). */
 export const Card: React.FC<CardProps> = ({
   title,
   icon,
@@ -253,9 +401,11 @@ export const Card: React.FC<CardProps> = ({
   onClick,
   accentLeft,
   paddingSize = 'm',
+  variant,
 }) => (
   <EuiPanel
-    hasBorder
+    hasBorder={variant !== 'flat'}
+    {...(variant === 'flat' ? { hasShadow: false, color: 'subdued' as const } : {})}
     paddingSize={paddingSize}
     className={`socCard${clickable ? ' socCard--clickable' : ''}${accentLeft ? ' socAccentLeft' : ''}`}
     style={accentLeft ? { borderLeftColor: accentLeft } : undefined}
@@ -292,6 +442,10 @@ interface TrendStatProps {
   accent?: string;
   sub?: React.ReactNode;
   spark?: number[];
+  /** Optional percentage delta vs the previous period (▲/▼ coloured). */
+  delta?: number;
+  /** Whether an UP delta should read as good (green). Defaults true. */
+  deltaGoodWhenUp?: boolean;
 }
 
 /** A KPI tile with an optional sparkline footer. */
@@ -302,6 +456,8 @@ export const TrendStat: React.FC<TrendStatProps> = ({
   accent = COLORS.primary,
   sub,
   spark,
+  delta,
+  deltaGoodWhenUp,
 }) => (
   <EuiPanel hasBorder paddingSize="m" className="socStat" style={{ borderTop: `3px solid ${accent}` }}>
     <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
@@ -312,7 +468,16 @@ export const TrendStat: React.FC<TrendStatProps> = ({
       ) : null}
       <EuiFlexItem>
         <EuiText size="xs" color="subdued"><span>{label}</span></EuiText>
-        <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+        <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
+          <EuiFlexItem grow={false}>
+            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+          </EuiFlexItem>
+          {typeof delta === 'number' ? (
+            <EuiFlexItem grow={false}>
+              <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
         {sub ? <EuiText size="xs" color="subdued"><span>{sub}</span></EuiText> : null}
       </EuiFlexItem>
     </EuiFlexGroup>

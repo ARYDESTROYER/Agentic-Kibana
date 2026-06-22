@@ -233,3 +233,26 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 - [ ] Companion docs updated (USAGE / TROUBLESHOOTING / RUNBOOK / SECURITY /
       webui/README / DEPLOY / README as relevant).
 - [ ] **`Journal.md` updated**; commit carries the session trailer.
+
+---
+
+## Continuous integration (merge gate)
+
+`.github/workflows/ci.yml` runs on every pull request (and pushes to `main` /
+`Testing`) and must be green before merge. Two jobs:
+
+1. **Backend tests (offline)** — `cd backend && pip install -r requirements-dev.txt
+   && python -m pytest -q`. Fully offline (fake ES + mock LLM, no network or keys).
+   This includes `tests/test_route_auth_coverage.py`, so a new `/api` route that
+   bypasses the auth gate fails CI.
+2. **Web UI build** — `cd webui && npm ci && npm run build` (`tsc --noEmit && vite
+   build`). Fails on a type error or a build break; also catches accidental new npm
+   deps via the committed `package-lock.json`.
+
+An aggregate **`CI passed`** check depends on both. To enforce it:
+
+> **GitHub → Settings → Branches → Branch protection rule** for `main`: require the
+> status check **`CI passed`** (and "Require branches to be up to date before
+> merging"). PRs then cannot merge until backend tests and the web UI build pass.
+
+Run both locally before pushing — they are the same commands CI runs.

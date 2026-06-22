@@ -9,13 +9,31 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import __version__
-from ..config import Preferences, SourceInstance
+from ..config import BrandingConfig, Preferences, SourceInstance
 from ..connectors.registry import get_registry
-from ..constants import CaseStatus, DecisionBy, EntityType, IngestMode, SourceSurface, SourceType
+from ..constants import (
+    ActionType,
+    CaseStatus,
+    DecisionBy,
+    EntityType,
+    IngestMode,
+    SourceSurface,
+    SourceType,
+)
 from ..engine.correlation import cluster_from_events
+from ..engine.metrics import compute_metrics, feedback_stats
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
-from ..models import ChatRequest, Cluster, InvestigateRequest, RawEvent, TraceStep, TriggerReason
+from ..models import (
+    CaseComment,
+    ChatRequest,
+    Cluster,
+    FeedbackEntry,
+    InvestigateRequest,
+    RawEvent,
+    TraceStep,
+    TriggerReason,
+)
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
 from .deps import _bearer, get_state
@@ -427,6 +445,45 @@ async def playbook_selection(case_id: str, state: AppState = Depends(get_state))
 
 
 # --------------------------------------------------------------------------- #
+# Metrics / analytics (deterministic aggregation over cases + the cost ledger)
+# --------------------------------------------------------------------------- #
+@router.get("/metrics")
+async def metrics(window_hours: int = 24, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    cases, _total = await state.cases.list(limit=2000)
+    out = compute_metrics(cases)
+    try:
+        out["cost"] = await state.usage_store.summary(window_hours=max(1, window_hours))
+    except Exception:  # noqa: BLE001 — cost is best-effort on the metrics view
+        out["cost"] = {}
+    return out
+
+
+@router.get("/feedback/stats")
+async def feedback_stats_route(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    cases, _total = await state.cases.list(limit=2000)
+    return feedback_stats(cases)
+
+
+# --------------------------------------------------------------------------- #
+# Branding (GET is PUBLIC so the login screen can render the org brand; PUT is
+# protected). Persisted in Preferences — survives restart.
+# --------------------------------------------------------------------------- #
+@router.get("/branding")
+async def branding_get(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    return state.prefs.branding.model_dump(mode="json")
+
+
+@router.put("/branding")
+async def branding_put(body: BrandingConfig, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    if state.prefs.read_only_settings_mode:
+        raise HTTPException(status_code=403, detail="settings are read-only")
+    prefs = state.prefs.model_copy(deep=True)
+    prefs.branding = body
+    await state.update_prefs(prefs)
+    return prefs.branding.model_dump(mode="json")
+
+
+# --------------------------------------------------------------------------- #
 # Auth (Wave 2; OPTIONAL — the gate is a no-op when auth is disabled). The
 # no-auth "old version" remains the default and fully available.
 # --------------------------------------------------------------------------- #
@@ -540,6 +597,193 @@ async def case_action(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Resolved-case RAG index failed for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
+
+
+class FeedbackBody(BaseModel):
+    analyst: str = ""
+    assessment: str = ""                  # agree | partial | disagree
+    accuracy: float = 0.0
+    reasoning_quality: float = 0.0
+    action_appropriateness: float = 0.0
+    actual_outcome: str = ""              # true_positive|false_positive|true_negative|false_negative|unknown
+    time_saved_minutes: int = 0
+    comment: str = ""
+
+
+class CommentBody(BaseModel):
+    author: str = ""
+    body: str = ""
+
+
+class TagsBody(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+    analyst: str = ""
+
+
+class AssignBody(BaseModel):
+    assignee: str = ""
+    analyst: str = ""
+
+
+@router.post("/cases/{case_id}/feedback")
+async def case_feedback(
+    case_id: str, body: FeedbackBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Record an analyst's grade of the AI verdict (the eval/quality loop)."""
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    entry = FeedbackEntry(
+        analyst=body.analyst,
+        assessment=body.assessment,
+        accuracy=max(0.0, min(1.0, body.accuracy)),
+        reasoning_quality=max(0.0, min(1.0, body.reasoning_quality)),
+        action_appropriateness=max(0.0, min(1.0, body.action_appropriateness)),
+        actual_outcome=body.actual_outcome,
+        time_saved_minutes=max(0, int(body.time_saved_minutes)),
+        comment=body.comment,
+        ai_verdict=case.verdict.value if case.verdict else "",
+        ai_confidence=case.confidence,
+    )
+    case.feedback.append(entry)
+    case.updated_at = iso_now()
+    await state.cases.save(case)
+    await state.audit.record(
+        action_type=ActionType.FEEDBACK, surface="case", actor=body.analyst or "analyst",
+        case_id=case_id,
+        result_summary=f"assessment={entry.assessment} outcome={entry.actual_outcome} "
+                       f"accuracy={entry.accuracy}",
+    )
+    return case.model_dump(mode="json")
+
+
+@router.post("/cases/{case_id}/comment")
+async def case_comment(
+    case_id: str, body: CommentBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if not body.body.strip():
+        raise HTTPException(status_code=400, detail="comment body is required")
+    case.comments.append(CaseComment(author=body.author, body=body.body.strip()[:4000]))
+    case.updated_at = iso_now()
+    await state.cases.save(case)
+    await state.audit.record(
+        action_type=ActionType.COLLAB, surface="case", actor=body.author or "analyst",
+        case_id=case_id, result_summary="comment added",
+    )
+    return case.model_dump(mode="json")
+
+
+@router.post("/cases/{case_id}/tags")
+async def case_tags(
+    case_id: str, body: TagsBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    # De-dupe, trim, cap length/count — tags are operator labels, kept tidy.
+    seen: list[str] = []
+    for t in body.tags:
+        t = str(t).strip()[:40]
+        if t and t not in seen:
+            seen.append(t)
+    case.tags = seen[:25]
+    case.updated_at = iso_now()
+    await state.cases.save(case)
+    await state.audit.record(
+        action_type=ActionType.COLLAB, surface="case", actor=body.analyst or "analyst",
+        case_id=case_id, result_summary=f"tags set ({len(case.tags)})",
+    )
+    return case.model_dump(mode="json")
+
+
+@router.post("/cases/{case_id}/assign")
+async def case_assign(
+    case_id: str, body: AssignBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case.assignee = body.assignee.strip()[:80]
+    case.updated_at = iso_now()
+    await state.cases.save(case)
+    await state.audit.record(
+        action_type=ActionType.COLLAB, surface="case", actor=body.analyst or "analyst",
+        case_id=case_id, result_summary=f"assigned to {case.assignee or '(unassigned)'}",
+    )
+    return case.model_dump(mode="json")
+
+
+@router.get("/cases/{case_id}/export")
+async def case_export(
+    case_id: str, format: str = "json", state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Export a case for handoff/ticketing as JSON or a Markdown report. Returns
+    ``{filename, content_type, content}`` so the UI can trigger a download."""
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    fmt = (format or "json").lower()
+    if fmt == "md" or fmt == "markdown":
+        return {
+            "filename": f"{case_id}.md",
+            "content_type": "text/markdown",
+            "content": _case_markdown(case),
+        }
+    if fmt == "json":
+        import json as _json
+
+        return {
+            "filename": f"{case_id}.json",
+            "content_type": "application/json",
+            "content": _json.dumps(case.model_dump(mode="json"), indent=2, default=str),
+        }
+    raise HTTPException(status_code=400, detail=f"unsupported format: {format}")
+
+
+def _case_markdown(case) -> str:
+    """A human-readable Markdown incident report from a case (pure serialisation)."""
+    lines = [
+        f"# Case {case.case_id}",
+        "",
+        f"- **Title:** {case.title or '—'}",
+        f"- **Entity:** {case.entity.type.value} = {case.entity.value}",
+        f"- **Verdict:** {case.verdict.value if case.verdict else '—'} "
+        f"(confidence {round(case.confidence, 2)})",
+        f"- **Status:** {case.status.value} · decided by {case.decision_by.value if case.decision_by else '—'}",
+        f"- **Risk score:** {round(case.risk_score, 1)}",
+        f"- **Persona:** {case.agent_persona or 'generalist'} · **Playbook:** {case.playbook_id or '—'}",
+        f"- **Rules:** {', '.join(case.rule_ids) or '—'}",
+        f"- **MITRE:** {', '.join(case.mitre) or '—'}",
+        f"- **Assignee:** {case.assignee or '—'} · **Tags:** {', '.join(case.tags) or '—'}",
+        f"- **Created:** {case.created_at} · **Updated:** {case.updated_at}",
+        "",
+        "## Recommended action",
+        case.recommended_action or "—",
+        "",
+        "## Reproduce query",
+        f"```\n{case.reproduce_query or '—'}\n```",
+        "",
+        "## Evidence",
+    ]
+    if case.evidence:
+        for e in case.evidence:
+            lines.append(f"- {e.summary}" + (f"  (events: {', '.join(e.event_ids)})" if e.event_ids else ""))
+    else:
+        lines.append("—")
+    if case.comments:
+        lines += ["", "## Comments"]
+        lines += [f"- _{c.ts}_ **{c.author or 'analyst'}**: {c.body}" for c in case.comments]
+    if case.feedback:
+        lines += ["", "## Analyst feedback"]
+        for f in case.feedback:
+            lines.append(
+                f"- _{f.ts}_ {f.analyst or 'analyst'}: {f.assessment} "
+                f"(outcome {f.actual_outcome or '—'}, accuracy {f.accuracy})"
+            )
+    return "\n".join(lines)
 
 
 @router.post("/cases/{case_id}/investigate")
