@@ -93,6 +93,32 @@ class ActionType(str, Enum):
     SCAN = "scan"
 
 
+class ToolTier(str, Enum):
+    """Capability tier for a tool — a declarative authorisation firewall, ported
+    from Vigil's safe/managed/requires_approval/forbidden model and generalising
+    non-negotiable #3 (a TRUE_POSITIVE is never auto-closed; irreversible actions
+    need a human).
+
+    Today every TLSOC tool is ``SAFE`` (read-only logs / cached enrichment / RAG),
+    but this tier travels with the tool definition so the moment a write/response
+    tool is added the investigator can gate it WITHOUT touching agent logic:
+
+    * ``SAFE``              — read-only; an autonomous agent may call freely.
+    * ``MANAGED``          — mutates our OWN state (e.g. annotate a case); allowed
+                              autonomously but always audited.
+    * ``REQUIRES_APPROVAL`` — an outward/irreversible action (isolate host, block
+                              IP, disable user); the agent may only PROPOSE it — a
+                              human approves before it executes.
+    * ``FORBIDDEN``        — never permitted to an autonomous agent (e.g. close a
+                              case, approve an action) — hard-blocked in code.
+    """
+
+    SAFE = "safe"
+    MANAGED = "managed"
+    REQUIRES_APPROVAL = "requires_approval"
+    FORBIDDEN = "forbidden"
+
+
 class CorrelationMode(str, Enum):
     """Per-rule correlation mode (Section 6.2)."""
 

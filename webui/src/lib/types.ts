@@ -10,6 +10,70 @@
  */
 
 // --------------------------------------------------------------------------- //
+// Auth (optional; the gate is a no-op when `enabled` is false).
+// --------------------------------------------------------------------------- //
+export interface AuthUser {
+  username: string;
+}
+
+/** GET /api/auth/me — describes whether auth is on and the session state. */
+export interface AuthMe {
+  enabled: boolean;
+  authenticated: boolean;
+  user: AuthUser | null;
+}
+
+/** POST /api/auth/login (200). 401s surface as an ApiError with `detail`. */
+export interface LoginResult {
+  ok: boolean;
+  user: AuthUser;
+}
+
+// --------------------------------------------------------------------------- //
+// Agent personas + playbooks (read-only catalog surface).
+// --------------------------------------------------------------------------- //
+/** One specialist persona the router can specialise the investigator into. */
+export interface AgentPersona {
+  id: string;
+  label: string;
+  specialization: string;
+  focus_tools: string[];
+  keywords: string[];
+}
+
+export interface PersonasResponse {
+  enabled: boolean;
+  personas: AgentPersona[];
+}
+
+/** The match criteria that select a playbook for a cluster. */
+export interface PlaybookMatch {
+  rule_ids: string[];
+  entity_types: string[];
+  mitre: string[];
+  min_event_count: number | null;
+  any_tags: string[];
+}
+
+/** One plain-text runbook/playbook (mirrors the backend loader shape). */
+export interface Playbook {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  priority: number;
+  match: PlaybookMatch;
+  suggested_tools: string[];
+  rag_queries: string[];
+}
+
+export interface PlaybooksResponse {
+  enabled: boolean;
+  count: number;
+  playbooks: Playbook[];
+}
+
+// --------------------------------------------------------------------------- //
 // Connectors (the wizard renders forms dynamically from these).
 // --------------------------------------------------------------------------- //
 export type AuthFieldType =
@@ -324,6 +388,7 @@ export interface Case {
   summary?: string;
   token_cost?: number;
   error?: string;
+  agent_persona?: string;
   [key: string]: unknown;
 }
 

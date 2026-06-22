@@ -315,6 +315,18 @@ export const CaseDetailFlyout: React.FC<{
                 <EuiFlexItem grow={false}>
                   <ConfidenceBadge confidence={c.confidence} />
                 </EuiFlexItem>
+                {c.agent_persona && c.agent_persona !== 'generalist' ? (
+                  <EuiFlexItem grow={false}>
+                    <EuiBadge
+                      color={tint(COLORS.accent, 0.18)}
+                      style={{ color: COLORS.accent }}
+                      iconType="userAvatar"
+                      title="Specialized investigator persona assigned to this case"
+                    >
+                      {humanizeToken(c.agent_persona)}
+                    </EuiBadge>
+                  </EuiFlexItem>
+                ) : null}
               </EuiFlexGroup>
             </EuiFlexItem>
             <EuiFlexItem grow={false}>

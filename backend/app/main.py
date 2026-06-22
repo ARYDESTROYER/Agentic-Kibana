@@ -8,11 +8,13 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from .api.deps import require_auth
 from .api.routes import router
 from .config import Secrets
 from .logging_setup import configure_logging
+from .middleware import CSRFMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 from .state import AppState
 
 logger = logging.getLogger("tlsoc.main")
@@ -40,7 +42,25 @@ app = FastAPI(
                 "ELK log surface; owns its cases/audit/usage indices.",
     lifespan=lifespan,
 )
-app.include_router(router)
+
+# --- Security middleware (Wave 2; env-toggleable, independent of auth). Added in
+# this order so security headers are OUTERMOST (cover every response incl. 401/403).
+_sec = Secrets()
+if _sec.csrf_enabled:
+    app.add_middleware(CSRFMiddleware, enabled=True)
+if _sec.rate_limit_enabled:
+    app.add_middleware(
+        RateLimitMiddleware,
+        capacity=_sec.rate_limit_capacity,
+        refill_per_second=_sec.rate_limit_refill_per_second,
+        enabled=True,
+    )
+if _sec.security_headers_enabled:
+    app.add_middleware(SecurityHeadersMiddleware)
+
+# Auth gate on the WHOLE /api router (deny-by-default; a strict no-op when auth is
+# disabled). Every /api route inherits it → a new route is protected automatically.
+app.include_router(router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/")

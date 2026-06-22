@@ -36,11 +36,12 @@ def _final_verdict(verdict: str, confidence: float) -> str:
     })
 
 
-async def test_true_positive_is_never_autoclosed(app_state: AppState, mock_provider):
+async def test_true_positive_not_autoclosed_by_default(app_state: AppState, mock_provider):
+    # FP auto-close on, TP auto-close OFF (default) → a TP still routes to a human.
     p = app_state.prefs.model_copy(deep=True)
-    p.fp_auto_close.enabled = True
-    p.fp_auto_close.min_confidence = 0.1
-    p.fp_auto_close.max_risk_score = 100.0
+    p.auto_close.false_positive.enabled = True
+    p.auto_close.false_positive.min_confidence = 0.1
+    p.auto_close.false_positive.max_risk_score = 100.0
     await app_state.update_prefs(p)
 
     mock_provider.push("router", json.dumps({"bucket": "needs_strong_model", "confidence": 0.9, "reason": "serious"}))
@@ -55,9 +56,9 @@ async def test_true_positive_is_never_autoclosed(app_state: AppState, mock_provi
 
 async def test_benign_false_positive_autocloses_under_policy(app_state: AppState, mock_provider):
     p = app_state.prefs.model_copy(deep=True)
-    p.fp_auto_close.enabled = True
-    p.fp_auto_close.min_confidence = 0.5
-    p.fp_auto_close.max_risk_score = 100.0
+    p.auto_close.false_positive.enabled = True
+    p.auto_close.false_positive.min_confidence = 0.5
+    p.auto_close.false_positive.max_risk_score = 100.0
     await app_state.update_prefs(p)
 
     mock_provider.push("router", json.dumps({"bucket": "obviously_benign", "confidence": 0.95, "reason": "noise"}))

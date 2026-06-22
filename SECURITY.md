@@ -239,3 +239,42 @@ disclosure.
 - [ ] **No secrets in git / state store.** Confirm `.env` is git-ignored and that
       nothing secret lands in preferences or the state store.
 - [ ] **Caps + kill switch reachable** from Settings.
+
+---
+
+## Optional API authentication (Wave 2)
+
+API auth ships **disabled by default** — the no-auth deployment (the original
+model, where the network/reverse-proxy is the trust boundary) remains fully
+supported and behaviourally unchanged out of the box. Enable JWT auth per-deploy:
+
+```bash
+TLSOC_AUTH_ENABLED=true
+TLSOC_AUTH_JWT_SECRET=<32+ random bytes>     # stable secret (else ephemeral, sessions die on restart)
+TLSOC_AUTH_ADMIN_USERNAME=admin
+TLSOC_AUTH_ADMIN_PASSWORD=<plaintext, hashed in memory at startup, never stored>
+# or a multi-user map of username -> PBKDF2 hash:
+# TLSOC_AUTH_USERS={"alice":"pbkdf2_sha256$...","bob":"pbkdf2_sha256$..."}
+TLSOC_AUTH_COOKIE_SECURE=true                # REQUIRED behind TLS (HTTPS-only cookie)
+```
+
+When enabled, every `/api/*` route requires a valid session **except** the tiny
+public allowlist (`/api/health`, `/api/auth/{login,me,logout}`) and the
+self-authenticating `/api/ingest/<source>` receivers. Deny-by-default is enforced
+by a router-level dependency and a CI test (`tests/test_route_auth_coverage.py`)
+that fails if any route slips the gate. The webui shows a login screen and gates
+the app automatically (it is a strict no-op when auth is off).
+
+**Hardening notes:**
+- Set `TLSOC_AUTH_COOKIE_SECURE=true` in production (TLS); the session cookie is
+  always `HttpOnly` + `SameSite=Lax`.
+- Security headers (CSP/HSTS/nosniff/frame-deny) are on by default. The Redis-free
+  in-process **rate limiter** (`TLSOC_RATE_LIMIT_ENABLED`, default **off**) and
+  **CSRF** (`TLSOC_CSRF_ENABLED`, default **off**) are opt-in.
+- `csrf_enabled` currently expects API clients to send `X-CSRF-Token` matching a
+  `tlsoc_csrf` cookie; the standalone webui does not yet issue/echo that token, so
+  enable CSRF only for header-setting API clients (or after wiring the webui).
+  `SameSite=Lax` already blocks the common cross-site POST CSRF vector.
+- The rate limiter only trusts `X-Forwarded-For` when constructed with
+  `trust_forwarded_for=True` (behind a known proxy); otherwise it keys on the
+  socket peer to prevent header-spoofed bucket rotation.

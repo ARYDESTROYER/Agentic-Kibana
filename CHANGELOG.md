@@ -7,6 +7,77 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-21 — Wave 2: Markdown playbooks + optional auth
+
+Backend offline suite **300 tests green**; webui builds clean. Additive; the spine
+(typed OCSF, StateStore, one LLM gateway, durable cursor) is untouched.
+
+### Added
+- **Markdown playbook engine** (`backend/app/playbooks/` + `backend/playbooks/*.md`):
+  operator-authored phased procedures with strict-validated YAML front-matter
+  (`PlaybookManifest`), a deterministic, explainable `PlaybookRegistry.select`
+  (rule_ids / entity_types / min_event_count are hard criteria; mitre/tags are
+  advisory — clusters carry no MITRE pre-investigation), atomic hot-reload, and the
+  matched playbook injected as a DISTINCT `<<<PLAYBOOK>>>` TRUSTED block separate
+  from the fenced UNTRUSTED evidence (+ a precedence line). It can only RECOMMEND.
+  3 seed playbooks (brute-force login, suspicious outbound, reported phishing).
+  Endpoints: `GET /api/playbooks`, `POST /api/playbooks/reload`,
+  `GET /api/playbooks/selection/{case_id}`. `Case.playbook_id` + audit record the
+  selection/fallback. A playbook's `rag_queries` augment retrieval (bounded by top_k).
+- **Optional auth (default OFF — the no-auth "old version" remains the default and
+  fully available)**: stdlib-only `app/auth/` (PBKDF2 password hashing + HS256 JWT)
+  + `app/middleware/` (security headers / CSRF / Redis-free rate limit); a
+  router-level `require_auth` gate that is a strict no-op when disabled, with a tiny
+  `PUBLIC_API_PATHS` allowlist; `/api/auth/{login,me,logout}`; and a CI
+  route-coverage test that fails if any `/api` route bypasses auth.
+- webui: an optional login gate (no-op when auth is off) + a read-only
+  **Playbooks & Agents** catalog surface.
+
+### Changed
+- **Case Manager → operator-configurable `AutoClosePolicy`** (`engine/case_manager.decide`
+  is now a pure fn over `(verdict, confidence, risk_score, policy)`): per-verdict-class
+  enable / min-confidence / max-risk / objection-window. FALSE_POSITIVE auto-closes
+  above a bar by default; **TRUE_POSITIVE auto-close is an explicit opt-in (off by
+  default)**; **NEEDS_HUMAN never auto-closes (code-enforced)**. The deprecated
+  `fp_auto_close` is migrated into `auto_close.false_positive` for stored configs.
+  (This generalises the old "a TP is never auto-closed" invariant into a tunable,
+  code-enforced policy — see CLAUDE.md non-negotiable #3.)
+- Runbooks are now the RAG **knowledge** corpus only; per-cluster procedure
+  injection is owned by the new playbook system.
+
+## [Unreleased] — 2026-06-21 — Vigil-inspired overhaul (Wave 1) + plugin archived
+
+A deep end-to-end study of the open-source **Vigil** AI-SOC (10 Opus research
+agents; see `docs/VIGIL_STUDY.md`) drove an additive overhaul that keeps our
+spine (typed OCSF, `StateStore`, the single LLM gateway, deterministic case
+manager) fully intact. Backend offline suite: **244 tests green**; webui builds
+clean (`tsc` + Vite).
+
+### Added
+- **Multi-agent roster** (`backend/app/agents/personas.py`): a declarative
+  `AgentPersona` registry (identity / web-app / network-recon / malware /
+  threat-intel + generalist) over the ONE investigator. The cluster is routed to a
+  specialist deterministically; the persona specialises the system prompt and is
+  recorded on the case + audit. `GET /api/personas`. Surfaced as a badge on the
+  case-detail flyout.
+- **Plain-text runbooks** (`backend/app/runbooks/*.md` + `engine/runbooks.py`):
+  Markdown playbooks with frontmatter, selected per cluster and injected as TRUSTED
+  guidance into the investigator, and indexed into the RAG corpus. `GET /api/runbooks`.
+- **Hybrid RAG retrieval** (`tools/rag.py`): drawer-floor-first vector search +
+  dependency-free BM25 re-ranking — recovers exact IOC/rule tokens that embed as
+  noise. Toggle `rag.hybrid` (default on).
+- **Tool safety tiers** (`constants.ToolTier` + `tools/base.py`): safe / managed /
+  requires_approval / forbidden capability firewall; the investigator gates
+  non-safe tools (proposes them for human approval, never auto-executes).
+- **Cost provenance** (`llm/pricing.py`): `pricing_source` (exact / heuristic /
+  zero / default) + a tier-prefix price heuristic, threaded onto every `UsageDoc`.
+
+### Changed
+- **Hardened untrusted-data fencing** (`agents/prompts.py` `fence()`): neutralises
+  forged close-markers and carries `source=`/`tool=` provenance (non-negotiable #9).
+- **Archived the legacy Kibana plugin** → `archive/kibana-plugin/` (history
+  preserved). The standalone webui is now the sole supported surface.
+
 ## [2.0.0] — 2026-06-21 — Vendor-agnostic, self-hosted agentic SOC
 
 The project transitions from an ELK/Kibana-coupled triage suite into an

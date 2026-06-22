@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import CorrelationMode, EntityType, IngestMode, SourceType
@@ -85,6 +85,33 @@ class Secrets(BaseSettings):
     backend_port: int = 8088
     log_level: str = "INFO"
 
+    # --- Auth (Wave 2; OPTIONAL — default OFF so the no-auth "old version" is the
+    # out-of-the-box behaviour and fully available). Flip ``auth_enabled`` to require
+    # a JWT login on every /api route except the small public allowlist. Credentials
+    # come from env: a single admin (``auth_admin_username`` + ``auth_admin_password``,
+    # plaintext, hashed in memory at startup, NEVER stored/returned) and/or an
+    # ``auth_users`` map of username -> PBKDF2 hash for multi-user. ---
+    auth_enabled: bool = False
+    auth_jwt_secret: str | None = None        # HS256 signing key; ephemeral+warn if unset when enabled
+    auth_token_hours: int = 12
+    auth_admin_username: str = "admin"
+    auth_admin_password: str | None = None    # env-only plaintext; hashed at startup
+    auth_users: dict[str, str] = Field(default_factory=dict)  # username -> pbkdf2 hash
+    auth_cookie_secure: bool = False          # set True behind TLS (prod) so the cookie is HTTPS-only
+
+    # --- Security middleware toggles (all independent of auth) ---
+    # security headers ON by default (harmless, only affect backend-served
+    # responses). Rate-limit + CSRF default OFF so the no-auth "old version" is
+    # behaviourally UNCHANGED out of the box; enable them for a hardened profile.
+    # NOTE: csrf_enabled currently requires the webui to echo the CSRF token (the
+    # double-submit cookie is not yet issued on login) — enable only for API clients
+    # that set X-CSRF-Token, or after wiring the webui. See SECURITY.md.
+    security_headers_enabled: bool = True
+    csrf_enabled: bool = False
+    rate_limit_enabled: bool = False
+    rate_limit_capacity: int = 120
+    rate_limit_refill_per_second: float = 2.0
+
     # When true the backend persists to Elasticsearch; when ES is unreachable it
     # automatically falls back to an in-memory store so the spine still runs.
     es_store_enabled: bool = True
@@ -137,6 +164,17 @@ class Secrets(BaseSettings):
 
     def embedding_key(self) -> str | None:
         return self.embedding_api_key or self.openai_api_key
+
+    def auth_user_map(self) -> dict[str, str]:
+        """username -> PBKDF2 hash for the AuthService. Combines the ``auth_users``
+        map with the single admin (plaintext ``auth_admin_password`` hashed in
+        memory at startup). The plaintext is never stored or returned."""
+        from .auth.passwords import hash_password
+
+        users = dict(self.auth_users)
+        if self.auth_admin_password and self.auth_admin_username not in users:
+            users[self.auth_admin_username] = hash_password(self.auth_admin_password)
+        return users
 
     def configured_status(self) -> dict[str, bool]:
         """Boolean-only view for the settings UI. NEVER returns values."""
@@ -253,15 +291,69 @@ class CapsConfig(BaseModel):
 
 
 class FpAutoCloseConfig(BaseModel):
-    """Strict conditions under which a FALSE_POSITIVE may auto-close (Section 6.4).
-
-    Disabled by default. A TRUE_POSITIVE can NEVER auto-close — enforced in code.
+    """DEPRECATED (kept for back-compat with stored configs). Superseded by
+    ``AutoClosePolicy.false_positive`` (see below). A ``before`` validator on
+    ``Preferences`` migrates a stored ``fp_auto_close`` into ``auto_close`` when the
+    latter isn't present, so old persisted preferences keep working.
     """
 
     enabled: bool = False
     min_confidence: float = 0.95
     max_risk_score: float = 30.0
     objection_window_minutes: int = 60
+
+
+class VerdictAutoClose(BaseModel):
+    """Per-verdict-class auto-close thresholds (operator-tunable).
+
+    Auto-close is a normal calibration surface — like alert thresholds or
+    correlation windows. The decision itself is enforced deterministically in
+    ``engine/case_manager.decide(...)`` against this data; the LLM verdict feeds the
+    policy, it never bypasses it, and a playbook can never change these thresholds.
+    """
+
+    enabled: bool = False
+    min_confidence: float = Field(default=0.9, ge=0.0, le=1.0)   # verdict confidence must be >=
+    max_risk_score: float = Field(default=20.0, ge=0.0, le=100.0)  # cluster risk must be <=
+    objection_window_minutes: int = Field(default=1440, ge=0)     # reopen window before true close
+
+
+class AutoClosePolicy(BaseModel):
+    """Operator-configured auto-close policy, one entry per verdict class.
+
+    Conservative defaults: FALSE_POSITIVE may auto-close above a bar; TRUE_POSITIVE
+    auto-close is OFF by default (an explicit, supported opt-in); NEEDS_HUMAN never
+    auto-closes (enforced in code regardless of this value)."""
+
+    false_positive: VerdictAutoClose = Field(
+        default_factory=lambda: VerdictAutoClose(
+            enabled=True, min_confidence=0.85, max_risk_score=30.0,
+            objection_window_minutes=1440,
+        )
+    )
+    true_positive: VerdictAutoClose = Field(
+        default_factory=lambda: VerdictAutoClose(
+            enabled=False, min_confidence=0.95, max_risk_score=10.0,
+            objection_window_minutes=4320,
+        )
+    )
+    needs_human: VerdictAutoClose = Field(
+        default_factory=lambda: VerdictAutoClose(enabled=False)  # never auto-closes (code-enforced)
+    )
+
+
+class PlaybookConfig(BaseModel):
+    """Markdown playbook system. When ``enabled``, the deterministically-selected
+    playbook for a cluster is injected as TRUSTED operator procedure into the
+    investigator (it can only RECOMMEND; code/settings decide). With ``enabled``
+    False, or no playbook matching, the investigator uses the generic prompt
+    exactly as before. ``dir`` overrides the default ``backend/playbooks`` location;
+    ``llm_select`` is reserved for an optional LLM-assisted selector (off by default —
+    selection is rule-based)."""
+
+    enabled: bool = True
+    dir: str | None = None
+    llm_select: bool = False
 
 
 class EnrichmentConfig(BaseModel):
@@ -282,6 +374,39 @@ class RagConfig(BaseModel):
     use_mitre: bool = True
     use_resolved_cases: bool = True
     use_suppression_rules: bool = True
+    # Hybrid retrieval (MemPalace-inspired "drawer-floor-first"): the vector search
+    # is the floor; survivors that clear ``min_score`` are re-ranked by a convex
+    # blend of vector similarity and a dependency-free BM25 lexical score, which
+    # sharply improves recall on IOC/log/rule text that embeds as noise. ``min_score``
+    # still gates on the raw vector score, so disabling hybrid is exact prior behaviour.
+    hybrid: bool = True
+    vector_weight: float = 0.6
+    bm25_weight: float = 0.4
+    hybrid_overfetch: int = 4  # candidate pool = top_k * this, before re-rank
+
+
+class PersonaConfig(BaseModel):
+    """Multi-agent investigator roster (Vigil-inspired). When ``enabled`` the
+    cluster is routed to a specialized persona (identity/web/recon/malware/threat-
+    intel) deterministically; the generalist is used otherwise. ``overrides`` pins
+    a specific persona id for a given rule name (operator control). Disabling this
+    reverts to the single generalist investigator — byte-for-byte the old behaviour
+    aside from the (empty) persona addendum."""
+
+    enabled: bool = True
+    overrides: dict[str, str] = Field(default_factory=dict)  # rule name -> persona id
+
+
+class RunbookConfig(BaseModel):
+    """Plain-text runbook KNOWLEDGE for the RAG corpus.
+
+    Runbooks ship as Markdown files under ``backend/app/runbooks/`` and feed the RAG
+    ``runbook`` corpus (retrievable knowledge) when ``rag.use_runbooks`` is on and
+    ``enabled`` here. NOTE: per-cluster PROCEDURE injection is now owned by the
+    Markdown **playbook** system (``app/playbooks/`` + ``PlaybookConfig``); runbooks
+    are retrieval knowledge only. Disabling falls back to the in-code seed runbooks."""
+
+    enabled: bool = True
 
 
 class TraceConfig(BaseModel):
@@ -350,6 +475,27 @@ class SourceInstance(BaseModel):
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_fp_auto_close(cls, data: Any) -> Any:
+        """Back-compat: a stored config predating ``auto_close`` carried only
+        ``fp_auto_close``. Map it into ``auto_close.false_positive`` so old persisted
+        preferences keep their FP auto-close behaviour. Only applied when the new
+        ``auto_close`` key is absent; new configs set ``auto_close`` directly."""
+        if isinstance(data, dict) and data.get("fp_auto_close") and "auto_close" not in data:
+            fp = data["fp_auto_close"]
+            if isinstance(fp, dict):
+                data = dict(data)
+                data["auto_close"] = {
+                    "false_positive": {
+                        "enabled": fp.get("enabled", False),
+                        "min_confidence": fp.get("min_confidence", 0.95),
+                        "max_risk_score": fp.get("max_risk_score", 30.0),
+                        "objection_window_minutes": fp.get("objection_window_minutes", 60),
+                    }
+                }
+        return data
+
     # --- Configured log sources (vendor-agnostic ingest). Empty == the legacy
     # single implicit Elasticsearch source from Secrets (full back-compat). ---
     sources: list[SourceInstance] = Field(default_factory=list)
@@ -409,7 +555,12 @@ class Preferences(BaseModel):
     )
 
     # --- Decision thresholds (Section 8.5) ---
+    # Auto-close policy (operator-tunable, per-verdict-class) — enforced
+    # deterministically in case_manager.decide(). ``fp_auto_close`` is the
+    # DEPRECATED predecessor, migrated into ``auto_close.false_positive`` by the
+    # ``before`` validator below when a stored config predates ``auto_close``.
     fp_auto_close: FpAutoCloseConfig = Field(default_factory=FpAutoCloseConfig)
+    auto_close: AutoClosePolicy = Field(default_factory=AutoClosePolicy)
     escalation_confidence: float = 0.6      # >= this on TRUE_POSITIVE = high-priority human
     critical_severity: float = 7.0
 
@@ -447,6 +598,11 @@ class Preferences(BaseModel):
     rag: RagConfig = Field(default_factory=RagConfig)
     standup: StandupConfig = Field(default_factory=StandupConfig)
     trace: TraceConfig = Field(default_factory=TraceConfig)
+    # Multi-agent roster + plain-text runbooks/playbooks (Vigil-inspired). All
+    # default ON and degrade to prior behaviour when disabled.
+    personas: PersonaConfig = Field(default_factory=PersonaConfig)
+    runbooks: RunbookConfig = Field(default_factory=RunbookConfig)
+    playbooks: PlaybookConfig = Field(default_factory=PlaybookConfig)
 
     # --- Misc ---
     setup_complete: bool = False
