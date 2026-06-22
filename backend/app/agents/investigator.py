@@ -18,7 +18,7 @@ from ..config import Preferences
 from ..constants import ActionType, Role, ToolTier, Verdict
 from ..engine.cost_gate import CaseBudget
 from ..llm.gateway import GatewayError, LLMGateway
-from ..models import Cluster, EnrichmentResult, RagChunk, VerdictResult
+from ..models import Cluster, EnrichmentResult, MemoryEntry, RagChunk, VerdictResult
 from ..tools.base import ToolRegistry
 from ..utils import extract_json, truncate
 from .common import coerce_verdict, entity_kql
@@ -82,6 +82,7 @@ class Investigator:
         case_id: str | None = None,
         persona: AgentPersona | None = None,
         playbook: "Playbook | None" = None,
+        memory: list[MemoryEntry] | None = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
         # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
@@ -100,7 +101,12 @@ class Investigator:
             # block, separate from the fenced UNTRUSTED evidence. It can only guide;
             # the deterministic policy decides close/escalate.
             playbook_text = _playbook_block(playbook) if playbook is not None else None
-            context = render_cluster(cluster, enrichment, rag_chunks, playbook=playbook_text)
+            # Operator MEMORY (durable trusted facts) is injected as a DISTINCT block
+            # ABOVE the untrusted evidence and BELOW the playbook procedure — it can
+            # only INFORM; the deterministic policy still decides close/escalate.
+            context = render_cluster(
+                cluster, enrichment, rag_chunks, playbook=playbook_text, memory=memory,
+            )
             messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": context + "\n\nBegin the investigation. Respond with JSON only."},

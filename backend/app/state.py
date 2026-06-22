@@ -78,6 +78,10 @@ class AppState:
         # Markdown playbook registry (loaded from disk; deterministic per-cluster
         # selection). Reloaded in startup() once prefs (and any dir override) load.
         self.playbooks = self._build_playbooks()
+        # Operator MEMORY store (durable trusted facts). Backed by the SAME KV the
+        # config/cursor stores use for the active backend (SQL: SqlKVStore; ES: a
+        # thin EsKVStore over the config index) — no new index/table/migration.
+        self.memory = self._build_memory()
         self.rag = self._build_rag()
         # The agent's read-only log surface as a connector (source-agnostic). The
         # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
@@ -86,10 +90,11 @@ class AppState:
         self.log_source = self._build_log_source()
         self.pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit,
-            source=self.log_source, playbooks=self.playbooks,
+            source=self.log_source, playbooks=self.playbooks, memory=self.memory,
         )
         self.chat_engine = ChatEngine(
-            es, self.gateway, self.audit, self.cases, self.rag, source=self.log_source
+            es, self.gateway, self.audit, self.cases, self.rag,
+            source=self.log_source, memory=self.memory,
         )
         self.standup_service = StandupService(es, self.gateway, self.audit)
         self.overview_service = OverviewService(self.gateway, self.secrets, self.cache, self.audit)
@@ -131,6 +136,7 @@ class AppState:
                 self._sql_engine = build_async_engine(url)
             engine = self._sql_engine
             kv = SqlKVStore(engine)
+            self._kv = kv  # shared KV (also backs the operator MEMORY store)
             self.usage_store = SqlUsageRepository(engine)
             self.audit = SqlAuditRepository(engine)
             self.cases = SqlCaseRepository(engine)
@@ -139,6 +145,11 @@ class AppState:
             logger.info("OWN-state backend: SQL (%s)", self.secrets.state_backend)
             return
         es = self.es
+        from .stores.memory import EsKVStore
+
+        # ES backend has no generic KV table; a thin adapter over the config index
+        # gives the MEMORY store the same get/put contract the SQL backend provides.
+        self._kv = EsKVStore(es)
         self.usage_store = UsageStore(es)
         self.audit = AuditLogger(es)
         self.cases = CaseStore(es)
@@ -152,6 +163,13 @@ class AppState:
         if override is not None and override.dir:
             return Path(override.dir)
         return Path(__file__).resolve().parent.parent / "playbooks"
+
+    def _build_memory(self):
+        """Construct the operator MEMORY store over the active backend's KV. The KV
+        is set in _build_state_backend, so this always has a valid handle."""
+        from .stores.memory import MemoryStore
+
+        return MemoryStore(self._kv)
 
     def _build_playbooks(self):
         """Construct + load the PlaybookRegistry (never raises; a bad file is

@@ -20,12 +20,13 @@ from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, Role
 from ..es.base import BaseESClient
 from ..llm.gateway import GatewayError, LLMGateway
-from ..models import ChatContext, ChatResponse, ChatTurn, DiscoverLink
+from ..models import ChatContext, ChatResponse, ChatTurn, DiscoverLink, MemorySuggestion
 from ..stores.cases import CaseStore
+from ..stores.memory import MemoryStore
 from ..tools.es_query import EsQueryTool
 from ..tools.rag import RagService
 from ..utils import extract_json, truncate
-from .prompts import CHAT_SYSTEM, fence
+from .prompts import CHAT_SYSTEM, fence, render_memory
 
 logger = logging.getLogger("tlsoc.agents.chat")
 
@@ -47,6 +48,7 @@ class ChatEngine:
         cases: CaseStore,
         rag: RagService | None = None,
         source: PullConnector | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self._es = es
         # Read-only log surface; defaults to wrapping ``es`` (back-compat).
@@ -55,6 +57,9 @@ class ChatEngine:
         self._audit = audit
         self._cases = cases
         self._rag = rag
+        # Operator MEMORY store (durable trusted facts). None → memory disabled in
+        # chat (no injection, no add/forget) — preserves today's behaviour.
+        self._memory = memory
 
     async def chat(
         self,
@@ -64,6 +69,7 @@ class ChatEngine:
         case_id: str | None = None,
         history: list[ChatTurn] | None = None,
         context: ChatContext | None = None,
+        author: str = "",
     ) -> ChatResponse:
         # Feature 1: the global flyout may attach a case_id via context.
         if context and context.case_id and not case_id:
@@ -71,6 +77,12 @@ class ChatEngine:
         system = CHAT_SYSTEM
         seed = await self._seed_context(case_id)
         messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+        # Operator MEMORY (TRUSTED durable facts): injected as a distinct block so
+        # the assistant reasons WITH the operator's knowledge. Best-effort.
+        mem_block = await self._render_memory()
+        if mem_block:
+            messages.append({"role": "user", "content": mem_block})
+            messages.append({"role": "assistant", "content": "Noted the operator memory (trusted facts)."})
         if seed:
             messages.append({"role": "user", "content": seed})
             messages.append({"role": "assistant", "content": "Understood. I have the case context."})
@@ -111,6 +123,13 @@ class ChatEngine:
         query_str: str | None = None
         discover: DiscoverLink | None = None
 
+        # Memory editing (safe, opt-in): execute an explicit add/remove command
+        # deterministically and surface a proposed-fact suggestion for the UI to
+        # confirm. The agent stores ONLY the user-directed text (never log/tool data).
+        memory_action_echo, memory_suggestion, mem_note = await self._apply_memory_action(
+            obj, author=author, case_id=case_id,
+        )
+
         query_params = obj.get("query") if isinstance(obj.get("query"), dict) else None
         if obj.get("needs_query") and query_params:
             # Feature 1: default a relative query's time range from screen context.
@@ -148,9 +167,16 @@ class ChatEngine:
             elif not tr.ok:
                 answer = f"{answer}\n\n(Query failed: {truncate(tr.error, 200)})".strip()
 
+        # Echo what changed in memory in the answer (deterministic confirmation),
+        # even when a query also ran and replaced the turn-1 prose.
+        if mem_note:
+            answer = f"{answer}\n\n{mem_note}".strip() if answer else mem_note
+
         return ChatResponse(
             answer=answer, table=table, query=query_str, discover=discover,
             case_id=case_id, cost=cost,
+            memory_action=memory_action_echo,
+            memory_suggestion=memory_suggestion,
         )
 
     async def _analyse_results(
@@ -244,6 +270,78 @@ class ChatEngine:
         for c in chunks:
             lines.append(f"- [{c.source}] {truncate(c.text, 400)}")
         return "\n".join(lines)
+
+    async def _render_memory(self) -> str:
+        """Render active operator MEMORY as a distinct TRUSTED block for chat.
+
+        Reuses the SAME render_memory() the investigator uses (same delimiters,
+        same bounding + forged-marker neutralisation). Best-effort: no memory store
+        or a load failure leaves the conversation unchanged."""
+        if self._memory is None:
+            return ""
+        try:
+            entries = await self._memory.list(active_only=True)
+        except Exception as exc:  # noqa: BLE001 — memory is advisory only
+            logger.info("Chat memory injection unavailable: %s", exc)
+            return ""
+        return render_memory(entries).rstrip()
+
+    async def _apply_memory_action(
+        self, obj: dict[str, Any], *, author: str, case_id: str | None,
+    ) -> tuple[dict[str, Any] | None, MemorySuggestion | None, str]:
+        """Execute an explicit memory add/remove the model emitted, and surface any
+        proposed (un-saved) suggestion. Returns (action_echo, suggestion, note).
+
+        SAFETY: the model is instructed to put ONLY the user-directed fact text in
+        ``memory_action.text`` (never raw log/tool output); we store exactly that
+        text with source="agent". A suggestion is NEVER saved here — the UI confirms
+        it (which calls POST /api/memory). Deterministic + never raises."""
+        suggestion: MemorySuggestion | None = None
+        sug = obj.get("memory_suggestion")
+        if isinstance(sug, dict) and str(sug.get("text") or "").strip():
+            suggestion = MemorySuggestion(
+                text=str(sug.get("text") or "").strip()[:1000],
+                reason=str(sug.get("reason") or "").strip()[:500],
+            )
+
+        action = obj.get("memory_action")
+        if self._memory is None or not isinstance(action, dict):
+            return None, suggestion, ""
+
+        op = str(action.get("op") or "").strip().lower()
+        text = str(action.get("text") or "").strip()
+        entry_id = str(action.get("id") or "").strip()
+        echo: dict[str, Any] | None = None
+        note = ""
+        try:
+            if op == "add" and text:
+                entry = await self._memory.add(text[:2000], source="agent", author=author)
+                echo = {"op": "add", "id": entry.id, "text": entry.text}
+                note = f"Remembered: {truncate(entry.text, 200)}"
+                await self._audit.record(
+                    action_type=ActionType.DECISION, surface=Role.CHAT.value, actor=Role.CHAT.value,
+                    case_id=case_id, result_summary=f"memory add (agent): {truncate(entry.text, 200)}",
+                )
+            elif op == "remove":
+                removed_ids: list[str] = []
+                if entry_id and await self._memory.delete(entry_id):
+                    removed_ids = [entry_id]
+                elif text:
+                    removed = await self._memory.delete_by_text(text)
+                    removed_ids = [e.id for e in removed]
+                if removed_ids:
+                    echo = {"op": "remove", "ids": removed_ids}
+                    note = f"Forgot {len(removed_ids)} memory item(s)."
+                    await self._audit.record(
+                        action_type=ActionType.DECISION, surface=Role.CHAT.value, actor=Role.CHAT.value,
+                        case_id=case_id, result_summary=f"memory remove (agent): {removed_ids}",
+                    )
+                else:
+                    note = "No matching memory to forget."
+        except Exception as exc:  # noqa: BLE001 — memory edits must never break chat
+            logger.warning("Chat memory action failed (%s); continuing", exc)
+            return None, suggestion, ""
+        return echo, suggestion, note
 
 
 def _render_context(context: ChatContext | None) -> str:

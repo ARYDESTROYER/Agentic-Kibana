@@ -41,6 +41,7 @@ from .router import Router
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..playbooks.registry import PlaybookRegistry
+    from ..stores.memory import MemoryStore
 
 logger = logging.getLogger("tlsoc.agents.pipeline")
 
@@ -57,6 +58,7 @@ class InvestigationPipeline:
         audit: AuditLogger,
         source: PullConnector | None = None,
         playbooks: "PlaybookRegistry | None" = None,
+        memory: "MemoryStore | None" = None,
     ) -> None:
         self._es = es
         # The agent's read-only log surface. Defaults to wrapping ``es`` in an
@@ -73,6 +75,9 @@ class InvestigationPipeline:
         # Markdown playbook registry (deterministic per-cluster selection). None →
         # no playbooks (generic investigator), preserving today's behaviour.
         self._playbooks = playbooks
+        # Operator MEMORY store (durable trusted facts auto-injected into every
+        # investigation). None → no memory injected (today's behaviour).
+        self._memory = memory
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -152,6 +157,17 @@ class InvestigationPipeline:
                 ),
             )
 
+            # Operator MEMORY (durable trusted facts): auto-injected into the strong
+            # investigation as a distinct TRUSTED block. Best-effort + bounded; a
+            # memory load failure must never break the pipeline (never raises).
+            memory_entries = []
+            if self._memory is not None:
+                try:
+                    memory_entries = await self._memory.list(active_only=True)
+                except Exception as exc:  # noqa: BLE001 — memory is advisory only
+                    logger.warning("Loading operator memory failed (%s); continuing", exc)
+                    memory_entries = []
+
             if budget.kill_switch:
                 verdict = VerdictResult(
                     verdict=Verdict.NEEDS_HUMAN,
@@ -167,7 +183,7 @@ class InvestigationPipeline:
                         run_investigation(
                             self._router, investigator, self._rag, cluster, enrichment,
                             prefs, budget, source_surface.value, case_id,
-                            persona=persona, playbook=playbook,
+                            persona=persona, playbook=playbook, memory=memory_entries,
                         ),
                         timeout=prefs.caps.timeout_seconds,
                     )

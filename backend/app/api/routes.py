@@ -296,10 +296,23 @@ async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state
 # Chat (Surface 1 + Surface 2 follow-up — one engine)
 # --------------------------------------------------------------------------- #
 @router.post("/chat")
-async def chat(body: ChatRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def chat(
+    body: ChatRequest, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    # Attribute any chat-driven memory add to the authenticated user when auth is on
+    # (best-effort; "" when auth is disabled — the default no-auth profile).
+    author = ""
+    try:
+        auth = getattr(state, "auth", None)
+        if auth is not None and auth.is_enabled:
+            token = request.cookies.get("tlsoc_token") or _bearer(request)
+            user = auth.verify(token) if token else None
+            author = user.username if user else ""
+    except Exception:  # noqa: BLE001 — attribution is best-effort
+        author = ""
     resp = await state.chat_engine.chat(
         body.message, state.prefs, case_id=body.case_id, history=body.history,
-        context=body.context,
+        context=body.context, author=author,
     )
     return resp.model_dump(mode="json")
 
@@ -386,6 +399,164 @@ async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
             for rb in load_runbooks()
         ],
     }
+
+
+# --------------------------------------------------------------------------- #
+# RAG knowledge base — see + manage the corpus the investigator/chat retrieve
+# from. Imports take effect immediately (same in-process corpus as retrieve()).
+# --------------------------------------------------------------------------- #
+class RagImportRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=512)
+    text: str = Field(..., min_length=1)
+    source: str = "imported"
+    tags: list[str] = Field(default_factory=list)
+
+
+_RAG_MAX_TEXT = 1_000_000  # ~1MB cap on a single imported document body
+
+
+@router.get("/rag/stats")
+async def rag_stats(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Corpus stats: total chunks, count by source, embedding model/dim, doc count."""
+    return await state.rag.rag_stats()
+
+
+@router.get("/rag/documents")
+async def rag_documents(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """List all documents in the RAG corpus (seeds grouped as seed:<source>)."""
+    docs = await state.rag.list_documents()
+    return {"documents": docs, "count": len(docs)}
+
+
+@router.get("/rag/documents/{document_id}")
+async def rag_document(document_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """A single document + its chunks. 404 if no such document."""
+    doc = await state.rag.get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return doc
+
+
+@router.post("/rag/import")
+async def rag_import(body: RagImportRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Import a free-text document into the RAG corpus. Chunked + embedded; takes
+    effect immediately for retrieval. 400 on empty/oversized text."""
+    title = (body.title or "").strip()
+    text = body.text or ""
+    if not title or not text.strip():
+        raise HTTPException(status_code=400, detail="title and text are required")
+    if len(text) > _RAG_MAX_TEXT:
+        raise HTTPException(status_code=400, detail="text too large (max ~1MB)")
+    result = await state.rag.import_document(
+        title, text, source=(body.source or "imported").strip() or "imported", tags=body.tags
+    )
+    if not result.get("chunk_count"):
+        raise HTTPException(status_code=400, detail="document produced no indexable chunks")
+    return result
+
+
+@router.delete("/rag/documents/{document_id}")
+async def rag_delete_document(
+    document_id: str,
+    force: bool = False,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Delete an imported document. 404 if missing; 400 if a guarded seed source
+    (runbook/mitre/suppression/resolved_case) unless ``?force=true``."""
+    result = await state.rag.delete_document(document_id, force=force)
+    if not result.get("found"):
+        raise HTTPException(status_code=404, detail="document not found")
+    if result.get("guarded"):
+        raise HTTPException(
+            status_code=400,
+            detail="built-in seed corpus is protected; pass force=true to delete",
+        )
+    return {"document_id": document_id, "deleted": result.get("deleted", 0)}
+
+
+@router.get("/rag/search")
+async def rag_search(
+    q: str,
+    top_k: int = 5,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Run a retrieval against the live corpus and return the chunks RAG would feed
+    an investigation — so an operator can SEE what the knowledge base returns."""
+    query = (q or "").strip()
+    if not query:
+        return {"query": "", "chunks": [], "count": 0}
+    await state.rag.ensure_seeded()
+    chunks = await state.rag.retrieve(query, top_k=max(1, min(int(top_k or 5), 50)))
+    return {
+        "query": query,
+        "count": len(chunks),
+        "chunks": [c.model_dump() for c in chunks],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Operator MEMORY — durable facts the agents remember (auto-injected as TRUSTED
+# operator context into BOTH automated investigations and chat). Editing is
+# EXPLICIT (here, source="human") or via chat ("remember:"/"forget", source="agent").
+# Memory NEVER overrides the deterministic case_manager — it only informs the LLM.
+# --------------------------------------------------------------------------- #
+class MemoryCreate(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+    category: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class MemoryUpdate(BaseModel):
+    text: str | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+    active: bool | None = None
+
+
+@router.get("/memory")
+async def list_memory(
+    active_only: bool = False, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """List operator memory entries (newest first). ``?active_only=true`` hides
+    de-activated facts."""
+    entries = await state.memory.list(active_only=active_only)
+    return {
+        "entries": [e.model_dump(mode="json") for e in entries],
+        "count": len(entries),
+    }
+
+
+@router.post("/memory")
+async def add_memory(body: MemoryCreate, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Add an operator fact (source='human'). Auto-injected into future
+    investigations + chat as TRUSTED context."""
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    entry = await state.memory.add(
+        text, category=body.category, tags=body.tags, source="human",
+    )
+    return entry.model_dump(mode="json")
+
+
+@router.put("/memory/{entry_id}")
+async def update_memory(
+    entry_id: str, body: MemoryUpdate, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Edit a memory entry (text/category/tags) or toggle ``active``."""
+    updated = await state.memory.update(entry_id, **body.model_dump(exclude_none=True))
+    if updated is None:
+        raise HTTPException(status_code=404, detail="memory entry not found")
+    return updated.model_dump(mode="json")
+
+
+@router.delete("/memory/{entry_id}")
+async def delete_memory(entry_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Permanently delete a memory entry. 404 if missing."""
+    ok = await state.memory.delete(entry_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="memory entry not found")
+    return {"ok": True, "id": entry_id}
 
 
 @router.get("/playbooks")

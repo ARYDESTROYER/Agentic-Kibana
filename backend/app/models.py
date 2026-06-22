@@ -24,7 +24,7 @@ from .constants import (
     UsageOutcome,
     Verdict,
 )
-from .utils import coerce_float, dotted_get, iso_now, parse_es_timestamp, to_millis
+from .utils import coerce_float, dotted_get, iso_now, new_id, parse_es_timestamp, to_millis
 
 
 # --------------------------------------------------------------------------- #
@@ -267,6 +267,30 @@ class CaseComment(BaseModel):
     body: str = ""
 
 
+class MemoryEntry(BaseModel):
+    """A durable operator FACT the agents remember across cases + chats (the
+    Claude.ai-style "MEMORY" feature). Examples: "10.0.0.0/8 is internal",
+    "Nessus scans run Sun 02:00 from 10.1.2.3", "bastion01 is a jump box".
+
+    Memory is auto-injected as a DISTINCT, TRUSTED operator-context block into BOTH
+    automated investigations and chat (it ranks above untrusted evidence but BELOW
+    base role rules + playbook procedure, and NEVER overrides the deterministic
+    case_manager — it only INFORMS the LLM). ``source`` records how it got here:
+    ``human`` (explicit add via the UI / "remember: …") or ``agent`` (the chat
+    engine stored the TEXT THE USER ASKED to remember — never raw log/tool output).
+    """
+
+    id: str = Field(default_factory=lambda: new_id("mem-"))
+    text: str = ""
+    category: str = ""
+    tags: list[str] = Field(default_factory=list)
+    source: str = "human"            # human | agent
+    author: str = ""
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+    active: bool = True
+
+
 # --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
@@ -461,6 +485,15 @@ class DiscoverLink(BaseModel):
     time_to: str = "now"
 
 
+class MemorySuggestion(BaseModel):
+    """A durable fact the chat agent NOTICED and proposes to remember. The UI shows
+    it for the analyst to confirm before it is saved — the agent never auto-saves a
+    suggestion (only explicit "remember: …" commands are executed)."""
+
+    text: str = ""
+    reason: str = ""
+
+
 class ChatResponse(BaseModel):
     answer: str
     table: dict[str, Any] | None = None     # {columns:[], rows:[[...]]}
@@ -468,6 +501,10 @@ class ChatResponse(BaseModel):
     discover: DiscoverLink | None = None
     case_id: str | None = None
     cost: float = 0.0
+    # Memory feedback (operator MEMORY feature): what the agent changed deterministically
+    # on this turn (echoed for the UI), and an optional un-saved suggestion to confirm.
+    memory_action: dict[str, Any] | None = None
+    memory_suggestion: MemorySuggestion | None = None
 
 
 class InvestigateRequest(BaseModel):

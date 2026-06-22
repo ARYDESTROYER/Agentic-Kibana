@@ -13,6 +13,7 @@ A Chroma-backed ``VectorStore`` can be dropped in behind the same interface
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
@@ -20,9 +21,11 @@ from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
 from ..constants import CaseStatus
+from ..engine.chunking import chunk_text
 from ..engine.runbooks import corpus_items as runbook_corpus_items
 from ..llm.gateway import LLMGateway
 from ..models import RagChunk
+from ..utils import iso_now
 from .base import Tool, ToolResult
 from .vectorstore import (
     EmbeddingSpaceMismatch,
@@ -36,6 +39,22 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..stores.cases import CaseStore
 
 logger = logging.getLogger("tlsoc.tools.rag")
+
+# Built-in seed corpus sources — guarded from deletion via the management API
+# unless an explicit force=True is passed (so an operator cannot accidentally wipe
+# the shipped knowledge base while curating imported documents).
+SEED_SOURCES = frozenset({"runbook", "mitre", "suppression", "resolved_case"})
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(title: str) -> str:
+    slug = _SLUG_RE.sub("-", (title or "").strip().lower()).strip("-")
+    return slug[:60] or "document"
+
+
+def _shorthash(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:8]
 
 
 # --------------------------------------------------------------------------- #
@@ -362,6 +381,148 @@ class RagService:
                 "index_resolved_case failed for %s: %s", getattr(case, "case_id", "?"), exc
             )
             return 0
+
+    # ----------------------------------------------------------------- #
+    # RAG knowledge-base management (see + manage the corpus). A "document"
+    # is the set of chunks sharing ``metadata.document_id``. Imports affect
+    # ``retrieve`` immediately (same corpus). All methods FAIL-SAFE.
+    # ----------------------------------------------------------------- #
+    async def import_document(
+        self,
+        title: str,
+        text: str,
+        *,
+        source: str = "imported",
+        tags: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Chunk + embed ``text`` and add it as a managed document.
+
+        Returns ``{document_id, title, source, chunk_count}``. A stable
+        ``document_id = imported:<slug>:<shorthash>`` groups the chunks; each chunk
+        gets ``doc_id = f"{document_id}:{i}"`` and the management metadata
+        (document_id/title/source/tags/added_at/chunk_index/n_chunks). FAIL-SAFE:
+        on any failure logs and returns ``chunk_count: 0`` (never raises)."""
+        title = (title or "").strip() or "Untitled"
+        tags = list(tags or [])
+        try:
+            await self.ensure_seeded()
+            pieces = chunk_text(text or "")
+            if not pieces:
+                return {"document_id": "", "title": title, "source": source, "chunk_count": 0}
+            document_id = f"imported:{_slugify(title)}:{_shorthash(text)}"
+            added_at = iso_now()
+            n = len(pieces)
+            items: list[dict[str, Any]] = [
+                {
+                    "text": piece,
+                    "source": source or "imported",
+                    "doc_id": f"{document_id}:{i}",
+                    "metadata": {
+                        "document_id": document_id,
+                        "title": title,
+                        "source": source or "imported",
+                        "tags": tags,
+                        "added_at": added_at,
+                        "chunk_index": i,
+                        "n_chunks": n,
+                    },
+                }
+                for i, piece in enumerate(pieces)
+            ]
+            added = await self._embed_and_add(items)
+            return {
+                "document_id": document_id,
+                "title": title,
+                "source": source or "imported",
+                "chunk_count": added,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG import_document(%r) failed: %s", title, exc)
+            return {"document_id": "", "title": title, "source": source, "chunk_count": 0}
+
+    async def list_documents(self) -> list[dict[str, Any]]:
+        """All documents in the corpus (seeds grouped as ``seed:<source>``). Never raises."""
+        try:
+            await self.ensure_seeded()
+            return await self._store.list_documents()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG list_documents failed: %s", exc)
+            return []
+
+    async def get_document(self, document_id: str) -> dict[str, Any] | None:
+        """A document + its chunks (as dicts), or None if no such document. Never raises."""
+        try:
+            await self.ensure_seeded()
+            chunks = await self._store.list_chunks(document_id)
+            if not chunks:
+                return None
+            first = chunks[0]
+            meta = first.metadata or {}
+            return {
+                "document_id": document_id,
+                "title": str(meta.get("title") or document_id),
+                "source": first.source,
+                "tags": list(meta.get("tags") or []),
+                "added_at": meta.get("added_at") or "",
+                "chunk_count": len(chunks),
+                "embedding_model": first.embedding_model,
+                "dim": int(first.dim or len(first.embedding) or 0),
+                "chunks": [
+                    {
+                        "text": c.text,
+                        "source": c.source,
+                        "chunk_index": int((c.metadata or {}).get("chunk_index", i) or i),
+                        "metadata": dict(c.metadata or {}),
+                    }
+                    for i, c in enumerate(chunks)
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG get_document(%s) failed: %s", document_id, exc)
+            return None
+
+    async def delete_document(self, document_id: str, *, force: bool = False) -> dict[str, Any]:
+        """Delete a document's chunks. Guards the built-in seed sources
+        (runbook/mitre/suppression/resolved_case) unless ``force=True``.
+
+        Returns ``{deleted, guarded, found}``: ``found`` is whether the document
+        existed, ``guarded`` is True when a seed source was refused, ``deleted`` is
+        the chunk count removed. Never raises."""
+        try:
+            await self.ensure_seeded()
+            chunks = await self._store.list_chunks(document_id)
+            if not chunks:
+                return {"deleted": 0, "guarded": False, "found": False}
+            src = chunks[0].source
+            # A seed pseudo-document_id is "seed:<source>"; the source itself also
+            # identifies a guarded built-in corpus.
+            is_seed = src in SEED_SOURCES or document_id.startswith("seed:")
+            if is_seed and not force:
+                return {"deleted": 0, "guarded": True, "found": True}
+            removed = await self._store.delete_document(document_id)
+            return {"deleted": removed, "guarded": False, "found": True}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG delete_document(%s) failed: %s", document_id, exc)
+            return {"deleted": 0, "guarded": False, "found": False}
+
+    async def rag_stats(self) -> dict[str, Any]:
+        """Corpus stats: total chunks, count by source, embedding model + dim, and
+        the document count. Never raises."""
+        try:
+            await self.ensure_seeded()
+            stats = await self._store.stats()
+            docs = await self._store.list_documents()
+            stats["document_count"] = len(docs)
+            return stats
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAG rag_stats failed: %s", exc)
+            return {
+                "total_chunks": 0,
+                "by_source": {},
+                "embedding_model": "",
+                "dim": 0,
+                "document_count": 0,
+            }
 
     async def retrieve(self, query: str, top_k: int | None = None) -> list[RagChunk]:
         """Return the top-k most relevant chunks for ``query``. Never raises.

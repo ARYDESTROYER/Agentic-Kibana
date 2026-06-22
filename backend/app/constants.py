@@ -37,6 +37,14 @@ USAGE_READ_PATTERN = f"{USAGE_INDEX}-*"
 CONFIG_DOC_ID = "preferences"
 CURSOR_DOC_ID = "primary"
 
+# Operator MEMORY (durable facts the agents remember). Backend-agnostic: stored
+# as a single KV document (one JSON list of entries) under this namespace/key, so
+# it needs NO new ES index / SQL table / migration. The ES backend stores it as a
+# doc in the existing CONFIG_INDEX; the SQL backend uses the shared KV table.
+MEMORY_NS = "memory"
+MEMORY_KEY = "entries"
+MEMORY_DOC_ID = "memory"      # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""

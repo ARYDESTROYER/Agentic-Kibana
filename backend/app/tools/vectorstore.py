@@ -69,6 +69,89 @@ class VectorStore(ABC):
         """Return the (model, dim) the store currently holds, or None if empty."""
         return None
 
+    # --------------------------------------------------------------------- #
+    # Document management (see + manage the RAG corpus). A "document" is the
+    # set of chunks sharing ``metadata["document_id"]``. Seed/legacy chunks
+    # with no ``document_id`` are grouped under a synthetic ``seed:<source>``
+    # pseudo-document so they stay visible. All FAIL-SAFE: never raise, empty
+    # store → empty result.
+    # --------------------------------------------------------------------- #
+    @abstractmethod
+    async def list_documents(self) -> list[dict[str, Any]]:
+        """Group stored chunks by document → one dict per document:
+        ``{document_id, title, source, chunk_count, embedding_model, dim, added_at}``."""
+
+    @abstractmethod
+    async def list_chunks(self, document_id: str) -> list[StoredChunk]:
+        """All stored chunks belonging to ``document_id`` (chunk_index order)."""
+
+    @abstractmethod
+    async def delete_document(self, document_id: str) -> int:
+        """Remove every chunk of ``document_id``; return the number removed."""
+
+    @abstractmethod
+    async def stats(self) -> dict[str, Any]:
+        """Corpus stats: ``{total_chunks, by_source, embedding_model, dim}``."""
+
+
+def _document_id_of(chunk: StoredChunk) -> str:
+    """The grouping key for a chunk: its explicit ``metadata.document_id`` or a
+    synthetic ``seed:<source>`` so legacy/seed chunks remain a visible document."""
+    doc_id = (chunk.metadata or {}).get("document_id")
+    if doc_id:
+        return str(doc_id)
+    return f"seed:{chunk.source or 'unknown'}"
+
+
+def _group_documents(chunks: list[StoredChunk]) -> list[dict[str, Any]]:
+    """Group ``chunks`` into the list_documents() shape. Stable, never raises."""
+    groups: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for c in chunks:
+        try:
+            did = _document_id_of(c)
+            meta = c.metadata or {}
+            if did not in groups:
+                order.append(did)
+                groups[did] = {
+                    "document_id": did,
+                    "title": str(meta.get("title") or did),
+                    "source": c.source or "unknown",
+                    "chunk_count": 0,
+                    "embedding_model": c.embedding_model or "",
+                    "dim": int(c.dim or len(c.embedding) or 0),
+                    "added_at": meta.get("added_at") or "",
+                    "tags": list(meta.get("tags") or []),
+                }
+            g = groups[did]
+            g["chunk_count"] += 1
+            # Prefer a concrete title/added_at if a later chunk carries one.
+            if meta.get("title") and g["title"] in (did, ""):
+                g["title"] = str(meta["title"])
+            if meta.get("added_at") and not g["added_at"]:
+                g["added_at"] = meta["added_at"]
+        except Exception:  # noqa: BLE001 — management must never raise
+            continue
+    return [groups[d] for d in order]
+
+
+def _stats_of(chunks: list[StoredChunk]) -> dict[str, Any]:
+    by_source: dict[str, int] = {}
+    model = ""
+    dim = 0
+    for c in chunks:
+        by_source[c.source or "unknown"] = by_source.get(c.source or "unknown", 0) + 1
+        if not model and c.embedding_model:
+            model = c.embedding_model
+        if not dim:
+            dim = int(c.dim or len(c.embedding) or 0)
+    return {
+        "total_chunks": len(chunks),
+        "by_source": by_source,
+        "embedding_model": model,
+        "dim": dim,
+    }
+
 
 class InMemoryVectorStore(VectorStore):
     def __init__(self) -> None:
@@ -108,6 +191,22 @@ class InMemoryVectorStore(VectorStore):
             return None
         c = self._chunks[0]
         return (c.embedding_model, c.dim or len(c.embedding))
+
+    async def list_documents(self) -> list[dict[str, Any]]:
+        return _group_documents(list(self._chunks))
+
+    async def list_chunks(self, document_id: str) -> list[StoredChunk]:
+        out = [c for c in self._chunks if _document_id_of(c) == document_id]
+        out.sort(key=lambda c: int((c.metadata or {}).get("chunk_index", 0) or 0))
+        return out
+
+    async def delete_document(self, document_id: str) -> int:
+        before = len(self._chunks)
+        self._chunks = [c for c in self._chunks if _document_id_of(c) != document_id]
+        return before - len(self._chunks)
+
+    async def stats(self) -> dict[str, Any]:
+        return _stats_of(list(self._chunks))
 
 
 class ESVectorStore(VectorStore):
@@ -226,6 +325,64 @@ class ESVectorStore(VectorStore):
         src = hits[0].get("_source", {}) or {}
         dim = int(src.get("dim", 0) or len(src.get("embedding", []) or []))
         return (str(src.get("embedding_model", "")), dim)
+
+    async def _scan_all(self, *, with_ids: bool = False) -> list[tuple[str, StoredChunk]]:
+        """Return all stored chunks (and their ES ``_id``). Never raises."""
+        out: list[tuple[str, StoredChunk]] = []
+        try:
+            if not await self._es.index_exists(self._index):
+                return out
+            # The corpus is small (seeds + a handful of imported docs); a single
+            # large match_all page is sufficient and avoids a scroll dependency.
+            resp = await self._es.search(
+                self._index, {"size": 10000, "query": {"match_all": {}}}
+            )
+            for hit in resp.get("hits", {}).get("hits", []):
+                src = hit.get("_source", {}) or {}
+                chunk = StoredChunk(
+                    text=str(src.get("text", "")),
+                    source=str(src.get("source", "unknown")),
+                    metadata=dict(src.get("metadata", {}) or {}),
+                    embedding=list(src.get("embedding", []) or []),
+                    embedding_model=str(src.get("embedding_model", "")),
+                    dim=int(src.get("dim", 0) or 0),
+                )
+                out.append((str(hit.get("_id", "")), chunk))
+        except Exception as exc:  # noqa: BLE001 — management must never raise
+            logger.warning("RAG ES scan failed: %s", exc)
+        return out
+
+    async def list_documents(self) -> list[dict[str, Any]]:
+        return _group_documents([c for _id, c in await self._scan_all()])
+
+    async def list_chunks(self, document_id: str) -> list[StoredChunk]:
+        out = [c for _id, c in await self._scan_all() if _document_id_of(c) == document_id]
+        out.sort(key=lambda c: int((c.metadata or {}).get("chunk_index", 0) or 0))
+        return out
+
+    async def delete_document(self, document_id: str) -> int:
+        ids = [
+            _id
+            for _id, c in await self._scan_all()
+            if _document_id_of(c) == document_id and _id
+        ]
+        if not ids:
+            return 0
+        delete_doc = getattr(self._es, "delete_doc", None)
+        if delete_doc is None:
+            logger.warning("ES client has no delete_doc; cannot delete RAG document")
+            return 0
+        removed = 0
+        for _id in ids:
+            try:
+                await delete_doc(self._index, _id, refresh=True)
+                removed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("delete RAG chunk %s failed: %s", _id, exc)
+        return removed
+
+    async def stats(self) -> dict[str, Any]:
+        return _stats_of([c for _id, c in await self._scan_all()])
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
