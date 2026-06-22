@@ -914,3 +914,47 @@
 - Status: in-progress — webui security/correctness review running; docs being updated;
   then commit + push.
 - Next: apply review fixes; finish README/USAGE; push branch `Testing`.
+
+### 2026-06-22 — backend — RAG ingest/management + visibility
+- Context: "see the RAG" + import documents and index them; then see exactly what the corpus contains.
+- Did: engine/chunking.py (chunk_text); VectorStore ABC list_documents/list_chunks/delete_document/stats (InMemory+ES+SQL); RagService import_document/list_documents/get_document/delete_document/rag_stats (seeds guarded; force flag); routes GET /rag/stats,/rag/documents,/rag/documents/{id}, POST /rag/import, DELETE /rag/documents/{id}, GET /rag/search.
+- Tests: test_rag_management.py (11). Full suite green.
+- Status: done.
+
+### 2026-06-22 — backend — agent memory (Claude.ai-style)
+- Context: a memory of the model we can add/remove from, by telling an agent to remember/forget, like claude.ai.
+- Did: stores/memory.py MemoryStore over KVStore (+EsKVStore adapter; SQL via SqlKVStore) — no new index; MemoryEntry model; prompts.render_memory() -> <<<MEMORY>>> TRUSTED block + fence() neutralises forged markers; investigator/graph/pipeline thread memory through; chat injects memory + emits memory_action (executed, audited) / memory_suggestion (UI-confirm); routes GET/POST/PUT/DELETE /memory. Memory never overrides the deterministic CaseManager.
+- Tests: test_memory.py (14). Full suite green.
+- Status: done.
+
+### 2026-06-22 — backend — case explainability (CONTEXT audit + /rationale)
+- Context: see the model's thinking, the evidence/data sources, the commands it ran, and exactly how it reached its conclusion.
+- Did: ActionType.CONTEXT; investigator emits a CONTEXT audit record (persona/playbook/memory/knowledge/enrichment) + reasoning excerpt on VERDICT; GET /cases/{id}/rationale (_build_rationale) returns decision/reasoning/knowledge/tools(commands)/memory_used/enrichment/playbook/mitre/evidence + the deterministic decision_rationale.
+- Tests: test_explainability.py (5). 340 total green.
+- Status: done.
+
+### 2026-06-22 — webui foundation+pages engineer — Knowledge/RAG + Memory pages & api/types contracts
+- Did: api.ts +RAG/memory/rationale methods + chat memory fields; types.ts +Rag*/MemoryEntry/CaseRationale; App.tsx+Shell.tsx routed Knowledge+Memory (Platform nav); new KnowledgePage (stats, import paste+upload, documents table+chunk flyout, guarded force-delete, retrieval search) + MemoryPage (add/inline-edit/delete/active-toggle).
+- Tests: npm run build GREEN. Status: done.
+
+### 2026-06-22 — webui rationale engineer — case "Why" explainability tab
+- Did: CaseDetailFlyout 'why' tab consuming api.caseRationale — deterministic decision, reasoning, knowledge used, commands the agent ran, memory applied, enrichment, playbook, MITRE; trace-tab polish. UNTRUSTED-safe. Status: done.
+
+### 2026-06-22 — webui chat-memory engineer — chat memory action/suggestion UI
+- Did: ChatPage memory-action echo + dismissible "remember this?" suggestion (calls api.addMemory) with per-message double-save guard; UNTRUSTED text rendered plain. Status: done.
+
+### 2026-06-22 — webui dashboards engineer — RAG/memory health on Metrics + Overview
+- Did: Metrics "Knowledge base & memory" section (RAG docs/chunks, embedding model+dim, memory facts/active, corpus-by-source, memory-by-author); Overview compact RAG/memory nav tiles; non-fatal loading. Status: done.
+
+### 2026-06-22 — webui collaboration engineer — case-list collaboration
+- Did: CasesPage sortable assignee column, tags + comment-count badges, collaboration/assignee filters. Status: done.
+
+### 2026-06-22 — webui review engineer — integrated review
+- Did: reviewed all 11 changed/new files; fixed one invalid EUI icon (bookmark->bell) on the two memory tiles; verified UNTRUSTED-safety (#9), non-fatal data flows, no regressions, no new deps; npm run build GREEN. Verdict: safe to commit.
+
+### 2026-06-22 — orchestrator — round wrap-up: explainability, RAG management, agent memory, dashboards/collaboration
+- Context: ship "see the RAG" (import + visibility), Claude.ai-style agent memory (remember/forget), and case explainability (the model's thinking + data sources + commands + how it concluded), plus the webui surfaces and dashboard/collaboration polish — additive, spine + the 12 non-negotiables intact.
+- Did: integrated 3 backend features (engine/chunking.py + RagService/VectorStore management; stores/memory.py MemoryStore over KVStore; ActionType.CONTEXT + GET /cases/{id}/rationale) committed as c4c6b3d, d324028; webui Knowledge + Memory pages, case "Why" tab, chat memory UI, Metrics/Overview RAG+memory health, Cases-list collaboration committed as c0fa662. Memory + RAG inject as TRUSTED context but NEVER override the deterministic CaseManager; all attacker-influenceable text renders plain/EuiCodeBlock (#9).
+- Tests: backend pytest 340 passed (was 310; +test_rag_management 11, +test_memory 14, +test_explainability 5); webui npm run build GREEN (2330 modules), no new npm deps.
+- Status: done. Docs updated this pass (doc-maintainer): CLAUDE.md (test count 340 + section 4 layout + new Done group + Remaining trimmed), ROADMAP.md (done entry + Wave-3 sub-items), CHANGELOG.md (new top entry), docs/USAGE.md (Knowledge/Memory/Why how-tos + endpoints), README.md (feature bullets + 340), SECURITY.md (TRUSTED-context §4.3 + CONTEXT action type). Journal appended above.
+- Next: Wave-3 leftovers — temporal KG + cross-case memory linkage, MITRE-from-STIX, detection-rule RAG corpus, HITL/Auto-Ops webui surfaces.

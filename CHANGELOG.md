@@ -7,6 +7,79 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-22 — Case explainability, RAG management & visibility, agent memory + dashboards/collaboration
+
+Backend offline suite **340 tests green** (was 310); webui `npm run build` GREEN
+(2330 modules), no new npm deps. Additive; the spine and the 12 non-negotiables are
+intact. Developed on the `Testing` branch.
+
+### Added
+- **RAG ingest + management + visibility ("see the RAG")** — `engine/chunking.py`
+  (`chunk_text`, a dependency-free paragraph-pack + overlap chunker); the
+  `VectorStore` ABC gained `list_documents()` / `list_chunks()` / `delete_document()`
+  / `stats()` (implemented in the InMemory, ES `dense_vector`, and SQL stores) — a
+  "document" is the chunks sharing `metadata["document_id"]`, seeds grouped as
+  `seed:<source>`. `RagService` gained `import_document(title, text, *, source, tags)`,
+  `list_documents()`, `get_document(id)`, `delete_document(id, *, force)`,
+  `rag_stats()`; the built-in seed sources (`runbook` / `mitre` / `suppression` /
+  `resolved_case`) are **guarded against deletion unless `force=true`**. New routes:
+  `GET /api/rag/stats`, `GET /api/rag/documents`, `GET /api/rag/documents/{id}`,
+  `POST /api/rag/import`, `DELETE /api/rag/documents/{id}?force=`, and
+  `GET /api/rag/search?q=&top_k=` (run a live retrieval to SEE what RAG returns).
+  Tests: `test_rag_management.py` (11).
+- **Agent memory (Claude.ai-style durable operator facts)** — `stores/memory.py`
+  `MemoryStore`, backed by the existing **KVStore** (no new index or migration: ES
+  via a new `EsKVStore` adapter on the config doc, SQL via `SqlKVStore`); a
+  `MemoryEntry` model (`id`, `text`, `category`, `tags`, `source` (`human`|`agent`),
+  `author`, `created_at`, `updated_at`, `active`). Memory is auto-injected into BOTH
+  automated investigations and chat as a DISTINCT **`<<<MEMORY>>>` TRUSTED block**
+  (separate from the fenced UNTRUSTED evidence), with the precedence
+  policy > base > playbook > MEMORY > untrusted; `prompts.render_memory()` + `fence()`
+  neutralise forged `<<<MEMORY>>>` markers. **Memory NEVER overrides the deterministic
+  CaseManager** — it only informs the LLM. Editing is EXPLICIT: REST
+  (`GET/POST/PUT/DELETE /api/memory`, `source=human`) or conversationally in chat
+  ("remember:" / "forget", `source=agent`, user-directed text only, audited). The
+  chat JSON contract gained `memory_action` (executed deterministically + audited)
+  and `memory_suggestion` (returned for UI confirm, never auto-saved). Tests:
+  `test_memory.py` (14).
+- **Case explainability** — the investigator now emits a **CONTEXT audit record**
+  (new `ActionType.CONTEXT`) summarising the persona / playbook / memory / knowledge
+  (RAG snippets) / enrichment it was given, and the VERDICT record carries a reasoning
+  excerpt. New `GET /api/cases/{id}/rationale` assembles a pure, defensive "why"
+  object: verdict / confidence / status / decision_by, persona, playbook (+ reason),
+  `memory_used[]`, `knowledge[]` (RAG/runbook source + snippet), enrichment,
+  `tools[]` (the commands / ES queries the agent ran), reasoning, the **DETERMINISTIC
+  `decision_rationale`** (the close/escalate rationale), `mitre[]`, and `evidence[]`.
+  Tests: `test_explainability.py` (5).
+- **webui — Knowledge & Memory pages + the case "Why" tab** —
+  - **Knowledge page** (`components/Knowledge/KnowledgePage.tsx`): RAG corpus stats
+    header; import (paste textarea + `.txt`/`.md`/`.json`/`.csv` file upload read
+    client-side); a documents table + chunk drill-in flyout; guarded force-delete;
+    and a "Try a retrieval" search showing exactly what RAG returns. New **Platform**
+    nav entry.
+  - **Memory page** (`components/Memory/MemoryPage.tsx`): add / inline-edit / delete /
+    active-toggle durable facts; human-vs-agent source badges; an explainer that you
+    can also say "remember:" / "forget" in Chat. New **Platform** nav entry.
+  - **Case "Why" tab** (`CaseDetailFlyout.tsx`): consumes `/cases/{id}/rationale` —
+    the deterministic decision (prominent), agent reasoning, knowledge used (RAG /
+    runbook snippets with provenance), the exact commands / queries the agent ran,
+    operator memory applied, enrichment, playbook, and MITRE; plus trace-tab polish.
+  - **Chat memory UI** (`ChatPage.tsx`): a calm memory-action confirmation echo + a
+    dismissible "remember this?" suggestion that calls `POST /api/memory`, with a
+    per-message double-save guard.
+
+### Changed
+- **Dashboards** — the Metrics page gained a "Knowledge base & memory" section (RAG
+  docs/chunks, embedding model + dim, memory facts/active, corpus-by-source,
+  memory-by-author); the Overview gained compact RAG/memory nav tiles. Loading is
+  non-fatal.
+- **Cases list collaboration** (`CasesPage.tsx`) — a sortable assignee column, tags +
+  comment-count badges, and collaboration / assignee filters.
+- All attacker-influenceable text (RAG chunks, memory text, tool queries, tags, chat
+  suggestions) renders as plain text / `EuiCodeBlock` — never
+  `dangerouslySetInnerHTML` (non-negotiable #9 upheld). A review pass fixed one
+  invalid EUI icon.
+
 ## [Unreleased] — 2026-06-22 — Wave 3: metrics, feedback loop, collaboration, white-label UI + CI
 
 Backend offline suite **310 tests green**; webui builds clean. Additive; spine
