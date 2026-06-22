@@ -14,10 +14,30 @@ body {
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* --- Runtime-themeable accent custom properties. ---
+   Defaults are the historical brand colours so first paint (before any branding
+   loads) is byte-identical to today. `setAccent()` (lib/theme.ts) overrides these
+   on <html> when branding supplies an accent. --soc-success is fixed (semantic). */
+:root {
+  --soc-accent: #1c66e0;
+  --soc-accent2: #8a55c9;
+  --soc-accent-tint: rgba(28, 102, 224, 0.14);
+  --soc-success: #00a38c;
+  /* User chat bubble second stop. Defaults to the original lighter-blue so the
+     bubble is byte-identical today; setAccent() points it at the accent so a
+     custom brand re-themes it. */
+  --soc-bubble2: #2f74e8;
+}
+
 /* --- Brand bar: a thin gradient accent under the fixed header. --- */
 .socBrandAccent {
   height: 3px;
-  background: linear-gradient(90deg, #1c66e0 0%, #8a55c9 50%, #00a38c 100%);
+  background: linear-gradient(
+    90deg,
+    var(--soc-accent) 0%,
+    var(--soc-accent2) 50%,
+    var(--soc-success) 100%
+  );
 }
 
 /* --- Logo mark (gradient rounded square with a glyph). --- */
@@ -28,7 +48,7 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #1c66e0 0%, #8a55c9 100%);
+  background: linear-gradient(135deg, var(--soc-accent) 0%, var(--soc-accent2) 100%);
   color: #fff;
   box-shadow: 0 2px 6px rgba(28, 102, 224, 0.35);
 }
@@ -101,7 +121,7 @@ body {
 }
 .socBubble--user {
   align-self: flex-end;
-  background: linear-gradient(135deg, #1c66e0 0%, #2f74e8 100%);
+  background: linear-gradient(135deg, var(--soc-accent) 0%, var(--soc-bubble2) 100%);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -129,4 +149,76 @@ body {
   background: rgba(105, 112, 125, 0.1);
   padding: 2px 6px;
   border-radius: 6px;
+}
+
+/* --- Skeleton loaders: a shimmering placeholder block. --- */
+.socSkeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: rgba(105, 112, 125, 0.14);
+}
+.socSkeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.18) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: socShimmer 1.3s ease-in-out infinite;
+}
+@keyframes socShimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* --- Hover preview card (for future case/entity hover previews). --- */
+.socHoverCard {
+  max-width: 340px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--soc-hovercard-bg, rgba(255, 255, 255, 0.98));
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+  border: 1px solid rgba(105, 112, 125, 0.18);
+}
+
+/* --- Page transition: a gentle fade + rise on mount. --- */
+.socPageEnter {
+  animation: socPageEnter 0.22s ease both;
+}
+@keyframes socPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* --- Respect the user's motion preference: zero out transforms/animations. --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .socCard--clickable:hover {
+    transform: none;
+  }
+  .socPageEnter {
+    animation: none;
+  }
+  .socSkeleton::after {
+    animation: none;
+  }
 }

@@ -25,6 +25,7 @@ import {
 import type { HealthResponse } from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS } from '../../lib/theme';
+import { useBranding } from '../../lib/branding';
 
 export type PageId =
   | 'overview'
@@ -36,6 +37,7 @@ export type PageId =
   | 'catalog'
   | 'sources'
   | 'cost'
+  | 'metrics'
   | 'settings';
 
 interface ShellProps {
@@ -63,6 +65,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { id: 'cases', name: 'Cases', icon: 'securityApp' },
       { id: 'investigate', name: 'Investigate', icon: 'inspect' },
       { id: 'chat', name: 'Chat', icon: 'discuss' },
+      { id: 'metrics', name: 'Metrics', icon: 'stats' },
     ],
   },
   {
@@ -94,6 +97,12 @@ export const Shell: React.FC<ShellProps> = ({
 }) => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthErr, setHealthErr] = useState(false);
+  const { branding } = useBranding();
+  // Fall back to the historical wording when branding fields are empty, so the
+  // no-branding header is byte-identical to today.
+  const wordmark = branding.org_name?.trim() || 'Agentic SOC';
+  const tagline = branding.product_name?.trim() || 'Triage console';
+  const logoUrl = branding.logo_data_url?.trim() || '';
 
   useEffect(() => {
     let alive = true;
@@ -142,14 +151,22 @@ export const Shell: React.FC<ShellProps> = ({
           <EuiHeaderSectionItem>
             <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false} style={{ paddingLeft: 12 }}>
               <EuiFlexItem grow={false}>
-                <span className="socLogo">
-                  <EuiIcon type="securityApp" size="m" />
-                </span>
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt={wordmark}
+                    style={{ width: 30, height: 30, borderRadius: 8, objectFit: 'contain' }}
+                  />
+                ) : (
+                  <span className="socLogo">
+                    <EuiIcon type="securityApp" size="m" />
+                  </span>
+                )}
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
                 <div style={{ lineHeight: 1.1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>Agentic SOC</div>
-                  <EuiText size="xs" color="subdued"><span>Triage console</span></EuiText>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{wordmark}</div>
+                  <EuiText size="xs" color="subdued"><span>{tagline}</span></EuiText>
                 </div>
               </EuiFlexItem>
             </EuiFlexGroup>

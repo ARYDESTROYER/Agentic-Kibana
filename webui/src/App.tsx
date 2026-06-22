@@ -16,6 +16,7 @@ import { EuiProvider, EuiEmptyPrompt, EuiLoadingSpinner } from '@elastic/eui';
 import { api, setUnauthorizedHandler } from './lib/api';
 import type { AuthMe } from './lib/types';
 import { applyEuiTheme } from './lib/euiTheme';
+import { BrandingProvider, useBranding } from './lib/branding';
 import { Shell, PageId } from './components/Shell/Shell';
 import { Wizard } from './components/Wizard/Wizard';
 import { LoginScreen } from './components/Auth/LoginScreen';
@@ -27,19 +28,28 @@ import { ScansPage } from './components/Scans/ScansPage';
 import { StandupPage } from './components/Standup/StandupPage';
 import { CatalogPage } from './components/Catalog/CatalogPage';
 import { CostPage } from './components/Cost/CostPage';
+import { MetricsPage } from './components/Metrics/MetricsPage';
 import { SourcesPage } from './components/Sources/SourcesPage';
 import { SettingsPage } from './components/Settings/SettingsPage';
 
 type Boot = 'loading' | 'login' | 'wizard' | 'app';
 
-export const App: React.FC = () => {
+/** Root: provides branding/theme context to the whole tree. */
+export const App: React.FC = () => (
+  <BrandingProvider>
+    <AppShell />
+  </BrandingProvider>
+);
+
+const AppShell: React.FC = () => {
   const [boot, setBoot] = useState<Boot>('loading');
   const [auth, setAuth] = useState<AuthMe | null>(null);
   const [page, setPage] = useState<PageId>('overview');
   const [forceWizard, setForceWizard] = useState(false);
-  const [darkMode, setDarkMode] = useState<boolean>(
-    () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
-  );
+  // Dark mode + theme is owned by the branding context (persisted user override,
+  // branding theme, or — when neither is set — the OS preference, exactly as
+  // before). The local toggle simply forwards to it.
+  const { darkMode, setDarkMode } = useBranding();
 
   // Apply EUI theme stylesheet whenever dark mode changes.
   useEffect(() => {
@@ -172,6 +182,9 @@ export const App: React.FC = () => {
       break;
     case 'cost':
       body = <CostPage />;
+      break;
+    case 'metrics':
+      body = <MetricsPage />;
       break;
     case 'sources':
       body = <SourcesPage />;

@@ -11,6 +11,7 @@
  */
 import type {
   AuthMe,
+  Branding,
   Case,
   CasesResponse,
   ChatResponse,
@@ -18,8 +19,10 @@ import type {
   ConnectionTest,
   ConnectorManifest,
   ConnectorsResponse,
+  FeedbackStats,
   HealthResponse,
   LoginResult,
+  Metrics,
   ModelsResponse,
   PersonasResponse,
   PlaybooksResponse,
@@ -33,6 +36,31 @@ import type {
   StandupResponse,
   UsageSummary,
 } from './types';
+
+/** Payload for POST /api/cases/{id}/feedback (analyst grading). */
+export interface CaseFeedbackInput {
+  analyst?: string;
+  assessment: 'agree' | 'partial' | 'disagree';
+  accuracy?: number;
+  reasoning_quality?: number;
+  action_appropriateness?: number;
+  actual_outcome?: string;
+  time_saved_minutes?: number;
+  comment?: string;
+}
+
+/** Payload for POST /api/cases/{id}/comment. */
+export interface CaseCommentInput {
+  author?: string;
+  body: string;
+}
+
+/** Result of GET /api/cases/{id}/export. */
+export interface CaseExport {
+  filename: string;
+  content_type: string;
+  content: string;
+}
 
 /** Error thrown for any non-2xx backend response. */
 export class ApiError extends Error {
@@ -185,11 +213,38 @@ export const api = {
       `sources/${encodeURIComponent(sourceId)}`,
     ),
 
+  // ---- Branding (PUBLIC; white-label) ---------------------------------- //
+  getBranding: () => request<Branding>('GET', 'branding'),
+  putBranding: (branding: Branding) => request<Branding>('PUT', 'branding', { body: branding }),
+
+  // ---- Metrics + feedback analytics ------------------------------------ //
+  getMetrics: (windowHours = 24) =>
+    request<Metrics>('GET', 'metrics', { query: { window_hours: windowHours } }),
+  getFeedbackStats: () => request<FeedbackStats>('GET', 'feedback/stats'),
+
   // ---- Analytics surfaces ---------------------------------------------- //
   listCases: (query?: Record<string, unknown>) =>
     request<CasesResponse>('GET', 'cases', { query }),
   getCase: (caseId: string) =>
     request<Case>('GET', `cases/${encodeURIComponent(caseId)}`),
+
+  // ---- Case actions (feedback / collaboration / export) ---------------- //
+  caseFeedback: (caseId: string, body: CaseFeedbackInput) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/feedback`, { body }),
+  caseComment: (caseId: string, body: CaseCommentInput) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/comment`, { body }),
+  caseTags: (caseId: string, tags: string[], analyst?: string) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/tags`, {
+      body: { tags, analyst },
+    }),
+  caseAssign: (caseId: string, assignee: string, analyst?: string) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/assign`, {
+      body: { assignee, analyst },
+    }),
+  exportCase: (caseId: string, format: 'json' | 'md' = 'json') =>
+    request<CaseExport>('GET', `cases/${encodeURIComponent(caseId)}/export`, {
+      query: { format },
+    }),
   chat: (message: string, history?: ChatTurn[], caseId?: string) =>
     request<ChatResponse>('POST', 'chat', {
       body: { message, history: history ?? [], case_id: caseId ?? null },
