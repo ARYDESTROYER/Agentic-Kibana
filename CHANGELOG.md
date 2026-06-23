@@ -7,6 +7,54 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-23 — Browse a source's logs + read-only Test-connection & per-source TLS fixes
+
+Backend offline suite **349 tests green** (was 340); webui `npm run build` GREEN,
+no new npm deps. Additive; the spine and the 12 non-negotiables are intact.
+Developed on the `Testing` branch.
+
+### Added
+- **Browse a source's logs** — `GET /api/sources/{id}/logs?limit=&query=&from=&to=`
+  (auth-protected). **Pull** sources (Elasticsearch / OpenSearch / Wazuh) run a
+  bounded (hard-cap **200**), read-only, field-mapping-aware scoped search honoring
+  the source's own `data_view_pattern` / field mapping / TLS; **push** sources return
+  the last N events from a new in-memory **live-tail ring buffer** (cap 500/source)
+  in `IngestService` (or `501` if the connector does not support browse). Each row is
+  `{ ts, source_ip, user, host, rule, severity, message, _raw }` — `_raw` is the full
+  log document; **secrets are never returned**. `404` for an unknown source, `502`
+  for a read failure.
+- **`capabilities: ["browse"]`** on the pull connector manifests, auto-applied to
+  every push receiver (`registry._with_browse`), so the UI shows the Logs tab only
+  where it is supported.
+- **webui — `SourceLogsFlyout`** — a per-source Logs panel (opened by a "Logs"
+  button on each source card, gated on the connector's `browse` capability): an
+  `EuiBasicTable` (timestamp · source.ip · module/rule · severity · message) with
+  expandable rows showing the raw `_source` in an `EuiCodeBlock`, a search box, an
+  `EuiSuperDatePicker` time range (default last 15m), and a **10s live-tail
+  auto-refresh** toggle. All log content renders as plain text / code blocks
+  (UNTRUSTED-safe, non-negotiable #9). `api.sourceLogs` + types added; no new deps.
+
+### Changed / Fixed
+- **Test connection now works for read-only API keys.** `ElasticConnector.test_connection()`
+  no longer gates on `ping()` (a correctly-scoped read-only key cannot do `HEAD /`).
+  It runs the cheap scoped read-only search **first**; HTTP 200 (any/zero hits) →
+  `ok:true, mode:"read_only"` with a green *"Read-only access verified — N events
+  readable in <pattern>. Cluster-monitor privilege not granted (expected for a
+  read-only key)."* `ping()` is now only an extra `cluster_monitor` signal
+  (`mode:"full"` when present), never the pass/fail gate; `ok:false` only when the
+  scoped read fails (auth `401`/`403` on the index, or network/TLS). `ConnectionTest`
+  gained `mode` + `cluster_monitor`; the webui Test-connection result renders the
+  read-only / full success callout.
+- **Per-source TLS is now honored.** Pull connectors previously used the global ES
+  client + field-mapping config only, so a source's `es_verify_certs:false` /
+  `es_ca_cert` / `es_url` / `es_api_key` never applied (observed
+  `CERTIFICATE_VERIFY_FAILED` despite `es_verify_certs:false`). Now
+  `AppState.es_client_for_source()` builds a **per-source ES client** from the
+  source's merged config + secrets (dropping any global mgmt key); the primary log
+  source and the browse endpoint use it, and owned clients are closed on
+  rebuild/shutdown. Sources with no overrides keep using the shared global client
+  (no behaviour change).
+
 ## [Unreleased] — 2026-06-22 — Case explainability, RAG management & visibility, agent memory + dashboards/collaboration
 
 Backend offline suite **340 tests green** (was 310); webui `npm run build` GREEN

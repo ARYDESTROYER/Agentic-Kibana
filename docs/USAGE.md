@@ -127,6 +127,7 @@ wizard's `ConnectorForm`. Behind it:
 | Add / update a source | `POST /api/sources` |
 | Set / clear a per-source secret | `POST /api/sources/{id}/secrets` |
 | Test connectivity | `POST /api/connectors/test` |
+| Browse a source's recent logs | `GET /api/sources/{id}/logs?limit=&query=&from=&to=` (see §2b) |
 | Delete a source | `DELETE /api/sources/{id}` |
 
 **Pull vs push at runtime:**
@@ -149,6 +150,66 @@ Per-source secrets (a webhook token, a Splunk HEC token, a cloud credential) liv
 in the **in-memory secret tier** and are **never persisted** — only the configured
 field *names* are stored on the source (`configured_secrets`). They are lost on a
 backend restart unless also supplied via env/`.env`.
+
+### Test connection — what `ok`, `mode`, and `cluster_monitor` mean
+
+`POST /api/connectors/test` returns `ConnectionTest` `{ ok, message, mode?,
+cluster_monitor? }`. For a **pull** source the test runs the **cheap, scoped,
+read-only search first** — that read is the authoritative pass/fail gate, so a
+correctly-scoped **read-only API key passes** (it does **not** need cluster
+privileges):
+
+- **`ok:true`, `mode:"read_only"`** — the scoped read succeeded but the key lacks
+  `cluster_monitor` (the expected, healthy state for a least-privilege read-only
+  key). The UI shows a green *"Read-only access verified — N events readable in
+  `<pattern>`. Cluster-monitor privilege not granted (expected for a read-only
+  key)."* callout.
+- **`ok:true`, `mode:"full"`, `cluster_monitor:true`** — the scoped read succeeded
+  **and** the key can also `ping()` the cluster (has `cluster_monitor`). A green
+  "Connection verified" callout.
+- **`ok:false`** — only when the **scoped read itself fails**: auth (`401`/`403` on
+  the index → wrong/under-scoped key) or network/TLS (URL not routable, or a
+  private CA isn't trusted). A failed `ping()` alone is **not** a failure anymore.
+
+> A read-only key cannot do `HEAD /` (a cluster-level op), so the test no longer
+> gates on `ping()` — `ping()` is now only the extra `cluster_monitor` signal that
+> upgrades `mode` to `full`. (See `docs/TROUBLESHOOTING.md` §D.)
+
+---
+
+## 2b. Browse a source's logs
+
+Each source card on the **Sources** screen has a **"Logs"** button — shown only for
+connectors that advertise the `browse` capability (`capabilities:["browse"]`: all
+pull connectors, and every push receiver). It opens the **Source Logs flyout**
+(`SourceLogsFlyout`), a live window onto that one source's recent events, backed by
+`GET /api/sources/{id}/logs?limit=&query=&from=&to=` (auth-protected).
+
+| Control | What it does |
+|---|---|
+| **Table** | One row per event: timestamp · `source.ip` · module/rule · severity · message. |
+| **Expand a row** | Reveals the **raw `_source`** document in an `EuiCodeBlock`. |
+| **Search box** | Free-text `query` filter passed to the source. |
+| **Time range** | An `EuiSuperDatePicker` (`from`/`to`); defaults to the **last 15m**. |
+| **Live tail** | A toggle that auto-refreshes every **10s** so new events stream in. |
+
+How the rows are produced depends on the source's runtime mode:
+
+- **Pull sources** (Elasticsearch / OpenSearch / Wazuh) run a **bounded
+  (hard-capped at 200), read-only, field-mapping-aware scoped search** against the
+  source's own `data_view_pattern` / field mapping / TLS — so what you see is
+  exactly what the agent can read, with the same per-source field resolution and
+  certificate settings.
+- **Push sources** (webhook / HEC / syslog / queues / object-stores) have no index
+  to query, so they return the **last N events from an in-memory live-tail ring
+  buffer** (capped at **500 events per source**) that `IngestService` keeps as
+  events arrive. A connector that supports neither returns `501`.
+
+Each row is `{ ts, source_ip, user, host, rule, severity, message, _raw }` where
+`_raw` is the full log document. **Secrets are never returned.** An unknown source
+id returns `404`; a read failure (e.g. an auth/TLS error against a pull source)
+returns `502`. All log content renders as plain text / `EuiCodeBlock` — it is
+attacker-influenceable and fenced/escaped as UNTRUSTED (see `SECURITY.md`).
 
 ---
 
@@ -571,6 +632,12 @@ curl -s -X POST localhost:8088/api/connectors/test \
 
 # List configured sources
 curl -s localhost:8088/api/sources
+
+# Browse a source's recent logs (pull=bounded scoped search ≤200; push=live-tail buffer)
+curl -s "localhost:8088/api/sources/prod-es/logs?limit=50&query=ssh&from=now-15m&to=now"
+# -> [{ "ts": "...", "source_ip": "...", "user": "...", "host": "...",
+#       "rule": "...", "severity": "...", "message": "...", "_raw": { ... } }]
+# 404 unknown source · 501 browse-unsupported connector · 502 read failure
 
 # Delete a source
 curl -s -X DELETE localhost:8088/api/sources/edr-webhook

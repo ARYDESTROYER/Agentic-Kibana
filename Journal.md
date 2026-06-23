@@ -958,3 +958,18 @@
 - Tests: backend pytest 340 passed (was 310; +test_rag_management 11, +test_memory 14, +test_explainability 5); webui npm run build GREEN (2330 modules), no new npm deps.
 - Status: done. Docs updated this pass (doc-maintainer): CLAUDE.md (test count 340 + section 4 layout + new Done group + Remaining trimmed), ROADMAP.md (done entry + Wave-3 sub-items), CHANGELOG.md (new top entry), docs/USAGE.md (Knowledge/Memory/Why how-tos + endpoints), README.md (feature bullets + 340), SECURITY.md (TRUSTED-context §4.3 + CONTEXT action type). Journal appended above.
 - Next: Wave-3 leftovers — temporal KG + cross-case memory linkage, MITRE-from-STIX, detection-rule RAG corpus, HITL/Auto-Ops webui surfaces.
+
+### 2026-06-23 — backend — browse-logs endpoint + read-only test_connection + per-source TLS
+- Context: Part A (browse logs per source) + Part B (Test-connection works for read-only keys; per-source TLS honored).
+- Did: GET /api/sources/{id}/logs (pull=bounded scoped search ≤200 honoring field mapping+TLS; push=in-memory live-tail buffer); capabilities:["browse"] on pull connectors + registry auto-apply for receivers; ConnectionTest +mode/+cluster_monitor; ElasticConnector.test_connection no longer gates on ping (scoped read authoritative; 401/403 vs net/TLS); AppState.es_client_for_source builds a per-source ES client honoring es_verify_certs/es_ca_cert (mgmt key dropped); IngestService per-source ring buffer.
+- Tests: pytest 349 passed (+9, tests/test_browse_and_connection.py).
+- Status: done
+
+### 2026-06-23 — webui — source Browse-logs flyout + read-only test-connection rendering
+- Context: surface per-source log browsing + clearer read-only Test-connection feedback.
+- Did: SourceLogsFlyout (EuiBasicTable + expandable _raw EuiCodeBlock, search, EuiSuperDatePicker, 10s live-tail); SourcesPage gated "Logs" button (browse capability); SourceEditor read-only/full success callout; types + api.sourceLogs.
+- Tests: npm run build GREEN; no new deps.
+- Status: done
+
+### 2026-06-23 — orchestrator — round wrap-up: browse-logs + read-only test-connection + per-source TLS
+- Did: integrated both features (backend commit d35f578, webui commit 5b9537c); 349 backend tests green, webui build green; docs updated this pass (Journal, CHANGELOG, CLAUDE.md, docs/USAGE.md, docs/TROUBLESHOOTING.md, SECURITY.md). Status: done.

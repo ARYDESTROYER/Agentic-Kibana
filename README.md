@@ -192,7 +192,7 @@ values.
 
 ## Status & verification
 
-Verified offline this cycle: **340 backend tests green** (fake/in-memory backends
+Verified offline this cycle: **349 backend tests green** (fake/in-memory backends
 + mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite).
 Live-stack validation against a real SIEM is a deploy step. See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap

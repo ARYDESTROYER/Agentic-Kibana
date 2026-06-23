@@ -76,6 +76,20 @@ a write credential.
 > A source's superuser/admin credential is used by an operator **once**, to mint
 > the read-only key, then never at runtime (non-negotiable #1).
 
+**Connection-test + log-browse stay within the read-only scope.** A pull source's
+"Test connection" (`POST /api/connectors/test`) and the per-source **log browse**
+(`GET /api/sources/{id}/logs`) both exercise only the **scoped, read-only search** —
+the test no longer requires `cluster_monitor`/`ping()`, so a least-privilege
+read-only key suffices and nothing needs a broader credential. The browse endpoint
+is **auth-protected** (subject to the optional API-auth gate below) and returns
+**log data only** — its rows (`ts`/`source_ip`/`user`/`host`/`rule`/`severity`/
+`message`/`_raw`) are read from the source via the **per-source read-only ES
+client** (honoring that source's `es_verify_certs`/`es_ca_cert`), are **bounded**
+(pull: hard-cap 200; push: an in-memory ≤500/source live-tail buffer), and **never
+include secret values**. The returned `_raw` document and every field are
+attacker-influenceable, so the webui renders them strictly as plain text /
+`EuiCodeBlock` (non-negotiable #9).
+
 ## 3. Secrets handling
 
 | Property | Behaviour | Where |

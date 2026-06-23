@@ -146,23 +146,64 @@ you expect is listed by `GET /api/cases`.
 **Symptom.** The wizard / Sources screen "Test connection"
 (`POST /api/connectors/test`) returns `ok:false` with a message.
 
-**Likely cause / fix (by source type):**
+> **A read-only key now reports SUCCESS, not a scary "unreachable".** For a pull
+> source the test runs the cheap **scoped read-only search first** and treats *that*
+> read as the authoritative gate — it no longer requires `ping()` (`HEAD /`), which
+> a least-privilege read-only key cannot do. A correctly-scoped read-only key
+> returns **`ok:true, mode:"read_only"`** with a green *"Read-only access verified —
+> N events readable in `<pattern>`. Cluster-monitor privilege not granted (expected
+> for a read-only key)."* If the key *also* has `cluster_monitor`, you get
+> **`ok:true, mode:"full", cluster_monitor:true`** ("Connection verified"). A failed
+> `ping()` alone is **no longer** a failure. (See `docs/USAGE.md` §2 "Test
+> connection".)
+
+**Likely cause / fix (by source type) — when it genuinely returns `ok:false`:**
 - **Bad URL / unreachable** — for a pull source, the `es_url` (or equivalent) is
   wrong or not routable from the backend container. Use the in-cluster container
   name, not `localhost`.
-- **Bad key / auth** — the read-only API key is wrong, revoked, or under-scoped.
-  Re-mint it scoped to the log pattern (read-only).
+- **Bad key / auth** — the read-only API key is wrong, revoked, or under-scoped (a
+  `401`/`403` on the index when the scoped read runs). Re-mint it scoped to the log
+  pattern (read-only: `read`, `view_index_metadata`).
 - **TLS / cert** — a private CA isn't trusted: supply the CA PEM (`es_ca_cert`) or,
-  for a throwaway lab only, disable verification.
+  for a self-signed lab only, turn **"Verify TLS certificates" off** on the source
+  (`es_verify_certs:false`). This per-source setting now **actually applies** — the
+  backend builds a **per-source ES client** from the source's own
+  `es_verify_certs` / `es_ca_cert` / `es_url` / `es_api_key` (it used to fall back
+  to the global client, so a source-level `es_verify_certs:false` was ignored and
+  you'd see `CERTIFICATE_VERIFY_FAILED` despite it). The same per-source client
+  backs the **Browse logs** endpoint (§D2), so a TLS fix there fixes both.
 - **Field-mapping mismatch → connection OK but NO events.** "Test connection"
-  pings reachability; it does **not** prove your `source_ip_field` / `user_field`
-  / `host_field` / `rule_field` / `time_field` match the source's actual fields.
-  If the mapping is wrong, polling returns rows but correlation/scope find nothing
-  → no cases. Verify the field names against a real document in the source and fix
-  them on the source (`POST /api/sources`).
+  proves the scoped read is reachable + authorised; it does **not** prove your
+  `source_ip_field` / `user_field` / `host_field` / `rule_field` / `time_field`
+  match the source's actual fields. If the mapping is wrong, polling returns rows
+  but correlation/scope find nothing → no cases. Verify the field names against a
+  real document in the source and fix them on the source (`POST /api/sources`).
 
-**How to confirm.** Test returns `ok:true`; a manual `POST /api/poll` returns
-non-zero `polled`/`new`, and `GET /api/cases` populates.
+**How to confirm.** Test returns `ok:true` (with `mode:"read_only"` or `"full"`); a
+manual `POST /api/poll` returns non-zero `polled`/`new`, and `GET /api/cases`
+populates.
+
+### D2. "Browse logs" for a source is empty or errors
+
+**Symptom.** The Sources → **Logs** flyout (`GET /api/sources/{id}/logs`) shows no
+rows, or returns `501` / `502`.
+
+**Likely cause / fix.**
+- **`501` (unsupported)** — the connector doesn't advertise the `browse`
+  capability; the "Logs" button only appears for connectors that do (all pull
+  connectors + every push receiver).
+- **`502` (read failure)** — a **pull** source's scoped read failed: same root
+  causes as §D (bad URL, under-scoped key, or **TLS** — set `es_verify_certs:false`
+  / supply `es_ca_cert` on the source; the browse endpoint uses the per-source ES
+  client, so the source-level TLS setting applies).
+- **Empty but `200`** — for a **pull** source, nothing matched the (bounded ≤200)
+  scoped search in the chosen time range / `query`; widen the `EuiSuperDatePicker`
+  window or clear the search box. For a **push** source, the in-memory live-tail
+  buffer (≤500/source) is empty until events arrive — and it is **reset on a backend
+  restart** (it is not persisted).
+
+**How to confirm.** A pull source shows rows that match a known document; a push
+source shows new events as you send them (turn on the 10s **live tail**).
 
 ---
 

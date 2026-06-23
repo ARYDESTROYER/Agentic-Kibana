@@ -301,12 +301,33 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **340 backend tests green**; the standalone **webui
+(**Waves 1–3**) shipped — **349 backend tests green**; the standalone **webui
 builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
 Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
 multi-wave plan and `ROADMAP.md` for live status.
 
-Done (this round — explainability, RAG management, agent memory, dashboards/
+Done (this round — browse logs per source + connection-test/TLS fixes; additive,
+spine + the 12 non-negotiables intact):
+- **Browse a source's logs** — `GET /api/sources/{id}/logs?limit=&query=&from=&to=`
+  (auth-protected): PULL sources run a bounded (hard-cap 200), read-only,
+  field-mapping-aware scoped search honoring the source's own
+  `data_view_pattern`/mapping/TLS; PUSH sources return the last N events from a new
+  in-memory **live-tail ring buffer** (cap 500/source) in `IngestService`. Each row
+  is `{ts, source_ip, user, host, rule, severity, message, _raw}`; **secrets are
+  never returned**. `capabilities:["browse"]` on pull manifests + auto-applied to
+  every push receiver gates the new webui **SourceLogsFlyout** (search + time range
+  + 10s live-tail).
+- **Test-connection works for read-only keys** — `ElasticConnector.test_connection`
+  no longer gates on `ping()` (a scoped read-only key cannot `HEAD /`); the cheap
+  scoped read is now authoritative (`ok:true, mode:"read_only"`), `ping()` only an
+  extra `cluster_monitor` signal (`mode:"full"`). `ConnectionTest` gained
+  `mode` + `cluster_monitor`; the webui shows a green read-only/full success callout.
+- **Per-source TLS honored** — `AppState.es_client_for_source()` builds a per-source
+  ES client from the source's merged config+secrets (`es_verify_certs`/`es_ca_cert`/
+  `es_url`/`es_api_key`, mgmt key dropped); the primary log source + browse endpoint
+  use it; sources with no overrides keep the shared global client.
+
+Done (prior round — explainability, RAG management, agent memory, dashboards/
 collaboration; additive, spine + the 12 non-negotiables intact):
 - **RAG ingest + management + visibility** ("see the RAG") — `engine/chunking.py`
   (`chunk_text`, dep-free paragraph-pack + overlap); `VectorStore` ABC gained

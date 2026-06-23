@@ -11,6 +11,23 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Browse a source's logs + read-only Test-connection & per-source TLS fixes**
+  (branch `Testing`; **349 tests green** (+9, `test_browse_and_connection.py`);
+  webui clean, no new deps; additive, spine + the 12 non-negotiables intact):
+  - ☑ **Browse logs per source:** `GET /api/sources/{id}/logs?limit=&query=&from=&to=`
+    (auth-protected) — pull = bounded (≤200) read-only field-mapping/TLS-aware scoped
+    search; push = in-memory live-tail ring buffer (≤500/source) in `IngestService`.
+    Rows `{ts,source_ip,user,host,rule,severity,message,_raw}`, secrets never
+    returned; `capabilities:["browse"]` on pull manifests + auto-applied to receivers.
+    webui `SourceLogsFlyout` (table + expandable `_raw`, search, `EuiSuperDatePicker`,
+    10s live-tail) behind a capability-gated "Logs" button.
+  - ☑ **Read-only Test-connection:** `ElasticConnector.test_connection` runs the
+    scoped read first (authoritative); `ping()` is only the extra `cluster_monitor`
+    signal. `ConnectionTest` +`mode`/`cluster_monitor`; webui read-only/full success
+    callout.
+  - ☑ **Per-source TLS:** `AppState.es_client_for_source()` builds a per-source ES
+    client honoring `es_verify_certs`/`es_ca_cert`/`es_url`/`es_api_key` (mgmt key
+    dropped); used by the primary log source + browse endpoint.
 - ☑ **Explainability + RAG management + agent memory + dashboards/collaboration**
   (branch `Testing`; **340 tests green**; webui clean, 2330 modules; additive,
   spine + the 12 non-negotiables intact). Three additive backend features + a webui
