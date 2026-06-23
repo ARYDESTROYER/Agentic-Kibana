@@ -11,28 +11,30 @@
  * - The Wizard is also re-runnable on demand from Settings.
  * - Dark mode swaps the EUI theme stylesheet at runtime.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useState } from 'react';
 import { EuiProvider, EuiEmptyPrompt, EuiLoadingSpinner } from '@elastic/eui';
 import { api, setUnauthorizedHandler } from './lib/api';
 import type { AuthMe } from './lib/types';
 import { applyEuiTheme } from './lib/euiTheme';
 import { BrandingProvider, useBranding } from './lib/branding';
 import { Shell, PageId } from './components/Shell/Shell';
-import { Wizard } from './components/Wizard/Wizard';
-import { LoginScreen } from './components/Auth/LoginScreen';
-import { OverviewPage } from './components/Overview/OverviewPage';
-import { CasesPage } from './components/Cases/CasesPage';
-import { ChatPage } from './components/Chat/ChatPage';
-import { InvestigatePage } from './components/Investigate/InvestigatePage';
-import { ScansPage } from './components/Scans/ScansPage';
-import { StandupPage } from './components/Standup/StandupPage';
-import { CatalogPage } from './components/Catalog/CatalogPage';
-import { KnowledgePage } from './components/Knowledge/KnowledgePage';
-import { MemoryPage } from './components/Memory/MemoryPage';
-import { CostPage } from './components/Cost/CostPage';
-import { MetricsPage } from './components/Metrics/MetricsPage';
-import { SourcesPage } from './components/Sources/SourcesPage';
-import { SettingsPage } from './components/Settings/SettingsPage';
+
+const Wizard = React.lazy(() => import('./components/Wizard/Wizard').then(m => ({ default: m.Wizard })));
+const LoginScreen = React.lazy(() => import('./components/Auth/LoginScreen').then(m => ({ default: m.LoginScreen })));
+
+const OverviewPage = React.lazy(() => import('./components/Overview/OverviewPage').then(m => ({ default: m.OverviewPage })));
+const CasesPage = React.lazy(() => import('./components/Cases/CasesPage').then(m => ({ default: m.CasesPage })));
+const ChatPage = React.lazy(() => import('./components/Chat/ChatPage').then(m => ({ default: m.ChatPage })));
+const InvestigatePage = React.lazy(() => import('./components/Investigate/InvestigatePage').then(m => ({ default: m.InvestigatePage })));
+const ScansPage = React.lazy(() => import('./components/Scans/ScansPage').then(m => ({ default: m.ScansPage })));
+const StandupPage = React.lazy(() => import('./components/Standup/StandupPage').then(m => ({ default: m.StandupPage })));
+const CatalogPage = React.lazy(() => import('./components/Catalog/CatalogPage').then(m => ({ default: m.CatalogPage })));
+const KnowledgePage = React.lazy(() => import('./components/Knowledge/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
+const MemoryPage = React.lazy(() => import('./components/Memory/MemoryPage').then(m => ({ default: m.MemoryPage })));
+const CostPage = React.lazy(() => import('./components/Cost/CostPage').then(m => ({ default: m.CostPage })));
+const MetricsPage = React.lazy(() => import('./components/Metrics/MetricsPage').then(m => ({ default: m.MetricsPage })));
+const SourcesPage = React.lazy(() => import('./components/Sources/SourcesPage').then(m => ({ default: m.SourcesPage })));
+const SettingsPage = React.lazy(() => import('./components/Settings/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 type Boot = 'loading' | 'login' | 'wizard' | 'app';
 
@@ -142,7 +144,9 @@ const AppShell: React.FC = () => {
   if (boot === 'login') {
     return (
       <EuiProvider colorMode={colorMode}>
-        <LoginScreen onAuthenticated={onAuthenticated} />
+        <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><EuiLoadingSpinner size="xl" /></div>}>
+          <LoginScreen onAuthenticated={onAuthenticated} />
+        </Suspense>
       </EuiProvider>
     );
   }
@@ -150,17 +154,25 @@ const AppShell: React.FC = () => {
   if (boot === 'wizard' || forceWizard) {
     return (
       <EuiProvider colorMode={colorMode}>
-        <Wizard
-          onComplete={() => {
-            setForceWizard(false);
-            setBoot('app');
-            setPage('overview');
-          }}
-          onExit={forceWizard ? () => setForceWizard(false) : undefined}
-        />
+        <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}><EuiLoadingSpinner size="xl" /></div>}>
+          <Wizard
+            onComplete={() => {
+              setForceWizard(false);
+              setBoot('app');
+              setPage('overview');
+            }}
+            onExit={forceWizard ? () => setForceWizard(false) : undefined}
+          />
+        </Suspense>
       </EuiProvider>
     );
   }
+
+  const PageFallback = () => (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+      <EuiLoadingSpinner size="xl" />
+    </div>
+  );
 
   let body: React.ReactNode;
   switch (page) {
@@ -205,8 +217,6 @@ const AppShell: React.FC = () => {
       body = <CasesPage />;
   }
 
-  // The username + logout control only appear when auth is enabled AND
-  // authenticated — otherwise the shell is byte-for-byte the original.
   const showUser = Boolean(auth?.enabled && auth?.authenticated && auth?.user);
 
   return (
@@ -219,7 +229,9 @@ const AppShell: React.FC = () => {
         username={showUser ? auth?.user?.username : undefined}
         onLogout={showUser ? onLogout : undefined}
       >
-        {body}
+        <Suspense fallback={<PageFallback />}>
+          {body}
+        </Suspense>
       </Shell>
     </EuiProvider>
   );
