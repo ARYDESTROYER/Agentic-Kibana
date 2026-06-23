@@ -12,7 +12,6 @@ import {
   EuiHealth,
   EuiIcon,
   EuiLoadingSpinner,
-  EuiPanel,
   EuiSpacer,
   EuiText,
   EuiTitle,
@@ -283,41 +282,22 @@ interface StatTileProps {
 export const StatTile: React.FC<StatTileProps> = ({
   label,
   value,
-  icon,
+  icon: _icon,
   accent = COLORS.primary,
   sub,
   delta,
   deltaGoodWhenUp,
 }) => (
-  <EuiPanel hasBorder paddingSize="m" style={{ borderTop: `3px solid ${accent}` }}>
-    <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
-      {icon ? (
-        <EuiFlexItem grow={false}>
-          <IconChip icon={icon} accent={accent} />
-        </EuiFlexItem>
+  <div style={{ background: '#fff', border: '1px solid #D3DAE6', borderTop: `3px solid ${accent}`, borderRadius: 6, padding: 16 }}>
+    <div style={{ fontSize: 11, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ fontSize: TYPE.kpi, fontWeight: 600, color: '#1A1C21', letterSpacing: '-0.01em', lineHeight: 1 }}>{value}</div>
+      {typeof delta === 'number' ? (
+        <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
-      <EuiFlexItem>
-        <EuiText size="xs" color="subdued">
-          <span>{label}</span>
-        </EuiText>
-        <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
-          <EuiFlexItem grow={false}>
-            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
-          </EuiFlexItem>
-          {typeof delta === 'number' ? (
-            <EuiFlexItem grow={false}>
-              <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
-            </EuiFlexItem>
-          ) : null}
-        </EuiFlexGroup>
-        {sub ? (
-          <EuiText size="xs" color="subdued">
-            <span>{sub}</span>
-          </EuiText>
-        ) : null}
-      </EuiFlexItem>
-    </EuiFlexGroup>
-  </EuiPanel>
+    </div>
+    {sub ? <div style={{ fontSize: 12, color: '#69707D', marginTop: 4 }}>{sub}</div> : null}
+  </div>
 );
 
 /* ----------------------------------------------------------- empty state --- */
@@ -403,34 +383,35 @@ export const Card: React.FC<CardProps> = ({
   paddingSize = 'm',
   variant,
 }) => (
-  <EuiPanel
-    hasBorder={variant !== 'flat'}
-    {...(variant === 'flat' ? { hasShadow: false, color: 'subdued' as const } : {})}
-    paddingSize={paddingSize}
+  <div
     className={`socCard${clickable ? ' socCard--clickable' : ''}${accentLeft ? ' socAccentLeft' : ''}`}
-    style={accentLeft ? { borderLeftColor: accentLeft } : undefined}
     onClick={onClick}
+    style={{
+      background: '#fff',
+      border: variant === 'flat' ? 'none' : '1px solid #D3DAE6',
+      borderRadius: 6,
+      padding: paddingSize === 'l' ? 24 : 16,
+      cursor: clickable ? 'pointer' : undefined,
+      ...(accentLeft ? { borderLeft: `4px solid ${accentLeft}` } : {}),
+    }}
   >
     {(title || actions) && (
       <>
-        <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           {icon ? (
-            <EuiFlexItem grow={false}>
+            <span style={{ flex: 'none', display: 'inline-flex' }}>
               <IconChip icon={icon} accent={accent} />
-            </EuiFlexItem>
+            </span>
           ) : null}
-          <EuiFlexItem>
-            <EuiTitle size="xxs">
-              <h3>{title}</h3>
-            </EuiTitle>
-          </EuiFlexItem>
-          {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
-        </EuiFlexGroup>
-        <EuiSpacer size="m" />
+          <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#1A1C21' }}>
+            {title}
+          </div>
+          {actions ? <div style={{ flex: 'none' }}>{actions}</div> : null}
+        </div>
       </>
     )}
     {children}
-  </EuiPanel>
+  </div>
 );
 
 /* ------------------------------------------------------------- trend stat -- */
@@ -452,39 +433,26 @@ interface TrendStatProps {
 export const TrendStat: React.FC<TrendStatProps> = ({
   label,
   value,
-  icon,
+  icon: _icon,
   accent = COLORS.primary,
   sub,
   spark,
   delta,
   deltaGoodWhenUp,
 }) => (
-  <EuiPanel hasBorder paddingSize="m" className="socStat" style={{ borderTop: `3px solid ${accent}` }}>
-    <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
-      {icon ? (
-        <EuiFlexItem grow={false}>
-          <IconChip icon={icon} accent={accent} />
-        </EuiFlexItem>
+  <div className="socStat" style={{ background: '#fff', border: '1px solid #D3DAE6', borderTop: `3px solid ${accent}`, borderRadius: 6, padding: 16 }}>
+    <div style={{ fontSize: 11, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+      <div style={{ fontSize: TYPE.kpi, fontWeight: 600, color: '#1A1C21', letterSpacing: '-0.01em', lineHeight: 1 }}>{value}</div>
+      {typeof delta === 'number' ? (
+        <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
-      <EuiFlexItem>
-        <EuiText size="xs" color="subdued"><span>{label}</span></EuiText>
-        <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
-          <EuiFlexItem grow={false}>
-            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
-          </EuiFlexItem>
-          {typeof delta === 'number' ? (
-            <EuiFlexItem grow={false}>
-              <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
-            </EuiFlexItem>
-          ) : null}
-        </EuiFlexGroup>
-        {sub ? <EuiText size="xs" color="subdued"><span>{sub}</span></EuiText> : null}
-      </EuiFlexItem>
-    </EuiFlexGroup>
+    </div>
+    {sub ? <div style={{ fontSize: 12, color: '#69707D', marginTop: 4 }}>{sub}</div> : null}
     {spark && spark.length > 1 ? (
       <div style={{ marginTop: 8 }}>
         <Sparkline values={spark} color={accent} height={36} />
       </div>
     ) : null}
-  </EuiPanel>
+  </div>
 );

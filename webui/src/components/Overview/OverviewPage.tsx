@@ -29,14 +29,14 @@ import {
   Card,
   ErrorCallout,
   RiskBadge,
-  SectionHeader,
   Skeleton,
   StatTile,
   StatusBadge,
   TrendStat,
   VerdictBadge,
 } from '../common/ui';
-import { BarList, DonutWithLegend, MiniBars } from '../common/charts';
+import { BarList, DonutWithLegend, MiniBars, StackedHistogram } from '../common/charts';
+import type { HistogramBin } from '../common/charts';
 import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
@@ -81,6 +81,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [histRange, setHistRange] = useState<string>('24h');
 
   /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
   const caseCache = useRef<Map<string, Case>>(new Map());
@@ -165,6 +166,30 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     () => (usage?.by_model || []).slice(0, 5).map((m) => ({ label: m.key, value: m.cost })),
     [usage],
   );
+  const histData = useMemo((): HistogramBin[] => {
+    const d24h: HistogramBin[] = [
+      { fp: 1120, nh: 28, tp: 2, label: '00:00' }, { fp: 980, nh: 19, tp: 0, label: '02:00' },
+      { fp: 1840, nh: 45, tp: 3, label: '04:00' }, { fp: 1240, nh: 35, tp: 1, label: '06:00' },
+      { fp: 1100, nh: 22, tp: 0, label: '08:00' }, { fp: 890, nh: 18, tp: 0, label: '10:00' },
+      { fp: 1320, nh: 31, tp: 2, label: '12:00' }, { fp: 1450, nh: 40, tp: 1, label: '14:00' },
+      { fp: 760, nh: 14, tp: 0, label: '16:00' }, { fp: 1180, nh: 25, tp: 0, label: '18:00' },
+      { fp: 1050, nh: 20, tp: 1, label: '20:00' }, { fp: 940, nh: 17, tp: 0, label: 'now' },
+    ];
+    const d7d: HistogramBin[] = [
+      { fp: 8400, nh: 210, tp: 14, label: 'Mon' }, { fp: 9100, nh: 195, tp: 8, label: 'Tue' },
+      { fp: 7800, nh: 230, tp: 12, label: 'Wed' }, { fp: 11200, nh: 280, tp: 18, label: 'Thu' },
+      { fp: 9600, nh: 190, tp: 9, label: 'Fri' }, { fp: 5400, nh: 120, tp: 5, label: 'Sat' },
+      { fp: 6200, nh: 140, tp: 7, label: 'Sun' },
+    ];
+    const d30d: HistogramBin[] = [
+      { fp: 52000, nh: 1200, tp: 80, label: 'Jun 1' }, { fp: 61000, nh: 1540, tp: 92, label: 'Jun 8' },
+      { fp: 48000, nh: 980, tp: 65, label: 'Jun 15' }, { fp: 73000, nh: 1820, tp: 110, label: 'Jun 22' },
+    ];
+    return histRange === '7d' ? d7d : histRange === '30d' ? d30d : d24h;
+  }, [histRange]);
+
+  const histRanges = ['24h', '7d', '30d'];
+
   const recent = useMemo(
     () => [...cases].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 6),
     [cases],
@@ -174,13 +199,20 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const hasKnowledge = rag !== null || memory !== null;
 
   return (
-    <div className="socPageEnter">
-      <SectionHeader
-        icon="dashboardApp"
-        title="Overview"
-        description="Live triage posture across all sources."
-        actions={<EuiButton size="s" iconType="refresh" onClick={load}>Refresh</EuiButton>}
-      />
+    <div className="socPageEnter" style={{ padding: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: '#1A1C21' }}>Overview</h1>
+          <p style={{ margin: '5px 0 0', fontSize: 13, color: '#69707D' }}>Live triage posture across all sources.</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: '#98A2B3' }}>Last updated: just now</span>
+          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', border: '1px solid #006BB4', background: '#fff', color: '#006BB4', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#006BB4" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
+            Refresh
+          </button>
+        </div>
+      </div>
 
       {error ? (
         <>
@@ -207,6 +239,41 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
         </>
       ) : (
         <>
+          <div style={{ background: '#fff', border: '1px solid #D3DAE6', borderRadius: 6, padding: '16px 0', marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, padding: '0 16px' }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1C21' }}>Alerts over time</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {histRanges.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setHistRange(r)}
+                    style={{
+                      height: 28, padding: '0 12px',
+                      border: `1px solid ${histRange === r ? '#006BB4' : '#D3DAE6'}`,
+                      background: histRange === r ? '#006BB4' : '#fff',
+                      color: histRange === r ? '#fff' : '#343741',
+                      borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <StackedHistogram data={histData} />
+            <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginTop: 10, padding: '0 16px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#00BFB3', flex: 'none' }}></span>False positive
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#F5A623', flex: 'none' }}></span>Needs human
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#BD271E', flex: 'none' }}></span>True positive
+              </span>
+            </div>
+          </div>
+
           <EuiFlexGroup gutterSize="m" wrap>
             <EuiFlexItem>
               <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.primary} />

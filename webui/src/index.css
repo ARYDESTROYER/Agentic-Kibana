@@ -19,14 +19,11 @@ body {
    loads) is byte-identical to today. `setAccent()` (lib/theme.ts) overrides these
    on <html> when branding supplies an accent. --soc-success is fixed (semantic). */
 :root {
-  --soc-accent: #1c66e0;
-  --soc-accent2: #8a55c9;
-  --soc-accent-tint: rgba(28, 102, 224, 0.14);
-  --soc-success: #00a38c;
-  /* User chat bubble second stop. Defaults to the original lighter-blue so the
-     bubble is byte-identical today; setAccent() points it at the accent so a
-     custom brand re-themes it. */
-  --soc-bubble2: #2f74e8;
+  --soc-accent: #006BB4;
+  --soc-accent2: #7B61FF;
+  --soc-accent-tint: rgba(0, 107, 180, 0.14);
+  --soc-success: #00BFB3;
+  --soc-bubble2: #006BB4;
 }
 
 /* --- Brand bar: a thin gradient accent under the fixed header. --- */
@@ -221,4 +218,156 @@ body {
   .socSkeleton::after {
     animation: none;
   }
+}
+
+/* --- Wireframe-specific styles --- */
+
+/* Sidebar */
+.socSidebar {
+  background: #f5f7fa;
+  border-right: 1px solid #D3DAE6;
+}
+
+.socSidebar-header {
+  background: #fff;
+  border-bottom: 1px solid #D3DAE6;
+}
+
+.socNavItem {
+  border-radius: 0 4px 4px 0;
+  border-left: 3px solid transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.socNavItem:hover {
+  background: #F5F7FA !important;
+}
+
+.socNavItem--active {
+  background: #E7F0F8;
+  border-left-color: #006BB4;
+  color: #006BB4;
+  font-weight: 600;
+}
+
+.socNavGroupLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: #98A2B3;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 0 10px 8px;
+}
+
+/* Cards */
+.socWireframeCard {
+  background: #fff;
+  border: 1px solid #D3DAE6;
+  border-radius: 6px;
+}
+
+.socWireframeCard--accentTop {
+  border-top: 3px solid var(--soc-accent, #006BB4);
+}
+
+/* Metric tiles */
+.socMetricLabel {
+  font-size: 11px;
+  color: #98A2B3;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.socMetricValue {
+  font-size: 28px;
+  font-weight: 600;
+  color: #1A1C21;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+/* Data tables */
+.socTableHeader {
+  display: grid;
+  gap: 0;
+  padding: 11px 16px;
+  border-bottom: 2px solid #D3DAE6;
+  font-size: 11px;
+  font-weight: 600;
+  color: #69707D;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.socTableRow {
+  display: grid;
+  gap: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid #F0F4F7;
+  align-items: center;
+}
+
+.socTableRow:hover {
+  background: #F5F7FA !important;
+}
+
+/* Entity badge */
+.socEntity {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11.5px;
+  color: #343741;
+  background: #F0F4F7;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Pill tabs */
+.socPill {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid #D3DAE6;
+  background: #fff;
+  color: #343741;
+}
+
+.socPill--active {
+  background: #006BB4;
+  color: #fff;
+  border-color: #006BB4;
+}
+
+/* Header bar */
+.socHeader {
+  height: 56px;
+  background: #fff;
+  border-bottom: 1px solid #D3DAE6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 6;
+}
+
+.socBreadcrumb {
+  height: 36px;
+  background: #fff;
+  border-bottom: 1px solid #D3DAE6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+  position: sticky;
+  top: 56px;
+  z-index: 5;
 }

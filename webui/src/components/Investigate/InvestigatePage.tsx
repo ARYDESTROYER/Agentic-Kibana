@@ -37,7 +37,6 @@ import {
   ErrorCallout,
   IconChip,
   Loading,
-  PageHeader,
   RiskBadge,
   StatusBadge,
   VerdictBadge,
@@ -379,13 +378,11 @@ export const InvestigatePage: React.FC = () => {
   };
 
   return (
-    <div className="socPageEnter">
-      <PageHeader
-        icon="inspect"
-        eyebrow="Ad-hoc triage"
-        title="Investigate"
-        description="Run an ad-hoc, agentic investigation on an IP, user, or host."
-      />
+    <div className="socPageEnter" style={{ padding: 24 }}>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: '#1A1C21' }}>Investigate</h1>
+        <p style={{ margin: '5px 0 0', fontSize: 13, color: '#69707D' }}>Run an ad-hoc, agentic investigation on an IP, user, or host.</p>
+      </div>
 
       {/* Form */}
       <Card>

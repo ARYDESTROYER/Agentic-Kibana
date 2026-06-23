@@ -175,6 +175,69 @@ export const MiniBars: React.FC<{
   );
 };
 
+/* ------------------------------------------------------- stacked histogram -- */
+
+export interface HistogramBin {
+  fp: number;
+  nh: number;
+  tp: number;
+  label: string;
+}
+
+/** A stacked bar chart inspired by the wireframe — three layers:
+ *  false-positive (teal), needs-human (amber), true-positive (red). */
+export const StackedHistogram: React.FC<{
+  data: HistogramBin[];
+  width?: number;
+  height?: number;
+}> = ({ data, width = 760, height = 160 }) => {
+  if (!data.length) return null;
+  const maxVal = Math.max(...data.map(d => d.fp + d.nh + d.tp));
+  const yMax = Math.ceil(maxVal / 500) * 500;
+  const MT = 8, MB = 28;
+  const chartW = width, chartH = height - MT - MB;
+  const n = data.length, slotW = chartW / n, bw = slotW * 0.7, padX = (slotW - bw) / 2;
+  const yStep = yMax <= 2500 ? 500 : yMax <= 15000 ? 2000 : 25000;
+  const yTicks: number[] = [];
+  for (let y = 0; y <= yMax; y += yStep) yTicks.push(y);
+
+  const lines = yTicks.map(y =>
+    React.createElement('line', {
+      key: 'gy' + y, x1: 0, y1: MT + chartH - (y / yMax) * chartH,
+      x2: width, y2: MT + chartH - (y / yMax) * chartH,
+      stroke: '#F0F4F7', strokeWidth: 1,
+    })
+  );
+
+  const bars = data.flatMap((d, i) => {
+    const x = i * slotW + padX;
+    const fpH = Math.max(0, (d.fp / yMax) * chartH);
+    const nhH = Math.max(0, (d.nh / yMax) * chartH);
+    const tpH = d.tp > 0 ? Math.max(2, (d.tp / yMax) * chartH) : 0;
+    const base = MT + chartH;
+    const els: React.ReactElement[] = [];
+    if (tpH > 0) els.push(React.createElement('rect', { key: 'tp' + i, x, y: base - fpH - nhH - tpH, width: bw, height: tpH, fill: '#BD271E', rx: 1 }));
+    els.push(React.createElement('rect', { key: 'nh' + i, x, y: base - fpH - nhH, width: bw, height: nhH, fill: '#F5A623', rx: 1 }));
+    els.push(React.createElement('rect', { key: 'fp' + i, x, y: base - fpH, width: bw, height: Math.max(1, fpH), fill: '#00BFB3', rx: 1 }));
+    return els;
+  });
+
+  const xStep = Math.max(1, Math.floor(n / 6));
+  const labels = data.map((d, i) => {
+    if (i % xStep !== 0 && i !== n - 1) return null;
+    return React.createElement('text', {
+      key: 'xl' + i, x: i * slotW + slotW / 2, y: height - 4,
+      textAnchor: 'middle', fontSize: 12, fill: '#69707D',
+    }, d.label);
+  });
+
+  return React.createElement('svg', {
+    viewBox: `0 0 ${width} ${height}`,
+    width: '100%', height: 140,
+    style: { display: 'block', overflow: 'visible' },
+  }, ...lines, ...bars, ...labels);
+};
+
 /* ----------------------------------------------------------- risk gauge --- */
 export const RiskGauge: React.FC<{ score: number; size?: number; color: string }> = ({
   score,

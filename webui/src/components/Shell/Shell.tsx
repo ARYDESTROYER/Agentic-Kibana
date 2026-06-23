@@ -1,25 +1,10 @@
-/**
- * App shell — branded fixed header (logo mark + wordmark + health + dark toggle),
- * a gradient brand accent, and a grouped left side-nav. Health polls /api/health.
- */
 import React, { useEffect, useState } from 'react';
 import {
   EuiBadge,
   EuiButtonEmpty,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiHeader,
-  EuiHeaderSection,
-  EuiHeaderSectionItem,
   EuiHealth,
   EuiIcon,
-  EuiPage,
-  EuiPageBody,
-  EuiPageSection,
-  EuiPageSidebar,
-  EuiSideNav,
   EuiSwitch,
-  EuiText,
   EuiToolTip,
 } from '@elastic/eui';
 import type { HealthResponse } from '../../lib/types';
@@ -47,9 +32,7 @@ interface ShellProps {
   onNavigate: (p: PageId) => void;
   darkMode: boolean;
   onToggleDark: (v: boolean) => void;
-  /** When auth is enabled + authenticated, the signed-in username (shows a logout control). */
   username?: string | null;
-  /** Called when the user clicks "Log out" (only rendered when `username` is set). */
   onLogout?: () => void;
   children: React.ReactNode;
 }
@@ -59,6 +42,7 @@ interface NavItem {
   name: string;
   icon: string;
 }
+
 const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Triage',
@@ -90,6 +74,10 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   },
 ];
 
+function iconEl(icon: string, color: string, size: 's' | 'm' | 'l' = 'm') {
+  return <EuiIcon type={icon} size={size} color={color} />;
+}
+
 export const Shell: React.FC<ShellProps> = ({
   page,
   onNavigate,
@@ -102,8 +90,6 @@ export const Shell: React.FC<ShellProps> = ({
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthErr, setHealthErr] = useState(false);
   const { branding } = useBranding();
-  // Fall back to the historical wording when branding fields are empty, so the
-  // no-branding header is byte-identical to today.
   const wordmark = branding.org_name?.trim() || 'Agentic SOC';
   const tagline = branding.product_name?.trim() || 'Triage console';
   const logoUrl = branding.logo_data_url?.trim() || '';
@@ -133,124 +119,212 @@ export const Shell: React.FC<ShellProps> = ({
   const healthLabel = healthErr
     ? 'Backend unreachable'
     : health?.es_connected
-      ? 'Healthy'
+      ? 'Store healthy'
       : 'Store degraded';
 
-  const sideNav = NAV_GROUPS.map((group) => ({
-    name: group.label,
-    id: group.label,
-    items: group.items.map((n) => ({
-      id: n.id,
-      name: n.name,
-      icon: <EuiIcon type={n.icon} color={page === n.id ? COLORS.primary : 'subdued'} />,
-      isSelected: page === n.id,
-      onClick: () => onNavigate(n.id),
-    })),
-  }));
+  const crumbFor = (key: PageId) => {
+    for (const g of NAV_GROUPS) {
+      for (const it of g.items) {
+        if (it.id === key) return { group: g.label, page: it.name };
+      }
+    }
+    return { group: 'Triage', page: 'Overview' };
+  };
+
+  const crumb = crumbFor(page);
 
   return (
-    <>
-      <EuiHeader position="fixed">
-        <EuiHeaderSection grow={false}>
-          <EuiHeaderSectionItem>
-            <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false} style={{ paddingLeft: 12 }}>
-              <EuiFlexItem grow={false}>
-                {logoUrl ? (
-                  <img
-                    src={logoUrl}
-                    alt={wordmark}
-                    style={{ width: 30, height: 30, borderRadius: 8, objectFit: 'contain' }}
-                  />
-                ) : (
-                  <span className="socLogo">
-                    <EuiIcon type="securityApp" size="m" />
-                  </span>
-                )}
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <div style={{ lineHeight: 1.1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{wordmark}</div>
-                  <EuiText size="xs" color="subdued"><span>{tagline}</span></EuiText>
-                </div>
-              </EuiFlexItem>
-            </EuiFlexGroup>
-          </EuiHeaderSectionItem>
-        </EuiHeaderSection>
-        <EuiHeaderSection side="right">
-          <EuiHeaderSectionItem>
-            <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} style={{ paddingRight: 12 }}>
-              {health?.version ? (
-                <EuiFlexItem grow={false}>
-                  <EuiBadge color="hollow">v{health.version}</EuiBadge>
-                </EuiFlexItem>
-              ) : null}
-              <EuiFlexItem grow={false}>
-                <EuiToolTip content={healthErr ? 'Cannot reach the backend API' : `Store: ${health?.store_type ?? 'unknown'}`}>
-                  <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
-                </EuiToolTip>
-              </EuiFlexItem>
-              <EuiFlexItem grow={false}>
-                <EuiSwitch
-                  label={<EuiIcon type={darkMode ? 'moon' : 'sun'} />}
-                  showLabel={false}
-                  compressed
-                  checked={darkMode}
-                  onChange={(e) => onToggleDark(e.target.checked)}
-                  aria-label="Toggle dark mode"
-                />
-              </EuiFlexItem>
-              {username ? (
-                <EuiFlexItem grow={false}>
-                  <EuiToolTip content={`Signed in as ${username}`}>
-                    <EuiBadge color="hollow" iconType="user">
-                      {username}
-                    </EuiBadge>
-                  </EuiToolTip>
-                </EuiFlexItem>
-              ) : null}
-              {onLogout ? (
-                <EuiFlexItem grow={false}>
-                  <EuiButtonEmpty
-                    size="xs"
-                    iconType="exit"
-                    color="text"
-                    onClick={onLogout}
-                    aria-label="Log out"
-                  >
-                    Log out
-                  </EuiButtonEmpty>
-                </EuiFlexItem>
-              ) : null}
-            </EuiFlexGroup>
-          </EuiHeaderSectionItem>
-        </EuiHeaderSection>
-      </EuiHeader>
-
-      {/* Gradient brand accent just under the fixed header. */}
-      <div className="socBrandAccent" style={{ position: 'fixed', top: 48, left: 0, right: 0, zIndex: 999 }} />
-
-      <EuiPage paddingSize="none" style={{ marginTop: 51, minHeight: 'calc(100vh - 51px)' }}>
-        <EuiPageSidebar paddingSize="l" sticky={{ offset: 51 }}>
-          <EuiSideNav items={sideNav} />
-          <div style={{ marginTop: 24 }}>
-            <EuiButtonEmpty
-              size="xs"
-              iconType="documentation"
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              color="text"
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#F8FAFD' }}>
+      <aside
+        className="socSidebar"
+        style={{
+          width: 220,
+          flex: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'sticky',
+          top: 0,
+          height: '100vh',
+          alignSelf: 'flex-start',
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        <div
+          className="socSidebar-header"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 11,
+            padding: '14px 18px',
+            height: 56,
+            flex: 'none',
+          }}
+        >
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={wordmark}
+              style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain', flex: 'none' }}
+            />
+          ) : (
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 6,
+                background: '#16242F',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 13,
+                fontWeight: 700,
+                color: '#fff',
+                flex: 'none',
+              }}
             >
-              Docs &amp; help
-            </EuiButtonEmpty>
+              TL
+            </div>
+          )}
+          <div style={{ fontSize: 14, fontWeight: 500, color: '#1A1C21', lineHeight: 1.2 }}>
+            {wordmark}
+            <div style={{ fontSize: 11, fontWeight: 400, color: '#98A2B3' }}>{tagline}</div>
           </div>
-        </EuiPageSidebar>
-        <EuiPageBody>
-          <EuiPageSection restrictWidth={1280} paddingSize="l">
-            {children}
-          </EuiPageSection>
-        </EuiPageBody>
-      </EuiPage>
-    </>
+        </div>
+
+        <nav style={{ flex: 1, overflowY: 'auto', padding: '14px 12px' }}>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 20 }}>
+              <div className="socNavGroupLabel">{group.label}</div>
+              {group.items.map((item) => {
+                const active = page === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    className={`socNavItem${active ? ' socNavItem--active' : ''}`}
+                    onClick={() => onNavigate(item.id)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 11,
+                      padding: '8px 10px',
+                      border: 'none',
+                      background: active ? '#E7F0F8' : 'transparent',
+                      color: active ? '#006BB4' : '#343741',
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: active ? 600 : 400,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      marginBottom: 1,
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 'none',
+                        width: 17,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        color: active ? '#006BB4' : '#69707D',
+                      }}
+                    >
+                      {iconEl(item.icon, active ? '#006BB4' : '#69707D', 's')}
+                    </span>
+                    <span>{item.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div style={{ padding: 12, borderTop: '1px solid #D3DAE6' }}>
+          <button
+            className="socNavItem"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 11,
+              padding: '8px 10px',
+              border: 'none',
+              background: 'transparent',
+              color: '#343741',
+              fontFamily: 'inherit',
+              fontSize: 13,
+              cursor: 'pointer',
+              borderRadius: 4,
+              textAlign: 'left',
+            }}
+          >
+            <span style={{ flex: 'none', width: 17, display: 'flex', justifyContent: 'center', color: '#69707D' }}>
+              {iconEl('documentation', '#69707D', 's')}
+            </span>
+            <span>Docs &amp; help</span>
+          </button>
+        </div>
+      </aside>
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <header className="socHeader">
+          <div style={{ width: 24, height: 24, borderRadius: 5, background: '#16242F', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', flex: 'none' }}>TL</div>
+          <div style={{ fontSize: 15, fontWeight: 500, color: '#1A1C21' }}>{wordmark}</div>
+          <span style={{ fontSize: 13, color: '#69707D' }}>{tagline}</span>
+
+          <div style={{ flex: 1 }} />
+
+          {health?.version ? (
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#69707D', background: '#F0F4F7', border: '1px solid #E4E8F0', padding: '3px 9px', borderRadius: 10, fontFamily: "'SFMono-Regular', Consolas, monospace" }}>
+              v{health.version}
+            </span>
+          ) : null}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <EuiToolTip content={healthErr ? 'Cannot reach the backend API' : `Store: ${health?.store_type ?? 'unknown'}`}>
+              <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
+            </EuiToolTip>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <EuiSwitch
+              label="Toggle dark mode"
+              showLabel={false}
+              compressed
+              checked={darkMode}
+              onChange={(e) => onToggleDark(e.target.checked)}
+            />
+          </div>
+
+          {username ? (
+            <EuiToolTip content={`Signed in as ${username}`}>
+              <EuiBadge color="hollow" iconType="user">
+                {username}
+              </EuiBadge>
+            </EuiToolTip>
+          ) : null}
+
+          {onLogout ? (
+            <EuiButtonEmpty size="xs" iconType="exit" color="text" onClick={onLogout} aria-label="Log out">
+              Log out
+            </EuiButtonEmpty>
+          ) : null}
+
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#006BB4', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, marginLeft: 4, flex: 'none' }}>
+            {username ? username.charAt(0).toUpperCase() : 'A'}
+          </div>
+        </header>
+
+        <div className="socBreadcrumb">
+          <span style={{ fontSize: 12, color: '#69707D' }}>{crumb.group}</span>
+          <span style={{ fontSize: 12, color: '#98A2B3' }}>›</span>
+          <span style={{ fontSize: 12, color: '#343741', fontWeight: 500 }}>{crumb.page}</span>
+        </div>
+
+        <main style={{ flex: 1, overflowY: 'auto', background: '#F8FAFD' }}>
+          {children}
+        </main>
+      </div>
+    </div>
   );
 };

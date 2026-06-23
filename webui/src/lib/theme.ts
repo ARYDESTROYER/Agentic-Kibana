@@ -13,8 +13,8 @@
  * can always fall back to a byte-identical-to-today palette when no branding is
  * configured (or branding fails to load).
  */
-export const DEFAULT_ACCENT = '#1c66e0';
-export const DEFAULT_ACCENT2 = '#8a55c9';
+export const DEFAULT_ACCENT = '#006BB4';
+export const DEFAULT_ACCENT2 = '#7B61FF';
 
 /**
  * Semantic colour tokens (one accent per meaning).
@@ -27,14 +27,24 @@ export const DEFAULT_ACCENT2 = '#8a55c9';
  */
 export const COLORS = {
   primary: DEFAULT_ACCENT,
-  success: '#00a38c',
-  warning: '#e9a200',
-  danger: '#c4341c',
+  success: '#00BFB3',
+  warning: '#F5A623',
+  danger: '#BD271E',
   accent: DEFAULT_ACCENT2,
   /** Secondary accent (alias of `accent`, kept for explicit two-accent reads). */
   accent2: DEFAULT_ACCENT2,
   subdued: '#69707d',
-  surface: '#f7f9fc',
+  surface: '#f8fafd',
+  /** Background for sidebar nav */
+  sidebarBg: '#f5f7fa',
+  /** Card border colour */
+  border: '#D3DAE6',
+  /** Dark text colour */
+  textDark: '#1A1C21',
+  /** Muted text colour */
+  textMuted: '#98A2B3',
+  /** Active nav background */
+  navActive: '#E7F0F8',
 };
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */
@@ -88,7 +98,7 @@ export function setAccent(primary?: string, secondary?: string): void {
     // Re-theme the user chat bubble's second stop. When the accent is the default
     // brand blue we keep the original lighter-blue stop so the bubble is unchanged;
     // a custom brand uses its secondary accent.
-    root.setProperty('--soc-bubble2', p === DEFAULT_ACCENT ? '#2f74e8' : s);
+    root.setProperty('--soc-bubble2', p === DEFAULT_ACCENT ? '#006BB4' : s);
   }
 }
 
@@ -170,8 +180,8 @@ export function riskBand(score?: number): { label: string; color: string } {
 
 /** Stable categorical palette for charts (donuts, bar lists, legends). */
 export const CHART_COLORS = [
-  '#1c66e0', '#8a55c9', '#00a38c', '#e9a200',
-  '#c4341c', '#2aa0a4', '#d6336c', '#7048e8',
+  '#006BB4', '#7B61FF', '#00BFB3', '#F5A623',
+  '#BD271E', '#2aa0a4', '#d6336c', '#7048e8',
 ] as const;
 
 /** Pick a chart colour by index (wraps). */
