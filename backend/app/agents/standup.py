@@ -29,23 +29,57 @@ class StandupService:
         self._audit = audit
 
     async def generate(self, prefs: Preferences, window_hours: int | None = None) -> dict[str, Any]:
+        """Aggregate the log surface + cases, then summarise via the cheap model.
+
+        NEVER raises: every step (sizing, aggregation, case stats, summary) is
+        guarded so a degraded/in-memory store or a transient ES/LLM failure yields a
+        GRACEFUL, renderable payload (``degraded: true`` + a short ``error`` + a
+        deterministic summary) instead of a 500. The happy path is unchanged when
+        data is present.
+        """
         window = window_hours or prefs.standup.window_hours
-        now = now_utc()
-        to_millis_ = to_millis(now)
-        from_millis = to_millis_ - window * 3600 * 1000
+        try:
+            now = now_utc()
+            to_millis_ = to_millis(now)
+            from_millis = to_millis_ - window * 3600 * 1000
 
-        aggregate = await self._aggregate_logs(prefs, from_millis, to_millis_)
-        aggregate["window_hours"] = window
-        aggregate["cases"] = await self._case_stats(from_millis)
+            aggregate = await self._aggregate_logs(prefs, from_millis, to_millis_)
+            aggregate["window_hours"] = window
+            aggregate["cases"] = await self._case_stats(from_millis)
 
-        summary, cost = await self._summarise(aggregate, prefs)
-        return {
-            "generated_at": iso_now(),
-            "window_hours": window,
-            "aggregate": aggregate,
-            "summary": summary,
-            "cost": cost,
-        }
+            # _aggregate_logs returns {"error": ...} on a failed aggregation; treat
+            # that as a (graceful) degraded run so the route + UI can show a note.
+            agg_error = aggregate.get("error")
+
+            summary, cost = await self._summarise(aggregate, prefs)
+            result: dict[str, Any] = {
+                "generated_at": iso_now(),
+                "window_hours": window,
+                "aggregate": aggregate,
+                "cases": aggregate.get("cases", {}),
+                "summary": summary,
+                "cost": cost,
+                "degraded": bool(agg_error),
+            }
+            if agg_error:
+                result["error"] = str(agg_error)
+            return result
+        except Exception as exc:  # noqa: BLE001 — standup must never 500 the page
+            logger.warning("Standup generation failed (%s); returning degraded payload", exc)
+            return {
+                "generated_at": iso_now(),
+                "window_hours": window,
+                "aggregate": {},
+                "cases": {},
+                "summary": (
+                    "Standup is running with limited data — the log aggregation or "
+                    "summary step was unavailable, so no activity could be summarised "
+                    "for this window."
+                ),
+                "cost": 0.0,
+                "degraded": True,
+                "error": str(exc),
+            }
 
     async def _aggregate_logs(self, prefs: Preferences, from_millis: int, to_millis_: int) -> dict[str, Any]:
         body = standup_aggregations(prefs, from_millis, to_millis_)

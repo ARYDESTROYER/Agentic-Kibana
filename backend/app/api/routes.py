@@ -409,8 +409,11 @@ async def chat(
             author = user.username if user else ""
     except Exception:  # noqa: BLE001 — attribution is best-effort
         author = ""
+    # Per-call model override (additive): run THIS chat turn with the chat-role model
+    # swapped to body.model via a prefs copy. Unchanged when body.model is None.
+    prefs_eff = _override_models(state.prefs, body.model, ("chat",))
     resp = await state.chat_engine.chat(
-        body.message, state.prefs, case_id=body.case_id, history=body.history,
+        body.message, prefs_eff, case_id=body.case_id, history=body.history,
         context=body.context, author=author,
     )
     return resp.model_dump(mode="json")
@@ -832,6 +835,13 @@ class CaseAction(BaseModel):
     action: str  # close | reopen | escalate | confirm_fp | acknowledge
     note: str = ""
     analyst: str = "analyst"
+    # Optional, additive collaboration fields collected alongside an action (all
+    # default empty/None so existing callers are unaffected). They are persisted
+    # ADDITIVELY and NEVER change the deterministic status mapping below.
+    resolution: str | None = None
+    assignee: str | None = None
+    priority: str | None = None
+    tags: list[str] | None = None
 
 
 @router.post("/cases/{case_id}/action")
@@ -850,13 +860,36 @@ async def case_action(
     }
     if body.action not in mapping:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
+    # Deterministic status transition — UNCHANGED by the optional extra fields.
     case.status = mapping[body.action]
     case.decision_by = DecisionBy.ANALYST
     case.updated_at = iso_now()
-    case.history.append({
+
+    # --- Additive optional fields (persisted without touching status logic) -----
+    # assignee → set the case owner when provided (non-empty).
+    if body.assignee is not None:
+        case.assignee = str(body.assignee).strip()[:80]
+    # tags → merge into the case's tags (trim, de-dupe, bounded — same tidy rules
+    # as the dedicated /tags route).
+    if body.tags is not None:
+        merged = list(case.tags)
+        for t in body.tags:
+            t = str(t).strip()[:40]
+            if t and t not in merged:
+                merged.append(t)
+        case.tags = merged[:25]
+
+    # Build the history entry, recording resolution/priority when supplied (they
+    # have no dedicated Case field, so the audited history entry is their home).
+    entry: dict[str, Any] = {
         "ts": case.updated_at, "event": "analyst_action", "action": body.action,
         "analyst": body.analyst, "note": body.note,
-    })
+    }
+    if body.resolution is not None:
+        entry["resolution"] = str(body.resolution)
+    if body.priority is not None:
+        entry["priority"] = str(body.priority)
+    case.history.append(entry)
     await state.cases.save(case)
     # On close / confirm-FP, index the resolved case as RAG baseline memory (C3-5)
     # so future investigations of similar entities learn from this decision + note.
@@ -1088,6 +1121,70 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
     return updated.model_dump(mode="json")
 
 
+class ReinvestigateRequest(BaseModel):
+    """Re-run the investigation on an existing case. Optional ``model`` overrides
+    the investigation-role models (router/investigator/formatter) for THIS run via a
+    prefs copy (the per-call model-override technique) — no gateway plumbing change."""
+
+    model: str | None = None
+    analyst: str = "analyst"
+
+
+@router.post("/cases/{case_id}/reinvestigate")
+async def case_reinvestigate(
+    case_id: str,
+    body: ReinvestigateRequest | None = None,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Manually re-run the SHARED investigation pipeline on a stored case (force).
+
+    Loads the case (404 if missing), reconstructs the cluster from the case's stored
+    fields (member event ids → exact id re-query, else a config-windowed entity
+    re-query — via the same robust ``_cluster_for_case`` helper the legacy
+    ``/investigate`` route uses), then calls ``investigate_cluster(..., force=True)``
+    so it re-runs even on an already-verdicted case. An optional ``{"model": "<id>"}``
+    body overrides the investigation-role models for this run only via a prefs copy
+    (still through the one gateway, #6). The case's ORIGINAL provenance
+    (``source_surface``) is preserved by the pipeline. The deterministic
+    close/escalate decision in the Case Manager is untouched (#3). Returns the
+    updated Case. 400 (NEUTRAL) if no events remain to rebuild the cluster."""
+    body = body or ReinvestigateRequest()
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    cluster = await _cluster_for_case(state, case)
+    if cluster is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No events remain for {case.entity.type.value} {case.entity.value} "
+                f"in the last {state.prefs.investigate_lookback}; the activity may have "
+                "aged out of the retained log window."
+            ),
+        )
+    # Per-call model override (additive): swap the investigation-role models for this
+    # run only. Unchanged when body.model is None.
+    prefs_eff = _override_models(
+        state.prefs, body.model, ("router", "investigator", "formatter")
+    )
+    # Audit the manual reinvestigation BEFORE the run so the trigger is recorded even
+    # if the pipeline later fails-to-human (the pipeline never raises).
+    await state.audit.record(
+        action_type=ActionType.DECISION, surface=case.source_surface.value,
+        actor="reinvestigate", case_id=case_id,
+        result_summary=(
+            f"manual reinvestigation requested by {body.analyst or 'analyst'}"
+            + (f"; model override={body.model}" if body.model else "")
+        ),
+    )
+    # force=True so an already-verdicted case is genuinely re-investigated in place;
+    # the pipeline preserves the original source_surface/origin_surface.
+    updated = await state.pipeline.investigate_cluster(
+        cluster, case.source_surface, prefs_eff, force=True
+    )
+    return updated.model_dump(mode="json")
+
+
 @router.get("/cases/{case_id}/trace")
 async def case_trace(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
     """Ordered agent-pipeline trace for a case (C3-3).
@@ -1149,10 +1246,34 @@ async def scan_notifications(
 async def standup(
     window_hours: int | None = None, state: AppState = Depends(get_state)
 ) -> dict[str, Any]:
+    """Daily standup summary. ALWAYS returns HTTP 200 with a renderable payload:
+    a clear ``{enabled: false}`` shape when disabled, the full happy-path result
+    when data is present, or a graceful ``degraded: true`` + ``error`` + a short
+    summary note when the aggregation/summary step is unavailable (never a 500)."""
     if not state.prefs.standup.enabled:
-        return {"enabled": False, "summary": "Standup is disabled in settings.", "aggregate": {}}
-    result = await state.standup_service.generate(state.prefs, window_hours=window_hours)
+        return {
+            "enabled": False,
+            "summary": "Standup is disabled in settings.",
+            "aggregate": {},
+            "cases": {},
+            "window_hours": state.prefs.standup.window_hours,
+            "degraded": False,
+        }
+    try:
+        result = await state.standup_service.generate(state.prefs, window_hours=window_hours)
+    except Exception as exc:  # noqa: BLE001 — belt-and-braces: the page must never 500
+        logger.warning("Standup route caught an unexpected error (%s); degrading", exc)
+        result = {
+            "summary": "Standup is unavailable right now (limited data).",
+            "aggregate": {},
+            "cases": {},
+            "window_hours": window_hours or state.prefs.standup.window_hours,
+            "cost": 0.0,
+            "degraded": True,
+            "error": str(exc),
+        }
     result["enabled"] = True
+    result.setdefault("degraded", False)
     return result
 
 
@@ -1177,6 +1298,34 @@ async def poll_now(state: AppState = Depends(get_state)) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+def _override_models(prefs: Preferences, model: str | None, roles: tuple[str, ...]) -> Preferences:
+    """Return a prefs COPY with the given per-role model fields overridden to
+    ``model`` for a single call (the per-call model-override technique).
+
+    Each overridden role keeps its temperature/max_tokens but takes the new model
+    id + an inferred provider (so the gateway routes it to the right backend). When
+    ``model`` is falsy the original prefs are returned unchanged. NO new gateway
+    plumbing — every call still flows through the one gateway (#6)."""
+    mid = (model or "").strip()
+    if not mid:
+        return prefs
+    from ..llm.pricing import provider_for
+
+    provider = provider_for(mid)
+    if provider not in ("anthropic", "openai", "mock"):
+        provider = "anthropic"  # safe default for an unrecognised id; gateway prices it
+    updates: dict[str, Any] = {}
+    for role in roles:
+        field = f"{role}_model"
+        base = getattr(prefs, field, None)
+        if base is None:
+            continue
+        updates[field] = base.model_copy(update={"model": mid, "provider": provider})
+    if not updates:
+        return prefs
+    return prefs.model_copy(update=updates)
+
+
 def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
     for key, value in src.items():
         if isinstance(value, dict) and isinstance(dst.get(key), dict):

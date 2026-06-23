@@ -473,6 +473,10 @@ class ChatRequest(BaseModel):
     case_id: str | None = None          # Surface 2: seed with a case
     history: list[ChatTurn] = Field(default_factory=list)
     context: ChatContext | None = None  # Feature 1: global flyout screen context
+    # Optional per-call model override (additive; the proxy forwards it). When set,
+    # the chat-role model is overridden to this id for THIS turn only via a prefs
+    # copy — no gateway plumbing change. Still routed through the single gateway.
+    model: str | None = None
 
 
 class DiscoverLink(BaseModel):
