@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EuiButton,
+  EuiButtonGroup,
   EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
@@ -28,8 +29,8 @@ import { fmtMoney, fmtNumber, fmtTokens, humanizeAge, humanizeToken } from '../.
 import {
   Card,
   ErrorCallout,
+  PageHeader,
   RiskBadge,
-  SectionHeader,
   Skeleton,
   StatTile,
   StatusBadge,
@@ -81,6 +82,8 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  /** Sort for the recent-cases feed: by recency (default) or by risk. */
+  const [recentSort, setRecentSort] = useState<'recent' | 'risk'>('recent');
 
   /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
   const caseCache = useRef<Map<string, Case>>(new Map());
@@ -165,18 +168,33 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     () => (usage?.by_model || []).slice(0, 5).map((m) => ({ label: m.key, value: m.cost })),
     [usage],
   );
-  const recent = useMemo(
-    () => [...cases].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 6),
-    [cases],
+  const recent = useMemo(() => {
+    const sorted = [...cases].sort((a, b) =>
+      recentSort === 'risk'
+        ? (b.risk_score ?? -1) - (a.risk_score ?? -1)
+        : (b.updated_at || '').localeCompare(a.updated_at || ''),
+    );
+    return sorted.slice(0, 6);
+  }, [cases, recentSort]);
+  // Primary source first, then alphabetical — a stable, scannable ordering.
+  const enabledSources = useMemo(
+    () =>
+      sources
+        .filter((s) => s.enabled)
+        .sort((a, b) => {
+          if (!!a.is_primary !== !!b.is_primary) return a.is_primary ? -1 : 1;
+          return (a.display_name || a.id).localeCompare(b.display_name || b.id);
+        }),
+    [sources],
   );
-  const enabledSources = sources.filter((s) => s.enabled);
   // Show the knowledge/memory tiles once at least one of the two calls returned.
   const hasKnowledge = rag !== null || memory !== null;
 
   return (
     <div className="socPageEnter">
-      <SectionHeader
+      <PageHeader
         icon="dashboardApp"
+        eyebrow="Dashboard"
         title="Overview"
         description="Live triage posture across all sources."
         actions={<EuiButton size="s" iconType="refresh" onClick={load}>Refresh</EuiButton>}
@@ -198,10 +216,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>
-          <EuiSpacer size="l" />
-          <EuiFlexGrid columns={2} gutterSize="l">
+          <EuiSpacer size="m" />
+          <EuiFlexGrid columns={2} gutterSize="m">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={180} radius={10} />
+              <Skeleton key={i} height={180} radius={12} />
             ))}
           </EuiFlexGrid>
         </>
@@ -231,7 +249,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
 
           {hasKnowledge ? (
             <>
-              <EuiSpacer size="l" />
+              <EuiSpacer size="m" />
               <EuiFlexGroup gutterSize="m" wrap>
                 <EuiFlexItem style={{ minWidth: 200 }}>
                   <NavTile
@@ -264,9 +282,9 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
             </>
           ) : null}
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
-          <EuiFlexGrid columns={2} gutterSize="l">
+          <EuiFlexGrid columns={2} gutterSize="m">
             <Card title="Verdict breakdown" icon="visPie" accent={COLORS.primary}>
               {verdictSegments.length ? (
                 <DonutWithLegend
@@ -330,12 +348,32 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
             </Card>
           </EuiFlexGrid>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
           <Card
             title="Recent cases"
             icon="securityApp"
-            actions={<EuiButton size="s" iconType="list" onClick={() => onNavigate?.('cases')}>View all</EuiButton>}
+            actions={
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiButtonGroup
+                    legend="Sort recent cases"
+                    buttonSize="compressed"
+                    options={[
+                      { id: 'recent', label: 'Recent' },
+                      { id: 'risk', label: 'Risk' },
+                    ]}
+                    idSelected={recentSort}
+                    onChange={(id) => setRecentSort(id as 'recent' | 'risk')}
+                  />
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiButton size="s" iconType="list" onClick={() => onNavigate?.('cases')}>
+                    View all
+                  </EuiButton>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            }
           >
             {recent.length ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

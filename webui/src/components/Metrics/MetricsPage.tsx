@@ -14,6 +14,7 @@ import {
   EuiFlexItem,
   EuiSpacer,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { Metrics, MemoryResponse, RagStats } from '../../lib/types';
 import { api } from '../../lib/api';
@@ -57,13 +58,22 @@ function humanizeMinutes(mins?: number): string {
   return remH ? `${days}d ${remH}h` : `${days}d`;
 }
 
-/** Turn a {label→count} record into ranked, palette-coloured chart segments. */
-function recordSegments(rec: Record<string, number> | undefined): Segment[] {
+type RankSort = 'count' | 'alpha';
+
+/** Turn a {label→count} record into palette-coloured chart segments, ordered by
+ *  count (default) or alphabetically. */
+function recordSegments(
+  rec: Record<string, number> | undefined,
+  sort: RankSort = 'count',
+): Segment[] {
   if (!rec) return [];
-  return Object.entries(rec)
-    .filter(([, v]) => typeof v === 'number' && v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([k, v], i) => ({ label: humanizeToken(k) ?? k, value: v, color: chartColor(i) }));
+  const rows = Object.entries(rec).filter(([, v]) => typeof v === 'number' && v > 0);
+  rows.sort((a, b) =>
+    sort === 'alpha'
+      ? (humanizeToken(a[0]) ?? a[0]).localeCompare(humanizeToken(b[0]) ?? b[0])
+      : b[1] - a[1],
+  );
+  return rows.map(([k, v], i) => ({ label: humanizeToken(k) ?? k, value: v, color: chartColor(i) }));
 }
 
 const MetricsSkeleton: React.FC = () => (
@@ -71,14 +81,14 @@ const MetricsSkeleton: React.FC = () => (
     <EuiFlexGroup gutterSize="m" wrap>
       {[0, 1, 2, 3, 4, 5].map((i) => (
         <EuiFlexItem key={i} style={{ minWidth: 200 }}>
-          <Skeleton height={92} radius={8} />
+          <Skeleton height={92} radius={12} />
         </EuiFlexItem>
       ))}
     </EuiFlexGroup>
-    <EuiSpacer size="l" />
+    <EuiSpacer size="m" />
     <div className="socGrid">
       {[0, 1, 2, 3].map((i) => (
-        <Skeleton key={i} height={200} radius={8} />
+        <Skeleton key={i} height={200} radius={12} />
       ))}
     </div>
   </>
@@ -86,6 +96,8 @@ const MetricsSkeleton: React.FC = () => (
 
 export const MetricsPage: React.FC = () => {
   const [windowId, setWindowId] = useState<string>('168');
+  /** Ordering for the ranked persona/playbook/corpus bar lists. */
+  const [rankSort, setRankSort] = useState<RankSort>('count');
   const [data, setData] = useState<Metrics | null>(null);
   // Point-in-time knowledge-base + memory health (NOT windowed). Loaded
   // alongside the windowed metrics but kept non-fatal: a failure here leaves
@@ -149,8 +161,14 @@ export const MetricsPage: React.FC = () => {
       }));
   }, [data]);
 
-  const personaSegments = useMemo(() => recordSegments(data?.persona_usage), [data]);
-  const playbookSegments = useMemo(() => recordSegments(data?.playbook_usage), [data]);
+  const personaSegments = useMemo(
+    () => recordSegments(data?.persona_usage, rankSort),
+    [data, rankSort],
+  );
+  const playbookSegments = useMemo(
+    () => recordSegments(data?.playbook_usage, rankSort),
+    [data, rankSort],
+  );
 
   const perDay = useMemo(
     () =>
@@ -171,8 +189,8 @@ export const MetricsPage: React.FC = () => {
 
   // ---- knowledge base & memory (point-in-time) -------------------------- //
   const corpusSegments = useMemo(
-    () => recordSegments(rag?.by_source),
-    [rag],
+    () => recordSegments(rag?.by_source, rankSort),
+    [rag, rankSort],
   );
 
   const memoryEntries = useMemo(() => memory?.entries ?? [], [memory]);
@@ -211,7 +229,7 @@ export const MetricsPage: React.FC = () => {
       description="Triage volume, verdict mix, agent routing, and analyst feedback quality."
       accent={COLORS.primary}
       actions={
-        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
           <EuiFlexItem grow={false}>
             <EuiButtonGroup
               legend="Time window"
@@ -220,6 +238,23 @@ export const MetricsPage: React.FC = () => {
               idSelected={windowId}
               onChange={(id) => setWindowId(id)}
             />
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <span className="socHeaderDivider" />
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiToolTip content="Order the ranked breakdowns">
+              <EuiButtonGroup
+                legend="Sort ranked lists"
+                buttonSize="s"
+                options={[
+                  { id: 'count', label: 'Count' },
+                  { id: 'alpha', label: 'A–Z' },
+                ]}
+                idSelected={rankSort}
+                onChange={(id) => setRankSort(id as RankSort)}
+              />
+            </EuiToolTip>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
@@ -235,7 +270,7 @@ export const MetricsPage: React.FC = () => {
   // not cases exist, but only when at least one of the two calls succeeded.
   const knowledgeSection = hasKnowledge ? (
     <>
-      <EuiSpacer size="l" />
+      <EuiSpacer size="m" />
       <SectionHeader
         icon="database"
         accent={COLORS.accent}
@@ -288,7 +323,7 @@ export const MetricsPage: React.FC = () => {
         </EuiFlexItem>
       </EuiFlexGroup>
 
-      <EuiSpacer size="l" />
+      <EuiSpacer size="m" />
 
       <div className="socGrid">
         <Card title="Corpus by source" icon="logstashQueue" accent={COLORS.primary}>
@@ -403,7 +438,7 @@ export const MetricsPage: React.FC = () => {
             </EuiFlexItem>
           </EuiFlexGroup>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
           {/* Charts grid */}
           <div className="socGrid">
@@ -458,7 +493,7 @@ export const MetricsPage: React.FC = () => {
             </Card>
           </div>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
           {/* Feedback quality + cost */}
           <EuiFlexGroup gutterSize="m" wrap alignItems="stretch">

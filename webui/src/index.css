@@ -1,6 +1,10 @@
 /* Base reset + console polish. EUI theme stylesheets are injected at runtime
    (see lib/euiTheme.ts); these classes layer presentation on top and work in
-   both light and dark EUI themes. */
+   both light and dark EUI themes.
+
+   Design tokens (spacing/radii/weights) live in lib/theme.ts and are applied
+   inline by the shared primitives in components/common/ui.tsx. This file owns the
+   global chrome: motion, elevation, focus, scrollbars, nav + header, layout. */
 html,
 body,
 #root {
@@ -12,6 +16,10 @@ body,
 body {
   font-family:
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Crisper glyphs on both platforms. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* --- Runtime-themeable accent custom properties. ---
@@ -22,11 +30,22 @@ body {
   --soc-accent: #1c66e0;
   --soc-accent2: #8a55c9;
   --soc-accent-tint: rgba(28, 102, 224, 0.14);
-  --soc-success: #00a38c;
+  --soc-success: #0a9b86;
   /* User chat bubble second stop. Defaults to the original lighter-blue so the
      bubble is byte-identical today; setAccent() points it at the accent so a
      custom brand re-themes it. */
   --soc-bubble2: #2f74e8;
+  /* Standardised radii (mirrors RADIUS in lib/theme.ts) for the plain-CSS chrome. */
+  --soc-radius-sm: 6px;
+  --soc-radius-md: 8px;
+  --soc-radius-lg: 12px;
+  /* Theme-neutral hairline + soft shadow used by cards/tiles/nav. */
+  --soc-hairline: rgba(105, 112, 125, 0.3);
+  --soc-elev-1: 0 1px 2px rgba(15, 23, 42, 0.06), 0 2px 6px rgba(15, 23, 42, 0.06);
+  --soc-elev-2: 0 6px 18px rgba(15, 23, 42, 0.14);
+  --soc-elev-3: 0 12px 30px rgba(15, 23, 42, 0.2);
+  /* Default (smooth) transition timing — one curve everywhere. */
+  --soc-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 /* --- Brand bar: a thin gradient accent under the fixed header. --- */
@@ -47,18 +66,34 @@ body {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--soc-radius-md);
   background: linear-gradient(135deg, var(--soc-accent) 0%, var(--soc-accent2) 100%);
   color: #fff;
   box-shadow: 0 2px 6px rgba(28, 102, 224, 0.35);
 }
+/* The glyph inside the logo mark renders crisp + centred regardless of EUI size. */
+.socLogo .euiIcon {
+  width: 17px;
+  height: 17px;
+}
 
-/* --- Interactive cards: subtle lift on hover (used by case/source cards). --- */
+/* --- Page header: a consistent, compact top-of-page lockup. --- */
+.socPageHeader {
+  margin-bottom: 2px;
+}
+
+/* --- Shared icon chip: GPU-friendly hover lift used inside cards/tiles. --- */
+.socIconChip {
+  transition: transform 0.16s var(--soc-ease);
+  will-change: transform;
+}
+
+/* --- Cards: a consistent container with subtle elevation + smooth hover. --- */
 .socCard {
   transition:
-    transform 0.14s ease,
-    box-shadow 0.14s ease,
-    border-color 0.14s ease;
+    transform 0.16s var(--soc-ease),
+    box-shadow 0.16s var(--soc-ease),
+    border-color 0.16s var(--soc-ease);
 }
 .socCard--clickable {
   cursor: pointer;
@@ -66,15 +101,33 @@ body {
 .socCard--clickable:hover {
   transform: translateY(-2px);
   /* Theme-neutral shadow tuned darker so it reads in BOTH light and dark mode. */
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.22);
+  box-shadow: var(--soc-elev-2);
+  border-color: var(--soc-accent-tint);
+}
+.socCard--clickable:active {
+  transform: translateY(-1px);
 }
 
-/* --- Stat tiles: gentle hover sheen. --- */
+/* --- Stat / KPI tiles: gentle hover sheen + the standardised tile label. --- */
 .socStat {
-  transition: box-shadow 0.14s ease;
+  transition:
+    transform 0.16s var(--soc-ease),
+    box-shadow 0.16s var(--soc-ease);
 }
 .socStat:hover {
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+  transform: translateY(-1px);
+  box-shadow: var(--soc-elev-1);
+}
+/* The uppercase microcopy label above every KPI number — uniform app-wide.
+   Uses currentColor + opacity so it reads as muted in BOTH light and dark themes
+   without hard-coding a gray (the tile inherits EUI's themed text colour). */
+.socTile__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  opacity: 0.62;
+  margin-bottom: 2px;
 }
 
 /* --- Consistent, visible focus ring for keyboard users (theme-agnostic). --- */
@@ -84,33 +137,53 @@ button:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--soc-accent);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--soc-radius-sm);
+}
+/* Don't paint the ring for mouse users (EUI already styles :focus). */
+[role='button']:focus:not(:focus-visible),
+[tabindex]:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* --- Header chrome polish: a health pill + a slim vertical divider. --- */
 .socHealthPill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  gap: 4px;
+  padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: rgba(105, 112, 125, 0.08);
   font-weight: 600;
+  font-size: 12px;
+  line-height: 1;
   white-space: nowrap;
 }
 .socHeaderDivider {
   display: inline-block;
   width: 1px;
-  height: 22px;
-  background: rgba(105, 112, 125, 0.3);
+  height: 20px;
+  background: var(--soc-hairline);
 }
 
 /* --- Side nav: clearer selected state (accent tint + left accent bar). --- */
+.socSideNav {
+  /* Tighten EUI's default side-nav rhythm for a denser, cleaner rail. */
+  font-size: 13px;
+}
 .socSideNav .euiSideNavItemButton {
-  border-radius: 8px;
+  border-radius: var(--soc-radius-md);
+  padding: 6px 10px;
   transition:
-    background 0.12s ease,
-    color 0.12s ease;
+    background 0.14s var(--soc-ease),
+    color 0.14s var(--soc-ease),
+    box-shadow 0.14s var(--soc-ease);
+}
+/* Align + size nav glyphs consistently so the rail reads as one column. */
+.socSideNav .euiSideNavItemButton .euiIcon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 .socSideNav .socNavItem .euiSideNavItemButton:hover {
   background: rgba(105, 112, 125, 0.1);
@@ -119,6 +192,13 @@ button:focus-visible,
   background: var(--soc-accent-tint);
   box-shadow: inset 3px 0 0 0 var(--soc-accent);
   font-weight: 700;
+}
+/* Group headings: quiet, uppercase, well-spaced. */
+.socSideNav .euiSideNavTitle {
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 10.5px;
+  opacity: 0.7;
 }
 
 /* --- Left accent bar utility (verdict/status/risk coloured edge). --- */
@@ -131,7 +211,7 @@ button:focus-visible,
 .socGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 .socGrid--cards {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -208,6 +288,7 @@ button:focus-visible,
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
+  transition: background 0.14s var(--soc-ease);
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(105, 112, 125, 0.5);
@@ -220,14 +301,14 @@ button:focus-visible,
   font-size: 12px;
   background: rgba(105, 112, 125, 0.1);
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--soc-radius-sm);
 }
 
 /* --- Skeleton loaders: a shimmering placeholder block. --- */
 .socSkeleton {
   position: relative;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--soc-radius-sm);
   background: rgba(105, 112, 125, 0.14);
 }
 .socSkeleton::after {
@@ -249,7 +330,7 @@ button:focus-visible,
   }
 }
 
-/* --- Hover preview card (for future case/entity hover previews). --- */
+/* --- Hover preview card (for case/entity hover previews). --- */
 .socHoverCard {
   max-width: 340px;
   padding: 12px 14px;
@@ -259,9 +340,9 @@ button:focus-visible,
   background: transparent;
 }
 
-/* --- Page transition: a gentle fade + rise on mount. --- */
+/* --- Page transition: a gentle fade + rise on mount (GPU-friendly). --- */
 .socPageEnter {
-  animation: socPageEnter 0.22s ease both;
+  animation: socPageEnter 0.22s var(--soc-ease) both;
 }
 @keyframes socPageEnter {
   from {
@@ -284,7 +365,9 @@ button:focus-visible,
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
-  .socCard--clickable:hover {
+  .socCard--clickable:hover,
+  .socStat:hover,
+  .socIconChip {
     transform: none;
   }
   .socPageEnter {

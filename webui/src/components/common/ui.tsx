@@ -15,11 +15,19 @@ import {
   EuiPanel,
   EuiSpacer,
   EuiText,
-  EuiTitle,
   EuiToolTip,
 } from '@elastic/eui';
 import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
-import { COLORS, riskHex, statusHex, tint, TYPE, verdictColor } from '../../lib/theme';
+import {
+  COLORS,
+  RADIUS,
+  riskHex,
+  statusHex,
+  tint,
+  TYPE,
+  verdictColor,
+  WEIGHT,
+} from '../../lib/theme';
 import { Sparkline } from './charts';
 
 /* ------------------------------------------------------------- skeleton ---- */
@@ -91,7 +99,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   accent = COLORS.primary,
   actions,
 }) => (
-  <>
+  <div className="socPageHeader">
     <EuiFlexGroup
       justifyContent="spaceBetween"
       alignItems="center"
@@ -111,16 +119,19 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
               <div
                 style={{
                   fontSize: TYPE.label,
-                  letterSpacing: 0.6,
+                  letterSpacing: 0.7,
                   textTransform: 'uppercase',
-                  fontWeight: 700,
+                  fontWeight: WEIGHT.bold,
                   color: accent,
+                  marginBottom: 1,
                 }}
               >
                 {eyebrow}
               </div>
             ) : null}
-            <div style={{ fontSize: TYPE.h1, fontWeight: 700, lineHeight: 1.15 }}>{title}</div>
+            <div style={{ fontSize: TYPE.h1, fontWeight: WEIGHT.bold, lineHeight: 1.15, letterSpacing: -0.2 }}>
+              {title}
+            </div>
             {description ? (
               <EuiText size="xs" color="subdued">
                 <span>{description}</span>
@@ -131,8 +142,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       </EuiFlexItem>
       {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
     </EuiFlexGroup>
-    <EuiSpacer size="l" />
-  </>
+    <EuiSpacer size="m" />
+  </div>
 );
 
 /** A coloured ▲/▼ delta chip used by KPI tiles. Positive = `up` semantics. */
@@ -201,14 +212,17 @@ export const IconChip: React.FC<{ icon: string; accent?: string; large?: boolean
   large,
 }) => (
   <span
+    className="socIconChip"
     style={{
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
-      width: large ? 48 : 36,
-      height: large ? 48 : 36,
-      borderRadius: 10,
-      background: tint(accent, 0.14),
+      flex: '0 0 auto',
+      width: large ? 44 : 34,
+      height: large ? 44 : 34,
+      borderRadius: large ? RADIUS.lg : RADIUS.chip,
+      background: tint(accent, 0.13),
+      boxShadow: `inset 0 0 0 1px ${tint(accent, 0.22)}`,
       color: accent,
     }}
   >
@@ -249,9 +263,9 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
             </EuiFlexItem>
           ) : null}
           <EuiFlexItem grow={false}>
-            <EuiTitle size="m">
-              <h2>{title}</h2>
-            </EuiTitle>
+            <div style={{ fontSize: TYPE.h2, fontWeight: WEIGHT.bold, lineHeight: 1.2, letterSpacing: -0.1 }}>
+              {title}
+            </div>
             {description ? (
               <EuiText size="xs" color="subdued">
                 <span>{description}</span>
@@ -262,7 +276,7 @@ export const SectionHeader: React.FC<SectionHeaderProps> = ({
       </EuiFlexItem>
       {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
     </EuiFlexGroup>
-    <EuiSpacer size="l" />
+    <EuiSpacer size="m" />
   </>
 );
 
@@ -289,7 +303,12 @@ export const StatTile: React.FC<StatTileProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <EuiPanel hasBorder paddingSize="m" style={{ borderTop: `3px solid ${accent}` }}>
+  <EuiPanel
+    hasBorder
+    paddingSize="m"
+    className="socStat socTile"
+    style={{ borderTop: `3px solid ${accent}`, borderRadius: RADIUS.lg }}
+  >
     <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
       {icon ? (
         <EuiFlexItem grow={false}>
@@ -297,12 +316,12 @@ export const StatTile: React.FC<StatTileProps> = ({
         </EuiFlexItem>
       ) : null}
       <EuiFlexItem>
-        <EuiText size="xs" color="subdued">
-          <span>{label}</span>
-        </EuiText>
+        <div className="socTile__label">{label}</div>
         <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
           <EuiFlexItem grow={false}>
-            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+            <div style={{ fontSize: TYPE.kpi, fontWeight: WEIGHT.bold, lineHeight: 1.15, letterSpacing: -0.3 }}>
+              {value}
+            </div>
           </EuiFlexItem>
           {typeof delta === 'number' ? (
             <EuiFlexItem grow={false}>
@@ -408,7 +427,10 @@ export const Card: React.FC<CardProps> = ({
     {...(variant === 'flat' ? { hasShadow: false, color: 'subdued' as const } : {})}
     paddingSize={paddingSize}
     className={`socCard${clickable ? ' socCard--clickable' : ''}${accentLeft ? ' socAccentLeft' : ''}`}
-    style={accentLeft ? { borderLeftColor: accentLeft } : undefined}
+    style={{
+      borderRadius: RADIUS.lg,
+      ...(accentLeft ? { borderLeftColor: accentLeft } : {}),
+    }}
     onClick={onClick}
   >
     {(title || actions) && (
@@ -420,13 +442,13 @@ export const Card: React.FC<CardProps> = ({
             </EuiFlexItem>
           ) : null}
           <EuiFlexItem>
-            <EuiTitle size="xxs">
-              <h3>{title}</h3>
-            </EuiTitle>
+            <div style={{ fontSize: '13px', fontWeight: WEIGHT.semibold, lineHeight: 1.25 }}>
+              {title}
+            </div>
           </EuiFlexItem>
           {actions ? <EuiFlexItem grow={false}>{actions}</EuiFlexItem> : null}
         </EuiFlexGroup>
-        <EuiSpacer size="m" />
+        <EuiSpacer size="s" />
       </>
     )}
     {children}
@@ -459,7 +481,12 @@ export const TrendStat: React.FC<TrendStatProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <EuiPanel hasBorder paddingSize="m" className="socStat" style={{ borderTop: `3px solid ${accent}` }}>
+  <EuiPanel
+    hasBorder
+    paddingSize="m"
+    className="socStat socTile"
+    style={{ borderTop: `3px solid ${accent}`, borderRadius: RADIUS.lg }}
+  >
     <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
       {icon ? (
         <EuiFlexItem grow={false}>
@@ -467,10 +494,12 @@ export const TrendStat: React.FC<TrendStatProps> = ({
         </EuiFlexItem>
       ) : null}
       <EuiFlexItem>
-        <EuiText size="xs" color="subdued"><span>{label}</span></EuiText>
+        <div className="socTile__label">{label}</div>
         <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false} wrap={false}>
           <EuiFlexItem grow={false}>
-            <div style={{ fontSize: TYPE.kpi, fontWeight: 700, lineHeight: 1.2 }}>{value}</div>
+            <div style={{ fontSize: TYPE.kpi, fontWeight: WEIGHT.bold, lineHeight: 1.15, letterSpacing: -0.3 }}>
+              {value}
+            </div>
           </EuiFlexItem>
           {typeof delta === 'number' ? (
             <EuiFlexItem grow={false}>
@@ -482,7 +511,7 @@ export const TrendStat: React.FC<TrendStatProps> = ({
       </EuiFlexItem>
     </EuiFlexGroup>
     {spark && spark.length > 1 ? (
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 10 }}>
         <Sparkline values={spark} color={accent} height={36} />
       </div>
     ) : null}

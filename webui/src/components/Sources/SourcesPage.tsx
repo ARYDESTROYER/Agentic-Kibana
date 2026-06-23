@@ -18,13 +18,52 @@ import {
   EuiSpacer,
   EuiText,
 } from '@elastic/eui';
-import type { ConnectorManifest, SourceInstance } from '../../lib/types';
+import type {
+  ConnectorManifest,
+  EntityStrategy,
+  IndexPattern,
+  SourceConfigExtras,
+  SourceInstance,
+} from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS } from '../../lib/theme';
+import { categoryMeta, COLORS } from '../../lib/theme';
 import { humanizeToken } from '../../lib/format';
 import { EmptyState, ErrorCallout, IconChip, Loading, SectionHeader } from '../common/ui';
 import { SourceEditor } from '../common/SourceEditor';
 import { SourceLogsFlyout } from './SourceLogsFlyout';
+
+/** Human label for an entity strategy (matches the editor's choices). */
+const ENTITY_LABELS: Record<string, string> = {
+  auto: 'Auto entity',
+  ip: 'Entity: IP',
+  host: 'Entity: Host',
+  user: 'Entity: User',
+  rule: 'Entity: Rule',
+};
+
+/**
+ * The index patterns + roles a source reads, derived for the at-a-glance summary.
+ * Prefers `config.index_patterns`; falls back to the legacy comma-separated
+ * `data_view_pattern` (treated as `events`).
+ */
+function summarisePatterns(cfg: Record<string, unknown> | undefined): IndexPattern[] {
+  if (!cfg) return [];
+  const ip = cfg.index_patterns;
+  if (Array.isArray(ip) && ip.length) {
+    return ip
+      .filter((p): p is IndexPattern => !!p && typeof (p as IndexPattern).pattern === 'string')
+      .map((p) => ({ pattern: String(p.pattern), role: p.role === 'alerts' ? 'alerts' : 'events' }));
+  }
+  const single = cfg.data_view_pattern;
+  if (typeof single === 'string' && single.trim()) {
+    return single
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((pattern): IndexPattern => ({ pattern, role: 'events' }));
+  }
+  return [];
+}
 
 export const SourcesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -127,11 +166,19 @@ export const SourcesPage: React.FC = () => {
         sources.map((s) => {
           const meta = connectors.find((c) => c.source_type === s.source_type);
           const canBrowse = !!meta?.capabilities?.includes('browse');
+          const catMeta = categoryMeta(meta?.category);
+          const cfg = s.config as (Record<string, unknown> & Partial<SourceConfigExtras>) | undefined;
+          const patterns = summarisePatterns(cfg);
+          const strategy = ((cfg?.entity_strategy as EntityStrategy | string) || 'auto') as string;
+          const messageField = (cfg?.message_field as string) || '';
           return (
             <EuiPanel key={s.id} hasBorder paddingSize="m" style={{ marginBottom: 12 }}>
-              <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} wrap>
+              <EuiFlexGroup alignItems="flexStart" gutterSize="m" responsive={false} wrap>
                 <EuiFlexItem grow={false}>
-                  <IconChip icon="logstashQueue" accent={s.is_primary ? COLORS.primary : COLORS.subdued} />
+                  <IconChip
+                    icon={catMeta.icon}
+                    accent={s.is_primary ? COLORS.primary : catMeta.accent}
+                  />
                 </EuiFlexItem>
                 <EuiFlexItem>
                   <EuiText>
@@ -149,6 +196,45 @@ export const SourcesPage: React.FC = () => {
                       {s.configured_secrets?.length ? ` · ${s.configured_secrets.length} secret(s)` : ''}
                     </span>
                   </EuiText>
+
+                  {/* At-a-glance triage config: patterns + roles, entity strategy, message field. */}
+                  {patterns.length || strategy !== 'auto' || messageField ? (
+                    <>
+                      <EuiSpacer size="s" />
+                      <EuiFlexGroup gutterSize="xs" wrap responsive={false} alignItems="center">
+                        {patterns.slice(0, 4).map((p, i) => (
+                          <EuiFlexItem grow={false} key={`${p.pattern}-${i}`}>
+                            <EuiBadge
+                              color={p.role === 'alerts' ? COLORS.warning : 'hollow'}
+                              iconType={p.role === 'alerts' ? 'alert' : 'indexMapping'}
+                              title={`${p.role === 'alerts' ? 'Alerts' : 'Events'} pattern`}
+                            >
+                              {p.pattern}
+                            </EuiBadge>
+                          </EuiFlexItem>
+                        ))}
+                        {patterns.length > 4 ? (
+                          <EuiFlexItem grow={false}>
+                            <EuiBadge color="hollow">+{patterns.length - 4} more</EuiBadge>
+                          </EuiFlexItem>
+                        ) : null}
+                        {strategy !== 'auto' ? (
+                          <EuiFlexItem grow={false}>
+                            <EuiBadge color="hollow" iconType="cluster">
+                              {ENTITY_LABELS[strategy] || `Entity: ${humanizeToken(strategy)}`}
+                            </EuiBadge>
+                          </EuiFlexItem>
+                        ) : null}
+                        {messageField ? (
+                          <EuiFlexItem grow={false}>
+                            <EuiBadge color="hollow" iconType="documentEdit" title="Message field">
+                              {messageField}
+                            </EuiBadge>
+                          </EuiFlexItem>
+                        ) : null}
+                      </EuiFlexGroup>
+                    </>
+                  ) : null}
                 </EuiFlexItem>
                 <EuiFlexItem grow={false}>
                   <EuiFlexGroup gutterSize="s" responsive={false}>

@@ -147,6 +147,41 @@ export interface ConnectionTest {
 // --------------------------------------------------------------------------- //
 // Sources (configured connector instances; mirrors `SourceInstance`).
 // --------------------------------------------------------------------------- //
+/**
+ * One index/data-view pattern a source reads, classified by the kind of records
+ * it holds. The backend uses `role` to decide whether a pattern carries raw
+ * `events` or pre-triaged `alerts`. `role` is open-ended (the backend validates),
+ * but the two canonical values are enumerated for editor help.
+ */
+export interface IndexPattern {
+  pattern: string;
+  role: 'events' | 'alerts' | string;
+}
+
+/**
+ * How a source derives the primary entity for a cluster. `auto` lets the backend
+ * pick from the mapped fields; the rest pin a specific dimension. Open-ended (the
+ * backend accepts arbitrary strings) but the canonical values are enumerated.
+ */
+export type EntityStrategy = 'auto' | 'ip' | 'host' | 'user' | 'rule';
+
+/**
+ * The additive, optional `config` fields a source may carry (mirrors the backend
+ * `SourceInstance.config` additions). `SourceInstance.config` stays a loose
+ * `Record<string, unknown>` so unknown keys round-trip unharmed; this type
+ * documents the well-known additions and can be intersected onto a config value
+ * (e.g. `cfg as SourceConfigExtras`) when a surface reads them.
+ */
+export interface SourceConfigExtras {
+  /** Per-source index/data-view patterns + their role (events vs alerts). */
+  index_patterns?: IndexPattern[];
+  /** How this source picks the cluster's primary entity. */
+  entity_strategy?: EntityStrategy | string;
+  /** The field whose value is shown as the human-readable message column. */
+  message_field?: string;
+  [key: string]: unknown;
+}
+
 export interface SourceInstance {
   id: string;
   source_type: string;
@@ -154,7 +189,12 @@ export interface SourceInstance {
   enabled?: boolean;
   ingest_mode?: string;
   is_primary?: boolean;
-  config?: Record<string, unknown>;
+  /**
+   * Loose connector config. Unknown keys round-trip unharmed; the well-known
+   * additive keys are documented by `SourceConfigExtras` (`index_patterns`,
+   * `entity_strategy`, `message_field`).
+   */
+  config?: Record<string, unknown> & Partial<SourceConfigExtras>;
   configured_secrets?: string[];
   created_at?: string;
   updated_at?: string;
@@ -464,6 +504,12 @@ export interface Case {
   error?: string;
   agent_persona?: string;
   playbook_id?: string;
+  /** The source instance this case originated from (additive; mirrors backend). */
+  source_id?: string | null;
+  /** Human-readable display name of the originating source (additive). */
+  source_name?: string | null;
+  /** The kind of the case's primary entity (e.g. "ip"/"user"/"host"/"rule"). */
+  entity_type?: string | null;
   /** Analyst grading entries (POST /api/cases/{id}/feedback). */
   feedback?: CaseFeedback[];
   /** Free-form analyst tags (POST /api/cases/{id}/tags). */

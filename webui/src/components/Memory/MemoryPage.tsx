@@ -3,34 +3,47 @@
  *
  * Memory is a small, curated set of facts (internal IP ranges, known scanners,
  * naming conventions, standing exceptions) that are injected into every
- * investigation + chat turn. It is the Claude.ai-style "memory" for the SOC: a
- * human can add/edit/retire facts here, or speak them conversationally in Chat
- * ("remember: …" / "forget …"), which the chat engine reflects back as a
- * `memory_action`.
+ * investigation + chat turn as a DISTINCT TRUSTED operator block. It is the
+ * Claude.ai-style "memory" for the SOC: a human can add/edit/retire facts here,
+ * or speak them conversationally in Chat ("remember: …" / "forget …"), which the
+ * chat engine reflects back as a `memory_action`.
+ *
+ * This page lets a human SEE and curate that set:
+ *   - a compact stats header (total / active / operator-vs-agent split),
+ *   - search + filter (text/category/tags) and a source facet, plus a sort
+ *     control (newest / updated / active-first / category),
+ *   - optional grouping by category, with inline edit, active/inactive toggle and
+ *     delete-with-confirm per fact.
  *
  * Agent-authored memories carry a `source: 'agent'` badge; the text is rendered
- * as plain text (never as markup) since it can be source-influenced.
+ * as plain text (never as markup) since it can be source-influenced. Memory never
+ * overrides the deterministic case decision — it only informs the LLM.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EuiBadge,
   EuiButton,
   EuiButtonEmpty,
+  EuiButtonGroup,
   EuiButtonIcon,
   EuiCallOut,
   EuiComboBox,
   EuiConfirmModal,
+  EuiFieldSearch,
   EuiFieldText,
+  EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
   EuiGlobalToastList,
   EuiHorizontalRule,
   EuiPanel,
+  EuiSelect,
   EuiSpacer,
   EuiSwitch,
   EuiText,
   EuiTextArea,
+  EuiToolTip,
 } from '@elastic/eui';
 import type {
   EuiComboBoxOptionOption,
@@ -40,39 +53,59 @@ import type { MemoryEntry } from '../../lib/types';
 import { api } from '../../lib/api';
 import type { MemoryPatch } from '../../lib/api';
 import { COLORS, tint } from '../../lib/theme';
-import { DASH, formatTimestamp, humanizeAge, humanizeToken } from '../../lib/format';
-import { Card, EmptyState, ErrorCallout, PageHeader, SectionHeader, Skeleton } from '../common/ui';
+import { DASH, fmtNumber, formatTimestamp, humanizeAge, humanizeToken } from '../../lib/format';
+import { Card, EmptyState, ErrorCallout, PageHeader, SectionHeader, Skeleton, StatTile } from '../common/ui';
 
 /** A small source pill — human (operator) vs agent (conversationally added). */
 const SourceBadge: React.FC<{ source?: string; author?: string }> = ({ source, author }) => {
   const isAgent = (source || '').toLowerCase() === 'agent';
   const accent = isAgent ? COLORS.accent : COLORS.primary;
   return (
-    <EuiBadge
-      color={tint(accent, 0.16)}
-      style={{ color: accent }}
-      iconType={isAgent ? 'compute' : 'user'}
-      title={author ? `By ${author}` : undefined}
+    <EuiToolTip
+      content={
+        isAgent
+          ? 'Authored by an agent (conversationally, in Chat). Treated as untrusted text.'
+          : 'Authored by a human operator.'
+      }
     >
-      {isAgent ? 'Agent' : 'Operator'}
-      {author ? ` · ${author}` : ''}
-    </EuiBadge>
+      <EuiBadge
+        color={tint(accent, 0.16)}
+        style={{ color: accent }}
+        iconType={isAgent ? 'compute' : 'user'}
+      >
+        {isAgent ? 'Agent' : 'Operator'}
+        {author ? ` · ${author}` : ''}
+      </EuiBadge>
+    </EuiToolTip>
   );
 };
 
 const tagOptions = (tags?: string[]): Array<EuiComboBoxOptionOption<string>> =>
   (tags || []).map((t) => ({ label: t }));
 
+/** Uncategorised facts collect under this stable bucket label. */
+const UNCATEGORISED = 'Uncategorised';
+
 /* --------------------------------------------------------------- add memory -- */
 
-const AddMemoryCard: React.FC<{ onAdded: (e: MemoryEntry) => void; onError: (e: unknown) => void }> = ({
-  onAdded,
-  onError,
-}) => {
+const AddMemoryCard: React.FC<{
+  onAdded: (e: MemoryEntry) => void;
+  onError: (e: unknown) => void;
+  categories: string[];
+}> = ({ onAdded, onError, categories }) => {
   const [text, setText] = useState('');
   const [category, setCategory] = useState('');
   const [tags, setTags] = useState<Array<EuiComboBoxOptionOption<string>>>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  // Suggest existing categories so facts cluster instead of fragmenting.
+  const categoryOptions = useMemo(
+    () => categories.map((c) => ({ label: humanizeToken(c), value: c })),
+    [categories],
+  );
+  const selectedCategory: Array<EuiComboBoxOptionOption<string>> = category
+    ? [{ label: humanizeToken(category), value: category }]
+    : [];
 
   const submit = useCallback(async () => {
     const body = text.trim();
@@ -109,13 +142,16 @@ const AddMemoryCard: React.FC<{ onAdded: (e: MemoryEntry) => void; onError: (e: 
       <EuiSpacer size="s" />
       <EuiFlexGroup gutterSize="m" wrap>
         <EuiFlexItem>
-          <EuiFormRow label="Category (optional)" fullWidth>
-            <EuiFieldText
+          <EuiFormRow label="Category (optional)" helpText="Pick an existing one or type a new label." fullWidth>
+            <EuiComboBox
               fullWidth
-              icon="tag"
+              singleSelection={{ asPlainText: true }}
               placeholder="e.g. network, scanners, policy"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              options={categoryOptions}
+              selectedOptions={selectedCategory}
+              onCreateOption={(v) => setCategory(v.trim())}
+              onChange={(sel) => setCategory((sel[0]?.value ?? sel[0]?.label ?? '') as string)}
+              isClearable
             />
           </EuiFormRow>
         </EuiFlexItem>
@@ -212,7 +248,7 @@ const MemoryRow: React.FC<{
               <EuiFormRow label="Category" fullWidth>
                 <EuiFieldText
                   fullWidth
-                  icon="tag"
+                  icon="folderClosed"
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                 />
@@ -266,6 +302,20 @@ const MemoryRow: React.FC<{
         </>
       ) : (
         <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <span
+              style={{
+                display: 'inline-block',
+                width: 4,
+                alignSelf: 'stretch',
+                minHeight: 22,
+                borderRadius: 3,
+                background: entry.active ? COLORS.success : COLORS.subdued,
+                opacity: entry.active ? 0.85 : 0.4,
+              }}
+              aria-hidden
+            />
+          </EuiFlexItem>
           <EuiFlexItem>
             <EuiText size="s" style={dim ? { opacity: 0.55 } : undefined}>
               <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{entry.text}</p>
@@ -317,22 +367,26 @@ const MemoryRow: React.FC<{
                 />
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
-                <EuiButtonIcon
-                  iconType="pencil"
-                  aria-label="Edit memory"
-                  color="text"
-                  onClick={() => setEditing(true)}
-                  isDisabled={busy}
-                />
+                <EuiToolTip content="Edit this fact">
+                  <EuiButtonIcon
+                    iconType="pencil"
+                    aria-label="Edit memory"
+                    color="text"
+                    onClick={() => setEditing(true)}
+                    isDisabled={busy}
+                  />
+                </EuiToolTip>
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
-                <EuiButtonIcon
-                  iconType="trash"
-                  aria-label="Delete memory"
-                  color="danger"
-                  onClick={() => onDelete(entry)}
-                  isDisabled={busy}
-                />
+                <EuiToolTip content="Delete this fact">
+                  <EuiButtonIcon
+                    iconType="trash"
+                    aria-label="Delete memory"
+                    color="danger"
+                    onClick={() => onDelete(entry)}
+                    isDisabled={busy}
+                  />
+                </EuiToolTip>
               </EuiFlexItem>
             </EuiFlexGroup>
           </EuiFlexItem>
@@ -341,6 +395,29 @@ const MemoryRow: React.FC<{
     </Card>
   );
 };
+
+/* ------------------------------------------------------------- filter bar --- */
+
+type SortKey = 'updated' | 'created' | 'active' | 'category';
+
+const SORT_OPTIONS: Array<{ value: SortKey; text: string }> = [
+  { value: 'updated', text: 'Recently updated' },
+  { value: 'created', text: 'Newest first' },
+  { value: 'active', text: 'Active first' },
+  { value: 'category', text: 'By category' },
+];
+
+const SOURCE_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'human', label: 'Operator' },
+  { id: 'agent', label: 'Agent' },
+];
+
+const ACTIVE_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'inactive', label: 'Inactive' },
+];
 
 /* -------------------------------------------------------------------- page --- */
 
@@ -351,6 +428,14 @@ export const MemoryPage: React.FC = () => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<MemoryEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ---- view controls ----
+  const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'human' | 'agent'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [categories, setCategories] = useState<string[]>([]);
+  const [sort, setSort] = useState<SortKey>('updated');
+  const [grouped, setGrouped] = useState(true);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
@@ -445,7 +530,111 @@ export const MemoryPage: React.FC = () => {
     }
   }, [pendingDelete, addToast]);
 
-  const activeCount = useMemo(() => entries.filter((e) => e.active).length, [entries]);
+  // ---- derived summary + facets ----
+  const stats = useMemo(() => {
+    let active = 0;
+    let operator = 0;
+    let agent = 0;
+    for (const e of entries) {
+      if (e.active) active += 1;
+      if ((e.source || '').toLowerCase() === 'agent') agent += 1;
+      else operator += 1;
+    }
+    return { total: entries.length, active, operator, agent };
+  }, [entries]);
+
+  const categoryFacet = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of entries) if (e.category) set.add(e.category);
+    return Array.from(set).sort();
+  }, [entries]);
+
+  // Drop any selected category that no longer exists so the list can't silently empty.
+  useEffect(() => {
+    setCategories((prev) => prev.filter((c) => categoryFacet.includes(c)));
+  }, [categoryFacet]);
+
+  const filteredSorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = entries.filter((e) => {
+      const isAgent = (e.source || '').toLowerCase() === 'agent';
+      if (sourceFilter === 'agent' && !isAgent) return false;
+      if (sourceFilter === 'human' && isAgent) return false;
+      if (activeFilter === 'active' && !e.active) return false;
+      if (activeFilter === 'inactive' && e.active) return false;
+      if (categories.length && !(e.category && categories.includes(e.category))) return false;
+      if (!q) return true;
+      const hay = `${e.text} ${e.category || ''} ${(e.tags || []).join(' ')} ${e.author || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+    const byTime = (e: MemoryEntry, useUpdated: boolean) =>
+      (useUpdated ? e.updated_at || e.created_at : e.created_at) || '';
+    return [...rows].sort((a, b) => {
+      switch (sort) {
+        case 'created':
+          return byTime(b, false).localeCompare(byTime(a, false));
+        case 'active':
+          // Active first, then most-recently updated within each band.
+          if (a.active !== b.active) return a.active ? -1 : 1;
+          return byTime(b, true).localeCompare(byTime(a, true));
+        case 'category':
+          return (
+            (a.category || UNCATEGORISED).localeCompare(b.category || UNCATEGORISED) ||
+            byTime(b, true).localeCompare(byTime(a, true))
+          );
+        case 'updated':
+        default:
+          return byTime(b, true).localeCompare(byTime(a, true));
+      }
+    });
+  }, [entries, search, sourceFilter, activeFilter, categories, sort]);
+
+  // Group the filtered set by category when grouping is on.
+  const groups = useMemo(() => {
+    if (!grouped) return null;
+    const map = new Map<string, MemoryEntry[]>();
+    for (const e of filteredSorted) {
+      const key = e.category ? humanizeToken(e.category) : UNCATEGORISED;
+      const arr = map.get(key);
+      if (arr) arr.push(e);
+      else map.set(key, [e]);
+    }
+    // Uncategorised last; everything else alphabetical.
+    return Array.from(map.entries()).sort((a, b) => {
+      if (a[0] === UNCATEGORISED) return 1;
+      if (b[0] === UNCATEGORISED) return -1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [filteredSorted, grouped]);
+
+  const toOpts = (vals: string[]): Array<EuiComboBoxOptionOption<string>> =>
+    vals.map((v) => ({ label: humanizeToken(v), value: v }));
+  const fromOpts = (sel: Array<EuiComboBoxOptionOption<string>>): string[] =>
+    sel.map((o) => (o.value ?? o.label) as string);
+
+  const anyFilter =
+    search.trim().length > 0 ||
+    sourceFilter !== 'all' ||
+    activeFilter !== 'all' ||
+    categories.length > 0;
+
+  const clearFilters = useCallback(() => {
+    setSearch('');
+    setSourceFilter('all');
+    setActiveFilter('all');
+    setCategories([]);
+  }, []);
+
+  const renderRow = (entry: MemoryEntry) => (
+    <MemoryRow
+      key={entry.id}
+      entry={entry}
+      onSave={onSave}
+      onToggleActive={(e) => void onToggleActive(e)}
+      onDelete={(e) => setPendingDelete(e)}
+      busy={busyId === entry.id}
+    />
+  );
 
   return (
     <div className="socPageEnter">
@@ -454,7 +643,7 @@ export const MemoryPage: React.FC = () => {
         accent={COLORS.primary}
         eyebrow="Knowledge"
         title="Memory"
-        description="Durable facts the agents always know — used in every investigation and chat turn."
+        description="Durable facts the agents always know — injected into every investigation and chat turn as trusted operator context."
         actions={
           <EuiButtonEmpty size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
             Refresh
@@ -462,25 +651,59 @@ export const MemoryPage: React.FC = () => {
         }
       />
 
-      <EuiCallOut
-        title="What is memory?"
-        color="primary"
-        iconType="iInCircle"
-        size="s"
-      >
+      <EuiCallOut title="What is memory?" color="primary" iconType="iInCircle" size="s">
         <p>
           Memory is a curated set of durable facts the agents always know — internal IP ranges,
-          known scanners, naming conventions, standing exceptions. They are injected into
-          investigations and chat. You can also say <strong>“remember: …”</strong> or{' '}
-          <strong>“forget …”</strong> in Chat and the agent will manage memory for you.
+          known scanners, naming conventions, standing exceptions. Active facts are injected into
+          investigations and chat as a <strong>trusted operator block</strong>; they inform the LLM
+          but <strong>never override the deterministic close/escalate decision</strong>. You can
+          also say <strong>“remember: …”</strong> or <strong>“forget …”</strong> in Chat and the
+          agent will manage memory for you.
         </p>
       </EuiCallOut>
+
+      <EuiSpacer size="l" />
+
+      {/* ---- summary tiles ---- */}
+      {loading && entries.length === 0 ? (
+        <EuiFlexGrid columns={4} gutterSize="m">
+          {[0, 1, 2, 3].map((i) => (
+            <EuiFlexItem key={i}>
+              <EuiPanel hasBorder paddingSize="m">
+                <Skeleton rows={2} height={20} />
+              </EuiPanel>
+            </EuiFlexItem>
+          ))}
+        </EuiFlexGrid>
+      ) : (
+        <EuiFlexGrid columns={4} gutterSize="m">
+          <EuiFlexItem>
+            <StatTile label="Total facts" value={fmtNumber(stats.total)} icon="bell" accent={COLORS.primary} />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <StatTile
+              label="Active"
+              value={fmtNumber(stats.active)}
+              icon="check"
+              accent={COLORS.success}
+              sub={stats.total > 0 ? `${fmtNumber(stats.total - stats.active)} inactive` : undefined}
+            />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <StatTile label="Operator-authored" value={fmtNumber(stats.operator)} icon="user" accent={COLORS.primary} />
+          </EuiFlexItem>
+          <EuiFlexItem>
+            <StatTile label="Agent-authored" value={fmtNumber(stats.agent)} icon="compute" accent={COLORS.accent} />
+          </EuiFlexItem>
+        </EuiFlexGrid>
+      )}
 
       <EuiSpacer size="l" />
 
       <AddMemoryCard
         onAdded={onAdded}
         onError={(e) => addToast(e instanceof Error ? e.message : 'Could not save memory.', 'danger')}
+        categories={categoryFacet}
       />
 
       <EuiSpacer size="l" />
@@ -492,9 +715,93 @@ export const MemoryPage: React.FC = () => {
         description={
           loading
             ? 'Loading…'
-            : `${entries.length} total · ${activeCount} active`
+            : `${fmtNumber(filteredSorted.length)} of ${fmtNumber(stats.total)} shown · ${fmtNumber(
+                stats.active,
+              )} active`
+        }
+        actions={
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiToolTip content="Group facts under their category">
+                <EuiSwitch
+                  compressed
+                  label="Group by category"
+                  checked={grouped}
+                  onChange={(e) => setGrouped(e.target.checked)}
+                />
+              </EuiToolTip>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false} style={{ minWidth: 180 }}>
+              <EuiSelect
+                compressed
+                aria-label="Sort memories"
+                prepend="Sort"
+                options={SORT_OPTIONS}
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              />
+            </EuiFlexItem>
+          </EuiFlexGroup>
         }
       />
+
+      {/* ---- filter toolbar ---- */}
+      {!error && entries.length > 0 ? (
+        <>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false} style={{ minWidth: 220 }}>
+              <EuiFieldSearch
+                compressed
+                fullWidth
+                placeholder="Search facts, category, tags…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                isClearable
+                aria-label="Search memories"
+              />
+            </EuiFlexItem>
+            {categoryFacet.length > 0 ? (
+              <EuiFlexItem grow={false} style={{ minWidth: 180, maxWidth: 300 }}>
+                <EuiComboBox
+                  compressed
+                  placeholder="Category"
+                  aria-label="Filter by category"
+                  options={toOpts(categoryFacet)}
+                  selectedOptions={toOpts(categories)}
+                  onChange={(sel) => setCategories(fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFlexItem>
+            ) : null}
+            <EuiFlexItem grow={false}>
+              <EuiButtonGroup
+                legend="Filter by author"
+                options={SOURCE_FILTERS}
+                idSelected={sourceFilter}
+                onChange={(id) => setSourceFilter(id as 'all' | 'human' | 'agent')}
+                buttonSize="compressed"
+              />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonGroup
+                legend="Filter by active state"
+                options={ACTIVE_FILTERS}
+                idSelected={activeFilter}
+                onChange={(id) => setActiveFilter(id as 'all' | 'active' | 'inactive')}
+                buttonSize="compressed"
+              />
+            </EuiFlexItem>
+            {anyFilter ? (
+              <EuiFlexItem grow={false}>
+                <EuiButtonEmpty size="s" iconType="cross" onClick={clearFilters}>
+                  Clear
+                </EuiButtonEmpty>
+              </EuiFlexItem>
+            ) : null}
+          </EuiFlexGroup>
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
 
       {error ? (
         <ErrorCallout error={error} title="Could not load memory" />
@@ -508,18 +815,49 @@ export const MemoryPage: React.FC = () => {
           title="No memories yet"
           body="Add a durable fact above, or teach the agent one conversationally in Chat with “remember: …”."
         />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {entries.map((entry) => (
-            <MemoryRow
-              key={entry.id}
-              entry={entry}
-              onSave={onSave}
-              onToggleActive={(e) => void onToggleActive(e)}
-              onDelete={(e) => setPendingDelete(e)}
-              busy={busyId === entry.id}
-            />
+      ) : filteredSorted.length === 0 ? (
+        <EmptyState
+          iconType="search"
+          title="No memories match"
+          body="No facts match the current filters. Clear them to see all memories."
+          actions={
+            <EuiButton size="s" iconType="cross" onClick={clearFilters}>
+              Clear filters
+            </EuiButton>
+          }
+        />
+      ) : groups ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {groups.map(([label, rows]) => (
+            <div key={label}>
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiBadge
+                    color={label === UNCATEGORISED ? 'hollow' : tint(COLORS.accent, 0.16)}
+                    style={label === UNCATEGORISED ? undefined : { color: COLORS.accent }}
+                    iconType="folderClosed"
+                  >
+                    {label}
+                  </EuiBadge>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiText size="xs" color="subdued">
+                    <span>
+                      {fmtNumber(rows.length)} fact{rows.length === 1 ? '' : 's'}
+                    </span>
+                  </EuiText>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+              <EuiSpacer size="s" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {rows.map(renderRow)}
+              </div>
+            </div>
           ))}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filteredSorted.map(renderRow)}
         </div>
       )}
 
@@ -535,7 +873,10 @@ export const MemoryPage: React.FC = () => {
         >
           <EuiText size="s">
             <p style={{ whiteSpace: 'pre-wrap' }}>“{pendingDelete.text}”</p>
-            <p>The agents will no longer know this fact.</p>
+            <p>
+              The agents will no longer know this fact. To retire it without deleting, toggle{' '}
+              <strong>Active</strong> off instead.
+            </p>
           </EuiText>
         </EuiConfirmModal>
       ) : null}
@@ -544,7 +885,8 @@ export const MemoryPage: React.FC = () => {
       <EuiText size="xs" color="subdued">
         <p>
           Inactive memories are retained but not injected into prompts — toggle{' '}
-          <strong>Active</strong> off to retire a fact without deleting it. {DASH}
+          <strong>Active</strong> off to retire a fact without deleting it. Agent-authored facts are
+          treated as untrusted text and rendered as plain text. {DASH}
         </p>
       </EuiText>
 

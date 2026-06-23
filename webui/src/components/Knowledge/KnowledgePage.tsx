@@ -4,14 +4,17 @@
  * this page lets a human SEE and curate it:
  *
  *   - a corpus-health header (total chunks, document count, embedding model/dim,
- *     and a by-source breakdown),
- *   - an Import card to index a pasted document OR an uploaded .txt/.md/.json/.csv
- *     file (read client-side via FileReader → fills the title from the filename),
- *   - a documents table with a drill-in flyout that shows the document's CHUNKS
- *     (the exact units RAG retrieves), and per-row delete (guarded seed sources
- *     can be force-deleted after a confirm),
+ *     and a by-source breakdown with per-source chip filters),
+ *   - an Import card to index a pasted document OR one-or-more uploaded
+ *     .txt/.md/.json/.csv files (read client-side via FileReader, queued and
+ *     indexed in sequence; the title is auto-filled from the filename),
+ *   - a documents table with sorting (title/source/chunks/added), a search box,
+ *     a source facet and a density toggle, plus a drill-in flyout showing the
+ *     document's CHUNKS (the exact units RAG retrieves), and per-row delete
+ *     (guarded seed sources can be force-deleted after a confirm),
  *   - a search box that runs `GET /api/rag/search` and shows what RAG would return
- *     for a query, so the operator can watch the index actually working.
+ *     for a query as a ranked, score-bearing chunk list, so the operator can watch
+ *     the index actually working.
  *
  * Indexed/retrieved text is UNTRUSTED source content — it is always rendered as
  * plain text inside code blocks / panels, never interpolated as markup.
@@ -22,6 +25,7 @@ import {
   EuiBasicTable,
   EuiButton,
   EuiButtonEmpty,
+  EuiButtonGroup,
   EuiCallOut,
   EuiCodeBlock,
   EuiComboBox,
@@ -37,14 +41,18 @@ import {
   EuiFlyoutHeader,
   EuiFormRow,
   EuiGlobalToastList,
+  EuiHealth,
   EuiHorizontalRule,
   EuiPanel,
+  EuiProgress,
   EuiSpacer,
   EuiText,
   EuiTextArea,
   EuiTitle,
+  EuiToolTip,
 } from '@elastic/eui';
 import type {
+  Criteria,
   EuiBasicTableColumn,
   EuiComboBoxOptionOption,
   EuiGlobalToastListToast as Toast,
@@ -78,6 +86,18 @@ function sourceAccent(source: string, index = 0): string {
   return chartColor(index);
 }
 
+/** Heuristic: which corpus sources are guarded seed material (force-delete only). */
+function isSeedSource(source?: string): boolean {
+  const s = (source || '').toLowerCase();
+  return (
+    s.includes('runbook') ||
+    s.includes('playbook') ||
+    s.includes('mitre') ||
+    s.includes('suppression') ||
+    s.includes('resolved')
+  );
+}
+
 const SourceBadge: React.FC<{ source?: string; index?: number }> = ({ source, index = 0 }) => {
   if (!source) return <EuiBadge color="hollow">{DASH}</EuiBadge>;
   const accent = sourceAccent(source, index);
@@ -91,9 +111,20 @@ const SourceBadge: React.FC<{ source?: string; index?: number }> = ({ source, in
 /* ------------------------------------------------------------- chunk view --- */
 
 /** Render a single retrieval chunk — text is UNTRUSTED, always fenced. */
-const ChunkBlock: React.FC<{ chunk: RagChunk; index: number }> = ({ chunk, index }) => (
+const ChunkBlock: React.FC<{ chunk: RagChunk; index: number; rank?: number }> = ({
+  chunk,
+  index,
+  rank,
+}) => (
   <Card variant="flat" paddingSize="m">
     <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+      {typeof rank === 'number' ? (
+        <EuiFlexItem grow={false}>
+          <EuiBadge color={tint(COLORS.primary, 0.16)} style={{ color: COLORS.primary }}>
+            #{rank}
+          </EuiBadge>
+        </EuiFlexItem>
+      ) : null}
       <EuiFlexItem grow={false}>
         <EuiBadge color="hollow" iconType="number">
           chunk {typeof chunk.chunk_index === 'number' ? chunk.chunk_index : index}
@@ -104,9 +135,7 @@ const ChunkBlock: React.FC<{ chunk: RagChunk; index: number }> = ({ chunk, index
       </EuiFlexItem>
       {typeof chunk.score === 'number' ? (
         <EuiFlexItem grow={false}>
-          <EuiBadge color={tint(COLORS.success, 0.16)} style={{ color: COLORS.success }} iconType="visGauge">
-            score {chunk.score.toFixed(3)}
-          </EuiBadge>
+          <ScoreBadge score={chunk.score} />
         </EuiFlexItem>
       ) : null}
     </EuiFlexGroup>
@@ -117,6 +146,18 @@ const ChunkBlock: React.FC<{ chunk: RagChunk; index: number }> = ({ chunk, index
   </Card>
 );
 
+/** A retrieval-score badge whose colour reflects relevance strength. */
+const ScoreBadge: React.FC<{ score: number }> = ({ score }) => {
+  const accent = score >= 0.66 ? COLORS.success : score >= 0.33 ? COLORS.warning : COLORS.subdued;
+  return (
+    <EuiToolTip content="Hybrid retrieval relevance score (higher is a closer match)">
+      <EuiBadge color={tint(accent, 0.16)} style={{ color: accent }} iconType="visGauge">
+        score {score.toFixed(3)}
+      </EuiBadge>
+    </EuiToolTip>
+  );
+};
+
 /* ----------------------------------------------------------- document drill -- */
 
 const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
@@ -126,6 +167,7 @@ const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
   const [doc, setDoc] = useState<RagDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+  const [filter, setFilter] = useState('');
   const titleId = `ragDoc-${documentId}`;
 
   useEffect(() => {
@@ -148,6 +190,11 @@ const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
   }, [documentId]);
 
   const chunks = doc?.chunks ?? [];
+  const shownChunks = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return chunks;
+    return chunks.filter((c) => (c.text || '').toLowerCase().includes(q));
+  }, [chunks, filter]);
 
   return (
     <EuiFlyout onClose={onClose} size="m" aria-labelledby={titleId} ownFocus>
@@ -171,6 +218,13 @@ const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
               <EuiBadge color="hollow" iconType="compute">
                 {doc.embedding_model}
                 {typeof doc.dim === 'number' ? ` · ${doc.dim}d` : ''}
+              </EuiBadge>
+            </EuiFlexItem>
+          ) : null}
+          {isSeedSource(doc?.source) ? (
+            <EuiFlexItem grow={false}>
+              <EuiBadge color={tint(COLORS.warning, 0.16)} style={{ color: COLORS.warning }} iconType="lock">
+                Seed source
               </EuiBadge>
             </EuiFlexItem>
           ) : null}
@@ -216,10 +270,32 @@ const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
                 highest-scoring chunks for a query — text is treated as untrusted evidence.
               </p>
             </EuiText>
-            <EuiSpacer size="m" />
+            <EuiSpacer size="s" />
+            {chunks.length > 4 ? (
+              <>
+                <EuiFieldSearch
+                  fullWidth
+                  compressed
+                  placeholder="Filter chunks by text…"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  isClearable
+                  aria-label="Filter chunks"
+                />
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="subdued">
+                  <span>
+                    {fmtNumber(shownChunks.length)} of {fmtNumber(chunks.length)} chunks
+                  </span>
+                </EuiText>
+                <EuiSpacer size="s" />
+              </>
+            ) : (
+              <EuiSpacer size="s" />
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {chunks.map((ch, i) => (
-                <ChunkBlock key={i} chunk={ch} index={i} />
+              {shownChunks.map((ch, i) => (
+                <ChunkBlock key={i} chunk={ch} index={ch.chunk_index ?? i} />
               ))}
             </div>
           </>
@@ -231,6 +307,14 @@ const DocumentFlyout: React.FC<{ documentId: string; onClose: () => void }> = ({
 
 /* ------------------------------------------------------------------- import -- */
 
+/** One queued file waiting to be (or being) indexed. */
+interface QueuedFile {
+  name: string;
+  text: string;
+  bytes: number;
+  tooBig: boolean;
+}
+
 const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unknown) => void }> = ({
   onImported,
   onError,
@@ -240,78 +324,154 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
   const [source, setSource] = useState('');
   const [tags, setTags] = useState<Array<EuiComboBoxOptionOption<string>>>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  // Queued multi-file uploads (each indexed as its own document).
+  const [queue, setQueue] = useState<QueuedFile[]>([]);
   // EuiFilePicker is uncontrolled — bump this key to reset its label after a read.
   const [pickerKey, setPickerKey] = useState(0);
 
   const bytes = useMemo(() => new Blob([text]).size, [text]);
   const tooBig = bytes > MAX_IMPORT_BYTES;
-  const canSubmit = title.trim().length > 0 && text.trim().length > 0 && !tooBig && !submitting;
+  const hasPasted = title.trim().length > 0 && text.trim().length > 0;
+  const queueValid = queue.length > 0 && queue.every((q) => !q.tooBig);
+  const canSubmit = (hasPasted ? !tooBig : queueValid) && !submitting;
 
-  const onPick = useCallback(
-    (files: FileList | null) => {
-      setFileError(null);
-      const file = files && files[0];
-      if (!file) return;
+  const readFile = (file: File): Promise<QueuedFile> =>
+    new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         const content = String(reader.result || '');
-        setText(content);
-        // Fill the title from the filename (sans extension) only if empty.
-        setTitle((prev) => prev.trim() || file.name.replace(/\.[^.]+$/, ''));
+        const b = new Blob([content]).size;
+        resolve({ name: file.name, text: content, bytes: b, tooBig: b > MAX_IMPORT_BYTES });
       };
-      reader.onerror = () => setFileError('Could not read the file.');
+      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
       reader.readAsText(file);
+    });
+
+  const onPick = useCallback(
+    async (files: FileList | null) => {
+      setFileError(null);
+      const list = files ? Array.from(files) : [];
+      if (list.length === 0) {
+        setQueue([]);
+        return;
+      }
+      // Single file with an empty paste area → fill the paste fields inline so the
+      // existing "paste then tweak" flow is unchanged. Multiple files → queue them.
+      if (list.length === 1 && !text.trim()) {
+        try {
+          const qf = await readFile(list[0]);
+          if (qf.tooBig) {
+            setFileError(
+              `“${qf.name}” is ${fmtNumber(qf.bytes)} bytes — keep documents under ${Math.round(
+                MAX_IMPORT_BYTES / 1024,
+              )} KB.`,
+            );
+            return;
+          }
+          setText(qf.text);
+          setTitle((prev) => prev.trim() || list[0].name.replace(/\.[^.]+$/, ''));
+          setQueue([]);
+        } catch (e) {
+          setFileError((e as Error).message);
+        }
+        return;
+      }
+      try {
+        const read = await Promise.all(list.map(readFile));
+        setQueue(read);
+      } catch (e) {
+        setFileError((e as Error).message);
+      }
     },
-    [],
+    [text],
   );
 
+  const reset = useCallback(() => {
+    setTitle('');
+    setText('');
+    setSource('');
+    setTags([]);
+    setQueue([]);
+    setPickerKey((k) => k + 1);
+  }, []);
+
   const submit = useCallback(async () => {
+    const tagList = tags.map((t) => (t.label || '').trim()).filter(Boolean);
+    const src = source.trim() || undefined;
     setSubmitting(true);
     try {
-      const res = await api.ragImport({
-        title: title.trim(),
-        text,
-        source: source.trim() || undefined,
-        tags: tags.map((t) => (t.label || '').trim()).filter(Boolean),
-      });
-      onImported(`Indexed “${res.title}” (${fmtNumber(res.chunk_count)} chunk${res.chunk_count === 1 ? '' : 's'}).`);
-      setTitle('');
-      setText('');
-      setSource('');
-      setTags([]);
-      setPickerKey((k) => k + 1);
+      if (queue.length > 0) {
+        // Batch: index each queued file as its own document, in sequence.
+        let totalChunks = 0;
+        setProgress({ done: 0, total: queue.length });
+        for (let i = 0; i < queue.length; i += 1) {
+          const qf = queue[i];
+          const res = await api.ragImport({
+            title: qf.name.replace(/\.[^.]+$/, ''),
+            text: qf.text,
+            source: src,
+            tags: tagList,
+          });
+          totalChunks += res.chunk_count ?? 0;
+          setProgress({ done: i + 1, total: queue.length });
+        }
+        onImported(
+          `Indexed ${fmtNumber(queue.length)} document${queue.length === 1 ? '' : 's'} (${fmtNumber(
+            totalChunks,
+          )} chunk${totalChunks === 1 ? '' : 's'}).`,
+        );
+      } else {
+        const res = await api.ragImport({
+          title: title.trim(),
+          text,
+          source: src,
+          tags: tagList,
+        });
+        onImported(
+          `Indexed “${res.title}” (${fmtNumber(res.chunk_count)} chunk${
+            res.chunk_count === 1 ? '' : 's'
+          }).`,
+        );
+      }
+      reset();
     } catch (e) {
       onError(e);
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
-  }, [title, text, source, tags, onImported, onError]);
+  }, [title, text, source, tags, queue, onImported, onError, reset]);
+
+  const batching = queue.length > 0;
 
   return (
     <Card title="Import knowledge" icon="importAction" accent={COLORS.primary}>
       <EuiText size="xs" color="subdued">
         <span>
-          Index a document into the retrieval corpus. Paste text or upload a .txt / .md / .json /
-          .csv file; the investigator can then retrieve it during triage.
+          Index documents into the retrieval corpus. Paste text, or upload one or more
+          .txt / .md / .json / .csv files (each becomes its own document); the investigator
+          can then retrieve them during triage.
         </span>
       </EuiText>
       <EuiSpacer size="m" />
 
       <EuiFlexGroup gutterSize="m" wrap>
         <EuiFlexItem>
-          <EuiFormRow label="Title" fullWidth>
+          <EuiFormRow label="Title" fullWidth isDisabled={batching}>
             <EuiFieldText
               fullWidth
               icon="article"
-              placeholder="e.g. Internal IP allocation guide"
-              value={title}
+              placeholder={batching ? 'From each filename' : 'e.g. Internal IP allocation guide'}
+              value={batching ? '' : title}
               onChange={(e) => setTitle(e.target.value)}
+              disabled={batching}
             />
           </EuiFormRow>
         </EuiFlexItem>
         <EuiFlexItem>
-          <EuiFormRow label="Source (optional)" helpText="A label that groups this in the corpus." fullWidth>
+          <EuiFormRow label="Source (optional)" helpText="A label that groups these in the corpus." fullWidth>
             <EuiFieldText
               fullWidth
               icon="tag"
@@ -326,7 +486,7 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
       <EuiSpacer size="s" />
       <EuiFormRow
         label="Document text"
-        helpText={`${fmtNumber(bytes)} bytes`}
+        helpText={batching ? 'Disabled while files are queued.' : `${fmtNumber(bytes)} bytes`}
         fullWidth
         isInvalid={tooBig}
         error={tooBig ? `Too large — keep documents under ${Math.round(MAX_IMPORT_BYTES / 1024)} KB.` : undefined}
@@ -334,16 +494,18 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
         <EuiTextArea
           fullWidth
           rows={6}
-          placeholder="Paste the document text here, or upload a file below…"
-          value={text}
+          placeholder="Paste the document text here, or upload files below…"
+          value={batching ? '' : text}
           onChange={(e) => setText(e.target.value)}
           isInvalid={tooBig}
+          disabled={batching}
         />
       </EuiFormRow>
 
       <EuiSpacer size="s" />
       <EuiFormRow
-        label="…or upload a file"
+        label="…or upload files"
+        helpText="Select one file to fill the editor, or several to batch-index them."
         fullWidth
         isInvalid={!!fileError}
         error={fileError || undefined}
@@ -352,15 +514,61 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
           key={pickerKey}
           fullWidth
           compressed
-          initialPromptText="Select a .txt, .md, .json or .csv file"
+          multiple
+          initialPromptText="Select one or more .txt, .md, .json or .csv files"
           accept={IMPORT_ACCEPT}
-          onChange={onPick}
+          onChange={(files) => void onPick(files)}
           display="default"
         />
       </EuiFormRow>
 
+      {batching ? (
+        <>
+          <EuiSpacer size="s" />
+          <Card variant="flat" paddingSize="m">
+            <EuiText size="xs" color="subdued">
+              <strong>
+                {fmtNumber(queue.length)} file{queue.length === 1 ? '' : 's'} queued
+              </strong>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {queue.map((q, i) => (
+                <EuiFlexGroup key={`${q.name}-${i}`} gutterSize="s" alignItems="center" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <QueueStatusDot ok={!q.tooBig} />
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    <EuiText size="xs">
+                      <span className="socMono" style={{ wordBreak: 'break-all' }}>
+                        {q.name}
+                      </span>
+                    </EuiText>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="xs" color={q.tooBig ? 'danger' : 'subdued'}>
+                      <span>{fmtNumber(q.bytes)} B</span>
+                    </EuiText>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              ))}
+            </div>
+            {!queueValid ? (
+              <>
+                <EuiSpacer size="s" />
+                <EuiText size="xs" color="danger">
+                  <span>
+                    Some files exceed {Math.round(MAX_IMPORT_BYTES / 1024)} KB — remove them and re-select.
+                  </span>
+                </EuiText>
+              </>
+            ) : null}
+          </Card>
+        </>
+      ) : null}
+
       <EuiSpacer size="s" />
-      <EuiFormRow label="Tags (optional)" helpText="Type and press enter to add." fullWidth>
+      <EuiFormRow label="Tags (optional)" helpText="Type and press enter to add — applied to every imported document." fullWidth>
         <EuiComboBox
           fullWidth
           noSuggestions
@@ -375,8 +583,29 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
         />
       </EuiFormRow>
 
+      {progress ? (
+        <>
+          <EuiSpacer size="m" />
+          <EuiProgress
+            value={progress.done}
+            max={progress.total}
+            size="s"
+            color="primary"
+            label={`Indexing ${progress.done} / ${progress.total}`}
+            valueText
+          />
+        </>
+      ) : null}
+
       <EuiSpacer size="m" />
-      <EuiFlexGroup justifyContent="flexEnd" responsive={false}>
+      <EuiFlexGroup justifyContent="flexEnd" gutterSize="s" responsive={false}>
+        {hasPasted || batching ? (
+          <EuiFlexItem grow={false}>
+            <EuiButtonEmpty size="s" iconType="cross" onClick={reset} isDisabled={submitting}>
+              Clear
+            </EuiButtonEmpty>
+          </EuiFlexItem>
+        ) : null}
         <EuiFlexItem grow={false}>
           <EuiButton
             fill
@@ -386,7 +615,9 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
             isLoading={submitting}
             isDisabled={!canSubmit}
           >
-            Index document
+            {batching
+              ? `Index ${fmtNumber(queue.length)} document${queue.length === 1 ? '' : 's'}`
+              : 'Index document'}
           </EuiButton>
         </EuiFlexItem>
       </EuiFlexGroup>
@@ -394,10 +625,18 @@ const ImportCard: React.FC<{ onImported: (msg: string) => void; onError: (e: unk
   );
 };
 
+/** A tiny ok/error status dot for the upload queue. */
+const QueueStatusDot: React.FC<{ ok: boolean }> = ({ ok }) => (
+  <EuiHealth color={ok ? COLORS.success : COLORS.danger}>
+    <span style={{ fontSize: 11 }}>{ok ? 'ready' : 'too big'}</span>
+  </EuiHealth>
+);
+
 /* ------------------------------------------------------------------- search -- */
 
 const SearchCard: React.FC = () => {
   const [q, setQ] = useState('');
+  const [lastQuery, setLastQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [results, setResults] = useState<RagChunk[] | null>(null);
@@ -407,6 +646,7 @@ const SearchCard: React.FC = () => {
     if (!query) return;
     setLoading(true);
     setError(null);
+    setLastQuery(query);
     try {
       const res = await api.ragSearch(query, 8);
       setResults(res.chunks ?? []);
@@ -421,7 +661,7 @@ const SearchCard: React.FC = () => {
   return (
     <Card title="Try a retrieval" icon="search" accent={COLORS.accent}>
       <EuiText size="xs" color="subdued">
-        <span>See exactly what RAG would return for a query — the same chunks the investigator gets.</span>
+        <span>See exactly what RAG would return for a query — the same chunks the investigator gets, ranked by relevance.</span>
       </EuiText>
       <EuiSpacer size="m" />
       <EuiFieldSearch
@@ -449,13 +689,327 @@ const SearchCard: React.FC = () => {
           body="Nothing in the corpus scored above the retrieval floor for this query."
         />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {results.map((ch, i) => (
-            <ChunkBlock key={i} chunk={ch} index={i} />
-          ))}
-        </div>
+        <>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false}>
+              <EuiBadge color={tint(COLORS.accent, 0.16)} style={{ color: COLORS.accent }} iconType="search">
+                {fmtNumber(results.length)} hit{results.length === 1 ? '' : 's'}
+              </EuiBadge>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiText size="xs" color="subdued">
+                <span>for “{lastQuery}”, ranked highest-first</span>
+              </EuiText>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <EuiSpacer size="s" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {results.map((ch, i) => (
+              <ChunkBlock key={i} chunk={ch} index={i} rank={i + 1} />
+            ))}
+          </div>
+        </>
       )}
     </Card>
+  );
+};
+
+/* -------------------------------------------------------------- documents --- */
+
+type SortField = 'title' | 'source' | 'chunk_count' | 'added_at';
+
+const DENSITY_OPTIONS = [
+  { id: 'comfortable', label: 'Comfortable' },
+  { id: 'compact', label: 'Compact' },
+];
+
+const toOpts = (vals: string[]): Array<EuiComboBoxOptionOption<string>> =>
+  vals.map((v) => ({ label: humanizeToken(v), value: v }));
+const fromOpts = (sel: Array<EuiComboBoxOptionOption<string>>): string[] =>
+  sel.map((o) => (o.value ?? o.label) as string);
+
+const DocumentsSection: React.FC<{
+  documents: RagDocument[];
+  loading: boolean;
+  onOpen: (id: string) => void;
+  onDelete: (doc: RagDocument) => void;
+}> = ({ documents, loading, onOpen, onDelete }) => {
+  const [search, setSearch] = useState('');
+  const [sources, setSources] = useState<string[]>([]);
+  const [sortField, setSortField] = useState<SortField>('added_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
+
+  const sourceFacet = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of documents) if (d.source) set.add(d.source);
+    return Array.from(set).sort();
+  }, [documents]);
+
+  // Drop any selected source that no longer exists so the list can't silently empty.
+  useEffect(() => {
+    setSources((prev) => prev.filter((s) => sourceFacet.includes(s)));
+  }, [sourceFacet]);
+
+  const filteredSorted = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = documents.filter((d) => {
+      if (sources.length && !sources.includes(d.source)) return false;
+      if (!q) return true;
+      const hay = `${d.title} ${d.source} ${(d.tags || []).join(' ')} ${d.document_id}`.toLowerCase();
+      return hay.includes(q);
+    });
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      switch (sortField) {
+        case 'title':
+          return (a.title || a.document_id).localeCompare(b.title || b.document_id) * dir;
+        case 'source':
+          return (a.source || '').localeCompare(b.source || '') * dir;
+        case 'chunk_count':
+          return ((a.chunk_count ?? 0) - (b.chunk_count ?? 0)) * dir;
+        case 'added_at':
+        default:
+          return (a.added_at || '').localeCompare(b.added_at || '') * dir;
+      }
+    });
+  }, [documents, search, sources, sortField, sortDir]);
+
+  const onTableChange = useCallback(({ sort }: Criteria<RagDocument>) => {
+    if (sort) {
+      setSortField(sort.field as SortField);
+      setSortDir(sort.direction);
+    }
+  }, []);
+
+  const compact = density === 'compact';
+
+  const columns: Array<EuiBasicTableColumn<RagDocument>> = useMemo(
+    () => [
+      {
+        field: 'title',
+        name: 'Title',
+        sortable: true,
+        render: (_: unknown, d: RagDocument) => (
+          <div>
+            <button
+              type="button"
+              className="euiLink euiLink--primary"
+              style={{
+                fontWeight: 600,
+                textAlign: 'left',
+                background: 'none',
+                border: 0,
+                cursor: 'pointer',
+                padding: 0,
+                color: COLORS.primary,
+              }}
+              onClick={() => onOpen(d.document_id)}
+            >
+              {d.title || d.document_id}
+            </button>
+            {!compact && d.tags && d.tags.length ? (
+              <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {d.tags.slice(0, 4).map((t) => (
+                  <EuiBadge key={t} color="hollow" iconType="tag">
+                    {t}
+                  </EuiBadge>
+                ))}
+                {d.tags.length > 4 ? (
+                  <EuiBadge color="hollow">+{d.tags.length - 4}</EuiBadge>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        field: 'source',
+        name: 'Source',
+        sortable: true,
+        width: '170px',
+        render: (_: unknown, d: RagDocument) => (
+          <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false}>
+              <SourceBadge source={d.source} />
+            </EuiFlexItem>
+            {isSeedSource(d.source) ? (
+              <EuiFlexItem grow={false}>
+                <EuiToolTip content="Guarded seed corpus — delete requires force-confirm.">
+                  <EuiBadge color={tint(COLORS.warning, 0.16)} style={{ color: COLORS.warning }} iconType="lock" />
+                </EuiToolTip>
+              </EuiFlexItem>
+            ) : null}
+          </EuiFlexGroup>
+        ),
+      },
+      {
+        field: 'chunk_count',
+        name: 'Chunks',
+        sortable: true,
+        width: '90px',
+        align: 'right',
+        render: (n: number) => fmtNumber(n),
+      },
+      ...(compact
+        ? []
+        : ([
+            {
+              field: 'embedding_model',
+              name: 'Model',
+              render: (_: unknown, d: RagDocument) =>
+                d.embedding_model ? (
+                  <span className="socMono" style={{ fontSize: 12 }}>
+                    {d.embedding_model}
+                    {typeof d.dim === 'number' ? ` · ${d.dim}d` : ''}
+                  </span>
+                ) : (
+                  <span style={{ color: COLORS.subdued }}>{DASH}</span>
+                ),
+            },
+          ] as Array<EuiBasicTableColumn<RagDocument>>)),
+      {
+        field: 'added_at',
+        name: 'Added',
+        sortable: true,
+        width: '110px',
+        render: (_: unknown, d: RagDocument) => humanizeAge(d.added_at),
+      },
+      {
+        name: 'Actions',
+        width: '88px',
+        actions: [
+          {
+            name: 'View',
+            description: 'View document chunks',
+            icon: 'expand',
+            type: 'icon',
+            onClick: (d: RagDocument) => onOpen(d.document_id),
+          },
+          {
+            name: 'Delete',
+            description: 'Delete from the corpus',
+            icon: 'trash',
+            type: 'icon',
+            color: 'danger',
+            onClick: (d: RagDocument) => onDelete(d),
+          },
+        ],
+      },
+    ],
+    [compact, onOpen, onDelete],
+  );
+
+  const anyFilter = search.trim().length > 0 || sources.length > 0;
+
+  return (
+    <>
+      <SectionHeader
+        icon="documents"
+        accent={COLORS.primary}
+        title="Indexed documents"
+        description={
+          loading
+            ? 'Loading…'
+            : `${fmtNumber(filteredSorted.length)} of ${fmtNumber(documents.length)} document${
+                documents.length === 1 ? '' : 's'
+              } shown.`
+        }
+        actions={
+          <EuiButtonGroup
+            legend="Table density"
+            options={DENSITY_OPTIONS}
+            idSelected={density}
+            onChange={(id) => setDensity(id as 'comfortable' | 'compact')}
+            buttonSize="compressed"
+          />
+        }
+      />
+
+      <EuiPanel hasBorder paddingSize="m">
+        {/* ---- filter toolbar ---- */}
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+          <EuiFlexItem grow={false} style={{ minWidth: 220 }}>
+            <EuiFieldSearch
+              compressed
+              fullWidth
+              placeholder="Search title, source, tags…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              isClearable
+              aria-label="Search documents"
+            />
+          </EuiFlexItem>
+          {sourceFacet.length > 1 ? (
+            <EuiFlexItem grow={false} style={{ minWidth: 200, maxWidth: 320 }}>
+              <EuiComboBox
+                compressed
+                placeholder="Source"
+                aria-label="Filter by source"
+                options={toOpts(sourceFacet)}
+                selectedOptions={toOpts(sources)}
+                onChange={(sel) => setSources(fromOpts(sel))}
+                isClearable
+              />
+            </EuiFlexItem>
+          ) : null}
+          {anyFilter ? (
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="s"
+                iconType="cross"
+                onClick={() => {
+                  setSearch('');
+                  setSources([]);
+                }}
+              >
+                Clear
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
+
+        <EuiSpacer size="m" />
+
+        {loading && documents.length === 0 ? (
+          <Skeleton rows={5} height={28} />
+        ) : documents.length === 0 ? (
+          <EmptyState
+            iconType="documents"
+            title="The corpus is empty"
+            body="Import a document above, or seed the backend's runbooks/playbooks to populate retrieval knowledge."
+          />
+        ) : filteredSorted.length === 0 ? (
+          <EmptyState
+            iconType="search"
+            title="No documents match"
+            body="No indexed documents match the current filters. Clear them to see all documents."
+            actions={
+              <EuiButton
+                size="s"
+                iconType="cross"
+                onClick={() => {
+                  setSearch('');
+                  setSources([]);
+                }}
+              >
+                Clear filters
+              </EuiButton>
+            }
+          />
+        ) : (
+          <EuiBasicTable<RagDocument>
+            items={filteredSorted}
+            columns={columns}
+            rowHeader="title"
+            tableLayout="auto"
+            compressed={compact}
+            sorting={{ sort: { field: sortField, direction: sortDir } }}
+            onChange={onTableChange}
+          />
+        )}
+      </EuiPanel>
+    </>
   );
 };
 
@@ -513,7 +1067,8 @@ export const KnowledgePage: React.FC = () => {
 
   const requestDelete = useCallback((doc: RagDocument) => {
     setPendingDelete(doc);
-    setDeleteForce(false);
+    // Pre-arm force for known guarded seed sources so the confirm reads correctly.
+    setDeleteForce(isSeedSource(doc.source));
     setDeleteGuard(null);
   }, []);
 
@@ -541,87 +1096,20 @@ export const KnowledgePage: React.FC = () => {
     }
   }, [pendingDelete, deleteForce, addToast, load]);
 
-  const columns: Array<EuiBasicTableColumn<RagDocument>> = useMemo(
-    () => [
-      {
-        field: 'title',
-        name: 'Title',
-        sortable: true,
-        render: (_: unknown, d: RagDocument) => (
-          <button
-            type="button"
-            className="euiLink euiLink--primary"
-            style={{ fontWeight: 600, textAlign: 'left', background: 'none', border: 0, cursor: 'pointer', padding: 0, color: COLORS.primary }}
-            onClick={() => setSelectedDoc(d.document_id)}
-          >
-            {d.title || d.document_id}
-          </button>
-        ),
-      },
-      {
-        field: 'source',
-        name: 'Source',
-        sortable: true,
-        render: (_: unknown, d: RagDocument) => <SourceBadge source={d.source} />,
-      },
-      {
-        field: 'chunk_count',
-        name: 'Chunks',
-        sortable: true,
-        width: '90px',
-        render: (n: number) => fmtNumber(n),
-      },
-      {
-        field: 'embedding_model',
-        name: 'Model',
-        render: (_: unknown, d: RagDocument) =>
-          d.embedding_model ? (
-            <span className="socMono" style={{ fontSize: 12 }}>
-              {d.embedding_model}
-              {typeof d.dim === 'number' ? ` · ${d.dim}d` : ''}
-            </span>
-          ) : (
-            <span style={{ color: COLORS.subdued }}>{DASH}</span>
-          ),
-      },
-      {
-        field: 'added_at',
-        name: 'Added',
-        sortable: true,
-        width: '110px',
-        render: (_: unknown, d: RagDocument) => humanizeAge(d.added_at),
-      },
-      {
-        name: '',
-        width: '88px',
-        actions: [
-          {
-            name: 'View',
-            description: 'View document chunks',
-            icon: 'expand',
-            type: 'icon',
-            onClick: (d: RagDocument) => setSelectedDoc(d.document_id),
-          },
-          {
-            name: 'Delete',
-            description: 'Delete from the corpus',
-            icon: 'trash',
-            type: 'icon',
-            color: 'danger',
-            onClick: (d: RagDocument) => requestDelete(d),
-          },
-        ],
-      },
-    ],
-    [requestDelete],
-  );
-
   const bySourceItems = useMemo(() => {
     const by = stats?.by_source ?? {};
     return Object.entries(by)
       .sort((a, b) => b[1] - a[1])
-      .map(([label, value], i) => ({ label: humanizeToken(label), value, color: sourceAccent(label, i) }));
+      .map(([label, value], i) => ({
+        label: humanizeToken(label),
+        value,
+        color: sourceAccent(label, i),
+      }));
   }, [stats]);
+
+  const totalDocs = stats?.document_count ?? documents.length;
+  const avgChunks =
+    totalDocs > 0 ? Math.round((stats?.total_chunks ?? 0) / totalDocs) : 0;
 
   return (
     <div className="socPageEnter">
@@ -659,10 +1147,22 @@ export const KnowledgePage: React.FC = () => {
       ) : (
         <EuiFlexGrid columns={4} gutterSize="m">
           <EuiFlexItem>
-            <StatTile label="Total chunks" value={fmtNumber(stats?.total_chunks ?? 0)} icon="layers" accent={COLORS.primary} />
+            <StatTile
+              label="Total chunks"
+              value={fmtNumber(stats?.total_chunks ?? 0)}
+              icon="layers"
+              accent={COLORS.primary}
+              sub={avgChunks > 0 ? `≈ ${fmtNumber(avgChunks)} per document` : undefined}
+            />
           </EuiFlexItem>
           <EuiFlexItem>
-            <StatTile label="Documents" value={fmtNumber(stats?.document_count ?? documents.length)} icon="documents" accent={COLORS.accent} />
+            <StatTile
+              label="Documents"
+              value={fmtNumber(totalDocs)}
+              icon="documents"
+              accent={COLORS.accent}
+              sub={bySourceItems.length ? `${fmtNumber(bySourceItems.length)} source${bySourceItems.length === 1 ? '' : 's'}` : undefined}
+            />
           </EuiFlexItem>
           <EuiFlexItem>
             <StatTile
@@ -688,7 +1188,11 @@ export const KnowledgePage: React.FC = () => {
       {bySourceItems.length ? (
         <>
           <Card title="Corpus by source" icon="visBarVertical" accent={COLORS.accent}>
-            <BarList items={bySourceItems} format={(n) => fmtNumber(n)} />
+            <EuiText size="xs" color="subdued">
+              <span>How retrievable knowledge is distributed across corpus sources.</span>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <BarList items={bySourceItems} format={(n) => `${fmtNumber(n)} chunks`} />
           </Card>
           <EuiSpacer size="l" />
         </>
@@ -707,30 +1211,12 @@ export const KnowledgePage: React.FC = () => {
       <EuiSpacer size="l" />
 
       {/* ---- documents table ---- */}
-      <SectionHeader
-        icon="documents"
-        accent={COLORS.primary}
-        title="Indexed documents"
-        description={`${fmtNumber(documents.length)} document${documents.length === 1 ? '' : 's'} in the corpus.`}
+      <DocumentsSection
+        documents={documents}
+        loading={loading}
+        onOpen={setSelectedDoc}
+        onDelete={requestDelete}
       />
-      <EuiPanel hasBorder paddingSize="m">
-        {loading && documents.length === 0 ? (
-          <Skeleton rows={5} height={28} />
-        ) : documents.length === 0 ? (
-          <EmptyState
-            iconType="documents"
-            title="The corpus is empty"
-            body="Import a document above, or seed the backend's runbooks/playbooks to populate retrieval knowledge."
-          />
-        ) : (
-          <EuiBasicTable<RagDocument>
-            items={documents}
-            columns={columns}
-            rowHeader="title"
-            tableLayout="auto"
-          />
-        )}
-      </EuiPanel>
 
       {selectedDoc ? (
         <DocumentFlyout documentId={selectedDoc} onClose={() => setSelectedDoc(null)} />
@@ -757,6 +1243,17 @@ export const KnowledgePage: React.FC = () => {
               no longer retrieve it.
             </p>
           </EuiText>
+          {deleteForce && !deleteGuard && isSeedSource(pendingDelete.source) ? (
+            <>
+              <EuiSpacer size="s" />
+              <EuiCallOut title="Guarded seed source" color="warning" iconType="lock" size="s">
+                <p>
+                  This is built-in seed knowledge ({humanizeToken(pendingDelete.source)}). Deleting it
+                  force-removes it from the corpus until the backend re-seeds.
+                </p>
+              </EuiCallOut>
+            </>
+          ) : null}
           {deleteGuard ? (
             <>
               <EuiSpacer size="s" />

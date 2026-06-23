@@ -3,8 +3,8 @@
  *
  * This is the single source of truth for the chat experience: it owns its own
  * message list, composer input, send flow, running `history`, in-flight "thinking"
- * indicator, and model-selection state. The standalone Chat *page* and the case
- * flyout both embed it:
+ * indicator, model-selection state, and the (new) source-scope selection. The
+ * standalone Chat *page* and the case flyout both embed it:
  *
  *   <ChatPanel starters={[...]} />                 // full page surface
  *   <ChatPanel caseId={id} compact />              // embedded (flyout) surface
@@ -12,11 +12,19 @@
  * When `caseId` is set it is threaded into every `api.chat(...)` call so the agent
  * has case context, and a "Scoped to case <id>" chip is shown in the header.
  *
+ * Layout: a robust full-height flex column. The transcript lane (`.socChatLane`)
+ * is the ONLY thing that scrolls (`flex:1; min-height:0; overflow:auto`); the
+ * composer is pinned at the bottom and the optional scope chip sits compactly at
+ * the top. The empty state is vertically centred *inside* the lane, so it never
+ * pushes the composer down or leaves a dead band. The result table renders inside
+ * the assistant bubble flow (width-constrained, horizontally scrollable) so it can
+ * never detach / float over the page.
+ *
  * Security: assistant answers are rendered through an HTML-escaping `renderMarkdown`
  * (escape FIRST, then inject only our own known-safe tags). All other model- or
- * log-derived text (memory text/reason, query) is rendered as plain text nodes.
- * There is no `dangerouslySetInnerHTML` on any untrusted text other than that one
- * pre-escaped markdown path. See `renderMarkdown` below.
+ * log-derived text (memory text/reason, query, table cells) is rendered as plain
+ * text nodes. There is no `dangerouslySetInnerHTML` on any untrusted text other
+ * than that one pre-escaped markdown path. See `renderMarkdown` below.
  */
 import React, {
   forwardRef,
@@ -52,6 +60,7 @@ import type {
   ChatTable,
   ChatTurn,
   ModelsResponse,
+  SourceInstance,
 } from '../../lib/types';
 import { api, ApiError } from '../../lib/api';
 import { IconChip } from '../common/ui';
@@ -90,6 +99,12 @@ export interface ChatPanelProps {
 export interface ChatPanelHandle {
   reset: () => void;
 }
+
+/** The composer source-scope sentinel: query the configured (primary) source. */
+const ALL_SOURCES = '';
+
+/** Cap the rows we render from a single chat result table. */
+const MAX_TABLE_ROWS = 50;
 
 /* ------------------------------------------------------ inline markdown ----- */
 
@@ -162,53 +177,111 @@ function clockTime(ms: number): string {
   }
 }
 
+/** True for an "empty" cell value (null / undefined / blank string). */
+function isBlankCell(v: unknown): boolean {
+  return v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+}
+
 /* --------------------------------------------------------------- subviews -- */
 
-/** Render a chat result table (columns + row arrays) as an EuiBasicTable. */
+/**
+ * Render a chat result table (columns + row arrays) as an EuiBasicTable, INSIDE
+ * the assistant bubble flow.
+ *
+ * Hardening over the old version:
+ *  - Columns that are entirely empty (every row blank for that column) are HIDDEN,
+ *    so the agent's typical sparse rows (host/ip/user all missing) don't render as
+ *    a wall of em-dashes. If *every* column is empty we show a subtle note instead.
+ *  - Rows are capped at MAX_TABLE_ROWS with a "+N more" footnote (this is in
+ *    addition to any server-side `truncated` flag).
+ *  - The table is wrapped in a width-constrained, horizontally-scrollable box so a
+ *    wide table can never blow past the bubble or detach its sticky header.
+ */
 const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
+  // Which column indices have at least one non-empty value across all rows.
+  const visibleCols = useMemo(() => {
+    const out: number[] = [];
+    table.columns.forEach((_name, ci) => {
+      const hasValue = table.rows.some((row) => !isBlankCell(row[ci]));
+      if (hasValue) out.push(ci);
+    });
+    return out;
+  }, [table]);
+
+  const cappedRows = useMemo(() => table.rows.slice(0, MAX_TABLE_ROWS), [table.rows]);
+  const hiddenRowCount = Math.max(0, table.rows.length - cappedRows.length);
+
   const items = useMemo(
     () =>
-      table.rows.map((row, ri) => {
+      cappedRows.map((row, ri) => {
         const obj: Record<string, unknown> = { __rowId: ri };
-        table.columns.forEach((_col, ci) => {
+        visibleCols.forEach((ci) => {
           obj[`c${ci}`] = row[ci];
         });
         return obj;
       }),
-    [table],
+    [cappedRows, visibleCols],
   );
 
   const columns = useMemo<Array<EuiBasicTableColumn<Record<string, unknown>>>>(
     () =>
-      table.columns.map((name, ci) => ({
+      visibleCols.map((ci) => ({
         field: `c${ci}`,
-        name,
+        // Column name is source/agent-derived — EUI renders the `name` string as a
+        // plain text node, so this is safe.
+        name: table.columns[ci],
         truncateText: true,
-        render: (value: unknown) =>
-          value === null || value === undefined || value === '' ? '—' : String(value),
+        render: (value: unknown) => (isBlankCell(value) ? '—' : String(value)),
       })),
-    [table.columns],
+    [visibleCols, table.columns],
   );
 
   if (!table.columns.length || !table.rows.length) {
     return null;
   }
 
+  // Every column was empty — don't render an empty grid; say so subtly.
+  if (!visibleCols.length) {
+    return (
+      <div className="socResultTable">
+        <EuiPanel hasBorder paddingSize="s" color="subdued" hasShadow={false}>
+          <EuiText size="xs" color="subdued">
+            <EuiIcon type="tableDensityCompact" size="s" style={{ marginRight: 6 }} aria-hidden />
+            <span>
+              {table.rows.length} {table.rows.length === 1 ? 'row' : 'rows'} returned, but no field
+              values to display.
+            </span>
+          </EuiText>
+        </EuiPanel>
+      </div>
+    );
+  }
+
   return (
-    <EuiPanel hasBorder paddingSize="s" style={{ marginTop: 8 }}>
-      <EuiBasicTable
-        items={items}
-        columns={columns}
-        rowHeader="c0"
-        responsiveBreakpoint={false}
-        compressed
-      />
-      {table.truncated ? (
-        <EuiText size="xs" color="subdued" style={{ marginTop: 6 }}>
-          <span>Results truncated.</span>
-        </EuiText>
-      ) : null}
-    </EuiPanel>
+    <div className="socResultTable">
+      <EuiPanel hasBorder paddingSize="none" hasShadow={false}>
+        <div className="socResultTable__scroll">
+          <EuiBasicTable
+            items={items}
+            columns={columns}
+            rowHeader={`c${visibleCols[0]}`}
+            responsiveBreakpoint={false}
+            compressed
+          />
+        </div>
+        {hiddenRowCount > 0 || table.truncated ? (
+          <div className="socResultTable__foot">
+            <EuiText size="xs" color="subdued">
+              <span>
+                {hiddenRowCount > 0
+                  ? `Showing first ${cappedRows.length} of ${table.rows.length} rows · +${hiddenRowCount} more`
+                  : 'Results truncated.'}
+              </span>
+            </EuiText>
+          </div>
+        ) : null}
+      </EuiPanel>
+    </div>
   );
 };
 
@@ -301,6 +374,7 @@ const MemoryActionEcho: React.FC<{ action: ChatMemoryAction }> = ({ action }) =>
         hasBorder
         paddingSize="s"
         color="transparent"
+        hasShadow={false}
         style={{ borderColor: tint(COLORS.success, 0.4) }}
       >
         <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
@@ -369,6 +443,7 @@ const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = (
         hasBorder
         paddingSize="s"
         color="transparent"
+        hasShadow={false}
         style={{ borderColor: tint(COLORS.accent, 0.4) }}
       >
         <EuiFlexGroup gutterSize="s" alignItems="flexStart" responsive={false}>
@@ -457,7 +532,8 @@ const MetaLine: React.FC<{ who: string; at: number; align: 'start' | 'end' }> = 
   <EuiText
     size="xs"
     color="subdued"
-    style={{ alignSelf: align === 'end' ? 'flex-end' : 'flex-start', marginTop: 4 }}
+    className="socMsgMeta"
+    style={{ alignSelf: align === 'end' ? 'flex-end' : 'flex-start' }}
   >
     <span style={{ fontWeight: 600 }}>{who}</span>
     <span style={{ opacity: 0.7 }}>{` · ${clockTime(at)}`}</span>
@@ -465,11 +541,11 @@ const MetaLine: React.FC<{ who: string; at: number; align: 'start' | 'end' }> = 
 );
 
 /** A single assistant or user message row, with avatar + trailing metadata/table. */
-const Bubble: React.FC<{ item: TranscriptItem; maxWidth: number }> = ({ item, maxWidth }) => {
+const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
   if (item.role === 'user') {
     return (
       <div className="socMsgRow socMsgRow--user">
-        <div style={{ display: 'flex', flexDirection: 'column', maxWidth, minWidth: 0 }}>
+        <div className="socMsgRow__stack socMsgRow__stack--user">
           <div className="socBubble socBubble--user">{item.content}</div>
           <MetaLine who="You" at={item.at} align="end" />
         </div>
@@ -483,7 +559,7 @@ const Bubble: React.FC<{ item: TranscriptItem; maxWidth: number }> = ({ item, ma
       <div className="socMsgRow__avatar" aria-hidden>
         <IconChip icon="discuss" accent={COLORS.accent} />
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', maxWidth, minWidth: 0, flex: 1 }}>
+      <div className="socMsgRow__stack socMsgRow__stack--assistant">
         {item.isError ? (
           <EuiCallOut size="s" color="danger" iconType="alert" title="The agent could not answer">
             <p style={{ margin: 0 }}>{item.content}</p>
@@ -524,21 +600,29 @@ const TypingIndicator: React.FC = () => (
 
 /* ----------------------------------------------------------- model select -- */
 
-interface ModelOption {
+interface SelectOption {
   value: string;
   text: string;
 }
 
 /** Flatten provider→models into "<model> · <provider>" options. */
-function buildModelOptions(models: ModelsResponse | null): ModelOption[] {
+function buildModelOptions(models: ModelsResponse | null): SelectOption[] {
   if (!models) return [];
-  const out: ModelOption[] = [];
+  const out: SelectOption[] = [];
   for (const [provider, list] of Object.entries(models.providers || {})) {
     for (const m of list || []) {
       out.push({ value: m, text: `${m}  ·  ${provider}` });
     }
   }
   return out;
+}
+
+/** A friendly label for a configured source (display name, else type · id). */
+function sourceLabel(s: SourceInstance): string {
+  const name = (s.display_name || '').trim();
+  if (name) return name;
+  const type = (s.source_type || '').trim();
+  return type ? `${type} · ${s.id}` : s.id;
 }
 
 /* --------------------------------------------------------------- panel ----- */
@@ -561,6 +645,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [model, setModel] = useState<string>('');
 
+  // Source scope. ALL_SOURCES ('') = the configured/primary source (no source_id
+  // is sent); a specific id scopes the chat to that one source.
+  const [sources, setSources] = useState<SourceInstance[]>([]);
+  const [sourceId, setSourceId] = useState<string>(ALL_SOURCES);
+
   const idRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -570,8 +659,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
     return idRef.current;
   };
 
-  // Fetch the available models once (best-effort; the picker simply stays empty —
-  // i.e. "default model" — if the call fails or no providers are configured).
+  // Fetch the available models + configured sources once (best-effort; the pickers
+  // simply stay at their defaults — "Default model" / "All sources" — if the calls
+  // fail or nothing is configured).
   useEffect(() => {
     let cancelled = false;
     void api
@@ -582,17 +672,29 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       .catch(() => {
         /* non-fatal: chat works fine on the backend default model. */
       });
+    void api
+      .listSources()
+      .then((res) => {
+        if (!cancelled) setSources(res.sources || []);
+      })
+      .catch(() => {
+        /* non-fatal: the source selector just shows "All sources". */
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Keep the transcript pinned to the latest message (auto-scroll within the lane).
+  // Keep the transcript pinned to the latest message (smooth auto-scroll within the
+  // lane; honours prefers-reduced-motion via the conditional behaviour).
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!el) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
   }, [transcript, loading]);
 
   const send = useCallback(
@@ -605,6 +707,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       const userTurn: ChatTurn = { role: 'user', content: message };
       const sentHistory = [...history, userTurn];
       const usedModel = model.trim() || undefined;
+      const usedSource = sourceId.trim() || undefined;
 
       setTranscript((prev) => [
         ...prev,
@@ -615,9 +718,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       setLoading(true);
 
       try {
-        // caseId + model are only forwarded when set, so the no-case / no-model
-        // path is byte-for-byte the original behaviour (see api.chat).
-        const resp = await api.chat(message, sentHistory, caseId, usedModel);
+        // caseId + model + sourceId are only forwarded when set, so the
+        // no-case / no-model / no-source path is byte-for-byte the original
+        // behaviour (see api.chat).
+        const resp = await api.chat(message, sentHistory, caseId, usedModel, usedSource);
         const answer = resp.answer || '(no answer returned)';
         setTranscript((prev) => [
           ...prev,
@@ -648,7 +752,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         setLoading(false);
       }
     },
-    [input, history, loading, caseId, model],
+    [input, history, loading, caseId, model, sourceId],
   );
 
   const reset = useCallback(() => {
@@ -670,8 +774,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const modelOptions = useMemo(() => buildModelOptions(models), [models]);
   const hasModels = modelOptions.length > 0;
 
+  const sourceOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: ALL_SOURCES, text: 'All sources' },
+      ...sources.map((s) => ({ value: s.id, text: sourceLabel(s) })),
+    ],
+    [sources],
+  );
+  const hasSources = sources.length > 0;
+
   const isEmpty = transcript.length === 0;
-  const bubbleMax = compact ? 9999 : 760;
   const composerPlaceholder =
     placeholder ?? 'Ask a question…  (Enter to send · Shift+Enter for a new line)';
 
@@ -686,34 +798,88 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         options={[{ value: '', text: 'Default model' }, ...modelOptions]}
         value={model}
         onChange={(e) => setModel(e.target.value)}
-        style={{ minWidth: compact ? 160 : 220 }}
+        style={{ minWidth: compact ? 150 : 200 }}
+      />
+    </EuiToolTip>
+  ) : null;
+
+  /* The source-scope selector — defaults to "All sources". Shown whenever any
+     source is configured. */
+  const sourceSelect = hasSources ? (
+    <EuiToolTip content="Which source the agent queries for this conversation">
+      <EuiSelect
+        compressed
+        prepend={<EuiIcon type="database" size="s" />}
+        aria-label="Source"
+        options={sourceOptions}
+        value={sourceId}
+        onChange={(e) => setSourceId(e.target.value)}
+        style={{ minWidth: compact ? 150 : 190 }}
       />
     </EuiToolTip>
   ) : null;
 
   return (
     <div className={`socChatPanel${compact ? ' socChatPanel--compact' : ''}`}>
-      {/* Scoped styling — chat-only visuals (avatars, composer, typing dots) kept
-          local to this component so no shared CSS is edited. Uses the runtime
-          accent CSS vars (--soc-accent / --soc-accent-tint) so it is theme-safe. */}
+      {/* Scoped styling — chat-only visuals (layout shell, avatars, composer,
+          typing dots, result-table box) kept local to this component so no shared
+          CSS is edited. Uses the runtime accent CSS vars (--soc-accent /
+          --soc-accent-tint) so it is theme-safe (light + dark). */}
       <style>{`
+        /* Full-height flex shell — the panel fills its host; ONLY the lane scrolls. */
         .socChatPanel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
         .socChatPanel .socMd > div { margin: 0; }
         .socChatPanel .socMd > div + div { margin-top: 4px; }
         .socChatPanel .socMd .socMd__list { margin: 4px 0; padding-left: 18px; }
         .socChatPanel .socMd .socMd__list li { margin: 2px 0; }
         .socChatPanel .socMd code.socMono { white-space: pre-wrap; word-break: break-word; }
 
-        .socChatLane { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 8px 4px; }
-        .socChatLane--compact { padding: 2px 6px 6px 2px; }
+        /* The scrolling transcript lane. flex:1 + min-height:0 lets it absorb all
+           remaining vertical space (no dead band) and scroll internally. The inner
+           rows stack via display:flex (NOT inherited from .socChat's gap rule,
+           which we restate here so the lane owns its own spacing). */
+        .socChatLane {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-y: auto;
+          overflow-x: hidden;
+          display: flex;
+          flex-direction: column;
+          padding: 6px 12px 10px 6px;
+        }
+        .socChatLane--compact { padding: 4px 6px 8px 2px; }
+
+        /* When empty, centre the empty state in the lane instead of top-anchoring,
+           so the composer stays pinned to the bottom with no gap above it. */
+        .socChatLane--empty { justify-content: center; }
 
         .socMsgRow { display: flex; gap: 10px; align-items: flex-start; }
         .socMsgRow--user { justify-content: flex-end; }
         .socMsgRow--assistant { justify-content: flex-start; }
         .socMsgRow__avatar { flex: 0 0 auto; margin-top: 2px; }
+        .socMsgRow__stack { display: flex; flex-direction: column; min-width: 0; }
+        .socMsgRow__stack--user { max-width: min(80%, 720px); }
+        /* Assistant grows to take the lane width (so wide tables get room) but is
+           still capped so prose stays a comfortable measure. */
+        .socMsgRow__stack--assistant { flex: 1 1 auto; max-width: min(92%, 820px); }
         .socMsgRow .socBubble { margin: 0; }
+        .socMsgMeta { margin-top: 4px; }
 
         .socChatPanel--compact .socBubble { padding: 8px 12px; border-radius: 12px; }
+        .socChatPanel--compact .socMsgRow__stack--user { max-width: 92%; }
+        .socChatPanel--compact .socMsgRow__stack--assistant { max-width: 100%; }
+
+        /* Result table — constrained to the bubble width, horizontally scrollable
+           if the table is wider. The wrapper's max-width keeps the table inside the
+           assistant stack so its sticky header can never detach/float. */
+        .socResultTable { margin-top: 8px; max-width: 100%; }
+        .socResultTable__scroll { overflow-x: auto; overflow-y: hidden; max-width: 100%; }
+        .socResultTable__scroll .euiTable { width: auto; min-width: 100%; }
+        .socResultTable__foot { padding: 6px 10px; }
+
+        /* Composer — pinned at the bottom of the shell. */
+        .socChatComposer { flex: 0 0 auto; }
 
         /* Typing indicator — three pulsing dots. */
         .socTyping { display: inline-flex; align-items: center; gap: 5px; }
@@ -729,6 +895,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           40% { opacity: 1; transform: translateY(-2px); }
         }
 
+        /* Empty-state starter chips. */
         .socStarter { animation: socStarterIn 0.25s ease both; }
         @keyframes socStarterIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
@@ -738,9 +905,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         }
       `}</style>
 
-      {/* Scope chip — only when scoped to a case. */}
+      {/* Scope chip — only when scoped to a case. Compact header at the top. */}
       {caseId ? (
-        <div style={{ marginBottom: compact ? 6 : 10 }}>
+        <div style={{ flex: '0 0 auto', marginBottom: compact ? 6 : 10 }}>
           <EuiText size="xs" color="subdued">
             <EuiIcon type="link" size="s" style={{ marginRight: 4 }} aria-hidden />
             <span>Scoped to case </span>
@@ -749,11 +916,13 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         </div>
       ) : null}
 
-      {/* Transcript lane */}
+      {/* Transcript lane — the ONLY scrolling region. */}
       <div
         ref={scrollRef}
-        className={`socChat socChatLane${compact ? ' socChatLane--compact' : ''}`}
-        style={{ gap: compact ? 10 : 14 }}
+        className={`socChatLane${compact ? ' socChatLane--compact' : ''}${
+          isEmpty ? ' socChatLane--empty' : ''
+        }`}
+        style={{ gap: isEmpty ? 0 : compact ? 10 : 14 }}
         role="log"
         aria-live="polite"
         aria-label="Chat transcript"
@@ -769,16 +938,18 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         ) : (
           <>
             {transcript.map((item) => (
-              <Bubble key={item.id} item={item} maxWidth={bubbleMax} />
+              <Bubble key={item.id} item={item} />
             ))}
             {loading ? <TypingIndicator /> : null}
           </>
         )}
       </div>
 
-      {/* Composer — sticky bottom card. */}
+      {/* Composer — pinned bottom card. */}
       <EuiPanel
+        className="socChatComposer"
         hasBorder
+        hasShadow={false}
         paddingSize={compact ? 's' : 'm'}
         style={{ marginTop: compact ? 8 : 12, borderRadius: 14 }}
       >
@@ -815,22 +986,48 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </EuiFlexItem>
         </EuiFlexGroup>
 
-        <EuiSpacer size="s" />
-
-        <EuiFlexGroup
-          gutterSize="s"
-          alignItems="center"
-          justifyContent="spaceBetween"
-          responsive={false}
-          wrap
-        >
-          <EuiFlexItem grow={false}>
+        {modelSelect || sourceSelect ? (
+          <>
+            <EuiSpacer size="s" />
+            <EuiFlexGroup
+              gutterSize="s"
+              alignItems="center"
+              justifyContent="spaceBetween"
+              responsive={false}
+              wrap
+            >
+              <EuiFlexItem grow={false}>
+                <EuiText size="xs" color="subdued">
+                  <span>Enter to send · Shift+Enter for a new line</span>
+                </EuiText>
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+                  {sourceSelect ? <EuiFlexItem grow={false}>{sourceSelect}</EuiFlexItem> : null}
+                  {modelSelect ? <EuiFlexItem grow={false}>{modelSelect}</EuiFlexItem> : null}
+                </EuiFlexGroup>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+            {/* Honest one-liner: "All sources" currently queries the primary
+                source only (a known backend limitation). */}
+            {sourceSelect && sourceId === ALL_SOURCES ? (
+              <>
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="subdued">
+                  <EuiIcon type="iInCircle" size="s" style={{ marginRight: 4 }} aria-hidden />
+                  <span>“All sources” currently queries the primary source.</span>
+                </EuiText>
+              </>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <EuiSpacer size="s" />
             <EuiText size="xs" color="subdued">
               <span>Enter to send · Shift+Enter for a new line</span>
             </EuiText>
-          </EuiFlexItem>
-          {modelSelect ? <EuiFlexItem grow={false}>{modelSelect}</EuiFlexItem> : null}
-        </EuiFlexGroup>
+          </>
+        )}
       </EuiPanel>
     </div>
   );
@@ -852,9 +1049,9 @@ const EmptyState: React.FC<{
       alignItems: 'center',
       justifyContent: 'center',
       textAlign: 'center',
-      flex: 1,
-      padding: compact ? '16px 8px' : '32px 16px',
-      margin: 'auto',
+      width: '100%',
+      padding: compact ? '12px 8px' : '24px 16px',
+      margin: '0 auto',
       maxWidth: 620,
     }}
   >

@@ -17,6 +17,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  EuiAvatar,
   EuiBadge,
   EuiButton,
   EuiButtonEmpty,
@@ -41,6 +42,7 @@ import {
   EuiModalFooter,
   EuiModalHeader,
   EuiModalHeaderTitle,
+  EuiPanel,
   EuiPopover,
   EuiRange,
   EuiSelect,
@@ -710,7 +712,27 @@ export const CaseDetailFlyout: React.FC<{
         </EuiTabs>
       </EuiFlyoutHeader>
 
-      <EuiFlyoutBody>
+      {/* When the Ask tab is active the flyout body becomes a full-height flex
+          column so the embedded chat fills the available lane (no dead 60vh band)
+          and the transcript scrolls inside it. The scoped class drives EUI's own
+          internal `.euiFlyoutBody__overflowContent` wrapper to stretch + stop its
+          own scroll (the chat owns scrolling). All other tabs keep normal flow. */}
+      <EuiFlyoutBody className={tab === 'chat' ? 'tlsocFlyoutBody--chat' : undefined}>
+        {tab === 'chat' ? (
+          <style>{`
+            .tlsocFlyoutBody--chat .euiFlyoutBody__overflowContent {
+              display: flex;
+              flex-direction: column;
+              height: 100%;
+              min-height: 0;
+              /* the chat lane manages its own scrolling; trim the body's vertical
+                 padding so the composer sits flush to the footer. */
+              padding-top: 12px;
+              padding-bottom: 12px;
+            }
+          `}</style>
+        ) : null}
+
         {error ? (
           <>
             <ErrorCallout error={error} title="Could not load case" />
@@ -742,10 +764,11 @@ export const CaseDetailFlyout: React.FC<{
         ) : tab === 'timeline' ? (
           <TimelineTab c={c} />
         ) : tab === 'chat' ? (
-          // Embedded "Ask about this case" chat — scoped to the case. The panel must
-          // live in a bounded, fixed-height flex column so its transcript scrolls
-          // within the flyout body (the flyout is size="l").
-          <div style={{ height: '60vh', display: 'flex', flexDirection: 'column' }}>
+          // Embedded "Ask about this case" chat — scoped to the case. The wrapper is a
+          // flex child that FILLS the flyout body (which we make a flex column above),
+          // so the chat uses the real available height and its transcript scrolls
+          // within the lane rather than leaving a dead band below a fixed 60vh box.
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <ChatPanel
               caseId={c.case_id}
               compact
@@ -1822,20 +1845,23 @@ function assessmentMeta(key?: string) {
   return ASSESSMENTS.find((a) => a.key === key);
 }
 
-/** A 1–5 star control (EuiRating is unavailable in this EUI build). */
+/**
+ * A dense 1–5 star control (EuiRating is unavailable in this EUI build). Renders
+ * as a tidy label / stars / value row that drops cleanly into a two-column grid.
+ */
 const StarRating: React.FC<{
   label: string;
   value: number;
   onChange: (v: number) => void;
 }> = ({ label, value, onChange }) => (
-  <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
-    <EuiFlexItem grow={false} style={{ minWidth: 168 }}>
+  <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap={false}>
+    <EuiFlexItem>
       <EuiText size="s">
         <span>{label}</span>
       </EuiText>
     </EuiFlexItem>
     <EuiFlexItem grow={false}>
-      <EuiFlexGroup gutterSize="none" responsive={false}>
+      <EuiFlexGroup gutterSize="none" responsive={false} alignItems="center">
         {[1, 2, 3, 4, 5].map((n) => (
           <EuiFlexItem grow={false} key={n}>
             <EuiButtonIcon
@@ -1848,7 +1874,7 @@ const StarRating: React.FC<{
         ))}
       </EuiFlexGroup>
     </EuiFlexItem>
-    <EuiFlexItem grow={false}>
+    <EuiFlexItem grow={false} style={{ minWidth: 28, textAlign: 'right' }}>
       <EuiText size="xs" color="subdued">
         <span>{value ? `${value}/5` : DASH}</span>
       </EuiText>
@@ -1861,6 +1887,67 @@ function starsToScore(n: number): number | undefined {
   if (!n || n < 1) return undefined;
   return Math.max(0, Math.min(1, n / 5));
 }
+
+/* ---------------------------------------------------------- thread helpers -- */
+
+/** Stable per-author avatar accent so a given author always reads the same colour. */
+function authorAccent(name: string): string {
+  const palette = [COLORS.primary, COLORS.accent, COLORS.success, COLORS.warning, '#2aa0a4', '#7048e8'];
+  let h = 0;
+  for (let i = 0; i < name.length; i += 1) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
+/**
+ * One comment in the thread — an avatar + author + relative time header over a
+ * tidy body card. Author / body are operator-entered (UNTRUSTED) and rendered as
+ * plain text nodes only (never markup).
+ */
+const CommentRow: React.FC<{ author?: string; ts?: string; body?: string }> = ({
+  author,
+  ts,
+  body,
+}) => {
+  const name = (author || '').trim() || 'Analyst';
+  const accent = authorAccent(name);
+  return (
+    <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
+      <EuiFlexItem grow={false}>
+        <EuiAvatar name={name} size="m" color={tint(accent, 0.22)} initialsLength={2} />
+      </EuiFlexItem>
+      <EuiFlexItem>
+        <EuiPanel hasBorder paddingSize="s" className="socCard">
+          <EuiFlexGroup
+            justifyContent="spaceBetween"
+            alignItems="baseline"
+            gutterSize="s"
+            responsive={false}
+            wrap
+          >
+            <EuiFlexItem grow={false}>
+              <EuiText size="s">
+                {/* UNTRUSTED — plain text node. */}
+                <strong>{name}</strong>
+              </EuiText>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiToolTip content={ts ? formatTimestamp(ts) : 'Unknown time'}>
+                <EuiText size="xs" color="subdued">
+                  <span>{ts ? humanizeAge(ts) : DASH}</span>
+                </EuiText>
+              </EuiToolTip>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+          <EuiSpacer size="xs" />
+          <EuiText size="s">
+            {/* UNTRUSTED — plain text node, preserve newlines, never markup. */}
+            <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{body || DASH}</p>
+          </EuiText>
+        </EuiPanel>
+      </EuiFlexItem>
+    </EuiFlexGroup>
+  );
+};
 
 const CollaborationTab: React.FC<{
   c: Case;
@@ -2023,127 +2110,208 @@ const CollaborationTab: React.FC<{
     }
   }, [caseId, assignee, onUpdated]);
 
+  const assigneeDirty = assignee.trim() !== (c.assignee || '').trim();
+  const currentOwner = (c.assignee || '').trim();
+
+  // Whether the grading form has anything worth submitting (purely a UX gate on the
+  // button label/enabled state — never changes the payload assembled in submitFeedback).
+  const gradingDirty =
+    accuracy > 0 ||
+    reasoning > 0 ||
+    appropriateness > 0 ||
+    !!outcome ||
+    timeSaved > 0 ||
+    !!fbComment.trim();
+
   return (
     <div>
-      {/* -------------------------------------------------- assignee + tags */}
-      <EuiFlexGroup gutterSize="m" wrap>
-        <EuiFlexItem>
-          <Card title="Assignee" icon="user" accent={COLORS.accent}>
-            <EuiFormRow
-              label="Owning analyst"
-              helpText="Who is responsible for this case."
-              fullWidth
-              isInvalid={!!assigneeError}
-              error={assigneeError ? 'Could not save assignee.' : undefined}
+      {/* ============================================ ownership: assignee + tags */}
+      <Card title="Ownership" icon="users" accent={COLORS.accent}>
+        <EuiFlexGroup gutterSize="l" responsive wrap alignItems="flexStart">
+          {/* ----------------------------------------------------- assignee */}
+          <EuiFlexItem>
+            <EuiText
+              size="xs"
+              color="subdued"
+              style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
             >
-              <EuiFlexGroup gutterSize="s" responsive={false} alignItems="center">
-                <EuiFlexItem>
-                  <EuiFieldText
-                    fullWidth
-                    icon="user"
-                    placeholder="e.g. jdoe"
-                    value={assignee}
-                    onChange={(e) => setAssignee(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void saveAssignee();
-                    }}
+              <span>Owning analyst</span>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+              <EuiFlexItem grow={false}>
+                {currentOwner ? (
+                  <EuiAvatar
+                    name={currentOwner}
+                    size="m"
+                    color={tint(COLORS.accent, 0.22)}
+                    initialsLength={2}
                   />
-                </EuiFlexItem>
-                <EuiFlexItem grow={false}>
-                  <EuiButton
-                    size="s"
-                    iconType="save"
-                    onClick={() => void saveAssignee()}
-                    isLoading={savingAssignee}
-                    isDisabled={assignee.trim() === (c.assignee || '').trim()}
-                  >
-                    Save
-                  </EuiButton>
-                </EuiFlexItem>
-              </EuiFlexGroup>
-            </EuiFormRow>
-          </Card>
-        </EuiFlexItem>
-        <EuiFlexItem>
-          <Card title="Tags" icon="tag" accent={COLORS.primary}>
-            <EuiFormRow
-              label="Case tags"
-              helpText="Type and press enter to add; click ✕ to remove."
-              fullWidth
-              isInvalid={!!tagsError}
-              error={tagsError ? 'Could not save tags.' : undefined}
+                ) : (
+                  <EuiAvatar
+                    name="Unassigned"
+                    size="m"
+                    color={tint(COLORS.subdued, 0.22)}
+                    iconType="user"
+                  />
+                )}
+              </EuiFlexItem>
+              <EuiFlexItem>
+                <EuiFieldText
+                  fullWidth
+                  compressed
+                  icon="user"
+                  placeholder="Unassigned — type to assign…"
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && assigneeDirty) void saveAssignee();
+                  }}
+                  aria-label="Owning analyst"
+                  isInvalid={!!assigneeError}
+                />
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiButton
+                  size="s"
+                  iconType="save"
+                  onClick={() => void saveAssignee()}
+                  isLoading={savingAssignee}
+                  isDisabled={!assigneeDirty}
+                >
+                  Save
+                </EuiButton>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+            {assigneeError ? (
+              <>
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="danger">
+                  <span>Could not save assignee.</span>
+                </EuiText>
+              </>
+            ) : null}
+          </EuiFlexItem>
+
+          {/* --------------------------------------------------------- tags */}
+          <EuiFlexItem>
+            <EuiText
+              size="xs"
+              color="subdued"
+              style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
             >
-              <EuiComboBox
-                fullWidth
-                noSuggestions
-                placeholder="Add a tag…"
-                selectedOptions={tagOptions}
-                onCreateOption={onCreateTag}
-                onChange={onChangeTags}
-                isLoading={savingTags}
-                isClearable={false}
-              />
-            </EuiFormRow>
-          </Card>
-        </EuiFlexItem>
-      </EuiFlexGroup>
+              <span>Tags</span>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            <EuiComboBox
+              fullWidth
+              compressed
+              noSuggestions
+              placeholder="Add a tag…"
+              selectedOptions={tagOptions}
+              onCreateOption={onCreateTag}
+              onChange={onChangeTags}
+              isLoading={savingTags}
+              isClearable={false}
+              aria-label="Case tags"
+            />
+            <EuiSpacer size="xs" />
+            <EuiText size="xs" color="subdued">
+              <span>
+                {tagsError
+                  ? 'Could not save tags.'
+                  : 'Type and press enter to add a tag · click ✕ to remove. Saved automatically.'}
+              </span>
+            </EuiText>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </Card>
 
       <EuiSpacer size="m" />
 
-      {/* ------------------------------------------------ AI-decision grading */}
-      <Card title="Grade the AI decision" icon="inspect" accent={COLORS.warning}>
+      {/* ============================================== AI-decision feedback */}
+      <Card
+        title="Rate the AI decision"
+        icon="inspect"
+        accent={COLORS.warning}
+        actions={
+          priorFeedback.length ? (
+            <EuiBadge color={tint(COLORS.warning, 0.18)} style={{ color: COLORS.warning }}>
+              {priorFeedback.length} grading{priorFeedback.length === 1 ? '' : 's'}
+            </EuiBadge>
+          ) : undefined
+        }
+      >
         <EuiText size="xs" color="subdued">
           <span>
-            Help calibrate the agent: rate the verdict, reasoning, and recommended action.
+            Calibrate the agent: do you agree with the verdict, and how good were the
+            reasoning and recommended action?
           </span>
         </EuiText>
         <EuiSpacer size="m" />
 
-        <EuiFormRow label="Overall assessment" fullWidth>
-          <EuiFlexGroup gutterSize="s" responsive={false} wrap>
-            {ASSESSMENTS.map((a) => {
-              const active = assessment === a.key;
-              return (
-                <EuiFlexItem grow={false} key={a.key}>
-                  <EuiButton
-                    size="s"
-                    iconType={a.icon}
-                    fill={active}
-                    onClick={() => setAssessment(a.key)}
-                    style={
-                      active
-                        ? { background: a.color, borderColor: a.color }
-                        : { color: a.color, borderColor: tint(a.color, 0.5) }
-                    }
-                  >
-                    {a.label}
-                  </EuiButton>
-                </EuiFlexItem>
-              );
-            })}
-          </EuiFlexGroup>
-        </EuiFormRow>
-
-        <EuiSpacer size="s" />
-        <StarRating label="Accuracy" value={accuracy} onChange={setAccuracy} />
-        <EuiSpacer size="xs" />
-        <StarRating label="Reasoning quality" value={reasoning} onChange={setReasoning} />
-        <EuiSpacer size="xs" />
-        <StarRating
-          label="Action appropriateness"
-          value={appropriateness}
-          onChange={setAppropriateness}
-        />
+        {/* Agree / Partially / Disagree — a clear segmented choice. */}
+        <EuiFlexGroup gutterSize="s" responsive={false} wrap>
+          {ASSESSMENTS.map((a) => {
+            const active = assessment === a.key;
+            return (
+              <EuiFlexItem grow key={a.key}>
+                <EuiButton
+                  size="s"
+                  fullWidth
+                  iconType={a.icon}
+                  fill={active}
+                  onClick={() => setAssessment(a.key)}
+                  style={
+                    active
+                      ? { background: a.color, borderColor: a.color }
+                      : { color: a.color, borderColor: tint(a.color, 0.5) }
+                  }
+                  aria-pressed={active}
+                >
+                  {a.label}
+                </EuiButton>
+              </EuiFlexItem>
+            );
+          })}
+        </EuiFlexGroup>
 
         <EuiSpacer size="m" />
+
+        {/* Quality grading — tidy bordered block of star rows. */}
+        <EuiPanel hasBorder paddingSize="m" color="subdued" hasShadow={false}>
+          <EuiText
+            size="xs"
+            color="subdued"
+            style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
+          >
+            <span>Quality (optional)</span>
+          </EuiText>
+          <EuiSpacer size="s" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <StarRating label="Accuracy" value={accuracy} onChange={setAccuracy} />
+            <StarRating label="Reasoning quality" value={reasoning} onChange={setReasoning} />
+            <StarRating
+              label="Action appropriateness"
+              value={appropriateness}
+              onChange={setAppropriateness}
+            />
+          </div>
+        </EuiPanel>
+
+        <EuiSpacer size="m" />
+
         <EuiFlexGroup gutterSize="m" wrap>
           <EuiFlexItem>
             <EuiFormRow label="Actual outcome" fullWidth>
               <EuiSelect
                 fullWidth
+                compressed
+                prepend={<EuiIcon type="flag" size="s" />}
                 options={OUTCOME_OPTIONS}
                 value={outcome}
                 onChange={(e) => setOutcome(e.target.value)}
+                aria-label="Actual outcome"
               />
             </EuiFormRow>
           </EuiFlexItem>
@@ -2151,10 +2319,12 @@ const CollaborationTab: React.FC<{
             <EuiFormRow label="Analyst id (optional)" fullWidth>
               <EuiFieldText
                 fullWidth
+                compressed
                 icon="user"
                 placeholder="e.g. jdoe"
                 value={fbAnalyst}
                 onChange={(e) => setFbAnalyst(e.target.value)}
+                aria-label="Analyst id"
               />
             </EuiFormRow>
           </EuiFlexItem>
@@ -2179,10 +2349,12 @@ const CollaborationTab: React.FC<{
         <EuiFormRow label="Comment (optional)" fullWidth>
           <EuiTextArea
             fullWidth
+            compressed
             rows={2}
             placeholder="Anything the agent missed or got right?"
             value={fbComment}
             onChange={(e) => setFbComment(e.target.value)}
+            aria-label="Feedback comment"
           />
         </EuiFormRow>
 
@@ -2203,6 +2375,7 @@ const CollaborationTab: React.FC<{
               color="warning"
               onClick={() => void submitFeedback()}
               isLoading={submittingFb}
+              isDisabled={submittingFb || !gradingDirty}
             >
               Submit grading
             </EuiButton>
@@ -2212,10 +2385,12 @@ const CollaborationTab: React.FC<{
         {priorFeedback.length ? (
           <>
             <EuiHorizontalRule margin="m" />
-            <EuiText size="xs" color="subdued">
-              <span>
-                {priorFeedback.length} prior grading{priorFeedback.length === 1 ? '' : 's'}
-              </span>
+            <EuiText
+              size="xs"
+              color="subdued"
+              style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
+            >
+              <span>Previous gradings</span>
             </EuiText>
             <EuiSpacer size="s" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2240,7 +2415,7 @@ const CollaborationTab: React.FC<{
                       </EuiFlexItem>
                       {f.actual_outcome ? (
                         <EuiFlexItem grow={false}>
-                          <EuiBadge color="hollow">
+                          <EuiBadge color="hollow" iconType="flag">
                             {humanizeToken(f.actual_outcome)}
                           </EuiBadge>
                         </EuiFlexItem>
@@ -2254,18 +2429,21 @@ const CollaborationTab: React.FC<{
                       ) : null}
                       <EuiFlexItem />
                       <EuiFlexItem grow={false}>
-                        <EuiText size="xs" color="subdued">
-                          <span>
-                            {f.analyst ? `${f.analyst} · ` : ''}
-                            {f.ts ? formatTimestamp(f.ts) : DASH}
-                          </span>
-                        </EuiText>
+                        <EuiToolTip content={f.ts ? formatTimestamp(f.ts) : 'Unknown time'}>
+                          <EuiText size="xs" color="subdued">
+                            <span>
+                              {f.analyst ? `${f.analyst} · ` : ''}
+                              {f.ts ? humanizeAge(f.ts) : DASH}
+                            </span>
+                          </EuiText>
+                        </EuiToolTip>
                       </EuiFlexItem>
                     </EuiFlexGroup>
                     {f.comment ? (
                       <>
                         <EuiSpacer size="xs" />
                         <EuiText size="xs">
+                          {/* UNTRUSTED — plain text node. */}
                           <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{f.comment}</p>
                         </EuiText>
                       </>
@@ -2280,91 +2458,92 @@ const CollaborationTab: React.FC<{
 
       <EuiSpacer size="m" />
 
-      {/* ------------------------------------------------------------ comments */}
-      <Card title="Comments" icon="editorComment" accent={COLORS.accent}>
+      {/* ====================================================== comment thread */}
+      <Card
+        title="Notes"
+        icon="editorComment"
+        accent={COLORS.primary}
+        actions={
+          comments.length ? (
+            <EuiBadge color={tint(COLORS.primary, 0.18)} style={{ color: COLORS.primary }}>
+              {comments.length} note{comments.length === 1 ? '' : 's'}
+            </EuiBadge>
+          ) : undefined
+        }
+      >
         {comments.length === 0 ? (
           <EmptyState
             iconType="editorComment"
-            title="No comments yet"
-            body="Leave a note for the next analyst on this case."
+            title="No notes yet"
+            body="Leave a hand-off note for the next analyst on this case."
           />
         ) : (
-          <EuiTimeline>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {comments.map((cm, i) => (
-              <EuiTimelineItem key={i} icon="user" verticalAlign="top">
-                <div>
-                  <EuiFlexGroup
-                    justifyContent="spaceBetween"
-                    alignItems="center"
-                    gutterSize="s"
-                    responsive={false}
-                    wrap
-                  >
-                    <EuiFlexItem grow={false}>
-                      <EuiText size="s">
-                        <strong>{cm.author || 'Analyst'}</strong>
-                      </EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText size="xs" color="subdued">
-                        <span>{cm.ts ? formatTimestamp(cm.ts) : DASH}</span>
-                      </EuiText>
-                    </EuiFlexItem>
-                  </EuiFlexGroup>
-                  <EuiSpacer size="xs" />
-                  <EuiText size="s">
-                    <p style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{cm.body}</p>
-                  </EuiText>
-                </div>
-              </EuiTimelineItem>
+              <CommentRow key={i} author={cm.author} ts={cm.ts} body={cm.body} />
             ))}
-          </EuiTimeline>
+          </div>
         )}
 
-        <EuiHorizontalRule margin="m" />
+        {/* ------------------------------------------------------ composer */}
+        <EuiSpacer size="m" />
+        <EuiPanel hasBorder paddingSize="m" color="subdued" hasShadow={false}>
+          <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
+            <EuiFlexItem grow={false}>
+              <EuiAvatar
+                name={commentAuthor.trim() || 'You'}
+                size="m"
+                color={tint(authorAccent(commentAuthor.trim() || 'You'), 0.22)}
+                initialsLength={2}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <EuiFieldText
+                fullWidth
+                compressed
+                icon="user"
+                placeholder="Your name (optional)"
+                value={commentAuthor}
+                onChange={(e) => setCommentAuthor(e.target.value)}
+                aria-label="Comment author"
+              />
+              <EuiSpacer size="s" />
+              <EuiTextArea
+                fullWidth
+                compressed
+                rows={3}
+                resize="vertical"
+                placeholder="Share context, findings, or a hand-off note…"
+                value={commentBody}
+                onChange={(e) => setCommentBody(e.target.value)}
+                aria-label="New comment"
+              />
 
-        <EuiFormRow label="Author (optional)" fullWidth>
-          <EuiFieldText
-            fullWidth
-            icon="user"
-            placeholder="e.g. jdoe"
-            value={commentAuthor}
-            onChange={(e) => setCommentAuthor(e.target.value)}
-          />
-        </EuiFormRow>
-        <EuiSpacer size="s" />
-        <EuiFormRow label="Add a comment" fullWidth>
-          <EuiTextArea
-            fullWidth
-            rows={3}
-            placeholder="Share context, findings, or a hand-off note…"
-            value={commentBody}
-            onChange={(e) => setCommentBody(e.target.value)}
-          />
-        </EuiFormRow>
+              {commentError ? (
+                <>
+                  <EuiSpacer size="s" />
+                  <ErrorCallout error={commentError} title="Could not post comment" />
+                </>
+              ) : null}
 
-        {commentError ? (
-          <>
-            <EuiSpacer size="s" />
-            <ErrorCallout error={commentError} title="Could not post comment" />
-          </>
-        ) : null}
-
-        <EuiSpacer size="s" />
-        <EuiFlexGroup justifyContent="flexEnd" responsive={false}>
-          <EuiFlexItem grow={false}>
-            <EuiButton
-              fill
-              size="s"
-              iconType="plusInCircle"
-              onClick={() => void submitComment()}
-              isLoading={submittingComment}
-              isDisabled={!commentBody.trim()}
-            >
-              Add comment
-            </EuiButton>
-          </EuiFlexItem>
-        </EuiFlexGroup>
+              <EuiSpacer size="s" />
+              <EuiFlexGroup justifyContent="flexEnd" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiButton
+                    fill
+                    size="s"
+                    iconType="editorComment"
+                    onClick={() => void submitComment()}
+                    isLoading={submittingComment}
+                    isDisabled={submittingComment || !commentBody.trim()}
+                  >
+                    Add note
+                  </EuiButton>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </EuiPanel>
       </Card>
     </div>
   );

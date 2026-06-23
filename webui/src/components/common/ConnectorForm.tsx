@@ -18,12 +18,15 @@
  *
  * Fields are grouped by their `group` (e.g. "Connection", "Field mapping").
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   EuiComboBox,
   EuiFieldNumber,
   EuiFieldPassword,
   EuiFieldText,
+  EuiFilePicker,
+  EuiFlexGroup,
+  EuiFlexItem,
   EuiFormRow,
   EuiHorizontalRule,
   EuiIcon,
@@ -36,6 +39,72 @@ import {
 } from '@elastic/eui';
 import type { AuthField, ConnectorManifest } from '../../lib/types';
 import { COLORS } from '../../lib/theme';
+
+/** Accepted file types for a certificate/PEM upload. */
+const CERT_ACCEPT = '.pem,.crt,.cer,.txt';
+
+/**
+ * Whether a `textarea` field carries a certificate / PEM blob (and so should get
+ * the file-select + drag-and-drop affordance alongside the paste box). Driven off
+ * the field `key` (e.g. `es_ca_cert`, `ca_cert`, `client_cert`, `ssl_pem`) or an
+ * explicit manifest hint (`f.format === 'pem' | 'certificate'`), so it generalises
+ * to any future connector without per-connector UI code.
+ */
+function isCertField(f: AuthField): boolean {
+  const fmt = (f as { format?: string }).format;
+  if (fmt === 'pem' || fmt === 'certificate' || fmt === 'cert') return true;
+  const k = (f.key || '').toLowerCase();
+  return k.includes('ca_cert') || k.includes('cert') || k.endsWith('_pem') || k.includes('pem');
+}
+
+/**
+ * A read-only-safe PEM/cert file picker. Reads the chosen (or dropped) file as
+ * text and hands it to `onText` so the parent populates the paste box — the file
+ * is never uploaded; only its text content is captured client-side. EuiFilePicker
+ * already provides the drag-and-drop drop zone.
+ */
+const CertFilePicker: React.FC<{ id: string; onText: (text: string) => void }> = ({
+  id,
+  onText,
+}) => {
+  const [err, setErr] = useState<string | null>(null);
+  // EuiFilePicker is uncontrolled — bump this key to reset its label after a read.
+  const [pickerKey, setPickerKey] = useState(0);
+
+  const onPick = (files: FileList | null) => {
+    setErr(null);
+    const file = files && files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      onText(String(reader.result || '').trim());
+      setPickerKey((k) => k + 1);
+    };
+    reader.onerror = () => setErr('Could not read the certificate file.');
+    reader.readAsText(file);
+  };
+
+  return (
+    <EuiFormRow
+      fullWidth
+      isInvalid={!!err}
+      error={err || undefined}
+      helpText="…or drag-and-drop / select a .pem, .crt, .cer or .txt file to fill the box above."
+    >
+      <EuiFilePicker
+        id={`${id}-file`}
+        key={pickerKey}
+        fullWidth
+        compressed
+        display="default"
+        initialPromptText="Drop a certificate file here, or browse"
+        accept={CERT_ACCEPT}
+        onChange={onPick}
+        aria-label="Upload a certificate / PEM file"
+      />
+    </EuiFormRow>
+  );
+};
 
 export interface ConnectorFormValue {
   /** Non-secret config values, keyed by field key. */
@@ -198,8 +267,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
           />
         );
         break;
-      case 'textarea':
-        control = (
+      case 'textarea': {
+        const textarea = (
           <EuiTextArea
             id={id}
             placeholder={f.placeholder || ''}
@@ -209,7 +278,20 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
             fullWidth
           />
         );
+        // A certificate/PEM textarea also gets a file-select + drag-and-drop
+        // affordance below the paste box (paste still works as before).
+        control = isCertField(f) ? (
+          <EuiFlexGroup direction="column" gutterSize="s" responsive={false}>
+            <EuiFlexItem grow={false}>{textarea}</EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <CertFilePicker id={id} onText={(text) => setConfig(f.key, text)} />
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        ) : (
+          textarea
+        );
         break;
+      }
       case 'select': {
         const options = (f.options || []).map((o) => ({ value: o, text: o }));
         control = (

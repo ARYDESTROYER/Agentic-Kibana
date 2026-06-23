@@ -52,7 +52,17 @@ import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
 type StatusTab = 'all' | 'open' | 'needs_human' | 'closed';
-type SortOption = 'newest' | 'oldest' | 'risk' | 'verdict';
+type SortOption =
+  | 'newest'
+  | 'oldest'
+  | 'updated_newest'
+  | 'updated_oldest'
+  | 'risk'
+  | 'risk_low'
+  | 'verdict'
+  | 'status'
+  | 'entity'
+  | 'source';
 type TimeRange = 'all' | '24h' | '7d' | '30d';
 
 const STATUS_TABS: Array<{ key: StatusTab; label: string }> = [
@@ -63,11 +73,41 @@ const STATUS_TABS: Array<{ key: StatusTab; label: string }> = [
 ];
 
 const SORT_OPTIONS: Array<{ value: SortOption; text: string }> = [
-  { value: 'newest', text: 'Newest first' },
-  { value: 'oldest', text: 'Oldest first' },
+  { value: 'newest', text: 'Newest (created)' },
+  { value: 'oldest', text: 'Oldest (created)' },
+  { value: 'updated_newest', text: 'Recently updated' },
+  { value: 'updated_oldest', text: 'Least recently updated' },
   { value: 'risk', text: 'Highest risk' },
-  { value: 'verdict', text: 'Verdict' },
+  { value: 'risk_low', text: 'Lowest risk' },
+  { value: 'verdict', text: 'Verdict (A→Z)' },
+  { value: 'status', text: 'Status (A→Z)' },
+  { value: 'entity', text: 'Entity (A→Z)' },
+  { value: 'source', text: 'Source (A→Z)' },
 ];
+
+/** Sentinel facet value for cases with no originating source recorded. */
+const UNKNOWN_SOURCE = '__unknown_source__';
+const UNKNOWN_SOURCE_LABEL = 'Unknown source';
+
+/** Stable facet key for a case's originating source (null → sentinel). */
+function caseSourceKey(c: Case): string {
+  const id = (c.source_id || '').trim();
+  return id || UNKNOWN_SOURCE;
+}
+
+/** Human display name for a case's source (name → id → "Unknown source"). */
+function caseSourceLabel(c: Case): string {
+  const name = (c.source_name || '').trim();
+  if (name) return name;
+  const id = (c.source_id || '').trim();
+  return id || UNKNOWN_SOURCE_LABEL;
+}
+
+/** Sort key for a case's entity (e.g. "ip:1.2.3.4"); empty sorts last. */
+function caseEntityKey(c: Case): string {
+  if (!c.entity) return '';
+  return `${c.entity.type || ''}:${c.entity.value || ''}`;
+}
 
 /** True when a case verdict reads as a true/likely positive. */
 function isTruePositive(c: Case): boolean {
@@ -101,6 +141,8 @@ interface CaseFilters {
   playbooks: string[];
   assignees: string[];
   tags: string[];
+  /** Originating source (by source_id; UNKNOWN_SOURCE bucket for null). */
+  sources: string[];
   /** Risk band over the normalised 0..100 score. */
   riskMin: number;
   riskMax: number;
@@ -119,6 +161,7 @@ const EMPTY_FILTERS: CaseFilters = {
   playbooks: [],
   assignees: [],
   tags: [],
+  sources: [],
   riskMin: 0,
   riskMax: 100,
   timeRange: 'all',
@@ -134,6 +177,10 @@ interface Facets {
   playbooks: string[];
   assignees: string[];
   tags: string[];
+  /** Distinct source keys (source_id, or UNKNOWN_SOURCE for null). */
+  sources: string[];
+  /** source key → display label (source_name, fall back to id / "Unknown source"). */
+  sourceLabels: Record<string, string>;
 }
 
 const sortedUniq = (vals: Iterable<string>): string[] =>
@@ -156,6 +203,8 @@ function buildFacets(cases: Case[]): Facets {
   const playbooks = new Set<string>();
   const assignees = new Set<string>();
   const tags = new Set<string>();
+  const sources = new Set<string>();
+  const sourceLabels: Record<string, string> = {};
   for (const c of cases) {
     if (c.verdict) verdicts.add(c.verdict);
     if (c.status) statuses.add(c.status);
@@ -165,7 +214,18 @@ function buildFacets(cases: Case[]): Facets {
     const a = (c.assignee || '').trim();
     if (a) assignees.add(a);
     if (Array.isArray(c.tags)) for (const t of c.tags) if (t) tags.add(t);
+    const sk = caseSourceKey(c);
+    sources.add(sk);
+    // First non-sentinel label wins; the sentinel keeps its fixed label.
+    if (sk !== UNKNOWN_SOURCE && !sourceLabels[sk]) sourceLabels[sk] = caseSourceLabel(c);
   }
+  if (sources.has(UNKNOWN_SOURCE)) sourceLabels[UNKNOWN_SOURCE] = UNKNOWN_SOURCE_LABEL;
+  // Sort by label so the picker reads naturally; the sentinel sinks to the end.
+  const sortedSources = Array.from(sources).sort((a, b) => {
+    if (a === UNKNOWN_SOURCE) return 1;
+    if (b === UNKNOWN_SOURCE) return -1;
+    return (sourceLabels[a] || a).localeCompare(sourceLabels[b] || b);
+  });
   return {
     verdicts: sortedUniq(verdicts),
     statuses: sortedUniq(statuses),
@@ -174,6 +234,8 @@ function buildFacets(cases: Case[]): Facets {
     playbooks: sortedUniq(playbooks),
     assignees: sortedUniq(assignees),
     tags: sortedUniq(tags),
+    sources: sortedSources,
+    sourceLabels,
   };
 }
 
@@ -193,6 +255,7 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
     playbooks: keep(f.playbooks, facets.playbooks),
     assignees: keep(f.assignees, facets.assignees),
     tags: keep(f.tags, facets.tags),
+    sources: keep(f.sources, facets.sources),
   };
   const same =
     next.verdicts === f.verdicts &&
@@ -201,7 +264,8 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
     next.personas === f.personas &&
     next.playbooks === f.playbooks &&
     next.assignees === f.assignees &&
-    next.tags === f.tags;
+    next.tags === f.tags &&
+    next.sources === f.sources;
   return same ? f : next;
 }
 
@@ -223,6 +287,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
   const pbSet = new Set(f.playbooks);
   const aSet = new Set(f.assignees);
   const tagSet = new Set(f.tags);
+  const srcSet = new Set(f.sources);
 
   return cases.filter((c) => {
     if (vSet.size && !vSet.has(c.verdict || '')) return false;
@@ -230,6 +295,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
     if (ruleSet.size && !caseRules(c).some((r) => ruleSet.has(r))) return false;
     if (pSet.size && !pSet.has(c.agent_persona || '')) return false;
     if (pbSet.size && !pbSet.has(c.playbook_id || '')) return false;
+    if (srcSet.size && !srcSet.has(caseSourceKey(c))) return false;
 
     const assignee = (c.assignee || '').trim();
     const assigneeFilterActive = aSet.size > 0 || f.unassigned;
@@ -264,6 +330,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
         ...caseRules(c),
         ...(Array.isArray(c.tags) ? c.tags : []),
         c.assignee,
+        c.source_name,
       ]
         .filter(Boolean)
         .join(' ')
@@ -285,6 +352,7 @@ function countActiveFilters(f: CaseFilters): number {
     f.playbooks.length +
     f.assignees.length +
     f.tags.length +
+    f.sources.length +
     (f.unassigned ? 1 : 0) +
     (f.riskMin > 0 || f.riskMax < 100 ? 1 : 0) +
     (f.timeRange !== 'all' ? 1 : 0)
@@ -353,10 +421,30 @@ export const ScansPage: React.FC = () => {
       switch (sortBy) {
         case 'oldest':
           return (a.created_at || '').localeCompare(b.created_at || '');
+        case 'updated_newest':
+          return (b.updated_at || b.created_at || '').localeCompare(
+            a.updated_at || a.created_at || '',
+          );
+        case 'updated_oldest':
+          return (a.updated_at || a.created_at || '').localeCompare(
+            b.updated_at || b.created_at || '',
+          );
         case 'risk':
           return (b.risk_score ?? -1) - (a.risk_score ?? -1);
+        case 'risk_low':
+          return (a.risk_score ?? -1) - (b.risk_score ?? -1);
         case 'verdict':
           return (a.verdict || '￿').localeCompare(b.verdict || '￿');
+        case 'status':
+          return (a.status || '￿').localeCompare(b.status || '￿');
+        case 'entity':
+          // Cases with no entity sort last.
+          return (caseEntityKey(a) || '￿').localeCompare(caseEntityKey(b) || '￿');
+        case 'source':
+          // Unknown/missing source sorts last.
+          return (caseSourceLabel(a) === UNKNOWN_SOURCE_LABEL ? '￿' : caseSourceLabel(a)).localeCompare(
+            caseSourceLabel(b) === UNKNOWN_SOURCE_LABEL ? '￿' : caseSourceLabel(b),
+          );
         case 'newest':
         default:
           return (b.created_at || '').localeCompare(a.created_at || '');
@@ -551,9 +639,17 @@ const ScanFilterBar: React.FC<{
     filters.playbooks.length +
     filters.assignees.length +
     filters.tags.length +
+    filters.sources.length +
     (filters.unassigned ? 1 : 0) +
     (filters.riskMin > 0 || filters.riskMax < 100 ? 1 : 0) +
     (filters.timeRange !== 'all' ? 1 : 0);
+
+  // Source options carry the stable source key as `value` and the display label.
+  const sourceOpts = (keys: string[]): Array<EuiComboBoxOptionOption<string>> =>
+    keys.map((k) => ({
+      label: facets.sourceLabels[k] || (k === UNKNOWN_SOURCE ? UNKNOWN_SOURCE_LABEL : k),
+      value: k,
+    }));
 
   return (
     <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
@@ -643,6 +739,21 @@ const ScanFilterBar: React.FC<{
                 aria-label="Filter by created time"
               />
             </EuiFormRow>
+
+            {facets.sources.length ? (
+              <EuiFormRow label="Source" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any source"
+                  aria-label="Filter by originating source"
+                  options={sourceOpts(facets.sources)}
+                  selectedOptions={sourceOpts(filters.sources)}
+                  onChange={(sel) => set('sources', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
 
             {facets.rules.length ? (
               <EuiFormRow label="Rule / module" fullWidth>
@@ -763,6 +874,8 @@ const ScanCard: React.FC<{
   const entity = c.entity ? `${c.entity.type}: ${c.entity.value}` : DASH;
   const rules = Array.isArray(c.rule_ids) ? c.rule_ids.filter(Boolean) : [];
   const persona = (c.agent_persona || '').trim();
+  const hasSource = caseSourceKey(c) !== UNKNOWN_SOURCE;
+  const sourceLabel = caseSourceLabel(c);
 
   const cardBody = (
     <Card clickable onClick={onOpen} accentLeft={accent} paddingSize="m">
@@ -816,12 +929,25 @@ const ScanCard: React.FC<{
           ) : null}
         </EuiFlexGroup>
 
-        {persona ? (
+        {persona || hasSource ? (
           <>
             <EuiSpacer size="s" />
-            <EuiBadge color="hollow" iconType="userAvatar">
-              {humanizeToken(persona)}
-            </EuiBadge>
+            <EuiFlexGroup gutterSize="xs" wrap responsive={false} alignItems="center">
+              {persona ? (
+                <EuiFlexItem grow={false}>
+                  <EuiBadge color="hollow" iconType="userAvatar">
+                    {humanizeToken(persona)}
+                  </EuiBadge>
+                </EuiFlexItem>
+              ) : null}
+              {hasSource ? (
+                <EuiFlexItem grow={false}>
+                  <EuiBadge color="hollow" iconType="index">
+                    {sourceLabel}
+                  </EuiBadge>
+                </EuiFlexItem>
+              ) : null}
+            </EuiFlexGroup>
           </>
         ) : null}
 

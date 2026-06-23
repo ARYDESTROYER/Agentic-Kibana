@@ -295,15 +295,23 @@ export const api = {
     request<Case>('POST', `cases/${encodeURIComponent(caseId)}/reinvestigate`, {
       body: input ?? {},
     }),
-  // `model` / `case_id` are only sent when set, so the no-model / no-case chat
-  // behaviour is byte-for-byte unchanged.
-  chat: (message: string, history?: ChatTurn[], caseId?: string, model?: string) =>
+  // `model` / `case_id` / `source_id` are only sent when set, so the no-model /
+  // no-case / no-source chat behaviour is byte-for-byte unchanged. Existing 1-4
+  // arg callers are unaffected; `sourceId` scopes the chat to one source.
+  chat: (
+    message: string,
+    history?: ChatTurn[],
+    caseId?: string,
+    model?: string,
+    sourceId?: string,
+  ) =>
     request<ChatResponse>('POST', 'chat', {
       body: {
         message,
         history: history ?? [],
         ...(caseId ? { case_id: caseId } : {}),
         ...(model ? { model } : {}),
+        ...(sourceId ? { source_id: sourceId } : {}),
       },
     }),
   investigate: (body: Record<string, unknown>) =>

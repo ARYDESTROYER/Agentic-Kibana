@@ -7,14 +7,16 @@ import React, { useMemo } from 'react';
 import {
   EuiBadge,
   EuiFlexGrid,
+  EuiFlexGroup,
   EuiFlexItem,
+  EuiIcon,
   EuiPanel,
   EuiSpacer,
   EuiText,
   EuiTitle,
 } from '@elastic/eui';
 import type { ConnectorManifest } from '../../lib/types';
-import { categoryMeta } from '../../lib/theme';
+import { categoryMeta, COLORS } from '../../lib/theme';
 import { IconChip } from './ui';
 
 interface ConnectorPickerProps {
@@ -74,11 +76,32 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                     color={isSel ? 'primary' : 'plain'}
                     style={{ cursor: 'pointer', height: '100%' }}
                     onClick={() => onSelect(c)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e: React.KeyboardEvent) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelect(c);
+                      }
+                    }}
+                    aria-pressed={isSel}
                     aria-label={`Select ${c.display_name}`}
                   >
-                    <EuiFlexItem grow={false}>
-                      <IconChip icon={meta.icon} accent={meta.accent} />
-                    </EuiFlexItem>
+                    <EuiFlexGroup
+                      gutterSize="s"
+                      alignItems="center"
+                      justifyContent="spaceBetween"
+                      responsive={false}
+                    >
+                      <EuiFlexItem grow={false}>
+                        <IconChip icon={meta.icon} accent={meta.accent} />
+                      </EuiFlexItem>
+                      {isSel ? (
+                        <EuiFlexItem grow={false}>
+                          <EuiIcon type="checkInCircleFilled" color={COLORS.primary} />
+                        </EuiFlexItem>
+                      ) : null}
+                    </EuiFlexGroup>
                     <EuiSpacer size="s" />
                     <EuiTitle size="xxs">
                       <h4>{c.display_name}</h4>

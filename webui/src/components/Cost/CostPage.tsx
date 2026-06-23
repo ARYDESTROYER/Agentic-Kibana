@@ -33,11 +33,25 @@ import {
 
 type UsageRow = { key: string; cost: number; tokens: number; calls: number };
 
+type SortKey = 'cost' | 'tokens' | 'calls';
+
 const WINDOWS = [
   { id: '24', label: '24h', hours: 24 },
   { id: '168', label: '7d', hours: 168 },
   { id: '720', label: '30d', hours: 720 },
 ] as const;
+
+const SORTS: Array<{ id: SortKey; label: string }> = [
+  { id: 'cost', label: 'Cost' },
+  { id: 'tokens', label: 'Tokens' },
+  { id: 'calls', label: 'Calls' },
+];
+
+/** Descending sort of ledger rows by the chosen metric (returns a copy). */
+function sortRows(rows: UsageRow[] | undefined, by: SortKey): UsageRow[] {
+  if (!Array.isArray(rows)) return [];
+  return [...rows].sort((a, b) => (Number(b?.[by]) || 0) - (Number(a?.[by]) || 0));
+}
 
 /**
  * Best-effort percentage change of the most-recent half of the spend series vs
@@ -54,20 +68,24 @@ function trendDelta(series: number[]): number | undefined {
   return Math.round(((curr - prev) / prev) * 100);
 }
 
-/** Map ledger `by_*` rows to cost-valued chart segments. */
-function costSegments(rows: UsageRow[] | undefined, palette = false): Segment[] {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .filter((r) => r && typeof r.cost === 'number')
+/** Map ledger `by_*` rows to chart segments, valued + ordered by `by`. */
+function metricSegments(
+  rows: UsageRow[] | undefined,
+  by: SortKey,
+  palette = false,
+): Segment[] {
+  return sortRows(rows, by)
+    .filter((r) => r && typeof r[by] === 'number')
     .map((r, i) => ({
       label: humanizeToken(r.key) ?? r.key,
-      value: r.cost,
+      value: Number(r[by]) || 0,
       color: palette ? chartColor(i) : undefined,
     }));
 }
 
 export const CostPage: React.FC = () => {
   const [windowId, setWindowId] = useState<string>('24');
+  const [sortBy, setSortBy] = useState<SortKey>('cost');
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -110,10 +128,33 @@ export const CostPage: React.FC = () => {
 
   const spendDelta = useMemo(() => trendDelta(series), [series]);
 
-  const byModel = useMemo(() => costSegments(data?.by_model as UsageRow[]), [data]);
-  const byRole = useMemo(() => costSegments(data?.by_role as UsageRow[]), [data]);
-  const bySurface = useMemo(() => costSegments(data?.by_surface as UsageRow[], true), [data]);
-  const topDrivers = (data?.top_cost_drivers as UsageRow[]) || [];
+  const byModel = useMemo(
+    () => metricSegments(data?.by_model as UsageRow[], sortBy),
+    [data, sortBy],
+  );
+  const byRole = useMemo(
+    () => metricSegments(data?.by_role as UsageRow[], sortBy),
+    [data, sortBy],
+  );
+  const bySurface = useMemo(
+    () => metricSegments(data?.by_surface as UsageRow[], sortBy, true),
+    [data, sortBy],
+  );
+  const topDrivers = useMemo(
+    () => sortRows(data?.top_cost_drivers as UsageRow[], sortBy),
+    [data, sortBy],
+  );
+
+  /** Format a segment value for the active sort metric. */
+  const fmtMetric = useCallback(
+    (n: number): React.ReactNode =>
+      sortBy === 'cost'
+        ? fmtMoney(n, currency)
+        : sortBy === 'tokens'
+          ? fmtTokens(n)
+          : fmtNumber(n),
+    [sortBy, currency],
+  );
 
   const hasAny =
     (data?.call_count ?? 0) > 0 ||
@@ -129,7 +170,7 @@ export const CostPage: React.FC = () => {
         title="Cost & usage"
         description="LLM spend metered through the single gateway cost ledger."
         actions={
-          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
             <EuiFlexItem grow={false}>
               <EuiButtonGroup
                 legend="Time window"
@@ -138,6 +179,20 @@ export const CostPage: React.FC = () => {
                 idSelected={windowId}
                 onChange={(id) => setWindowId(id)}
               />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <span className="socHeaderDivider" />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiToolTip content="Rank the breakdowns by this metric">
+                <EuiButtonGroup
+                  legend="Sort breakdowns by"
+                  buttonSize="s"
+                  options={SORTS.map((s) => ({ id: s.id, label: s.label }))}
+                  idSelected={sortBy}
+                  onChange={(id) => setSortBy(id as SortKey)}
+                />
+              </EuiToolTip>
             </EuiFlexItem>
             <EuiFlexItem grow={false}>
               <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
@@ -160,14 +215,14 @@ export const CostPage: React.FC = () => {
           <EuiFlexGroup gutterSize="m" wrap responsive={false}>
             {[0, 1, 2, 3].map((i) => (
               <EuiFlexItem key={i} style={{ minWidth: 220 }}>
-                <Skeleton height={96} radius={8} />
+                <Skeleton height={96} radius={12} />
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
           <div className="socGrid">
             {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} height={200} radius={8} />
+              <Skeleton key={i} height={200} radius={12} />
             ))}
           </div>
         </>
@@ -238,7 +293,7 @@ export const CostPage: React.FC = () => {
             </EuiFlexGroup>
           </EuiPanel>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
           {/* KPI row */}
           <EuiFlexGroup gutterSize="m" wrap>
@@ -278,7 +333,7 @@ export const CostPage: React.FC = () => {
             </EuiFlexItem>
           </EuiFlexGroup>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
           {/* Charts grid */}
           <div className="socGrid">
@@ -300,7 +355,7 @@ export const CostPage: React.FC = () => {
 
             <Card title="By model" icon="machineLearningApp" accent={COLORS.accent}>
               {byModel.length ? (
-                <BarList items={byModel} format={(n) => fmtMoney(n, currency)} />
+                <BarList items={byModel} format={fmtMetric} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>{DASH}</span>
@@ -310,7 +365,7 @@ export const CostPage: React.FC = () => {
 
             <Card title="By role" icon="users" accent={COLORS.warning}>
               {byRole.length ? (
-                <BarList items={byRole} format={(n) => fmtMoney(n, currency)} />
+                <BarList items={byRole} format={fmtMetric} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>{DASH}</span>
@@ -335,8 +390,12 @@ export const CostPage: React.FC = () => {
 
           {topDrivers.length ? (
             <>
-              <EuiSpacer size="l" />
-              <Card title="Top cost drivers" icon="sortDown" accent={COLORS.danger}>
+              <EuiSpacer size="m" />
+              <Card
+                title={`Top drivers · by ${sortBy}`}
+                icon="sortDown"
+                accent={COLORS.danger}
+              >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {topDrivers.slice(0, 10).map((d, i) => (
                     <EuiFlexGroup

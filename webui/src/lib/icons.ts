@@ -146,6 +146,60 @@ import { icon as vis_text } from '@elastic/eui/es/components/icon/assets/vis_tex
 import { icon as warning } from '@elastic/eui/es/components/icon/assets/warning';
 import { icon as wordWrap } from '@elastic/eui/es/components/icon/assets/wordWrap';
 import { icon as wrench } from '@elastic/eui/es/components/icon/assets/wrench';
+// --- Additional coverage for the new source/index/entity UI (verified present in
+// node_modules/@elastic/eui/.../assets; camelCase->snake_case per icon_map.js). ---
+import { icon as apps } from '@elastic/eui/es/components/icon/assets/apps';
+import { icon as at } from '@elastic/eui/es/components/icon/assets/at';
+import { icon as bolt } from '@elastic/eui/es/components/icon/assets/bolt';
+import { icon as boxes_horizontal } from '@elastic/eui/es/components/icon/assets/boxes_horizontal';
+import { icon as color } from '@elastic/eui/es/components/icon/assets/color';
+import { icon as controls_horizontal } from '@elastic/eui/es/components/icon/assets/controls_horizontal';
+import { icon as controls_vertical } from '@elastic/eui/es/components/icon/assets/controls_vertical';
+import { icon as copy } from '@elastic/eui/es/components/icon/assets/copy';
+import { icon as dotInCircle } from '@elastic/eui/es/components/icon/assets/dotInCircle';
+import { icon as email } from '@elastic/eui/es/components/icon/assets/email';
+import { icon as eql } from '@elastic/eui/es/components/icon/assets/eql';
+import { icon as errorFilled } from '@elastic/eui/es/components/icon/assets/errorFilled';
+import { icon as filterInCircle } from '@elastic/eui/es/components/icon/assets/filterInCircle';
+import { icon as flag } from '@elastic/eui/es/components/icon/assets/flag';
+import { icon as fold } from '@elastic/eui/es/components/icon/assets/fold';
+import { icon as grab } from '@elastic/eui/es/components/icon/assets/grab';
+import { icon as grab_horizontal } from '@elastic/eui/es/components/icon/assets/grab_horizontal';
+import { icon as grid } from '@elastic/eui/es/components/icon/assets/grid';
+import { icon as heatmap } from '@elastic/eui/es/components/icon/assets/heatmap';
+import { icon as help } from '@elastic/eui/es/components/icon/assets/help';
+import { icon as home } from '@elastic/eui/es/components/icon/assets/home';
+import { icon as index } from '@elastic/eui/es/components/icon/assets/index';
+import { icon as indexTemporary } from '@elastic/eui/es/components/icon/assets/indexTemporary';
+import { icon as invert } from '@elastic/eui/es/components/icon/assets/invert';
+import { icon as ip } from '@elastic/eui/es/components/icon/assets/ip';
+import { icon as key } from '@elastic/eui/es/components/icon/assets/key';
+import { icon as launch } from '@elastic/eui/es/components/icon/assets/launch';
+import { icon as list_add } from '@elastic/eui/es/components/icon/assets/list_add';
+import { icon as magnifyWithMinus } from '@elastic/eui/es/components/icon/assets/magnifyWithMinus';
+import { icon as magnifyWithPlus } from '@elastic/eui/es/components/icon/assets/magnifyWithPlus';
+import { icon as menu } from '@elastic/eui/es/components/icon/assets/menu';
+import { icon as merge } from '@elastic/eui/es/components/icon/assets/merge';
+import { icon as move } from '@elastic/eui/es/components/icon/assets/move';
+import { icon as nested } from '@elastic/eui/es/components/icon/assets/nested';
+import { icon as new_chat } from '@elastic/eui/es/components/icon/assets/new_chat';
+import { icon as node } from '@elastic/eui/es/components/icon/assets/node';
+import { icon as offline } from '@elastic/eui/es/components/icon/assets/offline';
+import { icon as online } from '@elastic/eui/es/components/icon/assets/online';
+import { icon as paper_clip } from '@elastic/eui/es/components/icon/assets/paper_clip';
+import { icon as partial } from '@elastic/eui/es/components/icon/assets/partial';
+import { icon as percent } from '@elastic/eui/es/components/icon/assets/percent';
+import { icon as pin } from '@elastic/eui/es/components/icon/assets/pin';
+import { icon as pin_filled } from '@elastic/eui/es/components/icon/assets/pin_filled';
+import { icon as push } from '@elastic/eui/es/components/icon/assets/push';
+import { icon as share } from '@elastic/eui/es/components/icon/assets/share';
+import { icon as sparkles } from '@elastic/eui/es/components/icon/assets/sparkles';
+import { icon as tableOfContents } from '@elastic/eui/es/components/icon/assets/tableOfContents';
+import { icon as unfold } from '@elastic/eui/es/components/icon/assets/unfold';
+import { icon as vis_bar_horizontal } from '@elastic/eui/es/components/icon/assets/vis_bar_horizontal';
+import { icon as vis_bar_horizontal_stacked } from '@elastic/eui/es/components/icon/assets/vis_bar_horizontal_stacked';
+import { icon as vis_metric } from '@elastic/eui/es/components/icon/assets/vis_metric';
+import { icon as warningFilled } from '@elastic/eui/es/components/icon/assets/warningFilled';
 
 // Map each EUI icon `type` (camelCase) to its imported component. Multiple
 // types may share one asset (e.g. `alert` is an alias for `warning`).
@@ -279,4 +333,57 @@ appendIconComponentCache({
   warning: warning,
   wordWrap: wordWrap,
   wrench: wrench,
+  // --- Additional coverage for the new source/index/entity UI --------------- //
+  apps: apps,
+  at: at,
+  bolt: bolt,
+  boxesHorizontal: boxes_horizontal,
+  color: color,
+  controlsHorizontal: controls_horizontal,
+  controlsVertical: controls_vertical,
+  copy: copy,
+  dotInCircle: dotInCircle,
+  email: email,
+  eql: eql,
+  errorFilled: errorFilled,
+  filterInCircle: filterInCircle,
+  flag: flag,
+  fold: fold,
+  grab: grab,
+  grabHorizontal: grab_horizontal,
+  grid: grid,
+  heatmap: heatmap,
+  help: help,
+  home: home,
+  index: index,
+  indexTemporary: indexTemporary,
+  invert: invert,
+  ip: ip,
+  key: key,
+  launch: launch,
+  listAdd: list_add,
+  magnifyWithMinus: magnifyWithMinus,
+  magnifyWithPlus: magnifyWithPlus,
+  menu: menu,
+  merge: merge,
+  move: move,
+  nested: nested,
+  newChat: new_chat,
+  node: node,
+  offline: offline,
+  online: online,
+  paperClip: paper_clip,
+  partial: partial,
+  percent: percent,
+  pin: pin,
+  pinFilled: pin_filled,
+  push: push,
+  share: share,
+  sparkles: sparkles,
+  tableOfContents: tableOfContents,
+  unfold: unfold,
+  visBarHorizontal: vis_bar_horizontal,
+  visBarHorizontalStacked: vis_bar_horizontal_stacked,
+  visMetric: vis_metric,
+  warningFilled: warningFilled,
 });

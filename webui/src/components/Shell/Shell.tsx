@@ -19,12 +19,11 @@ import {
   EuiPageSidebar,
   EuiSideNav,
   EuiSwitch,
-  EuiText,
   EuiToolTip,
 } from '@elastic/eui';
 import type { HealthResponse } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, tint } from '../../lib/theme';
+import { COLORS, MAX_CONTENT_WIDTH, tint } from '../../lib/theme';
 import { useBranding } from '../../lib/branding';
 
 export type PageId =
@@ -144,7 +143,13 @@ export const Shell: React.FC<ShellProps> = ({
       return {
         id: n.id,
         name: n.name,
-        icon: <EuiIcon type={n.icon} color={selected ? COLORS.primary : 'subdued'} />,
+        icon: (
+          <EuiIcon
+            type={n.icon}
+            size="m"
+            color={selected ? COLORS.primary : 'subdued'}
+          />
+        ),
         isSelected: selected,
         // Tag the selected row so index.css can paint an accent tint + left bar.
         className: selected ? 'socNavItem socNavItem--selected' : 'socNavItem',
@@ -167,15 +172,25 @@ export const Shell: React.FC<ShellProps> = ({
                     style={{ width: 30, height: 30, borderRadius: 8, objectFit: 'contain' }}
                   />
                 ) : (
-                  <span className="socLogo">
+                  <span className="socLogo" aria-hidden="true">
                     <EuiIcon type="securityApp" size="m" />
                   </span>
                 )}
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
-                <div style={{ lineHeight: 1.1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{wordmark}</div>
-                  <EuiText size="xs" color="subdued"><span>{tagline}</span></EuiText>
+                <div style={{ lineHeight: 1.15 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: -0.2 }}>{wordmark}</div>
+                  <div
+                    style={{
+                      fontSize: 10.5,
+                      fontWeight: 600,
+                      letterSpacing: 0.4,
+                      textTransform: 'uppercase',
+                      color: COLORS.subdued,
+                    }}
+                  >
+                    {tagline}
+                  </div>
                 </div>
               </EuiFlexItem>
             </EuiFlexGroup>
@@ -271,7 +286,7 @@ export const Shell: React.FC<ShellProps> = ({
           </div>
         </EuiPageSidebar>
         <EuiPageBody>
-          <EuiPageSection restrictWidth={1280} paddingSize="l">
+          <EuiPageSection restrictWidth={MAX_CONTENT_WIDTH} paddingSize="l">
             {children}
           </EuiPageSection>
         </EuiPageBody>

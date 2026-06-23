@@ -55,9 +55,42 @@ import {
 import { CaseDetailFlyout } from './CaseDetailFlyout';
 import { CaseHoverCard } from './CaseHoverCard';
 
-type SortField = 'title' | 'risk_score' | 'updated_at' | 'status' | 'verdict' | 'assignee';
+type SortField =
+  | 'title'
+  | 'risk_score'
+  | 'updated_at'
+  | 'created_at'
+  | 'status'
+  | 'verdict'
+  | 'assignee'
+  | 'entity'
+  | 'source';
 
 type TimeRange = 'all' | '24h' | '7d' | '30d';
+
+/** Sentinel facet value for cases with no originating source recorded. */
+const UNKNOWN_SOURCE = '__unknown_source__';
+const UNKNOWN_SOURCE_LABEL = 'Unknown source';
+
+/** Stable facet key for a case's originating source (null → sentinel). */
+function caseSourceKey(c: Case): string {
+  const id = (c.source_id || '').trim();
+  return id || UNKNOWN_SOURCE;
+}
+
+/** Human display name for a case's source (name → id → "Unknown source"). */
+function caseSourceLabel(c: Case): string {
+  const name = (c.source_name || '').trim();
+  if (name) return name;
+  const id = (c.source_id || '').trim();
+  return id || UNKNOWN_SOURCE_LABEL;
+}
+
+/** Sort key for a case's entity (e.g. "ip:1.2.3.4"); empty sorts last. */
+function caseEntityKey(c: Case): string {
+  if (!c.entity) return '';
+  return `${c.entity.type || ''}:${c.entity.value || ''}`;
+}
 
 /* ------------------------------------------------------- filter primitives -- */
 /* The filter MODEL + pure helpers below are kept inline (mirrored in ScansPage)
@@ -74,6 +107,8 @@ interface CaseFilters {
   playbooks: string[];
   assignees: string[];
   tags: string[];
+  /** Originating source (by source_id; UNKNOWN_SOURCE bucket for null). */
+  sources: string[];
   /** Risk band over the normalised 0..100 score. */
   riskMin: number;
   riskMax: number;
@@ -92,6 +127,7 @@ const EMPTY_FILTERS: CaseFilters = {
   playbooks: [],
   assignees: [],
   tags: [],
+  sources: [],
   riskMin: 0,
   riskMax: 100,
   timeRange: 'all',
@@ -107,6 +143,10 @@ interface Facets {
   playbooks: string[];
   assignees: string[];
   tags: string[];
+  /** Distinct source keys (source_id, or UNKNOWN_SOURCE for null). */
+  sources: string[];
+  /** source key → display label (source_name, fall back to id / "Unknown source"). */
+  sourceLabels: Record<string, string>;
 }
 
 const sortedUniq = (vals: Iterable<string>): string[] =>
@@ -129,6 +169,8 @@ function buildFacets(cases: Case[]): Facets {
   const playbooks = new Set<string>();
   const assignees = new Set<string>();
   const tags = new Set<string>();
+  const sources = new Set<string>();
+  const sourceLabels: Record<string, string> = {};
   for (const c of cases) {
     if (c.verdict) verdicts.add(c.verdict);
     if (c.status) statuses.add(c.status);
@@ -138,7 +180,18 @@ function buildFacets(cases: Case[]): Facets {
     const a = (c.assignee || '').trim();
     if (a) assignees.add(a);
     if (Array.isArray(c.tags)) for (const t of c.tags) if (t) tags.add(t);
+    const sk = caseSourceKey(c);
+    sources.add(sk);
+    // First non-sentinel label wins; the sentinel keeps its fixed label.
+    if (sk !== UNKNOWN_SOURCE && !sourceLabels[sk]) sourceLabels[sk] = caseSourceLabel(c);
   }
+  if (sources.has(UNKNOWN_SOURCE)) sourceLabels[UNKNOWN_SOURCE] = UNKNOWN_SOURCE_LABEL;
+  // Sort by label so the picker reads naturally; the sentinel sinks to the end.
+  const sortedSources = Array.from(sources).sort((a, b) => {
+    if (a === UNKNOWN_SOURCE) return 1;
+    if (b === UNKNOWN_SOURCE) return -1;
+    return (sourceLabels[a] || a).localeCompare(sourceLabels[b] || b);
+  });
   return {
     verdicts: sortedUniq(verdicts),
     statuses: sortedUniq(statuses),
@@ -147,6 +200,8 @@ function buildFacets(cases: Case[]): Facets {
     playbooks: sortedUniq(playbooks),
     assignees: sortedUniq(assignees),
     tags: sortedUniq(tags),
+    sources: sortedSources,
+    sourceLabels,
   };
 }
 
@@ -166,6 +221,7 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
     playbooks: keep(f.playbooks, facets.playbooks),
     assignees: keep(f.assignees, facets.assignees),
     tags: keep(f.tags, facets.tags),
+    sources: keep(f.sources, facets.sources),
   };
   // Return the same reference when nothing changed so the effect is a no-op.
   const same =
@@ -175,8 +231,43 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
     next.personas === f.personas &&
     next.playbooks === f.playbooks &&
     next.assignees === f.assignees &&
-    next.tags === f.tags;
+    next.tags === f.tags &&
+    next.sources === f.sources;
   return same ? f : next;
+}
+
+/* ----------------------------------------------------------------- sort ----- */
+/* An explicit Sort selector mirrors the ScansPage affordance and surfaces sort
+ * dimensions (incl. created/updated newest/oldest, risk hi/lo, entity, source)
+ * that don't all have a clickable table column. It is two-way bound with the
+ * table header clicks via the shared (sortField, sortDir) state. */
+
+interface SortChoice {
+  value: string;
+  text: string;
+  field: SortField;
+  dir: 'asc' | 'desc';
+}
+
+const SORT_CHOICES: SortChoice[] = [
+  { value: 'updated_desc', text: 'Recently updated', field: 'updated_at', dir: 'desc' },
+  { value: 'updated_asc', text: 'Least recently updated', field: 'updated_at', dir: 'asc' },
+  { value: 'created_desc', text: 'Newest (created)', field: 'created_at', dir: 'desc' },
+  { value: 'created_asc', text: 'Oldest (created)', field: 'created_at', dir: 'asc' },
+  { value: 'risk_desc', text: 'Highest risk', field: 'risk_score', dir: 'desc' },
+  { value: 'risk_asc', text: 'Lowest risk', field: 'risk_score', dir: 'asc' },
+  { value: 'verdict_asc', text: 'Verdict (A→Z)', field: 'verdict', dir: 'asc' },
+  { value: 'status_asc', text: 'Status (A→Z)', field: 'status', dir: 'asc' },
+  { value: 'entity_asc', text: 'Entity (A→Z)', field: 'entity', dir: 'asc' },
+  { value: 'source_asc', text: 'Source (A→Z)', field: 'source', dir: 'asc' },
+  { value: 'title_asc', text: 'Title (A→Z)', field: 'title', dir: 'asc' },
+  { value: 'assignee_asc', text: 'Assignee (A→Z)', field: 'assignee', dir: 'asc' },
+];
+
+/** Resolve the current (field, dir) to a Sort selector value; default if no exact match. */
+function sortValue(field: SortField, dir: 'asc' | 'desc'): string {
+  const hit = SORT_CHOICES.find((s) => s.field === field && s.dir === dir);
+  return hit ? hit.value : 'updated_desc';
 }
 
 const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all'>, number> = {
@@ -197,6 +288,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
   const pbSet = new Set(f.playbooks);
   const aSet = new Set(f.assignees);
   const tagSet = new Set(f.tags);
+  const srcSet = new Set(f.sources);
 
   return cases.filter((c) => {
     if (vSet.size && !vSet.has(c.verdict || '')) return false;
@@ -204,6 +296,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
     if (ruleSet.size && !caseRules(c).some((r) => ruleSet.has(r))) return false;
     if (pSet.size && !pSet.has(c.agent_persona || '')) return false;
     if (pbSet.size && !pbSet.has(c.playbook_id || '')) return false;
+    if (srcSet.size && !srcSet.has(caseSourceKey(c))) return false;
 
     const assignee = (c.assignee || '').trim();
     const assigneeFilterActive = aSet.size > 0 || f.unassigned;
@@ -242,6 +335,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
         ...caseRules(c),
         ...(Array.isArray(c.tags) ? c.tags : []),
         c.assignee,
+        c.source_name,
       ]
         .filter(Boolean)
         .join(' ')
@@ -263,6 +357,7 @@ function countActiveFilters(f: CaseFilters): number {
     f.playbooks.length +
     f.assignees.length +
     f.tags.length +
+    f.sources.length +
     (f.unassigned ? 1 : 0) +
     (f.riskMin > 0 || f.riskMax < 100 ? 1 : 0) +
     (f.timeRange !== 'all' ? 1 : 0)
@@ -344,6 +439,20 @@ export const CasesPage: React.FC = () => {
         case 'assignee':
           // Unassigned (empty) sorts after assigned names within each direction.
           return (a.assignee || '￿').localeCompare(b.assignee || '￿') * dir;
+        case 'entity':
+          // Cases with no entity sort last within each direction.
+          return (caseEntityKey(a) || '￿').localeCompare(caseEntityKey(b) || '￿') * dir;
+        case 'source':
+          // Unknown/missing source sorts last within each direction.
+          return (
+            (caseSourceLabel(a) === UNKNOWN_SOURCE_LABEL ? '￿' : caseSourceLabel(a)).localeCompare(
+              caseSourceLabel(b) === UNKNOWN_SOURCE_LABEL ? '￿' : caseSourceLabel(b),
+            ) * dir
+          );
+        case 'created_at':
+          return (a.created_at || a.updated_at || '').localeCompare(
+            b.created_at || b.updated_at || '',
+          ) * dir;
         case 'updated_at':
         default:
           return (
@@ -395,6 +504,7 @@ export const CasesPage: React.FC = () => {
     {
       field: 'entity',
       name: 'Entity',
+      sortable: true,
       render: (_: unknown, c: Case) =>
         c.entity ? (
           <span>
@@ -403,6 +513,22 @@ export const CasesPage: React.FC = () => {
         ) : (
           '—'
         ),
+    },
+    {
+      field: 'source',
+      name: 'Source',
+      sortable: true,
+      render: (_: unknown, c: Case) => {
+        const sk = caseSourceKey(c);
+        if (sk === UNKNOWN_SOURCE) {
+          return <span style={{ color: COLORS.subdued }}>—</span>;
+        }
+        return (
+          <EuiBadge color="hollow" iconType="index">
+            {caseSourceLabel(c)}
+          </EuiBadge>
+        );
+      },
     },
     {
       field: 'assignee',
@@ -531,6 +657,12 @@ export const CasesPage: React.FC = () => {
         onChange={setFilters}
         facets={facets}
         shown={filteredSorted.length}
+        sortField={sortField}
+        sortDir={sortDir}
+        onSortChange={(field, dir) => {
+          setSortField(field);
+          setSortDir(dir);
+        }}
       />
 
       <EuiSpacer size="m" />
@@ -569,7 +701,10 @@ export const CasesPage: React.FC = () => {
           items={filteredSorted}
           columns={columns}
           rowHeader="title"
-          sorting={{ sort: { field: sortField, direction: sortDir } }}
+          // Sort is fully controlled below (filteredSorted); `field` here is just
+          // the column identity EUI highlights. `source` is a synthetic column
+          // (not a Case key), so widen the type for the strict `keyof Case` slot.
+          sorting={{ sort: { field: sortField as keyof Case, direction: sortDir } }}
           onChange={onTableChange}
           rowProps={(c: Case) => ({
             onClick: () => setSelectedCaseId(c.case_id),
@@ -609,7 +744,10 @@ const CaseFilterBar: React.FC<{
   onChange: (next: CaseFilters) => void;
   facets: Facets;
   shown: number;
-}> = ({ loadedCount, filters, onChange, facets, shown }) => {
+  sortField: SortField;
+  sortDir: 'asc' | 'desc';
+  onSortChange: (field: SortField, dir: 'asc' | 'desc') => void;
+}> = ({ loadedCount, filters, onChange, facets, shown, sortField, sortDir, onSortChange }) => {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const set = <K extends keyof CaseFilters>(key: K, value: CaseFilters[K]) =>
@@ -623,9 +761,17 @@ const CaseFilterBar: React.FC<{
     filters.playbooks.length +
     filters.assignees.length +
     filters.tags.length +
+    filters.sources.length +
     (filters.unassigned ? 1 : 0) +
     (filters.riskMin > 0 || filters.riskMax < 100 ? 1 : 0) +
     (filters.timeRange !== 'all' ? 1 : 0);
+
+  // Source options carry the stable source key as `value` and the display label.
+  const sourceOpts = (keys: string[]): Array<EuiComboBoxOptionOption<string>> =>
+    keys.map((k) => ({
+      label: facets.sourceLabels[k] || (k === UNKNOWN_SOURCE ? UNKNOWN_SOURCE_LABEL : k),
+      value: k,
+    }));
 
   return (
     <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
@@ -716,6 +862,21 @@ const CaseFilterBar: React.FC<{
               />
             </EuiFormRow>
 
+            {facets.sources.length ? (
+              <EuiFormRow label="Source" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any source"
+                  aria-label="Filter by originating source"
+                  options={sourceOpts(facets.sources)}
+                  selectedOptions={sourceOpts(filters.sources)}
+                  onChange={(sel) => set('sources', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+
             {facets.rules.length ? (
               <EuiFormRow label="Rule / module" fullWidth>
                 <EuiComboBox
@@ -800,6 +961,20 @@ const CaseFilterBar: React.FC<{
             ) : null}
           </div>
         </EuiPopover>
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false} style={{ minWidth: 210 }}>
+        <EuiSelect
+          compressed
+          prepend="Sort"
+          value={sortValue(sortField, sortDir)}
+          onChange={(e) => {
+            const hit = SORT_CHOICES.find((s) => s.value === e.target.value);
+            if (hit) onSortChange(hit.field, hit.dir);
+          }}
+          options={SORT_CHOICES.map((s) => ({ value: s.value, text: s.text }))}
+          aria-label="Sort cases"
+        />
       </EuiFlexItem>
 
       <EuiFlexItem grow={false}>

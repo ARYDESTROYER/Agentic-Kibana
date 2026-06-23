@@ -27,13 +27,13 @@ export const DEFAULT_ACCENT2 = '#8a55c9';
  */
 export const COLORS = {
   primary: DEFAULT_ACCENT,
-  success: '#00a38c',
-  warning: '#e9a200',
+  success: '#0a9b86',
+  warning: '#d9930a',
   danger: '#c4341c',
   accent: DEFAULT_ACCENT2,
   /** Secondary accent (alias of `accent`, kept for explicit two-accent reads). */
   accent2: DEFAULT_ACCENT2,
-  subdued: '#69707d',
+  subdued: '#646b78',
   surface: '#f7f9fc',
 };
 
@@ -93,6 +93,53 @@ export function setAccent(primary?: string, secondary?: string): void {
 }
 
 /**
+ * Layout density tokens — the single source of truth for content width so wide
+ * screens don't waste space and every page lines up to the same column. Used by
+ * the Shell's page section and any surface that wants the standard measure.
+ */
+export const MAX_CONTENT_WIDTH = 1320;
+
+/**
+ * Spacing scale (px) — a small, consistent rhythm so paddings/gaps stop being
+ * scattered magic numbers. Mirrors EUI's 4px base but is plain numbers for inline
+ * `style` use. Additive: existing call sites are unaffected.
+ */
+export const SPACE = {
+  xxs: 2,
+  xs: 4,
+  s: 8,
+  m: 12,
+  l: 16,
+  xl: 24,
+  xxl: 32,
+} as const;
+
+/**
+ * Corner-radius scale (px) — one consistent set of radii for chips, tiles, cards
+ * and pills so the whole console reads as one design language.
+ */
+export const RADIUS = {
+  /** Inline chips / code pills. */
+  sm: 6,
+  /** Buttons / small controls. */
+  md: 8,
+  /** Icon chips. */
+  chip: 10,
+  /** Cards / panels / tiles. */
+  lg: 12,
+  /** Fully-round pills. */
+  pill: 999,
+} as const;
+
+/** Font-weight tokens — keeps emphasis consistent across surfaces. */
+export const WEIGHT = {
+  regular: 400,
+  medium: 500,
+  semibold: 600,
+  bold: 700,
+} as const;
+
+/**
  * Typography scale — replaces scattered `fontSize:` literals so every surface
  * uses one consistent set of display sizes. Values are plain CSS strings to drop
  * straight into inline `style` (e.g. `style={{ fontSize: TYPE.kpi }}`).
@@ -101,9 +148,9 @@ export const TYPE = {
   /** Marketing/landing hero. */
   hero: '34px',
   /** Page title. */
-  h1: '24px',
+  h1: '22px',
   /** Section / card title. */
-  h2: '18px',
+  h2: '17px',
   /** KPI tile number. */
   kpi: '24px',
   /** Oversized KPI number (single hero stat). */
@@ -170,7 +217,7 @@ export function riskBand(score?: number): { label: string; color: string } {
 
 /** Stable categorical palette for charts (donuts, bar lists, legends). */
 export const CHART_COLORS = [
-  '#1c66e0', '#8a55c9', '#00a38c', '#e9a200',
+  '#1c66e0', '#8a55c9', '#0a9b86', '#d9930a',
   '#c4341c', '#2aa0a4', '#d6336c', '#7048e8',
 ] as const;
 
