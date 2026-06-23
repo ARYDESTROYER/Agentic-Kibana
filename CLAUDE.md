@@ -301,12 +301,18 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **364 backend tests green**; the standalone **webui
-builds clean** (tsc+vite). Latest round: app-wide EUI icon fix (static
-`appendIconComponentCache`), Chat redesign + reusable `ChatPanel`, in-case chat,
-case **Reinvestigate** (`POST /cases/{id}/reinvestigate`, optional model override),
-structured lifecycle actions (resolution/assignee/priority/tags), full Cases/Scans
-filtering, and a robust Standup (`GET /standup` never 500s). The legacy Kibana
+(**Waves 1–3**) shipped — **380 backend tests green**; the standalone **webui
+builds clean** (tsc+vite). Latest round: **entity-agnostic correlation** (no-source-IP
+fix — events without an IP no longer silently dropped; `entity_strategy` IP→host→user→rule),
+**per-source multiple index patterns with `events`/`alerts` roles** (auto-investigate
+all alerts), `source_id`/`source_name` on cases + **filter-by-source** + sort everywhere
++ a Chat **source selector**, per-source field mapping + `message_field` + **CA-cert
+file/drag-drop**, a **chat layout rebuild** (full-height, hides all-empty columns),
+Knowledge/Memory feature upgrades, and a **design-token standardization** pass. Competitor
+research + an **RBAC** and **cross-source-aggregation** design captured in
+`docs/research/` (both scoped as the next round). Prior round: EUI icon fix
+(`appendIconComponentCache`), Chat redesign + `ChatPanel`, in-case chat,
+**Reinvestigate**, structured lifecycle actions, robust Standup. The legacy Kibana
 plugin is **archived** (`archive/`).
 Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
 multi-wave plan and `ROADMAP.md` for live status.

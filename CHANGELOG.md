@@ -7,7 +7,57 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
-## [Unreleased] — 2026-06-23 — UI polish, filtering, in-case chat, reinvestigate + icon fix
+## [Unreleased] — 2026-06-23 — Deep source customizability, no-IP fix, UI standardization + chat rebuild
+
+Backend offline suite **380 tests green** (was 364); webui `npm run build` GREEN,
+no new npm deps. Additive; the spine and the 12 non-negotiables intact (#3 the
+close/escalate decision stays deterministic; #1 read-only scoped access; #4 case
+idempotency). Developed on the `Testing` branch.
+
+### Fixed
+- **No-source-IP alerts were silently dropped** — correlation grouped by a single
+  entity and discarded events whose entity field was null, so a source without
+  `source.ip` produced **no cases**. Now entity-agnostic: `entity_strategy`
+  (per-source or global, default `auto`) falls back **IP→host→user→rule** so a case
+  always forms; the entity type used is recorded on the case. Back-compat preserved.
+- **Chat layout glitch + wasted space** — the result table detached/clipped and the
+  panel left large empty bands (brittle `calc(100vh-160px)` + an unconstrained
+  table). Rebuilt as a robust full-height flex layout; result tables now scroll
+  within the bubble and **all-empty columns are hidden** (no more wall of `—`).
+- Standup render hardening carried forward; invalid icons removed.
+
+### Added
+- **Per-source multiple index patterns with roles** — `config.index_patterns:
+  [{pattern, role}]`; `alerts`-role patterns auto-investigate every match (SIEM
+  alerts), `events`-role correlate then triage. N patterns; back-compat with the
+  single `data_view_pattern`. Editable in the source wizard/manager.
+- **`source_id`/`source_name` on every case** + a **filter-by-source** facet and
+  comprehensive **sort options** on Cases & Automated-scans; a **source selector** in
+  Chat (default "All sources"); `POST /chat` gained `source_id` scoping.
+- **Per-source field mapping + `message_field` + entity-strategy selector**, and a
+  **CA-certificate file picker + drag-and-drop** (PEM) alongside paste.
+- **Knowledge & Memory upgrades** — sortable/filterable/density-toggle documents
+  table, multi-file batch import with progress, ranked retrieval with relevance
+  scores; Memory KPIs, search/category/author/active filters, sort, group-by-category.
+- **Read-only Test-connection clarity** — the success callout explains the
+  `read_only` mode (cluster-monitor not required).
+- **UI standardization** — a design-token layer (`SPACE`/`RADIUS`/`WEIGHT`/
+  `MAX_CONTENT_WIDTH`), denser/cleaner primitives, refined Shell nav + global CSS
+  (hover elevation, focus rings, scrollbars, GPU-friendly transitions), and a
+  redesigned **Notes & feedback** tab + denser in-case **Ask** chat.
+- **Research + design docs** — `docs/research/UX_AND_DESIGN.md` and
+  `docs/research/CUSTOMIZATION_AND_RBAC.md` (competitor study + an RBAC/user-management
+  design and a cross-source-aggregation design, both scoped as the next round).
+
+### Deferred (designed, documented in docs/research/CUSTOMIZATION_AND_RBAC.md)
+- **RBAC + user management** (roles admin/analyst/viewer, route-layer capability gate,
+  Users admin UI) — a dedicated security-focused follow-up.
+- **True cross-source aggregation** (poll/query all configured sources) — today only
+  the primary pull source is actively polled; chat source-select is single-source.
+
+---
+
+## [Unreleased-prev] — 2026-06-23 — UI polish, filtering, in-case chat, reinvestigate + icon fix
 
 Backend offline suite **364 tests green** (was 349); webui `npm run build` GREEN,
 no new npm deps. Additive; the spine and the 12 non-negotiables are intact
