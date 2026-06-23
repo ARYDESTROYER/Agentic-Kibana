@@ -3,6 +3,7 @@ const path = require('path');
 
 const iconFile = path.join(
   __dirname,
+  '..',
   'node_modules/@elastic/eui/es/components/icon/icon.js'
 );
 

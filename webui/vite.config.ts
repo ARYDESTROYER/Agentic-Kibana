@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import euiIconsPlugin from './vite-plugin-eui-icons.cjs';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8088';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), euiIconsPlugin()],
   server: {
     port: 5173,
     host: '0.0.0.0',
@@ -14,6 +15,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  preview: {
+    port: 5173,
+    host: '0.0.0.0',
   },
   build: {
     outDir: 'dist',

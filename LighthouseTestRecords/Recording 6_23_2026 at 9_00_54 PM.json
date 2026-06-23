@@ -1,0 +1,2149 @@
+{
+    "title": "Recording 6/23/2026 at 9:00:54 PM",
+    "steps": [
+        {
+            "type": "setViewport",
+            "width": 1012,
+            "height": 551,
+            "deviceScaleFactor": 1,
+            "isMobile": false,
+            "hasTouch": false,
+            "isLandscape": false
+        },
+        {
+            "type": "navigate",
+            "url": "https://didactic-journey-r44rq4v9j55rh64q-5173.app.github.dev/",
+            "assertedEvents": [
+                {
+                    "type": "navigation",
+                    "url": "https://didactic-journey-r44rq4v9j55rh64q-5173.app.github.dev/",
+                    "title": "Agentic SOC Console"
+                }
+            ]
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "rect:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/svg/rect[3]"
+                ],
+                [
+                    "pierce/rect:nth-of-type(3)"
+                ]
+            ],
+            "offsetY": 48.77874755859375,
+            "offsetX": 65.22915649414062
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "rect:nth-of-type(6)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/svg/rect[6]"
+                ],
+                [
+                    "pierce/rect:nth-of-type(6)"
+                ]
+            ],
+            "offsetY": 50.798736572265625,
+            "offsetX": 21.979156494140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "rect:nth-of-type(9)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/svg/rect[9]"
+                ],
+                [
+                    "pierce/rect:nth-of-type(9)"
+                ]
+            ],
+            "offsetY": 40.9920654296875,
+            "offsetX": 1.7291259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "rect:nth-of-type(12)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/svg/rect[12]"
+                ],
+                [
+                    "pierce/rect:nth-of-type(12)"
+                ]
+            ],
+            "offsetY": 51.15875244140625,
+            "offsetX": 34.4791259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/24h"
+                ],
+                [
+                    "main > div > div:nth-of-type(2) button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div[1]/div/button[1]"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(2) button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 23.052078247070312,
+            "offsetX": 23.7916259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/7d"
+                ],
+                [
+                    "#root > div > div button:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div[1]/div/button[2]"
+                ],
+                [
+                    "pierce/#root > div > div button:nth-of-type(2)"
+                ],
+                [
+                    "text/7d"
+                ]
+            ],
+            "offsetY": 21.052078247070312,
+            "offsetX": 15.89581298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Refresh",
+                    "aria/[role=\"image\"]"
+                ],
+                [
+                    "main > div > div:nth-of-type(1) svg"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/div[2]/button/svg"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(1) svg"
+                ]
+            ],
+            "offsetY": 11,
+            "offsetX": 4.9166259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/24h"
+                ],
+                [
+                    "main > div > div:nth-of-type(2) button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div[1]/div/button[1]"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(2) button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 1.0520782470703125,
+            "offsetX": 21.7916259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Refresh"
+                ],
+                [
+                    "main > div > div:nth-of-type(1) button"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/div[2]/button"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(1) button"
+                ],
+                [
+                    "text/Refresh"
+                ]
+            ],
+            "offsetY": 13,
+            "offsetX": 51.58331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[1]/div"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "text/Open cases0"
+                ]
+            ],
+            "offsetY": 39.67706298828125,
+            "offsetX": 84
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(2) > div > div:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div[1]"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(2) > div > div:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 11.010406494140625,
+            "offsetX": 36.166656494140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(3) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[3]/div"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(3) > div"
+                ],
+                [
+                    "text/True positives0"
+                ]
+            ],
+            "offsetY": 66.67707824707031,
+            "offsetX": 137.6666259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) div:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[4]/div/div[3]"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) div:nth-of-type(3)"
+                ],
+                [
+                    "text/752 tokens"
+                ]
+            ],
+            "offsetY": 9.447906494140625,
+            "offsetX": 25.83331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) > div:nth-of-type(1) > div > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[5]/div[1]/div/div"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) > div:nth-of-type(1) > div > div"
+                ],
+                [
+                    "text/RAG documents3"
+                ]
+            ],
+            "offsetY": 73.07290649414062,
+            "offsetX": 62
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Document text"
+                ],
+                [
+                    "#\\:r4\\:"
+                ],
+                [
+                    "xpath///*[@id=\":r4:\"]"
+                ],
+                [
+                    "pierce/#\\:r4\\:"
+                ]
+            ],
+            "offsetY": 76.61457824707031,
+            "offsetX": 138.3333282470703
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/e.g. brute force from a known scanner"
+                ],
+                [
+                    "div.css-x85v3e-euiFlexGroup-responsive-wrap-l-flexStart-stretch-row > div:nth-of-type(2) input"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[7]/div[2]/div/div[4]/div/input"
+                ],
+                [
+                    "pierce/div.css-x85v3e-euiFlexGroup-responsive-wrap-l-flexStart-stretch-row > div:nth-of-type(2) input"
+                ]
+            ],
+            "offsetY": 16.61456298828125,
+            "offsetX": 143
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Source (optional)"
+                ],
+                [
+                    "#\\:r3\\:"
+                ],
+                [
+                    "xpath///*[@id=\":r3:\"]"
+                ],
+                [
+                    "pierce/#\\:r3\\:"
+                ]
+            ],
+            "offsetY": 13.61456298828125,
+            "offsetX": 66.83331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Title[role=\"textbox\"]"
+                ],
+                [
+                    "#\\:r2\\:"
+                ],
+                [
+                    "xpath///*[@id=\":r2:\"]"
+                ],
+                [
+                    "pierce/#\\:r2\\:"
+                ]
+            ],
+            "offsetY": 12.61456298828125,
+            "offsetX": 79.33332824707031
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Overview"
+                ],
+                [
+                    "aside div:nth-of-type(1) > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[1]"
+                ],
+                [
+                    "pierce/aside div:nth-of-type(1) > button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 4.4375,
+            "offsetX": 60
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[1]/div"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "text/Open cases0"
+                ]
+            ],
+            "offsetY": 62.010406494140625,
+            "offsetX": 128
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) > div:nth-of-type(1) > div > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[5]/div[1]/div/div"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) > div:nth-of-type(1) > div > div"
+                ],
+                [
+                    "text/RAG documents3"
+                ]
+            ],
+            "offsetY": 15.40625,
+            "offsetX": 172
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[1]/span[2]"
+                ],
+                [
+                    "pierce/aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Overview"
+                ]
+            ],
+            "offsetY": 13.4375,
+            "offsetX": 37
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) > div:nth-of-type(2) > div > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[5]/div[2]/div/div"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) > div:nth-of-type(2) > div > div"
+                ],
+                [
+                    "text/RAG chunks18"
+                ]
+            ],
+            "offsetY": 33.072906494140625,
+            "offsetX": 67.44790649414062
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[1]/span[2]"
+                ],
+                [
+                    "pierce/aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Overview"
+                ]
+            ],
+            "offsetY": 6.71875,
+            "offsetX": 20
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) > div:nth-of-type(3) > div > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[5]/div[3]/div/div"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) > div:nth-of-type(3) > div > div"
+                ],
+                [
+                    "text/Memory facts0"
+                ]
+            ],
+            "offsetY": 10.40625,
+            "offsetX": 32.8853759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Overview"
+                ],
+                [
+                    "aside div:nth-of-type(1) > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[1]"
+                ],
+                [
+                    "pierce/aside div:nth-of-type(1) > button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 26.4375,
+            "offsetX": 54
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) > div:nth-of-type(4) div:nth-of-type(2) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[4]/div/div[2]/div"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > div:nth-of-type(4) div:nth-of-type(2) > div"
+                ]
+            ],
+            "offsetY": 9.447906494140625,
+            "offsetX": 35.83331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(3) div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[3]/div/div[2]"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(3) div:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 1.447906494140625,
+            "offsetX": 89
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(2) > div > div:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div[1]"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(2) > div > div:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 11.010406494140625,
+            "offsetX": 129.16665649414062
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[1]/div"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(3) > div:nth-of-type(1) > div"
+                ],
+                [
+                    "text/Open cases0"
+                ]
+            ],
+            "offsetY": 34.67707824707031,
+            "offsetX": 93
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) div:nth-of-type(2) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[7]/div[4]/div[1]/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) div:nth-of-type(2) span > span"
+                ],
+                [
+                    "text/Manage"
+                ]
+            ],
+            "offsetY": 7.158966064453125,
+            "offsetX": 19.30206298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiPanel span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiPanel span > span"
+                ]
+            ],
+            "offsetY": 3.883575439453125,
+            "offsetX": 61.2603759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Closes this modal window"
+                ],
+                [
+                    "div:nth-of-type(2) > div > button"
+                ],
+                [
+                    "xpath//html/body/div[2]/div[2]/div/button"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > div > button"
+                ]
+            ],
+            "offsetY": 10.440448760986328,
+            "offsetX": 22
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[1]/span[2]"
+                ],
+                [
+                    "pierce/aside div:nth-of-type(1) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Overview"
+                ]
+            ],
+            "offsetY": 10.4375,
+            "offsetX": 38
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiFlexGrid > div:nth-of-type(3) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[7]/div[3]/div[3]/div[1]/div[1]"
+                ],
+                [
+                    "pierce/div.euiFlexGrid > div:nth-of-type(3) > div:nth-of-type(3) > div:nth-of-type(1) > div:nth-of-type(1)"
+                ],
+                [
+                    "text/text-embedding-3-smallUSD0.0000"
+                ]
+            ],
+            "offsetY": 6.510406494140625,
+            "offsetX": 229.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div.socCard > div:nth-of-type(1) > div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[9]/div[1]/div[2]"
+                ],
+                [
+                    "pierce/main > div > div.socCard > div:nth-of-type(1) > div:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 0.17706298828125,
+            "offsetX": 48
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main > div > div.socCard div:nth-of-type(2) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[9]/div[1]/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/main > div > div.socCard div:nth-of-type(2) span > span"
+                ],
+                [
+                    "text/View all"
+                ]
+            ],
+            "offsetY": 15.28570556640625,
+            "offsetX": 18
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Refresh"
+                ],
+                [
+                    "main > div > div:nth-of-type(1) > button"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/button"
+                ],
+                [
+                    "pierce/main > div > div:nth-of-type(1) > button"
+                ],
+                [
+                    "text/Refresh"
+                ]
+            ],
+            "offsetY": 27,
+            "offsetX": 41.58331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-rwiwai-euiFlexGroup-responsive-m-flexStart-stretch-row > div:nth-of-type(1) > div"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div[1]/div"
+                ],
+                [
+                    "pierce/div.css-rwiwai-euiFlexGroup-responsive-m-flexStart-stretch-row > div:nth-of-type(1) > div"
+                ],
+                [
+                    "text/Total cases0"
+                ]
+            ],
+            "offsetY": 13.71875,
+            "offsetX": 75
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-rwiwai-euiFlexGroup-responsive-m-flexStart-stretch-row > div:nth-of-type(2) div:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div[2]/div/div[2]"
+                ],
+                [
+                    "pierce/div.css-rwiwai-euiFlexGroup-responsive-m-flexStart-stretch-row > div:nth-of-type(2) div:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 6.4895782470703125,
+            "offsetX": 70.16665649414062
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[2]/div/button[2]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) button:nth-of-type(2) > span > span"
+                ]
+            ],
+            "offsetY": 14.260406494140625,
+            "offsetX": 4
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[2]/div/button[3]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) button:nth-of-type(3) > span > span"
+                ]
+            ],
+            "offsetY": 11.260406494140625,
+            "offsetX": 42.21875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) button:nth-of-type(4) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[2]/div/button[4]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) button:nth-of-type(4) > span > span"
+                ],
+                [
+                    "text/Closed"
+                ]
+            ],
+            "offsetY": 9.260406494140625,
+            "offsetX": 7.4166259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Any verdict"
+                ],
+                [
+                    "div:nth-of-type(3) button.euiFilterButton-isSelected"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[3]/div/button[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) button.euiFilterButton-isSelected"
+                ]
+            ],
+            "offsetY": 19.260406494140625,
+            "offsetX": 85
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[3]/div/button[2]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) button:nth-of-type(2) > span > span"
+                ]
+            ],
+            "offsetY": 5.260406494140625,
+            "offsetX": 78.75
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[3]/div/button[3]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "text/False positive"
+                ]
+            ],
+            "offsetY": 9.260406494140625,
+            "offsetX": 45.385406494140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) button:nth-of-type(4) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[3]/div/button[4]/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) button:nth-of-type(4) > span > span"
+                ]
+            ],
+            "offsetY": 16.260406494140625,
+            "offsetX": 66.7916259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button.euiFilterButton-isSelected > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[4]/div/button[1]/span/span"
+                ],
+                [
+                    "pierce/div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button.euiFilterButton-isSelected > span > span"
+                ]
+            ],
+            "offsetY": 8.260406494140625,
+            "offsetX": 18.21875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[4]/div/button[2]/span/span"
+                ],
+                [
+                    "pierce/div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "text/Unassigned"
+                ]
+            ],
+            "offsetY": 15.260406494140625,
+            "offsetX": 13.98956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[4]/div/button[3]/span/span"
+                ],
+                [
+                    "pierce/div.css-1nthddw-euiFlexGroup-wrap-m-flexStart-center-row > div:nth-of-type(4) button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "text/Has comments"
+                ]
+            ],
+            "offsetY": 8.260406494140625,
+            "offsetX": 3.6353759765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "label"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[5]/div/div[1]/label"
+                ],
+                [
+                    "pierce/label"
+                ],
+                [
+                    "text/Assignee"
+                ]
+            ],
+            "offsetY": 18.260406494140625,
+            "offsetX": 23.333328247070312
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Filter cases by assignee"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[4]/div[5]/div/div[2]/select"
+                ],
+                [
+                    "pierce/select"
+                ],
+                [
+                    "text/__any__"
+                ]
+            ],
+            "offsetY": 4.59375,
+            "offsetX": 38.83331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(1) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[3]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(1) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Investigate"
+                ]
+            ],
+            "offsetY": 15.03125,
+            "offsetX": 26
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[1]/fieldset/div/button[2]/span/span"
+                ],
+                [
+                    "pierce/button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "text/User"
+                ]
+            ],
+            "offsetY": 13.385406494140625,
+            "offsetX": 9.104156494140625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#root > div > div button:nth-of-type(3) > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[1]/fieldset/div/button[3]/span"
+                ],
+                [
+                    "pierce/#root > div > div button:nth-of-type(3) > span"
+                ]
+            ],
+            "offsetY": 32.385406494140625,
+            "offsetX": 39.96875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "main div:nth-of-type(4) > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[4]/span"
+                ],
+                [
+                    "pierce/main div:nth-of-type(4) > span"
+                ]
+            ],
+            "offsetY": 23.385406494140625,
+            "offsetX": 94.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Lookback window"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[3]/div[2]/div/select"
+                ],
+                [
+                    "pierce/select"
+                ],
+                [
+                    "text/now-24h"
+                ]
+            ],
+            "offsetY": 33.385406494140625,
+            "offsetX": 100
+        },
+        {
+            "type": "change",
+            "value": "now-7d",
+            "selectors": [
+                [
+                    "aria/Lookback window"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[3]/div[2]/div/select"
+                ],
+                [
+                    "pierce/select"
+                ],
+                [
+                    "text/now-24h"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Lookback window"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[3]/div[2]/div/select"
+                ],
+                [
+                    "pierce/select"
+                ],
+                [
+                    "text/now-24h"
+                ]
+            ],
+            "offsetY": 12.385406494140625,
+            "offsetX": 48
+        },
+        {
+            "type": "change",
+            "value": "now-30d",
+            "selectors": [
+                [
+                    "aria/Lookback window"
+                ],
+                [
+                    "select"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[3]/div[2]/div/select"
+                ],
+                [
+                    "pierce/select"
+                ],
+                [
+                    "text/now-24h"
+                ]
+            ],
+            "target": "main"
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(1) > button:nth-of-type(4) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[4]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(1) > button:nth-of-type(4) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Chat"
+                ]
+            ],
+            "offsetY": 5.4895782470703125,
+            "offsetX": 5
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiFlexGroup > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[4]/div[1]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiFlexGroup > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "text/Show failed logins"
+                ]
+            ],
+            "offsetY": 7.625,
+            "offsetX": 73.48956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.socChat div.euiFlexGroup > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[4]/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/div.socChat div.euiFlexGroup > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "text/Summarize today's"
+                ]
+            ],
+            "offsetY": 14.625,
+            "offsetX": 30.45831298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.socChat div:nth-of-type(3) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[4]/div[3]/button/span/span"
+                ],
+                [
+                    "pierce/div.socChat div:nth-of-type(3) span > span"
+                ],
+                [
+                    "text/Any brute-force"
+                ]
+            ],
+            "offsetY": 7.291656494140625,
+            "offsetX": 98.98956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiFlexGroup > div:nth-of-type(4) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[2]/div/div[4]/div[4]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiFlexGroup > div:nth-of-type(4) span > span"
+                ],
+                [
+                    "text/Which hosts had"
+                ]
+            ],
+            "offsetY": 11.291656494140625,
+            "offsetX": 44.98956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Metrics"
+                ],
+                [
+                    "div:nth-of-type(1) > button:nth-of-type(5)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[1]/button[5]"
+                ],
+                [
+                    "pierce/div:nth-of-type(1) > button:nth-of-type(5)"
+                ]
+            ],
+            "offsetY": 19.104156494140625,
+            "offsetX": 86
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-pmrxze-euiFlexGroup-responsive-wrap-m-flexStart-stretch-row > div:nth-of-type(3) > div > div:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[7]/div[3]/div/div[1]"
+                ],
+                [
+                    "pierce/div.css-pmrxze-euiFlexGroup-responsive-wrap-m-flexStart-stretch-row > div:nth-of-type(3) > div > div:nth-of-type(1)"
+                ],
+                [
+                    "text/Embedding model"
+                ]
+            ],
+            "offsetY": 6.17706298828125,
+            "offsetX": 98.21875
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Automated scans"
+                ],
+                [
+                    "nav > div:nth-of-type(2) > button:nth-of-type(1)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[2]/button[1]"
+                ],
+                [
+                    "pierce/nav > div:nth-of-type(2) > button:nth-of-type(1)"
+                ]
+            ],
+            "offsetY": 25.84375,
+            "offsetX": 91
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) > button:nth-of-type(2) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[2]/button[2]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > button:nth-of-type(2) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Standup"
+                ]
+            ],
+            "offsetY": 1.3333282470703125,
+            "offsetX": 27
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1ksp63d-euiFlexGroup-wrap-m-spaceBetween-center-row > div:nth-of-type(2) > div > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/div[2]/div/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/div.css-1ksp63d-euiFlexGroup-wrap-m-spaceBetween-center-row > div:nth-of-type(2) > div > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "text/Print"
+                ]
+            ],
+            "offsetY": 7.72271728515625,
+            "offsetX": 9.5625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "#root > div > div div:nth-of-type(3) > button > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/div[2]/div/div[3]/button/span"
+                ],
+                [
+                    "pierce/#root > div > div div:nth-of-type(3) > button > span"
+                ]
+            ],
+            "offsetY": 2.9084854125976562,
+            "offsetX": 34.1666259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[2]/button[3]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Playbooks & Agents"
+                ]
+            ],
+            "offsetY": 12.875,
+            "offsetX": 56
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Playbooks",
+                    "aria/[role=\"generic\"]"
+                ],
+                [
+                    "#playbooks > span"
+                ],
+                [
+                    "xpath///*[@id=\"playbooks\"]/span"
+                ],
+                [
+                    "pierce/#playbooks > span"
+                ]
+            ],
+            "offsetY": 26.177078247070312,
+            "offsetX": 39.53125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Agent personas",
+                    "aria/[role=\"generic\"]"
+                ],
+                [
+                    "#personas > span"
+                ],
+                [
+                    "xpath///*[@id=\"personas\"]/span"
+                ],
+                [
+                    "pierce/#personas > span"
+                ],
+                [
+                    "text/Agent personas"
+                ]
+            ],
+            "offsetY": 19.177078247070312,
+            "offsetX": 29.333328247070312
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[1]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(1) > span:nth-of-type(2)"
+                ]
+            ],
+            "offsetY": 16.979156494140625,
+            "offsetX": 16
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Sources"
+                ],
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(3)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[3]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(3)"
+                ]
+            ],
+            "offsetY": 5.59375,
+            "offsetX": 56
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(2) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[2]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(2) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Memory"
+                ]
+            ],
+            "offsetY": 8.64581298828125,
+            "offsetX": 32
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[3]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(3) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Sources"
+                ]
+            ],
+            "offsetY": 11.3125,
+            "offsetX": 28
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(4) > span:nth-of-type(2)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[4]/span[2]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(4) > span:nth-of-type(2)"
+                ],
+                [
+                    "text/Cost & usage"
+                ]
+            ],
+            "offsetY": 10.979156494140625,
+            "offsetX": 36
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Settings"
+                ],
+                [
+                    "div:nth-of-type(3) > button:nth-of-type(5)"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/aside/nav/div[3]/button[5]"
+                ],
+                [
+                    "pierce/div:nth-of-type(3) > button:nth-of-type(5)"
+                ]
+            ],
+            "offsetY": 6.64581298828125,
+            "offsetX": 75
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiSideNavItemButton > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e5254800-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[1]/span/span"
+                ],
+                [
+                    "pierce/div.euiSideNavItemButton > span > span"
+                ]
+            ],
+            "offsetY": 9,
+            "offsetX": 16
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(2) > div > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[1]/div[2]/div/div[1]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(2) > div > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "text/Re-run setup"
+                ]
+            ],
+            "offsetY": 7.794593811035156,
+            "offsetX": 24.6666259765625
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "aria/Close",
+                    "aria/[role=\"graphics-symbol\"]"
+                ],
+                [
+                    "div.css-kyk508-euiFlexGroup-m-flexStart-center-row > div:nth-of-type(3) path"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/div[1]/div[3]/button/span/svg/path"
+                ],
+                [
+                    "pierce/div.css-kyk508-euiFlexGroup-m-flexStart-center-row > div:nth-of-type(3) path"
+                ]
+            ],
+            "offsetY": 7.000629425048828,
+            "offsetX": 2.13604736328125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiSideNavItem__items > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[2]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiSideNavItem__items > div:nth-of-type(2) span > span"
+                ],
+                [
+                    "text/Polling"
+                ]
+            ],
+            "offsetY": 7,
+            "offsetX": 31
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiSideNavItem__items > div:nth-of-type(3) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[3]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiSideNavItem__items > div:nth-of-type(3) span > span"
+                ],
+                [
+                    "text/Models"
+                ]
+            ],
+            "offsetY": 17,
+            "offsetX": 32
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[4]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) span > span"
+                ],
+                [
+                    "text/Secret keys"
+                ]
+            ],
+            "offsetY": 5,
+            "offsetX": 42
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiSideNavItem__items > div:nth-of-type(3) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[3]/button/span/span"
+                ],
+                [
+                    "pierce/div.euiSideNavItem__items > div:nth-of-type(3) span > span"
+                ],
+                [
+                    "text/Models"
+                ]
+            ],
+            "offsetY": 3,
+            "offsetX": 22
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup > div:nth-of-type(1) select"
+                ],
+                [
+                    "xpath///*[@id=\":r30:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup > div:nth-of-type(1) select"
+                ]
+            ],
+            "offsetY": 14.33331298828125,
+            "offsetX": 115.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup > div:nth-of-type(1) select"
+                ],
+                [
+                    "xpath///*[@id=\":r30:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup > div:nth-of-type(1) select"
+                ]
+            ],
+            "offsetY": 22.33331298828125,
+            "offsetX": 105.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div > div > div.euiFlexGroup > div:nth-of-type(2) select"
+                ],
+                [
+                    "xpath///*[@id=\":r31:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div > div > div.euiFlexGroup > div:nth-of-type(2) select"
+                ]
+            ],
+            "offsetY": 12.33331298828125,
+            "offsetX": 121.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/div[3]"
+                ],
+                [
+                    "pierce/div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row > div.css-9sbomz-euiFlexItem-grow-1 > div > div > div.euiFlexGroup"
+                ]
+            ],
+            "offsetY": 227.3333282470703,
+            "offsetX": 129.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.euiFlexGroup > div:nth-of-type(3) select"
+                ],
+                [
+                    "xpath///*[@id=\":r32:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div.euiFlexGroup > div:nth-of-type(3) select"
+                ]
+            ],
+            "offsetY": 18.33331298828125,
+            "offsetX": 93.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) select"
+                ],
+                [
+                    "xpath///*[@id=\":r33:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) select"
+                ]
+            ],
+            "offsetY": 8.33331298828125,
+            "offsetX": 85.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) select"
+                ],
+                [
+                    "xpath///*[@id=\":r34:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) select"
+                ]
+            ],
+            "offsetY": 26.33331298828125,
+            "offsetX": 129.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(6) div.euiFormRow__labelWrapper"
+                ],
+                [
+                    "xpath///*[@id=\":r35:-row\"]/div[1]"
+                ],
+                [
+                    "pierce/div:nth-of-type(6) div.euiFormRow__labelWrapper"
+                ]
+            ],
+            "offsetY": 4.33331298828125,
+            "offsetX": 119.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(6) select"
+                ],
+                [
+                    "xpath///*[@id=\":r35:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div:nth-of-type(6) select"
+                ]
+            ],
+            "offsetY": 3.33331298828125,
+            "offsetX": 109.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(7) select"
+                ],
+                [
+                    "xpath///*[@id=\":r36:\"]/div/div/div/select"
+                ],
+                [
+                    "pierce/div:nth-of-type(7) select"
+                ]
+            ],
+            "offsetY": 5.33331298828125,
+            "offsetX": 171.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]"
+                ],
+                [
+                    "pierce/div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row"
+                ]
+            ],
+            "offsetY": 468,
+            "offsetX": 146
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(4) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[4]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(4) span > span"
+                ],
+                [
+                    "text/Secret keys"
+                ]
+            ],
+            "offsetY": 7,
+            "offsetX": 49
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(5) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[5]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(5) span > span"
+                ],
+                [
+                    "text/Correlation &"
+                ]
+            ],
+            "offsetY": 13,
+            "offsetX": 64
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(6) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[6]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(6) span > span"
+                ],
+                [
+                    "text/Enrichment"
+                ]
+            ],
+            "offsetY": 4,
+            "offsetX": 14
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-kpsrin-euiFlexItem-growZero div:nth-of-type(7) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[7]/button/span/span"
+                ],
+                [
+                    "pierce/div.css-kpsrin-euiFlexItem-growZero div:nth-of-type(7) span > span"
+                ],
+                [
+                    "text/RAG"
+                ]
+            ],
+            "offsetY": 14,
+            "offsetX": 28
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-kpsrin-euiFlexItem-growZero div:nth-of-type(8) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[8]/button/span/span"
+                ],
+                [
+                    "pierce/div.css-kpsrin-euiFlexItem-growZero div:nth-of-type(8) span > span"
+                ]
+            ],
+            "offsetY": 7,
+            "offsetX": 39
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(9) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[9]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(9) span > span"
+                ],
+                [
+                    "text/Automation &"
+                ]
+            ],
+            "offsetY": 5,
+            "offsetX": 38
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div:nth-of-type(10) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"euiSideNav_e90652c0-6f18-11f1-b177-3107c6e18e67_content\"]/div/div[2]/div[10]/button/span/span"
+                ],
+                [
+                    "pierce/div:nth-of-type(10) span > span"
+                ],
+                [
+                    "text/Branding"
+                ]
+            ],
+            "offsetY": 0,
+            "offsetX": 20
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/fieldset/div/button[3]/span/span"
+                ],
+                [
+                    "pierce/button:nth-of-type(3) > span > span"
+                ]
+            ],
+            "offsetY": 4.666656494140625,
+            "offsetX": 10.98956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "fieldset button:nth-of-type(1) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/fieldset/div/button[1]/span/span"
+                ],
+                [
+                    "pierce/fieldset button:nth-of-type(1) > span > span"
+                ],
+                [
+                    "text/Light"
+                ]
+            ],
+            "offsetY": 6.666656494140625,
+            "offsetX": 0.33331298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/fieldset/div/button[2]/span/span"
+                ],
+                [
+                    "pierce/button:nth-of-type(2) > span > span"
+                ],
+                [
+                    "text/Dark"
+                ]
+            ],
+            "offsetY": 9.666656494140625,
+            "offsetX": 7.125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "button:nth-of-type(3) > span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/fieldset/div/button[3]/span/span"
+                ],
+                [
+                    "pierce/button:nth-of-type(3) > span > span"
+                ]
+            ],
+            "offsetY": 5.666656494140625,
+            "offsetX": 13.98956298828125
+        },
+        {
+            "type": "click",
+            "target": "main",
+            "selectors": [
+                [
+                    "div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row div.css-wil1od-euiFlexGroup-s-flexStart-stretch-row > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "xpath///*[@id=\"root\"]/div/div/main/div/div[3]/div[2]/div/div/div[22]/div[1]/button/span/span"
+                ],
+                [
+                    "pierce/div.css-1p7y8nb-euiFlexGroup-responsive-l-flexStart-flexStart-row div.css-wil1od-euiFlexGroup-s-flexStart-stretch-row > div:nth-of-type(1) span > span"
+                ],
+                [
+                    "text/Save branding"
+                ]
+            ],
+            "offsetY": 3.5509033203125,
+            "offsetX": 25.33331298828125
+        }
+    ]
+}
