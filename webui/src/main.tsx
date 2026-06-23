@@ -1,3 +1,8 @@
+// Side-effect import: statically register the EUI icons the app uses BEFORE any
+// component renders. Must stay first — without it EUI lazy-`import()`s each glyph
+// as a runtime chunk that the nginx-served bundle cannot resolve, so every icon
+// renders as a blank gray square. See src/lib/icons.ts.
+import './lib/icons';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';

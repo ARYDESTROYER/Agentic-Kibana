@@ -480,6 +480,26 @@ export interface CasesResponse {
   total: number;
 }
 
+/**
+ * Payload for POST /api/cases/{id}/action — a unified analyst action on a case
+ * (the case-detail flyout drives this). `action` is open-ended (the backend
+ * validates), but the common verbs are enumerated for editor help. The extra
+ * fields are additive and only meaningful for some verbs (e.g. `resolution` on a
+ * close, `assignee`/`priority` on an escalate).
+ */
+export interface CaseActionInput {
+  action: 'close' | 'reopen' | 'escalate' | 'confirm_fp' | 'acknowledge' | string;
+  note?: string;
+  /** close / confirm_fp: why the case was resolved that way. */
+  resolution?: string;
+  /** escalate: the analyst/team to escalate to. */
+  assignee?: string;
+  /** escalate: low | medium | high | critical. */
+  priority?: string;
+  /** Optional follow-up tags to attach as part of the action. */
+  tags?: string[];
+}
+
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;

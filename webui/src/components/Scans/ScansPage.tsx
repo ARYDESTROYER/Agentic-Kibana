@@ -2,28 +2,43 @@
  * Automated Scans — the board of cases the agent opened from background scanning.
  *
  * Fetches GET /api/scans and renders KPI trend stats (scanned / needs-human /
- * auto-investigated / candidates, derived from the returned cases) above a
- * responsive grid of case cards. A status filter mirrors the Cases page. Each
- * card opens the CaseDetailFlyout on click (it was previously a dead affordance)
- * and shows a rich CaseHoverCard preview on hover/focus.
+ * auto-investigated / candidates, derived from the returned cases) above a full
+ * client-side filter bar + quick status tabs + a sort selector, then a responsive
+ * grid of polished case cards. Each card opens the CaseDetailFlyout on click and
+ * shows a rich CaseHoverCard preview on hover/focus.
+ *
+ * All filtering is CLIENT-SIDE over the loaded list (a single useMemo) and the
+ * filter state SELF-HEALS: any selected value that no longer exists after a
+ * reload is dropped (see `healFilters`) so the grid can never silently empty
+ * behind an un-clearable filter. The filter bar + filter logic are intentionally
+ * inlined here (and mirrored in CasesPage) rather than shared in a third module.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EuiBadge,
   EuiButton,
+  EuiButtonEmpty,
+  EuiComboBox,
+  EuiDualRange,
+  EuiFieldSearch,
   EuiFilterButton,
   EuiFilterGroup,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiFormRow,
+  EuiPopover,
+  EuiSelect,
   EuiSpacer,
   EuiText,
 } from '@elastic/eui';
+import type { EuiComboBoxOptionOption } from '@elastic/eui';
 import type { Case } from '../../lib/types';
 import { api } from '../../lib/api';
-import { DASH, humanizeAge } from '../../lib/format';
+import { DASH, humanizeAge, humanizeToken } from '../../lib/format';
 import { COLORS, riskHex, verdictHex } from '../../lib/theme';
 import {
   Card,
+  ConfidenceBadge,
   EmptyState,
   ErrorCallout,
   Loading,
@@ -36,13 +51,22 @@ import {
 import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
-type StatusFilter = 'all' | 'open' | 'needs_human' | 'closed';
+type StatusTab = 'all' | 'open' | 'needs_human' | 'closed';
+type SortOption = 'newest' | 'oldest' | 'risk' | 'verdict';
+type TimeRange = 'all' | '24h' | '7d' | '30d';
 
-const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
+const STATUS_TABS: Array<{ key: StatusTab; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'open', label: 'Open' },
   { key: 'needs_human', label: 'Needs human' },
   { key: 'closed', label: 'Closed' },
+];
+
+const SORT_OPTIONS: Array<{ value: SortOption; text: string }> = [
+  { value: 'newest', text: 'Newest first' },
+  { value: 'oldest', text: 'Oldest first' },
+  { value: 'risk', text: 'Highest risk' },
+  { value: 'verdict', text: 'Verdict' },
 ];
 
 /** True when a case verdict reads as a true/likely positive. */
@@ -62,11 +86,220 @@ function isInvestigated(c: Case): boolean {
   return Boolean(c.verdict) && (c.verdict || '').toUpperCase() !== 'UNKNOWN';
 }
 
+/* ------------------------------------------------------- filter primitives -- */
+/* The filter MODEL + pure helpers below are kept inline (mirrored in CasesPage)
+ * so the two pages never depend on a third shared module another agent edits. */
+
+/** The complete client-side filter state. Everything narrows the loaded rows. */
+interface CaseFilters {
+  search: string;
+  /** Multi-select facets — empty array == "any". */
+  verdicts: string[];
+  statuses: string[];
+  rules: string[];
+  personas: string[];
+  playbooks: string[];
+  assignees: string[];
+  tags: string[];
+  /** Risk band over the normalised 0..100 score. */
+  riskMin: number;
+  riskMax: number;
+  /** Created-within window. */
+  timeRange: TimeRange;
+  /** Pseudo-assignee: rows with no assignee. */
+  unassigned: boolean;
+}
+
+const EMPTY_FILTERS: CaseFilters = {
+  search: '',
+  verdicts: [],
+  statuses: [],
+  rules: [],
+  personas: [],
+  playbooks: [],
+  assignees: [],
+  tags: [],
+  riskMin: 0,
+  riskMax: 100,
+  timeRange: 'all',
+  unassigned: false,
+};
+
+/** Distinct facet values present in the loaded rows (drives the multi-selects). */
+interface Facets {
+  verdicts: string[];
+  statuses: string[];
+  rules: string[];
+  personas: string[];
+  playbooks: string[];
+  assignees: string[];
+  tags: string[];
+}
+
+const sortedUniq = (vals: Iterable<string>): string[] =>
+  Array.from(new Set(vals)).sort((a, b) => a.localeCompare(b));
+
+/** All rule ids/name on a case (handles both rule_ids[] and a scalar `rule`). */
+function caseRules(c: Case): string[] {
+  const out: string[] = [];
+  if (Array.isArray(c.rule_ids)) out.push(...c.rule_ids.filter(Boolean).map(String));
+  const scalar = (c as Record<string, unknown>).rule;
+  if (typeof scalar === 'string' && scalar.trim()) out.push(scalar.trim());
+  return out;
+}
+
+function buildFacets(cases: Case[]): Facets {
+  const verdicts = new Set<string>();
+  const statuses = new Set<string>();
+  const rules = new Set<string>();
+  const personas = new Set<string>();
+  const playbooks = new Set<string>();
+  const assignees = new Set<string>();
+  const tags = new Set<string>();
+  for (const c of cases) {
+    if (c.verdict) verdicts.add(c.verdict);
+    if (c.status) statuses.add(c.status);
+    for (const r of caseRules(c)) rules.add(r);
+    if (c.agent_persona) personas.add(c.agent_persona);
+    if (c.playbook_id) playbooks.add(c.playbook_id);
+    const a = (c.assignee || '').trim();
+    if (a) assignees.add(a);
+    if (Array.isArray(c.tags)) for (const t of c.tags) if (t) tags.add(t);
+  }
+  return {
+    verdicts: sortedUniq(verdicts),
+    statuses: sortedUniq(statuses),
+    rules: sortedUniq(rules),
+    personas: sortedUniq(personas),
+    playbooks: sortedUniq(playbooks),
+    assignees: sortedUniq(assignees),
+    tags: sortedUniq(tags),
+  };
+}
+
+/** Drop any selected value no longer present in the facets (self-healing). */
+function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
+  const keep = (sel: string[], avail: string[]) => {
+    const set = new Set(avail);
+    const next = sel.filter((v) => set.has(v));
+    return next.length === sel.length ? sel : next;
+  };
+  const next: CaseFilters = {
+    ...f,
+    verdicts: keep(f.verdicts, facets.verdicts),
+    statuses: keep(f.statuses, facets.statuses),
+    rules: keep(f.rules, facets.rules),
+    personas: keep(f.personas, facets.personas),
+    playbooks: keep(f.playbooks, facets.playbooks),
+    assignees: keep(f.assignees, facets.assignees),
+    tags: keep(f.tags, facets.tags),
+  };
+  const same =
+    next.verdicts === f.verdicts &&
+    next.statuses === f.statuses &&
+    next.rules === f.rules &&
+    next.personas === f.personas &&
+    next.playbooks === f.playbooks &&
+    next.assignees === f.assignees &&
+    next.tags === f.tags;
+  return same ? f : next;
+}
+
+const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all'>, number> = {
+  '24h': 24 * 3600 * 1000,
+  '7d': 7 * 24 * 3600 * 1000,
+  '30d': 30 * 24 * 3600 * 1000,
+};
+
+/** Apply every active filter to the loaded rows (pure; one pass). */
+function applyFilters(cases: Case[], f: CaseFilters): Case[] {
+  const q = f.search.trim().toLowerCase();
+  const now = Date.now();
+  const horizon = f.timeRange === 'all' ? 0 : now - TIME_RANGE_MS[f.timeRange];
+  const vSet = new Set(f.verdicts);
+  const sSet = new Set(f.statuses);
+  const ruleSet = new Set(f.rules);
+  const pSet = new Set(f.personas);
+  const pbSet = new Set(f.playbooks);
+  const aSet = new Set(f.assignees);
+  const tagSet = new Set(f.tags);
+
+  return cases.filter((c) => {
+    if (vSet.size && !vSet.has(c.verdict || '')) return false;
+    if (sSet.size && !sSet.has(c.status || '')) return false;
+    if (ruleSet.size && !caseRules(c).some((r) => ruleSet.has(r))) return false;
+    if (pSet.size && !pSet.has(c.agent_persona || '')) return false;
+    if (pbSet.size && !pbSet.has(c.playbook_id || '')) return false;
+
+    const assignee = (c.assignee || '').trim();
+    const assigneeFilterActive = aSet.size > 0 || f.unassigned;
+    if (assigneeFilterActive) {
+      const matchesNamed = aSet.has(assignee);
+      const matchesUnassigned = f.unassigned && !assignee;
+      if (!matchesNamed && !matchesUnassigned) return false;
+    }
+
+    if (tagSet.size) {
+      const ct = Array.isArray(c.tags) ? c.tags : [];
+      if (!ct.some((t) => tagSet.has(t))) return false;
+    }
+
+    const score = typeof c.risk_score === 'number' ? c.risk_score : null;
+    if (f.riskMin > 0 || f.riskMax < 100) {
+      if (score === null) return false;
+      if (score < f.riskMin || score > f.riskMax) return false;
+    }
+
+    if (horizon) {
+      const ts = Date.parse(c.created_at || c.updated_at || '');
+      if (Number.isNaN(ts) || ts < horizon) return false;
+    }
+
+    if (q) {
+      const hay = [
+        c.title,
+        c.case_id,
+        c.entity?.value,
+        c.entity?.type,
+        ...caseRules(c),
+        ...(Array.isArray(c.tags) ? c.tags : []),
+        c.assignee,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/** Count the active (non-default) filter dimensions — drives "Clear". */
+function countActiveFilters(f: CaseFilters): number {
+  return (
+    (f.search.trim() ? 1 : 0) +
+    f.verdicts.length +
+    f.statuses.length +
+    f.rules.length +
+    f.personas.length +
+    f.playbooks.length +
+    f.assignees.length +
+    f.tags.length +
+    (f.unassigned ? 1 : 0) +
+    (f.riskMin > 0 || f.riskMax < 100 ? 1 : 0) +
+    (f.timeRange !== 'all' ? 1 : 0)
+  );
+}
+
+/* ----------------------------------------------------------------- page ----- */
+
 export const ScansPage: React.FC = () => {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusTab, setStatusTab] = useState<StatusTab>('all');
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
@@ -101,10 +334,36 @@ export const ScansPage: React.FC = () => {
     return { total, human, investigated, candidates };
   }, [cases]);
 
+  const facets = useMemo(() => buildFacets(cases), [cases]);
+
+  // Self-heal: when the loaded rows change drop any stale selected facet value.
+  useEffect(() => {
+    setFilters((f) => healFilters(f, facets));
+  }, [facets]);
+
   const visible = useMemo(() => {
-    if (statusFilter === 'all') return cases;
-    return cases.filter((c) => (c.status || '').toLowerCase() === statusFilter);
-  }, [cases, statusFilter]);
+    // The quick tab is a coarse pre-filter; the bar narrows further; then sort.
+    let rows = cases;
+    if (statusTab !== 'all') {
+      rows = rows.filter((c) => (c.status || '').toLowerCase() === statusTab);
+    }
+    rows = applyFilters(rows, filters);
+    const out = [...rows];
+    out.sort((a, b) => {
+      switch (sortBy) {
+        case 'oldest':
+          return (a.created_at || '').localeCompare(b.created_at || '');
+        case 'risk':
+          return (b.risk_score ?? -1) - (a.risk_score ?? -1);
+        case 'verdict':
+          return (a.verdict || '￿').localeCompare(b.verdict || '￿');
+        case 'newest':
+        default:
+          return (b.created_at || '').localeCompare(a.created_at || '');
+      }
+    });
+    return out;
+  }, [cases, statusTab, filters, sortBy]);
 
   return (
     <div className="socPageEnter">
@@ -171,18 +430,42 @@ export const ScansPage: React.FC = () => {
 
           <EuiSpacer size="l" />
 
-          <EuiFilterGroup>
-            {STATUS_FILTERS.map((f) => (
-              <EuiFilterButton
-                key={f.key}
-                hasActiveFilters={statusFilter === f.key}
-                isSelected={statusFilter === f.key}
-                onClick={() => setStatusFilter(f.key)}
-              >
-                {f.label}
-              </EuiFilterButton>
-            ))}
-          </EuiFilterGroup>
+          <ScanFilterBar
+            loadedCount={cases.length}
+            filters={filters}
+            onChange={setFilters}
+            facets={facets}
+            shown={visible.length}
+          />
+
+          <EuiSpacer size="m" />
+
+          <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false}>
+              <EuiFilterGroup>
+                {STATUS_TABS.map((f) => (
+                  <EuiFilterButton
+                    key={f.key}
+                    hasActiveFilters={statusTab === f.key}
+                    isSelected={statusTab === f.key}
+                    onClick={() => setStatusTab(f.key)}
+                  >
+                    {f.label}
+                  </EuiFilterButton>
+                ))}
+              </EuiFilterGroup>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false} style={{ minWidth: 180, marginLeft: 'auto' }}>
+              <EuiSelect
+                compressed
+                prepend="Sort"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                options={SORT_OPTIONS}
+                aria-label="Sort scan cases"
+              />
+            </EuiFlexItem>
+          </EuiFlexGroup>
 
           <EuiSpacer size="m" />
 
@@ -195,8 +478,20 @@ export const ScansPage: React.FC = () => {
           ) : visible.length === 0 ? (
             <EmptyState
               iconType="reportingApp"
-              title="No scan cases match this filter"
-              body="No cases match the current status filter. Try 'All'."
+              title="No scan cases match your filters"
+              body="No loaded cases match the current tab + filters. Clear them to see all scan cases."
+              actions={
+                <EuiButton
+                  size="s"
+                  iconType="cross"
+                  onClick={() => {
+                    setFilters(EMPTY_FILTERS);
+                    setStatusTab('all');
+                  }}
+                >
+                  Clear filters
+                </EuiButton>
+              }
             />
           ) : (
             <div className="socGrid socGrid--cards">
@@ -224,6 +519,239 @@ export const ScansPage: React.FC = () => {
   );
 };
 
+/* ------------------------------------------------------------ filter bar ---- */
+
+const toOpts = (vals: string[]): Array<EuiComboBoxOptionOption<string>> =>
+  vals.map((v) => ({ label: humanizeToken(v), value: v }));
+const fromOpts = (sel: Array<EuiComboBoxOptionOption<string>>): string[] =>
+  sel.map((o) => (o.value ?? o.label) as string);
+
+/**
+ * The shared client-side filter toolbar (same idiom as CasesPage). Primary
+ * controls (search, verdict, status) inline; the long-tail facets behind a
+ * "More filters" popover.
+ */
+const ScanFilterBar: React.FC<{
+  loadedCount: number;
+  filters: CaseFilters;
+  onChange: (next: CaseFilters) => void;
+  facets: Facets;
+  shown: number;
+}> = ({ loadedCount, filters, onChange, facets, shown }) => {
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const set = <K extends keyof CaseFilters>(key: K, value: CaseFilters[K]) =>
+    onChange({ ...filters, [key]: value });
+
+  const anyActive = countActiveFilters(filters) > 0;
+
+  const moreActive =
+    filters.rules.length +
+    filters.personas.length +
+    filters.playbooks.length +
+    filters.assignees.length +
+    filters.tags.length +
+    (filters.unassigned ? 1 : 0) +
+    (filters.riskMin > 0 || filters.riskMax < 100 ? 1 : 0) +
+    (filters.timeRange !== 'all' ? 1 : 0);
+
+  return (
+    <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+      <EuiFlexItem grow={false} style={{ minWidth: 240 }}>
+        <EuiFieldSearch
+          placeholder="Search title, entity, IP, rule, tags…"
+          value={filters.search}
+          onChange={(e) => set('search', e.target.value)}
+          isClearable
+          fullWidth
+          compressed
+          aria-label="Search scan cases"
+        />
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false} style={{ minWidth: 180, maxWidth: 280 }}>
+        <EuiComboBox
+          compressed
+          placeholder="Verdict"
+          aria-label="Filter by verdict"
+          options={toOpts(facets.verdicts)}
+          selectedOptions={toOpts(filters.verdicts)}
+          onChange={(sel) => set('verdicts', fromOpts(sel))}
+          isClearable
+        />
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false} style={{ minWidth: 180, maxWidth: 280 }}>
+        <EuiComboBox
+          compressed
+          placeholder="Status"
+          aria-label="Filter by status"
+          options={toOpts(facets.statuses)}
+          selectedOptions={toOpts(filters.statuses)}
+          onChange={(sel) => set('statuses', fromOpts(sel))}
+          isClearable
+        />
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false}>
+        <EuiPopover
+          isOpen={moreOpen}
+          closePopover={() => setMoreOpen(false)}
+          anchorPosition="downLeft"
+          panelPaddingSize="m"
+          button={
+            <EuiButton
+              size="s"
+              iconType="filter"
+              iconSide="left"
+              onClick={() => setMoreOpen((o) => !o)}
+            >
+              More filters{moreActive ? ` (${moreActive})` : ''}
+            </EuiButton>
+          }
+        >
+          <div style={{ width: 320, maxWidth: '90vw' }}>
+            <EuiFormRow label="Risk score" fullWidth>
+              <EuiDualRange
+                min={0}
+                max={100}
+                step={1}
+                value={[filters.riskMin, filters.riskMax]}
+                onChange={([lo, hi]) =>
+                  onChange({ ...filters, riskMin: Number(lo), riskMax: Number(hi) })
+                }
+                showInput="inputWithPopover"
+                showTicks={false}
+                aria-label="Filter by risk score range"
+                fullWidth
+                compressed
+              />
+            </EuiFormRow>
+
+            <EuiFormRow label="Created within" fullWidth>
+              <EuiSelect
+                compressed
+                fullWidth
+                value={filters.timeRange}
+                onChange={(e) => set('timeRange', e.target.value as TimeRange)}
+                options={[
+                  { value: 'all', text: 'Any time' },
+                  { value: '24h', text: 'Last 24 hours' },
+                  { value: '7d', text: 'Last 7 days' },
+                  { value: '30d', text: 'Last 30 days' },
+                ]}
+                aria-label="Filter by created time"
+              />
+            </EuiFormRow>
+
+            {facets.rules.length ? (
+              <EuiFormRow label="Rule / module" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any rule"
+                  options={toOpts(facets.rules)}
+                  selectedOptions={toOpts(filters.rules)}
+                  onChange={(sel) => set('rules', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {facets.personas.length ? (
+              <EuiFormRow label="Persona" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any persona"
+                  options={toOpts(facets.personas)}
+                  selectedOptions={toOpts(filters.personas)}
+                  onChange={(sel) => set('personas', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {facets.playbooks.length ? (
+              <EuiFormRow label="Playbook" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any playbook"
+                  options={toOpts(facets.playbooks)}
+                  selectedOptions={toOpts(filters.playbooks)}
+                  onChange={(sel) => set('playbooks', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+
+            <EuiFormRow label="Assignee" fullWidth>
+              <EuiComboBox
+                compressed
+                fullWidth
+                placeholder="Any assignee"
+                options={[
+                  { label: 'Unassigned', value: '__unassigned__' },
+                  ...toOpts(facets.assignees),
+                ]}
+                selectedOptions={[
+                  ...(filters.unassigned
+                    ? [{ label: 'Unassigned', value: '__unassigned__' }]
+                    : []),
+                  ...toOpts(filters.assignees),
+                ]}
+                onChange={(sel) => {
+                  const vals = fromOpts(sel);
+                  onChange({
+                    ...filters,
+                    unassigned: vals.includes('__unassigned__'),
+                    assignees: vals.filter((v) => v !== '__unassigned__'),
+                  });
+                }}
+                isClearable
+              />
+            </EuiFormRow>
+
+            {facets.tags.length ? (
+              <EuiFormRow label="Tags" fullWidth>
+                <EuiComboBox
+                  compressed
+                  fullWidth
+                  placeholder="Any tag"
+                  options={toOpts(facets.tags)}
+                  selectedOptions={toOpts(filters.tags)}
+                  onChange={(sel) => set('tags', fromOpts(sel))}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+          </div>
+        </EuiPopover>
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false}>
+        <EuiButtonEmpty
+          size="s"
+          iconType="cross"
+          onClick={() => onChange(EMPTY_FILTERS)}
+          isDisabled={!anyActive}
+        >
+          Clear filters
+        </EuiButtonEmpty>
+      </EuiFlexItem>
+
+      <EuiFlexItem grow={false} style={{ marginLeft: 'auto' }}>
+        <EuiText size="xs" color="subdued">
+          <span>
+            Showing <strong>{shown}</strong> of {loadedCount}
+          </span>
+        </EuiText>
+      </EuiFlexItem>
+    </EuiFlexGroup>
+  );
+};
+
 /* ----------------------------------------------------------------- card ---- */
 
 const ScanCard: React.FC<{
@@ -234,14 +762,10 @@ const ScanCard: React.FC<{
   const accent = verdictHex(c.verdict) || riskHex(c.risk_score);
   const entity = c.entity ? `${c.entity.type}: ${c.entity.value}` : DASH;
   const rules = Array.isArray(c.rule_ids) ? c.rule_ids.filter(Boolean) : [];
+  const persona = (c.agent_persona || '').trim();
 
   const cardBody = (
-    <Card
-      clickable
-      onClick={onOpen}
-      accentLeft={accent}
-      paddingSize="m"
-    >
+    <Card clickable onClick={onOpen} accentLeft={accent} paddingSize="m">
       <div
         role="button"
         tabIndex={0}
@@ -257,7 +781,7 @@ const ScanCard: React.FC<{
         <EuiFlexGroup gutterSize="s" alignItems="baseline" responsive={false}>
           <EuiFlexItem grow={false}>
             <EuiText size="xs" color="subdued">
-              <span>{entity}</span>
+              <span className="socMono">{entity}</span>
             </EuiText>
           </EuiFlexItem>
           <EuiFlexItem grow={false} style={{ marginLeft: 'auto' }}>
@@ -285,7 +809,21 @@ const ScanCard: React.FC<{
           <EuiFlexItem grow={false}>
             <StatusBadge status={c.status} />
           </EuiFlexItem>
+          {typeof c.confidence === 'number' ? (
+            <EuiFlexItem grow={false}>
+              <ConfidenceBadge confidence={c.confidence} />
+            </EuiFlexItem>
+          ) : null}
         </EuiFlexGroup>
+
+        {persona ? (
+          <>
+            <EuiSpacer size="s" />
+            <EuiBadge color="hollow" iconType="userAvatar">
+              {humanizeToken(persona)}
+            </EuiBadge>
+          </>
+        ) : null}
 
         {rules.length ? (
           <>

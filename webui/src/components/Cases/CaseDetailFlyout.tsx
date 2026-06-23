@@ -24,7 +24,6 @@ import {
   EuiCallOut,
   EuiCodeBlock,
   EuiComboBox,
-  EuiConfirmModal,
   EuiContextMenu,
   EuiFieldText,
   EuiFlexGroup,
@@ -35,6 +34,13 @@ import {
   EuiFlyoutHeader,
   EuiFormRow,
   EuiHorizontalRule,
+  EuiIcon,
+  EuiIconTip,
+  EuiModal,
+  EuiModalBody,
+  EuiModalFooter,
+  EuiModalHeader,
+  EuiModalHeaderTitle,
   EuiPopover,
   EuiRange,
   EuiSelect,
@@ -46,9 +52,10 @@ import {
   EuiTimeline,
   EuiTimelineItem,
   EuiTitle,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { EuiComboBoxOptionOption } from '@elastic/eui';
-import type { Case, CaseRationale } from '../../lib/types';
+import type { Case, CaseActionInput, CaseRationale, ModelsResponse } from '../../lib/types';
 import { api } from '../../lib/api';
 import type { CaseFeedbackInput } from '../../lib/api';
 import { COLORS, riskBand, riskHex, tint } from '../../lib/theme';
@@ -66,6 +73,7 @@ import {
   VerdictBadge,
 } from '../common/ui';
 import { BarList, RiskGauge } from '../common/charts';
+import { ChatPanel } from '../Chat/ChatPanel';
 
 /* --------------------------------------------------------------- contracts -- */
 
@@ -91,6 +99,9 @@ interface TraceResponse {
 
 type ActionKind = 'close' | 'confirm_fp' | 'escalate' | 'reopen' | 'acknowledge';
 
+/** Which optional structured fields the confirm modal collects for an action. */
+type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority';
+
 interface ActionDef {
   key: ActionKind;
   label: string;
@@ -100,6 +111,10 @@ interface ActionDef {
   fill?: boolean;
   confirmTitle: string;
   confirmBody: string;
+  /** A one-line, in-product explainer of what the action does (tooltip + modal). */
+  help: string;
+  /** Optional structured fields the confirm modal collects (all optional). */
+  fields: ActionField[];
 }
 
 const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
@@ -109,23 +124,30 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     icon: 'check',
     color: 'success',
     confirmTitle: 'Close this case?',
-    confirmBody: 'Mark this case as resolved. It will be indexed as RAG memory for future triage.',
+    confirmBody: 'Mark this case as CLOSED — triaged and handled.',
+    help: 'Mark this case as CLOSED — triaged / handled.',
+    fields: ['resolution', 'tags'],
   },
   confirm_fp: {
     key: 'confirm_fp',
     label: 'Confirm false positive',
-    icon: 'cross',
+    icon: 'faceHappy',
     color: 'success',
     confirmTitle: 'Confirm false positive?',
-    confirmBody: 'Close the case as a confirmed false positive. This decision teaches future triage.',
+    confirmBody:
+      'Close the case as a FALSE POSITIVE. The resolved case is fed into the RAG baseline memory so future triage learns from it.',
+    help: 'Close as FALSE_POSITIVE; also feeds the resolved case into RAG baseline memory.',
+    fields: ['resolution', 'tags'],
   },
   escalate: {
     key: 'escalate',
     label: 'Escalate',
-    icon: 'alert',
+    icon: 'bell',
     color: 'warning',
     confirmTitle: 'Escalate to a human?',
-    confirmBody: 'Move this case to "Needs human" for manual review.',
+    confirmBody: 'Set this case to NEEDS_HUMAN — route it to a human / senior analyst for review.',
+    help: 'Set NEEDS_HUMAN — route to a human / senior analyst.',
+    fields: ['assignee', 'priority'],
   },
   reopen: {
     key: 'reopen',
@@ -133,7 +155,9 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     icon: 'refresh',
     color: 'primary',
     confirmTitle: 'Reopen this case?',
-    confirmBody: 'Return this case to the open queue.',
+    confirmBody: 'Reopen a closed case and return it to the open queue.',
+    help: 'Reopen a closed case.',
+    fields: [],
   },
   acknowledge: {
     key: 'acknowledge',
@@ -141,9 +165,30 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     icon: 'eye',
     color: 'text',
     confirmTitle: 'Acknowledge this case?',
-    confirmBody: 'Record that you have reviewed this case without changing its status.',
+    confirmBody: 'Mark this case as seen / being worked, without closing it.',
+    help: 'Mark as seen / being worked, without closing.',
+    fields: [],
   },
 };
+
+/** Resolution options for close / confirm_fp (all optional). */
+const RESOLUTION_OPTIONS: Array<{ value: string; text: string }> = [
+  { value: '', text: '— No resolution —' },
+  { value: 'handled', text: 'Handled' },
+  { value: 'benign', text: 'Benign' },
+  { value: 'duplicate', text: 'Duplicate' },
+  { value: 'no_action', text: 'No action needed' },
+  { value: 'other', text: 'Other' },
+];
+
+/** Priority options for escalate (all optional). */
+const PRIORITY_OPTIONS: Array<{ value: string; text: string }> = [
+  { value: '', text: '— No priority —' },
+  { value: 'low', text: 'Low' },
+  { value: 'medium', text: 'Medium' },
+  { value: 'high', text: 'High' },
+  { value: 'critical', text: 'Critical' },
+];
 
 /** Lifecycle buttons appropriate to the current status (left→right priority). */
 function actionsForStatus(status?: string): ActionDef[] {
@@ -207,7 +252,8 @@ export const CaseDetailFlyout: React.FC<{
   const [c, setC] = useState<Case | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [tab, setTab] = useState<'overview' | 'why' | 'trace' | 'timeline' | 'collab'>('overview');
+  const [tab, setTab] =
+    useState<'overview' | 'why' | 'trace' | 'timeline' | 'collab' | 'chat'>('overview');
 
   // Agent-trace (lazy: fetched the first time the tab is opened).
   const [trace, setTrace] = useState<TraceStep[] | null>(null);
@@ -219,10 +265,21 @@ export const CaseDetailFlyout: React.FC<{
   const [rationaleLoading, setRationaleLoading] = useState(false);
   const [rationaleError, setRationaleError] = useState<unknown>(null);
 
-  // Pending lifecycle action (drives the confirm modal).
+  // Pending lifecycle action (drives the confirm modal) + the OPTIONAL structured
+  // fields it collects (all optional — they never block submit).
   const [pending, setPending] = useState<ActionDef | null>(null);
   const [note, setNote] = useState('');
+  const [resolution, setResolution] = useState('');
+  const [priority, setPriority] = useState('');
+  const [actionAssignee, setActionAssignee] = useState('');
+  const [actionTags, setActionTags] = useState<Array<EuiComboBoxOptionOption<string>>>([]);
   const [acting, setActing] = useState(false);
+
+  // Reinvestigate (force re-run the AI pipeline, optionally pinning a model).
+  const [reinvestOpen, setReinvestOpen] = useState(false);
+  const [reinvestModel, setReinvestModel] = useState('');
+  const [reinvesting, setReinvesting] = useState(false);
+  const [models, setModels] = useState<ModelsResponse | null>(null);
 
   // Export menu (header popover) + in-flight format.
   const [exportOpen, setExportOpen] = useState(false);
@@ -285,17 +342,52 @@ export const CaseDetailFlyout: React.FC<{
     }
   }, [tab, rationale, rationaleLoading, loadRationale]);
 
+  // Reset all confirm-modal field state (called whenever the modal opens/closes).
+  const resetActionFields = useCallback(() => {
+    setNote('');
+    setResolution('');
+    setPriority('');
+    setActionAssignee('');
+    setActionTags([]);
+  }, []);
+
+  const openAction = useCallback(
+    (a: ActionDef) => {
+      resetActionFields();
+      setPending(a);
+    },
+    [resetActionFields],
+  );
+
+  const closeAction = useCallback(() => {
+    setPending(null);
+    resetActionFields();
+  }, [resetActionFields]);
+
   const runAction = useCallback(async () => {
     if (!pending) return;
     setActing(true);
     try {
-      await api.post(`cases/${encodeURIComponent(caseId)}/action`, {
-        action: pending.key,
-        note: note.trim(),
-      });
+      // Assemble the action payload — only attach a field when the action collects
+      // it AND a value was provided (every field is optional, never blocks submit).
+      const input: CaseActionInput = { action: pending.key };
+      const trimmedNote = note.trim();
+      if (trimmedNote) input.note = trimmedNote;
+      if (pending.fields.includes('resolution') && resolution) input.resolution = resolution;
+      if (pending.fields.includes('assignee') && actionAssignee.trim()) {
+        input.assignee = actionAssignee.trim();
+      }
+      if (pending.fields.includes('priority') && priority) input.priority = priority;
+      if (pending.fields.includes('tags')) {
+        const tags = Array.from(
+          new Set(actionTags.map((o) => (o.label || '').trim()).filter(Boolean)),
+        );
+        if (tags.length) input.tags = tags;
+      }
+      const next = await api.caseActionExec(caseId, input);
+      setC(next);
       setPending(null);
-      setNote('');
-      await loadCase();
+      resetActionFields();
       setTrace(null); // invalidate the trace so it refetches if reopened
       setRationale(null); // invalidate the rationale so it refetches if reopened
       onChanged?.();
@@ -305,7 +397,42 @@ export const CaseDetailFlyout: React.FC<{
     } finally {
       setActing(false);
     }
-  }, [pending, note, caseId, loadCase, onChanged]);
+  }, [pending, note, resolution, priority, actionAssignee, actionTags, caseId, resetActionFields, onChanged]);
+
+  // Fetch the available models once (best-effort) for the reinvestigate picker; the
+  // picker simply stays at "Use configured model" if the call fails / none exist.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .getModels()
+      .then((res) => {
+        if (!cancelled) setModels(res);
+      })
+      .catch(() => {
+        /* non-fatal: reinvestigate works fine on the configured model. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const runReinvestigate = useCallback(async () => {
+    setReinvesting(true);
+    setError(null);
+    try {
+      const input = reinvestModel.trim() ? { model: reinvestModel.trim() } : undefined;
+      const next = await api.reinvestigateCase(caseId, input);
+      setC(next);
+      setReinvestOpen(false);
+      setTrace(null); // invalidate the trace so it refetches if reopened
+      setRationale(null); // invalidate the rationale so it refetches if reopened
+      onChanged?.();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setReinvesting(false);
+    }
+  }, [reinvestModel, caseId, onChanged]);
 
   // Export the case (JSON or Markdown) and trigger a browser download — no deps:
   // build a Blob from the returned content and click a transient <a download>.
@@ -338,12 +465,26 @@ export const CaseDetailFlyout: React.FC<{
   const riskScore = typeof c?.risk_score === 'number' ? c.risk_score : 0;
   const band = riskBand(riskScore);
 
+  // Flatten provider→models into "<model> · <provider>" options for the picker.
+  const modelOptions = useMemo<Array<{ value: string; text: string }>>(() => {
+    const out: Array<{ value: string; text: string }> = [
+      { value: '', text: 'Use configured model' },
+    ];
+    for (const [provider, list] of Object.entries(models?.providers || {})) {
+      for (const m of list || []) {
+        out.push({ value: m, text: `${m}  ·  ${provider}` });
+      }
+    }
+    return out;
+  }, [models]);
+
   const tabs: Array<{ id: typeof tab; label: string; icon: string }> = [
     { id: 'overview', label: 'Overview', icon: 'documentation' },
     { id: 'why', label: 'Why', icon: 'inspect' },
     { id: 'trace', label: 'Agent trace', icon: 'graphApp' },
     { id: 'timeline', label: 'Timeline', icon: 'clock' },
     { id: 'collab', label: 'Notes & feedback', icon: 'editorComment' },
+    { id: 'chat', label: 'Ask', icon: 'discuss' },
   ];
 
   return (
@@ -405,47 +546,147 @@ export const CaseDetailFlyout: React.FC<{
             </EuiFlexItem>
             <EuiFlexItem grow={false}>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
-                  <EuiPopover
-                    button={
-                      <EuiButton
-                        size="s"
-                        iconType="exportAction"
-                        iconSide="left"
-                        onClick={() => setExportOpen((o) => !o)}
-                        isLoading={exporting !== null}
-                      >
-                        Export
-                      </EuiButton>
-                    }
-                    isOpen={exportOpen}
-                    closePopover={() => setExportOpen(false)}
-                    panelPaddingSize="none"
-                    anchorPosition="downRight"
-                  >
-                    <EuiContextMenu
-                      initialPanelId={0}
-                      panels={[
-                        {
-                          id: 0,
-                          title: 'Export case',
-                          items: [
-                            {
-                              name: 'JSON',
-                              icon: 'document',
-                              onClick: () => void runExport('json'),
-                            },
-                            {
-                              name: 'Markdown report',
-                              icon: 'documentEdit',
-                              onClick: () => void runExport('md'),
-                            },
-                          ],
-                        },
-                      ]}
-                    />
-                  </EuiPopover>
-                </div>
+                <EuiFlexGroup
+                  gutterSize="s"
+                  responsive={false}
+                  justifyContent="flexEnd"
+                  alignItems="center"
+                  style={{ marginBottom: 4 }}
+                >
+                  {/* ---------------------------------------- Reinvestigate */}
+                  <EuiFlexItem grow={false}>
+                    <EuiPopover
+                      button={
+                        <EuiButton
+                          size="s"
+                          iconType="refresh"
+                          iconSide="left"
+                          color="primary"
+                          onClick={() => {
+                            setReinvestModel('');
+                            setReinvestOpen((o) => !o);
+                          }}
+                          isLoading={reinvesting}
+                          isDisabled={reinvesting}
+                        >
+                          Reinvestigate
+                        </EuiButton>
+                      }
+                      isOpen={reinvestOpen}
+                      closePopover={() => {
+                        if (!reinvesting) setReinvestOpen(false);
+                      }}
+                      anchorPosition="downRight"
+                    >
+                      <div style={{ maxWidth: 320, padding: 4, textAlign: 'left' }}>
+                        <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
+                          <EuiFlexItem grow={false}>
+                            <EuiText size="s">
+                              <strong>Re-run the investigation</strong>
+                            </EuiText>
+                          </EuiFlexItem>
+                          <EuiFlexItem grow={false}>
+                            <EuiIconTip
+                              type="iInCircle"
+                              color="subdued"
+                              content="Re-run the AI investigation on this case (force), optionally with a different model."
+                            />
+                          </EuiFlexItem>
+                        </EuiFlexGroup>
+                        <EuiSpacer size="s" />
+                        <EuiText size="xs" color="subdued">
+                          <span>
+                            Forces a fresh AI investigation. This runs the LLM
+                            pipeline and may take a few seconds.
+                          </span>
+                        </EuiText>
+                        <EuiSpacer size="s" />
+                        <EuiFormRow label="Model" fullWidth>
+                          <EuiSelect
+                            fullWidth
+                            compressed
+                            options={modelOptions}
+                            value={reinvestModel}
+                            onChange={(e) => setReinvestModel(e.target.value)}
+                            disabled={reinvesting}
+                            aria-label="Model for reinvestigation"
+                          />
+                        </EuiFormRow>
+                        <EuiSpacer size="s" />
+                        <EuiFlexGroup
+                          gutterSize="s"
+                          justifyContent="flexEnd"
+                          responsive={false}
+                        >
+                          <EuiFlexItem grow={false}>
+                            <EuiButtonEmpty
+                              size="s"
+                              onClick={() => setReinvestOpen(false)}
+                              isDisabled={reinvesting}
+                            >
+                              Cancel
+                            </EuiButtonEmpty>
+                          </EuiFlexItem>
+                          <EuiFlexItem grow={false}>
+                            <EuiButton
+                              size="s"
+                              fill
+                              iconType="play"
+                              onClick={() => void runReinvestigate()}
+                              isLoading={reinvesting}
+                              isDisabled={reinvesting}
+                            >
+                              Reinvestigate
+                            </EuiButton>
+                          </EuiFlexItem>
+                        </EuiFlexGroup>
+                      </div>
+                    </EuiPopover>
+                  </EuiFlexItem>
+
+                  {/* ----------------------------------------------- Export */}
+                  <EuiFlexItem grow={false}>
+                    <EuiPopover
+                      button={
+                        <EuiButton
+                          size="s"
+                          iconType="exportAction"
+                          iconSide="left"
+                          onClick={() => setExportOpen((o) => !o)}
+                          isLoading={exporting !== null}
+                        >
+                          Export
+                        </EuiButton>
+                      }
+                      isOpen={exportOpen}
+                      closePopover={() => setExportOpen(false)}
+                      panelPaddingSize="none"
+                      anchorPosition="downRight"
+                    >
+                      <EuiContextMenu
+                        initialPanelId={0}
+                        panels={[
+                          {
+                            id: 0,
+                            title: 'Export case',
+                            items: [
+                              {
+                                name: 'JSON',
+                                icon: 'document',
+                                onClick: () => void runExport('json'),
+                              },
+                              {
+                                name: 'Markdown report',
+                                icon: 'documentEdit',
+                                onClick: () => void runExport('md'),
+                              },
+                            ],
+                          },
+                        ]}
+                      />
+                    </EuiPopover>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
                 <RiskGauge score={riskScore} color={band.color} size={132} />
                 <EuiText size="xs" style={{ color: band.color, fontWeight: 700, marginTop: -8 }}>
                   <span>{band.label} risk</span>
@@ -457,7 +698,12 @@ export const CaseDetailFlyout: React.FC<{
         <EuiSpacer size="s" />
         <EuiTabs bottomBorder={false}>
           {tabs.map((t) => (
-            <EuiTab key={t.id} isSelected={tab === t.id} onClick={() => setTab(t.id)}>
+            <EuiTab
+              key={t.id}
+              isSelected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              prepend={<EuiIcon type={t.icon} size="s" />}
+            >
               {t.label}
             </EuiTab>
           ))}
@@ -495,6 +741,22 @@ export const CaseDetailFlyout: React.FC<{
           />
         ) : tab === 'timeline' ? (
           <TimelineTab c={c} />
+        ) : tab === 'chat' ? (
+          // Embedded "Ask about this case" chat — scoped to the case. The panel must
+          // live in a bounded, fixed-height flex column so its transcript scrolls
+          // within the flyout body (the flyout is size="l").
+          <div style={{ height: '60vh', display: 'flex', flexDirection: 'column' }}>
+            <ChatPanel
+              caseId={c.case_id}
+              compact
+              starters={[
+                'Summarize this case',
+                'Why was this flagged?',
+                'What should I check next?',
+                'Is this a known false positive?',
+              ]}
+            />
+          </div>
         ) : (
           <CollaborationTab c={c} onUpdated={(next) => { setC(next); onChanged?.(); }} />
         )}
@@ -508,22 +770,39 @@ export const CaseDetailFlyout: React.FC<{
             </EuiButtonEmpty>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
-            <EuiFlexGroup gutterSize="s" responsive={false} wrap justifyContent="flexEnd">
+            <EuiFlexGroup
+              gutterSize="s"
+              responsive={false}
+              wrap
+              justifyContent="flexEnd"
+              alignItems="center"
+            >
               {(c ? actionsForStatus(c.status) : []).map((a) => (
                 <EuiFlexItem grow={false} key={a.key}>
-                  <EuiButton
-                    size="s"
-                    fill={a.fill}
-                    color={a.color}
-                    iconType={a.icon}
-                    onClick={() => {
-                      setNote('');
-                      setPending(a);
-                    }}
-                    isDisabled={loading || acting}
-                  >
-                    {a.label}
-                  </EuiButton>
+                  <EuiFlexGroup gutterSize="xs" responsive={false} alignItems="center">
+                    <EuiFlexItem grow={false}>
+                      <EuiToolTip content={a.help}>
+                        <EuiButton
+                          size="s"
+                          fill={a.fill}
+                          color={a.color}
+                          iconType={a.icon}
+                          onClick={() => openAction(a)}
+                          isDisabled={loading || acting}
+                        >
+                          {a.label}
+                        </EuiButton>
+                      </EuiToolTip>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false}>
+                      <EuiIconTip
+                        type="questionInCircle"
+                        color="subdued"
+                        content={a.help}
+                        aria-label={`What does "${a.label}" do?`}
+                      />
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
                 </EuiFlexItem>
               ))}
             </EuiFlexGroup>
@@ -532,34 +811,131 @@ export const CaseDetailFlyout: React.FC<{
       </EuiFlyoutFooter>
 
       {pending ? (
-        <EuiConfirmModal
-          title={pending.confirmTitle}
-          onCancel={() => {
-            setPending(null);
-            setNote('');
-          }}
-          onConfirm={() => void runAction()}
-          cancelButtonText="Cancel"
-          confirmButtonText={pending.label}
-          buttonColor={pending.color === 'text' ? 'primary' : pending.color}
-          isLoading={acting}
-        >
-          <EuiText size="s">
-            <p>{pending.confirmBody}</p>
-          </EuiText>
-          <EuiSpacer size="s" />
-          <EuiText size="xs" color="subdued">
-            <label htmlFor="caseActionNote">Analyst note (optional)</label>
-          </EuiText>
-          <EuiSpacer size="xs" />
-          <EuiFieldText
-            id="caseActionNote"
-            fullWidth
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Why are you taking this action?"
-          />
-        </EuiConfirmModal>
+        <EuiModal onClose={closeAction} aria-label={pending.confirmTitle}>
+          <EuiModalHeader>
+            <EuiModalHeaderTitle>
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiIcon type={pending.icon} size="m" />
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>{pending.confirmTitle}</EuiFlexItem>
+              </EuiFlexGroup>
+            </EuiModalHeaderTitle>
+          </EuiModalHeader>
+
+          <EuiModalBody>
+            {/* One-line, in-product explainer of what this action does. */}
+            <EuiCallOut
+              size="s"
+              color={pending.color === 'warning' ? 'warning' : 'primary'}
+              iconType="iInCircle"
+              title={pending.confirmBody}
+            />
+            <EuiSpacer size="m" />
+
+            {/* close / confirm_fp → optional Resolution + Tags. */}
+            {pending.fields.includes('resolution') ? (
+              <EuiFormRow
+                label="Resolution"
+                helpText="How was this resolved? (optional)"
+                fullWidth
+              >
+                <EuiSelect
+                  fullWidth
+                  options={RESOLUTION_OPTIONS}
+                  value={resolution}
+                  onChange={(e) => setResolution(e.target.value)}
+                  aria-label="Resolution"
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {pending.fields.includes('tags') ? (
+              <EuiFormRow
+                label="Tags"
+                helpText="Type and press enter to add (optional)."
+                fullWidth
+              >
+                <EuiComboBox
+                  fullWidth
+                  noSuggestions
+                  placeholder="Add a tag…"
+                  selectedOptions={actionTags}
+                  onCreateOption={(value) => {
+                    const v = value.trim();
+                    if (!v) return;
+                    setActionTags((prev) =>
+                      prev.some((o) => o.label === v) ? prev : [...prev, { label: v }],
+                    );
+                  }}
+                  onChange={(selected) => setActionTags(selected)}
+                  isClearable
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {/* escalate → optional Assignee + Priority. */}
+            {pending.fields.includes('assignee') ? (
+              <EuiFormRow
+                label="Assign to"
+                helpText="Analyst or team to route this to (optional)."
+                fullWidth
+              >
+                <EuiFieldText
+                  fullWidth
+                  icon="user"
+                  placeholder="e.g. tier-2 or jdoe"
+                  value={actionAssignee}
+                  onChange={(e) => setActionAssignee(e.target.value)}
+                  aria-label="Assignee"
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {pending.fields.includes('priority') ? (
+              <EuiFormRow label="Priority" helpText="Escalation priority (optional)." fullWidth>
+                <EuiSelect
+                  fullWidth
+                  options={PRIORITY_OPTIONS}
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  aria-label="Priority"
+                />
+              </EuiFormRow>
+            ) : null}
+
+            {/* note — always available. */}
+            <EuiFormRow
+              label="Analyst note"
+              helpText="Why are you taking this action? (optional)"
+              fullWidth
+            >
+              <EuiTextArea
+                fullWidth
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Add context for the next analyst…"
+                aria-label="Analyst note"
+              />
+            </EuiFormRow>
+          </EuiModalBody>
+
+          <EuiModalFooter>
+            <EuiButtonEmpty onClick={closeAction} isDisabled={acting}>
+              Cancel
+            </EuiButtonEmpty>
+            <EuiButton
+              fill
+              iconType={pending.icon}
+              color={pending.color === 'text' ? 'primary' : pending.color}
+              onClick={() => void runAction()}
+              isLoading={acting}
+            >
+              {pending.label}
+            </EuiButton>
+          </EuiModalFooter>
+        </EuiModal>
       ) : null}
     </EuiFlyout>
   );
@@ -1431,7 +1807,7 @@ const ASSESSMENTS: Array<{
 }> = [
   { key: 'agree', label: 'Agree', icon: 'checkInCircleFilled', color: COLORS.success },
   { key: 'partial', label: 'Partially', icon: 'minusInCircleFilled', color: COLORS.warning },
-  { key: 'disagree', label: 'Disagree', icon: 'crossInACircleFilled', color: COLORS.danger },
+  { key: 'disagree', label: 'Disagree', icon: 'crossInCircle', color: COLORS.danger },
 ];
 
 const OUTCOME_OPTIONS: Array<{ value: string; text: string }> = [

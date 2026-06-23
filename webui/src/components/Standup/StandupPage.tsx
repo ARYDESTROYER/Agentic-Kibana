@@ -1,13 +1,25 @@
 /**
- * Standup — the daily digest. Fetches GET /api/standup and renders the generated
- * summary in a hero card, followed by defensively-parsed aggregate stats and
- * top-N bar lists (rules / source IPs / users / hosts). The aggregate shape may
- * vary between deployments, so every access is guarded.
+ * Standup — the daily digest.
+ *
+ * Fetches `GET /api/standup` (which now ALWAYS returns HTTP 200) and renders the
+ * model-generated summary in a hero card, followed by defensively-parsed
+ * aggregate KPIs, an events-over-time sparkline, and ranked top-N bar lists
+ * (rules / source IPs / users / hosts / severity).
+ *
+ * The endpoint has three shapes, all handled gracefully here:
+ *   - disabled  → `enabled:false`            (friendly empty state, not an error)
+ *   - happy     → `enabled:true, degraded:false`
+ *   - degraded  → `degraded:true, error:"…"` (warning callout + whatever data exists)
+ *
+ * The `aggregate` shape varies between deployments and may be `{}`, so every
+ * access is guarded. The `summary` is model-generated prose, so it is rendered
+ * strictly as plain text (`white-space: pre-wrap`) — never as HTML.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EuiBadge,
   EuiButton,
+  EuiButtonGroup,
   EuiCallOut,
   EuiCopy,
   EuiFlexGroup,
@@ -18,9 +30,9 @@ import {
 } from '@elastic/eui';
 import type { StandupResponse } from '../../lib/types';
 import { api } from '../../lib/api';
-import { fmtNumber, humanizeAge, humanizeToken } from '../../lib/format';
+import { fmtMoney, fmtNumber, humanizeAge, humanizeToken } from '../../lib/format';
 import { COLORS, chartColor, tint } from '../../lib/theme';
-import { BarList } from '../common/charts';
+import { BarList, Sparkline } from '../common/charts';
 import type { Segment } from '../common/charts';
 import {
   Card,
@@ -33,6 +45,18 @@ import {
 } from '../common/ui';
 
 /* ------------------------------------------------------- defensive readers -- */
+
+/**
+ * Widened local view of the standup response. `types.ts` declares only the
+ * stable subset; the hardened backend adds `degraded` / `error` / `cost` /
+ * `cases`, which we read here without editing the shared type.
+ */
+type Standup = StandupResponse & {
+  degraded?: boolean;
+  error?: string;
+  cost?: unknown;
+  cases?: unknown;
+};
 
 function asRecord(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
@@ -63,22 +87,51 @@ function toSegments(v: unknown, palette = false): Segment[] {
   return out;
 }
 
+/**
+ * Coerce an events-over-time bucket list into a plain numeric series for the
+ * sparkline. Accepts `[{count}]` / `[{value}]` / `[{doc_count}]` or a raw
+ * `number[]`.
+ */
+function toSeries(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((raw) => {
+      if (typeof raw === 'number') return Number.isNaN(raw) ? 0 : raw;
+      const b = asRecord(raw);
+      return asNumber(b.count) ?? asNumber(b.value) ?? asNumber(b.doc_count) ?? 0;
+    })
+    .filter((n): n is number => typeof n === 'number');
+}
+
+const WINDOWS = [
+  { id: '24', label: '24h', hours: 24 },
+  { id: '168', label: '7d', hours: 168 },
+] as const;
+
 export const StandupPage: React.FC = () => {
-  const [data, setData] = useState<StandupResponse | null>(null);
+  const [windowId, setWindowId] = useState<string>('24');
+  const [data, setData] = useState<Standup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
+
+  const requestedHours = useMemo(
+    () => WINDOWS.find((w) => w.id === windowId)?.hours ?? 24,
+    [windowId],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setData(await api.standup(24));
+      setData((await api.standup(requestedHours)) as Standup);
     } catch (e) {
+      // The backend now always returns 200; this only fires for transport-level
+      // failures (backend unreachable). Surface it as a real error.
       setError(e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [requestedHours]);
 
   useEffect(() => {
     void load();
@@ -88,33 +141,42 @@ export const StandupPage: React.FC = () => {
 
   const totalEvents = asNumber(agg.total_events);
   const uniqueIps = asNumber(agg.unique_ips);
-  const cases = asRecord(agg.cases);
+  // `cases` may sit at the top level OR inside `aggregate` depending on the
+  // backend shape — try both.
+  const cases = useMemo(
+    () => ({ ...asRecord(agg.cases), ...asRecord(data?.cases) }),
+    [agg, data],
+  );
   const casesOpened = asNumber(cases.opened);
+  const casesClosed = asNumber(cases.closed);
 
   const byRule = useMemo(() => toSegments(agg.by_rule, true), [agg]);
   const topIps = useMemo(() => toSegments(agg.top_source_ips), [agg]);
   const topUsers = useMemo(() => toSegments(agg.top_users), [agg]);
   const topHosts = useMemo(() => toSegments(agg.top_hosts), [agg]);
   const bySeverity = useMemo(() => toSegments(agg.by_severity, true), [agg]);
+  const series = useMemo(() => toSeries(agg.events_over_time), [agg]);
 
-  const window = asNumber(data?.window_hours) ?? 24;
+  const window = asNumber(data?.window_hours) ?? requestedHours;
+  const windowLabel = window >= 168 ? `${Math.round(window / 24)}d` : `${window}h`;
+
+  const disabled = data?.enabled === false;
+  const degraded = data?.degraded === true;
+  const degradedNote =
+    (typeof data?.error === 'string' && data.error.trim()) || 'Running on limited data.';
+
+  const cost = asNumber(data?.cost);
+
   const hasAggregate =
     totalEvents !== undefined ||
     byRule.length > 0 ||
     topIps.length > 0 ||
     topUsers.length > 0 ||
-    topHosts.length > 0;
+    topHosts.length > 0 ||
+    bySeverity.length > 0;
 
   const summaryText = data?.summary?.trim() ?? '';
   const hasSummary = summaryText.length > 0;
-
-  // NOTE: the local `window` (window-hours) above shadows the global `window`,
-  // so reach the browser print via globalThis to keep this type-safe.
-  const printSummary = useCallback(() => {
-    if (typeof globalThis !== 'undefined' && typeof globalThis.print === 'function') {
-      globalThis.print();
-    }
-  }, []);
 
   return (
     <div className="socPageEnter">
@@ -125,6 +187,16 @@ export const StandupPage: React.FC = () => {
         description="The daily aggregate digest, summarised from log activity."
         actions={
           <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false}>
+              <EuiButtonGroup
+                legend="Digest window"
+                buttonSize="s"
+                isDisabled={loading}
+                options={WINDOWS.map((w) => ({ id: w.id, label: w.label }))}
+                idSelected={windowId}
+                onChange={(id) => setWindowId(id)}
+              />
+            </EuiFlexItem>
             {hasSummary ? (
               <EuiFlexItem grow={false}>
                 <EuiCopy textToCopy={summaryText}>
@@ -136,15 +208,14 @@ export const StandupPage: React.FC = () => {
                 </EuiCopy>
               </EuiFlexItem>
             ) : null}
-            {hasSummary ? (
-              <EuiFlexItem grow={false}>
-                <EuiButton size="s" iconType="printer" onClick={printSummary}>
-                  Print
-                </EuiButton>
-              </EuiFlexItem>
-            ) : null}
             <EuiFlexItem grow={false}>
-              <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
+              <EuiButton
+                size="s"
+                fill
+                iconType="refresh"
+                onClick={() => void load()}
+                isLoading={loading}
+              >
                 Regenerate
               </EuiButton>
             </EuiFlexItem>
@@ -152,9 +223,10 @@ export const StandupPage: React.FC = () => {
         }
       />
 
+      {/* Transport-level failure (backend unreachable) — the only real error path. */}
       {error ? (
         <>
-          <ErrorCallout error={error} title="Could not generate the standup" />
+          <ErrorCallout error={error} title="Could not reach the standup service" />
           <EuiSpacer size="m" />
         </>
       ) : null}
@@ -175,45 +247,86 @@ export const StandupPage: React.FC = () => {
             ))}
           </EuiFlexGroup>
         </>
-      ) : data?.enabled === false ? (
-        <EuiCallOut color="primary" iconType="iInCircle" title="Standup is disabled">
-          <p>Enable the daily digest in Settings → Standup to start generating it.</p>
-        </EuiCallOut>
+      ) : disabled ? (
+        <EmptyState
+          iconType="visText"
+          title="Standup is turned off"
+          body={
+            <>
+              The daily digest is disabled. Enable it under{' '}
+              <strong>Settings → Standup</strong> to start generating a summary of
+              recent log activity.
+            </>
+          }
+        />
       ) : (
         <>
-          {/* Hero summary */}
-          <EuiPanel hasBorder paddingSize="l" className="socCard">
+          {/* Degraded note — non-alarming, still renders whatever data exists. */}
+          {degraded ? (
+            <>
+              <EuiCallOut
+                color="warning"
+                iconType="warning"
+                size="s"
+                title="Generated from limited data"
+              >
+                <p style={{ margin: 0 }}>{degradedNote}</p>
+              </EuiCallOut>
+              <EuiSpacer size="m" />
+            </>
+          ) : null}
+
+          {/* Hero summary card — always shown. */}
+          <EuiPanel
+            hasBorder
+            paddingSize="l"
+            className="socCard"
+            style={{ borderLeft: `4px solid ${COLORS.accent}` }}
+          >
             <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
               <EuiFlexItem grow={false}>
                 <IconChip icon="documentEdit" accent={COLORS.accent} large />
               </EuiFlexItem>
               <EuiFlexItem>
-                <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false} wrap>
-                  <EuiFlexItem grow={false}>
-                    <EuiText size="xs" color="subdued">
-                      <span>{window}h window</span>
-                    </EuiText>
-                  </EuiFlexItem>
+                <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
                   <EuiFlexItem grow={false}>
                     <EuiBadge
                       color={tint(COLORS.accent, 0.16)}
                       style={{ color: COLORS.accent }}
                       iconType="clock"
                     >
-                      generated {humanizeAge(data?.generated_at)}
+                      {windowLabel} window
                     </EuiBadge>
                   </EuiFlexItem>
+                  {data?.generated_at ? (
+                    <EuiFlexItem grow={false}>
+                      <EuiText size="xs" color="subdued">
+                        <span>generated {humanizeAge(data.generated_at)}</span>
+                      </EuiText>
+                    </EuiFlexItem>
+                  ) : null}
+                  {cost !== undefined && cost > 0 ? (
+                    <EuiFlexItem grow={false}>
+                      <EuiBadge color="hollow" iconType="currency">
+                        {fmtMoney(cost)}
+                      </EuiBadge>
+                    </EuiFlexItem>
+                  ) : null}
                 </EuiFlexGroup>
                 <EuiSpacer size="s" />
-                {data?.summary ? (
+                {hasSummary ? (
                   <EuiText size="m">
-                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>
-                      {data.summary}
+                    {/* Model-generated prose — rendered strictly as plain text. */}
+                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.65, margin: 0 }}>
+                      {summaryText}
                     </p>
                   </EuiText>
                 ) : (
                   <EuiText size="s" color="subdued">
-                    <p>No summary available for this window yet.</p>
+                    <p style={{ margin: 0 }}>
+                      No summary is available for this window yet. Try regenerating, or
+                      widen the window.
+                    </p>
                   </EuiText>
                 )}
               </EuiFlexItem>
@@ -224,7 +337,7 @@ export const StandupPage: React.FC = () => {
             <>
               <EuiSpacer size="l" />
 
-              {/* Headline stat tiles */}
+              {/* Headline KPI tiles. */}
               <EuiFlexGroup gutterSize="m" wrap>
                 <EuiFlexItem style={{ minWidth: 200 }}>
                   <StatTile
@@ -232,7 +345,7 @@ export const StandupPage: React.FC = () => {
                     value={totalEvents !== undefined ? fmtNumber(totalEvents) : '—'}
                     icon="visBarVerticalStacked"
                     accent={COLORS.primary}
-                    sub={`last ${window}h`}
+                    sub={`last ${windowLabel}`}
                   />
                 </EuiFlexItem>
                 <EuiFlexItem style={{ minWidth: 200 }}>
@@ -245,25 +358,39 @@ export const StandupPage: React.FC = () => {
                 </EuiFlexItem>
                 <EuiFlexItem style={{ minWidth: 200 }}>
                   <StatTile
-                    label="Rule types"
-                    value={byRule.length ? fmtNumber(byRule.length) : '—'}
-                    icon="tag"
+                    label="Cases opened"
+                    value={casesOpened !== undefined ? fmtNumber(casesOpened) : '—'}
+                    icon="folderOpen"
                     accent={COLORS.warning}
                   />
                 </EuiFlexItem>
                 <EuiFlexItem style={{ minWidth: 200 }}>
                   <StatTile
-                    label="Cases opened"
-                    value={casesOpened !== undefined ? fmtNumber(casesOpened) : '—'}
-                    icon="folderOpen"
+                    label="Cases closed"
+                    value={casesClosed !== undefined ? fmtNumber(casesClosed) : '—'}
+                    icon="check"
                     accent={COLORS.success}
                   />
                 </EuiFlexItem>
               </EuiFlexGroup>
 
+              {/* Activity trend — only when we have a usable series. */}
+              {series.length > 1 ? (
+                <>
+                  <EuiSpacer size="l" />
+                  <Card title="Event activity" icon="visLine" accent={COLORS.primary}>
+                    <EuiText size="xs" color="subdued">
+                      <span>Events over the {windowLabel} window</span>
+                    </EuiText>
+                    <EuiSpacer size="s" />
+                    <Sparkline values={series} color={COLORS.primary} height={64} />
+                  </Card>
+                </>
+              ) : null}
+
               <EuiSpacer size="l" />
 
-              {/* Top-N breakdowns */}
+              {/* Ranked top-N breakdowns. */}
               <div className="socGrid">
                 {byRule.length ? (
                   <Card title="Top rules" icon="tag" accent={COLORS.warning}>
@@ -301,7 +428,11 @@ export const StandupPage: React.FC = () => {
               <EmptyState
                 iconType="visText"
                 title="No activity in this window"
-                body="The standup ran but found no aggregated log activity to break down."
+                body={
+                  degraded
+                    ? 'The standup ran on limited data and could not break down any aggregate activity.'
+                    : 'The standup ran but found no aggregated log activity to break down for this window.'
+                }
               />
             </>
           )}

@@ -13,6 +13,7 @@ import type {
   AuthMe,
   Branding,
   Case,
+  CaseActionInput,
   CaseRationale,
   CasesResponse,
   ChatResponse,
@@ -284,9 +285,26 @@ export const api = {
     request<CaseExport>('GET', `cases/${encodeURIComponent(caseId)}/export`, {
       query: { format },
     }),
-  chat: (message: string, history?: ChatTurn[], caseId?: string) =>
+  // Unified analyst action on a case (close / reopen / escalate / confirm_fp /
+  // acknowledge / …). Carries optional resolution/assignee/priority/tags. Returns
+  // the updated Case. The proxy forwards arbitrary JSON, so this is additive.
+  caseActionExec: (caseId: string, input: CaseActionInput) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/action`, { body: input }),
+  // Re-run the agent investigation for a case (optionally pinning the model).
+  reinvestigateCase: (caseId: string, input?: { model?: string }) =>
+    request<Case>('POST', `cases/${encodeURIComponent(caseId)}/reinvestigate`, {
+      body: input ?? {},
+    }),
+  // `model` / `case_id` are only sent when set, so the no-model / no-case chat
+  // behaviour is byte-for-byte unchanged.
+  chat: (message: string, history?: ChatTurn[], caseId?: string, model?: string) =>
     request<ChatResponse>('POST', 'chat', {
-      body: { message, history: history ?? [], case_id: caseId ?? null },
+      body: {
+        message,
+        history: history ?? [],
+        ...(caseId ? { case_id: caseId } : {}),
+        ...(model ? { model } : {}),
+      },
     }),
   investigate: (body: Record<string, unknown>) =>
     request<Case>('POST', 'investigate', { body }),

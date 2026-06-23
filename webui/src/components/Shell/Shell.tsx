@@ -24,7 +24,7 @@ import {
 } from '@elastic/eui';
 import type { HealthResponse } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS } from '../../lib/theme';
+import { COLORS, tint } from '../../lib/theme';
 import { useBranding } from '../../lib/branding';
 
 export type PageId =
@@ -75,14 +75,14 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { id: 'scans', name: 'Automated scans', icon: 'reportingApp' },
       { id: 'standup', name: 'Standup', icon: 'visText' },
-      { id: 'catalog', name: 'Playbooks & Agents', icon: 'inspect' },
+      { id: 'catalog', name: 'Playbooks & Agents', icon: 'article' },
     ],
   },
   {
     label: 'Platform',
     items: [
       { id: 'knowledge', name: 'Knowledge', icon: 'indexMapping' },
-      { id: 'memory', name: 'Memory', icon: 'bell' },
+      { id: 'memory', name: 'Memory', icon: 'memory' },
       { id: 'sources', name: 'Sources', icon: 'logstashQueue' },
       { id: 'cost', name: 'Cost & usage', icon: 'visLine' },
       { id: 'settings', name: 'Settings', icon: 'gear' },
@@ -139,13 +139,18 @@ export const Shell: React.FC<ShellProps> = ({
   const sideNav = NAV_GROUPS.map((group) => ({
     name: group.label,
     id: group.label,
-    items: group.items.map((n) => ({
-      id: n.id,
-      name: n.name,
-      icon: <EuiIcon type={n.icon} color={page === n.id ? COLORS.primary : 'subdued'} />,
-      isSelected: page === n.id,
-      onClick: () => onNavigate(n.id),
-    })),
+    items: group.items.map((n) => {
+      const selected = page === n.id;
+      return {
+        id: n.id,
+        name: n.name,
+        icon: <EuiIcon type={n.icon} color={selected ? COLORS.primary : 'subdued'} />,
+        isSelected: selected,
+        // Tag the selected row so index.css can paint an accent tint + left bar.
+        className: selected ? 'socNavItem socNavItem--selected' : 'socNavItem',
+        onClick: () => onNavigate(n.id),
+      };
+    }),
   }));
 
   return (
@@ -178,26 +183,44 @@ export const Shell: React.FC<ShellProps> = ({
         </EuiHeaderSection>
         <EuiHeaderSection side="right">
           <EuiHeaderSectionItem>
-            <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} style={{ paddingRight: 12 }}>
+            <EuiFlexGroup
+              alignItems="center"
+              gutterSize="s"
+              responsive={false}
+              style={{ paddingRight: 12 }}
+            >
+              <EuiFlexItem grow={false}>
+                <EuiToolTip
+                  content={
+                    healthErr
+                      ? 'Cannot reach the backend API'
+                      : `Store: ${health?.store_type ?? 'unknown'}`
+                  }
+                >
+                  <span className="socHealthPill" style={{ borderColor: tint(healthColor, 0.4) }}>
+                    <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
+                  </span>
+                </EuiToolTip>
+              </EuiFlexItem>
               {health?.version ? (
                 <EuiFlexItem grow={false}>
                   <EuiBadge color="hollow">v{health.version}</EuiBadge>
                 </EuiFlexItem>
               ) : null}
               <EuiFlexItem grow={false}>
-                <EuiToolTip content={healthErr ? 'Cannot reach the backend API' : `Store: ${health?.store_type ?? 'unknown'}`}>
-                  <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
-                </EuiToolTip>
+                <span className="socHeaderDivider" />
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
-                <EuiSwitch
-                  label={<EuiIcon type={darkMode ? 'moon' : 'sun'} />}
-                  showLabel={false}
-                  compressed
-                  checked={darkMode}
-                  onChange={(e) => onToggleDark(e.target.checked)}
-                  aria-label="Toggle dark mode"
-                />
+                <EuiToolTip content={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+                  <EuiSwitch
+                    label={<EuiIcon type={darkMode ? 'moon' : 'sun'} />}
+                    showLabel={false}
+                    compressed
+                    checked={darkMode}
+                    onChange={(e) => onToggleDark(e.target.checked)}
+                    aria-label="Toggle dark mode"
+                  />
+                </EuiToolTip>
               </EuiFlexItem>
               {username ? (
                 <EuiFlexItem grow={false}>
@@ -231,7 +254,9 @@ export const Shell: React.FC<ShellProps> = ({
 
       <EuiPage paddingSize="none" style={{ marginTop: 51, minHeight: 'calc(100vh - 51px)' }}>
         <EuiPageSidebar paddingSize="l" sticky={{ offset: 51 }}>
-          <EuiSideNav items={sideNav} />
+          <div className="socSideNav">
+            <EuiSideNav items={sideNav} />
+          </div>
           <div style={{ marginTop: 24 }}>
             <EuiButtonEmpty
               size="xs"
