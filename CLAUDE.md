@@ -301,8 +301,13 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **349 backend tests green**; the standalone **webui
-builds clean** (tsc+vite). The legacy Kibana plugin is **archived** (`archive/`).
+(**Waves 1–3**) shipped — **364 backend tests green**; the standalone **webui
+builds clean** (tsc+vite). Latest round: app-wide EUI icon fix (static
+`appendIconComponentCache`), Chat redesign + reusable `ChatPanel`, in-case chat,
+case **Reinvestigate** (`POST /cases/{id}/reinvestigate`, optional model override),
+structured lifecycle actions (resolution/assignee/priority/tags), full Cases/Scans
+filtering, and a robust Standup (`GET /standup` never 500s). The legacy Kibana
+plugin is **archived** (`archive/`).
 Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
 multi-wave plan and `ROADMAP.md` for live status.
 

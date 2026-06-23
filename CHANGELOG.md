@@ -7,7 +7,43 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
-## [Unreleased] — 2026-06-23 — Browse a source's logs + read-only Test-connection & per-source TLS fixes
+## [Unreleased] — 2026-06-23 — UI polish, filtering, in-case chat, reinvestigate + icon fix
+
+Backend offline suite **364 tests green** (was 349); webui `npm run build` GREEN,
+no new npm deps. Additive; the spine and the 12 non-negotiables are intact
+(#3 the close/escalate decision stays deterministic; #6 every LLM call through the
+one gateway — the chat/reinvestigate model override is a per-call prefs copy).
+Developed on the `Testing` branch.
+
+### Fixed
+- **Blank EUI icons app-wide** — icons rendered as empty gray squares because EUI
+  lazy-`import()`s each glyph and those chunks don't resolve in the nginx bundle.
+  Now statically pre-registered via `appendIconComponentCache` (`webui/src/lib/icons.ts`,
+  128+ icons, imported first in `main.tsx`). Also fixed an invalid Cost-page icon
+  (`appsApp`→`visPie`) and stale icon names elsewhere.
+- **Standup never works on a degraded store** — `GET /api/standup` now always
+  returns HTTP 200 with a graceful `{degraded, error}` payload instead of 500ing;
+  the page renders disabled/degraded/empty states cleanly.
+
+### Added
+- **Reinvestigate a case** — `POST /api/cases/{id}/reinvestigate` re-runs the AI
+  investigation (pipeline `force=True`), with an optional per-call **model** override;
+  surfaced as a model-customizable button in the case flyout.
+- **Ask about this case** — an in-flyout chat tab (reusable `<ChatPanel caseId/>`)
+  scoped to the open case; `POST /api/chat` gained an optional `model` override.
+- **Structured lifecycle actions** — `POST /api/cases/{id}/action` accepts optional
+  `resolution`/`assignee`/`priority`/`tags`; the flyout actions now have icons,
+  in-product explanations (tooltips), and per-action optional fields.
+- **Full filtering** on Cases + Automated-scans (verdict/status/risk-range/rule/
+  persona/playbook/assignee/tags/time + search; self-healing facets).
+- **Redesigned Chat** — modern message bubbles, polished empty state + composer,
+  per-conversation model picker; extracted a reusable `ChatPanel`.
+- Shell/nav + global CSS polish (active-nav accent, health pill, hover elevation,
+  focus rings, refined scrollbars; `prefers-reduced-motion` respected).
+
+---
+
+## 2026-06-23 — Browse a source's logs + read-only Test-connection & per-source TLS fixes
 
 Backend offline suite **349 tests green** (was 340); webui `npm run build` GREEN,
 no new npm deps. Additive; the spine and the 12 non-negotiables are intact.
