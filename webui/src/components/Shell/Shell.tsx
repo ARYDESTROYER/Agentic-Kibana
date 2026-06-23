@@ -19,7 +19,6 @@ import {
   EuiPageSidebar,
   EuiSideNav,
   EuiSwitch,
-  EuiText,
   EuiToolTip,
 } from '@elastic/eui';
 import type { HealthResponse } from '../../lib/types';
@@ -105,8 +104,6 @@ export const Shell: React.FC<ShellProps> = ({
   // Fall back to the historical wording when branding fields are empty, so the
   // no-branding header is byte-identical to today.
   const wordmark = branding.org_name?.trim() || 'Agentic SOC';
-  const tagline = branding.product_name?.trim() || 'Triage console';
-  const logoUrl = branding.logo_data_url?.trim() || '';
 
   useEffect(() => {
     let alive = true;
@@ -155,22 +152,13 @@ export const Shell: React.FC<ShellProps> = ({
           <EuiHeaderSectionItem>
             <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false} style={{ paddingLeft: 12 }}>
               <EuiFlexItem grow={false}>
-                {logoUrl ? (
-                  <img
-                    src={logoUrl}
-                    alt={wordmark}
-                    style={{ width: 30, height: 30, borderRadius: 8, objectFit: 'contain' }}
-                  />
-                ) : (
-                  <span className="socLogo">
-                    <EuiIcon type="securityApp" size="m" />
-                  </span>
-                )}
+                <span className="socLogo">
+                  <EuiIcon type="securityApp" size="m" />
+                </span>
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
                 <div style={{ lineHeight: 1.1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{wordmark}</div>
-                  <EuiText size="xs" color="subdued"><span>{tagline}</span></EuiText>
                 </div>
               </EuiFlexItem>
             </EuiFlexGroup>
@@ -191,7 +179,7 @@ export const Shell: React.FC<ShellProps> = ({
               </EuiFlexItem>
               <EuiFlexItem grow={false}>
                 <EuiSwitch
-                  label={<EuiIcon type={darkMode ? 'moon' : 'sun'} />}
+                  label="Dark mode"
                   showLabel={false}
                   compressed
                   checked={darkMode}
@@ -226,7 +214,6 @@ export const Shell: React.FC<ShellProps> = ({
         </EuiHeaderSection>
       </EuiHeader>
 
-      {/* Gradient brand accent just under the fixed header. */}
       <div className="socBrandAccent" style={{ position: 'fixed', top: 48, left: 0, right: 0, zIndex: 999 }} />
 
       <EuiPage paddingSize="none" style={{ marginTop: 51, minHeight: 'calc(100vh - 51px)' }}>
