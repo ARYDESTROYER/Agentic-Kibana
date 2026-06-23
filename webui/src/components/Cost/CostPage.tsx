@@ -318,7 +318,7 @@ export const CostPage: React.FC = () => {
               )}
             </Card>
 
-            <Card title="By surface" icon="appsApp" accent={COLORS.success}>
+            <Card title="By surface" icon="apps" accent={COLORS.success}>
               {bySurface.length ? (
                 <DonutWithLegend
                   segments={bySurface}

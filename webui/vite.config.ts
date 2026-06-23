@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+// @ts-ignore - CJS plugin module
 import euiIconsPlugin from './vite-plugin-eui-icons.cjs';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8088';

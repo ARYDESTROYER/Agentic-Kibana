@@ -138,7 +138,7 @@ export const StandupPage: React.FC = () => {
             ) : null}
             {hasSummary ? (
               <EuiFlexItem grow={false}>
-                <EuiButton size="s" iconType="printer" onClick={printSummary}>
+                <EuiButton size="s" iconType="documents" onClick={printSummary}>
                   Print
                 </EuiButton>
               </EuiFlexItem>
