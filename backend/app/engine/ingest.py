@@ -10,6 +10,7 @@ pull ingestion behave the same and never drop an event.
 
 from __future__ import annotations
 
+import collections
 import logging
 from typing import TYPE_CHECKING
 
@@ -112,12 +113,18 @@ class IngestService:
         self._audit = audit
         self._pipeline = pipeline
         self._get_prefs = get_prefs
+        # Bounded per-source recent-events ring buffer so PUSH sources (which flow
+        # straight to correlate→cases with no retained copy) can be browsed (live
+        # tail). Keyed by source_id; capped per source so memory stays bounded.
+        self._recent: dict[str, collections.deque] = {}
+        self._recent_max = 500
 
     async def ingest(
         self,
         events: list[RawEvent],
         prefs: Preferences | None = None,
         source_surface: SourceSurface = SourceSurface.AUTOMATED_SCAN,
+        source_id: str | None = None,
     ) -> dict[str, int]:
         prefs = prefs or self._get_prefs()
         base = {"received": 0, "clusters": 0, "investigated": 0,
@@ -127,6 +134,12 @@ class IngestService:
         from ..engine.correlation import correlate  # local import avoids a cycle
 
         events = dedup_by_id(events)
+        if source_id:
+            buf = self._recent.get(source_id)
+            if buf is None:
+                buf = collections.deque(maxlen=self._recent_max)
+                self._recent[source_id] = buf
+            buf.extend(events)
         try:
             clusters = correlate(events, prefs)
             stats = await handle_clusters(
@@ -148,3 +161,10 @@ class IngestService:
                             f"attached={stats['attached']}"),
         )
         return stats
+
+    def recent_events_for_source(self, source_id: str, limit: int = 100) -> list[RawEvent]:
+        """Most-recent-first buffered events for a push source (live-tail browse)."""
+        buf = self._recent.get(source_id)
+        if not buf:
+            return []
+        return list(buf)[-max(1, limit):][::-1]

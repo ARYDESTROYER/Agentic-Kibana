@@ -48,16 +48,31 @@ class ConnectorRegistry:
     def get(self, source_type: SourceType) -> type[Connector] | None:
         return self._classes.get(source_type)
 
+    @staticmethod
+    def _with_browse(cls: type[Connector], m: ConnectorManifest) -> ConnectorManifest:
+        """Ensure a push receiver advertises the ``browse`` capability (it gets a
+        live-tail buffer), without editing ~16 manifests. Pull connectors declare
+        ``browse`` in their own manifest, so this only augments receivers. Defensive:
+        a missing/odd capabilities list never raises."""
+        try:
+            if issubclass(cls, PushReceiver) and "browse" not in (m.capabilities or []):
+                m.capabilities = list(m.capabilities or []) + ["browse"]
+        except Exception:  # noqa: BLE001 — augmentation must never break listing
+            pass
+        return m
+
     def manifest(self, source_type: SourceType) -> ConnectorManifest | None:
         cls = self._classes.get(source_type)
-        return cls.manifest() if cls is not None else None
+        if cls is None:
+            return None
+        return self._with_browse(cls, cls.manifest())
 
     def manifests(self) -> list[ConnectorManifest]:
         """Every connector's manifest, sorted for stable wizard display."""
         out: list[ConnectorManifest] = []
         for cls in self._classes.values():
             try:
-                out.append(cls.manifest())
+                out.append(self._with_browse(cls, cls.manifest()))
             except Exception as exc:  # noqa: BLE001 — one bad connector must not break listing
                 logger.warning("manifest() failed for %s: %s", cls, exc)
         out.sort(key=lambda m: (m.category, m.display_name))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -261,8 +261,107 @@ async def ingest_push(
         events = receiver.handle_request(body, headers, state.prefs)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    stats = await state.ingest_service.ingest(events, state.prefs)
+    stats = await state.ingest_service.ingest(events, state.prefs, source_id=source_id)
     return {"ok": True, **stats}
+
+
+# --------------------------------------------------------------------------- #
+# Browse logs per source (read-only). PULL sources run a bounded scoped search
+# honoring the source's field mapping + TLS; PUSH sources return the in-memory
+# live-tail buffer of recently-ingested events. Secrets are never returned.
+# --------------------------------------------------------------------------- #
+def _log_message(src: dict[str, Any]) -> str:
+    from ..utils import dotted_get
+    for f in ("message", "event.original", "log.message", "event.action", "rule.description"):
+        v = dotted_get(src, f)
+        if v:
+            return str(v) if not isinstance(v, list) else str(v[0])
+    return ""
+
+
+def _log_row(ev) -> dict[str, Any]:
+    """Project a RawEvent → the browse-logs row contract. _raw is the full log
+    document (log data, never secrets)."""
+    import datetime as _dt
+    ts_iso = ""
+    if getattr(ev, "timestamp_millis", 0):
+        ts_iso = _dt.datetime.fromtimestamp(ev.timestamp_millis / 1000, tz=_dt.timezone.utc).isoformat()
+    return {
+        "id": ev.id,
+        "ts": ts_iso,
+        "source_ip": ev.ip,
+        "user": ev.user,
+        "host": ev.host,
+        "rule": ev.rule or ev.rule_name,
+        "severity": ev.severity,
+        "message": _log_message(ev.source or {}),
+        "_raw": ev.source or {},
+    }
+
+
+@router.get("/sources/{source_id}/logs")
+async def source_logs(
+    source_id: str,
+    limit: int = 100,
+    query: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Browse the most-recent events for a source (bounded, read-only).
+
+    Pull sources run a scoped read-only search honoring the source's field mapping +
+    data_view_pattern (and its own TLS settings); push sources return the last N
+    ingested events from the in-memory live-tail buffer. Hard-capped; secrets are
+    never returned (rows are log data only)."""
+    src = next((s for s in state.prefs.sources if s.id == source_id), None)
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    limit = max(1, min(int(limit or 100), 200))  # hard cap
+    reg = get_registry()
+    cls = reg.get(src.source_type)
+    if cls is None:
+        raise HTTPException(status_code=400, detail="No connector for this source")
+
+    # PUSH receivers → the live-tail buffer.
+    if reg.is_receiver(src.source_type):
+        rows = [_log_row(ev) for ev in state.ingest_service.recent_events_for_source(source_id, limit)]
+        return {"source_id": source_id, "mode": "buffer", "count": len(rows), "logs": rows}
+
+    # PULL connectors → a bounded, read-only scoped search honoring per-source TLS.
+    if reg.is_pull(src.source_type):
+        es_client, owned = state.es_client_for_source(src)
+        try:
+            from ..connectors.elastic import ElasticConnector
+            from ..connectors.opensearch import OpenSearchConnector
+            from ..connectors.wazuh import WazuhConnector
+            from ..connectors.base import StructuredQuery
+            if src.source_type == SourceType.OPENSEARCH:
+                conn = OpenSearchConnector(es_client, config=src.config, connector_id=src.id)
+            elif src.source_type == SourceType.WAZUH:
+                conn = WazuhConnector(es_client, config=src.config, connector_id=src.id)
+            else:
+                conn = ElasticConnector(es_client, config=src.config, connector_id=src.id)
+            sq = StructuredQuery(
+                contains=(query or None), time_from=from_, time_to=to,
+                size=limit, sort_desc=True,
+            )
+            try:
+                result = await conn.search(state.prefs, sq)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"log read failed: {exc}") from exc
+            rows = [_log_row(ev) for ev in result.events]
+            return {"source_id": source_id, "mode": "search", "count": len(rows),
+                    "total": result.total, "logs": rows,
+                    "query": result.rendering.query if result.rendering else None}
+        finally:
+            if owned:
+                try:
+                    await es_client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    raise HTTPException(status_code=501, detail="Browsing logs is not supported for this source")
 
 
 # --------------------------------------------------------------------------- #

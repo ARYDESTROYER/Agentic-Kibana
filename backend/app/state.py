@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any
 
 from .agents.chat import ChatEngine
 from .agents.overview import OverviewService
@@ -56,6 +57,10 @@ class AppState:
         # Async SQL engine for the SQL state backend (None on the ES backend).
         # Built lazily in _build_state_backend and disposed on shutdown.
         self._sql_engine = None
+        # A per-source ES client OWNED by this AppState (built when the primary
+        # source carries its own ES connection/TLS overrides); closed on rewire +
+        # shutdown. None means the primary uses the shared global client.
+        self._owned_log_client = None
         self._wire()
 
     def _wire(self) -> None:
@@ -199,12 +204,45 @@ class AppState:
         self.pipeline._playbooks = self.playbooks
         return summary
 
+    def es_client_for_source(self, src) -> tuple[BaseESClient, bool]:
+        """Return (es_client, owned) honoring the source's per-source ES connection +
+        TLS settings. `owned=True` means a fresh client the CALLER must close; `False`
+        means the shared global `self.es`. Falls back to the shared client when the
+        source has no connection overrides or a real client can't be built."""
+        merged = {**(src.config or {}), **self.secrets.source_secrets(src.id)}
+        overrides = _source_es_overrides(merged)
+        if not overrides:
+            return self.es, False
+        overrides["es_mgmt_api_key"] = None  # never point a global mgmt key at a source URL
+        try:
+            from .es.client import RealESClient
+            return RealESClient(self.secrets.model_copy(update=overrides)), True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("per-source ES client build failed (%s); using shared client", exc)
+            return self.es, False
+
+    def _set_owned_log_client(self, client) -> None:
+        prev = getattr(self, "_owned_log_client", None)
+        if prev is not None and prev is not client:
+            self._schedule_close(prev)
+        self._owned_log_client = client if client is not self.es else None
+
+    def _schedule_close(self, client) -> None:
+        try:
+            import asyncio
+            asyncio.get_running_loop().create_task(client.close())
+        except RuntimeError:
+            pass  # no running loop (sync init) — closed at shutdown
+
     def _build_log_source(self):
         """Construct the primary pull connector for the agent's log surface.
 
-        Both Elasticsearch and OpenSearch wrap the same scoped read-only ES client
-        with identical read behaviour; the choice only affects provenance/query
-        language. Defaults to Elasticsearch when no source is configured yet."""
+        Honors the primary source's OWN ES connection + TLS settings (es_url/
+        es_api_key/es_verify_certs/es_ca_cert) by building a per-source client when
+        those overrides are present; otherwise wraps the shared scoped read-only ES
+        client. Both Elasticsearch and OpenSearch read identically; the choice only
+        affects provenance/query language. Defaults to Elasticsearch when no source
+        is configured yet."""
         from .connectors.elastic import ElasticConnector
         from .connectors.opensearch import OpenSearchConnector
         from .connectors.wazuh import WazuhConnector
@@ -212,14 +250,17 @@ class AppState:
 
         primary = self.prefs.primary_source()
         if primary is None:
+            self._set_owned_log_client(None)
             return ElasticConnector(self.es)
+        es_client, owned = self.es_client_for_source(primary)
+        self._set_owned_log_client(es_client if owned else None)
         cfg = primary.config or {}
         cid = primary.id
         if primary.source_type == SourceType.OPENSEARCH:
-            return OpenSearchConnector(self.es, config=cfg, connector_id=cid)
+            return OpenSearchConnector(es_client, config=cfg, connector_id=cid)
         if primary.source_type == SourceType.WAZUH:
-            return WazuhConnector(self.es, config=cfg, connector_id=cid)
-        return ElasticConnector(self.es, config=cfg, connector_id=cid)
+            return WazuhConnector(es_client, config=cfg, connector_id=cid)
+        return ElasticConnector(es_client, config=cfg, connector_id=cid)
 
     def _build_rag(self) -> RagService:
         """Construct the RAG service, wiring the CaseStore (resolved-case memory)
@@ -341,8 +382,8 @@ class AppState:
                 effective = {**src.config, **self.secrets.source_secrets(src.id)}
                 receiver = cls(config=effective, connector_id=src.id)
 
-                async def _emit(events, _self=self):
-                    await _self.ingest_service.ingest(events, _self.prefs)
+                async def _emit(events, _self=self, _sid=src.id):
+                    await _self.ingest_service.ingest(events, _self.prefs, source_id=_sid)
 
                 task = asyncio.create_task(receiver.start(_emit, self.prefs))
                 self._receivers.append(receiver)
@@ -414,6 +455,12 @@ class AppState:
         await self._stop_receivers()
         await self.gateway.aclose()
         await self.cache.aclose()
+        owned = getattr(self, "_owned_log_client", None)
+        if owned is not None and owned is not self.es:
+            try:
+                await owned.close()
+            except Exception:  # noqa: BLE001
+                pass
         try:
             await self.es.close()
         except Exception:  # noqa: BLE001
@@ -424,6 +471,30 @@ class AppState:
             except Exception:  # noqa: BLE001
                 pass
             self._sql_engine = None
+
+
+def _coerce_bool(v: Any, default: bool = True) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() not in ("false", "0", "no", "off", "")
+    return default if v is None else bool(v)
+
+
+def _source_es_overrides(merged: dict[str, Any]) -> dict[str, Any]:
+    """Translate a source's merged config+secrets into Secrets connection overrides.
+    Returns {} when the source specifies no ES connection settings (→ use the shared
+    global client). This is what makes a source's es_verify_certs/es_ca_cert apply."""
+    out: dict[str, Any] = {}
+    if merged.get("es_url"):
+        out["es_url"] = str(merged["es_url"])
+    if merged.get("es_api_key"):
+        out["es_api_key"] = str(merged["es_api_key"])
+    if "es_verify_certs" in merged:
+        out["es_verify_certs"] = _coerce_bool(merged.get("es_verify_certs"))
+    if merged.get("es_ca_cert"):
+        out["es_ca_cert"] = str(merged["es_ca_cert"])
+    return out
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

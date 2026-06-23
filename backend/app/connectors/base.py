@@ -76,7 +76,9 @@ class ConnectionTest(BaseModel):
 
     ok: bool
     message: str = ""
+    mode: str | None = None              # "read_only" | "full" | None
     sample_count: int | None = None
+    cluster_monitor: bool | None = None  # optional extra signal — NEVER the pass/fail gate
     detail: dict[str, Any] = Field(default_factory=dict)
 
 

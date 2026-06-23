@@ -42,6 +42,18 @@ _MAX_SIZE = 200
 _DEFAULT_SIZE = 50
 
 
+def _http_status(exc: Exception) -> int | None:
+    """Best-effort HTTP status from an ES driver exception (401/403/...), else None
+    (network/TLS errors have no status). Works without importing the driver."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "meta", None), "status", None)
+    try:
+        return int(status) if status is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class ElasticConnector(PullConnector):
     """Pull connector for Elasticsearch / the Elastic (ELK) stack.
 
@@ -114,7 +126,7 @@ class ElasticConnector(PullConnector):
             ),
             ingest_modes=[IngestMode.PULL],
             query_language="kuery",
-            capabilities=["poll", "search", "fetch_by_ids", "test"],
+            capabilities=["poll", "search", "fetch_by_ids", "test", "browse"],
             auth_fields=[
                 AuthField(
                     key="es_url",
@@ -356,33 +368,51 @@ class ElasticConnector(PullConnector):
         )
 
     async def test_connection(self, prefs: Preferences) -> ConnectionTest:
-        """Wizard 'Test connection': ping, then a cheap sample count.
+        """Validate a READ-ONLY, log-scoped key the right way.
 
-        On a reachable cluster we additionally run a tiny poll-shaped read to
-        report how many in-scope events the configured pattern/mapping yields, so
-        the operator gets immediate feedback that their field mapping is sane.
-        Failures degrade gracefully to a ping-only / error result.
-        """
+        A correctly-scoped read-only key (read on the index pattern, no cluster
+        monitor) CANNOT do HEAD / (ping). So we do NOT gate on ping(): we run the
+        cheap scoped sample read FIRST and treat HTTP 200 (any/zero hits) as success,
+        reporting mode="read_only". ping() is only an EXTRA signal (cluster_monitor
+        true/false), never the pass/fail gate. We return ok=False only when the scoped
+        read itself fails — auth (401/403 on the index) or network/TLS."""
         prefs = self._effective_prefs(prefs)
-        try:
-            ok = await self._es.ping()
-        except Exception as exc:  # noqa: BLE001
-            return ConnectionTest(ok=False, message=str(exc))
-        if not ok:
-            return ConnectionTest(ok=False, message="unreachable")
+        pattern = prefs.data_view_pattern
+        # 1) Authoritative: a cheap, scoped, read-only sample read.
         try:
             body = poll_query(prefs, Cursor(), 0, batch_size=1)
-            resp = await self._es.search_logs(prefs.data_view_pattern, body)
-            total = resp.get("hits", {}).get("total", {})
-            count = total.get("value") if isinstance(total, dict) else None
-            return ConnectionTest(
-                ok=True,
-                message="OK",
-                sample_count=count,
-                detail={"data_view": prefs.data_view_pattern},
-            )
-        except Exception as exc:  # noqa: BLE001 — reachable but the read failed
-            return ConnectionTest(ok=True, message=f"reachable; sample read failed: {exc}")
+            resp = await self._es.search_logs(pattern, body)
+        except Exception as exc:  # noqa: BLE001
+            status = _http_status(exc)
+            if status in (401, 403):
+                msg = (f"Read access denied on '{pattern}' (HTTP {status}). The API key "
+                       f"needs the 'read' privilege on that index pattern.")
+            else:
+                msg = (f"Could not reach Elasticsearch (network/TLS) while reading "
+                       f"'{pattern}': {exc}")
+            return ConnectionTest(ok=False, message=msg,
+                                  detail={"data_view": pattern, "error": str(exc)})
+        total = resp.get("hits", {}).get("total", {})
+        count = total.get("value") if isinstance(total, dict) else (
+            total if isinstance(total, int) else None)
+        n = count if count is not None else 0
+        # 2) OPTIONAL extra signal: can this key also reach the cluster root (HEAD /)?
+        #    A scoped read-only key cannot — that's expected, NOT a failure.
+        try:
+            cluster_monitor = bool(await self._es.ping())
+        except Exception:  # noqa: BLE001
+            cluster_monitor = False
+        if cluster_monitor:
+            mode = "full"
+            message = (f"Connection verified — {n} event(s) readable in '{pattern}'; "
+                       f"cluster-monitor privilege present.")
+        else:
+            mode = "read_only"
+            message = (f"Read-only access verified — logs are ingesting successfully "
+                       f"({n} events readable in '{pattern}'). Cluster-monitor privilege "
+                       f"not granted (expected for a read-only key).")
+        return ConnectionTest(ok=True, message=message, mode=mode, sample_count=count,
+                              cluster_monitor=cluster_monitor, detail={"data_view": pattern})
 
     def _to_result(
         self,

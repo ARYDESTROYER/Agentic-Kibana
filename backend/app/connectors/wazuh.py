@@ -42,7 +42,7 @@ class WazuhConnector(ElasticConnector):
             ),
             ingest_modes=[IngestMode.PULL],
             query_language="lucene",
-            capabilities=["poll", "search", "fetch_by_ids", "test"],
+            capabilities=["poll", "search", "fetch_by_ids", "test", "browse"],
             auth_fields=[
                 AuthField(
                     key="es_url", label="Wazuh indexer URL", type="string", required=True,
