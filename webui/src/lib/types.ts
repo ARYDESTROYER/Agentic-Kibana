@@ -134,6 +134,14 @@ export interface ConnectionTest {
   message?: string;
   sample_count?: number | null;
   detail?: Record<string, unknown>;
+  /**
+   * The access tier the probe verified: `read_only` (a correctly-scoped read-only
+   * key) or `full` (cluster-monitor present). Absent for connectors that don't
+   * distinguish.
+   */
+  mode?: 'read_only' | 'full' | string | null;
+  /** Whether the tested key carries the `cluster:monitor` privilege. */
+  cluster_monitor?: boolean | null;
 }
 
 // --------------------------------------------------------------------------- //
@@ -154,6 +162,48 @@ export interface SourceInstance {
 
 export interface SourcesResponse {
   sources: SourceInstance[];
+}
+
+/**
+ * One normalised log row returned by GET /api/sources/{id}/logs.
+ *
+ * Every field is source-controlled and therefore UNTRUSTED: render `message` and
+ * the entity columns as plain text, and `_raw` only inside a fenced code block —
+ * never as markup.
+ */
+export interface SourceLogRow {
+  id: string;
+  ts: string;
+  source_ip: string | null;
+  user: string | null;
+  host: string | null;
+  rule: string | null;
+  severity: number;
+  message: string;
+  _raw: Record<string, unknown>;
+}
+
+/**
+ * GET /api/sources/{id}/logs — a window of recent events from a source.
+ *
+ * `mode:"buffer"` = a push source's in-memory live tail (the server ignores
+ * from/to/query); `mode:"search"` = a scoped read against a pull source.
+ */
+export interface SourceLogsResponse {
+  source_id: string;
+  mode: 'buffer' | 'search' | string;
+  count: number;
+  total?: number;
+  query?: string | null;
+  logs: SourceLogRow[];
+}
+
+/** Query params for GET /api/sources/{id}/logs (all optional). */
+export interface SourceLogsQuery {
+  limit?: number;
+  query?: string;
+  from?: string;
+  to?: string;
 }
 
 /** Payload for POST /api/sources (mirrors `SourceUpsert`). */

@@ -39,6 +39,8 @@ import type {
   SettingsResponse,
   SetupStatus,
   SourceInstance,
+  SourceLogsQuery,
+  SourceLogsResponse,
   SourcesResponse,
   SourceUpsert,
   StandupResponse,
@@ -243,6 +245,12 @@ export const api = {
       'DELETE',
       `sources/${encodeURIComponent(sourceId)}`,
     ),
+  // Browse a window of normalised events from one source. `buildQuery` drops any
+  // undefined / null / empty params, so blank query/from/to are not sent.
+  sourceLogs: (sourceId: string, params?: SourceLogsQuery) =>
+    request<SourceLogsResponse>('GET', `sources/${encodeURIComponent(sourceId)}/logs`, {
+      query: params as Record<string, unknown> | undefined,
+    }),
 
   // ---- Branding (PUBLIC; white-label) ---------------------------------- //
   getBranding: () => request<Branding>('GET', 'branding'),

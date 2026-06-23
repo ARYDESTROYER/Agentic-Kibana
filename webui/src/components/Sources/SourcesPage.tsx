@@ -24,6 +24,7 @@ import { COLORS } from '../../lib/theme';
 import { humanizeToken } from '../../lib/format';
 import { EmptyState, ErrorCallout, IconChip, Loading, SectionHeader } from '../common/ui';
 import { SourceEditor } from '../common/SourceEditor';
+import { SourceLogsFlyout } from './SourceLogsFlyout';
 
 export const SourcesPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,7 @@ export const SourcesPage: React.FC = () => {
   const [connectors, setConnectors] = useState<ConnectorManifest[]>([]);
   const [sources, setSources] = useState<SourceInstance[]>([]);
   const [editor, setEditor] = useState<{ mode: 'add' } | { mode: 'edit'; source: SourceInstance } | null>(null);
+  const [logsSource, setLogsSource] = useState<SourceInstance | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -124,6 +126,7 @@ export const SourcesPage: React.FC = () => {
       ) : (
         sources.map((s) => {
           const meta = connectors.find((c) => c.source_type === s.source_type);
+          const canBrowse = !!meta?.capabilities?.includes('browse');
           return (
             <EuiPanel key={s.id} hasBorder paddingSize="m" style={{ marginBottom: 12 }}>
               <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} wrap>
@@ -149,6 +152,17 @@ export const SourcesPage: React.FC = () => {
                 </EuiFlexItem>
                 <EuiFlexItem grow={false}>
                   <EuiFlexGroup gutterSize="s" responsive={false}>
+                    {canBrowse ? (
+                      <EuiFlexItem grow={false}>
+                        <EuiButtonEmpty
+                          size="s"
+                          iconType="discoverApp"
+                          onClick={() => setLogsSource(s)}
+                        >
+                          Logs
+                        </EuiButtonEmpty>
+                      </EuiFlexItem>
+                    ) : null}
                     {!s.is_primary ? (
                       <EuiFlexItem grow={false}>
                         <EuiButtonEmpty
@@ -205,6 +219,10 @@ export const SourcesPage: React.FC = () => {
             />
           </EuiModalBody>
         </EuiModal>
+      ) : null}
+
+      {logsSource ? (
+        <SourceLogsFlyout source={logsSource} onClose={() => setLogsSource(null)} />
       ) : null}
     </div>
   );

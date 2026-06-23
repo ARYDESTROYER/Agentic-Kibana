@@ -55,7 +55,13 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const [showValidation, setShowValidation] = useState(false);
 
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; sample?: number | null } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    sample?: number | null;
+    mode?: string | null;
+    cluster_monitor?: boolean | null;
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -85,7 +91,13 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
       // The backend tests the wired primary source. For the most reliable result,
       // save first (when this is the primary), then test; otherwise call test directly.
       const res = await api.testConnector(manifest.source_type);
-      setTestResult({ ok: res.ok, message: res.message || (res.ok ? 'OK' : 'Failed'), sample: res.sample_count });
+      setTestResult({
+        ok: res.ok,
+        message: res.message || (res.ok ? 'OK' : 'Failed'),
+        sample: res.sample_count,
+        mode: res.mode ?? null,
+        cluster_monitor: res.cluster_monitor ?? null,
+      });
     } catch (e) {
       setError(e);
     } finally {
@@ -204,8 +216,18 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
             size="s"
             color={testResult.ok ? 'success' : 'danger'}
             iconType={testResult.ok ? 'check' : 'alert'}
-            title={testResult.ok ? 'Connection succeeded' : 'Connection failed'}
+            title={
+              testResult.ok
+                ? testResult.mode === 'read_only'
+                  ? 'Read-only access verified'
+                  : testResult.mode === 'full'
+                    ? 'Connection verified'
+                    : 'Connection succeeded'
+                : 'Connection failed'
+            }
           >
+            {/* The backend message is authoritative (it explains the read-only
+                situation); render it verbatim as plain text. */}
             <p>
               {testResult.message}
               {typeof testResult.sample === 'number'
