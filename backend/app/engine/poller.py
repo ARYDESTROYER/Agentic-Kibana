@@ -126,7 +126,10 @@ class Poller:
             window_events = dedup_by_id(window_fetched + new_events)
             stats["window_events"] = len(window_events)
 
-            clusters = correlate(window_events, prefs)
+            # Honour the primary source's per-source entity strategy (entity-agnostic
+            # correlation; default ``auto`` keeps today's behaviour byte-for-byte).
+            strategy = prefs.entity_strategy_for(prefs.primary_source())
+            clusters = correlate(window_events, prefs, entity_strategy=strategy)
             # Attach/investigate/register is the SHARED ingest path (identical for
             # push receivers): see app/engine/ingest.handle_clusters.
             cluster_stats = await handle_clusters(

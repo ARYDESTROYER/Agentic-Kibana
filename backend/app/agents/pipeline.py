@@ -262,6 +262,8 @@ class InvestigationPipeline:
             origin_surface=_origin_surface(existing, source_surface),
             rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
+            source_id=_source_id(existing, cluster),
+            source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
@@ -330,6 +332,8 @@ class InvestigationPipeline:
             origin_surface=origin,
             rule_ids=_merge_rules(existing, cluster),
             entity=cluster.entity,
+            source_id=_source_id(existing, cluster),
+            source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
@@ -354,6 +358,16 @@ def _trigger(existing: Case | None, cluster: Cluster):
     """Keep the cluster's freshly-computed trigger reason, falling back to the
     existing case's (so a manual re-investigate doesn't erase the scan's reason)."""
     return cluster.trigger_reason or (existing.trigger_reason if existing else None)
+
+
+def _source_id(existing: Case | None, cluster: Cluster) -> str | None:
+    """Record the originating source id on the case (multi-source provenance),
+    preserving an existing case's value (never erased by a later attach)."""
+    return cluster.source_id or (existing.source_id if existing else None)
+
+
+def _source_name(existing: Case | None, cluster: Cluster) -> str | None:
+    return cluster.source_name or (existing.source_name if existing else None)
 
 
 def _merge_rules(existing: Case | None, cluster: Cluster) -> list[str]:
@@ -383,6 +397,8 @@ def _fail_to_human_case(
         origin_surface=_origin_surface(existing, source_surface),
         rule_ids=_merge_rules(existing, cluster),
         entity=cluster.entity,
+        source_id=_source_id(existing, cluster),
+        source_name=_source_name(existing, cluster),
         member_event_ids=list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         )),

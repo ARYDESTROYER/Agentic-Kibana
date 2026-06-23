@@ -412,11 +412,59 @@ async def chat(
     # Per-call model override (additive): run THIS chat turn with the chat-role model
     # swapped to body.model via a prefs copy. Unchanged when body.model is None.
     prefs_eff = _override_models(state.prefs, body.model, ("chat",))
-    resp = await state.chat_engine.chat(
-        body.message, prefs_eff, case_id=body.case_id, history=body.history,
-        context=body.context, author=author,
-    )
+    # Per-call SOURCE scoping (multi-source): when body.source_id selects a
+    # configured PULL source, build that source's connector (its config+TLS, like
+    # the browse endpoint) and run the chat against it. Absent / push / unbuildable
+    # → the primary source (today's behaviour). Single-source SELECT, NOT cross-
+    # source aggregation.
+    source_conn, owned_client = _chat_source_connector(state, body.source_id)
+    try:
+        resp = await state.chat_engine.chat(
+            body.message, prefs_eff, case_id=body.case_id, history=body.history,
+            context=body.context, author=author, source=source_conn,
+        )
+    finally:
+        if owned_client is not None:
+            try:
+                await owned_client.close()
+            except Exception:  # noqa: BLE001
+                pass
     return resp.model_dump(mode="json")
+
+
+def _chat_source_connector(state: AppState, source_id: str | None):
+    """Build the PULL connector for an explicitly-selected chat source.
+
+    Returns ``(connector | None, owned_es_client | None)``. ``None`` connector means
+    "use the chat engine's default primary source" (no source_id, source not found,
+    a push receiver, or a build error). ``owned_es_client`` (when not None) is a
+    per-source ES client the CALLER must close after the turn."""
+    if not source_id:
+        return None, None
+    src = next((s for s in state.prefs.sources if s.id == source_id and s.enabled), None)
+    if src is None:
+        return None, None
+    reg = get_registry()
+    if not reg.is_pull(src.source_type):
+        return None, None  # push sources have no queryable connector for chat
+    try:
+        from ..connectors.elastic import ElasticConnector
+        from ..connectors.opensearch import OpenSearchConnector
+        from ..connectors.wazuh import WazuhConnector
+
+        es_client, owned = state.es_client_for_source(src)
+        cfg = {**(src.config or {})}
+        if src.display_name:
+            cfg.setdefault("display_name", src.display_name)
+        if src.source_type == SourceType.OPENSEARCH:
+            conn = OpenSearchConnector(es_client, config=cfg, connector_id=src.id)
+        elif src.source_type == SourceType.WAZUH:
+            conn = WazuhConnector(es_client, config=cfg, connector_id=src.id)
+        else:
+            conn = ElasticConnector(es_client, config=cfg, connector_id=src.id)
+        return conn, (es_client if owned else None)
+    except Exception:  # noqa: BLE001 — fall back to the primary source on any error
+        return None, None
 
 
 # --------------------------------------------------------------------------- #

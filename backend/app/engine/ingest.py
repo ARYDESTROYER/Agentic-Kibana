@@ -28,6 +28,27 @@ if TYPE_CHECKING:  # avoid import cycles (these import connectors/agents)
 logger = logging.getLogger("tlsoc.engine.ingest")
 
 
+def _push_source_role(src) -> str:
+    """The role a PUSH source declares for its events ("alerts" or "events").
+
+    A push source has no per-document index, so it is declared wholesale: either
+    ``config["role"] = "alerts"`` or an ``index_patterns`` list whose entries are
+    ALL alerts-role. Anything else (incl. no source) is treated as ``events`` —
+    full back-compat with today's correlate→allowlist behaviour."""
+    if src is None:
+        return "events"
+    cfg = getattr(src, "config", None) or {}
+    if str(cfg.get("role") or "").lower() == "alerts":
+        return "alerts"
+    try:
+        patterns = src.index_patterns()
+    except Exception:  # noqa: BLE001
+        patterns = []
+    if patterns and all(p.role.value == "alerts" for p in patterns):
+        return "alerts"
+    return "events"
+
+
 def dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
     """De-dupe events by document id (overlapping windows/batches). First wins."""
     seen: dict[str, RawEvent] = {}
@@ -82,8 +103,13 @@ async def handle_clusters(
             await attach_cluster(cases, existing, cluster)
             stats["attached"] += 1
             continue
+        # Alerts-role index patterns carry SIEM-generated detections the operator
+        # wants EVERY one of triaged: an alerts-role cluster is auto-forwarded to
+        # investigation regardless of the auto-forward allowlist (still gated by
+        # background_scan_enabled, the global automated-investigation switch).
+        # Events-role clusters keep the existing correlate→allowlist behaviour.
         forwarded = prefs.background_scan_enabled and (
-            wildcard or any(r in allow for r in cluster.rule_values)
+            cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values)
         )
         if forwarded:
             await pipeline.investigate_cluster(cluster, source_surface, prefs)
@@ -135,13 +161,32 @@ class IngestService:
 
         events = dedup_by_id(events)
         if source_id:
+            # Tag PUSH events with source provenance + role (the ElasticConnector
+            # does this for PULL). A push source can be declared an ALL-alerts source
+            # via config (``role: alerts`` / ``index_patterns`` all-alerts) so every
+            # one of its clusters auto-forwards. Never overwrites a role/source the
+            # event already carries (e.g. set by a connector).
+            src = next((s for s in prefs.sources if s.id == source_id), None)
+            push_role = _push_source_role(src)
+            name = (src.display_name or source_id) if src else source_id
+            for ev in events:
+                if not ev.source_id:
+                    ev.source_id = source_id
+                if not ev.source_name:
+                    ev.source_name = name
+                if push_role == "alerts":
+                    ev.index_role = "alerts"
             buf = self._recent.get(source_id)
             if buf is None:
                 buf = collections.deque(maxlen=self._recent_max)
                 self._recent[source_id] = buf
             buf.extend(events)
         try:
-            clusters = correlate(events, prefs)
+            # Honour the originating source's per-source entity strategy (entity-
+            # agnostic correlation; default auto preserves today's behaviour).
+            src = next((s for s in prefs.sources if s.id == source_id), None) if source_id else None
+            strategy = prefs.entity_strategy_for(src)
+            clusters = correlate(events, prefs, entity_strategy=strategy)
             stats = await handle_clusters(
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=source_surface,

@@ -87,6 +87,9 @@ class ElasticConnector(PullConnector):
         "data_view_pattern", "time_field", "source_ip_field", "user_field",
         "host_field", "rule_field", "rule_name_field", "severity_field",
         "severity_threshold", "in_scope_rules", "excluded_rules",
+        # Deep customisability: the message column field + the entity-resolution
+        # strategy can be configured per source (default = ECS / global prefs).
+        "message_field", "entity_strategy",
     )
 
     def _effective_prefs(self, prefs: Preferences) -> Preferences:
@@ -95,12 +98,70 @@ class ElasticConnector(PullConnector):
         With an empty ``config`` (the default primary Elastic source) this returns
         ``prefs`` unchanged — behaviour is byte-identical to before. With a Wazuh /
         non-ECS source it yields a prefs whose field mapping + index pattern match
-        that source, so poll/search/normalisation extract the right fields."""
+        that source, so poll/search/normalisation extract the right fields.
+
+        When the source configures multiple ``index_patterns`` (events/alerts roles)
+        the effective ``data_view_pattern`` becomes the comma-joined union of ALL
+        configured patterns, so a single poll/search reads across every pattern;
+        per-pattern role tagging happens on the resulting events."""
         overrides = {
             k: self.config[k] for k in self._OVERLAY_KEYS
             if k in self.config and self.config[k] is not None
         }
+        patterns = self._index_patterns()
+        if patterns:
+            joined = ",".join(p["pattern"] for p in patterns)
+            if joined:
+                overrides["data_view_pattern"] = joined
         return prefs.model_copy(update=overrides) if overrides else prefs
+
+    def _index_patterns(self) -> list[dict[str, str]]:
+        """The source's configured index patterns + roles (normalised dicts).
+
+        Reads ``config["index_patterns"]`` (list of ``{pattern, role}`` or bare
+        strings). Empty when not configured (caller uses the single
+        ``data_view_pattern`` with role ``events`` — full back-compat)."""
+        raw = self.config.get("index_patterns")
+        out: list[dict[str, str]] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, dict) and item.get("pattern"):
+                    role = str(item.get("role") or "events").lower()
+                    role = role if role in ("events", "alerts") else "events"
+                    out.append({"pattern": str(item["pattern"]), "role": role})
+                elif isinstance(item, str) and item:
+                    out.append({"pattern": item, "role": "events"})
+        return out
+
+    def _role_for_index(self, index: str) -> str:
+        """Role of the configured pattern an event's ``_index`` belongs to.
+
+        Matches the event's index against each configured pattern (``*`` glob); the
+        FIRST alerts-role pattern that matches wins (so an alerts pattern is honoured
+        even if an events pattern also matches). Defaults to ``events``."""
+        import fnmatch
+
+        patterns = self._index_patterns()
+        if not patterns:
+            return "events"
+        for p in patterns:
+            if p["role"] == "alerts" and fnmatch.fnmatch(index, p["pattern"]):
+                return "alerts"
+        return "events"
+
+    def _tag_events(self, events: list[RawEvent]) -> list[RawEvent]:
+        """Stamp source provenance + per-pattern role onto each RawEvent.
+
+        ``source_id``/``source_name`` identify the originating source (UI filter);
+        ``index_role`` is the role of the pattern the event's index belongs to, so
+        ``handle_clusters`` can auto-forward alerts-role clusters. No-op fields when
+        nothing is configured (back-compat)."""
+        name = self.config.get("display_name") or self.connector_id
+        for ev in events:
+            ev.source_id = self.connector_id
+            ev.source_name = name
+            ev.index_role = self._role_for_index(ev.index)
+        return events
 
     # --------------------------------------------------------------------- #
     # Wizard-facing self-description
@@ -278,7 +339,7 @@ class ElasticConnector(PullConnector):
         body = poll_query(prefs, cursor, from_millis)
         resp = await self._es.search_logs(prefs.data_view_pattern, body)
         hits = resp.get("hits", {}).get("hits", [])
-        return [RawEvent.from_hit(h, prefs) for h in hits]
+        return self._tag_events([RawEvent.from_hit(h, prefs) for h in hits])
 
     async def search(self, prefs: Preferences, query: StructuredQuery) -> SearchResult:
         """Run a structured ad-hoc search (backs the ``es_query`` tool).
@@ -426,7 +487,7 @@ class ElasticConnector(PullConnector):
         hits = resp.get("hits", {}).get("hits", [])
         total = resp.get("hits", {}).get("total", {})
         total_val = total.get("value", len(hits)) if isinstance(total, dict) else len(hits)
-        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        events = self._tag_events([RawEvent.from_hit(h, prefs) for h in hits])
         rendering = QueryRendering(
             query=kql,
             language="kuery",

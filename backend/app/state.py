@@ -254,7 +254,11 @@ class AppState:
             return ElasticConnector(self.es)
         es_client, owned = self.es_client_for_source(primary)
         self._set_owned_log_client(es_client if owned else None)
-        cfg = primary.config or {}
+        # Pass the source's display_name through config so tagged events carry a
+        # human-readable source_name (UI filter-by-source). Non-secret, additive.
+        cfg = {**(primary.config or {})}
+        if primary.display_name:
+            cfg.setdefault("display_name", primary.display_name)
         cid = primary.id
         if primary.source_type == SourceType.OPENSEARCH:
             return OpenSearchConnector(es_client, config=cfg, connector_id=cid)

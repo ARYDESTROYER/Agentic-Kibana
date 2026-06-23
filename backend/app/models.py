@@ -7,7 +7,7 @@ field to Section 7. Internal types (``RawEvent``, ``Cluster``, ``VerdictResult``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -57,6 +57,13 @@ class RawEvent(BaseModel):
     rule: str | None = None
     rule_name: str | None = None
     severity: float = 0.0
+    # Multi-pattern provenance (entity-agnostic + per-pattern role). ``index_role``
+    # is the role of the configured pattern this event came from ("events" default,
+    # "alerts" for SIEM-generated detections that auto-forward). ``source_id`` records
+    # which configured source emitted it. Both default to back-compat values.
+    index_role: str = "events"
+    source_id: str | None = None
+    source_name: str | None = None
 
     @classmethod
     def from_hit(cls, hit: dict[str, Any], prefs: Preferences) -> "RawEvent":
@@ -112,7 +119,23 @@ class RawEvent(BaseModel):
             severity=ev.severity_score,
         )
 
+    # Coarse time bucket (seconds) used when grouping by RULE so a rule-grouped
+    # cluster is still time-bounded (a case forms per rule per bucket). 5 minutes.
+    RULE_BUCKET_SECONDS: ClassVar[int] = 300
+
     def entity_value(self, group_by: EntityType) -> str | None:
+        """The grouping value for ``group_by`` (None when this event lacks it).
+
+        For IP/USER/HOST this is the extracted field. For RULE (the entity-agnostic
+        fallback) it is ``"<rule>|<time-bucket>"`` so events of the same rule within
+        the same coarse window cluster together, but distant bursts do not merge —
+        guaranteeing a case forms even when every standard entity field is null."""
+        if group_by == EntityType.RULE:
+            rule = self.rule or self.rule_name
+            if not rule:
+                return None
+            bucket = self.timestamp_millis // (self.RULE_BUCKET_SECONDS * 1000)
+            return f"{rule}|{bucket}"
         return {
             EntityType.IP: self.ip,
             EntityType.USER: self.user,
@@ -179,6 +202,14 @@ class Cluster(BaseModel):
     risk_score: float = 0.0
     risk_breakdown: RiskBreakdown = Field(default_factory=RiskBreakdown)
     trigger_reason: TriggerReason | None = None
+    # Source provenance (multi-source UI filter + per-source behaviour). Derived
+    # from the cluster's member events; default None preserves prior behaviour.
+    source_id: str | None = None
+    source_name: str | None = None
+    # True when ANY member event came from an ``alerts``-role index pattern: such
+    # clusters are SIEM-generated detections and are auto-forwarded to investigation
+    # regardless of the auto-forward allowlist (see engine/ingest.handle_clusters).
+    is_alert: bool = False
 
     @property
     def window_seconds(self) -> float:
@@ -306,6 +337,11 @@ class Case(BaseModel):
     origin_surface: SourceSurface | None = None
     rule_ids: list[str] = Field(default_factory=list)
     entity: Entity
+    # Originating source (multi-source provenance; enables UI filter-by-source).
+    # Derived from the cluster's member events at creation; default None == the
+    # legacy single implicit source (full back-compat).
+    source_id: str | None = None
+    source_name: str | None = None
     member_event_ids: list[str] = Field(default_factory=list)
     risk_score: float = 0.0
     verdict: Verdict | None = None
@@ -477,6 +513,11 @@ class ChatRequest(BaseModel):
     # the chat-role model is overridden to this id for THIS turn only via a prefs
     # copy — no gateway plumbing change. Still routed through the single gateway.
     model: str | None = None
+    # Optional per-call SOURCE scoping (multi-source): when set, the chat engine
+    # queries THAT configured source's connector (built per-call like the browse
+    # endpoint) instead of the primary. Absent → the primary source (today's
+    # behaviour). NOTE: this is single-source SELECT, not cross-source aggregation.
+    source_id: str | None = None
 
 
 class DiscoverLink(BaseModel):

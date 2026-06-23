@@ -70,7 +70,13 @@ class ChatEngine:
         history: list[ChatTurn] | None = None,
         context: ChatContext | None = None,
         author: str = "",
+        source: PullConnector | None = None,
     ) -> ChatResponse:
+        # Per-call SOURCE scoping (multi-source): an explicit ``source`` connector
+        # (built by the route from the selected source's config+TLS) overrides the
+        # default primary source for the es_query tool THIS turn only. ``prefs``
+        # should be the source's effective prefs (field mapping/scope) when set.
+        log_source = source or self._source
         # Feature 1: the global flyout may attach a case_id via context.
         if context and context.case_id and not case_id:
             case_id = context.case_id
@@ -136,7 +142,7 @@ class ChatEngine:
             if context and context.time_range:
                 query_params.setdefault("time_from", context.time_range.get("from"))
                 query_params.setdefault("time_to", context.time_range.get("to"))
-            tool = EsQueryTool(self._source, prefs)
+            tool = EsQueryTool(log_source, prefs)
             tr = await tool.run(**{k: v for k, v in query_params.items() if v not in (None, "")})
             await self._audit.record(
                 action_type=ActionType.ES_QUERY, surface=Role.CHAT.value, actor=Role.CHAT.value,

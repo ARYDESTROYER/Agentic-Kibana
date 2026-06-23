@@ -15,7 +15,7 @@ from collections import defaultdict
 from typing import NamedTuple
 
 from ..config import CorrelationRule, Preferences
-from ..constants import CorrelationMode, EntityType
+from ..constants import CorrelationMode, EntityStrategy, EntityType
 from ..models import Cluster, Entity, RawEvent, TriggerReason
 from .signatures import cluster_signature
 
@@ -26,8 +26,63 @@ class _WindowDetail(NamedTuple):
     window_end: int
 
 
-def correlate(events: list[RawEvent], prefs: Preferences) -> list[Cluster]:
-    """Group a polled batch into candidate investigations (clusters)."""
+# The entity-agnostic fallback ladder for the ``auto`` strategy: when an event's
+# primary entity is missing we walk this so a case STILL forms (RULE is always
+# last + always resolvable, so an in-scope event is never silently dropped).
+_AUTO_LADDER = (EntityType.IP, EntityType.HOST, EntityType.USER, EntityType.RULE)
+# Pinned strategies resolve their entity first, then fall through to RULE (so a
+# pinned source whose event lacks that entity still clusters, never drops).
+_PINNED_LADDER = {
+    EntityStrategy.IP: (EntityType.IP, EntityType.RULE),
+    EntityStrategy.HOST: (EntityType.HOST, EntityType.RULE),
+    EntityStrategy.USER: (EntityType.USER, EntityType.RULE),
+    EntityStrategy.RULE: (EntityType.RULE,),
+}
+
+
+def resolve_entity(
+    ev: RawEvent, group_by: EntityType, strategy: EntityStrategy
+) -> tuple[EntityType, str] | None:
+    """Resolve the grouping (entity_type, value) for one event — entity-agnostic.
+
+    Back-compat guarantee: with strategy ``auto`` the per-rule ``group_by`` entity
+    is tried FIRST, so an event that HAS that entity groups EXACTLY as before. Only
+    when the primary entity is missing do we walk the fallback ladder
+    (IP → HOST → USER → RULE), so an in-scope event whose primary field is null is
+    never silently dropped — a case STILL forms (grouped by host/user/rule).
+
+    A pinned strategy (``ip``/``host``/``user``/``rule``) resolves that entity first
+    (then RULE), giving the operator full control while keeping the never-drop
+    guarantee. RULE is always resolvable (rule name + coarse time bucket)."""
+    if strategy == EntityStrategy.AUTO:
+        primary = ev.entity_value(group_by)
+        if primary is not None:
+            return group_by, primary
+        ladder = _AUTO_LADDER
+    else:
+        ladder = _PINNED_LADDER.get(strategy, _AUTO_LADDER)
+    for et in ladder:
+        val = ev.entity_value(et)
+        if val is not None:
+            return et, val
+    return None
+
+
+def correlate(
+    events: list[RawEvent],
+    prefs: Preferences,
+    *,
+    entity_strategy: EntityStrategy | None = None,
+) -> list[Cluster]:
+    """Group a polled batch into candidate investigations (clusters).
+
+    Entity-agnostic (NO-SOURCE-IP fix): each event's grouping entity is resolved by
+    :func:`resolve_entity` under ``entity_strategy`` (defaults to
+    ``prefs.entity_strategy``), so an event that lacks the primary entity still
+    clusters (host/user/rule) instead of being silently dropped. With strategy
+    ``auto`` and events that HAVE the per-rule ``group_by`` entity, grouping is
+    byte-identical to before."""
+    strategy = entity_strategy or prefs.entity_strategy
     # (entity_type, value) -> the PRIMARY triggering rule's metadata.
     triggers: dict[tuple[EntityType, str], dict] = {}
 
@@ -47,12 +102,14 @@ def correlate(events: list[RawEvent], prefs: Preferences) -> list[Cluster]:
         if cfg.mode == CorrelationMode.NEVER:
             continue
         group_by = cfg.group_by
-        by_entity: dict[str, list[RawEvent]] = defaultdict(list)
+        # Resolve each event to its (entity_type, value) — entity-agnostic, so an
+        # event missing the primary entity still groups (never dropped).
+        by_entity: dict[tuple[EntityType, str], list[RawEvent]] = defaultdict(list)
         for ev in rule_events:
-            val = ev.entity_value(group_by)
-            if val:
-                by_entity[val].append(ev)
-        for value, group in by_entity.items():
+            resolved = resolve_entity(ev, group_by, strategy)
+            if resolved is not None:
+                by_entity[resolved].append(ev)
+        for (entity_type, value), group in by_entity.items():
             detail = _window_detail(group, cfg)
             if detail is None:
                 continue
@@ -62,14 +119,14 @@ def correlate(events: list[RawEvent], prefs: Preferences) -> list[Cluster]:
                 "mode": cfg.mode.value,
                 "n": cfg.n,
                 "window_seconds": cfg.window_seconds,
-                "group_by": group_by.value,
+                "group_by": entity_type.value,
                 "observed_count": detail.observed_count,
                 "window_start": detail.window_start,
                 "window_end": detail.window_end,
                 "severity_min": min(sev) if sev else None,
                 "severity_max": max(sev) if sev else None,
             }
-            key = (group_by, value)
+            key = (entity_type, value)
             # Keep the PRIMARY rule (highest observed_count) for multi-rule entities.
             if key not in triggers or detail.observed_count > triggers[key]["observed_count"]:
                 triggers[key] = meta
@@ -130,10 +187,20 @@ def _build_cluster(
 ) -> Cluster:
     members_sorted = sorted(members, key=lambda e: e.timestamp_millis)
     rule_values = sorted({ev.rule for ev in members if ev.rule})
-    trigger_reason = _build_trigger_reason(entity_type, value, rule_values, trigger_meta)
+    # For a RULE-grouped cluster ``value`` is the bucketed key "<rule>|<bucket>":
+    # keep the bucket in the SIGNATURE (so distinct windows are distinct cases,
+    # idempotent per bucket) but show the clean rule name as the entity value.
+    display_value = value.rsplit("|", 1)[0] if entity_type == EntityType.RULE else value
+    trigger_reason = _build_trigger_reason(entity_type, display_value, rule_values, trigger_meta)
+    # Source provenance + alerts-role flag, derived from the member events. The
+    # first member with a source_id wins; ``is_alert`` is true when ANY member
+    # came from an alerts-role index pattern (→ auto-forward, bypassing allowlist).
+    source_id = next((ev.source_id for ev in members_sorted if ev.source_id), None)
+    source_name = next((ev.source_name for ev in members_sorted if ev.source_name), None)
+    is_alert = any(ev.index_role == "alerts" for ev in members_sorted)
     return Cluster(
         signature=cluster_signature(entity_type, value),
-        entity=Entity(type=entity_type, value=value),
+        entity=Entity(type=entity_type, value=display_value),
         group_by=entity_type,
         rule_values=rule_values,
         member_event_ids=[ev.id for ev in members_sorted],
@@ -142,6 +209,9 @@ def _build_cluster(
         last_seen_millis=members_sorted[-1].timestamp_millis,
         count=len(members_sorted),
         trigger_reason=trigger_reason,
+        source_id=source_id,
+        source_name=source_name,
+        is_alert=is_alert,
     )
 
 

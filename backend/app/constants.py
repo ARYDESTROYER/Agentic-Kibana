@@ -142,6 +142,32 @@ class EntityType(str, Enum):
     IP = "ip"
     USER = "user"
     HOST = "host"
+    # Fallback grouping key when an event carries no IP/USER/HOST (entity-agnostic
+    # correlation). A RULE-grouped cluster keys on the rule name + a coarse time
+    # bucket so an in-scope event is NEVER silently dropped just because every
+    # standard entity field is null (see engine/correlation.resolve_entity).
+    RULE = "rule"
+
+
+# Per-source entity-resolution strategy for correlation (Preferences.entity_strategy
+# default + SourceInstance.config["entity_strategy"] override). ``auto`` tries
+# IP → HOST → USER → RULE so a case always forms; the others pin one entity (with
+# RULE as the always-present fallback so an event is never dropped).
+class EntityStrategy(str, Enum):
+    AUTO = "auto"
+    IP = "ip"
+    HOST = "host"
+    USER = "user"
+    RULE = "rule"
+
+
+# Role a configured index pattern plays for a source (multi-pattern sources).
+# ``events`` patterns keep the correlate→auto-forward-allowlist behaviour;
+# ``alerts`` patterns are SIEM-generated detections every one of which the operator
+# wants triaged, so alerts-role clusters are AUTO-FORWARDED (bypass the allowlist).
+class IndexRole(str, Enum):
+    EVENTS = "events"
+    ALERTS = "alerts"
 
 
 class UsageOutcome(str, Enum):

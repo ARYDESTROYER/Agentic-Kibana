@@ -22,7 +22,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .constants import CorrelationMode, EntityType, IngestMode, SourceType
+from .constants import CorrelationMode, EntityStrategy, EntityType, IndexRole, IngestMode, SourceType
 from .utils import dotted_get, iso_now
 
 Provider = Literal["anthropic", "openai", "mock"]
@@ -480,6 +480,18 @@ class AssetNetwork(BaseModel):
     criticality: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class IndexPattern(BaseModel):
+    """One index pattern a source reads, with the ROLE it plays.
+
+    ``events`` (default) — ordinary logs: correlate → auto-forward only when the
+    rule is on ``auto_forward_allowlist``. ``alerts`` — SIEM-generated detections
+    the operator wants every one of triaged: any cluster touching an alerts-role
+    pattern is AUTO-FORWARDED to investigation, bypassing the allowlist."""
+
+    pattern: str
+    role: IndexRole = IndexRole.EVENTS
+
+
 class SourceInstance(BaseModel):
     """One configured log source (a connector instance).
 
@@ -511,6 +523,41 @@ class SourceInstance(BaseModel):
     configured_secrets: list[str] = Field(default_factory=list)  # secret field names set (not values)
     created_at: str = Field(default_factory=iso_now)
     updated_at: str = Field(default_factory=iso_now)
+
+    def index_patterns(self) -> list[IndexPattern]:
+        """The configured index patterns + roles for this source.
+
+        Reads ``config["index_patterns"]`` (a list of ``{pattern, role}``); falls
+        back to the single ``config["data_view_pattern"]`` (role=events) when none
+        is configured. Empty when neither is set (caller uses global prefs). This is
+        what makes a source read across N patterns and tag alerts-role detections."""
+        raw = self.config.get("index_patterns")
+        out: list[IndexPattern] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, dict) and item.get("pattern"):
+                    try:
+                        out.append(IndexPattern.model_validate(item))
+                    except Exception:  # noqa: BLE001 — skip a malformed entry
+                        continue
+                elif isinstance(item, str) and item:
+                    out.append(IndexPattern(pattern=item))
+        if out:
+            return out
+        dv = self.config.get("data_view_pattern")
+        if dv:
+            return [IndexPattern(pattern=str(dv))]
+        return []
+
+    def entity_strategy(self) -> EntityStrategy | None:
+        """This source's entity-resolution strategy override, or None (use global)."""
+        val = self.config.get("entity_strategy")
+        if not val:
+            return None
+        try:
+            return EntityStrategy(str(val))
+        except ValueError:
+            return None
 
 
 class Preferences(BaseModel):
@@ -556,6 +603,18 @@ class Preferences(BaseModel):
     source_ip_field: str = "source.ip"
     user_field: str = "user.name"
     host_field: str = "host.name"
+    # The field carrying the human-readable event message (browse/chat "message"
+    # column). Configurable per source via SourceInstance.config; defaults to ECS.
+    message_field: str = "message"
+
+    # --- Entity-agnostic correlation strategy (NO-SOURCE-IP fix) ---
+    # How correlation resolves the grouping entity for an event. ``auto`` (default)
+    # tries the per-rule ``group_by`` first (byte-identical to before for events
+    # that have it) and, ONLY when that entity is missing, falls back IP → HOST →
+    # USER → RULE so an in-scope event is never silently dropped. ``ip``/``host``/
+    # ``user`` pin one entity (still RULE-fallback when missing); ``rule`` always
+    # groups by rule. Overridable per source via SourceInstance.config.
+    entity_strategy: EntityStrategy = EntityStrategy.AUTO
 
     # --- Rule / severity identification (upstream emits heterogeneous fields) ---
     rule_field: str = "event.module"        # per-event rule identity (always present upstream)
@@ -654,6 +713,16 @@ class Preferences(BaseModel):
     def correlation_for(self, rule_value: str) -> CorrelationRule:
         """Return the correlation rule for a given rule value, or the default."""
         return self.correlation_rules.get(rule_value, self.default_correlation)
+
+    def entity_strategy_for(self, source: "SourceInstance | None") -> EntityStrategy:
+        """The effective entity-resolution strategy for a source: the source's own
+        ``config["entity_strategy"]`` override, else the global default. Keeps the
+        entity-agnostic fallback per-source configurable (NO-SOURCE-IP fix)."""
+        if source is not None:
+            override = source.entity_strategy()
+            if override is not None:
+                return override
+        return self.entity_strategy
 
     def primary_source(self) -> "SourceInstance | None":
         """The source the poller + es_query read from.

@@ -111,6 +111,9 @@ def entity_kql(cluster: Cluster, prefs: Preferences) -> str:
         "ip": prefs.source_ip_field,
         "user": prefs.user_field,
         "host": prefs.host_field,
+        # RULE is the entity-agnostic fallback grouping: point Discover at the rule
+        # field so the query still reproduces the cluster (no entity field exists).
+        "rule": prefs.rule_field,
     }.get(cluster.entity.type.value, prefs.source_ip_field)
     return f'{field} : "{cluster.entity.value}"'
 
