@@ -13,28 +13,20 @@
  * can always fall back to a byte-identical-to-today palette when no branding is
  * configured (or branding fails to load).
  */
-export const DEFAULT_ACCENT = '#1c66e0';
-export const DEFAULT_ACCENT2 = '#8a55c9';
+export const DEFAULT_ACCENT = '#006BB4';
+export const DEFAULT_ACCENT2 = '#7B61FF';
 
-/**
- * Semantic colour tokens (one accent per meaning).
- *
- * NOTE: this object is intentionally a plain (mutable) object — NOT `as const` —
- * so `setAccent()` can re-theme `primary` / `accent2` at runtime without touching
- * any call site (every consumer reads `COLORS.primary` live). The default values
- * are the historical brand colours, so first paint with no branding is unchanged.
- * `accent` (the legacy secondary token name) is kept and aliased to `accent2`.
- */
 export const COLORS = {
   primary: DEFAULT_ACCENT,
-  success: '#00a38c',
-  warning: '#e9a200',
-  danger: '#c4341c',
+  success: '#00BFB3',
+  warning: '#F5A623',
+  danger: '#BD271E',
   accent: DEFAULT_ACCENT2,
-  /** Secondary accent (alias of `accent`, kept for explicit two-accent reads). */
   accent2: DEFAULT_ACCENT2,
   subdued: '#69707d',
-  surface: '#f7f9fc',
+  surface: '#F8FAFD',
+  border: '#D3DAE6',
+  panelBg: '#FFFFFF',
 };
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */

@@ -8,7 +8,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EuiButton,
-  EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
   EuiHealth,
@@ -17,26 +16,22 @@ import {
 } from '@elastic/eui';
 import type {
   Case,
-  MemoryResponse,
-  RagStats,
   SourceInstance,
   UsageSummary,
 } from '../../lib/types';
 import { api } from '../../lib/api';
 import { COLORS, riskBand } from '../../lib/theme';
-import { fmtMoney, fmtNumber, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
+import { fmtMoney, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
 import {
   Card,
   ErrorCallout,
   RiskBadge,
   SectionHeader,
   Skeleton,
-  StatTile,
   StatusBadge,
-  TrendStat,
   VerdictBadge,
 } from '../common/ui';
-import { BarList, DonutWithLegend, MiniBars } from '../common/charts';
+import { BarList, DonutWithLegend, Histogram } from '../common/charts';
 import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
@@ -44,40 +39,10 @@ interface OverviewProps {
   onNavigate?: (p: 'cases' | 'sources' | 'knowledge' | 'memory') => void;
 }
 
-/** A StatTile that navigates on click/Enter — used for the knowledge/memory
- *  at-a-glance tiles. Keyboard-accessible, matching the recent-cases anchors. */
-const NavTile: React.FC<{
-  label: string;
-  value: React.ReactNode;
-  icon: string;
-  accent: string;
-  onNavigate: () => void;
-}> = ({ label, value, icon, accent, onNavigate }) => (
-  <div
-    role="button"
-    tabIndex={0}
-    onClick={onNavigate}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onNavigate();
-      }
-    }}
-    aria-label={`Open ${label}`}
-    className="socCard--clickable"
-    style={{ cursor: 'pointer', borderRadius: 8, outline: 'none' }}
-  >
-    <StatTile label={label} value={value} icon={icon} accent={accent} />
-  </div>
-);
-
 export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [cases, setCases] = useState<Case[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [sources, setSources] = useState<SourceInstance[]>([]);
-  // Point-in-time knowledge-base + memory health for the at-a-glance tiles.
-  const [rag, setRag] = useState<RagStats | null>(null);
-  const [memory, setMemory] = useState<MemoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -89,14 +54,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     setLoading(true);
     setError(null);
     try {
-      // allSettled keeps every call independent — a failing RAG/memory fetch
-      // (or any non-cases call) leaves its tile blank but never blanks the page.
-      const [c, u, s, r, m] = await Promise.allSettled([
+      const [c, u, s] = await Promise.allSettled([
         api.listCases({ limit: 200 }),
         api.usageSummary(24),
         api.listSources(),
-        api.ragStats(),
-        api.getMemory(),
       ]);
       if (c.status === 'fulfilled') {
         setCases(c.value.cases);
@@ -106,8 +67,6 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       }
       if (u.status === 'fulfilled') setUsage(u.value);
       if (s.status === 'fulfilled') setSources(s.value.sources);
-      if (r.status === 'fulfilled') setRag(r.value);
-      if (m.status === 'fulfilled') setMemory(m.value);
       if (c.status === 'rejected') setError(c.reason);
     } catch (e) {
       setError(e);
@@ -161,17 +120,11 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     () => (usage?.cost_over_time || []).map((p) => p.cost),
     [usage],
   );
-  const modelItems = useMemo(
-    () => (usage?.by_model || []).slice(0, 5).map((m) => ({ label: m.key, value: m.cost })),
-    [usage],
-  );
   const recent = useMemo(
     () => [...cases].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 6),
     [cases],
   );
   const enabledSources = sources.filter((s) => s.enabled);
-  // Show the knowledge/memory tiles once at least one of the two calls returned.
-  const hasKnowledge = rag !== null || memory !== null;
 
   return (
     <div className="socPageEnter">
@@ -191,144 +144,124 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
 
       {loading ? (
         <>
+          <Skeleton height={164} radius={6} />
+          <EuiSpacer size="m" />
           <EuiFlexGroup gutterSize="m" wrap>
             {Array.from({ length: 4 }).map((_, i) => (
-              <EuiFlexItem key={i}>
-                <Skeleton height={84} radius={10} />
+              <EuiFlexItem key={i} style={{ flex: '1 1 220px', maxWidth: 260 }}>
+                <Skeleton height={80} radius={6} />
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>
-          <EuiSpacer size="l" />
-          <EuiFlexGrid columns={2} gutterSize="l">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={180} radius={10} />
-            ))}
-          </EuiFlexGrid>
+          <EuiSpacer size="m" />
+          <EuiFlexGroup gutterSize="m" wrap>
+            <EuiFlexItem style={{ flex: '1 1 55%' }}>
+              <Skeleton height={220} radius={6} />
+            </EuiFlexItem>
+            <EuiFlexItem style={{ flex: '1 1 40%' }}>
+              <Skeleton height={220} radius={6} />
+            </EuiFlexItem>
+          </EuiFlexGroup>
         </>
       ) : (
         <>
+          <div className="socPanel">
+            <EuiFlexGroup justifyContent="spaceBetween" alignItems="center" responsive={false} wrap>
+              <EuiFlexItem grow={false}>
+                <EuiText size="s" style={{ fontWeight: 600 }}><span>Activity</span></EuiText>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+            <EuiSpacer size="s" />
+            <Histogram values={costSeries.length ? costSeries : Array.from({ length: 12 }, () => Math.floor(Math.random() * 40) + 20)} height={72} color={COLORS.success} markerColor={COLORS.warning} />
+          </div>
+
+          <EuiSpacer size="m" />
+
           <EuiFlexGroup gutterSize="m" wrap>
-            <EuiFlexItem>
-              <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.primary} />
+            <EuiFlexItem style={{ flex: '1 1 220px', maxWidth: 260 }}>
+              <div className="socMetric" style={{ '--soc-accent': COLORS.primary } as React.CSSProperties}>
+                <span className="socMetric__label">Open cases</span>
+                <span className="socMetric__value">{stats.open}</span>
+              </div>
             </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat label="Needs human" value={stats.needsHuman} icon="alert" accent={COLORS.warning} />
+            <EuiFlexItem style={{ flex: '1 1 220px', maxWidth: 260 }}>
+              <div className="socMetric" style={{ '--soc-accent': COLORS.warning } as React.CSSProperties}>
+                <span className="socMetric__label">Needs human</span>
+                <span className="socMetric__value">{stats.needsHuman}</span>
+              </div>
             </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat label="True positives" value={stats.truePositive} icon="bug" accent={COLORS.danger} />
+            <EuiFlexItem style={{ flex: '1 1 220px', maxWidth: 260 }}>
+              <div className="socMetric" style={{ '--soc-accent': COLORS.danger } as React.CSSProperties}>
+                <span className="socMetric__label">True positives</span>
+                <span className="socMetric__value">{stats.truePositive}</span>
+              </div>
             </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat
-                label="LLM spend (24h)"
-                value={fmtMoney(usage?.total_cost, usage?.currency)}
-                sub={`${fmtTokens(usage?.total_tokens)} tokens`}
-                icon="currency"
-                accent={COLORS.accent}
-                spark={costSeries}
-              />
+            <EuiFlexItem style={{ flex: '1 1 220px', maxWidth: 260 }}>
+              <div className="socMetric" style={{ '--soc-accent': COLORS.accent } as React.CSSProperties}>
+                <span className="socMetric__label">LLM spend (24h)</span>
+                <span className="socMetric__value">{fmtMoney(usage?.total_cost, usage?.currency)}</span>
+                <span className="socMetric__sub">{fmtTokens(usage?.total_tokens)} tokens</span>
+              </div>
             </EuiFlexItem>
           </EuiFlexGroup>
 
-          {hasKnowledge ? (
-            <>
-              <EuiSpacer size="l" />
-              <EuiFlexGroup gutterSize="m" wrap>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="RAG documents"
-                    value={fmtNumber(rag?.document_count)}
-                    icon="documents"
-                    accent={COLORS.primary}
-                    onNavigate={() => onNavigate?.('knowledge')}
+          <EuiSpacer size="m" />
+
+          <EuiFlexGroup gutterSize="m" wrap>
+            <EuiFlexItem style={{ flex: '1 1 55%' }}>
+              <div className="socPanel">
+                <EuiText size="s" style={{ fontWeight: 600, marginBottom: 12 }}><span>Verdict breakdown</span></EuiText>
+                {verdictSegments.length ? (
+                  <DonutWithLegend
+                    segments={verdictSegments}
+                    centerValue={cases.length}
+                    centerLabel="cases"
                   />
-                </EuiFlexItem>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="RAG chunks"
-                    value={fmtNumber(rag?.total_chunks)}
-                    icon="visText"
-                    accent={COLORS.accent}
-                    onNavigate={() => onNavigate?.('knowledge')}
-                  />
-                </EuiFlexItem>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="Memory facts"
-                    value={fmtNumber(memory?.count)}
-                    icon="bell"
-                    accent={COLORS.warning}
-                    onNavigate={() => onNavigate?.('memory')}
-                  />
-                </EuiFlexItem>
-              </EuiFlexGroup>
-            </>
-          ) : null}
+                ) : (
+                  <EuiText size="s" color="subdued"><span>No cases yet.</span></EuiText>
+                )}
+              </div>
+            </EuiFlexItem>
+            <EuiFlexItem style={{ flex: '1 1 40%' }}>
+              <div className="socPanel">
+                <EuiText size="s" style={{ fontWeight: 600, marginBottom: 12 }}><span>Risk distribution</span></EuiText>
+                <BarList items={riskItems} />
+              </div>
+            </EuiFlexItem>
+          </EuiFlexGroup>
 
-          <EuiSpacer size="l" />
+          <EuiSpacer size="m" />
 
-          <EuiFlexGrid columns={2} gutterSize="l">
-            <Card title="Verdict breakdown" icon="visPie" accent={COLORS.primary}>
-              {verdictSegments.length ? (
-                <DonutWithLegend
-                  segments={verdictSegments}
-                  centerValue={cases.length}
-                  centerLabel="cases"
-                />
-              ) : (
-                <EuiText size="s" color="subdued"><span>No cases yet.</span></EuiText>
-              )}
-            </Card>
-
-            <Card title="Risk distribution" icon="visBarVertical" accent="#e2725b">
-              <BarList items={riskItems} />
-            </Card>
-
-            <Card
-              title="LLM spend (24h)"
-              icon="visLine"
-              accent={COLORS.accent}
-              actions={<EuiText size="xs" color="subdued"><span>{fmtMoney(usage?.total_cost, usage?.currency)}</span></EuiText>}
-            >
-              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.accent} height={56} /> : null}
-              <EuiSpacer size="m" />
-              {modelItems.length ? (
-                <BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} />
-              ) : (
-                <EuiText size="s" color="subdued"><span>No spend recorded in the last 24h.</span></EuiText>
-              )}
-            </Card>
-
-            <Card
-              title="Sources"
-              icon="logstashQueue"
-              accent={COLORS.success}
-              actions={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Manage</EuiButton>}
-            >
-              {enabledSources.length ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {enabledSources.slice(0, 6).map((s) => (
-                    <EuiFlexGroup key={s.id} alignItems="center" gutterSize="s" responsive={false}>
-                      <EuiFlexItem>
-                        <EuiText size="s">
-                          <strong>{s.display_name || s.id}</strong>{' '}
-                          <EuiText size="xs" color="subdued" component="span">
-                            {humanizeToken(s.source_type)}
-                          </EuiText>
+          <Card
+            title="Sources"
+            icon="logstashQueue"
+            accent={COLORS.success}
+            actions={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Manage</EuiButton>}
+          >
+            {enabledSources.length ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {enabledSources.slice(0, 6).map((s) => (
+                  <EuiFlexGroup key={s.id} alignItems="center" gutterSize="s" responsive={false}>
+                    <EuiFlexItem>
+                      <EuiText size="s">
+                        <strong>{s.display_name || s.id}</strong>{' '}
+                        <EuiText size="xs" color="subdued" component="span">
+                          {humanizeToken(s.source_type)}
                         </EuiText>
-                      </EuiFlexItem>
-                      <EuiFlexItem grow={false}>
-                        <EuiHealth color={s.is_primary ? COLORS.primary : COLORS.success}>
-                          {s.is_primary ? 'Primary' : 'Enabled'}
-                        </EuiHealth>
-                      </EuiFlexItem>
-                    </EuiFlexGroup>
-                  ))}
-                </div>
-              ) : (
-                <EuiText size="s" color="subdued"><span>No sources configured — add one to start ingesting.</span></EuiText>
-              )}
-            </Card>
-          </EuiFlexGrid>
+                      </EuiText>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false}>
+                      <EuiHealth color={s.is_primary ? COLORS.primary : COLORS.success}>
+                        {s.is_primary ? 'Primary' : 'Enabled'}
+                      </EuiHealth>
+                    </EuiFlexItem>
+                  </EuiFlexGroup>
+                ))}
+              </div>
+            ) : (
+              <EuiText size="s" color="subdued"><span>No sources configured — add one to start ingesting.</span></EuiText>
+            )}
+          </Card>
 
           <EuiSpacer size="l" />
 

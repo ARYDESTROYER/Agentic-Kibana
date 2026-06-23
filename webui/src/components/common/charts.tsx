@@ -151,6 +151,41 @@ export const Sparkline: React.FC<{
   );
 };
 
+/* ----------------------------------------------------------- histogram --- */
+export const Histogram: React.FC<{
+  values: number[];
+  width?: number;
+  height?: number;
+  color?: string;
+  markerColor?: string;
+  markers?: number[];
+}> = ({ values, width = 480, height = 72, color = COLORS.success, markerColor = COLORS.warning, markers = [] }) => {
+  if (!values.length) return <svg width={width} height={height} />;
+  const max = Math.max(1, ...values);
+  const gap = 3;
+  const bw = (width - gap * (values.length - 1)) / values.length;
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img">
+      {values.map((v, i) => {
+        const h = (v / max) * (height - 2);
+        const x = i * (bw + gap);
+        const y = height - h;
+        const isMarker = markers.includes(i);
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={Math.max(1, bw)} height={Math.max(1, h)}
+                  rx={2} fill={color} fillOpacity={isMarker ? 1 : 0.9} />
+            {isMarker && (
+              <rect x={x} y={y - 7} width={Math.max(1, bw)} height={4}
+                    rx={1} fill={markerColor} />
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
 /* ------------------------------------------------------------- mini bars -- */
 export const MiniBars: React.FC<{
   values: number[];

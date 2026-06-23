@@ -230,7 +230,7 @@ export const Shell: React.FC<ShellProps> = ({
       <div className="socBrandAccent" style={{ position: 'fixed', top: 48, left: 0, right: 0, zIndex: 999 }} />
 
       <EuiPage paddingSize="none" style={{ marginTop: 51, minHeight: 'calc(100vh - 51px)' }}>
-        <EuiPageSidebar paddingSize="l" sticky={{ offset: 51 }}>
+        <EuiPageSidebar paddingSize="l" sticky={{ offset: 51 }} className="socSidebar">
           <EuiSideNav items={sideNav} />
           <div style={{ marginTop: 24 }}>
             <EuiButtonEmpty

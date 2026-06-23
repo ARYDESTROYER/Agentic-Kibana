@@ -53,19 +53,67 @@ body {
   box-shadow: 0 2px 6px rgba(28, 102, 224, 0.35);
 }
 
-/* --- Interactive cards: subtle lift on hover (used by case/source cards). --- */
-.socCard {
-  transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease,
-    border-color 0.12s ease;
+/* --- Wireframe panel: white card with subtle border and soft radius. --- */
+.socPanel {
+  background: var(--soc-panel-bg, #FFFFFF);
+  border: 1px solid var(--soc-border, #D3DAE6);
+  border-radius: 6px;
+  padding: 16px;
+  box-sizing: border-box;
 }
-.socCard--clickable {
-  cursor: pointer;
+
+/* --- Wireframe metric tile: top accent bar + content. --- */
+.socMetric {
+  background: var(--soc-panel-bg, #FFFFFF);
+  border: 1px solid var(--soc-border, #D3DAE6);
+  border-top: 3px solid var(--soc-accent, '#006BB4');
+  border-radius: 6px;
+  padding: 14px 16px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.socCard--clickable:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+.socMetric__label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--soc-subdued, '#69707d');
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.socMetric__value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #1A1C21;
+}
+
+.socMetric__sub {
+  font-size: 12px;
+  color: var(--soc-subdued, '#69707d');
+}
+
+/* --- Wireframe sidebar overrides. --- */
+.socSidebar {
+  background: #f5f7fa;
+}
+
+.socSidebar .euiSideNav__header {
+  background: #fff;
+  border-bottom: 1px solid var(--soc-border, '#D3DAE6');
+}
+
+.socSidebar .euiSideNavItemButton {
+  border-radius: 4px;
+  padding: 6px 12px;
+}
+
+.socSidebar .euiSideNavItemButton--active {
+  background: #E7F0F8;
+  border-left: 3px solid var(--soc-accent, '#006BB4');
+  padding-left: 9px;
 }
 
 /* --- Stat tiles: gentle hover sheen. --- */
