@@ -58,7 +58,7 @@ export const Donut: React.FC<{
       {(centerValue !== undefined || centerLabel) && (
         <g>
           <text x="50%" y="47%" textAnchor="middle" dominantBaseline="central"
-                style={{ fontSize: 22, fontWeight: 700, fill: 'currentColor' }}>
+                style={{ fontSize: 28, fontWeight: 700, fill: 'currentColor' }}>
             {centerValue}
           </text>
           {centerLabel && (
@@ -106,7 +106,7 @@ export const BarList: React.FC<{
 }> = ({ items, format, max }) => {
   const top = max ?? Math.max(1, ...items.map((i) => i.value));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {items.map((it, i) => (
         <div key={it.label}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
@@ -190,11 +190,11 @@ export const StackedHistogram: React.FC<{
   data: HistogramBin[];
   width?: number;
   height?: number;
-}> = ({ data, width = 760, height = 160 }) => {
+}> = ({ data, width = 760, height = 180 }) => {
   if (!data.length) return null;
   const maxVal = Math.max(...data.map(d => d.fp + d.nh + d.tp));
   const yMax = Math.ceil(maxVal / 500) * 500;
-  const MT = 8, MB = 28;
+  const MT = 4, MB = 24;
   const chartW = width, chartH = height - MT - MB;
   const n = data.length, slotW = chartW / n, bw = slotW * 0.7, padX = (slotW - bw) / 2;
   const yStep = yMax <= 2500 ? 500 : yMax <= 15000 ? 2000 : 25000;
@@ -233,7 +233,7 @@ export const StackedHistogram: React.FC<{
 
   return React.createElement('svg', {
     viewBox: `0 0 ${width} ${height}`,
-    width: '100%', height: 140,
+    width: '100%', height: 160,
     style: { display: 'block', overflow: 'visible' },
   }, ...lines, ...bars, ...labels);
 };

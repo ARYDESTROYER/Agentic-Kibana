@@ -56,18 +56,24 @@ body {
     transform 0.12s ease,
     box-shadow 0.12s ease,
     border-color 0.12s ease;
+  border-radius: 12px;
 }
 .socCard--clickable {
   cursor: pointer;
 }
 .socCard--clickable:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+/* --- All cards get subtle hover elevation --- */
+.socCard:hover {
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 /* --- Stat tiles: gentle hover sheen. --- */
 .socStat:hover {
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
 /* --- Left accent bar utility (verdict/status/risk coloured edge). --- */
@@ -152,7 +158,7 @@ body {
 .socSkeleton {
   position: relative;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: 12px;
   background: rgba(105, 112, 125, 0.14);
 }
 .socSkeleton::after {
@@ -226,6 +232,7 @@ body {
 .socSidebar {
   background: #f5f7fa;
   border-right: 1px solid #D3DAE6;
+  box-shadow: 2px 0 8px rgba(15, 23, 42, 0.04);
 }
 
 .socSidebar-header {
@@ -233,20 +240,43 @@ body {
   border-bottom: 1px solid #D3DAE6;
 }
 
+/* Sidebar nav scrollbar — thin, hidden until hover (Linear / Notion style) */
+.socSidebar nav {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.socSidebar nav:hover {
+  scrollbar-color: rgba(105, 112, 125, 0.3) transparent;
+}
+.socSidebar nav::-webkit-scrollbar {
+  width: 5px;
+}
+.socSidebar nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+.socSidebar nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.socSidebar nav:hover::-webkit-scrollbar-thumb {
+  background: rgba(105, 112, 125, 0.3);
+}
+
 .socNavItem {
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 8px 8px 0;
   border-left: 3px solid transparent;
   font-size: 13px;
   cursor: pointer;
   transition: background 0.1s ease;
+  margin-bottom: 2px;
 }
 
 .socNavItem:hover {
-  background: #F5F7FA !important;
+  background: #F0F4F8 !important;
 }
 
 .socNavItem--active {
-  background: #E7F0F8;
+  background: #E0ECFA;
   border-left-color: #006BB4;
   color: #006BB4;
   font-weight: 600;
@@ -255,17 +285,19 @@ body {
 .socNavGroupLabel {
   font-size: 11px;
   font-weight: 600;
-  color: #98A2B3;
+  color: #69707D;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
-  padding: 0 10px 8px;
+  letter-spacing: 1px;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid #E8ECF1;
+  margin-bottom: 8px;
 }
 
 /* Cards */
 .socWireframeCard {
   background: #fff;
   border: 1px solid #D3DAE6;
-  border-radius: 6px;
+  border-radius: 12px;
 }
 
 .socWireframeCard--accentTop {
@@ -321,7 +353,7 @@ body {
   color: #343741;
   background: #F0F4F7;
   padding: 3px 8px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
 }
 
@@ -329,7 +361,7 @@ body {
 .socPill {
   height: 32px;
   padding: 0 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -370,4 +402,41 @@ body {
   position: sticky;
   top: 56px;
   z-index: 5;
+}
+
+/* Overview page responsive KPI grid */
+.socKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+/* --- Consistent shadow tokens --- */
+.socShadowSm { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
+.socShadowMd { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
+.socShadowLg { box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08); }
+
+/* --- Empty chart placeholder --- */
+.socChartPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px dashed #D3DAE6;
+  border-radius: 12px;
+  background: rgba(105, 112, 125, 0.04);
+  color: #98A2B3;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .socKpiGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .socKpiGrid {
+    grid-template-columns: 1fr;
+  }
 }

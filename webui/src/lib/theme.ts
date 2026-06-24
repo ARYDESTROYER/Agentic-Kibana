@@ -45,6 +45,26 @@ export const COLORS = {
   textMuted: '#98A2B3',
   /** Active nav background */
   navActive: '#E7F0F8',
+
+  /* ── Semantic aliases ────────────────────────────────────────────────────
+   * Every colour token has a semantic name so call-sites read like English:
+   *   accent={COLORS.semantic.threat}  instead of  accent={COLORS.danger}
+   *
+   * Meaning          Hex       Use
+   * ──────────────── ───────── ──────────────────────────────────────────
+   * operational      #006BB4   Open cases, documents, general operational UI
+   * safe             #00BFB3   Sources, success, "false positive"
+   * needsReview      #F5A623   Needs-human, pending, review-required
+   * threat           #BD271E   True positives, threats, critical alerts
+   * ai               #7B61FF   LLM spend, RAG chunks, memory — anything AI/ML
+   */
+  semantic: {
+    operational: '#006BB4',
+    safe: '#00BFB3',
+    needsReview: '#F5A623',
+    threat: '#BD271E',
+    ai: '#7B61FF',
+  },
 };
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */

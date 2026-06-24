@@ -12,7 +12,6 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiHealth,
-  EuiSpacer,
   EuiText,
 } from '@elastic/eui';
 import type {
@@ -34,6 +33,7 @@ import {
   StatusBadge,
   TrendStat,
   VerdictBadge,
+  WidgetEmptyState,
 } from '../common/ui';
 import { BarList, DonutWithLegend, MiniBars, StackedHistogram } from '../common/charts';
 import type { HistogramBin } from '../common/charts';
@@ -199,16 +199,25 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const hasKnowledge = rag !== null || memory !== null;
 
   return (
-    <div className="socPageEnter" style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8 }}>
+    <div className="socPageEnter" style={{ padding: '12px 24px 16px' }}>
+      {/* Page header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: '#1A1C21' }}>Overview</h1>
-          <p style={{ margin: '5px 0 0', fontSize: 13, color: '#69707D' }}>Live triage posture across all sources.</p>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1C21', lineHeight: 1.2 }}>Overview</h1>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#69707D' }}>Live triage posture across all sources.</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12, color: '#98A2B3' }}>Last updated: just now</span>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', border: '1px solid #006BB4', background: '#fff', color: '#006BB4', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#006BB4" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
+          <button
+            onClick={load}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px',
+              border: '1px solid #D3DAE6', background: '#fff', color: '#343741',
+              borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              transition: 'border-color 0.15s, box-shadow 0.15s',
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
             Refresh
           </button>
         </div>
@@ -217,42 +226,42 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       {error ? (
         <>
           <ErrorCallout error={error} title="Could not load the dashboard" />
-          <EuiSpacer size="m" />
+          <div style={{ height: 16 }} />
         </>
       ) : null}
 
       {loading ? (
         <>
-          <EuiFlexGroup gutterSize="m" wrap>
+          <div className="socKpiGrid" style={{ marginBottom: 12 }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <EuiFlexItem key={i}>
-                <Skeleton height={84} radius={10} />
-              </EuiFlexItem>
+              <Skeleton key={i} height={78} radius={12} />
             ))}
-          </EuiFlexGroup>
-          <EuiSpacer size="l" />
-          <EuiFlexGrid columns={2} gutterSize="l">
+          </div>
+          <Skeleton height={190} radius={12} />
+          <div style={{ height: 12 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={180} radius={10} />
+              <Skeleton key={i} height={160} radius={12} />
             ))}
-          </EuiFlexGrid>
+          </div>
         </>
       ) : (
         <>
-          <div style={{ background: '#fff', border: '1px solid #D3DAE6', borderRadius: 6, padding: '16px 0', marginBottom: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, padding: '0 16px' }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1C21' }}>Alerts over time</span>
-              <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ background: '#fff', border: '1px solid #E8ECF1', borderRadius: 12, padding: '8px 16px 10px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: '#1A1C21' }}>Alerts over time</span>
+              <div style={{ display: 'flex', gap: 4 }}>
                 {histRanges.map(r => (
                   <button
                     key={r}
                     onClick={() => setHistRange(r)}
                     style={{
-                      height: 28, padding: '0 12px',
+                      height: 26, padding: '0 10px',
                       border: `1px solid ${histRange === r ? '#006BB4' : '#D3DAE6'}`,
                       background: histRange === r ? '#006BB4' : '#fff',
                       color: histRange === r ? '#fff' : '#343741',
-                      borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      borderRadius: 4, fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      transition: 'all 0.15s',
                     }}
                   >
                     {r}
@@ -261,80 +270,61 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
               </div>
             </div>
             <StackedHistogram data={histData} />
-            <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginTop: 10, padding: '0 16px' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#00BFB3', flex: 'none' }}></span>False positive
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.safe, flex: 'none' }}></span>False positive
               </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#F5A623', flex: 'none' }}></span>Needs human
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.needsReview, flex: 'none' }}></span>Needs human
               </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#69707D' }}>
-                <span style={{ width: 10, height: 10, borderRadius: 2, background: '#BD271E', flex: 'none' }}></span>True positive
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.threat, flex: 'none' }}></span>True positive
               </span>
             </div>
           </div>
 
-          <EuiFlexGroup gutterSize="m" wrap>
-            <EuiFlexItem>
-              <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.primary} />
-            </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat label="Needs human" value={stats.needsHuman} icon="alert" accent={COLORS.warning} />
-            </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat label="True positives" value={stats.truePositive} icon="bug" accent={COLORS.danger} />
-            </EuiFlexItem>
-            <EuiFlexItem>
-              <TrendStat
-                label="LLM spend (24h)"
-                value={fmtMoney(usage?.total_cost, usage?.currency)}
-                sub={`${fmtTokens(usage?.total_tokens)} tokens`}
-                icon="currency"
-                accent={COLORS.accent}
-                spark={costSeries}
-              />
-            </EuiFlexItem>
-          </EuiFlexGroup>
+          <div className="socKpiGrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+            <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.semantic.operational} />
+            <TrendStat label="Needs human" value={stats.needsHuman} icon="alert" accent={COLORS.semantic.needsReview} />
+            <TrendStat label="True positives" value={stats.truePositive} icon="bug" accent={COLORS.semantic.threat} />
+            <TrendStat
+              label="LLM spend (24h)"
+              value={fmtMoney(usage?.total_cost, usage?.currency)}
+              sub={`${fmtTokens(usage?.total_tokens)} tokens`}
+              icon="currency"
+              accent={COLORS.semantic.ai}
+              spark={costSeries}
+            />
+          </div>
 
           {hasKnowledge ? (
-            <>
-              <EuiSpacer size="l" />
-              <EuiFlexGroup gutterSize="m" wrap>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="RAG documents"
-                    value={fmtNumber(rag?.document_count)}
-                    icon="documents"
-                    accent={COLORS.primary}
-                    onNavigate={() => onNavigate?.('knowledge')}
-                  />
-                </EuiFlexItem>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="RAG chunks"
-                    value={fmtNumber(rag?.total_chunks)}
-                    icon="visText"
-                    accent={COLORS.accent}
-                    onNavigate={() => onNavigate?.('knowledge')}
-                  />
-                </EuiFlexItem>
-                <EuiFlexItem style={{ minWidth: 200 }}>
-                  <NavTile
-                    label="Memory facts"
-                    value={fmtNumber(memory?.count)}
-                    icon="bell"
-                    accent={COLORS.warning}
-                    onNavigate={() => onNavigate?.('memory')}
-                  />
-                </EuiFlexItem>
-              </EuiFlexGroup>
-            </>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
+              <NavTile
+                label="RAG documents"
+                value={fmtNumber(rag?.document_count)}
+                icon="documents"
+                accent={COLORS.semantic.operational}
+                onNavigate={() => onNavigate?.('knowledge')}
+              />
+              <NavTile
+                label="RAG chunks"
+                value={fmtNumber(rag?.total_chunks)}
+                icon="visText"
+                accent={COLORS.semantic.ai}
+                onNavigate={() => onNavigate?.('knowledge')}
+              />
+              <NavTile
+                label="Memory facts"
+                value={fmtNumber(memory?.count)}
+                icon="bell"
+                accent={COLORS.semantic.ai}
+                onNavigate={() => onNavigate?.('memory')}
+              />
+            </div>
           ) : null}
 
-          <EuiSpacer size="l" />
-
-          <EuiFlexGrid columns={2} gutterSize="l">
-            <Card title="Verdict breakdown" icon="visPie" accent={COLORS.primary}>
+          <EuiFlexGrid columns={2} gutterSize="s">
+            <Card title="Verdict breakdown" icon="visPie" accent={COLORS.semantic.operational}>
               {verdictSegments.length ? (
                 <DonutWithLegend
                   segments={verdictSegments}
@@ -342,33 +332,51 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                   centerLabel="cases"
                 />
               ) : (
-                <EuiText size="s" color="subdued"><span>No cases yet.</span></EuiText>
+                <WidgetEmptyState
+                  icon="visPie"
+                  title="No verdict data yet"
+                  description="Start ingesting alerts to build verdict analytics."
+                  accent={COLORS.semantic.operational}
+                />
               )}
             </Card>
 
-            <Card title="Risk distribution" icon="visBarVertical" accent="#e2725b">
-              <BarList items={riskItems} />
+            <Card title="Risk distribution" icon="visBarVertical" accent={COLORS.semantic.threat}>
+              {riskItems.some(r => r.value > 0) ? (
+                <BarList items={riskItems} />
+              ) : (
+                <WidgetEmptyState
+                  icon="visBarVertical"
+                  title="No risk data yet"
+                  description="Risk scores will populate after case analysis."
+                  accent={COLORS.semantic.threat}
+                />
+              )}
             </Card>
 
             <Card
               title="LLM spend (24h)"
               icon="visLine"
-              accent={COLORS.accent}
+              accent={COLORS.semantic.ai}
               actions={<EuiText size="xs" color="subdued"><span>{fmtMoney(usage?.total_cost, usage?.currency)}</span></EuiText>}
             >
-              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.accent} height={56} /> : null}
-              <EuiSpacer size="m" />
+              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.semantic.ai} height={40} /> : null}
               {modelItems.length ? (
                 <BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} />
               ) : (
-                <EuiText size="s" color="subdued"><span>No spend recorded in the last 24h.</span></EuiText>
+                <WidgetEmptyState
+                  icon="visLine"
+                  title="No spend in the last 24h"
+                  description="LLM costs will appear after agent runs."
+                  accent={COLORS.semantic.ai}
+                />
               )}
             </Card>
 
             <Card
               title="Sources"
               icon="logstashQueue"
-              accent={COLORS.success}
+              accent={COLORS.semantic.safe}
               actions={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Manage</EuiButton>}
             >
               {enabledSources.length ? (
@@ -384,7 +392,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                         </EuiText>
                       </EuiFlexItem>
                       <EuiFlexItem grow={false}>
-                        <EuiHealth color={s.is_primary ? COLORS.primary : COLORS.success}>
+                        <EuiHealth color={s.is_primary ? COLORS.semantic.operational : COLORS.semantic.safe}>
                           {s.is_primary ? 'Primary' : 'Enabled'}
                         </EuiHealth>
                       </EuiFlexItem>
@@ -392,12 +400,18 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                   ))}
                 </div>
               ) : (
-                <EuiText size="s" color="subdued"><span>No sources configured — add one to start ingesting.</span></EuiText>
+                <WidgetEmptyState
+                  icon="logstashQueue"
+                  title="No sources configured"
+                  description="Connect Elasticsearch, OpenSearch, Wazuh or custom webhook source."
+                  accent={COLORS.semantic.safe}
+                  action={<EuiButton size="s" fill iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Add Source</EuiButton>}
+                />
               )}
             </Card>
           </EuiFlexGrid>
 
-          <EuiSpacer size="l" />
+          <div style={{ height: 12 }} />
 
           <Card
             title="Recent cases"
@@ -405,7 +419,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
             actions={<EuiButton size="s" iconType="list" onClick={() => onNavigate?.('cases')}>View all</EuiButton>}
           >
             {recent.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {recent.map((c) => (
                   <CaseHoverCard
                     key={c.case_id}
@@ -428,7 +442,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                         className="socCard--clickable"
                         style={{
                           cursor: 'pointer',
-                          borderRadius: 8,
+                          borderRadius: 12,
                           padding: '6px 8px',
                           outline: 'none',
                         }}
@@ -450,7 +464,12 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                 ))}
               </div>
             ) : (
-              <EuiText size="s" color="subdued"><span>No cases yet.</span></EuiText>
+              <WidgetEmptyState
+                icon="securityApp"
+                title="No cases yet"
+                description="Cases generated by investigations will appear here."
+                action={<EuiButton size="s" fill iconType="play" onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>}
+              />
             )}
           </Card>
         </>

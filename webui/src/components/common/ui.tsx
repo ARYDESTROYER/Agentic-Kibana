@@ -21,6 +21,17 @@ import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
 import { COLORS, riskHex, statusHex, tint, TYPE, verdictColor } from '../../lib/theme';
 import { Sparkline } from './charts';
 
+/** Desaturated accent for subtle UI elements (e.g. KPI top borders). */
+function softAccent(hex: string, alpha = 0.7): string {
+  const h = (hex || '').replace('#', '');
+  if (h.length < 6) return hex;
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return hex;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 /* ------------------------------------------------------------- skeleton ---- */
 
 /**
@@ -206,7 +217,7 @@ export const IconChip: React.FC<{ icon: string; accent?: string; large?: boolean
       justifyContent: 'center',
       width: large ? 48 : 36,
       height: large ? 48 : 36,
-      borderRadius: 10,
+      borderRadius: 12,
       background: tint(accent, 0.14),
       color: accent,
     }}
@@ -288,15 +299,15 @@ export const StatTile: React.FC<StatTileProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div style={{ background: '#fff', border: '1px solid #D3DAE6', borderTop: `3px solid ${accent}`, borderRadius: 6, padding: 16 }}>
-    <div style={{ fontSize: 11, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+  <div style={{ background: '#fff', border: '1px solid #E8ECF1', borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
+    <div style={{ fontSize: 10, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <div style={{ fontSize: TYPE.kpi, fontWeight: 600, color: '#1A1C21', letterSpacing: '-0.01em', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: '#1A1C21', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</div>
       {typeof delta === 'number' ? (
         <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
     </div>
-    {sub ? <div style={{ fontSize: 12, color: '#69707D', marginTop: 4 }}>{sub}</div> : null}
+    {sub ? <div style={{ fontSize: 11, color: '#69707D', marginTop: 3 }}>{sub}</div> : null}
   </div>
 );
 
@@ -315,6 +326,31 @@ export const EmptyState: React.FC<{ iconType?: string; title: string; body?: Rea
     body={body ? <p>{body}</p> : undefined}
     actions={actions}
   />
+);
+
+/**
+ * Compact empty state for dashboard widget cards. Smaller than the full
+ * EuiEmptyPrompt — icon + title + description + optional action, vertically centred.
+ */
+export const WidgetEmptyState: React.FC<{
+  icon: string;
+  title: string;
+  description?: string;
+  accent?: string;
+  action?: React.ReactNode;
+}> = ({ icon, title, description, accent = COLORS.subdued, action }) => (
+  <div style={{ padding: '16px 0', textAlign: 'center' }}>
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: 40, height: 40, borderRadius: 12,
+      background: tint(accent, 0.08), color: accent, marginBottom: 8,
+    }}>
+      <EuiIcon type={icon} size="l" />
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', marginBottom: 2 }}>{title}</div>
+    {description ? <div style={{ fontSize: 12, color: '#69707D', marginBottom: action ? 10 : 0 }}>{description}</div> : null}
+    {action ?? null}
+  </div>
 );
 
 /* ----------------------------------------------------- loading / error ----- */
@@ -388,22 +424,22 @@ export const Card: React.FC<CardProps> = ({
     onClick={onClick}
     style={{
       background: '#fff',
-      border: variant === 'flat' ? 'none' : '1px solid #D3DAE6',
-      borderRadius: 6,
-      padding: paddingSize === 'l' ? 24 : 16,
+      border: variant === 'flat' ? 'none' : '1px solid #E8ECF1',
+      borderRadius: 12,
+      padding: paddingSize === 'l' ? 20 : 14,
       cursor: clickable ? 'pointer' : undefined,
       ...(accentLeft ? { borderLeft: `4px solid ${accentLeft}` } : {}),
     }}
   >
     {(title || actions) && (
       <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           {icon ? (
             <span style={{ flex: 'none', display: 'inline-flex' }}>
               <IconChip icon={icon} accent={accent} />
             </span>
           ) : null}
-          <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#1A1C21' }}>
+          <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#1A1C21' }}>
             {title}
           </div>
           {actions ? <div style={{ flex: 'none' }}>{actions}</div> : null}
@@ -440,18 +476,18 @@ export const TrendStat: React.FC<TrendStatProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div className="socStat" style={{ background: '#fff', border: '1px solid #D3DAE6', borderTop: `3px solid ${accent}`, borderRadius: 6, padding: 16 }}>
-    <div style={{ fontSize: 11, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{label}</div>
+  <div className="socStat" style={{ background: '#fff', border: '1px solid #E8ECF1', borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
+    <div style={{ fontSize: 10, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <div style={{ fontSize: TYPE.kpi, fontWeight: 600, color: '#1A1C21', letterSpacing: '-0.01em', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 700, color: '#1A1C21', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</div>
       {typeof delta === 'number' ? (
         <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
     </div>
-    {sub ? <div style={{ fontSize: 12, color: '#69707D', marginTop: 4 }}>{sub}</div> : null}
+    {sub ? <div style={{ fontSize: 11, color: '#69707D', marginTop: 3 }}>{sub}</div> : null}
     {spark && spark.length > 1 ? (
-      <div style={{ marginTop: 8 }}>
-        <Sparkline values={spark} color={accent} height={36} />
+      <div style={{ marginTop: 6 }}>
+        <Sparkline values={spark} color={accent} height={20} />
       </div>
     ) : null}
   </div>
