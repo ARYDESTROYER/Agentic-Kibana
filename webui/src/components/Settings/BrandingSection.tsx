@@ -36,6 +36,7 @@ import {
   DEFAULT_ACCENT2,
   setAccent,
 } from '../../lib/theme';
+import { PageHeader } from '../common/ui';
 
 /* ----------------------------------------------------------------- limits --- */
 
@@ -295,10 +296,12 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
   } 100%)`;
 
   return (
-    <div>
-      <Heading
+    <div className="socPageEnter">
+      <PageHeader
+        icon="brush"
+        eyebrow="Platform"
         title="Branding"
-        sub="White-label the console: wordmark, logo, accent colours, and the default theme."
+        description="White-label the console: wordmark, logo, accent colours, and the default theme."
       />
 
       {readOnly ? (

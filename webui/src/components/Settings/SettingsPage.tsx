@@ -6,8 +6,9 @@
  * Edits are buffered locally and saved with PUT /api/settings; secrets are pushed
  * with POST /api/setup/secrets.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  EuiBadge,
   EuiButton,
   EuiCallOut,
   EuiComboBox,
@@ -16,14 +17,17 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiGlobalToastList,
   EuiIcon,
   EuiPanel,
+  EuiRange,
   EuiSideNav,
   EuiSpacer,
   EuiSwitch,
   EuiText,
   EuiTitle,
 } from '@elastic/eui';
+import type { EuiGlobalToastListToast as Toast } from '@elastic/eui';
 import type {
   ConfiguredStatus,
   ModelConfig,
@@ -32,10 +36,11 @@ import type {
 } from '../../lib/types';
 import { MODEL_ROLES } from '../../lib/types';
 import { api } from '../../lib/api';
-import { ErrorCallout, Loading, SectionHeader } from '../common/ui';
+import { ErrorCallout, Loading, PageHeader } from '../common/ui';
 import { ModelPicker } from '../common/ModelPicker';
 import { SecretInput } from '../common/SecretInput';
 import { BrandingSection } from './BrandingSection';
+import { COLORS, tint } from '../../lib/theme';
 import { humanizeToken } from '../../lib/format';
 
 type SectionId =
@@ -47,19 +52,21 @@ type SectionId =
   | 'enrichment'
   | 'rag'
   | 'standup'
+  | 'autonomy'
   | 'safety'
   | 'branding';
 
-const SECTIONS: Array<{ id: SectionId; name: string; icon?: string }> = [
-  { id: 'data', name: 'Data scope' },
-  { id: 'polling', name: 'Polling' },
-  { id: 'models', name: 'Models' },
-  { id: 'keys', name: 'Secret keys' },
-  { id: 'correlation', name: 'Correlation & risk' },
-  { id: 'enrichment', name: 'Enrichment' },
-  { id: 'rag', name: 'RAG' },
-  { id: 'standup', name: 'Standup' },
-  { id: 'safety', name: 'Automation & safety' },
+const SECTIONS: Array<{ id: SectionId; name: string; icon: string }> = [
+  { id: 'data', name: 'Data scope', icon: 'indexMapping' },
+  { id: 'polling', name: 'Polling', icon: 'timeRefresh' },
+  { id: 'models', name: 'Models', icon: 'machineLearningApp' },
+  { id: 'keys', name: 'Secret keys', icon: 'key' },
+  { id: 'correlation', name: 'Correlation & risk', icon: 'cluster' },
+  { id: 'enrichment', name: 'Enrichment', icon: 'globe' },
+  { id: 'rag', name: 'RAG', icon: 'documents' },
+  { id: 'standup', name: 'Standup', icon: 'article' },
+  { id: 'autonomy', name: 'Autonomy', icon: 'visGauge' },
+  { id: 'safety', name: 'Automation & safety', icon: 'lock' },
   { id: 'branding', name: 'Branding', icon: 'brush' },
 ];
 
@@ -81,12 +88,42 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [prefs, setPrefs] = useState<Preferences | null>(null);
+  // The last server-confirmed snapshot, used purely for dirty-tracking.
+  const [savedPrefs, setSavedPrefs] = useState<Preferences | null>(null);
   const [configured, setConfigured] = useState<ConfiguredStatus>({});
   const [readOnly, setReadOnly] = useState(false);
   const [models, setModels] = useState<ModelsResponse | null>(null);
   const [section, setSection] = useState<SectionId>('data');
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+
+  // Auto-dismissing save/secret toasts.
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastId = useRef(0);
+  const addToast = useCallback((title: string, color: Toast['color'] = 'success') => {
+    toastId.current += 1;
+    setToasts((prev) => [...prev, { id: `set-toast-${toastId.current}`, title, color }]);
+  }, []);
+  const removeToast = useCallback((t: Toast) => {
+    setToasts((prev) => prev.filter((x) => x.id !== t.id));
+  }, []);
+
+  // Dirty when the editable prefs diverge from the last saved snapshot. We compare
+  // the JSON of everything except the non-editable `sources`/`setup_complete`.
+  const dirty = useMemo(() => {
+    if (!prefs || !savedPrefs) return false;
+    const strip = (p: Preferences) => {
+      const { sources, setup_complete, ...rest } = p;
+      void sources;
+      void setup_complete;
+      return rest;
+    };
+    try {
+      return JSON.stringify(strip(prefs)) !== JSON.stringify(strip(savedPrefs));
+    } catch {
+      return true;
+    }
+  }, [prefs, savedPrefs]);
 
   // buffered secret entries (write-only)
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({});
@@ -101,6 +138,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
         api.getModels().catch(() => null),
       ]);
       setPrefs(settings.prefs);
+      setSavedPrefs(settings.prefs);
       setConfigured(settings.configured);
       setReadOnly(settings.read_only);
       setModels(mdl);
@@ -129,9 +167,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
       void setup_complete;
       const res = await api.putSettings(patch as Partial<Preferences>);
       setPrefs(res.prefs);
+      setSavedPrefs(res.prefs);
       setNote('Settings saved.');
+      addToast('Settings saved.', 'success');
     } catch (e) {
       setError(e);
+      addToast(e instanceof Error ? e.message : 'Could not save settings.', 'danger');
     } finally {
       setSaving(false);
     }
@@ -151,8 +192,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
       setConfigured(res.configured);
       setSecretDraft({});
       setNote('Secret keys updated.');
+      addToast('Secret keys updated.', 'success');
     } catch (e) {
       setError(e);
+      addToast(e instanceof Error ? e.message : 'Could not update keys.', 'danger');
     } finally {
       setSavingSecrets(false);
     }
@@ -166,7 +209,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
         items: SECTIONS.map((s) => ({
           id: s.id,
           name: s.name,
-          icon: s.icon ? <EuiIcon type={s.icon} /> : undefined,
+          icon: <EuiIcon type={s.icon} />,
           isSelected: section === s.id,
           onClick: () => setSection(s.id),
         })),
@@ -179,20 +222,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
   if (!prefs) return <ErrorCallout error={error || new Error('No settings loaded')} />;
 
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="gear"
+        eyebrow="Platform"
         title="Settings"
         description="Tune every preference the agent uses. Secrets are write-only."
         actions={
-          <EuiFlexGroup gutterSize="s" responsive={false}>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+            {dirty ? (
+              <EuiFlexItem grow={false}>
+                <EuiBadge color={tint(COLORS.warning, 0.16)} style={{ color: COLORS.warning }} iconType="dot">
+                  Unsaved changes
+                </EuiBadge>
+              </EuiFlexItem>
+            ) : null}
             <EuiFlexItem grow={false}>
               <EuiButton iconType="wrench" onClick={onRerunWizard}>
                 Re-run setup wizard
               </EuiButton>
             </EuiFlexItem>
             <EuiFlexItem grow={false}>
-              <EuiButton fill iconType="save" onClick={save} isLoading={saving} isDisabled={readOnly}>
+              <EuiButton
+                fill
+                iconType="save"
+                onClick={save}
+                isLoading={saving}
+                isDisabled={readOnly || !dirty}
+              >
                 Save settings
               </EuiButton>
             </EuiFlexItem>
@@ -247,6 +304,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
               <RagSection prefs={prefs} update={update} />
             ) : section === 'standup' ? (
               <StandupSection prefs={prefs} update={update} />
+            ) : section === 'autonomy' ? (
+              <AutonomySection prefs={prefs} update={update} />
             ) : section === 'safety' ? (
               <SafetySection prefs={prefs} update={update} />
             ) : (
@@ -255,6 +314,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onRerunWizard }) => 
           </EuiPanel>
         </EuiFlexItem>
       </EuiFlexGroup>
+
+      <EuiGlobalToastList toasts={toasts} dismissToast={removeToast} toastLifeTimeMs={4000} />
     </div>
   );
 };
@@ -470,6 +531,86 @@ const StandupSection: React.FC<SecProps> = ({ prefs, update }) => {
       <EuiSpacer size="m" />
       <NumPref label="Window (hours)" value={s.window_hours} onChange={(v) => set({ window_hours: v })} />
       <NumPref label="Interval (seconds)" value={s.interval_seconds} onChange={(v) => set({ interval_seconds: v })} />
+    </div>
+  );
+};
+
+const AutonomySection: React.FC<SecProps> = ({ prefs, update }) => {
+  const fp = prefs.fp_auto_close || {};
+  const set = (patch: Partial<typeof fp>) => update({ fp_auto_close: { ...fp, ...patch } });
+  // min_confidence is a 0–1 fraction; surface it as a 0–100% range for clarity.
+  const minConfPct = Math.round(((fp.min_confidence ?? 0.8) || 0) * 100);
+  return (
+    <div>
+      <SectionTitle
+        title="Autonomy"
+        sub="When the agent may auto-close a FALSE POSITIVE. The close/escalate decision is always made by deterministic code against this policy — never by raw model output."
+      />
+      <EuiCallOut size="s" color="primary" iconType="iInCircle" title="NEEDS_HUMAN never auto-closes">
+        <p style={{ marginBottom: 0 }}>
+          A case the agent routes to <strong>NEEDS_HUMAN</strong> is always held for an analyst —
+          this is code-enforced and cannot be tuned here. <strong>TRUE_POSITIVE</strong> auto-close
+          is a separate opt-in and is off by default. This panel only governs confident{' '}
+          <strong>FALSE_POSITIVE</strong> auto-close.
+        </p>
+      </EuiCallOut>
+      <EuiSpacer size="m" />
+      <EuiSwitch
+        label="Auto-close confident false positives"
+        checked={Boolean(fp.enabled)}
+        onChange={(e) => set({ enabled: e.target.checked })}
+      />
+      <EuiText size="xs" color="subdued">
+        <p style={{ marginTop: 6 }}>
+          When on, a FALSE_POSITIVE verdict that clears BOTH bars below is closed automatically
+          (and audited). When off, every case is held for a human.
+        </p>
+      </EuiText>
+      <EuiSpacer size="m" />
+      <EuiFormRow
+        label={`Minimum confidence to auto-close — ${minConfPct}%`}
+        helpText="The agent's verdict confidence must be at or above this bar."
+        fullWidth
+      >
+        <EuiRange
+          min={0}
+          max={100}
+          step={1}
+          value={minConfPct}
+          onChange={(e) => set({ min_confidence: Number((e.target as HTMLInputElement).value) / 100 })}
+          showValue
+          valueAppend="%"
+          disabled={!fp.enabled}
+          fullWidth
+        />
+      </EuiFormRow>
+      <EuiFormRow
+        label="Maximum risk score to auto-close"
+        helpText="Cases scoring above this normalised risk (0–100) are never auto-closed, even as a false positive."
+        fullWidth
+      >
+        <EuiFieldNumber
+          min={0}
+          max={100}
+          value={fp.max_risk_score ?? 30}
+          onChange={(e) => set({ max_risk_score: Number(e.target.value) })}
+          disabled={!fp.enabled}
+          fullWidth
+        />
+      </EuiFormRow>
+      <EuiFormRow
+        label="Objection window (minutes)"
+        helpText="Optional grace period before an auto-close takes effect, leaving room to object."
+        fullWidth
+      >
+        <EuiFieldNumber
+          min={0}
+          value={fp.objection_window_minutes ?? 0}
+          onChange={(e) => set({ objection_window_minutes: Number(e.target.value) })}
+          disabled={!fp.enabled}
+          fullWidth
+        />
+      </EuiFormRow>
     </div>
   );
 };

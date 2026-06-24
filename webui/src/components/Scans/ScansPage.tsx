@@ -26,6 +26,7 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiNotificationBadge,
   EuiPopover,
   EuiSelect,
   EuiSpacer,
@@ -42,8 +43,8 @@ import {
   EmptyState,
   ErrorCallout,
   Loading,
+  PageHeader,
   RiskBadge,
-  SectionHeader,
   StatusBadge,
   TrendStat,
   VerdictBadge,
@@ -361,6 +362,25 @@ function countActiveFilters(f: CaseFilters): number {
 
 /* ----------------------------------------------------------------- page ----- */
 
+/** localStorage key for the operator's last-seen scan timestamp (the "N new" pill). */
+const LAST_SEEN_KEY = 'tlsoc.scans.lastSeen';
+
+function readLastSeen(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_SEEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastSeen(ts: string): void {
+  try {
+    window.localStorage.setItem(LAST_SEEN_KEY, ts);
+  } catch {
+    /* private mode / quota — the pill simply won't persist. */
+  }
+}
+
 export const ScansPage: React.FC = () => {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
@@ -369,6 +389,16 @@ export const ScansPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+
+  /**
+   * The watermark for "new" cases — cases created strictly after this timestamp
+   * get a "New" flag + count toward the header pill. Seeded from localStorage so
+   * it survives reloads; cleared (advanced to "now") when the operator marks all
+   * as seen. Held in a ref so re-renders don't re-derive the new-set mid-session.
+   */
+  const lastSeenRef = useRef<string | null>(readLastSeen());
+  const [newCount, setNewCount] = useState(0);
+  const [newIds, setNewIds] = useState<Set<string>>(() => new Set());
 
   /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
   const caseCache = useRef<Map<string, Case>>(new Map());
@@ -383,6 +413,17 @@ export const ScansPage: React.FC = () => {
       for (const c of list) {
         if (!caseCache.current.has(c.case_id)) caseCache.current.set(c.case_id, c);
       }
+      // Mark which loaded cards are new (created after the last-seen watermark).
+      const since = lastSeenRef.current;
+      const sinceMs = since ? Date.parse(since) : NaN;
+      const fresh = new Set<string>();
+      if (!Number.isNaN(sinceMs)) {
+        for (const c of list) {
+          const ts = Date.parse(c.created_at || '');
+          if (!Number.isNaN(ts) && ts > sinceMs) fresh.add(c.case_id);
+        }
+      }
+      setNewIds(fresh);
     } catch (e) {
       setError(e);
     } finally {
@@ -390,9 +431,29 @@ export const ScansPage: React.FC = () => {
     }
   }, []);
 
+  /** Poll the backend for the authoritative "new since last-seen" count. */
+  const refreshNotifications = useCallback(async () => {
+    try {
+      const res = await api.scanNotifications(lastSeenRef.current || undefined);
+      setNewCount(typeof res?.new_count === 'number' ? res.new_count : 0);
+    } catch {
+      // Best-effort badge — failures leave the prior count untouched.
+    }
+  }, []);
+
+  /** Operator acknowledged the new cases: advance the watermark to "now". */
+  const markAllSeen = useCallback(() => {
+    const now = new Date().toISOString();
+    lastSeenRef.current = now;
+    writeLastSeen(now);
+    setNewCount(0);
+    setNewIds(new Set());
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void refreshNotifications();
+  }, [load, refreshNotifications]);
 
   const kpis = useMemo(() => {
     const total = cases.length;
@@ -400,6 +461,18 @@ export const ScansPage: React.FC = () => {
     const investigated = cases.filter(isInvestigated).length;
     const candidates = cases.filter(isTruePositive).length;
     return { total, human, investigated, candidates };
+  }, [cases]);
+
+  // Per-tab counts over the loaded rows (drives the "All 50 · Open …" pills).
+  const tabCounts = useMemo<Record<StatusTab, number>>(() => {
+    const counts: Record<StatusTab, number> = { all: cases.length, open: 0, needs_human: 0, closed: 0 };
+    for (const c of cases) {
+      const s = (c.status || '').toLowerCase();
+      if (s === 'open') counts.open += 1;
+      else if (s === 'needs_human') counts.needs_human += 1;
+      else if (s === 'closed') counts.closed += 1;
+    }
+    return counts;
   }, [cases]);
 
   const facets = useMemo(() => buildFacets(cases), [cases]);
@@ -455,14 +528,44 @@ export const ScansPage: React.FC = () => {
 
   return (
     <div className="socPageEnter">
-      <SectionHeader
+      <PageHeader
+        eyebrow="AUTOMATION"
         icon="reportingApp"
         title="Automated scans"
         description="Cases the agent opened and triaged from background scanning."
         actions={
-          <EuiButton size="s" iconType="refresh" onClick={() => void load()} isLoading={loading}>
-            Refresh
-          </EuiButton>
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            {newCount > 0 ? (
+              <EuiFlexItem grow={false}>
+                <EuiButtonEmpty
+                  size="s"
+                  iconType="bell"
+                  onClick={markAllSeen}
+                  aria-label={`${newCount} new scan cases since you last looked — mark all as seen`}
+                >
+                  <EuiFlexGroup gutterSize="xs" alignItems="center" responsive={false}>
+                    <EuiFlexItem grow={false}>
+                      <EuiNotificationBadge color="accent">{newCount}</EuiNotificationBadge>
+                    </EuiFlexItem>
+                    <EuiFlexItem grow={false}>new</EuiFlexItem>
+                  </EuiFlexGroup>
+                </EuiButtonEmpty>
+              </EuiFlexItem>
+            ) : null}
+            <EuiFlexItem grow={false}>
+              <EuiButton
+                size="s"
+                iconType="refresh"
+                onClick={() => {
+                  void load();
+                  void refreshNotifications();
+                }}
+                isLoading={loading}
+              >
+                Refresh
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         }
       />
 
@@ -537,6 +640,8 @@ export const ScansPage: React.FC = () => {
                     hasActiveFilters={statusTab === f.key}
                     isSelected={statusTab === f.key}
                     onClick={() => setStatusTab(f.key)}
+                    numFilters={tabCounts[f.key]}
+                    numActiveFilters={statusTab === f.key ? tabCounts[f.key] : undefined}
                   >
                     {f.label}
                   </EuiFilterButton>
@@ -588,6 +693,7 @@ export const ScansPage: React.FC = () => {
                   key={c.case_id}
                   c={c}
                   cache={caseCache}
+                  isNew={newIds.has(c.case_id)}
                   onOpen={() => setSelectedCaseId(c.case_id)}
                 />
               ))}
@@ -868,8 +974,9 @@ const ScanFilterBar: React.FC<{
 const ScanCard: React.FC<{
   c: Case;
   cache: React.MutableRefObject<Map<string, Case>>;
+  isNew?: boolean;
   onOpen: () => void;
-}> = ({ c, cache, onOpen }) => {
+}> = ({ c, cache, isNew, onOpen }) => {
   const accent = verdictHex(c.verdict) || riskHex(c.risk_score);
   const entity = c.entity ? `${c.entity.type}: ${c.entity.value}` : DASH;
   const rules = Array.isArray(c.rule_ids) ? c.rule_ids.filter(Boolean) : [];
@@ -897,7 +1004,12 @@ const ScanCard: React.FC<{
               <span className="socMono">{entity}</span>
             </EuiText>
           </EuiFlexItem>
-          <EuiFlexItem grow={false} style={{ marginLeft: 'auto' }}>
+          {isNew ? (
+            <EuiFlexItem grow={false} style={{ marginLeft: 'auto' }}>
+              <EuiBadge color="accent">New</EuiBadge>
+            </EuiFlexItem>
+          ) : null}
+          <EuiFlexItem grow={false} style={isNew ? undefined : { marginLeft: 'auto' }}>
             <EuiText size="xs" color="subdued">
               <span>{humanizeAge(c.created_at)}</span>
             </EuiText>

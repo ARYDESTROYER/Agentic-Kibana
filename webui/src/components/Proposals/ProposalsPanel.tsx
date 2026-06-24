@@ -23,6 +23,7 @@ import {
   EuiButtonEmpty,
   EuiButtonGroup,
   EuiCallOut,
+  EuiCheckbox,
   EuiCode,
   EuiFlexGroup,
   EuiFlexItem,
@@ -31,6 +32,7 @@ import {
   EuiIconTip,
   EuiPanel,
   EuiSpacer,
+  EuiSwitch,
   EuiText,
   EuiToolTip,
 } from '@elastic/eui';
@@ -101,15 +103,30 @@ function asText(v: unknown): string {
   }
 }
 
+/** A stable "source / rule" group label for a proposal (UNTRUSTED-safe plain text). */
+function groupKeyOf(p: Proposal): string {
+  const sup = (p.payload || {}) as SuppressionPayload;
+  if ((p.kind || '').toLowerCase() === 'suppression' && sup.field) {
+    return `${asText(sup.field)} == ${asText(sup.value) || '∗'}`;
+  }
+  const mem = (p.payload || {}) as MemoryPayload;
+  if ((p.kind || '').toLowerCase() === 'memory' && mem.category) {
+    return humanizeToken(asText(mem.category));
+  }
+  return kindMeta(p.kind).label;
+}
+
 /* --------------------------------------------------------------- proposal --- */
 
 const ProposalCard: React.FC<{
   proposal: Proposal;
   busy: boolean;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   onApprove: (p: Proposal) => void;
   onReject: (p: Proposal) => void;
   onOpenCase?: (caseId: string) => void;
-}> = ({ proposal, busy, onApprove, onReject, onOpenCase }) => {
+}> = ({ proposal, busy, selected, onToggleSelect, onApprove, onReject, onOpenCase }) => {
   const meta = kindMeta(proposal.kind);
   const isSuppression = (proposal.kind || '').toLowerCase() === 'suppression';
   const isMemory = (proposal.kind || '').toLowerCase() === 'memory';
@@ -119,8 +136,16 @@ const ProposalCard: React.FC<{
 
   return (
     <Card icon={meta.icon} accent={meta.accent} accentLeft={meta.accent} paddingSize="m">
-      {/* header row: kind + confidence + age */}
+      {/* header row: select + kind + confidence + age */}
       <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+        <EuiFlexItem grow={false}>
+          <EuiCheckbox
+            id={`prop-select-${proposal.id}`}
+            checked={selected}
+            onChange={() => onToggleSelect(proposal.id)}
+            aria-label="Select this proposal for a bulk action"
+          />
+        </EuiFlexItem>
         <EuiFlexItem grow={false}>
           <KindBadge kind={proposal.kind} />
         </EuiFlexItem>
@@ -307,6 +332,10 @@ export const ProposalsPanel: React.FC<ProposalsPanelProps> = ({ onOpenCase }) =>
   const [busyId, setBusyId] = useState<string | null>(null);
   // An inline, per-card error (esp. 403/409) shown above the list.
   const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  // Bulk selection + group-by-source/rule controls.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [groupBy, setGroupBy] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
@@ -409,6 +438,110 @@ export const ProposalsPanel: React.FC<ProposalsPanelProps> = ({ onOpenCase }) =>
     [busyId, statusFilter, removeLocal, upsertLocal, addToast, describeError, load],
   );
 
+  // Keep the selection in sync with the currently-loaded proposals.
+  useEffect(() => {
+    setSelected((prev) => {
+      const ids = new Set(proposals.map((p) => p.id));
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (ids.has(id)) next.add(id);
+      });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [proposals]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  // Decide every selected proposal sequentially (each call is still individually
+  // guarded server-side; nothing here bypasses the per-proposal approval).
+  const decideSelected = useCallback(
+    async (kind: 'approve' | 'reject') => {
+      const targets = proposals.filter((p) => selected.has(p.id));
+      if (!targets.length || bulkBusy) return;
+      setBulkBusy(true);
+      setActionError(null);
+      let ok = 0;
+      let failed = 0;
+      for (const p of targets) {
+        try {
+          const updated =
+            kind === 'approve' ? await api.approveProposal(p.id) : await api.rejectProposal(p.id);
+          if (statusFilter === 'pending') {
+            removeLocal(p.id);
+          } else if (updated && typeof updated === 'object' && (updated as Proposal).id) {
+            upsertLocal(updated as Proposal);
+          } else {
+            upsertLocal({ ...p, status: kind === 'approve' ? 'approved' : 'rejected' });
+          }
+          ok += 1;
+        } catch (e) {
+          failed += 1;
+          setActionError({ id: p.id, message: describeError(e) });
+        }
+      }
+      clearSelection();
+      setBulkBusy(false);
+      if (ok) {
+        addToast(
+          `${ok} proposal${ok === 1 ? '' : 's'} ${kind === 'approve' ? 'approved' : 'rejected'}${
+            failed ? ` · ${failed} failed` : ''
+          }.`,
+          failed ? 'warning' : kind === 'approve' ? 'success' : 'primary',
+        );
+      } else if (failed) {
+        addToast(`All ${failed} action${failed === 1 ? '' : 's'} failed.`, 'danger');
+      }
+      if (failed) void load();
+    },
+    [
+      proposals,
+      selected,
+      bulkBusy,
+      statusFilter,
+      removeLocal,
+      upsertLocal,
+      clearSelection,
+      addToast,
+      describeError,
+      load,
+    ],
+  );
+
+  // Group the visible proposals by source/rule when group-by is on.
+  const groups = useMemo(() => {
+    if (!groupBy) return null;
+    const map = new Map<string, Proposal[]>();
+    for (const p of proposals) {
+      const key = groupKeyOf(p);
+      const arr = map.get(key);
+      if (arr) arr.push(p);
+      else map.set(key, [p]);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [proposals, groupBy]);
+
+  const renderCard = (p: Proposal) => (
+    <ProposalCard
+      key={p.id}
+      proposal={p}
+      busy={busyId === p.id}
+      selected={selected.has(p.id)}
+      onToggleSelect={toggleSelect}
+      onApprove={(pr) => void decide(pr, 'approve')}
+      onReject={(pr) => void decide(pr, 'reject')}
+      onOpenCase={onOpenCase}
+    />
+  );
+
   return (
     <div className="socPageEnter">
       <PageHeader
@@ -463,7 +596,65 @@ export const ProposalsPanel: React.FC<ProposalsPanelProps> = ({ onOpenCase }) =>
         accent={COLORS.accent}
         title={statusFilter === 'pending' ? 'Pending proposals' : 'All proposals'}
         description={loading ? 'Loading…' : `${fmtNumber(proposals.length)} shown`}
+        actions={
+          proposals.length > 0 ? (
+            <EuiToolTip content="Group proposals by their suppression field/value or memory category">
+              <EuiSwitch
+                compressed
+                label="Group by source / rule"
+                checked={groupBy}
+                onChange={(e) => setGroupBy(e.target.checked)}
+              />
+            </EuiToolTip>
+          ) : undefined
+        }
       />
+
+      {/* Sticky bulk-action bar — appears once one or more proposals are selected. */}
+      {selected.size > 0 ? (
+        <EuiPanel
+          hasBorder
+          paddingSize="s"
+          style={{ position: 'sticky', top: 8, zIndex: 2, marginBottom: 12 }}
+        >
+          <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+            <EuiFlexItem grow={false}>
+              <EuiBadge color={tint(COLORS.primary, 0.16)} style={{ color: COLORS.primary }}>
+                {fmtNumber(selected.size)} selected
+              </EuiBadge>
+            </EuiFlexItem>
+            <EuiFlexItem />
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty size="s" onClick={clearSelection} isDisabled={bulkBusy}>
+                Clear
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="s"
+                color="danger"
+                iconType="cross"
+                onClick={() => void decideSelected('reject')}
+                isDisabled={bulkBusy}
+              >
+                Reject selected
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton
+                fill
+                size="s"
+                iconType="checkInCircleFilled"
+                onClick={() => void decideSelected('approve')}
+                isLoading={bulkBusy}
+                isDisabled={bulkBusy}
+              >
+                Approve selected
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </EuiPanel>
+      ) : null}
 
       {actionError ? (
         <>
@@ -499,18 +690,34 @@ export const ProposalsPanel: React.FC<ProposalsPanelProps> = ({ onOpenCase }) =>
               : 'No proposals have been drafted yet. The agent drafts these when it confirms a false positive or learns a durable fact.'
           }
         />
+      ) : groups ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {groups.map(([label, rows]) => (
+            <div key={label}>
+              <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+                <EuiFlexItem grow={false}>
+                  <EuiBadge color={tint(COLORS.accent, 0.16)} style={{ color: COLORS.accent }} iconType="layers">
+                    {label}
+                  </EuiBadge>
+                </EuiFlexItem>
+                <EuiFlexItem grow={false}>
+                  <EuiText size="xs" color="subdued">
+                    <span>
+                      {fmtNumber(rows.length)} proposal{rows.length === 1 ? '' : 's'}
+                    </span>
+                  </EuiText>
+                </EuiFlexItem>
+              </EuiFlexGroup>
+              <EuiSpacer size="s" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {rows.map(renderCard)}
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {proposals.map((p) => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              busy={busyId === p.id}
-              onApprove={(pr) => void decide(pr, 'approve')}
-              onReject={(pr) => void decide(pr, 'reject')}
-              onOpenCase={onOpenCase}
-            />
-          ))}
+          {proposals.map(renderCard)}
         </div>
       )}
 

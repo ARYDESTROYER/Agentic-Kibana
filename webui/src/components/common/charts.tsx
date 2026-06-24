@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { EuiFlexGroup, EuiFlexItem, EuiText } from '@elastic/eui';
-import { COLORS, chartColor } from '../../lib/theme';
+import { COLORS, chartColor, tint } from '../../lib/theme';
 
 const MUTED = COLORS.subdued;
 
@@ -24,14 +24,17 @@ export const Donut: React.FC<{
   thickness?: number;
   centerValue?: React.ReactNode;
   centerLabel?: string;
-}> = ({ segments, size = 132, thickness = 16, centerValue, centerLabel }) => {
+  /** Accessible name — rendered as <title> and the svg aria-label. */
+  title?: string;
+}> = ({ segments, size = 132, thickness = 16, centerValue, centerLabel, title }) => {
   const total = segments.reduce((s, x) => s + Math.max(0, x.value), 0);
   const r = (size - thickness) / 2;
   const c = 2 * Math.PI * r;
   const cx = size / 2;
   let offset = 0;
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img">
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={title}>
+      {title ? <title>{title}</title> : null}
       <circle cx={cx} cy={cx} r={r} fill="none" stroke={MUTED} strokeOpacity={0.15} strokeWidth={thickness} />
       {total > 0 &&
         segments.map((seg, i) => {
@@ -79,10 +82,14 @@ export const DonutWithLegend: React.FC<{
   size?: number;
   centerValue?: React.ReactNode;
   centerLabel?: string;
-}> = ({ segments, size, centerValue, centerLabel }) => (
+  /** Accessible name — forwarded to the inner Donut's <title>/aria-label. */
+  title?: string;
+  /** Optional formatter for the legend value (mirrors BarList). */
+  format?: (n: number) => React.ReactNode;
+}> = ({ segments, size, centerValue, centerLabel, title, format }) => (
   <EuiFlexGroup alignItems="center" gutterSize="l" responsive={false} wrap>
     <EuiFlexItem grow={false}>
-      <Donut segments={segments} size={size} centerValue={centerValue} centerLabel={centerLabel} />
+      <Donut segments={segments} size={size} centerValue={centerValue} centerLabel={centerLabel} title={title} />
     </EuiFlexItem>
     <EuiFlexItem>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -90,7 +97,7 @@ export const DonutWithLegend: React.FC<{
           <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color || chartColor(i), flex: '0 0 auto' }} />
             <EuiText size="xs" style={{ flex: 1 }}><span>{s.label}</span></EuiText>
-            <EuiText size="xs" color="subdued"><strong>{s.value}</strong></EuiText>
+            <EuiText size="xs" color="subdued"><strong>{format ? format(s.value) : s.value}</strong></EuiText>
           </div>
         ))}
       </div>
@@ -103,17 +110,23 @@ export const BarList: React.FC<{
   items: Segment[];
   format?: (n: number) => React.ReactNode;
   max?: number;
-}> = ({ items, format, max }) => {
+  /** Accessible name for the ranked-bar group (a11y label on the list). */
+  title?: string;
+}> = ({ items, format, max, title }) => {
   const top = max ?? Math.max(1, ...items.map((i) => i.value));
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+      role={title ? 'img' : undefined}
+      aria-label={title}
+    >
       {items.map((it, i) => (
         <div key={it.label}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
             <EuiText size="xs"><span style={{ wordBreak: 'break-word' }}>{it.label}</span></EuiText>
             <EuiText size="xs" color="subdued"><strong>{format ? format(it.value) : it.value}</strong></EuiText>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(105,112,125,0.14)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 6, background: tint(COLORS.subdued, 0.14), overflow: 'hidden' }}>
             <div style={{
               width: `${Math.max(2, (it.value / top) * 100)}%`,
               height: '100%',
@@ -134,8 +147,10 @@ export const Sparkline: React.FC<{
   height?: number;
   color?: string;
   fill?: boolean;
-}> = ({ values, width = 240, height = 48, color = COLORS.primary, fill = true }) => {
-  if (!values.length) return <svg width={width} height={height} />;
+  /** Accessible name — rendered as <title> and the svg aria-label. */
+  title?: string;
+}> = ({ values, width = 240, height = 48, color = COLORS.primary, fill = true, title }) => {
+  if (!values.length) return <svg width={width} height={height} role="img" aria-label={title}>{title ? <title>{title}</title> : null}</svg>;
   const max = Math.max(...values);
   const min = Math.min(...values);
   const span = max - min || 1;
@@ -144,7 +159,8 @@ export const Sparkline: React.FC<{
   const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   const area = `${line} L${width},${height} L0,${height} Z`;
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img">
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={title}>
+      {title ? <title>{title}</title> : null}
       {fill && <path d={area} fill={color} fillOpacity={0.12} />}
       <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
     </svg>
@@ -157,13 +173,16 @@ export const MiniBars: React.FC<{
   width?: number;
   height?: number;
   color?: string;
-}> = ({ values, width = 240, height = 48, color = COLORS.primary }) => {
-  if (!values.length) return <svg width={width} height={height} />;
+  /** Accessible name — rendered as <title> and the svg aria-label. */
+  title?: string;
+}> = ({ values, width = 240, height = 48, color = COLORS.primary, title }) => {
+  if (!values.length) return <svg width={width} height={height} role="img" aria-label={title}>{title ? <title>{title}</title> : null}</svg>;
   const max = Math.max(1, ...values);
   const gap = 2;
   const bw = (width - gap * (values.length - 1)) / values.length;
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img">
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" role="img" aria-label={title}>
+      {title ? <title>{title}</title> : null}
       {values.map((v, i) => {
         const h = (v / max) * (height - 2);
         return (
@@ -176,17 +195,19 @@ export const MiniBars: React.FC<{
 };
 
 /* ----------------------------------------------------------- risk gauge --- */
-export const RiskGauge: React.FC<{ score: number; size?: number; color: string }> = ({
+export const RiskGauge: React.FC<{ score: number; size?: number; color: string; title?: string }> = ({
   score,
   size = 120,
   color,
+  title,
 }) => {
   const thickness = 12;
   const r = (size - thickness) / 2;
   const c = Math.PI * r; // half circle
   const frac = Math.max(0, Math.min(100, score)) / 100;
   return (
-    <svg width={size} height={size / 2 + 8} viewBox={`0 0 ${size} ${size / 2 + 8}`} role="img">
+    <svg width={size} height={size / 2 + 8} viewBox={`0 0 ${size} ${size / 2 + 8}`} role="img" aria-label={title}>
+      {title ? <title>{title}</title> : null}
       <path
         d={`M ${thickness / 2} ${size / 2} A ${r} ${r} 0 0 1 ${size - thickness / 2} ${size / 2}`}
         fill="none" stroke={MUTED} strokeOpacity={0.15} strokeWidth={thickness} strokeLinecap="round"

@@ -12,6 +12,7 @@ import {
   EuiButtonGroup,
   EuiFlexGroup,
   EuiFlexItem,
+  EuiLink,
   EuiSpacer,
   EuiText,
   EuiToolTip,
@@ -33,11 +34,13 @@ import {
   Card,
   EmptyState,
   ErrorCallout,
+  NavTile,
   PageHeader,
   SectionHeader,
   Skeleton,
   StatTile,
 } from '../common/ui';
+import type { Navigate } from '../Shell/Shell';
 
 const WINDOWS = [
   { id: '24', label: '24h', hours: 24 },
@@ -56,6 +59,15 @@ function humanizeMinutes(mins?: number): string {
   const days = Math.floor(hours / 24);
   const remH = hours % 24;
   return remH ? `${days}d ${remH}h` : `${days}d`;
+}
+
+/** Map a humanized verdict-legend label to a Cases status filter for drill-through.
+ *  Only "Needs human" maps to a real status queue; the verdict-class labels have no
+ *  1:1 status, so they drill into the unfiltered cases list (still useful). */
+function verdictStatus(label: string): string | undefined {
+  const l = label.toLowerCase();
+  if (l.includes('needs human')) return 'needs_human';
+  return undefined;
 }
 
 type RankSort = 'count' | 'alpha';
@@ -94,7 +106,7 @@ const MetricsSkeleton: React.FC = () => (
   </>
 );
 
-export const MetricsPage: React.FC = () => {
+export const MetricsPage: React.FC<{ onNavigate?: Navigate }> = ({ onNavigate }) => {
   const [windowId, setWindowId] = useState<string>('168');
   /** Ordering for the ranked persona/playbook/corpus bar lists. */
   const [rankSort, setRankSort] = useState<RankSort>('count');
@@ -215,9 +227,9 @@ export const MetricsPage: React.FC = () => {
   }, [memoryEntries]);
 
   const hasKnowledge = rag !== null || memory !== null;
-  const embeddingValue = rag?.embedding_model
-    ? humanizeToken(rag.embedding_model)
-    : DASH;
+  // Render the embedding model id VERBATIM (it is a model key, e.g.
+  // "text-embedding-3-small") — humanizing it mangles the real identifier.
+  const embeddingValue = rag?.embedding_model ? rag.embedding_model : DASH;
 
   const hasAny = (data?.total_cases ?? 0) > 0;
 
@@ -328,7 +340,7 @@ export const MetricsPage: React.FC = () => {
       <div className="socGrid">
         <Card title="Corpus by source" icon="logstashQueue" accent={COLORS.primary}>
           {corpusSegments.length ? (
-            <BarList items={corpusSegments} format={(n) => fmtNumber(n)} />
+            <BarList title="RAG corpus by source" items={corpusSegments} format={(n) => fmtNumber(n)} />
           ) : (
             <EuiText size="s" color="subdued">
               <span>{rag ? 'No RAG corpus indexed yet.' : 'Corpus stats unavailable.'}</span>
@@ -339,9 +351,11 @@ export const MetricsPage: React.FC = () => {
         <Card title="Memory by author" icon="users" accent={COLORS.warning}>
           {memorySourceSegments.length ? (
             <DonutWithLegend
+              title="Memory facts by author"
               segments={memorySourceSegments}
               centerValue={fmtNumber(memory?.count)}
               centerLabel="facts"
+              format={(n) => fmtNumber(n)}
             />
           ) : (
             <EuiText size="s" color="subdued">
@@ -382,28 +396,34 @@ export const MetricsPage: React.FC = () => {
           {/* KPI row */}
           <EuiFlexGroup gutterSize="m" wrap>
             <EuiFlexItem style={{ minWidth: 200 }}>
-              <StatTile
+              <NavTile
                 label={`Total cases (${windowLabel})`}
                 value={fmtNumber(data?.total_cases)}
                 icon="securityApp"
                 accent={COLORS.primary}
+                onClick={onNavigate ? () => onNavigate('cases') : undefined}
+                ariaLabel="View all cases"
               />
             </EuiFlexItem>
             <EuiFlexItem style={{ minWidth: 200 }}>
-              <StatTile
+              <NavTile
                 label="Needs human"
                 value={fmtNumber(data?.needs_human_cases)}
                 icon="user"
                 accent={COLORS.warning}
+                onClick={onNavigate ? () => onNavigate('cases', { status: 'needs_human' }) : undefined}
+                ariaLabel="View cases that need human review"
               />
             </EuiFlexItem>
             <EuiFlexItem style={{ minWidth: 200 }}>
-              <StatTile
+              <NavTile
                 label="Closed"
                 value={fmtNumber(data?.closed_cases)}
                 icon="checkInCircleFilled"
                 accent={COLORS.success}
                 sub={`${fmtNumber(data?.open_cases)} open`}
+                onClick={onNavigate ? () => onNavigate('cases', { status: 'closed' }) : undefined}
+                ariaLabel="View closed cases"
               />
             </EuiFlexItem>
             <EuiFlexItem style={{ minWidth: 200 }}>
@@ -444,11 +464,37 @@ export const MetricsPage: React.FC = () => {
           <div className="socGrid">
             <Card title="Verdict mix" icon="visPie" accent={COLORS.primary}>
               {verdictSegments.length ? (
-                <DonutWithLegend
-                  segments={verdictSegments}
-                  centerValue={fmtNumber(data?.total_cases)}
-                  centerLabel="cases"
-                />
+                <>
+                  <DonutWithLegend
+                    title="Verdict mix"
+                    segments={verdictSegments}
+                    centerValue={fmtNumber(data?.total_cases)}
+                    centerLabel="cases"
+                    format={(n) => fmtNumber(n)}
+                  />
+                  {onNavigate ? (
+                    <>
+                      <EuiSpacer size="s" />
+                      <EuiFlexGroup gutterSize="xs" wrap responsive={false}>
+                        {verdictSegments.map((s) => {
+                          const status = verdictStatus(s.label);
+                          if (!status) return null;
+                          return (
+                            <EuiFlexItem key={s.label} grow={false}>
+                              <EuiLink
+                                color="primary"
+                                onClick={() => onNavigate('cases', { status })}
+                                aria-label={`View ${s.label} cases`}
+                              >
+                                <EuiText size="xs"><span>{s.label} →</span></EuiText>
+                              </EuiLink>
+                            </EuiFlexItem>
+                          );
+                        })}
+                      </EuiFlexGroup>
+                    </>
+                  ) : null}
+                </>
               ) : (
                 <EuiText size="s" color="subdued"><span>{DASH}</span></EuiText>
               )}
@@ -456,7 +502,7 @@ export const MetricsPage: React.FC = () => {
 
             <Card title="Persona usage" icon="users" accent={COLORS.accent}>
               {personaSegments.length ? (
-                <BarList items={personaSegments} format={(n) => fmtNumber(n)} />
+                <BarList title="Persona usage" items={personaSegments} format={(n) => fmtNumber(n)} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>No specialist routing recorded.</span>
@@ -466,7 +512,7 @@ export const MetricsPage: React.FC = () => {
 
             <Card title="Playbook usage" icon="inspect" accent={COLORS.warning}>
               {playbookSegments.length ? (
-                <BarList items={playbookSegments} format={(n) => fmtNumber(n)} />
+                <BarList title="Playbook usage" items={playbookSegments} format={(n) => fmtNumber(n)} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>No playbooks selected in this window.</span>
@@ -477,7 +523,7 @@ export const MetricsPage: React.FC = () => {
             <Card title="Cases per day" icon="visBarVertical" accent={COLORS.success}>
               {perDay.length > 1 ? (
                 <>
-                  <MiniBars values={perDay} color={COLORS.success} height={120} />
+                  <MiniBars title="Cases per day" values={perDay} color={COLORS.success} height={120} />
                   <EuiSpacer size="xs" />
                   <EuiText size="xs" color="subdued">
                     <span>{`${perDay.length} days · ${fmtNumber(
@@ -519,6 +565,7 @@ export const MetricsPage: React.FC = () => {
                     </EuiFlexGroup>
                     <EuiSpacer size="m" />
                     <BarList
+                      title="Feedback quality scores"
                       items={[
                         { label: 'Accuracy', value: Math.round((fb.avg_accuracy || 0) * 100), color: COLORS.success },
                         {
@@ -542,7 +589,7 @@ export const MetricsPage: React.FC = () => {
                           <span>Recorded outcomes</span>
                         </EuiText>
                         <EuiSpacer size="xs" />
-                        <BarList items={outcomeSegments} format={(n) => fmtNumber(n)} />
+                        <BarList title="Recorded outcomes" items={outcomeSegments} format={(n) => fmtNumber(n)} />
                       </>
                     ) : null}
                   </>
@@ -586,6 +633,7 @@ export const MetricsPage: React.FC = () => {
                   <>
                     <EuiSpacer size="m" />
                     <MiniBars
+                      title="LLM spend over time"
                       values={cost!.cost_over_time!.map((p) => Number(p.cost) || 0)}
                       color={COLORS.warning}
                       height={80}

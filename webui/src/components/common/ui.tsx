@@ -17,10 +17,11 @@ import {
   EuiText,
   EuiToolTip,
 } from '@elastic/eui';
-import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
+import { DASH, fmtPercent, humanizeAge, humanizeToken } from '../../lib/format';
 import {
   COLORS,
   RADIUS,
+  riskBand,
   riskHex,
   statusHex,
   tint,
@@ -191,16 +192,270 @@ export const StatusBadge: React.FC<{ status?: string }> = ({ status }) => (
   <EuiHealth color={statusHex(status)}>{humanizeToken(status)}</EuiHealth>
 );
 
-export const ConfidenceBadge: React.FC<{ confidence?: number }> = ({ confidence }) => {
+export const ConfidenceBadge: React.FC<{
+  confidence?: number;
+  /** Optional auto-close confidence bar (0..1) for a calibration-aware tooltip. */
+  threshold?: number;
+  /** Optional extra note appended to the tooltip. */
+  note?: string;
+}> = ({ confidence, threshold, note }) => {
   if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
     return null;
   }
+  let content: React.ReactNode = 'Agent confidence in the verdict';
+  if (typeof threshold === 'number' && !Number.isNaN(threshold)) {
+    const rel = confidence >= threshold ? 'above' : 'below';
+    content = `Confidence ${confidence.toFixed(2)} — ${rel} the ${threshold.toFixed(2)} auto-close bar`;
+  }
+  if (note) {
+    content = (
+      <span>
+        {content}
+        <br />
+        {note}
+      </span>
+    );
+  }
   return (
-    <EuiToolTip content="Agent confidence in the verdict">
+    <EuiToolTip content={content}>
       <EuiBadge color="hollow" iconType="visGauge">
         {fmtPercent(confidence)} conf
       </EuiBadge>
     </EuiToolTip>
+  );
+};
+
+/* --------------------------------------------------------- posture badge --- */
+
+const POSTURE_META: Record<
+  'auto_closed' | 'needs_human' | 'awaiting_approval' | 'open' | 'closed',
+  { label: string; color: string }
+> = {
+  auto_closed: { label: 'Auto-closed by policy', color: COLORS.success },
+  needs_human: { label: 'Held for human', color: COLORS.warning },
+  awaiting_approval: { label: 'Awaiting approval', color: COLORS.accent },
+  open: { label: 'Open', color: COLORS.primary },
+  closed: { label: 'Closed', color: COLORS.subdued },
+};
+
+/**
+ * A small badge describing a case's AUTONOMY posture (how it got where it is),
+ * distinct from lifecycle status. Fixed human labels; semantic colour from theme.
+ */
+export const PostureBadge: React.FC<{
+  posture: 'auto_closed' | 'needs_human' | 'awaiting_approval' | 'open' | 'closed';
+  label?: string;
+}> = ({ posture, label }) => {
+  const meta = POSTURE_META[posture] || POSTURE_META.open;
+  return <EuiBadge color={meta.color}>{label || meta.label}</EuiBadge>;
+};
+
+/* ------------------------------------------------------------ MITRE list --- */
+
+/** ~40 common ATT&CK techniques (id → name). UNTRUSTED-safe (plain text). */
+export const MITRE_TECHNIQUES: Record<string, string> = {
+  T1003: 'OS Credential Dumping',
+  T1005: 'Data from Local System',
+  T1010: 'Application Window Discovery',
+  T1016: 'System Network Configuration Discovery',
+  T1018: 'Remote System Discovery',
+  T1021: 'Remote Services',
+  T1027: 'Obfuscated Files or Information',
+  T1033: 'System Owner/User Discovery',
+  T1036: 'Masquerading',
+  T1041: 'Exfiltration Over C2 Channel',
+  T1046: 'Network Service Scanning',
+  T1047: 'Windows Management Instrumentation',
+  T1053: 'Scheduled Task/Job',
+  T1055: 'Process Injection',
+  T1056: 'Input Capture',
+  T1057: 'Process Discovery',
+  T1059: 'Command & Scripting Interpreter',
+  T1068: 'Exploitation for Privilege Escalation',
+  T1070: 'Indicator Removal',
+  T1071: 'Application Layer Protocol',
+  T1078: 'Valid Accounts',
+  T1082: 'System Information Discovery',
+  T1083: 'File and Directory Discovery',
+  T1087: 'Account Discovery',
+  T1090: 'Proxy',
+  T1098: 'Account Manipulation',
+  T1105: 'Ingress Tool Transfer',
+  T1110: 'Brute Force',
+  T1112: 'Modify Registry',
+  T1133: 'External Remote Services',
+  T1136: 'Create Account',
+  T1190: 'Exploit Public-Facing Application',
+  T1203: 'Exploitation for Client Execution',
+  T1204: 'User Execution',
+  T1486: 'Data Encrypted for Impact',
+  T1490: 'Inhibit System Recovery',
+  T1496: 'Resource Hijacking',
+  T1498: 'Network Denial of Service',
+  T1505: 'Server Software Component',
+  T1543: 'Create or Modify System Process',
+  T1547: 'Boot or Logon Autostart Execution',
+  T1548: 'Abuse Elevation Control Mechanism',
+  T1562: 'Impair Defenses',
+  T1566: 'Phishing',
+  T1567: 'Exfiltration Over Web Service',
+  T1571: 'Non-Standard Port',
+  T1573: 'Encrypted Channel',
+};
+
+/**
+ * Render MITRE ATT&CK technique ids as hollow badge chips `Txxxx · Name`.
+ * Unknown ids render the id alone. `max` truncates with a "+N" chip. Ids are
+ * UNTRUSTED (may be arbitrary) → rendered as plain text only.
+ */
+export const MitreList: React.FC<{ ids?: string[]; max?: number }> = ({ ids, max }) => {
+  const list = (ids || []).filter((x) => typeof x === 'string' && x.trim());
+  if (!list.length) return null;
+  const shown = typeof max === 'number' && max > 0 ? list.slice(0, max) : list;
+  const extra = list.length - shown.length;
+  return (
+    <EuiFlexGroup gutterSize="xs" responsive={false} wrap alignItems="center">
+      {shown.map((raw, i) => {
+        const id = raw.trim();
+        const name = MITRE_TECHNIQUES[id.toUpperCase()];
+        const text = name ? `${id} · ${name}` : id;
+        return (
+          <EuiFlexItem grow={false} key={`${id}-${i}`}>
+            <EuiToolTip content={name || id}>
+              <EuiBadge color="hollow">{text}</EuiBadge>
+            </EuiToolTip>
+          </EuiFlexItem>
+        );
+      })}
+      {extra > 0 ? (
+        <EuiFlexItem grow={false}>
+          <EuiBadge color="hollow">{`+${extra}`}</EuiBadge>
+        </EuiFlexItem>
+      ) : null}
+    </EuiFlexGroup>
+  );
+};
+
+/* ------------------------------------------------------------ urgency pill - */
+
+/**
+ * A small urgency pill derived from case age × risk band — Fresh / Aging /
+ * Overdue. Closed / auto-closed cases show no pill (nothing to triage).
+ */
+export const UrgencyPill: React.FC<{
+  createdAt?: string;
+  riskScore?: number;
+  status?: string;
+}> = ({ createdAt, riskScore, status }) => {
+  const s = (status || '').toLowerCase();
+  if (s === 'closed' || s === 'auto_closed') return null;
+  if (!createdAt) return null;
+  const ts = Date.parse(createdAt);
+  if (Number.isNaN(ts)) return null;
+  const ageHrs = (Date.now() - ts) / 3_600_000;
+  if (ageHrs < 0) return null;
+  // High risk shortens the windows; low risk lengthens them.
+  const r = typeof riskScore === 'number' && !Number.isNaN(riskScore) ? riskScore : 40;
+  const freshMax = r >= 80 ? 1 : r >= 60 ? 4 : r >= 30 ? 12 : 24;
+  const agingMax = r >= 80 ? 4 : r >= 60 ? 12 : r >= 30 ? 36 : 72;
+  let label = 'Fresh';
+  let color = COLORS.success;
+  if (ageHrs > agingMax) {
+    label = 'Overdue';
+    color = COLORS.danger;
+  } else if (ageHrs > freshMax) {
+    label = 'Aging';
+    color = COLORS.warning;
+  }
+  return (
+    <EuiToolTip content={`Opened ${humanizeAge(createdAt)} · ${riskBand(riskScore).label.toLowerCase()} risk`}>
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          padding: '1px 8px',
+          borderRadius: RADIUS.pill,
+          fontSize: TYPE.label,
+          fontWeight: WEIGHT.semibold,
+          color,
+          background: tint(color, 0.14),
+          boxShadow: `inset 0 0 0 1px ${tint(color, 0.28)}`,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {label}
+      </span>
+    </EuiToolTip>
+  );
+};
+
+/* -------------------------------------------------------------- nav tile --- */
+
+interface NavTileProps {
+  label: string;
+  value: React.ReactNode;
+  icon?: string;
+  accent?: string;
+  sub?: React.ReactNode;
+  onClick?: () => void;
+  ariaLabel?: string;
+}
+
+/**
+ * Visually identical to `StatTile` (coloured top border) but, when `onClick` is
+ * set, becomes an accessible button: role/tabIndex, Enter/Space activation,
+ * pointer cursor, focus-visible ring (from index.css), and an `aria-label`.
+ */
+export const NavTile: React.FC<NavTileProps> = ({
+  label,
+  value,
+  icon,
+  accent = COLORS.primary,
+  sub,
+  onClick,
+  ariaLabel,
+}) => {
+  const clickable = typeof onClick === 'function';
+  return (
+    <EuiPanel
+      hasBorder
+      paddingSize="m"
+      className={`socStat socTile${clickable ? ' socCard--clickable' : ''}`}
+      style={{ borderTop: `3px solid ${accent}`, borderRadius: RADIUS.lg, cursor: clickable ? 'pointer' : undefined }}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? ariaLabel || label : undefined}
+      onKeyDown={
+        clickable
+          ? (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+    >
+      <EuiFlexGroup gutterSize="m" alignItems="center" responsive={false}>
+        {icon ? (
+          <EuiFlexItem grow={false}>
+            <IconChip icon={icon} accent={accent} />
+          </EuiFlexItem>
+        ) : null}
+        <EuiFlexItem>
+          <div className="socTile__label">{label}</div>
+          <div style={{ fontSize: TYPE.kpi, fontWeight: WEIGHT.bold, lineHeight: 1.15, letterSpacing: -0.3 }}>
+            {value}
+          </div>
+          {sub ? (
+            <EuiText size="xs" color="subdued">
+              <span>{sub}</span>
+            </EuiText>
+          ) : null}
+        </EuiFlexItem>
+      </EuiFlexGroup>
+    </EuiPanel>
   );
 };
 

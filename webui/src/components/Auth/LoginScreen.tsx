@@ -10,6 +10,7 @@
 import React, { useState } from 'react';
 import {
   EuiButton,
+  EuiButtonEmpty,
   EuiCallOut,
   EuiFieldPassword,
   EuiFieldText,
@@ -38,6 +39,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
   const wordmark = branding.org_name?.trim() || 'Agentic SOC';
   const tagline = branding.product_name?.trim() || 'Triage console';
   const logoUrl = branding.logo_data_url?.trim() || '';
+  // Operator-set copy (UNTRUSTED-safe: rendered as plain text only).
+  const loginSubtitle = branding.login_subtitle?.trim() || '';
+  const footerText = branding.footer_text?.trim() || '';
+  const rawSupport = branding.support_url?.trim() || '';
+  const supportUrl = /^https?:\/\//i.test(rawSupport) ? rawSupport : '';
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -114,7 +120,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
             <h2>Sign in</h2>
           </EuiTitle>
           <EuiText size="xs" color="subdued">
-            <p style={{ marginTop: 4 }}>Enter your credentials to access the console.</p>
+            <p style={{ marginTop: 4 }}>
+              {loginSubtitle || 'Enter your credentials to access the console.'}
+            </p>
           </EuiText>
 
           <EuiSpacer size="m" />
@@ -170,6 +178,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
         <EuiText size="xs" color="subdued" textAlign="center">
           <span>Audited, cost-metered agentic triage.</span>
         </EuiText>
+
+        {supportUrl ? (
+          <EuiFlexGroup justifyContent="center" responsive={false} gutterSize="none">
+            <EuiFlexItem grow={false}>
+              <EuiButtonEmpty
+                size="xs"
+                iconType="documentation"
+                href={supportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Docs &amp; help
+              </EuiButtonEmpty>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        ) : null}
+
+        {footerText ? (
+          <>
+            <EuiSpacer size="s" />
+            {/* Operator-set classification/footer banner — plain text only. */}
+            <EuiText size="xs" color="subdued" textAlign="center">
+              <span>{footerText}</span>
+            </EuiText>
+          </>
+        ) : null}
       </div>
     </div>
   );

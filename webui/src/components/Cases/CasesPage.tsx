@@ -21,12 +21,14 @@ import {
   EuiBasicTable,
   EuiButton,
   EuiButtonEmpty,
+  EuiCallOut,
   EuiComboBox,
   EuiDualRange,
   EuiFieldSearch,
   EuiFlexGroup,
   EuiFlexItem,
   EuiFormRow,
+  EuiPanel,
   EuiPopover,
   EuiSelect,
   EuiSpacer,
@@ -38,18 +40,20 @@ import type {
   EuiBasicTableColumn,
   EuiComboBoxOptionOption,
 } from '@elastic/eui';
-import type { Case } from '../../lib/types';
+import type { Case, CaseActionInput } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, riskHex, verdictHex } from '../../lib/theme';
+import { COLORS, RADIUS, riskHex, verdictHex } from '../../lib/theme';
 import { humanizeAge, humanizeToken } from '../../lib/format';
 import {
   EmptyState,
   ErrorCallout,
+  PostureBadge,
   RiskBadge,
   SectionHeader,
   Skeleton,
   StatTile,
   StatusBadge,
+  UrgencyPill,
   VerdictBadge,
 } from '../common/ui';
 import { CaseDetailFlyout } from './CaseDetailFlyout';
@@ -90,6 +94,25 @@ function caseSourceLabel(c: Case): string {
 function caseEntityKey(c: Case): string {
   if (!c.entity) return '';
   return `${c.entity.type || ''}:${c.entity.value || ''}`;
+}
+
+type Posture = 'auto_closed' | 'needs_human' | 'awaiting_approval' | 'open' | 'closed';
+
+/**
+ * Derive the case's AUTONOMY posture (how it got where it is) from its lifecycle
+ * status + who decided it. A policy-closed case is "auto_closed"; a needs-human or
+ * awaiting-approval status maps straight through; otherwise open/closed.
+ */
+function casePosture(c: Case): Posture {
+  const status = (c.status || '').toLowerCase();
+  const by = (c.decision_by || '').toLowerCase();
+  if (status === 'awaiting_approval') return 'awaiting_approval';
+  if (status === 'needs_human') return 'needs_human';
+  if (status === 'auto_closed') return 'auto_closed';
+  if (status === 'closed') {
+    return by === 'policy' || by === 'auto' || by === 'auto_close' ? 'auto_closed' : 'closed';
+  }
+  return 'open';
 }
 
 /* ------------------------------------------------------- filter primitives -- */
@@ -313,12 +336,9 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
 
     const score = typeof c.risk_score === 'number' ? c.risk_score : null;
     if (f.riskMin > 0 || f.riskMax < 100) {
-      // Unscored cases only survive when the band spans the full range.
-      if (score === null) {
-        if (f.riskMin > 0 || f.riskMax < 100) return false;
-      } else if (score < f.riskMin || score > f.riskMax) {
-        return false;
-      }
+      // A narrowed risk band drops unscored cases (no score to place in-band).
+      if (score === null) return false;
+      if (score < f.riskMin || score > f.riskMax) return false;
     }
 
     if (horizon) {
@@ -366,15 +386,32 @@ function countActiveFilters(f: CaseFilters): number {
 
 /* ----------------------------------------------------------------- page ----- */
 
-export const CasesPage: React.FC = () => {
+export interface CasesPageProps {
+  /**
+   * Seed the status filter on mount (e.g. from a drill-through such as
+   * `onNavigate('cases',{status:'needs_human'})`). Applied once; the user can
+   * clear/change it afterwards.
+   */
+  initialStatus?: string;
+}
+
+/** Hard ceiling on the single-shot list fetch (mirrors the api call below). */
+const LIST_LIMIT = 200;
+
+export const CasesPage: React.FC<CasesPageProps> = ({ initialStatus }) => {
   const [cases, setCases] = useState<Case[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
-  const [filters, setFilters] = useState<CaseFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<CaseFilters>(() =>
+    initialStatus
+      ? { ...EMPTY_FILTERS, statuses: [initialStatus] }
+      : EMPTY_FILTERS,
+  );
   const [sortField, setSortField] = useState<SortField>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Case[]>([]);
 
   /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
   const caseCache = useRef<Map<string, Case>>(new Map());
@@ -385,7 +422,7 @@ export const CasesPage: React.FC = () => {
     try {
       // The full list is fetched once; all narrowing happens client-side so the
       // filter bar stays instant and there is one source of truth for facets.
-      const res = await api.listCases({ limit: 200 });
+      const res = await api.listCases({ limit: LIST_LIMIT });
       setCases(res.cases);
       setTotal(res.total);
       for (const c of res.cases) {
@@ -402,18 +439,13 @@ export const CasesPage: React.FC = () => {
     void load();
   }, [load]);
 
-  // Counts are over the full fetched list (not the in-view filtered subset).
-  const counts = useMemo(() => {
-    let open = 0;
-    let needsHuman = 0;
-    let truePositive = 0;
-    for (const c of cases) {
-      if (c.status === 'open') open += 1;
-      if (c.status === 'needs_human') needsHuman += 1;
-      if ((c.verdict || '').toUpperCase().includes('TRUE')) truePositive += 1;
+  // A drill-through can change `initialStatus` while the page is mounted; reseed
+  // the status filter when it does (a falsy value leaves the filter untouched).
+  useEffect(() => {
+    if (initialStatus) {
+      setFilters((f) => ({ ...f, statuses: [initialStatus] }));
     }
-    return { open, needsHuman, truePositive };
-  }, [cases]);
+  }, [initialStatus]);
 
   const facets = useMemo(() => buildFacets(cases), [cases]);
 
@@ -464,12 +496,73 @@ export const CasesPage: React.FC = () => {
     });
   }, [cases, filters, sortField, sortDir]);
 
+  // KPI counts are computed over the IN-VIEW (filtered) list, not the full load,
+  // so they always agree with the rows the analyst can actually see.
+  const counts = useMemo(() => {
+    let open = 0;
+    let needsHuman = 0;
+    let truePositive = 0;
+    for (const c of filteredSorted) {
+      if (c.status === 'open') open += 1;
+      if (c.status === 'needs_human') needsHuman += 1;
+      if ((c.verdict || '').toUpperCase().includes('TRUE')) truePositive += 1;
+    }
+    return { open, needsHuman, truePositive };
+  }, [filteredSorted]);
+
+  // The single-shot fetch is capped; when the backend holds more than we loaded
+  // we surface an honest truncation note (and the headline tile shows the real
+  // total). `cases.length` is the loaded slice; `total` the true backend count.
+  const truncated = total > cases.length;
+
   const onTableChange = useCallback(({ sort }: Criteria<Case>) => {
     if (sort) {
       setSortField(sort.field as SortField);
       setSortDir(sort.direction);
     }
   }, []);
+
+  // Drop any selection that no longer survives the current filter/load so the
+  // bulk bar never acts on rows the analyst can't see.
+  useEffect(() => {
+    setSelected((sel) => {
+      if (!sel.length) return sel;
+      const visible = new Set(filteredSorted.map((c) => c.case_id));
+      const next = sel.filter((c) => visible.has(c.case_id));
+      return next.length === sel.length ? sel : next;
+    });
+  }, [filteredSorted]);
+
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
+  // Run one analyst action across every selected case (sequentially, so a single
+  // failure doesn't abort the rest), then reload + clear the selection.
+  const runBulk = useCallback(
+    async (input: CaseActionInput) => {
+      if (!selected.length || bulkBusy) return;
+      setBulkBusy(true);
+      setBulkError(null);
+      const targets = selected.slice();
+      let failures = 0;
+      for (const c of targets) {
+        try {
+          await api.caseActionExec(c.case_id, input);
+        } catch {
+          failures += 1;
+        }
+      }
+      if (failures) {
+        setBulkError(
+          `${failures} of ${targets.length} case${targets.length === 1 ? '' : 's'} could not be updated.`,
+        );
+      }
+      setSelected([]);
+      await load();
+      setBulkBusy(false);
+    },
+    [selected, bulkBusy, load],
+  );
 
   const columns: Array<EuiBasicTableColumn<Case>> = [
     {
@@ -500,6 +593,13 @@ export const CasesPage: React.FC = () => {
           />
         );
       },
+    },
+    {
+      name: 'Urgency',
+      width: '92px',
+      render: (c: Case) => (
+        <UrgencyPill createdAt={c.created_at} riskScore={c.risk_score} status={c.status} />
+      ),
     },
     {
       field: 'entity',
@@ -601,6 +701,10 @@ export const CasesPage: React.FC = () => {
       render: (_: unknown, c: Case) => <StatusBadge status={c.status} />,
     },
     {
+      name: 'Posture',
+      render: (c: Case) => <PostureBadge posture={casePosture(c)} />,
+    },
+    {
       field: 'updated_at',
       name: 'Updated',
       sortable: true,
@@ -628,15 +732,40 @@ export const CasesPage: React.FC = () => {
         title="Cases"
         description="Audited, human-reviewable triage cases."
         actions={
-          <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
-            Refresh
-          </EuiButton>
+          <EuiFlexGroup gutterSize="s" responsive={false} alignItems="center">
+            <EuiFlexItem grow={false}>
+              <EuiToolTip content="Triage preset: oldest cases first, so nothing ages out unseen.">
+                <EuiButton
+                  size="s"
+                  iconType="sortUp"
+                  fill={sortField === 'created_at' && sortDir === 'asc'}
+                  onClick={() => {
+                    setSortField('created_at');
+                    setSortDir('asc');
+                  }}
+                >
+                  Oldest first
+                </EuiButton>
+              </EuiToolTip>
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="refresh" onClick={load} isLoading={loading}>
+                Refresh
+              </EuiButton>
+            </EuiFlexItem>
+          </EuiFlexGroup>
         }
       />
 
       <EuiFlexGroup gutterSize="m">
         <EuiFlexItem>
-          <StatTile label="Total cases" value={total} icon="documents" accent={COLORS.primary} />
+          <StatTile
+            label="Total cases"
+            value={total}
+            icon="documents"
+            accent={COLORS.primary}
+            sub={truncated ? `${cases.length} loaded` : undefined}
+          />
         </EuiFlexItem>
         <EuiFlexItem>
           <StatTile label="Open (in view)" value={counts.open} icon="dot" accent={COLORS.primary} />
@@ -653,6 +782,7 @@ export const CasesPage: React.FC = () => {
 
       <CaseFilterBar
         loadedCount={cases.length}
+        total={total}
         filters={filters}
         onChange={setFilters}
         facets={facets}
@@ -666,6 +796,33 @@ export const CasesPage: React.FC = () => {
       />
 
       <EuiSpacer size="m" />
+
+      {truncated ? (
+        <>
+          <EuiCallOut
+            size="s"
+            color="primary"
+            iconType="iInCircle"
+            title={`Showing the first ${cases.length} of ${total} cases`}
+          >
+            <EuiText size="xs">
+              <span>
+                Only the most recent {cases.length} cases are loaded for fast
+                client-side filtering. Narrow the time range or use search to find
+                older cases.
+              </span>
+            </EuiText>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
+
+      {bulkError ? (
+        <>
+          <EuiCallOut size="s" color="warning" title={bulkError} iconType="warning" />
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
 
       {error ? (
         <>
@@ -701,17 +858,38 @@ export const CasesPage: React.FC = () => {
           items={filteredSorted}
           columns={columns}
           rowHeader="title"
+          itemId="case_id"
           // Sort is fully controlled below (filteredSorted); `field` here is just
           // the column identity EUI highlights. `source` is a synthetic column
           // (not a Case key), so widen the type for the strict `keyof Case` slot.
           sorting={{ sort: { field: sortField as keyof Case, direction: sortDir } }}
           onChange={onTableChange}
+          selection={{
+            selectable: () => true,
+            selected,
+            onSelectionChange: (sel: Case[]) => setSelected(sel),
+          }}
           rowProps={(c: Case) => ({
-            onClick: () => setSelectedCaseId(c.case_id),
+            // Don't hijack the checkbox cell (let row-selection clicks through);
+            // clicking elsewhere on the row opens the detail flyout.
+            onClick: (e: React.MouseEvent) => {
+              const el = e.target as HTMLElement;
+              if (el.closest('.euiTableRowCellCheckbox, .euiCheckbox')) return;
+              setSelectedCaseId(c.case_id);
+            },
             style: { cursor: 'pointer' },
           })}
         />
       )}
+
+      <BulkActionBar
+        count={selected.length}
+        busy={bulkBusy}
+        onAcknowledge={() => void runBulk({ action: 'acknowledge' })}
+        onClose={() => void runBulk({ action: 'close', resolution: 'Bulk-closed by analyst' })}
+        onAssign={(assignee) => void runBulk({ action: 'escalate', assignee })}
+        onClear={() => setSelected([])}
+      />
 
       {selectedCaseId ? (
         <CaseDetailFlyout
@@ -740,6 +918,8 @@ const fromOpts = (sel: Array<EuiComboBoxOptionOption<string>>): string[] =>
  */
 const CaseFilterBar: React.FC<{
   loadedCount: number;
+  /** The true backend total (may exceed loadedCount when the fetch is capped). */
+  total: number;
   filters: CaseFilters;
   onChange: (next: CaseFilters) => void;
   facets: Facets;
@@ -747,7 +927,7 @@ const CaseFilterBar: React.FC<{
   sortField: SortField;
   sortDir: 'asc' | 'desc';
   onSortChange: (field: SortField, dir: 'asc' | 'desc') => void;
-}> = ({ loadedCount, filters, onChange, facets, shown, sortField, sortDir, onSortChange }) => {
+}> = ({ loadedCount, total, filters, onChange, facets, shown, sortField, sortDir, onSortChange }) => {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const set = <K extends keyof CaseFilters>(key: K, value: CaseFilters[K]) =>
@@ -992,9 +1172,141 @@ const CaseFilterBar: React.FC<{
         <EuiText size="xs" color="subdued">
           <span>
             Showing <strong>{shown}</strong> of {loadedCount}
+            {total > loadedCount ? ` (of ${total} total)` : ''}
           </span>
         </EuiText>
       </EuiFlexItem>
     </EuiFlexGroup>
+  );
+};
+
+/* ------------------------------------------------------------ bulk bar ------ */
+
+/**
+ * A sticky bottom action bar that appears whenever one or more rows are selected.
+ * Each action fans out across the selection via `api.caseActionExec`. "Assign"
+ * opens a tiny popover to capture the assignee before escalating. The bar is
+ * fixed to the viewport bottom so it stays reachable while the analyst scrolls a
+ * long list.
+ */
+const BulkActionBar: React.FC<{
+  count: number;
+  busy: boolean;
+  onAcknowledge: () => void;
+  onClose: () => void;
+  onAssign: (assignee: string) => void;
+  onClear: () => void;
+}> = ({ count, busy, onAcknowledge, onClose, onAssign, onClear }) => {
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignee, setAssignee] = useState('');
+
+  // Reset the inline assign form whenever the selection empties.
+  useEffect(() => {
+    if (count === 0) {
+      setAssignOpen(false);
+      setAssignee('');
+    }
+  }, [count]);
+
+  if (count === 0) return null;
+
+  return (
+    <div
+      role="region"
+      aria-label="Bulk actions"
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 20,
+        transform: 'translateX(-50%)',
+        zIndex: 1000,
+        maxWidth: '94vw',
+      }}
+    >
+      <EuiPanel
+        paddingSize="s"
+        hasShadow
+        hasBorder
+        style={{ borderRadius: RADIUS.lg, borderTop: `3px solid ${COLORS.primary}` }}
+      >
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
+          <EuiFlexItem grow={false}>
+            <EuiBadge color={COLORS.primary}>{`Selected ${count}`}</EuiBadge>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiButton
+              size="s"
+              iconType="check"
+              onClick={onAcknowledge}
+              isLoading={busy}
+              isDisabled={busy}
+            >
+              Acknowledge
+            </EuiButton>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiButton
+              size="s"
+              iconType="cross"
+              color="danger"
+              onClick={onClose}
+              isLoading={busy}
+              isDisabled={busy}
+            >
+              Close
+            </EuiButton>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiPopover
+              isOpen={assignOpen}
+              closePopover={() => setAssignOpen(false)}
+              anchorPosition="upCenter"
+              panelPaddingSize="m"
+              button={
+                <EuiButton
+                  size="s"
+                  iconType="user"
+                  onClick={() => setAssignOpen((o) => !o)}
+                  isDisabled={busy}
+                >
+                  Assign
+                </EuiButton>
+              }
+            >
+              <div style={{ width: 240 }}>
+                <EuiFormRow label="Escalate to" fullWidth>
+                  <EuiFieldSearch
+                    placeholder="Analyst or team"
+                    value={assignee}
+                    onChange={(e) => setAssignee(e.target.value)}
+                    fullWidth
+                    compressed
+                    aria-label="Assignee for bulk escalation"
+                  />
+                </EuiFormRow>
+                <EuiSpacer size="s" />
+                <EuiButton
+                  size="s"
+                  fill
+                  fullWidth
+                  isDisabled={!assignee.trim() || busy}
+                  onClick={() => {
+                    onAssign(assignee.trim());
+                    setAssignOpen(false);
+                  }}
+                >
+                  Escalate {count}
+                </EuiButton>
+              </div>
+            </EuiPopover>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiButtonEmpty size="s" iconType="cross" onClick={onClear} isDisabled={busy}>
+              Clear
+            </EuiButtonEmpty>
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiPanel>
+    </div>
   );
 };

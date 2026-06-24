@@ -8,7 +8,7 @@
  * (not a scary error) with a hint to widen the lookback. Each completed run is
  * kept in a small per-session history.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EuiBadge,
   EuiButton,
@@ -44,8 +44,13 @@ import {
 } from '../common/ui';
 import { BarList } from '../common/charts';
 import type { Segment } from '../common/charts';
+import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { COLORS, riskBand, riskHex } from '../../lib/theme';
 import { DASH, fmtMoney, humanizeAge, humanizeToken } from '../../lib/format';
+
+/** sessionStorage key for the in-session investigation history. */
+const RECENT_KEY = 'tlsoc.investigate.recent';
+const RECENT_CAP = 6;
 
 /* ---------------------------------------------------------------- types ---- */
 
@@ -128,7 +133,7 @@ const MonoBlock: React.FC<{ text: string }> = ({ text }) => (
   </EuiFlexGroup>
 );
 
-const ResultCard: React.FC<{ c: Case }> = ({ c }) => {
+const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({ c, onOpen }) => {
   const entityLabel = c.entity ? `${humanizeToken(c.entity.type)} · ${c.entity.value}` : DASH;
   const band = riskBand(c.risk_score);
   const evidence: Evidence[] = Array.isArray(c.evidence) ? c.evidence : [];
@@ -142,9 +147,20 @@ const ResultCard: React.FC<{ c: Case }> = ({ c }) => {
       accentLeft={riskHex(c.risk_score)}
       title={c.title || `Investigation: ${entityLabel}`}
       actions={
-        <EuiText size="xs" color="subdued">
-          <span>{humanizeAge(c.updated_at || c.created_at)}</span>
-        </EuiText>
+        <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+          <EuiFlexItem grow={false}>
+            <EuiText size="xs" color="subdued">
+              <span>{humanizeAge(c.updated_at || c.created_at)}</span>
+            </EuiText>
+          </EuiFlexItem>
+          {onOpen && c.case_id ? (
+            <EuiFlexItem grow={false}>
+              <EuiButton size="s" iconType="inspect" onClick={() => onOpen(c.case_id)}>
+                Open case
+              </EuiButton>
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
       }
     >
       {/* Badge row */}
@@ -308,7 +324,49 @@ export const InvestigatePage: React.FC = () => {
   const [error, setError] = useState<unknown>(null);
   const [noEvents, setNoEvents] = useState<{ entity: Entity; lookback: string } | null>(null);
   const [runningEntity, setRunningEntity] = useState<Entity | null>(null);
-  const [recent, setRecent] = useState<RunRecord[]>([]);
+  // Hydrate the in-session history from sessionStorage so it survives a soft
+  // navigation away and back within the same tab (qu17).
+  const [recent, setRecent] = useState<RunRecord[]>(() => {
+    try {
+      const raw = sessionStorage.getItem(RECENT_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? (parsed as RunRecord[]).slice(0, RECENT_CAP) : [];
+    } catch {
+      return [];
+    }
+  });
+  // Empty-submit feedback flag (qu30) + the case opened in the flyout (qu16).
+  const [emptySubmit, setEmptySubmit] = useState(false);
+  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
+
+  // Persist the history whenever it changes (best-effort; quota-safe).
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, RECENT_CAP)));
+    } catch {
+      /* private mode / quota — history is non-essential. */
+    }
+  }, [recent]);
+
+  // Seed the lookback from prefs.investigate_lookback once (best-effort, qu30).
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const lb = s?.prefs?.investigate_lookback;
+        if (typeof lb === 'string' && LOOKBACK_OPTIONS.some((o) => o.value === lb)) {
+          setLookback(lb);
+        }
+      })
+      .catch(() => {
+        /* advisory seed; keep the default lookback. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selected = useMemo(
     () => ENTITY_OPTIONS.find((o) => o.id === entityType) ?? ENTITY_OPTIONS[0],
@@ -322,9 +380,14 @@ export const InvestigatePage: React.FC = () => {
 
   const run = useCallback(async () => {
     const value = entityValue.trim();
-    if (!value || loading) {
+    if (!value) {
+      setEmptySubmit(true);
       return;
     }
+    if (loading) {
+      return;
+    }
+    setEmptySubmit(false);
     const entity: Entity = { type: entityType, value };
     setLoading(true);
     setError(null);
@@ -409,12 +472,21 @@ export const InvestigatePage: React.FC = () => {
             <EuiFieldText
               placeholder={selected.placeholder}
               value={entityValue}
-              onChange={(e) => setEntityValue(e.target.value)}
+              onChange={(e) => {
+                setEntityValue(e.target.value);
+                if (emptySubmit && e.target.value.trim()) setEmptySubmit(false);
+              }}
               onKeyDown={onKeyDown}
               icon={selected.icon}
               fullWidth
+              isInvalid={emptySubmit}
               aria-label={`${selected.label} to investigate`}
             />
+            {emptySubmit ? (
+              <EuiText size="xs" color="danger" style={{ marginTop: 4 }}>
+                <span>Enter a {selected.label.toLowerCase()} value to investigate.</span>
+              </EuiText>
+            ) : null}
           </EuiFlexItem>
           <EuiFlexItem grow={false} style={{ minWidth: 180 }}>
             <EuiText size="xs" color="subdued" style={{ marginBottom: 4 }}>
@@ -476,7 +548,7 @@ export const InvestigatePage: React.FC = () => {
       ) : null}
 
       {/* Result */}
-      {!loading && result ? <ResultCard c={result} /> : null}
+      {!loading && result ? <ResultCard c={result} onOpen={setOpenCaseId} /> : null}
 
       {/* Idle empty state */}
       {!loading && !result && !error && !noEvents ? (
@@ -530,12 +602,33 @@ export const InvestigatePage: React.FC = () => {
                     <EuiFlexItem grow={false}>
                       <RiskBadge score={r.case.risk_score} />
                     </EuiFlexItem>
+                    {r.case.case_id ? (
+                      <EuiFlexItem grow={false}>
+                        <EuiButton
+                          size="s"
+                          color="text"
+                          iconType="inspect"
+                          onClick={(e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            setOpenCaseId(r.case.case_id);
+                          }}
+                          aria-label={`Open case ${r.case.case_id}`}
+                        >
+                          Open case
+                        </EuiButton>
+                      </EuiFlexItem>
+                    ) : null}
                   </EuiFlexGroup>
                 </EuiPanel>
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>
         </>
+      ) : null}
+
+      {/* Case detail flyout — opened from the result card or a recent row (qu16). */}
+      {openCaseId ? (
+        <CaseDetailFlyout caseId={openCaseId} onClose={() => setOpenCaseId(null)} />
       ) : null}
     </div>
   );

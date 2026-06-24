@@ -3,9 +3,10 @@
  * (SIEM / EDR-XDR / transports / queues / object-store). Used in the wizard's
  * "Add your first source" step and the Sources manager's "Add source" flow.
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   EuiBadge,
+  EuiFieldSearch,
   EuiFlexGrid,
   EuiFlexGroup,
   EuiFlexItem,
@@ -17,7 +18,7 @@ import {
 } from '@elastic/eui';
 import type { ConnectorManifest } from '../../lib/types';
 import { categoryMeta, COLORS } from '../../lib/theme';
-import { IconChip } from './ui';
+import { EmptyState, IconChip } from './ui';
 
 interface ConnectorPickerProps {
   connectors: ConnectorManifest[];
@@ -33,9 +34,20 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
   selected,
   onSelect,
 }) => {
+  const [query, setQuery] = useState('');
+
+  // Filter against the connector name, type and description (fixed catalog text).
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return connectors;
+    return connectors.filter((c) =>
+      `${c.display_name} ${c.source_type} ${c.description || ''}`.toLowerCase().includes(q),
+    );
+  }, [connectors, query]);
+
   const grouped = useMemo(() => {
     const map = new Map<string, ConnectorManifest[]>();
-    for (const c of connectors) {
+    for (const c of filtered) {
       const cat = c.category || 'other';
       if (!map.has(cat)) map.set(cat, []);
       map.get(cat)!.push(c);
@@ -53,10 +65,31 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
         .slice()
         .sort((a, b) => a.display_name.localeCompare(b.display_name)),
     }));
-  }, [connectors]);
+  }, [filtered]);
 
   return (
     <div>
+      <EuiFieldSearch
+        fullWidth
+        placeholder="Search connectors…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        isClearable
+        aria-label="Search connectors"
+        append={
+          <EuiText size="xs" color="subdued" style={{ alignSelf: 'center', paddingRight: 8, whiteSpace: 'nowrap' }}>
+            {filtered.length} of {connectors.length} connectors
+          </EuiText>
+        }
+      />
+      <EuiSpacer size="m" />
+      {grouped.length === 0 ? (
+        <EmptyState
+          iconType="search"
+          title="No matching connectors"
+          body="No connector matches your search. Try a different term or clear the search."
+        />
+      ) : null}
       {grouped.map(({ cat, meta, items }) => (
         <div key={cat}>
           <EuiText size="xs" color="subdued">

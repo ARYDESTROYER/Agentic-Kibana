@@ -36,11 +36,13 @@ import React, {
   useState,
 } from 'react';
 import {
+  EuiAccordion,
   EuiBasicTable,
   EuiButton,
   EuiButtonEmpty,
   EuiButtonIcon,
   EuiCallOut,
+  EuiCodeBlock,
   EuiCopy,
   EuiFlexGroup,
   EuiFlexItem,
@@ -353,6 +355,240 @@ const AnswerMeta: React.FC<{ resp: ChatResponse; model?: string }> = ({ resp, mo
   );
 };
 
+/* ----------------------------------------------------------- provenance ---- */
+
+/**
+ * Pull a usable http(s) deep-link out of the backend's `discover` payload. The
+ * backend returns an open-in-Discover descriptor; we accept either a direct
+ * `url`/`href` string or a `path` we treat as same-origin. Anything that is not a
+ * plain http(s) URL (or a leading-slash path) is rejected so we never render a
+ * `javascript:` / `data:` link from a model- or log-derived value.
+ */
+function discoverHref(discover: ChatResponse['discover']): string | null {
+  if (!discover || typeof discover !== 'object') return null;
+  const candidate =
+    (typeof discover.url === 'string' && discover.url) ||
+    (typeof discover.href === 'string' && discover.href) ||
+    (typeof discover.path === 'string' && discover.path) ||
+    '';
+  const s = candidate.trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('/')) return s; // same-origin path
+  return null;
+}
+
+/**
+ * "How the agent got this" — a collapsed provenance disclosure rendered only when
+ * the response carries any of tools / knowledge / reasoning / citations. EVERY value
+ * is UNTRUSTED (model- or log-derived) and rendered as plain text / `EuiCodeBlock`.
+ */
+const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, turnId }) => {
+  const tools = Array.isArray(resp.tools) ? resp.tools : [];
+  const knowledge = Array.isArray(resp.knowledge) ? resp.knowledge : [];
+  const citations = Array.isArray(resp.citations) ? resp.citations : [];
+  const reasoning = typeof resp.reasoning === 'string' ? resp.reasoning.trim() : '';
+  const hasAny = tools.length > 0 || knowledge.length > 0 || citations.length > 0 || !!reasoning;
+  if (!hasAny) return null;
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <EuiAccordion
+        // The per-turn id keeps the accordion DOM id unique across turns (two
+        // consecutive answers can carry the same case_id + counts otherwise).
+        id={`socProv-${turnId}`}
+        arrowDisplay="left"
+        buttonContent={
+          <EuiText size="xs" color="subdued">
+            <EuiIcon type="inspect" size="s" style={{ marginRight: 6 }} aria-hidden />
+            <span>How the agent got this</span>
+          </EuiText>
+        }
+        paddingSize="none"
+      >
+        <div style={{ paddingTop: 8 }}>
+          {tools.length ? (
+            <div style={{ marginBottom: 10 }}>
+              <EuiText size="xs" color="subdued">
+                <strong>Tools run</strong>
+              </EuiText>
+              <EuiSpacer size="xs" />
+              {tools.map((t, i) => (
+                <div key={i} style={{ marginBottom: 6 }}>
+                  <EuiText size="xs">
+                    {/* tool name is engine-derived → plain text. */}
+                    <strong>{String(t.tool ?? 'tool')}</strong>
+                    {t.summary ? <span style={{ color: COLORS.subdued }}>{` — ${t.summary}`}</span> : null}
+                  </EuiText>
+                  {t.query ? (
+                    <EuiCodeBlock language="text" fontSize="s" paddingSize="s" isCopyable>
+                      {t.query}
+                    </EuiCodeBlock>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {knowledge.length ? (
+            <div style={{ marginBottom: 10 }}>
+              <EuiText size="xs" color="subdued">
+                <strong>Knowledge consulted</strong>
+              </EuiText>
+              <EuiSpacer size="xs" />
+              {knowledge.map((k, i) => (
+                <div key={i} style={{ marginBottom: 6 }}>
+                  <EuiText size="xs" color="subdued">
+                    {/* source label is corpus-derived → plain text. */}
+                    <span className="socMono">{String(k.source ?? '')}</span>
+                  </EuiText>
+                  {k.snippet ? (
+                    <EuiCodeBlock language="text" fontSize="s" paddingSize="s">
+                      {k.snippet}
+                    </EuiCodeBlock>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {citations.length ? (
+            <div style={{ marginBottom: 10 }}>
+              <EuiText size="xs" color="subdued">
+                <strong>Citations</strong>
+              </EuiText>
+              <EuiSpacer size="xs" />
+              {citations.map((c, i) => (
+                <EuiText key={i} size="xs">
+                  {/* citation source/snippet are UNTRUSTED → plain text. */}
+                  <span style={{ fontWeight: 600 }}>{`[${c.n}] `}</span>
+                  <span className="socMono">{String(c.source ?? '')}</span>
+                  {c.snippet ? <span style={{ color: COLORS.subdued }}>{` — ${c.snippet}`}</span> : null}
+                </EuiText>
+              ))}
+            </div>
+          ) : null}
+
+          {reasoning ? (
+            <div>
+              <EuiText size="xs" color="subdued">
+                <strong>Reasoning</strong>
+              </EuiText>
+              <EuiSpacer size="xs" />
+              {/* reasoning excerpt is model-derived → plain text via EuiCodeBlock. */}
+              <EuiCodeBlock language="text" fontSize="s" paddingSize="s" whiteSpace="pre-wrap">
+                {reasoning}
+              </EuiCodeBlock>
+            </div>
+          ) : null}
+        </div>
+      </EuiAccordion>
+    </div>
+  );
+};
+
+/**
+ * Per-message action row under an assistant answer: Copy (raw answer), Regenerate
+ * (re-send the prior user turn), an open-in-Discover deep-link (when the backend
+ * returned a safe one), and local 👍/👎 feedback (kept in component state only — no
+ * backend call). Feedback is purely a local affordance for this round.
+ */
+const MessageActions: React.FC<{
+  answer: string;
+  resp?: ChatResponse;
+  canRegenerate: boolean;
+  onRegenerate: () => void;
+}> = ({ answer, resp, canRegenerate, onRegenerate }) => {
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const href = discoverHref(resp?.discover);
+
+  return (
+    <EuiFlexGroup
+      gutterSize="xs"
+      alignItems="center"
+      responsive={false}
+      wrap
+      className="socMsgActions"
+      style={{ marginTop: 8 }}
+    >
+      <EuiFlexItem grow={false}>
+        <EuiCopy textToCopy={answer}>
+          {(copy) => (
+            <EuiToolTip content="Copy answer">
+              <EuiButtonIcon
+                iconType="copy"
+                aria-label="Copy answer"
+                onClick={copy}
+                color="text"
+                size="xs"
+              />
+            </EuiToolTip>
+          )}
+        </EuiCopy>
+      </EuiFlexItem>
+      {canRegenerate ? (
+        <EuiFlexItem grow={false}>
+          <EuiToolTip content="Regenerate this answer">
+            <EuiButtonIcon
+              iconType="refresh"
+              aria-label="Regenerate answer"
+              onClick={onRegenerate}
+              color="text"
+              size="xs"
+            />
+          </EuiToolTip>
+        </EuiFlexItem>
+      ) : null}
+      {href ? (
+        <EuiFlexItem grow={false}>
+          <EuiButtonEmpty
+            size="xs"
+            iconType="popout"
+            color="text"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            flush="both"
+          >
+            Open in Discover
+          </EuiButtonEmpty>
+        </EuiFlexItem>
+      ) : null}
+      <EuiFlexItem grow={false}>
+        <EuiToolTip content="Helpful">
+          <EuiButtonIcon
+            iconType="faceHappy"
+            aria-label="Mark answer helpful"
+            aria-pressed={feedback === 'up'}
+            color={feedback === 'up' ? 'success' : 'text'}
+            size="xs"
+            onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
+          />
+        </EuiToolTip>
+      </EuiFlexItem>
+      <EuiFlexItem grow={false}>
+        <EuiToolTip content="Not helpful">
+          <EuiButtonIcon
+            iconType="faceSad"
+            aria-label="Mark answer not helpful"
+            aria-pressed={feedback === 'down'}
+            color={feedback === 'down' ? 'danger' : 'text'}
+            size="xs"
+            onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
+          />
+        </EuiToolTip>
+      </EuiFlexItem>
+      {feedback ? (
+        <EuiFlexItem grow={false}>
+          <EuiText size="xs" color="subdued">
+            <span>Thanks for the feedback</span>
+          </EuiText>
+        </EuiFlexItem>
+      ) : null}
+    </EuiFlexGroup>
+  );
+};
+
 /* --------------------------------------------------------------- memory ---- */
 
 /**
@@ -540,24 +776,37 @@ const MetaLine: React.FC<{ who: string; at: number; align: 'start' | 'end' }> = 
   </EuiText>
 );
 
-/** A single assistant or user message row, with avatar + trailing metadata/table. */
-const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
+/**
+ * A single assistant or user message row, with avatar + trailing metadata/table.
+ *
+ * `grouped` = this turn immediately follows another from the SAME sender; when set
+ * we suppress the avatar + sender meta-line so consecutive turns read as one block
+ * (the time-of-day stamp still shows on the last turn of a run via `showMeta`).
+ */
+const Bubble: React.FC<{
+  item: TranscriptItem;
+  grouped?: boolean;
+  showMeta?: boolean;
+  canRegenerate?: boolean;
+  onRegenerate?: () => void;
+}> = ({ item, grouped = false, showMeta = true, canRegenerate = false, onRegenerate }) => {
   if (item.role === 'user') {
     return (
-      <div className="socMsgRow socMsgRow--user">
+      <div className={`socMsgRow socMsgRow--user${grouped ? ' socMsgRow--grouped' : ''}`}>
         <div className="socMsgRow__stack socMsgRow__stack--user">
           <div className="socBubble socBubble--user">{item.content}</div>
-          <MetaLine who="You" at={item.at} align="end" />
+          {showMeta ? <MetaLine who="You" at={item.at} align="end" /> : null}
         </div>
       </div>
     );
   }
 
-  // Assistant (answer or error) — left-aligned with an agent avatar.
+  // Assistant (answer or error) — left-aligned with an agent avatar (hidden when
+  // this turn is grouped under the previous assistant turn).
   return (
-    <div className="socMsgRow socMsgRow--assistant">
+    <div className={`socMsgRow socMsgRow--assistant${grouped ? ' socMsgRow--grouped' : ''}`}>
       <div className="socMsgRow__avatar" aria-hidden>
-        <IconChip icon="discuss" accent={COLORS.accent} />
+        {grouped ? null : <IconChip icon="discuss" accent={COLORS.accent} />}
       </div>
       <div className="socMsgRow__stack socMsgRow__stack--assistant">
         {item.isError ? (
@@ -574,11 +823,20 @@ const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
         )}
         {item.resp?.table ? <ResultTable table={item.resp.table} /> : null}
         {item.resp ? <AnswerMeta resp={item.resp} model={item.model} /> : null}
+        {item.resp ? <Provenance resp={item.resp} turnId={item.id} /> : null}
+        {!item.isError ? (
+          <MessageActions
+            answer={item.content}
+            resp={item.resp}
+            canRegenerate={canRegenerate}
+            onRegenerate={onRegenerate ?? (() => {})}
+          />
+        ) : null}
         {item.resp?.memory_action ? <MemoryActionEcho action={item.resp.memory_action} /> : null}
         {item.resp?.memory_suggestion ? (
           <MemorySuggestionPrompt suggestion={item.resp.memory_suggestion} />
         ) : null}
-        <MetaLine who="SOC agent" at={item.at} align="start" />
+        {showMeta ? <MetaLine who="SOC agent" at={item.at} align="start" /> : null}
       </div>
     </div>
   );
@@ -586,7 +844,7 @@ const Bubble: React.FC<{ item: TranscriptItem }> = ({ item }) => {
 
 /** Animated "agent is thinking" indicator shown while a reply is in flight. */
 const TypingIndicator: React.FC = () => (
-  <div className="socMsgRow socMsgRow--assistant" aria-live="polite" aria-label="Agent is responding">
+  <div className="socMsgRow socMsgRow--assistant" aria-label="Agent is responding">
     <div className="socMsgRow__avatar" aria-hidden>
       <IconChip icon="discuss" accent={COLORS.accent} />
     </div>
@@ -750,9 +1008,34 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         // conditioned on its own failure on the next turn.
       } finally {
         setLoading(false);
+        // Return focus to the composer after a turn so keyboard users can keep
+        // typing without re-targeting the input (a11y: qu31).
+        inputRef.current?.focus();
       }
     },
     [input, history, loading, caseId, model, sourceId],
+  );
+
+  // Regenerate: re-send the user turn that immediately preceded a given assistant
+  // turn (a fresh exchange is appended — the original answer is left in place). No-op
+  // if a reply is in flight or no preceding user turn can be found.
+  const regenerate = useCallback(
+    (assistantId: number) => {
+      if (loading) return;
+      setTranscript((prev) => {
+        const idx = prev.findIndex((t) => t.id === assistantId);
+        for (let i = idx - 1; i >= 0; i -= 1) {
+          if (prev[i].role === 'user') {
+            const content = prev[i].content;
+            // Defer the send so we don't dispatch during this state update.
+            queueMicrotask(() => void send(content));
+            break;
+          }
+        }
+        return prev;
+      });
+    },
+    [loading, send],
   );
 
   const reset = useCallback(() => {
@@ -866,6 +1149,20 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         .socMsgRow .socBubble { margin: 0; }
         .socMsgMeta { margin-top: 4px; }
 
+        /* Grouped (same-sender continuation) rows sit tighter under their lead row
+           and reserve the avatar gutter so bubbles stay aligned. */
+        .socMsgRow--grouped { margin-top: -6px; }
+        .socMsgRow--assistant.socMsgRow--grouped .socMsgRow__avatar { width: 28px; }
+
+        /* Per-message action row — slightly recessed until hovered/focused so it
+           doesn't compete with the answer, but always reachable by keyboard. */
+        .socMsgActions { opacity: 0.65; transition: opacity 0.15s ease; }
+        .socMsgRow--assistant:hover .socMsgActions,
+        .socMsgActions:focus-within { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) {
+          .socMsgActions { transition: none; }
+        }
+
         .socChatPanel--compact .socBubble { padding: 8px 12px; border-radius: 12px; }
         .socChatPanel--compact .socMsgRow__stack--user { max-width: 92%; }
         .socChatPanel--compact .socMsgRow__stack--assistant { max-width: 100%; }
@@ -925,6 +1222,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         style={{ gap: isEmpty ? 0 : compact ? 10 : 14 }}
         role="log"
         aria-live="polite"
+        aria-busy={loading}
         aria-label="Chat transcript"
       >
         {isEmpty ? (
@@ -937,9 +1235,25 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           />
         ) : (
           <>
-            {transcript.map((item) => (
-              <Bubble key={item.id} item={item} />
-            ))}
+            {transcript.map((item, i) => {
+              const prev = transcript[i - 1];
+              const next = transcript[i + 1];
+              // Group when the previous turn is from the same sender (suppress the
+              // avatar + sender label); show the time stamp only on the LAST turn of
+              // a same-sender run so a grouped block reads as one block.
+              const grouped = !!prev && prev.role === item.role;
+              const showMeta = !next || next.role !== item.role;
+              return (
+                <Bubble
+                  key={item.id}
+                  item={item}
+                  grouped={grouped}
+                  showMeta={showMeta}
+                  canRegenerate={item.role === 'assistant' && !item.isError && !loading}
+                  onRegenerate={() => regenerate(item.id)}
+                />
+              );
+            })}
             {loading ? <TypingIndicator /> : null}
           </>
         )}
@@ -1035,6 +1349,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
 /* ----------------------------------------------------------- empty state --- */
 
+/**
+ * Pick an intent glyph for a starter prompt from a few keyword heuristics, so the
+ * chips read at a glance (summaries vs. hunts vs. lookups). Falls back to `search`.
+ * Only returns icons registered in `lib/icons.ts`.
+ */
+function starterIcon(prompt: string): string {
+  const p = prompt.toLowerCase();
+  if (/\bsummar|today|digest|overview\b/.test(p)) return 'reportingApp';
+  if (/\bbrute|attack|suspicious|malic|threat|exploit\b/.test(p)) return 'securityApp';
+  if (/\bhost|ip|asset|which |most |top \b/.test(p)) return 'stats';
+  return 'search';
+}
+
 const EmptyState: React.FC<{
   compact: boolean;
   scoped: boolean;
@@ -1091,7 +1418,7 @@ const EmptyState: React.FC<{
               <EuiButton
                 size="s"
                 color="text"
-                iconType="search"
+                iconType={starterIcon(p)}
                 onClick={() => onPick(p)}
                 isDisabled={loading}
               >

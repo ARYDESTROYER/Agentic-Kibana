@@ -8,6 +8,8 @@ import {
   EuiBadge,
   EuiButton,
   EuiButtonEmpty,
+  EuiCode,
+  EuiConfirmModal,
   EuiFlexGroup,
   EuiFlexItem,
   EuiModal,
@@ -28,7 +30,7 @@ import type {
 import { api } from '../../lib/api';
 import { categoryMeta, COLORS } from '../../lib/theme';
 import { humanizeToken } from '../../lib/format';
-import { EmptyState, ErrorCallout, IconChip, Loading, SectionHeader } from '../common/ui';
+import { EmptyState, ErrorCallout, IconChip, Loading, PageHeader } from '../common/ui';
 import { SourceEditor } from '../common/SourceEditor';
 import { SourceLogsFlyout } from './SourceLogsFlyout';
 
@@ -73,6 +75,9 @@ export const SourcesPage: React.FC = () => {
   const [editor, setEditor] = useState<{ mode: 'add' } | { mode: 'edit'; source: SourceInstance } | null>(null);
   const [logsSource, setLogsSource] = useState<SourceInstance | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Confirm-modal targets (delete is destructive; make-primary re-points ingestion).
+  const [pendingDelete, setPendingDelete] = useState<SourceInstance | null>(null);
+  const [pendingPrimary, setPendingPrimary] = useState<SourceInstance | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,6 +119,7 @@ export const SourcesPage: React.FC = () => {
       setError(e);
     } finally {
       setBusyId(null);
+      setPendingPrimary(null);
     }
   };
 
@@ -126,15 +132,21 @@ export const SourcesPage: React.FC = () => {
       setError(e);
     } finally {
       setBusyId(null);
+      setPendingDelete(null);
     }
   };
 
   return (
-    <div>
-      <SectionHeader
+    <div className="socPageEnter">
+      <PageHeader
         icon="logstashQueue"
+        eyebrow="Platform"
         title="Sources"
-        description="Connect and manage the systems the agent reads security events from."
+        description={
+          loading
+            ? 'Connect and manage the systems the agent reads security events from.'
+            : `${sources.length} source${sources.length === 1 ? '' : 's'} configured — the systems the agent reads security events from.`
+        }
         actions={
           <EuiButton fill iconType="plusInCircle" onClick={() => setEditor({ mode: 'add' })}>
             Add source
@@ -254,7 +266,7 @@ export const SourcesPage: React.FC = () => {
                         <EuiButtonEmpty
                           size="s"
                           iconType="starFilled"
-                          onClick={() => setPrimary(s)}
+                          onClick={() => setPendingPrimary(s)}
                           isLoading={busyId === s.id}
                         >
                           Make primary
@@ -275,7 +287,7 @@ export const SourcesPage: React.FC = () => {
                         size="s"
                         color="danger"
                         iconType="trash"
-                        onClick={() => remove(s)}
+                        onClick={() => setPendingDelete(s)}
                         isLoading={busyId === s.id}
                       >
                         Remove
@@ -309,6 +321,45 @@ export const SourcesPage: React.FC = () => {
 
       {logsSource ? (
         <SourceLogsFlyout source={logsSource} onClose={() => setLogsSource(null)} />
+      ) : null}
+
+      {pendingPrimary ? (
+        <EuiConfirmModal
+          title="Make this the primary source?"
+          onCancel={() => setPendingPrimary(null)}
+          onConfirm={() => void setPrimary(pendingPrimary)}
+          cancelButtonText="Cancel"
+          confirmButtonText="Make primary"
+          isLoading={busyId === pendingPrimary.id}
+        >
+          <EuiText size="s">
+            <p>
+              The agent reads new events from the <strong>primary</strong> source. Switching to{' '}
+              <EuiCode>{pendingPrimary.display_name || pendingPrimary.source_type}</EuiCode> repoints
+              ingestion to it; the current primary becomes a non-primary source (it is not deleted).
+            </p>
+          </EuiText>
+        </EuiConfirmModal>
+      ) : null}
+
+      {pendingDelete ? (
+        <EuiConfirmModal
+          title="Remove this source?"
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => void remove(pendingDelete)}
+          cancelButtonText="Cancel"
+          confirmButtonText="Remove source"
+          buttonColor="danger"
+          isLoading={busyId === pendingDelete.id}
+        >
+          <EuiText size="s">
+            <p>
+              <EuiCode>{pendingDelete.display_name || pendingDelete.source_type}</EuiCode> will be
+              removed and the agent will stop reading events from it. Existing cases are kept; its
+              stored secrets are discarded. This cannot be undone.
+            </p>
+          </EuiText>
+        </EuiConfirmModal>
       ) : null}
     </div>
   );

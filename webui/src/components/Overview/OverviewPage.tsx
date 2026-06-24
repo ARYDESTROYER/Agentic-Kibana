@@ -1,9 +1,10 @@
 /**
  * Overview — the at-a-glance SOC dashboard (default landing surface).
  *
- * Pulls recent cases (counts + verdict/risk breakdowns), 24h LLM spend, and the
- * configured sources, and renders them as KPI tiles + charts + a recent-cases
- * feed. Everything degrades gracefully when a backend call fails.
+ * Pulls recent cases (counts + verdict/risk breakdowns), 24h LLM spend, the
+ * configured sources, and the approval queue depth, and renders them as KPI
+ * tiles + an autonomy-posture strip + charts + a recent-cases feed. Everything
+ * degrades gracefully when a backend call fails.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -19,18 +20,23 @@ import {
 import type {
   Case,
   MemoryResponse,
+  ProposalsResponse,
   RagStats,
   SourceInstance,
   UsageSummary,
 } from '../../lib/types';
+import type { Navigate } from '../Shell/Shell';
 import { api } from '../../lib/api';
-import { COLORS, riskBand } from '../../lib/theme';
+import { COLORS, riskBand, riskBandColor } from '../../lib/theme';
 import { fmtMoney, fmtNumber, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
 import {
   Card,
   ErrorCallout,
+  NavTile,
   PageHeader,
+  PostureBadge,
   RiskBadge,
+  SectionHeader,
   Skeleton,
   StatTile,
   StatusBadge,
@@ -42,35 +48,25 @@ import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
 import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
 interface OverviewProps {
-  onNavigate?: (p: 'cases' | 'sources' | 'knowledge' | 'memory') => void;
+  /** Drill-through navigation (widened to the shell's Navigate so we can pass
+   *  a status filter to the cases list — back-compatible with `(p)=>void`). */
+  onNavigate?: Navigate;
 }
 
-/** A StatTile that navigates on click/Enter — used for the knowledge/memory
- *  at-a-glance tiles. Keyboard-accessible, matching the recent-cases anchors. */
-const NavTile: React.FC<{
-  label: string;
-  value: React.ReactNode;
-  icon: string;
-  accent: string;
-  onNavigate: () => void;
-}> = ({ label, value, icon, accent, onNavigate }) => (
-  <div
-    role="button"
-    tabIndex={0}
-    onClick={onNavigate}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onNavigate();
-      }
-    }}
-    aria-label={`Open ${label}`}
-    className="socCard--clickable"
-    style={{ cursor: 'pointer', borderRadius: 8, outline: 'none' }}
-  >
-    <StatTile label={label} value={value} icon={icon} accent={accent} />
-  </div>
-);
+/** True when a closed case was closed automatically by policy (vs by a human). */
+function isAutoClosed(c: Case): boolean {
+  if ((c.status || '').toLowerCase() !== 'closed') return false;
+  const by = (c.decision_by || '').toLowerCase();
+  return by.includes('auto') || by.includes('policy') || by.includes('case_manager');
+}
+
+/** True when `ts` falls within the last `hours` hours. */
+function withinHours(ts?: string, hours = 24): boolean {
+  if (!ts) return false;
+  const t = Date.parse(ts);
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t <= hours * 3_600_000;
+}
 
 export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [cases, setCases] = useState<Case[]>([]);
@@ -79,6 +75,8 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   // Point-in-time knowledge-base + memory health for the at-a-glance tiles.
   const [rag, setRag] = useState<RagStats | null>(null);
   const [memory, setMemory] = useState<MemoryResponse | null>(null);
+  // The agent's pending approval queue (for the autonomy-posture strip).
+  const [proposals, setProposals] = useState<ProposalsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
@@ -92,14 +90,15 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     setLoading(true);
     setError(null);
     try {
-      // allSettled keeps every call independent — a failing RAG/memory fetch
-      // (or any non-cases call) leaves its tile blank but never blanks the page.
-      const [c, u, s, r, m] = await Promise.allSettled([
+      // allSettled keeps every call independent — a failing RAG/memory/proposals
+      // fetch leaves its tile blank but never blanks the whole page.
+      const [c, u, s, r, m, p] = await Promise.allSettled([
         api.listCases({ limit: 200 }),
         api.usageSummary(24),
         api.listSources(),
         api.ragStats(),
         api.getMemory(),
+        api.listProposals('pending'),
       ]);
       if (c.status === 'fulfilled') {
         setCases(c.value.cases);
@@ -111,6 +110,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       if (s.status === 'fulfilled') setSources(s.value.sources);
       if (r.status === 'fulfilled') setRag(r.value);
       if (m.status === 'fulfilled') setMemory(m.value);
+      if (p.status === 'fulfilled') setProposals(p.value);
       if (c.status === 'rejected') setError(c.reason);
     } catch (e) {
       setError(e);
@@ -124,27 +124,60 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   }, [load]);
 
   const stats = useMemo(() => {
-    let open = 0, needsHuman = 0, truePositive = 0, falsePositive = 0, unverdicted = 0;
-    const bands = { Low: 0, Medium: 0, High: 0, Critical: 0 } as Record<string, number>;
+    // Status queue depths (lifecycle) — kept SEPARATE from the verdict mix so
+    // the "Needs human" KPI reflects the queue, not how many got that verdict.
+    let open = 0,
+      needsHumanQueue = 0,
+      closed = 0;
+    // Verdict-class counts (what the AI concluded) — drive the donut.
+    let truePositive = 0,
+      falsePositive = 0,
+      needsHumanVerdict = 0,
+      unverdicted = 0;
+    // Autonomy posture (how cases got where they are), last 24h.
+    let autoClosed24h = 0;
+    // Risk bands — now including an explicit "Unknown" bucket for unscored cases.
+    const bands = { Low: 0, Medium: 0, High: 0, Critical: 0, Unknown: 0 } as Record<string, number>;
     for (const c of cases) {
-      if (c.status === 'open') open += 1;
-      if (c.status === 'needs_human') needsHuman += 1;
+      const st = (c.status || '').toLowerCase();
+      if (st === 'open') open += 1;
+      else if (st === 'needs_human') needsHumanQueue += 1;
+      else if (st === 'closed') closed += 1;
+
       const v = (c.verdict || '').toUpperCase();
       if (v.includes('TRUE')) truePositive += 1;
       else if (v.includes('FALSE')) falsePositive += 1;
-      else if (v.includes('NEEDS') || v.includes('INCONCLUSIVE')) needsHuman += 0;
+      else if (v.includes('NEEDS') || v.includes('INCONCLUSIVE') || v.includes('UNKNOWN'))
+        needsHumanVerdict += 1;
       else unverdicted += 1;
-      const b = riskBand(c.risk_score).label;
+
+      if (isAutoClosed(c) && withinHours(c.updated_at, 24)) autoClosed24h += 1;
+
+      const b = riskBand(c.risk_score).label; // "Unknown" for unscored
       if (b in bands) bands[b] += 1;
     }
-    return { open, needsHuman, truePositive, falsePositive, unverdicted, bands };
-  }, [cases]);
+    const awaitingApproval = proposals?.count ?? proposals?.proposals?.length ?? 0;
+    return {
+      open,
+      needsHumanQueue,
+      closed,
+      truePositive,
+      falsePositive,
+      needsHumanVerdict,
+      unverdicted,
+      autoClosed24h,
+      awaitingApproval,
+      bands,
+    };
+  }, [cases, proposals]);
 
+  // The verdict donut is driven by VERDICT-class counts (decoupled from the
+  // status queue depths above).
   const verdictSegments = useMemo(
     () => [
       { label: 'True positive', value: stats.truePositive, color: COLORS.danger },
       { label: 'False positive', value: stats.falsePositive, color: COLORS.success },
-      { label: 'Needs human', value: stats.needsHuman, color: COLORS.warning },
+      { label: 'Needs human', value: stats.needsHumanVerdict, color: COLORS.warning },
       { label: 'Unverdicted', value: stats.unverdicted, color: COLORS.subdued },
     ].filter((s) => s.value > 0),
     [stats],
@@ -152,10 +185,12 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
 
   const riskItems = useMemo(
     () => [
-      { label: 'Low', value: stats.bands.Low, color: COLORS.success },
-      { label: 'Medium', value: stats.bands.Medium, color: COLORS.warning },
-      { label: 'High', value: stats.bands.High, color: '#e2725b' },
-      { label: 'Critical', value: stats.bands.Critical, color: COLORS.danger },
+      { label: 'Low', value: stats.bands.Low, color: riskBandColor(10) },
+      { label: 'Medium', value: stats.bands.Medium, color: riskBandColor(45) },
+      { label: 'High', value: stats.bands.High, color: riskBandColor(70) },
+      { label: 'Critical', value: stats.bands.Critical, color: riskBandColor(90) },
+      // Honest "Unknown" band for unscored cases (subdued via riskBandColor()).
+      { label: 'Unknown', value: stats.bands.Unknown, color: riskBandColor(undefined) },
     ],
     [stats],
   );
@@ -227,13 +262,36 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
         <>
           <EuiFlexGroup gutterSize="m" wrap>
             <EuiFlexItem>
-              <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.primary} />
+              <NavTile
+                label="Open cases"
+                value={stats.open}
+                icon="folderOpen"
+                accent={COLORS.primary}
+                onClick={onNavigate ? () => onNavigate('cases', { status: 'open' }) : undefined}
+                ariaLabel="View open cases"
+              />
             </EuiFlexItem>
             <EuiFlexItem>
-              <TrendStat label="Needs human" value={stats.needsHuman} icon="alert" accent={COLORS.warning} />
+              <NavTile
+                label="Needs human"
+                value={stats.needsHumanQueue}
+                icon="alert"
+                accent={COLORS.warning}
+                onClick={
+                  onNavigate ? () => onNavigate('cases', { status: 'needs_human' }) : undefined
+                }
+                ariaLabel="View cases that need a human"
+              />
             </EuiFlexItem>
             <EuiFlexItem>
-              <TrendStat label="True positives" value={stats.truePositive} icon="bug" accent={COLORS.danger} />
+              <NavTile
+                label="True positives"
+                value={stats.truePositive}
+                icon="bug"
+                accent={COLORS.danger}
+                onClick={onNavigate ? () => onNavigate('cases') : undefined}
+                ariaLabel="View cases"
+              />
             </EuiFlexItem>
             <EuiFlexItem>
               <TrendStat
@@ -243,6 +301,50 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                 icon="currency"
                 accent={COLORS.accent}
                 spark={costSeries}
+              />
+            </EuiFlexItem>
+          </EuiFlexGroup>
+
+          {/* ---- Agent activity & autonomy posture strip ---- */}
+          <EuiSpacer size="m" />
+          <SectionHeader
+            icon="machineLearningApp"
+            accent={COLORS.success}
+            title="Agent activity & autonomy"
+            description="How the spine is resolving cases — what closed itself, what it escalated, and what is waiting on you."
+          />
+          <EuiFlexGroup gutterSize="m" wrap>
+            <EuiFlexItem>
+              <StatTile
+                label="Auto-closed (24h)"
+                value={stats.autoClosed24h}
+                icon="checkInCircleFilled"
+                accent={COLORS.success}
+                sub={<PostureBadge posture="auto_closed" />}
+              />
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <NavTile
+                label="Escalated to human"
+                value={stats.needsHumanQueue}
+                icon="warning"
+                accent={COLORS.warning}
+                sub={<PostureBadge posture="needs_human" />}
+                onClick={
+                  onNavigate ? () => onNavigate('cases', { status: 'needs_human' }) : undefined
+                }
+                ariaLabel="View cases that need a human"
+              />
+            </EuiFlexItem>
+            <EuiFlexItem>
+              <NavTile
+                label="Awaiting approval"
+                value={stats.awaitingApproval}
+                icon="flag"
+                accent={COLORS.accent}
+                sub={<PostureBadge posture="awaiting_approval" />}
+                onClick={onNavigate ? () => onNavigate('proposals') : undefined}
+                ariaLabel="Open the approval queue"
               />
             </EuiFlexItem>
           </EuiFlexGroup>
@@ -257,7 +359,8 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                     value={fmtNumber(rag?.document_count)}
                     icon="documents"
                     accent={COLORS.primary}
-                    onNavigate={() => onNavigate?.('knowledge')}
+                    onClick={onNavigate ? () => onNavigate('knowledge') : undefined}
+                    ariaLabel="Open the knowledge base"
                   />
                 </EuiFlexItem>
                 <EuiFlexItem style={{ minWidth: 200 }}>
@@ -266,16 +369,18 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                     value={fmtNumber(rag?.total_chunks)}
                     icon="visText"
                     accent={COLORS.accent}
-                    onNavigate={() => onNavigate?.('knowledge')}
+                    onClick={onNavigate ? () => onNavigate('knowledge') : undefined}
+                    ariaLabel="Open the knowledge base"
                   />
                 </EuiFlexItem>
                 <EuiFlexItem style={{ minWidth: 200 }}>
                   <NavTile
                     label="Memory facts"
                     value={fmtNumber(memory?.count)}
-                    icon="bell"
+                    icon="memory"
                     accent={COLORS.warning}
-                    onNavigate={() => onNavigate?.('memory')}
+                    onClick={onNavigate ? () => onNavigate('memory') : undefined}
+                    ariaLabel="Open agent memory"
                   />
                 </EuiFlexItem>
               </EuiFlexGroup>
@@ -291,14 +396,15 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                   segments={verdictSegments}
                   centerValue={cases.length}
                   centerLabel="cases"
+                  title="Verdict breakdown"
                 />
               ) : (
                 <EuiText size="s" color="subdued"><span>No cases yet.</span></EuiText>
               )}
             </Card>
 
-            <Card title="Risk distribution" icon="visBarVertical" accent="#e2725b">
-              <BarList items={riskItems} />
+            <Card title="Risk distribution" icon="visBarVertical" accent={COLORS.clay}>
+              <BarList items={riskItems} title="Risk distribution" />
             </Card>
 
             <Card
@@ -307,10 +413,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
               accent={COLORS.accent}
               actions={<EuiText size="xs" color="subdued"><span>{fmtMoney(usage?.total_cost, usage?.currency)}</span></EuiText>}
             >
-              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.accent} height={56} /> : null}
+              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.accent} height={56} title="LLM spend over time (24h)" /> : null}
               <EuiSpacer size="m" />
               {modelItems.length ? (
-                <BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} />
+                <BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} title="LLM spend by model" />
               ) : (
                 <EuiText size="s" color="subdued"><span>No spend recorded in the last 24h.</span></EuiText>
               )}

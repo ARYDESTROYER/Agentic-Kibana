@@ -106,6 +106,7 @@ import { icon as pageSelect } from '@elastic/eui/es/components/icon/assets/pageS
 import { icon as pagesSelect } from '@elastic/eui/es/components/icon/assets/pagesSelect';
 import { icon as pencil } from '@elastic/eui/es/components/icon/assets/pencil';
 import { icon as play } from '@elastic/eui/es/components/icon/assets/play';
+import { icon as plus } from '@elastic/eui/es/components/icon/assets/plus';
 import { icon as plus_in_circle } from '@elastic/eui/es/components/icon/assets/plus_in_circle';
 import { icon as plus_in_circle_filled } from '@elastic/eui/es/components/icon/assets/plus_in_circle_filled';
 import { icon as popout } from '@elastic/eui/es/components/icon/assets/popout';
@@ -174,6 +175,7 @@ import { icon as indexTemporary } from '@elastic/eui/es/components/icon/assets/i
 import { icon as invert } from '@elastic/eui/es/components/icon/assets/invert';
 import { icon as ip } from '@elastic/eui/es/components/icon/assets/ip';
 import { icon as key } from '@elastic/eui/es/components/icon/assets/key';
+import { icon as kql_field } from '@elastic/eui/es/components/icon/assets/kql_field';
 import { icon as launch } from '@elastic/eui/es/components/icon/assets/launch';
 import { icon as list_add } from '@elastic/eui/es/components/icon/assets/list_add';
 import { icon as magnifyWithMinus } from '@elastic/eui/es/components/icon/assets/magnifyWithMinus';
@@ -291,6 +293,7 @@ appendIconComponentCache({
   pencil: pencil,
   pipelineApp: app_pipeline,
   play: play,
+  plus: plus,
   plusInCircle: plus_in_circle,
   plusInCircleFilled: plus_in_circle_filled,
   popout: popout,
@@ -360,6 +363,7 @@ appendIconComponentCache({
   invert: invert,
   ip: ip,
   key: key,
+  kqlField: kql_field,
   launch: launch,
   listAdd: list_add,
   magnifyWithMinus: magnifyWithMinus,

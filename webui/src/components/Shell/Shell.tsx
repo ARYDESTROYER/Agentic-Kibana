@@ -2,7 +2,7 @@
  * App shell — branded fixed header (logo mark + wordmark + health + dark toggle),
  * a gradient brand accent, and a grouped left side-nav. Health polls /api/health.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   EuiBadge,
   EuiButtonEmpty,
@@ -18,12 +18,13 @@ import {
   EuiPageSection,
   EuiPageSidebar,
   EuiSideNav,
+  EuiSkipLink,
   EuiSwitch,
   EuiToolTip,
 } from '@elastic/eui';
-import type { HealthResponse } from '../../lib/types';
+import type { HealthResponse, NavOpts } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, MAX_CONTENT_WIDTH, tint } from '../../lib/theme';
+import { COLORS, HEADER_H, MAX_CONTENT_WIDTH, tint } from '../../lib/theme';
 import { useBranding } from '../../lib/branding';
 
 export type PageId =
@@ -42,9 +43,16 @@ export type PageId =
   | 'metrics'
   | 'settings';
 
+/**
+ * Navigation callback. Pages call this to move between surfaces; `opts` optionally
+ * pre-seeds the destination (e.g. a status filter for a drill-through). Widening
+ * the prior `(p) => void` is back-compatible — `opts` is ignorable.
+ */
+export type Navigate = (page: PageId, opts?: NavOpts) => void;
+
 interface ShellProps {
   page: PageId;
-  onNavigate: (p: PageId) => void;
+  onNavigate: Navigate;
   darkMode: boolean;
   onToggleDark: (v: boolean) => void;
   /** When auth is enabled + authenticated, the signed-in username (shows a logout control). */
@@ -102,6 +110,9 @@ export const Shell: React.FC<ShellProps> = ({
 }) => {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthErr, setHealthErr] = useState(false);
+  // Debounce: only flip to "unreachable" after 2 consecutive failed polls, so a
+  // single dropped poll keeps the last good state.
+  const failCountRef = useRef(0);
   const { branding } = useBranding();
   // Fall back to the historical wording when branding fields are empty, so the
   // no-branding header is byte-identical to today.
@@ -115,11 +126,16 @@ export const Shell: React.FC<ShellProps> = ({
       try {
         const h = await api.health();
         if (alive) {
+          failCountRef.current = 0;
           setHealth(h);
           setHealthErr(false);
         }
       } catch {
-        if (alive) setHealthErr(true);
+        if (!alive) return;
+        failCountRef.current += 1;
+        // Only surface "unreachable" after 2 consecutive failures; a single
+        // dropped poll preserves the last good state.
+        if (failCountRef.current >= 2) setHealthErr(true);
       }
     };
     void poll();
@@ -136,6 +152,11 @@ export const Shell: React.FC<ShellProps> = ({
     : health?.es_connected
       ? 'Healthy'
       : 'Store degraded';
+  const healthIcon = healthErr
+    ? 'errorFilled'
+    : health?.es_connected
+      ? 'checkInCircleFilled'
+      : 'warning';
 
   const sideNav = NAV_GROUPS.map((group) => ({
     name: group.label,
@@ -160,8 +181,15 @@ export const Shell: React.FC<ShellProps> = ({
     }),
   }));
 
+  const supportUrl = branding.support_url?.trim() || '';
+  const validSupportUrl = /^https?:\/\//i.test(supportUrl) ? supportUrl : '';
+  const footerText = branding.footer_text?.trim() || '';
+
   return (
     <>
+      <EuiSkipLink destinationId="socMain" position="fixed" className="socSkipLink">
+        Skip to main content
+      </EuiSkipLink>
       <EuiHeader position="fixed">
         <EuiHeaderSection grow={false}>
           <EuiHeaderSectionItem>
@@ -214,8 +242,19 @@ export const Shell: React.FC<ShellProps> = ({
                       : `Store: ${health?.store_type ?? 'unknown'}`
                   }
                 >
-                  <span className="socHealthPill" style={{ borderColor: tint(healthColor, 0.4) }}>
-                    <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
+                  <span
+                    className="socHealthPill"
+                    style={{ borderColor: tint(healthColor, 0.4) }}
+                    aria-live="polite"
+                  >
+                    <EuiHealth color={healthColor}>
+                      <EuiFlexGroup alignItems="center" gutterSize="xs" responsive={false}>
+                        <EuiFlexItem grow={false}>
+                          <EuiIcon type={healthIcon} size="s" color={healthColor} aria-hidden="true" />
+                        </EuiFlexItem>
+                        <EuiFlexItem grow={false}>{healthLabel}</EuiFlexItem>
+                      </EuiFlexGroup>
+                    </EuiHealth>
                   </span>
                 </EuiToolTip>
               </EuiFlexItem>
@@ -267,28 +306,48 @@ export const Shell: React.FC<ShellProps> = ({
       </EuiHeader>
 
       {/* Gradient brand accent just under the fixed header. */}
-      <div className="socBrandAccent" style={{ position: 'fixed', top: 48, left: 0, right: 0, zIndex: 999 }} />
+      <div
+        className="socBrandAccent"
+        style={{ position: 'fixed', top: HEADER_H, left: 0, right: 0, zIndex: 999 }}
+      />
 
-      <EuiPage paddingSize="none" style={{ marginTop: 51, minHeight: 'calc(100vh - 51px)' }}>
-        <EuiPageSidebar paddingSize="l" sticky={{ offset: 51 }}>
-          <div className="socSideNav">
-            <EuiSideNav items={sideNav} />
-          </div>
+      <EuiPage
+        paddingSize="none"
+        style={{ marginTop: HEADER_H + 3, minHeight: `calc(100vh - ${HEADER_H + 3}px)` }}
+      >
+        <EuiPageSidebar paddingSize="l" sticky={{ offset: HEADER_H + 3 }}>
+          <nav className="socSideNav" aria-label="Primary">
+            <EuiSideNav items={sideNav} aria-label="Primary" />
+          </nav>
           <div style={{ marginTop: 24 }}>
-            <EuiButtonEmpty
-              size="xs"
-              iconType="documentation"
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              color="text"
-            >
-              Docs &amp; help
-            </EuiButtonEmpty>
+            {validSupportUrl ? (
+              <EuiButtonEmpty
+                size="xs"
+                iconType="documentation"
+                href={validSupportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                color="text"
+              >
+                Docs &amp; help
+              </EuiButtonEmpty>
+            ) : null}
+            {footerText ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  fontSize: 11,
+                  color: COLORS.subdued,
+                  lineHeight: 1.4,
+                }}
+              >
+                {footerText}
+              </div>
+            ) : null}
           </div>
         </EuiPageSidebar>
         <EuiPageBody>
-          <EuiPageSection restrictWidth={MAX_CONTENT_WIDTH} paddingSize="l">
+          <EuiPageSection id="socMain" role="main" restrictWidth={MAX_CONTENT_WIDTH} paddingSize="l">
             {children}
           </EuiPageSection>
         </EuiPageBody>

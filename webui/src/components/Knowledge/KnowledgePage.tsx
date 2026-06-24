@@ -30,6 +30,7 @@ import {
   EuiCodeBlock,
   EuiComboBox,
   EuiConfirmModal,
+  EuiFieldNumber,
   EuiFieldSearch,
   EuiFieldText,
   EuiFilePicker,
@@ -634,12 +635,17 @@ const QueueStatusDot: React.FC<{ ok: boolean }> = ({ ok }) => (
 
 /* ------------------------------------------------------------------- search -- */
 
+const TOP_K_DEFAULT = 5;
+/** Display-only similarity floor (the backend owns the real retrieval floor). */
+const MIN_SIMILARITY_HINT = '0.70';
+
 const SearchCard: React.FC = () => {
   const [q, setQ] = useState('');
   const [lastQuery, setLastQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [results, setResults] = useState<RagChunk[] | null>(null);
+  const [topK, setTopK] = useState(TOP_K_DEFAULT);
 
   const run = useCallback(async () => {
     const query = q.trim();
@@ -648,7 +654,7 @@ const SearchCard: React.FC = () => {
     setError(null);
     setLastQuery(query);
     try {
-      const res = await api.ragSearch(query, 8);
+      const res = await api.ragSearch(query, topK);
       setResults(res.chunks ?? []);
     } catch (e) {
       setError(e);
@@ -656,7 +662,7 @@ const SearchCard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [q]);
+  }, [q, topK]);
 
   return (
     <Card title="Try a retrieval" icon="search" accent={COLORS.accent}>
@@ -664,15 +670,48 @@ const SearchCard: React.FC = () => {
         <span>See exactly what RAG would return for a query — the same chunks the investigator gets, ranked by relevance.</span>
       </EuiText>
       <EuiSpacer size="m" />
-      <EuiFieldSearch
-        fullWidth
-        placeholder="e.g. brute force from a known scanner"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onSearch={() => void run()}
-        isLoading={loading}
-        incremental={false}
-      />
+      <EuiFlexGroup gutterSize="s" alignItems="flexEnd" responsive={false} wrap>
+        <EuiFlexItem>
+          <EuiFieldSearch
+            fullWidth
+            placeholder="e.g. brute force from a known scanner"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onSearch={() => void run()}
+            isLoading={loading}
+            incremental={false}
+            aria-label="Retrieval query"
+          />
+        </EuiFlexItem>
+        <EuiFlexItem grow={false}>
+          <EuiButton size="s" iconType="search" onClick={() => void run()} isLoading={loading} isDisabled={!q.trim()}>
+            Run
+          </EuiButton>
+        </EuiFlexItem>
+      </EuiFlexGroup>
+      <EuiSpacer size="m" />
+      <EuiFlexGroup gutterSize="m" responsive={false} wrap>
+        <EuiFlexItem>
+          <EuiFormRow label="Top-K results" helpText="How many ranked chunks to return.">
+            <EuiFieldNumber
+              compressed
+              min={1}
+              max={20}
+              value={topK}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setTopK(Number.isFinite(n) ? Math.min(20, Math.max(1, Math.round(n))) : TOP_K_DEFAULT);
+              }}
+              aria-label="Top-K results"
+            />
+          </EuiFormRow>
+        </EuiFlexItem>
+        <EuiFlexItem>
+          <EuiFormRow label="Min. similarity" helpText="Retrieval floor (set on the backend).">
+            <EuiFieldText compressed disabled value={MIN_SIMILARITY_HINT} aria-label="Minimum similarity" />
+          </EuiFormRow>
+        </EuiFlexItem>
+      </EuiFlexGroup>
       <EuiSpacer size="m" />
       {error ? (
         <ErrorCallout error={error} title="Search failed" />
@@ -719,9 +758,19 @@ const SearchCard: React.FC = () => {
 type SortField = 'title' | 'source' | 'chunk_count' | 'added_at';
 
 const DENSITY_OPTIONS = [
-  { id: 'comfortable', label: 'Comfortable' },
-  { id: 'compact', label: 'Compact' },
+  { id: 'comfortable', label: 'Comfortable', iconType: 'tableDensityNormal' },
+  { id: 'compact', label: 'Compact', iconType: 'tableDensityCompact' },
 ];
+
+const DENSITY_LS_KEY = 'tlsoc.knowledge.density';
+
+function readDensity(): 'comfortable' | 'compact' {
+  try {
+    return localStorage.getItem(DENSITY_LS_KEY) === 'compact' ? 'compact' : 'comfortable';
+  } catch {
+    return 'comfortable';
+  }
+}
 
 const toOpts = (vals: string[]): Array<EuiComboBoxOptionOption<string>> =>
   vals.map((v) => ({ label: humanizeToken(v), value: v }));
@@ -738,7 +787,16 @@ const DocumentsSection: React.FC<{
   const [sources, setSources] = useState<string[]>([]);
   const [sortField, setSortField] = useState<SortField>('added_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [density, setDensity] = useState<'comfortable' | 'compact'>(readDensity);
+
+  const changeDensity = useCallback((id: 'comfortable' | 'compact') => {
+    setDensity(id);
+    try {
+      localStorage.setItem(DENSITY_LS_KEY, id);
+    } catch {
+      /* private mode / quota — density is non-critical, ignore */
+    }
+  }, []);
 
   const sourceFacet = useMemo(() => {
     const set = new Set<string>();
@@ -920,7 +978,7 @@ const DocumentsSection: React.FC<{
             legend="Table density"
             options={DENSITY_OPTIONS}
             idSelected={density}
-            onChange={(id) => setDensity(id as 'comfortable' | 'compact')}
+            onChange={(id) => changeDensity(id as 'comfortable' | 'compact')}
             buttonSize="compressed"
           />
         }
@@ -1110,6 +1168,11 @@ export const KnowledgePage: React.FC = () => {
   const totalDocs = stats?.document_count ?? documents.length;
   const avgChunks =
     totalDocs > 0 ? Math.round((stats?.total_chunks ?? 0) / totalDocs) : 0;
+  // The bar total — used for the "N total chunks" header badge and per-source %.
+  const corpusTotalChunks = useMemo(
+    () => bySourceItems.reduce((s, x) => s + Math.max(0, x.value), 0) || stats?.total_chunks || 0,
+    [bySourceItems, stats],
+  );
 
   return (
     <div className="socPageEnter">
@@ -1187,12 +1250,29 @@ export const KnowledgePage: React.FC = () => {
 
       {bySourceItems.length ? (
         <>
-          <Card title="Corpus by source" icon="visBarVertical" accent={COLORS.accent}>
+          <Card
+            title="Corpus by source"
+            icon="visBarVertical"
+            accent={COLORS.accent}
+            actions={
+              <EuiBadge color="hollow">
+                {fmtNumber(corpusTotalChunks)} total chunk{corpusTotalChunks === 1 ? '' : 's'}
+              </EuiBadge>
+            }
+          >
             <EuiText size="xs" color="subdued">
               <span>How retrievable knowledge is distributed across corpus sources.</span>
             </EuiText>
             <EuiSpacer size="s" />
-            <BarList items={bySourceItems} format={(n) => `${fmtNumber(n)} chunks`} />
+            <BarList
+              items={bySourceItems}
+              title="Corpus chunks by source"
+              format={(n) => {
+                const pct = corpusTotalChunks > 0 ? n / corpusTotalChunks : 0;
+                const pctLabel = pct > 0 && pct < 0.01 ? '<1%' : `${Math.round(pct * 100)}%`;
+                return `${fmtNumber(n)} · ${pctLabel}`;
+              }}
+            />
           </Card>
           <EuiSpacer size="l" />
         </>

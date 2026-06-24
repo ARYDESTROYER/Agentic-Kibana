@@ -527,6 +527,23 @@ export interface CasesResponse {
 }
 
 /**
+ * GET /api/scans/notifications — how many automated-scan cases are new since the
+ * caller's last-seen timestamp. Drives the "N new" pill on the Scans surface.
+ */
+export interface ScanNotifications {
+  new_count: number;
+  since?: string | null;
+  now?: string | null;
+}
+
+/**
+ * Navigation options threaded through `Navigate` (Shell.tsx) so deep-links/
+ * drill-throughs can pre-seed a destination page's filters/tab. All fields
+ * optional and additive.
+ */
+export type NavOpts = { caseId?: string; status?: string; window?: number; tab?: string };
+
+/**
  * Payload for POST /api/cases/{id}/action — a unified analyst action on a case
  * (the case-detail flyout drives this). `action` is open-ended (the backend
  * validates), but the common verbs are enumerated for editor help. The extra
@@ -587,6 +604,15 @@ export interface ChatResponse {
   memory_action?: ChatMemoryAction | null;
   /** A memory the agent suggests the operator save (additive). */
   memory_suggestion?: ChatMemorySuggestion | null;
+  /**
+   * Optional provenance the chat engine may attach (additive; render only when
+   * present). All values are UNTRUSTED — render as plain text / `EuiCodeBlock`.
+   */
+  tools?: RationaleTool[];
+  knowledge?: RationaleKnowledge[];
+  reasoning?: string;
+  /** Inline citations the answer references (UNTRUSTED — plain text). */
+  citations?: Array<{ n: number; source: string; snippet?: string; ref?: string }>;
 }
 
 export interface UsageSummary {

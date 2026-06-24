@@ -35,7 +35,15 @@ export const COLORS = {
   accent2: DEFAULT_ACCENT2,
   subdued: '#646b78',
   surface: '#f7f9fc',
+  /** Terracotta accent — names the recurring high-risk literal `#e2725b`. */
+  clay: '#e2725b',
 };
+
+/**
+ * Shell header height (px). The fixed header, brand accent bar, page marginTop
+ * and sticky offsets all derive from this single token so the chrome lines up.
+ */
+export const HEADER_H = 48;
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */
 export function tint(hex: string, alpha = 0.12): string {
@@ -203,8 +211,18 @@ export function riskHex(score?: number): string {
   if (typeof score !== 'number' || Number.isNaN(score)) return COLORS.subdued;
   if (score < 30) return COLORS.success;
   if (score < 60) return COLORS.warning;
-  if (score < 80) return '#e2725b';
+  if (score < 80) return COLORS.clay;
   return COLORS.danger;
+}
+
+/**
+ * Risk colour for a possibly-unknown score: subdued for undefined/NaN
+ * ("unknown"), else the normal `riskHex` scale. Lets surfaces render an honest
+ * "Unknown" band for unscored cases instead of defaulting to a risk colour.
+ */
+export function riskBandColor(score?: number): string {
+  if (typeof score !== 'number' || Number.isNaN(score)) return COLORS.subdued;
+  return riskHex(score);
 }
 
 /** Risk band {label,color} for a 0..100 score — used by gauges/badges. */
@@ -214,7 +232,7 @@ export function riskBand(score?: number): { label: string; color: string } {
   }
   if (score < 30) return { label: 'Low', color: COLORS.success };
   if (score < 60) return { label: 'Medium', color: COLORS.warning };
-  if (score < 80) return { label: 'High', color: '#e2725b' };
+  if (score < 80) return { label: 'High', color: COLORS.clay };
   return { label: 'Critical', color: COLORS.danger };
 }
 
@@ -224,9 +242,29 @@ export const CHART_COLORS = [
   '#c4341c', '#2aa0a4', '#d6336c', '#7048e8',
 ] as const;
 
-/** Pick a chart colour by index (wraps). */
+/**
+ * Categorical chart palette derived from the live semantic `COLORS` (so it
+ * re-themes with `setAccent()`), padded with the stable categorical hues. Order:
+ * primary, accent2, success, warning, danger, clay, then the extra categoricals.
+ */
+export function chartPalette(): string[] {
+  return [
+    COLORS.primary,
+    COLORS.accent2,
+    COLORS.success,
+    COLORS.warning,
+    COLORS.danger,
+    COLORS.clay,
+    '#2aa0a4',
+    '#d6336c',
+    '#7048e8',
+  ];
+}
+
+/** Pick a chart colour by index (wraps) — reads the live `chartPalette()`. */
 export function chartColor(i: number): string {
-  return CHART_COLORS[i % CHART_COLORS.length];
+  const p = chartPalette();
+  return p[((i % p.length) + p.length) % p.length];
 }
 
 /** Accent + icon for each connector category (the wizard groups by these). */

@@ -33,6 +33,26 @@ import { Card, EmptyState, ErrorCallout, Loading, PageHeader } from '../common/u
 /** Max badges shown inline before collapsing the remainder into a "+N" pill. */
 const BADGE_CAP = 6;
 
+/**
+ * Semantic icon + accent per known specialist persona, so the catalog reads like
+ * the mockup (one colour/glyph per specialty) rather than a rotating palette.
+ * Unknown persona ids fall back to a stable palette colour via `chartColor`. All
+ * keys/icons are registered in `lib/icons.ts`.
+ */
+const PERSONA_STYLE: Record<string, { icon: string; accent: string }> = {
+  identity_access: { icon: 'key', accent: COLORS.primary },
+  web_application: { icon: 'globe', accent: COLORS.accent2 },
+  network_recon: { icon: 'crosshairs', accent: COLORS.success },
+  malware: { icon: 'bug', accent: COLORS.warning },
+  threat_intel: { icon: 'inspect', accent: COLORS.clay },
+  generalist: { icon: 'users', accent: COLORS.subdued },
+};
+
+/** The persona glyph/accent, semantic when known else a stable palette colour. */
+function personaStyle(id: string, index: number): { icon: string; accent: string } {
+  return PERSONA_STYLE[id] ?? { icon: 'users', accent: chartColor(index) };
+}
+
 /* ----------------------------------------------------------- badge groups -- */
 
 const BadgeRow: React.FC<{
@@ -84,13 +104,17 @@ const BadgeRow: React.FC<{
 /* --------------------------------------------------------------- personas -- */
 
 const PersonaCard: React.FC<{ persona: AgentPersona; index: number }> = ({ persona, index }) => {
-  const accent = chartColor(index);
+  const { icon, accent } = personaStyle(persona.id, index);
   return (
     <Card
       title={persona.label || persona.id}
-      icon="users"
+      icon={icon}
       accent={accent}
-      actions={<EuiBadge color={tint(accent, 0.16)} style={{ color: accent }}>{persona.id}</EuiBadge>}
+      actions={
+        <EuiBadge color={tint(accent, 0.16)} style={{ color: accent }}>
+          {persona.id}
+        </EuiBadge>
+      }
     >
       <EuiText size="s">
         <span>{persona.specialization || 'General-purpose specialist.'}</span>

@@ -21,6 +21,7 @@ import {
   EuiSwitch,
   EuiText,
   EuiTitle,
+  EuiToolTip,
 } from '@elastic/eui';
 import type {
   ConnectorManifest,
@@ -530,9 +531,13 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
           </EuiFlexItem>
         ) : null}
         <EuiFlexItem grow={false}>
-          <EuiButton iconType="beaker" onClick={onTest} isLoading={testing} color="text">
-            Test connection
-          </EuiButton>
+          <EuiToolTip
+            content="Tests the connector's currently SAVED configuration on the server. Values you have just typed here are only tested after you Save."
+          >
+            <EuiButton iconType="beaker" onClick={onTest} isLoading={testing} color="text">
+              Test saved connection
+            </EuiButton>
+          </EuiToolTip>
         </EuiFlexItem>
         <EuiFlexItem grow={false}>
           <EuiButton iconType="save" fill onClick={onSave} isLoading={saving}>

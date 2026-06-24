@@ -17,8 +17,9 @@ import { api, setUnauthorizedHandler } from './lib/api';
 import type { AuthMe } from './lib/types';
 import { applyEuiTheme } from './lib/euiTheme';
 import { BrandingProvider, useBranding } from './lib/branding';
+import type { NavOpts } from './lib/types';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
-import { Shell, PageId } from './components/Shell/Shell';
+import { Shell, PageId, Navigate } from './components/Shell/Shell';
 import { Wizard } from './components/Wizard/Wizard';
 import { LoginScreen } from './components/Auth/LoginScreen';
 import { OverviewPage } from './components/Overview/OverviewPage';
@@ -38,6 +39,34 @@ import { SettingsPage } from './components/Settings/SettingsPage';
 
 type Boot = 'loading' | 'login' | 'wizard' | 'app';
 
+/** The valid page ids (mirrors the Shell `PageId` union) for hash validation. */
+const PAGE_IDS: PageId[] = [
+  'overview',
+  'cases',
+  'investigate',
+  'chat',
+  'scans',
+  'standup',
+  'catalog',
+  'proposals',
+  'knowledge',
+  'memory',
+  'sources',
+  'cost',
+  'metrics',
+  'settings',
+];
+
+/** Parse `#/<pageid>` from the current location hash; unknown → 'overview'. */
+function pageFromHash(): PageId {
+  try {
+    const raw = (window.location.hash || '').replace(/^#\/?/, '').split(/[?&/]/)[0];
+    return (PAGE_IDS as string[]).includes(raw) ? (raw as PageId) : 'overview';
+  } catch {
+    return 'overview';
+  }
+}
+
 /** Root: provides branding/theme context to the whole tree. */
 export const App: React.FC = () => (
   <BrandingProvider>
@@ -48,8 +77,27 @@ export const App: React.FC = () => (
 const AppShell: React.FC = () => {
   const [boot, setBoot] = useState<Boot>('loading');
   const [auth, setAuth] = useState<AuthMe | null>(null);
-  const [page, setPage] = useState<PageId>('overview');
+  const [page, setPage] = useState<PageId>(() => pageFromHash());
+  const [navOpts, setNavOpts] = useState<NavOpts | undefined>();
   const [forceWizard, setForceWizard] = useState(false);
+
+  // Hash routing (st01): one navigate() seeds page + opts and writes the hash;
+  // a hashchange listener keeps back/forward + direct deep-links in sync.
+  const navigate = useCallback<Navigate>((p, opts) => {
+    setPage(p);
+    setNavOpts(opts);
+    const target = '#/' + p;
+    if (window.location.hash !== target) window.location.hash = target;
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = pageFromHash();
+      setPage((prev) => (prev === next ? prev : next));
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   // Dark mode + theme is owned by the branding context (persisted user override,
   // branding theme, or — when neither is set — the OS preference, exactly as
   // before). The local toggle simply forwards to it.
@@ -167,7 +215,7 @@ const AppShell: React.FC = () => {
   let body: React.ReactNode;
   switch (page) {
     case 'overview':
-      body = <OverviewPage onNavigate={setPage} />;
+      body = <OverviewPage onNavigate={navigate} />;
       break;
     case 'chat':
       body = <ChatPage />;
@@ -198,7 +246,7 @@ const AppShell: React.FC = () => {
       body = <CostPage />;
       break;
     case 'metrics':
-      body = <MetricsPage />;
+      body = <MetricsPage onNavigate={navigate} />;
       break;
     case 'sources':
       body = <SourcesPage />;
@@ -208,7 +256,7 @@ const AppShell: React.FC = () => {
       break;
     case 'cases':
     default:
-      body = <CasesPage />;
+      body = <CasesPage initialStatus={navOpts?.status} />;
   }
 
   // The username + logout control only appear when auth is enabled AND
@@ -220,7 +268,7 @@ const AppShell: React.FC = () => {
       <ErrorBoundary resetKey={page}>
         <Shell
           page={page}
-          onNavigate={setPage}
+          onNavigate={navigate}
           darkMode={darkMode}
           onToggleDark={setDarkMode}
           username={showUser ? auth?.user?.username : undefined}

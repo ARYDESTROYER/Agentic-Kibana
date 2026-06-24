@@ -67,7 +67,9 @@ import {
   ConfidenceBadge,
   EmptyState,
   ErrorCallout,
+  IconChip,
   Loading,
+  MitreList,
   RiskBadge,
   Skeleton,
   StatTile,
@@ -217,23 +219,39 @@ function actionsForStatus(status?: string): ActionDef[] {
 
 /* ------------------------------------------------------------------ helpers -- */
 
-const MITRE_RE = /^T\d{4}(\.\d{3})?$/i;
-
-function mitreUrl(id: string): string | null {
-  const m = id.trim().toUpperCase();
-  if (!MITRE_RE.test(m)) return null;
-  // sub-techniques (Txxxx.yyy) map to the parent path with the sub appended.
-  const [base, sub] = m.split('.');
-  return sub
-    ? `https://attack.mitre.org/techniques/${base}/${sub}/`
-    : `https://attack.mitre.org/techniques/${base}/`;
-}
-
 /** Best-effort epoch for sorting mixed history entries (ts is ISO). */
 function tsValue(ts?: string): number {
   if (!ts) return 0;
   const ms = Date.parse(ts);
   return Number.isNaN(ms) ? 0 : ms;
+}
+
+type FpPolicy = {
+  enabled?: boolean;
+  min_confidence?: number;
+  max_risk_score?: number;
+} | null;
+
+/**
+ * Derive the calibration-aware extra props for a `ConfidenceBadge` from the FP
+ * auto-close policy — the confidence bar (threshold) and a one-line note framing
+ * the verdict against the policy. Returns `{}` when the policy is unavailable.
+ */
+function confidenceCalibration(
+  policy: FpPolicy,
+  verdict?: string,
+): { threshold?: number; note?: string } {
+  if (!policy || typeof policy.min_confidence !== 'number') return {};
+  const v = (verdict || '').toLowerCase();
+  // The FP auto-close bar only governs FALSE_POSITIVE auto-closure; for other
+  // verdicts we still surface the bar but frame the note accordingly.
+  const isFp = v.includes('false') || v === 'fp' || v.includes('benign');
+  const note = policy.enabled
+    ? isFp
+      ? 'False-positive auto-close is enabled at this bar.'
+      : 'This bar governs false-positive auto-close only.'
+    : 'Auto-close is disabled — every case is held for a human.';
+  return { threshold: policy.min_confidence, note };
 }
 
 interface TimelineEntry {
@@ -287,6 +305,14 @@ export const CaseDetailFlyout: React.FC<{
   // Export menu (header popover) + in-flight format.
   const [exportOpen, setExportOpen] = useState(false);
   const [exporting, setExporting] = useState<'json' | 'md' | null>(null);
+
+  // Auto-close policy (FP) — used to make the ConfidenceBadge calibration-aware and
+  // to render a per-case auto-close explanation. Best-effort; absence is non-fatal.
+  const [fpPolicy, setFpPolicy] = useState<{
+    enabled?: boolean;
+    min_confidence?: number;
+    max_risk_score?: number;
+  } | null>(null);
 
   const flyoutTitleId = `caseDetail-${caseId}`;
 
@@ -419,6 +445,23 @@ export const CaseDetailFlyout: React.FC<{
     };
   }, []);
 
+  // Fetch the FP auto-close policy once (best-effort) so the confidence badge can be
+  // calibration-aware and we can explain how the verdict could/did auto-close.
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .getSettings()
+      .then((res) => {
+        if (!cancelled) setFpPolicy(res?.prefs?.fp_auto_close || null);
+      })
+      .catch(() => {
+        /* non-fatal: the badge simply falls back to its default tooltip. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const runReinvestigate = useCallback(async () => {
     setReinvesting(true);
     setError(null);
@@ -531,7 +574,10 @@ export const CaseDetailFlyout: React.FC<{
                   <RiskBadge score={c.risk_score} />
                 </EuiFlexItem>
                 <EuiFlexItem grow={false}>
-                  <ConfidenceBadge confidence={c.confidence} />
+                  <ConfidenceBadge
+                    confidence={c.confidence}
+                    {...confidenceCalibration(fpPolicy, c.verdict)}
+                  />
                 </EuiFlexItem>
                 {c.agent_persona && c.agent_persona !== 'generalist' ? (
                   <EuiFlexItem grow={false}>
@@ -603,6 +649,21 @@ export const CaseDetailFlyout: React.FC<{
                             pipeline and may take a few seconds.
                           </span>
                         </EuiText>
+                        <EuiSpacer size="s" />
+                        <EuiCallOut
+                          size="s"
+                          color="warning"
+                          iconType="warning"
+                          title="Costs tokens and overwrites the verdict"
+                        >
+                          <EuiText size="xs">
+                            <span>
+                              Last run cost {fmtMoney(c?.token_cost)}. Re-running
+                              spends more tokens and replaces this case&apos;s current
+                              verdict, confidence, and rationale.
+                            </span>
+                          </EuiText>
+                        </EuiCallOut>
                         <EuiSpacer size="s" />
                         <EuiFormRow label="Model" fullWidth>
                           <EuiSelect
@@ -753,7 +814,7 @@ export const CaseDetailFlyout: React.FC<{
           ) : !c ? (
             error ? null : <EuiText color="subdued">Case not found.</EuiText>
           ) : tab === 'overview' ? (
-            <OverviewTab c={c} />
+            <OverviewTab c={c} fpPolicy={fpPolicy} />
           ) : tab === 'why' ? (
             <WhyTab
               c={c}
@@ -764,6 +825,7 @@ export const CaseDetailFlyout: React.FC<{
             />
           ) : tab === 'trace' ? (
             <TraceTab
+              c={c}
               steps={trace}
               loading={traceLoading}
               error={traceError}
@@ -811,30 +873,21 @@ export const CaseDetailFlyout: React.FC<{
             >
               {(c ? actionsForStatus(c.status) : []).map((a) => (
                 <EuiFlexItem grow={false} key={a.key}>
-                  <EuiFlexGroup gutterSize="xs" responsive={false} alignItems="center">
-                    <EuiFlexItem grow={false}>
-                      <EuiToolTip content={a.help}>
-                        <EuiButton
-                          size="s"
-                          fill={a.fill}
-                          color={a.color}
-                          iconType={a.icon}
-                          onClick={() => openAction(a)}
-                          isDisabled={loading || acting}
-                        >
-                          {a.label}
-                        </EuiButton>
-                      </EuiToolTip>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiIconTip
-                        type="questionInCircle"
-                        color="subdued"
-                        content={a.help}
-                        aria-label={`What does "${a.label}" do?`}
-                      />
-                    </EuiFlexItem>
-                  </EuiFlexGroup>
+                  {/* The button's own tooltip already explains the action — no
+                      separate iconTip (it was a redundant second affordance). */}
+                  <EuiToolTip content={a.help}>
+                    <EuiButton
+                      size="s"
+                      fill={a.fill}
+                      color={a.color}
+                      iconType={a.icon}
+                      onClick={() => openAction(a)}
+                      isDisabled={loading || acting}
+                      aria-label={`${a.label} — ${a.help}`}
+                    >
+                      {a.label}
+                    </EuiButton>
+                  </EuiToolTip>
                 </EuiFlexItem>
               ))}
             </EuiFlexGroup>
@@ -975,11 +1028,60 @@ export const CaseDetailFlyout: React.FC<{
 
 /* ================================================================ Overview == */
 
-const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
+/** Heuristic: an evidence entry whose summary reads as a NEGATIVE / ruled-out
+ *  finding ("no match", "clean", "not malicious", "ruled out", …). Used only to
+ *  group the "Checked & clean" section — summaries themselves stay plain text. */
+const RULED_OUT_RE =
+  /\b(no\s+(match|evidence|sign|indicat|hit|result)|not\s+(malicious|found|present|observed)|ruled\s+out|clean|benign|negative|nothing\s+(found|suspicious)|false\s+positive|cleared)\b/i;
+
+function isRuledOut(summary?: string): boolean {
+  return !!summary && RULED_OUT_RE.test(summary);
+}
+
+const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy }> = ({ c, fpPolicy }) => {
   const trigger = c.trigger_reason as { sentence?: string } | undefined;
   const triggerSentence = trigger?.sentence;
-  const evidence = c.evidence || [];
+  const allEvidence = c.evidence || [];
+  // Split positive findings from negative / ruled-out findings (di03).
+  const ruledOut = allEvidence.filter((e) => isRuledOut(e.summary));
+  const evidence = allEvidence.filter((e) => !isRuledOut(e.summary));
   const mitre = c.mitre || [];
+
+  // Provenance (qu20): originating source + clustered-event count + rule ids.
+  const clusteredEvents = c.member_event_ids?.length || 0;
+  const ruleIds = (c.rule_ids || []).filter((r) => typeof r === 'string' && r.trim());
+
+  // Entity/asset enrichment carried on the case (best-effort; UNTRUSTED k/v).
+  const caseEnrichment = (c.enrichment && typeof c.enrichment === 'object'
+    ? (c.enrichment as Record<string, unknown>)
+    : null);
+  const entityType = c.entity?.type || c.entity_type || null;
+
+  // Auto-close explanation (di01): how the FP policy applied to THIS verdict.
+  const autoCloseLine = ((): string | null => {
+    if (!fpPolicy || typeof fpPolicy.min_confidence !== 'number') return null;
+    const v = (c.verdict || '').toLowerCase();
+    const isFp = v.includes('false') || v === 'fp' || v.includes('benign');
+    if (!fpPolicy.enabled) {
+      return 'False-positive auto-close is disabled — this case was held for a human regardless of confidence.';
+    }
+    if (!isFp) {
+      return 'NEEDS_HUMAN and true-positive verdicts never auto-close — the auto-close bar applies to false positives only.';
+    }
+    const conf = typeof c.confidence === 'number' ? c.confidence : null;
+    const risk = typeof c.risk_score === 'number' ? c.risk_score : null;
+    const confOk = conf !== null && conf >= fpPolicy.min_confidence;
+    const riskOk =
+      typeof fpPolicy.max_risk_score !== 'number' || (risk !== null && risk <= fpPolicy.max_risk_score);
+    const bar = fpPolicy.min_confidence.toFixed(2);
+    if (confOk && riskOk) {
+      return `Eligible for auto-close: confidence is at/above the ${bar} bar and risk is within the policy ceiling.`;
+    }
+    if (!confOk) {
+      return `Below the ${bar} auto-close confidence bar — held for a human.`;
+    }
+    return 'Above the confidence bar but risk exceeds the auto-close ceiling — held for a human.';
+  })();
 
   const rb = c.risk_breakdown as
     | {
@@ -1006,10 +1108,92 @@ const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
 
   return (
     <div>
+      {/* ---------------------------------------------------------- provenance */}
+      <Card title="Provenance" icon="crosshairs" accent={COLORS.accent}>
+        <EuiFlexGroup gutterSize="l" wrap responsive={false} alignItems="center">
+          <EuiFlexItem grow={false}>
+            <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false}>
+              <EuiFlexItem grow={false}>
+                <IconChip icon="index" accent={COLORS.accent} />
+              </EuiFlexItem>
+              <EuiFlexItem grow={false}>
+                <EuiText size="xs" color="subdued">
+                  <span
+                    style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
+                  >
+                    Source
+                  </span>
+                </EuiText>
+                {/* UNTRUSTED — source name rendered as a plain text node. */}
+                <EuiText size="s">
+                  <strong>{c.source_name || c.source_id || 'Unknown source'}</strong>
+                </EuiText>
+              </EuiFlexItem>
+            </EuiFlexGroup>
+          </EuiFlexItem>
+
+          <EuiFlexItem grow={false}>
+            <EuiText size="xs" color="subdued">
+              <span style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+                Clustered events
+              </span>
+            </EuiText>
+            <EuiText size="s">
+              <strong>
+                {clusteredEvents
+                  ? `${clusteredEvents} event${clusteredEvents === 1 ? '' : 's'}`
+                  : DASH}
+              </strong>
+            </EuiText>
+          </EuiFlexItem>
+
+          <EuiFlexItem>
+            <EuiText size="xs" color="subdued">
+              <span style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+                Rules
+              </span>
+            </EuiText>
+            <EuiSpacer size="xs" />
+            {ruleIds.length ? (
+              <EuiFlexGroup gutterSize="xs" wrap responsive={false}>
+                {ruleIds.map((r, i) => (
+                  <EuiFlexItem grow={false} key={`${r}-${i}`}>
+                    {/* UNTRUSTED rule id — hollow badge, plain text only. */}
+                    <EuiBadge color="hollow">{r}</EuiBadge>
+                  </EuiFlexItem>
+                ))}
+              </EuiFlexGroup>
+            ) : (
+              <EuiText size="s" color="subdued">
+                <span>No rule ids recorded.</span>
+              </EuiText>
+            )}
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </Card>
+
+      <EuiSpacer size="m" />
+
       {triggerSentence ? (
         <>
           <EuiCallOut title="Why this fired" color="primary" iconType="iInCircle" size="s">
             <p>{triggerSentence}</p>
+          </EuiCallOut>
+          <EuiSpacer size="m" />
+        </>
+      ) : null}
+
+      {autoCloseLine ? (
+        <>
+          <EuiCallOut
+            title="Auto-close policy"
+            color="primary"
+            iconType="lock"
+            size="s"
+          >
+            <EuiText size="s">
+              <p style={{ margin: 0 }}>{autoCloseLine}</p>
+            </EuiText>
           </EuiCallOut>
           <EuiSpacer size="m" />
         </>
@@ -1072,7 +1256,11 @@ const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
       <Card title="Evidence" icon="visTable" accent={COLORS.primary}>
         {evidence.length === 0 ? (
           <EuiText size="s" color="subdued">
-            <span>No evidence recorded for this case.</span>
+            <span>
+              {ruledOut.length
+                ? 'No positive findings — all evidence was checked and cleared (see “Ruled out / Checked & clean” below).'
+                : 'No evidence recorded for this case.'}
+            </span>
           </EuiText>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1109,6 +1297,98 @@ const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
         )}
       </Card>
 
+      {/* ----------------------------------------- ruled out / checked & clean */}
+      {ruledOut.length ? (
+        <>
+          <EuiSpacer size="m" />
+          <Card title="Ruled out / Checked & clean" icon="check" accent={COLORS.success}>
+            <EuiText size="xs" color="subdued">
+              <span>Negative findings — what the investigation checked and cleared.</span>
+            </EuiText>
+            <EuiSpacer size="s" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {ruledOut.map((ev, i) => (
+                <EuiFlexGroup key={i} gutterSize="s" alignItems="flexStart" responsive={false}>
+                  <EuiFlexItem grow={false}>
+                    <EuiIcon type="checkInCircleFilled" color={COLORS.success} />
+                  </EuiFlexItem>
+                  <EuiFlexItem>
+                    {/* UNTRUSTED — plain text node. */}
+                    <EuiText size="s">
+                      <span style={{ whiteSpace: 'pre-wrap' }}>
+                        {ev.summary || `Checked item ${i + 1}`}
+                      </span>
+                    </EuiText>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+              ))}
+            </div>
+          </Card>
+        </>
+      ) : null}
+
+      {/* --------------------------------------------------- entity / asset card */}
+      {c.entity || caseEnrichment ? (
+        <>
+          <EuiSpacer size="m" />
+          <Card title="Entity / asset context" icon="globe" accent={COLORS.primary}>
+            {c.entity ? (
+              <>
+                <EuiText
+                  size="xs"
+                  color="subdued"
+                  style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
+                >
+                  <span>{entityType ? humanizeToken(entityType) : 'Entity'}</span>
+                </EuiText>
+                <EuiSpacer size="xs" />
+                {/* UNTRUSTED entity value — rendered inside a code block, never markup. */}
+                <EuiCodeBlock fontSize="s" paddingSize="s" isCopyable className="socMono">
+                  {c.entity.value}
+                </EuiCodeBlock>
+              </>
+            ) : null}
+            {caseEnrichment ? (
+              <>
+                <EuiSpacer size="s" />
+                <EuiText
+                  size="xs"
+                  color="subdued"
+                  style={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}
+                >
+                  <span>Enrichment</span>
+                </EuiText>
+                <EuiSpacer size="xs" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {Object.entries(caseEnrichment)
+                    .filter(([, v]) => v !== null && v !== undefined && typeof v !== 'object')
+                    .map(([k, v]) => (
+                      <EuiFlexGroup
+                        key={k}
+                        gutterSize="s"
+                        responsive={false}
+                        justifyContent="spaceBetween"
+                      >
+                        <EuiFlexItem grow={false}>
+                          <EuiText size="xs" color="subdued">
+                            <span>{humanizeToken(k)}</span>
+                          </EuiText>
+                        </EuiFlexItem>
+                        <EuiFlexItem grow={false}>
+                          {/* UNTRUSTED value — plain text node. */}
+                          <EuiText size="xs">
+                            <span className="socMono">{String(v)}</span>
+                          </EuiText>
+                        </EuiFlexItem>
+                      </EuiFlexGroup>
+                    ))}
+                </div>
+              </>
+            ) : null}
+          </Card>
+        </>
+      ) : null}
+
       <EuiSpacer size="m" />
 
       <Card title="MITRE ATT&CK techniques" icon="graphApp" accent={COLORS.warning}>
@@ -1117,28 +1397,7 @@ const OverviewTab: React.FC<{ c: Case }> = ({ c }) => {
             <span>No techniques mapped.</span>
           </EuiText>
         ) : (
-          <EuiFlexGroup gutterSize="s" wrap responsive={false}>
-            {mitre.map((m) => {
-              const url = mitreUrl(m);
-              return (
-                <EuiFlexItem grow={false} key={m}>
-                  {url ? (
-                    <EuiBadge
-                      color={tint(COLORS.warning, 0.18)}
-                      style={{ color: COLORS.warning }}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {m}
-                    </EuiBadge>
-                  ) : (
-                    <EuiBadge color="hollow">{m}</EuiBadge>
-                  )}
-                </EuiFlexItem>
-              );
-            })}
-          </EuiFlexGroup>
+          <MitreList ids={mitre} />
         )}
       </Card>
 
@@ -1565,28 +1824,7 @@ const WhyTab: React.FC<{
         <>
           <EuiSpacer size="m" />
           <Card title="MITRE ATT&CK techniques" icon="graphApp" accent={COLORS.warning}>
-            <EuiFlexGroup gutterSize="s" wrap responsive={false}>
-              {mitre.map((m) => {
-                const url = mitreUrl(m);
-                return (
-                  <EuiFlexItem grow={false} key={m}>
-                    {url ? (
-                      <EuiBadge
-                        color={tint(COLORS.warning, 0.18)}
-                        style={{ color: COLORS.warning }}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {m}
-                      </EuiBadge>
-                    ) : (
-                      <EuiBadge color="hollow">{m}</EuiBadge>
-                    )}
-                  </EuiFlexItem>
-                );
-              })}
-            </EuiFlexGroup>
+            <MitreList ids={mitre} />
           </Card>
         </>
       ) : null}
@@ -1597,11 +1835,12 @@ const WhyTab: React.FC<{
 /* =============================================================== Agent trace == */
 
 const TraceTab: React.FC<{
+  c: Case;
   steps: TraceStep[] | null;
   loading: boolean;
   error: unknown;
   onRetry: () => void;
-}> = ({ steps, loading, error, onRetry }) => {
+}> = ({ c, steps, loading, error, onRetry }) => {
   if (loading) return <Loading label="Loading agent trace…" />;
   if (error) {
     return (
@@ -1636,10 +1875,85 @@ const TraceTab: React.FC<{
     return 'dot';
   };
 
+  // Per-step status accent — colours the timeline node by the KIND of step so the
+  // decision path reads at a glance (di07): tools=accent, verdict/decision=success,
+  // routing=primary, everything else=subdued.
+  const accentFor = (s: TraceStep): string => {
+    if (s.tool_name) return COLORS.accent;
+    const a = (s.action_type || '').toLowerCase();
+    if (a.includes('verdict') || a.includes('decision') || a.includes('case')) {
+      return COLORS.success;
+    }
+    if (a.includes('rout') || a.includes('invest')) return COLORS.primary;
+    return COLORS.subdued;
+  };
+
+  // Decision-path summary (di07): step / tool counts, total token cost, decided-by.
+  const toolCount = steps.filter((s) => !!s.tool_name).length;
+  const decided = c.decision_by ? humanizeToken(c.decision_by) : null;
+
   return (
-    <EuiTimeline>
-      {steps.map((s, i) => (
-        <EuiTimelineItem key={i} icon={iconFor(s)} verticalAlign="top">
+    <>
+      <Card title="Decision path" icon="branch" accent={COLORS.primary}>
+        <EuiFlexGroup gutterSize="m" wrap responsive={false} alignItems="center">
+          <EuiFlexItem grow={false}>
+            <EuiBadge color={tint(COLORS.primary, 0.18)} style={{ color: COLORS.primary }}>
+              {steps.length} step{steps.length === 1 ? '' : 's'}
+            </EuiBadge>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiBadge
+              color={tint(COLORS.accent, 0.18)}
+              iconType="wrench"
+              style={{ color: COLORS.accent }}
+            >
+              {toolCount} tool{toolCount === 1 ? '' : 's'}
+            </EuiBadge>
+          </EuiFlexItem>
+          <EuiFlexItem grow={false}>
+            <EuiBadge color="hollow" iconType="currency">
+              {fmtMoney(c.token_cost)}
+            </EuiBadge>
+          </EuiFlexItem>
+          {decided ? (
+            <EuiFlexItem grow={false}>
+              <EuiBadge
+                color={tint(COLORS.success, 0.18)}
+                iconType="check"
+                style={{ color: COLORS.success }}
+                title="Who made the close / escalate decision"
+              >
+                Decided by {decided}
+              </EuiBadge>
+            </EuiFlexItem>
+          ) : null}
+        </EuiFlexGroup>
+      </Card>
+      <EuiSpacer size="m" />
+      <EuiTimeline>
+        {steps.map((s, i) => (
+          <EuiTimelineItem
+            key={i}
+            icon={
+              <span
+                className="socIconChip"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 28,
+                  height: 28,
+                  borderRadius: 999,
+                  background: tint(accentFor(s), 0.16),
+                  boxShadow: `inset 0 0 0 1px ${tint(accentFor(s), 0.28)}`,
+                  color: accentFor(s),
+                }}
+              >
+                <EuiIcon type={iconFor(s)} size="s" />
+              </span>
+            }
+            verticalAlign="top"
+          >
           <div>
             <EuiFlexGroup gutterSize="s" alignItems="center" responsive={false} wrap>
               <EuiFlexItem grow={false}>
@@ -1714,7 +2028,8 @@ const TraceTab: React.FC<{
           </div>
         </EuiTimelineItem>
       ))}
-    </EuiTimeline>
+      </EuiTimeline>
+    </>
   );
 };
 

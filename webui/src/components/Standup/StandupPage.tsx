@@ -27,12 +27,13 @@ import {
   EuiPanel,
   EuiSpacer,
   EuiText,
+  EuiToolTip,
 } from '@elastic/eui';
 import type { StandupResponse } from '../../lib/types';
 import { api } from '../../lib/api';
 import { fmtMoney, fmtNumber, humanizeAge, humanizeToken } from '../../lib/format';
-import { COLORS, chartColor, tint } from '../../lib/theme';
-import { BarList, Sparkline } from '../common/charts';
+import { COLORS, chartColor, tint, verdictHex } from '../../lib/theme';
+import { BarList, DonutWithLegend, Sparkline } from '../common/charts';
 import type { Segment } from '../common/charts';
 import {
   Card,
@@ -108,8 +109,34 @@ const WINDOWS = [
   { id: '168', label: '7d', hours: 168 },
 ] as const;
 
+/** Pick the closest preset window id for a configured `window_hours` (qu40). */
+function seedWindowId(hours?: number): string {
+  if (typeof hours !== 'number' || !Number.isFinite(hours)) return '24';
+  // Snap to whichever preset is nearest the configured value.
+  let best: { id: string; hours: number } = WINDOWS[0];
+  for (const w of WINDOWS) {
+    if (Math.abs(w.hours - hours) < Math.abs(best.hours - hours)) best = w;
+  }
+  return best.id;
+}
+
+/** Read a `{key,count}`-ish bucket list into a `{key: count}` map (lowercased). */
+function bucketMap(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!Array.isArray(v)) return out;
+  v.forEach((raw) => {
+    const b = asRecord(raw);
+    const key = b.key;
+    const count = asNumber(b.count) ?? asNumber(b.value) ?? asNumber(b.doc_count);
+    if (key === undefined || key === null || count === undefined) return;
+    out[String(key).toLowerCase()] = count;
+  });
+  return out;
+}
+
 export const StandupPage: React.FC = () => {
   const [windowId, setWindowId] = useState<string>('24');
+  const [windowSeeded, setWindowSeeded] = useState(false);
   const [data, setData] = useState<Standup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -133,9 +160,33 @@ export const StandupPage: React.FC = () => {
     }
   }, [requestedHours]);
 
+  // Seed the window from prefs.standup.window_hours once, before the first load
+  // settles on a window (qu40). Best-effort — a failure leaves the 24h default.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    void api
+      .getSettings()
+      .then((s) => {
+        if (cancelled) return;
+        const hrs = s?.prefs?.standup?.window_hours;
+        if (typeof hrs === 'number') setWindowId(seedWindowId(hrs));
+      })
+      .catch(() => {
+        /* prefs are advisory here; keep the default window. */
+      })
+      .finally(() => {
+        if (!cancelled) setWindowSeeded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Defer the first fetch until the window has been seeded so we don't load
+  // 24h then immediately reload the configured window.
+  useEffect(() => {
+    if (windowSeeded) void load();
+  }, [load, windowSeeded]);
 
   const agg = useMemo(() => asRecord(data?.aggregate), [data]);
 
@@ -148,7 +199,28 @@ export const StandupPage: React.FC = () => {
     [agg, data],
   );
   const casesOpened = asNumber(cases.opened);
-  const casesClosed = asNumber(cases.closed);
+  // The backend never emits `cases.closed`; derive it from the `by_status`
+  // breakdown (status:"closed") instead (qu18). Falls back to undefined.
+  const statusMap = useMemo(() => bucketMap(cases.by_status), [cases]);
+  const casesClosed = useMemo(() => {
+    if (typeof cases.closed === 'number') return cases.closed as number;
+    const keys = Object.keys(statusMap);
+    if (!keys.length) return undefined;
+    return statusMap.closed ?? 0;
+  }, [cases, statusMap]);
+
+  // Case outcomes (verdict mix) for the donut (qu19), from cases.by_verdict.
+  const outcomes = useMemo<Segment[]>(() => {
+    const m = bucketMap(cases.by_verdict);
+    return Object.entries(m)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => ({ label: humanizeToken(k), value: v, color: verdictHex(k) }))
+      .sort((a, b) => b.value - a.value);
+  }, [cases]);
+  const outcomesTotal = useMemo(
+    () => outcomes.reduce((s, o) => s + o.value, 0),
+    [outcomes],
+  );
 
   const byRule = useMemo(() => toSegments(agg.by_rule, true), [agg]);
   const topIps = useMemo(() => toSegments(agg.top_source_ips), [agg]);
@@ -177,6 +249,64 @@ export const StandupPage: React.FC = () => {
 
   const summaryText = data?.summary?.trim() ?? '';
   const hasSummary = summaryText.length > 0;
+
+  // A standup with a `generated_at` is a cached artifact; the button re-fetches
+  // it rather than forcing a fresh generation, so it reads "Refresh" (qu40).
+  const isCached = typeof data?.generated_at === 'string' && data.generated_at.length > 0;
+  const refreshLabel = isCached ? 'Refresh' : 'Regenerate';
+
+  /**
+   * A Markdown rendering of the digest for the "Copy digest" action — the prose
+   * summary plus the headline aggregate facts and top-N breakdowns. All values
+   * are log-derived but copied as plain Markdown text (never executed).
+   */
+  const digestMarkdown = useMemo(() => {
+    const lines: string[] = [];
+    lines.push(`# Standup — last ${windowLabel}`);
+    if (data?.generated_at) lines.push(`_Generated ${humanizeAge(data.generated_at)}_`);
+    lines.push('');
+    if (summaryText) {
+      lines.push(summaryText);
+      lines.push('');
+    }
+    const facts: string[] = [];
+    if (totalEvents !== undefined) facts.push(`- Events: ${fmtNumber(totalEvents)}`);
+    if (uniqueIps !== undefined) facts.push(`- Unique source IPs: ${fmtNumber(uniqueIps)}`);
+    if (casesOpened !== undefined) facts.push(`- Cases opened: ${fmtNumber(casesOpened)}`);
+    if (casesClosed !== undefined) facts.push(`- Cases closed: ${fmtNumber(casesClosed)}`);
+    if (cost !== undefined && cost > 0) facts.push(`- LLM cost: ${fmtMoney(cost)}`);
+    if (facts.length) {
+      lines.push('## Headline');
+      lines.push(...facts);
+      lines.push('');
+    }
+    const section = (title: string, segs: Segment[]) => {
+      if (!segs.length) return;
+      lines.push(`## ${title}`);
+      segs.slice(0, 8).forEach((s) => lines.push(`- ${s.label}: ${fmtNumber(s.value)}`));
+      lines.push('');
+    };
+    section('Case outcomes', outcomes);
+    section('Top rules', byRule);
+    section('Top source IPs', topIps);
+    section('Top users', topUsers);
+    section('Top hosts', topHosts);
+    return lines.join('\n').trim();
+  }, [
+    windowLabel,
+    data,
+    summaryText,
+    totalEvents,
+    uniqueIps,
+    casesOpened,
+    casesClosed,
+    cost,
+    outcomes,
+    byRule,
+    topIps,
+    topUsers,
+    topHosts,
+  ]);
 
   return (
     <div className="socPageEnter">
@@ -208,6 +338,19 @@ export const StandupPage: React.FC = () => {
                 </EuiCopy>
               </EuiFlexItem>
             ) : null}
+            {digestMarkdown ? (
+              <EuiFlexItem grow={false}>
+                <EuiCopy textToCopy={digestMarkdown}>
+                  {(copy) => (
+                    <EuiToolTip content="Copy the full digest as Markdown">
+                      <EuiButton size="s" iconType="copy" onClick={copy}>
+                        Copy digest
+                      </EuiButton>
+                    </EuiToolTip>
+                  )}
+                </EuiCopy>
+              </EuiFlexItem>
+            ) : null}
             <EuiFlexItem grow={false}>
               <EuiButton
                 size="s"
@@ -216,7 +359,7 @@ export const StandupPage: React.FC = () => {
                 onClick={() => void load()}
                 isLoading={loading}
               >
-                Regenerate
+                {refreshLabel}
               </EuiButton>
             </EuiFlexItem>
           </EuiFlexGroup>
@@ -333,6 +476,26 @@ export const StandupPage: React.FC = () => {
             </EuiFlexGroup>
           </EuiPanel>
 
+          {/* Case outcomes — verdict mix of the cases opened in this window (qu19). */}
+          {outcomes.length ? (
+            <>
+              <EuiSpacer size="l" />
+              <Card title="Case outcomes" icon="visPie" accent={COLORS.accent}>
+                <EuiText size="xs" color="subdued">
+                  <span>Verdict mix of the {fmtNumber(outcomesTotal)} cases opened this window</span>
+                </EuiText>
+                <EuiSpacer size="s" />
+                <DonutWithLegend
+                  segments={outcomes}
+                  centerValue={fmtNumber(outcomesTotal)}
+                  centerLabel="cases"
+                  title="Case outcomes by verdict"
+                  format={fmtNumber}
+                />
+              </Card>
+            </>
+          ) : null}
+
           {hasAggregate ? (
             <>
               <EuiSpacer size="l" />
@@ -383,7 +546,12 @@ export const StandupPage: React.FC = () => {
                       <span>Events over the {windowLabel} window</span>
                     </EuiText>
                     <EuiSpacer size="s" />
-                    <Sparkline values={series} color={COLORS.primary} height={64} />
+                    <Sparkline
+                      values={series}
+                      color={COLORS.primary}
+                      height={64}
+                      title={`Event activity over the ${windowLabel} window`}
+                    />
                   </Card>
                 </>
               ) : null}
@@ -394,22 +562,22 @@ export const StandupPage: React.FC = () => {
               <div className="socGrid">
                 {byRule.length ? (
                   <Card title="Top rules" icon="tag" accent={COLORS.warning}>
-                    <BarList items={byRule.slice(0, 8)} format={fmtNumber} />
+                    <BarList items={byRule.slice(0, 8)} format={fmtNumber} title="Top rules by event count" />
                   </Card>
                 ) : null}
                 {topIps.length ? (
                   <Card title="Top source IPs" icon="globe" accent={COLORS.primary}>
-                    <BarList items={topIps.slice(0, 8)} format={fmtNumber} />
+                    <BarList items={topIps.slice(0, 8)} format={fmtNumber} title="Top source IPs by event count" />
                   </Card>
                 ) : null}
                 {topUsers.length ? (
                   <Card title="Top users" icon="user" accent={COLORS.accent}>
-                    <BarList items={topUsers.slice(0, 8)} format={fmtNumber} />
+                    <BarList items={topUsers.slice(0, 8)} format={fmtNumber} title="Top users by event count" />
                   </Card>
                 ) : null}
                 {topHosts.length ? (
                   <Card title="Top hosts" icon="storage" accent={COLORS.success}>
-                    <BarList items={topHosts.slice(0, 8)} format={fmtNumber} />
+                    <BarList items={topHosts.slice(0, 8)} format={fmtNumber} title="Top hosts by event count" />
                   </Card>
                 ) : null}
                 {bySeverity.length ? (
@@ -417,6 +585,7 @@ export const StandupPage: React.FC = () => {
                     <BarList
                       items={bySeverity.map((s) => ({ ...s, label: humanizeToken(s.label) }))}
                       format={fmtNumber}
+                      title="Events by severity"
                     />
                   </Card>
                 ) : null}

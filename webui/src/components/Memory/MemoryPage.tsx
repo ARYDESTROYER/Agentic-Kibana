@@ -639,9 +639,9 @@ export const MemoryPage: React.FC = () => {
   return (
     <div className="socPageEnter">
       <PageHeader
-        icon="bell"
+        icon="memory"
         accent={COLORS.primary}
-        eyebrow="Knowledge"
+        eyebrow="Platform"
         title="Memory"
         description="Durable facts the agents always know — injected into every investigation and chat turn as trusted operator context."
         actions={
@@ -678,7 +678,7 @@ export const MemoryPage: React.FC = () => {
       ) : (
         <EuiFlexGrid columns={4} gutterSize="m">
           <EuiFlexItem>
-            <StatTile label="Total facts" value={fmtNumber(stats.total)} icon="bell" accent={COLORS.primary} />
+            <StatTile label="Total facts" value={fmtNumber(stats.total)} icon="memory" accent={COLORS.primary} />
           </EuiFlexItem>
           <EuiFlexItem>
             <StatTile
@@ -709,7 +709,7 @@ export const MemoryPage: React.FC = () => {
       <EuiSpacer size="l" />
 
       <SectionHeader
-        icon="bell"
+        icon="memory"
         accent={COLORS.accent}
         title="Saved memories"
         description={
@@ -811,7 +811,7 @@ export const MemoryPage: React.FC = () => {
         </EuiPanel>
       ) : entries.length === 0 ? (
         <EmptyState
-          iconType="bell"
+          iconType="memory"
           title="No memories yet"
           body="Add a durable fact above, or teach the agent one conversationally in Chat with “remember: …”."
         />

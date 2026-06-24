@@ -16,6 +16,7 @@ import {
   EuiBasicTable,
   EuiButton,
   EuiButtonGroup,
+  EuiCode,
   EuiFlexGroup,
   EuiFlexItem,
   EuiPanel,
@@ -26,7 +27,7 @@ import {
 import type { Criteria, EuiBasicTableColumn } from '@elastic/eui';
 import type { UsageSummary } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, chartColor, RADIUS, TYPE } from '../../lib/theme';
+import { COLORS, chartColor, RADIUS, TYPE, tint } from '../../lib/theme';
 import {
   DASH,
   fmtMoney,
@@ -117,16 +118,21 @@ function trendDelta(series: number[]): number | undefined {
   return Math.round(((curr - prev) / prev) * 100);
 }
 
-/** Map ledger `by_*` rows to chart segments, valued + ordered by `by`. */
+/**
+ * Map ledger `by_*` rows to chart segments, valued + ordered by `by`.
+ * `verbatim` keeps the raw key (model ids / drivers are technical identifiers and
+ * are shown literally, qu29/qu39); otherwise the key is humanized for display.
+ */
 function metricSegments(
   rows: UsageRow[] | undefined,
   by: SortKey,
   palette = false,
+  verbatim = false,
 ): Segment[] {
   return sortRows(rows, by)
     .filter((r) => r && typeof r[by] === 'number')
     .map((r, i) => ({
-      label: humanizeToken(r.key) ?? r.key,
+      label: verbatim ? r.key : (humanizeToken(r.key) ?? r.key),
       value: Number(r[by]) || 0,
       color: palette ? chartColor(i) : undefined,
     }));
@@ -242,7 +248,7 @@ export const CostPage: React.FC = () => {
   const spend = useMemo(() => seriesStats(series), [series]);
 
   const byModel = useMemo(
-    () => metricSegments(data?.by_model as UsageRow[], sortBy),
+    () => metricSegments(data?.by_model as UsageRow[], sortBy, false, true),
     [data, sortBy],
   );
   const byRole = useMemo(
@@ -327,7 +333,7 @@ export const CostPage: React.FC = () => {
             minWidth: 36,
             height: 6,
             borderRadius: RADIUS.sm,
-            background: 'rgba(105,112,125,0.14)',
+            background: tint(COLORS.subdued, 0.14),
             overflow: 'hidden',
           }}
         >
@@ -375,7 +381,14 @@ export const CostPage: React.FC = () => {
               />
             </EuiFlexItem>
             <EuiFlexItem>
-              <span style={{ wordBreak: 'break-word' }}>{humanizeToken(r.key) ?? r.key}</span>
+              {dimension === 'model' || dimension === 'drivers' ? (
+                // Model ids / driver keys are technical identifiers — show verbatim.
+                <EuiCode transparentBackground style={{ wordBreak: 'break-word' }}>
+                  {r.key}
+                </EuiCode>
+              ) : (
+                <span style={{ wordBreak: 'break-word' }}>{humanizeToken(r.key) ?? r.key}</span>
+              )}
             </EuiFlexItem>
           </EuiFlexGroup>
         ),
@@ -441,7 +454,7 @@ export const CostPage: React.FC = () => {
       },
     ],
     // ShareBar + ledger.indexOf depend on the current ledger ordering + currency.
-    [currency, dimensionMeta.label, ledger],
+    [currency, dimension, dimensionMeta.label, ledger],
   );
 
   // ---- Efficiency aggregates (overall + single most-expensive per dimension). --
@@ -601,7 +614,12 @@ export const CostPage: React.FC = () => {
               </EuiFlexItem>
               {series.length > 1 ? (
                 <EuiFlexItem style={{ minWidth: 180 }}>
-                  <Sparkline values={series} color={COLORS.primary} height={56} />
+                  <Sparkline
+                    values={series}
+                    color={COLORS.primary}
+                    height={56}
+                    title={`Spend trend over the last ${windowLabel}`}
+                  />
                 </EuiFlexItem>
               ) : null}
             </EuiFlexGroup>
@@ -696,43 +714,51 @@ export const CostPage: React.FC = () => {
 
           <EuiSpacer size="m" />
 
+          {/* Spend over time — its own full-width row above the 2-up grid (qu39). */}
+          <Card title="Spend over time" icon="visArea" accent={COLORS.primary}>
+            {series.length > 1 ? (
+              <>
+                <MiniBars
+                  values={series}
+                  color={COLORS.primary}
+                  height={120}
+                  title={`Spend over time — ${series.length} buckets over the last ${windowLabel}`}
+                />
+                <EuiSpacer size="s" />
+                {/* Per-bucket spend stats alongside the bars. */}
+                <EuiFlexGroup gutterSize="m" responsive={false} wrap>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="xs" color="subdued"><span>Window total</span></EuiText>
+                    <EuiText size="s"><strong>{fmtMoney(spend.total, currency)}</strong></EuiText>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="xs" color="subdued"><span>Avg / bucket</span></EuiText>
+                    <EuiText size="s"><strong>{fmtMoney(spend.avg, currency)}</strong></EuiText>
+                  </EuiFlexItem>
+                  <EuiFlexItem grow={false}>
+                    <EuiText size="xs" color="subdued"><span>Peak bucket</span></EuiText>
+                    <EuiText size="s"><strong>{fmtMoney(spend.peak, currency)}</strong></EuiText>
+                  </EuiFlexItem>
+                </EuiFlexGroup>
+                <EuiSpacer size="xs" />
+                <EuiText size="xs" color="subdued">
+                  <span>{`${series.length} buckets over the last ${windowLabel}`}</span>
+                </EuiText>
+              </>
+            ) : (
+              <EuiText size="s" color="subdued">
+                <span>Not enough data points to chart a trend.</span>
+              </EuiText>
+            )}
+          </Card>
+
+          <EuiSpacer size="m" />
+
           {/* Charts grid */}
           <div className="socGrid">
-            <Card title="Spend over time" icon="visArea" accent={COLORS.primary}>
-              {series.length > 1 ? (
-                <>
-                  <MiniBars values={series} color={COLORS.primary} height={120} />
-                  <EuiSpacer size="s" />
-                  {/* Per-bucket spend stats alongside the bars. */}
-                  <EuiFlexGroup gutterSize="m" responsive={false} wrap>
-                    <EuiFlexItem grow={false}>
-                      <EuiText size="xs" color="subdued"><span>Window total</span></EuiText>
-                      <EuiText size="s"><strong>{fmtMoney(spend.total, currency)}</strong></EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText size="xs" color="subdued"><span>Avg / bucket</span></EuiText>
-                      <EuiText size="s"><strong>{fmtMoney(spend.avg, currency)}</strong></EuiText>
-                    </EuiFlexItem>
-                    <EuiFlexItem grow={false}>
-                      <EuiText size="xs" color="subdued"><span>Peak bucket</span></EuiText>
-                      <EuiText size="s"><strong>{fmtMoney(spend.peak, currency)}</strong></EuiText>
-                    </EuiFlexItem>
-                  </EuiFlexGroup>
-                  <EuiSpacer size="xs" />
-                  <EuiText size="xs" color="subdued">
-                    <span>{`${series.length} buckets over the last ${windowLabel}`}</span>
-                  </EuiText>
-                </>
-              ) : (
-                <EuiText size="s" color="subdued">
-                  <span>Not enough data points to chart a trend.</span>
-                </EuiText>
-              )}
-            </Card>
-
             <Card title="By model" icon="machineLearningApp" accent={COLORS.accent}>
               {byModel.length ? (
-                <BarList items={byModel} format={fmtMetric} />
+                <BarList items={byModel} format={fmtMetric} title={`Cost by model — ranked by ${sortBy}`} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>{DASH}</span>
@@ -742,7 +768,7 @@ export const CostPage: React.FC = () => {
 
             <Card title="By role" icon="users" accent={COLORS.warning}>
               {byRole.length ? (
-                <BarList items={byRole} format={fmtMetric} />
+                <BarList items={byRole} format={fmtMetric} title={`Cost by role — ranked by ${sortBy}`} />
               ) : (
                 <EuiText size="s" color="subdued">
                   <span>{DASH}</span>
@@ -756,6 +782,8 @@ export const CostPage: React.FC = () => {
                   segments={bySurface}
                   centerValue={fmtMoney(data?.total_cost, currency)}
                   centerLabel="total"
+                  title="Cost by surface"
+                  format={(n) => fmtMoney(n, currency)}
                 />
               ) : (
                 <EuiText size="s" color="subdued">
@@ -784,6 +812,8 @@ export const CostPage: React.FC = () => {
                 }))}
                 centerValue={fmtMoney(totalCost, currency)}
                 centerLabel="total cost"
+                title={`Cost composition by ${dimensionMeta.label.toLowerCase()}`}
+                format={(n) => fmtMoney(n, currency)}
               />
             ) : (
               <EuiText size="s" color="subdued">
@@ -856,11 +886,9 @@ export const CostPage: React.FC = () => {
                         />
                       </EuiFlexItem>
                       <EuiFlexItem>
-                        <EuiText size="s">
-                          <span style={{ wordBreak: 'break-word' }}>
-                            {humanizeToken(d.key) ?? d.key}
-                          </span>
-                        </EuiText>
+                        <EuiCode transparentBackground style={{ wordBreak: 'break-word' }}>
+                          {d.key}
+                        </EuiCode>
                       </EuiFlexItem>
                       <EuiFlexItem grow={false}>
                         <EuiText size="xs" color="subdued">

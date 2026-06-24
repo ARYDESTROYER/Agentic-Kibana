@@ -40,6 +40,9 @@ vi.mock('../../lib/api', () => {
       get: vi.fn().mockResolvedValue({ case_id: 'c1', steps: [], total: 0 }),
       caseRationale: vi.fn().mockResolvedValue({}),
       getModels: vi.fn().mockResolvedValue({ models: [] }),
+      // The flyout reads the FP auto-close policy (best-effort) for the
+      // calibration-aware confidence badge; stub it so the effect's call resolves.
+      getSettings: vi.fn().mockResolvedValue({ prefs: {} }),
       caseFeedback: noop,
       caseComment: noop,
       caseTags: noop,

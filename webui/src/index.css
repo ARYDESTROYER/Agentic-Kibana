@@ -316,12 +316,16 @@ button:focus-visible,
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
+  /* Theme-neutral sweep: a low-opacity currentColor band reads in BOTH light and
+     dark themes (the old white-only gradient was invisible on light backgrounds). */
+  color: rgba(105, 112, 125, 1);
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.18) 50%,
-    rgba(255, 255, 255, 0) 100%
+    rgba(105, 112, 125, 0) 0%,
+    currentColor 50%,
+    rgba(105, 112, 125, 0) 100%
   );
+  opacity: 0.14;
   animation: socShimmer 1.3s ease-in-out infinite;
 }
 @keyframes socShimmer {
@@ -353,6 +357,29 @@ button:focus-visible,
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* --- Skip-to-content link: visually hidden until focused, then a chip at the
+       top-left so keyboard users can jump past the nav to the main content. --- */
+.socSkipLink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 8px 14px;
+  border-radius: var(--soc-radius-md);
+  background: var(--soc-accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: var(--soc-elev-2);
+}
+.socSkipLink:focus,
+.socSkipLink:focus-visible {
+  left: 8px;
+  top: 8px;
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 /* --- Respect the user's motion preference: zero out transforms/animations. --- */
