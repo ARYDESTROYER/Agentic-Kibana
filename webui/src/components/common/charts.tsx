@@ -58,12 +58,12 @@ export const Donut: React.FC<{
       {(centerValue !== undefined || centerLabel) && (
         <g>
           <text x="50%" y="47%" textAnchor="middle" dominantBaseline="central"
-                style={{ fontSize: 28, fontWeight: 700, fill: 'currentColor' }}>
+                style={{ fontSize: 24, fontWeight: 700, fill: 'var(--text-primary, currentColor)' }}>
             {centerValue}
           </text>
           {centerLabel && (
             <text x="50%" y="63%" textAnchor="middle" dominantBaseline="central"
-                  style={{ fontSize: 10, fill: MUTED }}>
+                  style={{ fontSize: 10, fill: 'var(--text-muted, #98A2B3)' }}>
               {centerLabel}
             </text>
           )}
@@ -113,7 +113,7 @@ export const BarList: React.FC<{
             <EuiText size="xs"><span style={{ wordBreak: 'break-word' }}>{it.label}</span></EuiText>
             <EuiText size="xs" color="subdued"><strong>{format ? format(it.value) : it.value}</strong></EuiText>
           </div>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(105,112,125,0.14)', overflow: 'hidden' }}>
+          <div style={{ height: 8, borderRadius: 6, background: 'var(--chart-bar-bg, rgba(105,112,125,0.14))', overflow: 'hidden' }}>
             <div style={{
               width: `${Math.max(2, (it.value / top) * 100)}%`,
               height: '100%',
@@ -190,7 +190,7 @@ export const StackedHistogram: React.FC<{
   data: HistogramBin[];
   width?: number;
   height?: number;
-}> = ({ data, width = 760, height = 180 }) => {
+}> = ({ data, width = 760, height = 160 }) => {
   if (!data.length) return null;
   const maxVal = Math.max(...data.map(d => d.fp + d.nh + d.tp));
   const yMax = Math.ceil(maxVal / 500) * 500;
@@ -205,7 +205,7 @@ export const StackedHistogram: React.FC<{
     React.createElement('line', {
       key: 'gy' + y, x1: 0, y1: MT + chartH - (y / yMax) * chartH,
       x2: width, y2: MT + chartH - (y / yMax) * chartH,
-      stroke: '#F0F4F7', strokeWidth: 1,
+      stroke: 'var(--chart-grid, #F0F4F7)', strokeWidth: 1,
     })
   );
 
@@ -227,13 +227,13 @@ export const StackedHistogram: React.FC<{
     if (i % xStep !== 0 && i !== n - 1) return null;
     return React.createElement('text', {
       key: 'xl' + i, x: i * slotW + slotW / 2, y: height - 4,
-      textAnchor: 'middle', fontSize: 12, fill: '#69707D',
+      textAnchor: 'middle', fontSize: 12, fill: 'var(--text-secondary, #69707D)',
     }, d.label);
   });
 
   return React.createElement('svg', {
     viewBox: `0 0 ${width} ${height}`,
-    width: '100%', height: 160,
+    width: '100%', height: 140,
     style: { display: 'block', overflow: 'visible' },
   }, ...lines, ...bars, ...labels);
 };
@@ -259,7 +259,7 @@ export const RiskGauge: React.FC<{ score: number; size?: number; color: string }
         fill="none" stroke={color} strokeWidth={thickness} strokeLinecap="round"
         strokeDasharray={`${frac * c} ${c}`}
       />
-      <text x="50%" y="82%" textAnchor="middle" style={{ fontSize: 22, fontWeight: 700, fill: 'currentColor' }}>
+      <text x="50%" y="82%" textAnchor="middle" style={{ fontSize: 22, fontWeight: 700, fill: 'var(--text-primary, currentColor)' }}>
         {Math.round(score)}
       </text>
     </svg>

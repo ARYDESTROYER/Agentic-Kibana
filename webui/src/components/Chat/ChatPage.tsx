@@ -580,15 +580,15 @@ export const ChatPage: React.FC = () => {
       `}</style>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#1A1C21' }}>Chat</h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#69707D', maxWidth: 520 }}>Ask the SOC agent about your environment — it queries logs, summarizes, and explains.</p>
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: 'var(--text-primary)' }}>Chat</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)', maxWidth: 520 }}>Ask the SOC agent about your environment — it queries logs, summarizes, and explains.</p>
         </div>
         <button
           onClick={newChat}
           disabled={isEmpty && !loading}
-          style={{ display: 'flex', alignItems: 'center', gap: 7, height: 32, padding: '0 13px', border: '1px solid #D3DAE6', background: '#fff', color: '#343741', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: isEmpty && !loading ? 'default' : 'pointer', flex: 'none' }}
+          style={{ display: 'flex', alignItems: 'center', gap: 7, height: 32, padding: '0 13px', border: '1px solid var(--border-input)', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: isEmpty && !loading ? 'default' : 'pointer', flex: 'none' }}
         >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#343741" strokeWidth="2.2"><path d="M12 5v14M5 12h14"></path></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 5v14M5 12h14"></path></svg>
           New chat
         </button>
       </div>

@@ -16,6 +16,109 @@
 export const DEFAULT_ACCENT = '#006BB4';
 export const DEFAULT_ACCENT2 = '#7B61FF';
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKEN SYSTEM — light / dark theme
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+export interface ThemeTokens {
+  bgPage: string;
+  bgCard: string;
+  bgSidebar: string;
+  bgHeader: string;
+  bgHover: string;
+  bgActive: string;
+  bgBadge: string;
+  bgTableHover: string;
+  borderDefault: string;
+  borderSubtle: string;
+  borderStrong: string;
+  textPrimary: string;
+  textSecondary: string;
+  textMuted: string;
+  textInverse: string;
+  textLink: string;
+  navIcon: string;
+  navText: string;
+  navActiveBg: string;
+  navActiveText: string;
+  navActiveIcon: string;
+  navGroupLabel: string;
+}
+
+const LIGHT_TOKENS: ThemeTokens = {
+  bgPage: '#F8FAFD',
+  bgCard: '#FFFFFF',
+  bgSidebar: '#FAFBFC',
+  bgHeader: '#FFFFFF',
+  bgHover: '#F0F4F8',
+  bgActive: '#E0ECFA',
+  bgBadge: '#F0F4F7',
+  bgTableHover: '#F5F7FA',
+  borderDefault: '#E8ECF1',
+  borderSubtle: '#F0F4F7',
+  borderStrong: '#D3DAE6',
+  textPrimary: '#1A1C21',
+  textSecondary: '#69707D',
+  textMuted: '#98A2B3',
+  textInverse: '#FFFFFF',
+  textLink: '#006BB4',
+  navIcon: '#98A2B3',
+  navText: '#343741',
+  navActiveBg: '#E0ECFA',
+  navActiveText: '#006BB4',
+  navActiveIcon: '#006BB4',
+  navGroupLabel: '#98A2B3',
+};
+
+const DARK_TOKENS: ThemeTokens = {
+  bgPage: '#0F1117',
+  bgCard: '#151A23',
+  bgSidebar: '#111827',
+  bgHeader: '#151A23',
+  bgHover: '#1E293B',
+  bgActive: 'rgba(59, 130, 246, 0.15)',
+  bgBadge: '#1E293B',
+  bgTableHover: '#202938',
+  borderDefault: '#2A3342',
+  borderSubtle: '#1E293B',
+  borderStrong: '#374151',
+  textPrimary: '#F3F4F6',
+  textSecondary: '#9CA3AF',
+  textMuted: '#6B7280',
+  textInverse: '#111827',
+  textLink: '#60A5FA',
+  navIcon: '#6B7280',
+  navText: '#D1D5DB',
+  navActiveBg: 'rgba(59, 130, 246, 0.15)',
+  navActiveText: '#60A5FA',
+  navActiveIcon: '#60A5FA',
+  navGroupLabel: '#6B7280',
+};
+
+/** Get tokens for the current theme. */
+export function getTokens(): ThemeTokens {
+  if (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme') === 'dark') {
+    return DARK_TOKENS;
+  }
+  return LIGHT_TOKENS;
+}
+
+/** Set the theme on <html> and update COLORS to match. */
+export function setTheme(theme: 'light' | 'dark'): void {
+  if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+  const tokens = theme === 'dark' ? DARK_TOKENS : LIGHT_TOKENS;
+  // Update COLORS to match the active theme for inline styles
+  COLORS.textDark = tokens.textPrimary;
+  COLORS.textMuted = tokens.textMuted;
+  COLORS.subdued = tokens.textSecondary;
+  COLORS.border = tokens.borderDefault;
+  COLORS.surface = tokens.bgPage;
+  COLORS.sidebarBg = tokens.bgSidebar;
+  COLORS.navActive = tokens.navActiveBg;
+}
+
 /**
  * Semantic colour tokens (one accent per meaning).
  *

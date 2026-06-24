@@ -354,11 +354,11 @@ export const CasesPage: React.FC = () => {
     <div className="socPageEnter" style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: '#1A1C21' }}>Cases</h1>
-          <p style={{ margin: '5px 0 0', fontSize: 13, color: '#69707D' }}>Audited, human-reviewable triage cases.</p>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: 'var(--text-primary)' }}>Cases</h1>
+          <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Audited, human-reviewable triage cases.</p>
         </div>
-        <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', border: '1px solid #006BB4', background: '#fff', color: '#006BB4', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#006BB4" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
+        <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', border: '1px solid var(--soc-accent)', background: 'var(--bg-card)', color: 'var(--soc-accent)', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
           Refresh
         </button>
       </div>

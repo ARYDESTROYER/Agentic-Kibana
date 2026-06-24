@@ -203,16 +203,16 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1C21', lineHeight: 1.2 }}>Overview</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: '#69707D' }}>Live triage posture across all sources.</p>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>Overview</h1>
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>Live triage posture across all sources.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, color: '#98A2B3' }}>Last updated: just now</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last updated: just now</span>
           <button
             onClick={load}
             style={{
               display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px',
-              border: '1px solid #D3DAE6', background: '#fff', color: '#343741',
+              border: '1px solid var(--border-input)', background: 'var(--bg-card)', color: 'var(--text-primary)',
               borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
               transition: 'border-color 0.15s, box-shadow 0.15s',
             }}
@@ -234,22 +234,22 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
         <>
           <div className="socKpiGrid" style={{ marginBottom: 12 }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={78} radius={12} />
+              <Skeleton key={i} height={90} radius={12} />
             ))}
           </div>
-          <Skeleton height={190} radius={12} />
+          <Skeleton height={170} radius={12} />
           <div style={{ height: 12 }} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={160} radius={12} />
+              <Skeleton key={i} height={140} radius={12} />
             ))}
           </div>
         </>
       ) : (
         <>
-          <div style={{ background: '#fff', border: '1px solid #E8ECF1', borderRadius: 12, padding: '8px 16px 10px', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#1A1C21' }}>Alerts over time</span>
+          <div className="socWireframeCard" style={{ padding: '6px 14px 8px', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Alerts over time</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 {histRanges.map(r => (
                   <button
@@ -257,9 +257,9 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                     onClick={() => setHistRange(r)}
                     style={{
                       height: 26, padding: '0 10px',
-                      border: `1px solid ${histRange === r ? '#006BB4' : '#D3DAE6'}`,
-                      background: histRange === r ? '#006BB4' : '#fff',
-                      color: histRange === r ? '#fff' : '#343741',
+                      border: `1px solid ${histRange === r ? 'var(--soc-accent)' : 'var(--border-input)'}`,
+                      background: histRange === r ? 'var(--soc-accent)' : 'var(--bg-card)',
+                      color: histRange === r ? '#fff' : 'var(--text-primary)',
                       borderRadius: 4, fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer',
                       transition: 'all 0.15s',
                     }}
@@ -270,14 +270,14 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
               </div>
             </div>
             <StackedHistogram data={histData} />
-            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 6 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.safe, flex: 'none' }}></span>False positive
               </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.needsReview, flex: 'none' }}></span>Needs human
               </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#69707D' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.threat, flex: 'none' }}></span>True positive
               </span>
             </div>
@@ -303,21 +303,21 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                 label="RAG documents"
                 value={fmtNumber(rag?.document_count)}
                 icon="documents"
-                accent={COLORS.semantic.operational}
+                accent="#E8ECF1"
                 onNavigate={() => onNavigate?.('knowledge')}
               />
               <NavTile
                 label="RAG chunks"
                 value={fmtNumber(rag?.total_chunks)}
                 icon="visText"
-                accent={COLORS.semantic.ai}
+                accent="#E8ECF1"
                 onNavigate={() => onNavigate?.('knowledge')}
               />
               <NavTile
                 label="Memory facts"
                 value={fmtNumber(memory?.count)}
                 icon="bell"
-                accent={COLORS.semantic.ai}
+                accent="#E8ECF1"
                 onNavigate={() => onNavigate?.('memory')}
               />
             </div>
@@ -405,7 +405,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                   title="No sources configured"
                   description="Connect Elasticsearch, OpenSearch, Wazuh or custom webhook source."
                   accent={COLORS.semantic.safe}
-                  action={<EuiButton size="s" fill iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Add Source</EuiButton>}
+                  action={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Add Source</EuiButton>}
                 />
               )}
             </Card>
@@ -464,12 +464,20 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                 ))}
               </div>
             ) : (
-              <WidgetEmptyState
-                icon="securityApp"
-                title="No cases yet"
-                description="Cases generated by investigations will appear here."
-                action={<EuiButton size="s" fill iconType="play" onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>}
-              />
+              <div style={{ padding: '4px 0' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 80px 100px', gap: 0, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <span>Case ID</span>
+                  <span>Severity</span>
+                  <span>Source</span>
+                  <span>Status</span>
+                  <span>Created</span>
+                </div>
+                <div style={{ padding: '20px 0', textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>No cases yet</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>Cases will appear as alerts are triaged.</div>
+                  <EuiButton size="s" iconType="play" onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>
+                </div>
+              </div>
             )}
           </Card>
         </>

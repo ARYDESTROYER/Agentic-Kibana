@@ -299,15 +299,15 @@ export const StatTile: React.FC<StatTileProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div style={{ background: '#fff', border: '1px solid #E8ECF1', borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
-    <div style={{ fontSize: 10, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+  <div style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
+    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#1A1C21', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
       {typeof delta === 'number' ? (
         <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
     </div>
-    {sub ? <div style={{ fontSize: 11, color: '#69707D', marginTop: 3 }}>{sub}</div> : null}
+    {sub ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>{sub}</div> : null}
   </div>
 );
 
@@ -339,16 +339,16 @@ export const WidgetEmptyState: React.FC<{
   accent?: string;
   action?: React.ReactNode;
 }> = ({ icon, title, description, accent = COLORS.subdued, action }) => (
-  <div style={{ padding: '16px 0', textAlign: 'center' }}>
+  <div style={{ padding: '8px 0', textAlign: 'center' }}>
     <div style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 40, height: 40, borderRadius: 12,
-      background: tint(accent, 0.08), color: accent, marginBottom: 8,
+      width: 32, height: 32, borderRadius: 8,
+      background: tint(accent, 0.08), color: accent, marginBottom: 6,
     }}>
-      <EuiIcon type={icon} size="l" />
+      <EuiIcon type={icon} size="s" />
     </div>
-    <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1C21', marginBottom: 2 }}>{title}</div>
-    {description ? <div style={{ fontSize: 12, color: '#69707D', marginBottom: action ? 10 : 0 }}>{description}</div> : null}
+    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{title}</div>
+    {description ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: action ? 8 : 0, lineHeight: 1.4 }}>{description}</div> : null}
     {action ?? null}
   </div>
 );
@@ -417,14 +417,12 @@ export const Card: React.FC<CardProps> = ({
   onClick,
   accentLeft,
   paddingSize = 'm',
-  variant,
+  variant: _variant,
 }) => (
   <div
     className={`socCard${clickable ? ' socCard--clickable' : ''}${accentLeft ? ' socAccentLeft' : ''}`}
     onClick={onClick}
     style={{
-      background: '#fff',
-      border: variant === 'flat' ? 'none' : '1px solid #E8ECF1',
       borderRadius: 12,
       padding: paddingSize === 'l' ? 20 : 14,
       cursor: clickable ? 'pointer' : undefined,
@@ -433,16 +431,16 @@ export const Card: React.FC<CardProps> = ({
   >
     {(title || actions) && (
       <>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, minHeight: 24 }}>
           {icon ? (
             <span style={{ flex: 'none', display: 'inline-flex' }}>
               <IconChip icon={icon} accent={accent} />
             </span>
           ) : null}
-          <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#1A1C21' }}>
+          <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
             {title}
           </div>
-          {actions ? <div style={{ flex: 'none' }}>{actions}</div> : null}
+          {actions ? <div style={{ flex: 'none', marginLeft: 'auto' }}>{actions}</div> : null}
         </div>
       </>
     )}
@@ -476,15 +474,15 @@ export const TrendStat: React.FC<TrendStatProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div className="socStat" style={{ background: '#fff', border: '1px solid #E8ECF1', borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
-    <div style={{ fontSize: 10, color: '#98A2B3', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+  <div className="socStat" style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
+    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#1A1C21', letterSpacing: '-0.02em', lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
       {typeof delta === 'number' ? (
         <DeltaChip delta={delta} goodWhenUp={deltaGoodWhenUp} />
       ) : null}
     </div>
-    {sub ? <div style={{ fontSize: 11, color: '#69707D', marginTop: 3 }}>{sub}</div> : null}
+    {sub ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 3 }}>{sub}</div> : null}
     {spark && spark.length > 1 ? (
       <div style={{ marginTop: 6 }}>
         <Sparkline values={spark} color={accent} height={20} />

@@ -7,7 +7,8 @@ COPY package.json package-lock.json ./
 COPY scripts ./scripts/
 RUN npm ci
 COPY . .
-RUN npm run build
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN npx vite build
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

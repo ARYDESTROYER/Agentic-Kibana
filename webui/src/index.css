@@ -14,17 +14,164 @@ body {
     'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* --- Runtime-themeable accent custom properties. ---
-   Defaults are the historical brand colours so first paint (before any branding
-   loads) is byte-identical to today. `setAccent()` (lib/theme.ts) overrides these
-   on <html> when branding supplies an accent. --soc-success is fixed (semantic). */
-:root {
+/* ═══════════════════════════════════════════════════════════════════════════
+   TOKEN SYSTEM — light / dark theme via [data-theme]
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* --- Light theme (default) --- */
+:root,
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-page: #F8FAFD;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #FAFBFC;
+  --bg-sidebar-header: transparent;
+  --bg-header: #FFFFFF;
+  --bg-breadcrumb: #FFFFFF;
+  --bg-hover: #F0F4F8;
+  --bg-active: #E0ECFA;
+  --bg-skeleton: rgba(105, 112, 125, 0.14);
+  --bg-badge: #F0F4F7;
+  --bg-input: #FFFFFF;
+  --bg-table-hover: #F5F7FA;
+  --bg-code: rgba(105, 112, 125, 0.1);
+  --bg-chart-placeholder: rgba(105, 112, 125, 0.04);
+
+  /* Borders */
+  --border-default: #E8ECF1;
+  --border-subtle: #F0F4F7;
+  --border-strong: #D3DAE6;
+  --border-input: #D3DAE6;
+  --border-badge: #E4E8F0;
+
+  /* Text */
+  --text-primary: #1A1C21;
+  --text-secondary: #69707D;
+  --text-muted: #98A2B3;
+  --text-inverse: #FFFFFF;
+  --text-link: #006BB4;
+
+  /* Status colors — keep identical in both themes */
+  --status-success: #00BFB3;
+  --status-warning: #F5A623;
+  --status-danger: #BD271E;
+  --status-info: #006BB4;
+
+  /* Semantic accents */
+  --accent-operational: #006BB4;
+  --accent-safe: #00BFB3;
+  --accent-needsReview: #F5A623;
+  --accent-threat: #BD271E;
+  --accent-ai: #7B61FF;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.06);
+  --shadow-lg: 0 4px 16px rgba(15, 23, 42, 0.08);
+
+  /* Scrollbar */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(105, 112, 125, 0.3);
+  --scrollbar-thumb-hover: rgba(105, 112, 125, 0.5);
+
+  /* Chart */
+  --chart-grid: #F0F4F7;
+  --chart-bar-bg: rgba(105, 112, 125, 0.14);
+
+  /* Sidebar nav */
+  --nav-icon: #98A2B3;
+  --nav-text: #343741;
+  --nav-active-bg: #E0ECFA;
+  --nav-active-text: #006BB4;
+  --nav-active-icon: #006BB4;
+  --nav-group-label: #98A2B3;
+  --nav-footer-border: #F0F4F7;
+
+  /* Accent (brand) */
   --soc-accent: #006BB4;
   --soc-accent2: #7B61FF;
   --soc-accent-tint: rgba(0, 107, 180, 0.14);
   --soc-success: #00BFB3;
   --soc-bubble2: #006BB4;
+
+  /* EUI overrides for dark theme compatibility */
+  color-scheme: light;
 }
+
+/* --- Dark theme --- */
+[data-theme="dark"] {
+  /* Backgrounds */
+  --bg-page: #0F1117;
+  --bg-card: #151A23;
+  --bg-sidebar: #111827;
+  --bg-sidebar-header: transparent;
+  --bg-header: #151A23;
+  --bg-breadcrumb: #151A23;
+  --bg-hover: #1E293B;
+  --bg-active: rgba(59, 130, 246, 0.15);
+  --bg-skeleton: rgba(255, 255, 255, 0.08);
+  --bg-badge: #1E293B;
+  --bg-input: #151A23;
+  --bg-table-hover: #202938;
+  --bg-code: rgba(255, 255, 255, 0.08);
+  --bg-chart-placeholder: rgba(255, 255, 255, 0.04);
+
+  /* Borders */
+  --border-default: #2A3342;
+  --border-subtle: #1E293B;
+  --border-strong: #374151;
+  --border-input: #374151;
+  --border-badge: #374151;
+
+  /* Text */
+  --text-primary: #F3F4F6;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --text-inverse: #111827;
+  --text-link: #60A5FA;
+
+  /* Status colors — brighter on dark */
+  --status-success: #34D399;
+  --status-warning: #FBBF24;
+  --status-danger: #F87171;
+  --status-info: #60A5FA;
+
+  /* Semantic accents — slightly brighter for contrast */
+  --accent-operational: #60A5FA;
+  --accent-safe: #34D399;
+  --accent-needsReview: #FBBF24;
+  --accent-threat: #F87171;
+  --accent-ai: #A78BFA;
+
+  /* Shadows — lighter on dark */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* Scrollbar */
+  --scrollbar-track: #111827;
+  --scrollbar-thumb: #374151;
+  --scrollbar-thumb-hover: #4B5563;
+
+  /* Chart */
+  --chart-grid: #374151;
+  --chart-bar-bg: rgba(255, 255, 255, 0.08);
+
+  /* Sidebar nav */
+  --nav-icon: #6B7280;
+  --nav-text: #D1D5DB;
+  --nav-active-bg: rgba(59, 130, 246, 0.15);
+  --nav-active-text: #60A5FA;
+  --nav-active-icon: #60A5FA;
+  --nav-group-label: #6B7280;
+  --nav-footer-border: #1E293B;
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENT STYLES — using tokens
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 /* --- Brand bar: a thin gradient accent under the fixed header. --- */
 .socBrandAccent {
@@ -50,30 +197,37 @@ body {
   box-shadow: 0 2px 6px rgba(28, 102, 224, 0.35);
 }
 
-/* --- Interactive cards: subtle lift on hover (used by case/source cards). --- */
+/* --- Interactive cards: subtle lift on hover. --- */
 .socCard {
   transition:
-    transform 0.12s ease,
-    box-shadow 0.12s ease,
-    border-color 0.12s ease;
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
   border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
 }
 .socCard--clickable {
   cursor: pointer;
 }
 .socCard--clickable:hover {
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-md);
 }
 
 /* --- All cards get subtle hover elevation --- */
 .socCard:hover {
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 /* --- Stat tiles: gentle hover sheen. --- */
+.socStat {
+  transition: box-shadow 0.15s ease;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+}
 .socStat:hover {
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-md);
 }
 
 /* --- Left accent bar utility (verdict/status/risk coloured edge). --- */
@@ -130,8 +284,9 @@ body {
 }
 .socBubble--assistant {
   align-self: flex-start;
-  background: rgba(105, 112, 125, 0.12);
+  background: var(--bg-code);
   border-bottom-left-radius: 4px;
+  color: var(--text-primary);
 }
 
 /* --- Thin, unobtrusive scrollbars for lanes / transcripts. --- */
@@ -141,17 +296,22 @@ body {
 }
 .socLane::-webkit-scrollbar-thumb,
 .socChat::-webkit-scrollbar-thumb {
-  background: rgba(105, 112, 125, 0.35);
+  background: var(--scrollbar-thumb);
   border-radius: 8px;
+}
+.socLane::-webkit-scrollbar-track,
+.socChat::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
 }
 
 /* --- Muted monospace for query/code snippets. --- */
 .socMono {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 12px;
-  background: rgba(105, 112, 125, 0.1);
+  background: var(--bg-code);
   padding: 2px 6px;
   border-radius: 6px;
+  color: var(--text-primary);
 }
 
 /* --- Skeleton loaders: a shimmering placeholder block. --- */
@@ -159,7 +319,7 @@ body {
   position: relative;
   overflow: hidden;
   border-radius: 12px;
-  background: rgba(105, 112, 125, 0.14);
+  background: var(--bg-skeleton);
 }
 .socSkeleton::after {
   content: '';
@@ -184,9 +344,6 @@ body {
 .socHoverCard {
   max-width: 340px;
   padding: 12px 14px;
-  /* Background/border/elevation come from the themed EuiPopover panel this sits
-     inside, so the preview is correct in BOTH light and dark mode (the default
-     theme is dark — never force a light background here). */
   background: transparent;
 }
 
@@ -226,40 +383,41 @@ body {
   }
 }
 
-/* --- Wireframe-specific styles --- */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Sidebar */
 .socSidebar {
-  background: #f5f7fa;
-  border-right: 1px solid #D3DAE6;
-  box-shadow: 2px 0 8px rgba(15, 23, 42, 0.04);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-default);
+  box-shadow: none;
 }
 
 .socSidebar-header {
-  background: #fff;
-  border-bottom: 1px solid #D3DAE6;
+  background: var(--bg-sidebar-header);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* Sidebar nav scrollbar — thin, hidden until hover (Linear / Notion style) */
 .socSidebar nav {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: var(--scrollbar-track) var(--scrollbar-track);
 }
 .socSidebar nav:hover {
-  scrollbar-color: rgba(105, 112, 125, 0.3) transparent;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }
 .socSidebar nav::-webkit-scrollbar {
   width: 5px;
 }
 .socSidebar nav::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--scrollbar-track);
 }
 .socSidebar nav::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 999px;
 }
 .socSidebar nav:hover::-webkit-scrollbar-thumb {
-  background: rgba(105, 112, 125, 0.3);
+  background: var(--scrollbar-thumb);
 }
 
 .socNavItem {
@@ -267,36 +425,46 @@ body {
   border-left: 3px solid transparent;
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: all 0.15s ease;
   margin-bottom: 2px;
+  color: var(--nav-text);
+  background: transparent;
 }
 
 .socNavItem:hover {
-  background: #F0F4F8 !important;
+  background: var(--bg-hover) !important;
 }
 
 .socNavItem--active {
-  background: #E0ECFA;
-  border-left-color: #006BB4;
-  color: #006BB4;
+  background: var(--nav-active-bg);
+  border-left-color: var(--nav-active-icon);
+  color: var(--nav-active-text);
   font-weight: 600;
+}
+
+/* Sidebar footer separator */
+.socSidebar > div:last-child {
+  border-top: 1px solid var(--nav-footer-border);
 }
 
 .socNavGroupLabel {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
-  color: #69707D;
+  color: var(--nav-group-label);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 0 10px 10px;
-  border-bottom: 1px solid #E8ECF1;
-  margin-bottom: 8px;
+  letter-spacing: 1.2px;
+  padding: 0 10px 8px;
+  border-bottom: none;
+  margin-bottom: 6px;
 }
 
-/* Cards */
+/* ═══════════════════════════════════════════════════════════════════════════
+   CARDS & SURFACES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socWireframeCard {
-  background: #fff;
-  border: 1px solid #D3DAE6;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
   border-radius: 12px;
 }
 
@@ -304,60 +472,72 @@ body {
   border-top: 3px solid var(--soc-accent, #006BB4);
 }
 
-/* Metric tiles */
+/* ═══════════════════════════════════════════════════════════════════════════
+   TYPOGRAPHY
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socMetricLabel {
   font-size: 11px;
-  color: #98A2B3;
+  color: var(--text-muted);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
 
 .socMetricValue {
-  font-size: 28px;
-  font-weight: 600;
-  color: #1A1C21;
-  letter-spacing: -0.01em;
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 
-/* Data tables */
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA TABLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socTableHeader {
   display: grid;
   gap: 0;
   padding: 11px 16px;
-  border-bottom: 2px solid #D3DAE6;
+  border-bottom: 2px solid var(--border-strong);
   font-size: 11px;
   font-weight: 600;
-  color: #69707D;
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  background: var(--bg-card);
 }
 
 .socTableRow {
   display: grid;
   gap: 0;
   padding: 14px 16px;
-  border-bottom: 1px solid #F0F4F7;
+  border-bottom: 1px solid var(--border-subtle);
   align-items: center;
+  transition: background 0.15s ease;
+  color: var(--text-primary);
 }
 
 .socTableRow:hover {
-  background: #F5F7FA !important;
+  background: var(--bg-table-hover) !important;
 }
 
-/* Entity badge */
+/* ═══════════════════════════════════════════════════════════════════════════
+   BADGES & PILLS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socEntity {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 11.5px;
-  color: #343741;
-  background: #F0F4F7;
+  color: var(--text-primary);
+  background: var(--bg-badge);
   padding: 3px 8px;
   border-radius: 6px;
   cursor: pointer;
+  transition: background 0.15s ease;
 }
 
-/* Pill tabs */
 .socPill {
   height: 32px;
   padding: 0 14px;
@@ -366,22 +546,26 @@ body {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid #D3DAE6;
-  background: #fff;
-  color: #343741;
+  border: 1px solid var(--border-input);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
 }
 
 .socPill--active {
-  background: #006BB4;
+  background: var(--soc-accent);
   color: #fff;
-  border-color: #006BB4;
+  border-color: var(--soc-accent);
 }
 
-/* Header bar */
+/* ═══════════════════════════════════════════════════════════════════════════
+   HEADER & BREADCRUMB
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socHeader {
   height: 56px;
-  background: #fff;
-  border-bottom: 1px solid #D3DAE6;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -393,8 +577,8 @@ body {
 
 .socBreadcrumb {
   height: 36px;
-  background: #fff;
-  border-bottom: 1px solid #D3DAE6;
+  background: var(--bg-breadcrumb);
+  border-bottom: 1px solid var(--border-default);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -404,30 +588,39 @@ body {
   z-index: 5;
 }
 
-/* Overview page responsive KPI grid */
+/* ═══════════════════════════════════════════════════════════════════════════
+   KPI GRID
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .socKpiGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
 }
 
-/* --- Consistent shadow tokens --- */
-.socShadowSm { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05); }
-.socShadowMd { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
-.socShadowLg { box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08); }
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHADOWS & UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-/* --- Empty chart placeholder --- */
+.socShadowSm { box-shadow: var(--shadow-sm); }
+.socShadowMd { box-shadow: var(--shadow-md); }
+.socShadowLg { box-shadow: var(--shadow-lg); }
+
 .socChartPlaceholder {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 120px;
-  border: 1px dashed #D3DAE6;
+  border: 1px dashed var(--border-strong);
   border-radius: 12px;
-  background: rgba(105, 112, 125, 0.04);
-  color: #98A2B3;
+  background: var(--bg-chart-placeholder);
+  color: var(--text-muted);
   font-size: 12px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 1100px) {
   .socKpiGrid {

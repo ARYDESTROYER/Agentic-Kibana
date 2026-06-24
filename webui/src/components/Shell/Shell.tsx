@@ -2,14 +2,13 @@ import React, { useEffect, useState } from 'react';
 import {
   EuiBadge,
   EuiButtonEmpty,
-  EuiHealth,
   EuiIcon,
   EuiSwitch,
   EuiToolTip,
 } from '@elastic/eui';
 import type { HealthResponse } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS } from '../../lib/theme';
+import { setTheme } from '../../lib/theme';
 import { useBranding } from '../../lib/branding';
 
 export type PageId =
@@ -94,6 +93,11 @@ export const Shell: React.FC<ShellProps> = ({
   const tagline = branding.product_name?.trim() || 'Triage console';
   const logoUrl = branding.logo_data_url?.trim() || '';
 
+  // Apply theme to <html> data-theme attribute
+  useEffect(() => {
+    setTheme(darkMode ? 'dark' : 'light');
+  }, [darkMode]);
+
   useEffect(() => {
     let alive = true;
     const poll = async () => {
@@ -115,13 +119,6 @@ export const Shell: React.FC<ShellProps> = ({
     };
   }, []);
 
-  const healthColor = healthErr ? COLORS.danger : health?.es_connected ? COLORS.success : COLORS.warning;
-  const healthLabel = healthErr
-    ? 'Backend unreachable'
-    : health?.es_connected
-      ? 'Store healthy'
-      : 'Store degraded';
-
   const crumbFor = (key: PageId) => {
     for (const g of NAV_GROUPS) {
       for (const it of g.items) {
@@ -134,7 +131,7 @@ export const Shell: React.FC<ShellProps> = ({
   const crumb = crumbFor(page);
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: '#F8FAFD' }}>
+    <div style={{ display: 'flex', minHeight: '100vh', width: '100%', background: 'var(--bg-page)', color: 'var(--text-primary)', transition: 'background 0.2s ease, color 0.2s ease' }}>
       <aside
         className="socSidebar"
         style={{
@@ -155,8 +152,8 @@ export const Shell: React.FC<ShellProps> = ({
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 11,
-            padding: '14px 18px',
+            gap: 10,
+            padding: '12px 16px',
             height: 56,
             flex: 'none',
           }}
@@ -186,9 +183,9 @@ export const Shell: React.FC<ShellProps> = ({
               TL
             </div>
           )}
-          <div style={{ fontSize: 14, fontWeight: 500, color: '#1A1C21', lineHeight: 1.2 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.2 }}>
             {wordmark}
-            <div style={{ fontSize: 11, fontWeight: 400, color: '#98A2B3' }}>{tagline}</div>
+            <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--text-muted)' }}>{tagline}</div>
           </div>
         </div>
 
@@ -210,8 +207,8 @@ export const Shell: React.FC<ShellProps> = ({
                       gap: 11,
                       padding: '9px 10px',
                       border: 'none',
-                      background: active ? '#E0ECFA' : 'transparent',
-                      color: active ? '#006BB4' : '#343741',
+                      background: active ? 'var(--nav-active-bg)' : 'transparent',
+                      color: active ? 'var(--nav-active-text)' : 'var(--nav-text)',
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: active ? 600 : 400,
@@ -226,10 +223,10 @@ export const Shell: React.FC<ShellProps> = ({
                         width: 17,
                         display: 'flex',
                         justifyContent: 'center',
-                        color: active ? '#006BB4' : '#69707D',
+                        color: active ? 'var(--nav-active-icon)' : 'var(--nav-icon)',
                       }}
                     >
-                      {iconEl(item.icon, active ? '#006BB4' : '#69707D', 's')}
+                      {iconEl(item.icon, active ? 'var(--nav-active-icon)' : 'var(--nav-icon)', 's')}
                     </span>
                     <span>{item.name}</span>
                   </button>
@@ -239,7 +236,7 @@ export const Shell: React.FC<ShellProps> = ({
           ))}
         </nav>
 
-        <div style={{ padding: 12, borderTop: '1px solid #D3DAE6' }}>
+        <div style={{ padding: '10px 12px' }}>
           <button
             className="socNavItem"
             style={{
@@ -250,16 +247,17 @@ export const Shell: React.FC<ShellProps> = ({
               padding: '8px 10px',
               border: 'none',
               background: 'transparent',
-              color: '#343741',
+              color: 'var(--text-muted)',
               fontFamily: 'inherit',
-              fontSize: 13,
+              fontSize: 12,
               cursor: 'pointer',
-              borderRadius: 4,
+              borderRadius: 8,
               textAlign: 'left',
+              transition: 'all 0.15s ease',
             }}
           >
-            <span style={{ flex: 'none', width: 17, display: 'flex', justifyContent: 'center', color: '#69707D' }}>
-              {iconEl('documentation', '#69707D', 's')}
+            <span style={{ flex: 'none', width: 17, display: 'flex', justifyContent: 'center', color: 'var(--text-muted)' }}>
+              {iconEl('documentation', 'var(--text-muted)', 's')}
             </span>
             <span>Docs &amp; help</span>
           </button>
@@ -269,26 +267,38 @@ export const Shell: React.FC<ShellProps> = ({
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header className="socHeader">
           <div style={{ width: 24, height: 24, borderRadius: 5, background: '#16242F', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', flex: 'none' }}>TL</div>
-          <div style={{ fontSize: 15, fontWeight: 500, color: '#1A1C21' }}>{wordmark}</div>
-          <span style={{ fontSize: 12, color: '#69707D' }}>{tagline}</span>
+          <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' }}>{wordmark}</div>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tagline}</span>
 
           <div style={{ flex: 1 }} />
 
           {/* Environment badge */}
           <span style={{
-            fontSize: 10, fontWeight: 600, color: '#69707D',
-            background: '#F0F4F7', border: '1px solid #E4E8F0',
+            fontSize: 10, fontWeight: 600, color: 'var(--text-secondary)',
+            background: 'var(--bg-badge)', border: '1px solid var(--border-badge)',
             padding: '2px 8px', borderRadius: 10,
             textTransform: 'uppercase', letterSpacing: 0.5,
           }}>
             {health?.store_type === 'elasticsearch' ? 'ES' : health?.store_type === 'opensearch' ? 'OS' : 'Dev'}
           </span>
 
+          {/* Version pill */}
+          {health?.version ? (
+            <span style={{
+              fontSize: 10, fontWeight: 500, color: 'var(--text-secondary)',
+              background: 'var(--bg-badge)', border: '1px solid var(--border-badge)',
+              padding: '2px 8px', borderRadius: 10,
+              fontFamily: "'SFMono-Regular', Consolas, monospace",
+            }}>
+              v{health.version}
+            </span>
+          ) : null}
+
           {/* Ingestion status */}
           {health ? (
             <span style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              fontSize: 11, fontWeight: 500, color: '#69707D',
+              fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)',
             }}>
               <span style={{
                 width: 6, height: 6, borderRadius: '50%',
@@ -299,21 +309,19 @@ export const Shell: React.FC<ShellProps> = ({
             </span>
           ) : null}
 
-          {/* Version pill */}
-          {health?.version ? (
-            <span style={{
-              fontSize: 10, fontWeight: 500, color: '#69707D',
-              background: '#F0F4F7', border: '1px solid #E4E8F0',
-              padding: '3px 10px', borderRadius: 10,
-              fontFamily: "'SFMono-Regular', Consolas, monospace",
-            }}>
-              v{health.version}
-            </span>
-          ) : null}
-
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <EuiToolTip content={healthErr ? 'Cannot reach the backend API' : `Store: ${health?.store_type ?? 'unknown'}`}>
-              <EuiHealth color={healthColor}>{healthLabel}</EuiHealth>
+              <span style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)',
+              }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: healthErr ? '#BD271E' : health?.es_connected ? '#00BFB3' : '#F5A623',
+                  flex: 'none',
+                }} />
+                {healthErr ? 'Unreachable' : health?.es_connected ? 'Healthy' : 'Degraded'}
+              </span>
             </EuiToolTip>
           </div>
 
@@ -347,12 +355,12 @@ export const Shell: React.FC<ShellProps> = ({
         </header>
 
         <div className="socBreadcrumb">
-          <span style={{ fontSize: 12, color: '#69707D' }}>{crumb.group}</span>
-          <span style={{ fontSize: 12, color: '#98A2B3' }}>›</span>
-          <span style={{ fontSize: 12, color: '#343741', fontWeight: 500 }}>{crumb.page}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{crumb.group}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>›</span>
+          <span style={{ fontSize: 12, color: 'var(--text-primary)', fontWeight: 500 }}>{crumb.page}</span>
         </div>
 
-        <main style={{ flex: 1, overflowY: 'auto', background: '#F8FAFD' }}>
+        <main style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-page)', transition: 'background 0.2s ease' }}>
           {children}
         </main>
       </div>
