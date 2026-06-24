@@ -17,6 +17,7 @@ import { api, setUnauthorizedHandler } from './lib/api';
 import type { AuthMe } from './lib/types';
 import { applyEuiTheme } from './lib/euiTheme';
 import { BrandingProvider, useBranding } from './lib/branding';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Shell, PageId } from './components/Shell/Shell';
 import { Wizard } from './components/Wizard/Wizard';
 import { LoginScreen } from './components/Auth/LoginScreen';
@@ -211,16 +212,18 @@ const AppShell: React.FC = () => {
 
   return (
     <EuiProvider colorMode={colorMode}>
-      <Shell
-        page={page}
-        onNavigate={setPage}
-        darkMode={darkMode}
-        onToggleDark={setDarkMode}
-        username={showUser ? auth?.user?.username : undefined}
-        onLogout={showUser ? onLogout : undefined}
-      >
-        {body}
-      </Shell>
+      <ErrorBoundary resetKey={page}>
+        <Shell
+          page={page}
+          onNavigate={setPage}
+          darkMode={darkMode}
+          onToggleDark={setDarkMode}
+          username={showUser ? auth?.user?.username : undefined}
+          onLogout={showUser ? onLogout : undefined}
+        >
+          {body}
+        </Shell>
+      </ErrorBoundary>
     </EuiProvider>
   );
 };

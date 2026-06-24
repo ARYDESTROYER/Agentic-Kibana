@@ -74,6 +74,7 @@ import {
   StatusBadge,
   VerdictBadge,
 } from '../common/ui';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import { BarList, RiskGauge } from '../common/charts';
 import { ChatPanel } from '../Chat/ChatPanel';
 
@@ -740,49 +741,57 @@ export const CaseDetailFlyout: React.FC<{
           </>
         ) : null}
 
-        {loading ? (
-          <Loading label="Loading case…" />
-        ) : !c ? (
-          error ? null : <EuiText color="subdued">Case not found.</EuiText>
-        ) : tab === 'overview' ? (
-          <OverviewTab c={c} />
-        ) : tab === 'why' ? (
-          <WhyTab
-            c={c}
-            rationale={rationale}
-            loading={rationaleLoading}
-            error={rationaleError}
-            onRetry={loadRationale}
-          />
-        ) : tab === 'trace' ? (
-          <TraceTab
-            steps={trace}
-            loading={traceLoading}
-            error={traceError}
-            onRetry={loadTrace}
-          />
-        ) : tab === 'timeline' ? (
-          <TimelineTab c={c} />
-        ) : tab === 'chat' ? (
-          // Embedded "Ask about this case" chat — scoped to the case. The wrapper is a
-          // flex child that FILLS the flyout body (which we make a flex column above),
-          // so the chat uses the real available height and its transcript scrolls
-          // within the lane rather than leaving a dead band below a fixed 60vh box.
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <ChatPanel
-              caseId={c.case_id}
-              compact
-              starters={[
-                'Summarize this case',
-                'Why was this flagged?',
-                'What should I check next?',
-                'Is this a known false positive?',
-              ]}
+        {/* One failing tab must not blank the whole flyout: a render throw inside
+            the active tab degrades to an in-place callout. The reset key (tab +
+            case id) clears the error when the analyst switches tabs or cases. */}
+        <ErrorBoundary
+          resetKey={`${tab}:${caseId}`}
+          title="Something went wrong rendering this tab"
+        >
+          {loading ? (
+            <Loading label="Loading case…" />
+          ) : !c ? (
+            error ? null : <EuiText color="subdued">Case not found.</EuiText>
+          ) : tab === 'overview' ? (
+            <OverviewTab c={c} />
+          ) : tab === 'why' ? (
+            <WhyTab
+              c={c}
+              rationale={rationale}
+              loading={rationaleLoading}
+              error={rationaleError}
+              onRetry={loadRationale}
             />
-          </div>
-        ) : (
-          <CollaborationTab c={c} onUpdated={(next) => { setC(next); onChanged?.(); }} />
-        )}
+          ) : tab === 'trace' ? (
+            <TraceTab
+              steps={trace}
+              loading={traceLoading}
+              error={traceError}
+              onRetry={loadTrace}
+            />
+          ) : tab === 'timeline' ? (
+            <TimelineTab c={c} />
+          ) : tab === 'chat' ? (
+            // Embedded "Ask about this case" chat — scoped to the case. The wrapper is a
+            // flex child that FILLS the flyout body (which we make a flex column above),
+            // so the chat uses the real available height and its transcript scrolls
+            // within the lane rather than leaving a dead band below a fixed 60vh box.
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <ChatPanel
+                caseId={c.case_id}
+                compact
+                starters={[
+                  'Summarize this case',
+                  'Why was this flagged?',
+                  'What should I check next?',
+                  'Is this a known false positive?',
+                ]}
+              />
+            </div>
+          ) : (
+            <CollaborationTab c={c} onUpdated={(next) => { setC(next); onChanged?.(); }} />
+          )}
+        </ErrorBoundary>
       </EuiFlyoutBody>
 
       <EuiFlyoutFooter>
@@ -1913,7 +1922,7 @@ const CommentRow: React.FC<{ author?: string; ts?: string; body?: string }> = ({
   return (
     <EuiFlexGroup gutterSize="m" alignItems="flexStart" responsive={false}>
       <EuiFlexItem grow={false}>
-        <EuiAvatar name={name} size="m" color={tint(accent, 0.22)} initialsLength={2} />
+        <EuiAvatar name={name} size="m" color={accent} initialsLength={2} />
       </EuiFlexItem>
       <EuiFlexItem>
         <EuiPanel hasBorder paddingSize="s" className="socCard">
@@ -2144,14 +2153,14 @@ const CollaborationTab: React.FC<{
                   <EuiAvatar
                     name={currentOwner}
                     size="m"
-                    color={tint(COLORS.accent, 0.22)}
+                    color={COLORS.accent}
                     initialsLength={2}
                   />
                 ) : (
                   <EuiAvatar
                     name="Unassigned"
                     size="m"
-                    color={tint(COLORS.subdued, 0.22)}
+                    color={COLORS.subdued}
                     iconType="user"
                   />
                 )}
@@ -2493,7 +2502,7 @@ const CollaborationTab: React.FC<{
               <EuiAvatar
                 name={commentAuthor.trim() || 'You'}
                 size="m"
-                color={tint(authorAccent(commentAuthor.trim() || 'You'), 0.22)}
+                color={authorAccent(commentAuthor.trim() || 'You')}
                 initialsLength={2}
               />
             </EuiFlexItem>
