@@ -32,9 +32,12 @@ def scope_must_not(prefs: Preferences) -> list[dict[str, Any]]:
     must_not: list[dict[str, Any]] = []
     if prefs.excluded_rules:
         must_not.append({"terms": {prefs.rule_field: list(prefs.excluded_rules)}})
-    # Suppression rules (free dedup/suppression layer of the cost gate).
+    # Suppression rules (free dedup/suppression layer of the cost gate). Only LIVE
+    # rules filter at query time — a disabled or expired rule is skipped (matched by
+    # cost_gate.passes_suppression), so toggling enabled/expiry takes effect at once.
     for rule in prefs.suppression_rules:
-        must_not.append({"term": {rule.field: rule.value}})
+        if rule.is_live():
+            must_not.append({"term": {rule.field: rule.value}})
     return must_not
 
 

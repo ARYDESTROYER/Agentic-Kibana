@@ -7,7 +7,7 @@ field to Section 7. Internal types (``RawEvent``, ``Cluster``, ``VerdictResult``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -320,6 +320,34 @@ class MemoryEntry(BaseModel):
     created_at: str = Field(default_factory=iso_now)
     updated_at: str = Field(default_factory=iso_now)
     active: bool = True
+
+
+class Proposal(BaseModel):
+    """An agent-DRAFTED change the analyst must explicitly APPROVE before it goes
+    live (HITL — human-in-the-loop).
+
+    A proposal is a *pending* recommendation only: drafting one NEVER mutates a live
+    rule, Preferences, or memory — the approve endpoint is the single write path.
+    Today the proposer drafts ``suppression`` rules (a deterministically-derived
+    ``field==value`` filter for a closed FALSE_POSITIVE) and may draft ``memory``
+    facts; both are anti-poisoning constrained (the field+value must LITERALLY
+    appear in the closed case's member events, never a bare entity/severity/cross-
+    rule selector). ``payload`` carries the SuppressionRule-shaped dict (or the
+    memory text/category) the approve path materialises.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("prop-"))
+    kind: Literal["suppression", "memory"] = "suppression"
+    status: Literal["pending", "approved", "rejected"] = "pending"
+    payload: dict[str, Any] = Field(default_factory=dict)
+    rationale: str = ""
+    confidence: float = 0.0
+    source_case_ids: list[str] = Field(default_factory=list)
+    created_by: str = "agent"
+    created_at: str = Field(default_factory=iso_now)
+    decided_by: str | None = None
+    decided_at: str | None = None
+    expires_at: str | None = None
 
 
 # --------------------------------------------------------------------------- #

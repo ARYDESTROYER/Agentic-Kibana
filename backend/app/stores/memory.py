@@ -22,7 +22,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..constants import CONFIG_INDEX, MEMORY_DOC_ID, MEMORY_KEY, MEMORY_NS
+from ..constants import (
+    CONFIG_INDEX,
+    MEMORY_DOC_ID,
+    MEMORY_KEY,
+    MEMORY_NS,
+    PROPOSALS_DOC_ID,
+    PROPOSALS_KEY,
+    PROPOSALS_NS,
+)
 from ..es.base import BaseESClient
 from ..models import MemoryEntry
 from ..utils import iso_now
@@ -49,6 +57,8 @@ class EsKVStore(KVStore):
         # composed id so this adapter is reusable for future KV needs.
         if namespace == MEMORY_NS and key == MEMORY_KEY:
             return MEMORY_DOC_ID
+        if namespace == PROPOSALS_NS and key == PROPOSALS_KEY:
+            return PROPOSALS_DOC_ID
         return f"{namespace}:{key}"
 
     async def get(self, namespace: str, key: str) -> dict[str, Any] | None:

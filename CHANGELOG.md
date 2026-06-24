@@ -7,7 +7,46 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
-## [Unreleased] — 2026-06-23 — Deep source customizability, no-IP fix, UI standardization + chat rebuild
+## [Unreleased] — 2026-06-24 — HITL proposal approvals, white-screen fix + error boundary, cost/branding
+
+Backend offline suite **395 tests green** (was 380); webui `npm run build` GREEN +
+a new dev-only Vitest harness; no new runtime npm deps. Additive; the 12 non-negotiables
+intact — **`case_manager.decide()` is byte-identical (verified in tests)**; suppression
+is a pre-LLM cost-gate filter only; human approval is the ONLY write path. Developed on
+the `Testing` branch.
+
+### Fixed
+- **"Notes & feedback" tab white-screened the whole app** — four `<EuiAvatar color={tint(...)}>`
+  passed an `rgba()` string, which EUI 95's EuiAvatar rejects (throws unless a valid hex /
+  'plain' / 'subdued'); with no error boundary the throw unmounted the entire tree.
+  Removed the `tint()` wrapper on the 4 avatars (EuiBadge tint() usages are fine and kept).
+- **Added a top-level React ErrorBoundary** (flyout tab body + app root, resets on
+  tab/case/page change) so any future render throw degrades to a callout instead of a
+  white screen. (Audit confirmed the other suspected EuiIcon/EuiAvatar "crashes" were
+  false alarms — EuiIcon accepts CSS colors, EuiAvatar accepts hex.)
+
+### Added
+- **Agent-drafted suppression/asset PROPOSALS with human approval (HITL)** — on FP-confirm/
+  close, a code-guarded proposer drafts a *pending* `Proposal` (suppression `field==value`
+  only from values literally present in the case's events; hard denylist of over-broad
+  selectors; fail-safe so it can never break the close). `GET /api/proposals`, `POST
+  /api/proposals/{id}/approve|reject` (approve appends a live `SuppressionRule` via the
+  settings write path or a `MemoryEntry`; admin-gated via a `require_admin` seam). Webui
+  **Approvals** queue. `SuppressionRule` gained `enabled`/`expires_at`/provenance, honored
+  by the cost gate.
+- **Deeper Cost & usage breakdown** — sortable detailed ledger (cost/%/tokens/calls/avg
+  cost-per-call/cost-per-1K-tokens) across Model/Role/Surface/Top-drivers, composition
+  donut with "Other" roll-up, spend-over-time stats, efficiency tiles.
+- **Expanded white-label branding** — favicon, secondary accent, login subtitle, footer
+  text, support URL, default-dark-mode (validated, additive).
+
+### Deferred (unchanged from prior round; designed in docs/research/CUSTOMIZATION_AND_RBAC.md)
+- Full RBAC enforcement (the `require_admin` seam is default-allow today with a clear TODO).
+- True cross-source aggregation.
+
+---
+
+## [Unreleased-prev] — 2026-06-23 — Deep source customizability, no-IP fix, UI standardization + chat rebuild
 
 Backend offline suite **380 tests green** (was 364); webui `npm run build` GREEN,
 no new npm deps. Additive; the spine and the 12 non-negotiables intact (#3 the

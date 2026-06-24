@@ -17,6 +17,7 @@ This module defines the schema and the loader for the secret tier. The preferenc
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -370,21 +371,30 @@ class BrandingConfig(BaseModel):
     org_name: str = "TLSOC"
     product_name: str = "Agentic Triage"
     logo_data_url: str = ""           # "data:image/png;base64,...." (bounded), or ""
+    favicon_data_url: str = ""        # browser-tab icon as a data:image/* URL (bounded), or ""
     accent_color: str = ""            # "#RRGGBB" override for the UI accent, or "" = default
     accent_color2: str = ""           # "#RRGGBB" secondary gradient stop, or "" = default
     theme: Literal["dark", "light", "system"] = "dark"
-    # Max accepted logo data-URL length (~700KB image). Keeps the config doc small.
+    # New (all additive, optional, defaulted → back-compatible with older docs):
+    login_subtitle: str = ""          # welcome line under the login wordmark, or ""
+    footer_text: str = ""             # footer / classification banner line, or ""
+    support_url: str = ""             # "Docs & help" / support link target (http/https), or ""
+    dark_mode_default: bool = False   # default colour mode for new sessions (no stored pref)
+    # Max accepted logo/favicon data-URL length (~1MB image). Keeps the config doc small.
     _MAX_LOGO_LEN: int = 1_400_000
+    # Caps for the free-text branding strings (rendered as plain text; bound prefs size).
+    _MAX_TEXT_LEN: int = 400
+    _MAX_URL_LEN: int = 2_000
 
-    @field_validator("logo_data_url")
+    @field_validator("logo_data_url", "favicon_data_url")
     @classmethod
     def _check_logo(cls, v: str) -> str:
         if not v:
             return v
         if not v.startswith("data:image/"):
-            raise ValueError("logo_data_url must be an empty string or a data:image/* URL")
+            raise ValueError("image must be an empty string or a data:image/* URL")
         if len(v) > 1_400_000:
-            raise ValueError("logo_data_url too large (max ~1MB image)")
+            raise ValueError("image too large (max ~1MB)")
         return v
 
     @field_validator("accent_color", "accent_color2")
@@ -394,6 +404,24 @@ class BrandingConfig(BaseModel):
             return v
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
             raise ValueError("accent colour must be a #RRGGBB hex string or empty")
+        return v
+
+    @field_validator("login_subtitle", "footer_text")
+    @classmethod
+    def _check_text(cls, v: str) -> str:
+        if v and len(v) > 400:
+            raise ValueError("branding text too long (max 400 characters)")
+        return v
+
+    @field_validator("support_url")
+    @classmethod
+    def _check_support_url(cls, v: str) -> str:
+        if not v:
+            return v
+        if len(v) > 2_000:
+            raise ValueError("support_url too long")
+        if not re.match(r"^https?://", v):
+            raise ValueError("support_url must be an empty string or an http(s) URL")
         return v
 
 
@@ -465,11 +493,44 @@ class StandupConfig(BaseModel):
 
 
 class SuppressionRule(BaseModel):
-    """A field==value suppression. Matching events are dropped, not investigated."""
+    """A field==value suppression. Matching events are dropped, not investigated.
+
+    All fields beyond ``field``/``value``/``reason`` are ADDITIVE and defaulted, so
+    rules persisted before this change deserialize unchanged and behave exactly as
+    before (``enabled`` True, ``expires_at`` None == never expires). The extra
+    fields carry provenance for agent-PROPOSED rules: ``confidence`` (the proposer's
+    justified 0..1), ``rationale`` (why), ``source_case_ids`` (the closed case(s)
+    that motivated it), ``created_by`` (``agent`` when proposer-drafted, else the
+    operator), ``expires_at`` (auto-expiry so an agent rule self-retires) and
+    ``enabled`` (an operator off-switch without deleting the rule)."""
 
     field: str
     value: str
     reason: str = ""
+    confidence: float = 1.0
+    rationale: str = ""
+    source_case_ids: list[str] = Field(default_factory=list)
+    created_by: str = ""
+    expires_at: datetime | None = None
+    enabled: bool = True
+
+    def is_live(self, now: datetime | None = None) -> bool:
+        """True when this rule should actively suppress: enabled AND not expired.
+
+        Centralises the enabled/expiry check so the cost gate and the query builder
+        honour it identically. A naive ``expires_at`` is treated as UTC."""
+        if not self.enabled:
+            return False
+        if self.expires_at is not None:
+            ref = now or datetime.now(timezone.utc)
+            exp = self.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if ref.tzinfo is None:
+                ref = ref.replace(tzinfo=timezone.utc)
+            if exp <= ref:
+                return False
+        return True
 
 
 class AssetNetwork(BaseModel):

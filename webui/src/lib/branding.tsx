@@ -35,9 +35,14 @@ export const DEFAULT_BRANDING: Branding = {
   org_name: '',
   product_name: '',
   logo_data_url: '',
+  favicon_data_url: '',
   accent_color: '',
   accent_color2: '',
   theme: '',
+  login_subtitle: '',
+  footer_text: '',
+  support_url: '',
+  dark_mode_default: false,
 };
 
 const THEME_STORAGE_KEY = 'soc.theme';
@@ -70,12 +75,17 @@ function prefersDark(): boolean {
  * Resolve the effective dark-mode flag.
  * - An explicit user override always wins.
  * - Else honour the branding theme ("dark"/"light"; "system"→OS).
- * - Else fall back to the OS preference (the original behaviour).
+ * - Else, for "system"/unset, honour the operator's `dark_mode_default` as the
+ *   seed for new sessions, falling back to the OS preference when it is off.
+ *
+ * Back-compat: with `dark_mode_default` false (its default) and no theme set,
+ * this collapses to the previous `prefersDark()`-only behaviour.
  */
 function resolveDark(branding: Branding, override: StoredTheme | null): boolean {
   if (override) return override === 'dark';
   if (branding.theme === 'dark') return true;
   if (branding.theme === 'light') return false;
+  if (branding.dark_mode_default) return true;
   return prefersDark();
 }
 
@@ -84,8 +94,50 @@ function applyBrandingAccents(branding: Branding): void {
   setAccent(branding.accent_color || DEFAULT_ACCENT, branding.accent_color2 || DEFAULT_ACCENT2);
 }
 
+/**
+ * Apply the browser-tab favicon from a branding object. Injects (or updates) a
+ * single `<link rel="icon">` tag from `favicon_data_url`. Empty → no change, so
+ * the bundled/static favicon is left untouched (back-compatible).
+ */
+function applyFavicon(branding: Branding): void {
+  if (typeof document === 'undefined') return;
+  const href = branding.favicon_data_url;
+  if (!href || !href.startsWith('data:image/')) return; // only trusted data URLs
+  let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = href;
+}
+
+/**
+ * Set `document.title` from the org + product names. Empty fields fall back so a
+ * no-branding deploy keeps a sensible default ("Agentic SOC" / current title).
+ */
+function applyDocumentTitle(branding: Branding): void {
+  if (typeof document === 'undefined') return;
+  const org = branding.org_name.trim();
+  const product = branding.product_name.trim();
+  const title = [org || 'Agentic SOC', product].filter(Boolean).join(' · ');
+  if (title) document.title = title;
+}
+
+/** Apply ALL passive branding side effects (accents + favicon + title). */
+function applyBranding(branding: Branding): void {
+  applyBrandingAccents(branding);
+  applyFavicon(branding);
+  applyDocumentTitle(branding);
+}
+
 interface BrandingContextValue {
-  /** The current branding (defaults until/unless the backend overrides). */
+  /**
+   * The current branding (defaults until/unless the backend overrides).
+   * Consumers read passive extras straight off this object:
+   * `footer_text`, `login_subtitle`, `support_url`, `dark_mode_default`
+   * (favicon + document title + accents are applied as provider side effects).
+   */
   branding: Branding;
   /** Effective dark-mode flag (drives EuiProvider colorMode). */
   darkMode: boolean;
@@ -121,7 +173,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const b = await api.getBranding();
         if (!mounted.current) return;
         const merged: Branding = { ...DEFAULT_BRANDING, ...b };
-        applyBrandingAccents(merged);
+        applyBranding(merged);
         setBranding(merged);
         setDark(resolveDark(merged, readStoredTheme()));
       } catch {
@@ -158,7 +210,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const next: Branding = { ...DEFAULT_BRANDING, ...branding, ...patch };
     const saved = await api.putBranding(next);
     const merged: Branding = { ...DEFAULT_BRANDING, ...saved };
-    applyBrandingAccents(merged);
+    applyBranding(merged);
     setBranding(merged);
     // Re-resolve theme: an explicit user override still wins.
     setDark(resolveDark(merged, readStoredTheme()));

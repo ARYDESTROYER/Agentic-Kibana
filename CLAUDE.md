@@ -301,8 +301,13 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **380 backend tests green**; the standalone **webui
-builds clean** (tsc+vite). Latest round: **entity-agnostic correlation** (no-source-IP
+(**Waves 1–3**) shipped — **395 backend tests green**; the standalone **webui
+builds clean** (tsc+vite) + a dev-only Vitest harness. Latest round: **HITL agent-drafted
+suppression/asset PROPOSALS with human approval** (code-guarded proposer on FP-confirm →
+pending `Proposal` → admin-gated `POST /api/proposals/{id}/approve` is the only write path;
+`case_manager.decide()` byte-identical), a **white-screen fix** (EuiAvatar rgba) + a
+top-level **React error boundary**, **deeper cost breakdown**, and **expanded branding**
+(favicon/secondary-accent/footer/etc.). Prior round: **entity-agnostic correlation** (no-source-IP
 fix — events without an IP no longer silently dropped; `entity_strategy` IP→host→user→rule),
 **per-source multiple index patterns with `events`/`alerts` roles** (auto-investigate
 all alerts), `source_id`/`source_name` on cases + **filter-by-source** + sort everywhere

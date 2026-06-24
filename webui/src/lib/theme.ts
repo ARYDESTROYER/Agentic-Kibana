@@ -84,6 +84,9 @@ export function setAccent(primary?: string, secondary?: string): void {
     const root = document.documentElement.style;
     root.setProperty('--soc-accent', p);
     root.setProperty('--soc-accent2', s);
+    // Hyphenated alias of the secondary accent for consumers that read
+    // `--soc-accent-2`; kept in lock-step with `--soc-accent2` (additive).
+    root.setProperty('--soc-accent-2', s);
     root.setProperty('--soc-accent-tint', tint(p, 0.14));
     // Re-theme the user chat bubble's second stop. When the accent is the default
     // brand blue we keep the original lighter-blue stop so the bubble is unchanged;
