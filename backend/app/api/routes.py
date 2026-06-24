@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from .. import __version__
-from ..config import BrandingConfig, Preferences, SourceInstance
+from ..config import BrandingConfig, Preferences, SourceInstance, SuppressionRule
 from ..connectors.registry import get_registry
 from ..constants import (
     ActionType,
@@ -36,7 +36,7 @@ from ..models import (
 )
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
-from .deps import _bearer, get_state
+from .deps import _bearer, current_username, get_state, require_admin
 
 logger = logging.getLogger("tlsoc.api")
 router = APIRouter(prefix="/api")
@@ -709,6 +709,111 @@ async def delete_memory(entry_id: str, state: AppState = Depends(get_state)) -> 
     return {"ok": True, "id": entry_id}
 
 
+# --------------------------------------------------------------------------- #
+# Agent PROPOSALS (HITL — agent drafts, human approves/rejects)
+# --------------------------------------------------------------------------- #
+@router.get("/proposals")
+async def list_proposals(
+    status: str | None = None, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """List agent-drafted proposals (newest first). ``?status=pending`` filters to
+    the review queue; omit for all. A proposal is a PENDING recommendation — nothing
+    is live until it is explicitly approved."""
+    proposals = await state.proposals.list(status=status)
+    return {
+        "proposals": [p.model_dump(mode="json") for p in proposals],
+        "count": len(proposals),
+    }
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def approve_proposal(
+    proposal_id: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),  # RBAC seam: the single privileged-action gate
+) -> dict[str, Any]:
+    """Approve a pending proposal — the ONLY path that writes a live rule / memory.
+
+    suppression → materialise a ``SuppressionRule`` from the payload and append it to
+    ``Preferences.suppression_rules`` via the settings write path so the cost gate
+    picks it up LIVE. memory → append a human-injectable agent fact. Then mark the
+    proposal approved + audit. 404 if missing; 409 if not pending."""
+    proposal = await state.proposals.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"proposal is {proposal.status}, not pending")
+    by = current_username(request)
+
+    if proposal.kind == "suppression":
+        payload = dict(proposal.payload or {})
+        try:
+            rule = SuppressionRule.model_validate({
+                "field": payload.get("field"),
+                "value": payload.get("value"),
+                "reason": payload.get("reason", ""),
+                "confidence": payload.get("confidence", proposal.confidence),
+                "rationale": payload.get("rationale", proposal.rationale),
+                "source_case_ids": payload.get("source_case_ids", proposal.source_case_ids),
+                "created_by": payload.get("created_by", "agent"),
+                "expires_at": payload.get("expires_at", proposal.expires_at),
+                "enabled": payload.get("enabled", True),
+            })
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"invalid suppression payload: {exc}") from exc
+        # Append to a fresh prefs copy and persist via the settings write path so the
+        # cost gate / query builder see the new rule immediately (state.prefs updated).
+        prefs = state.prefs.model_copy(update={
+            "suppression_rules": [*state.prefs.suppression_rules, rule],
+        })
+        await state.update_prefs(prefs)
+    elif proposal.kind == "memory":
+        payload = dict(proposal.payload or {})
+        text = str(payload.get("text", "") or proposal.rationale).strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="memory proposal has no text")
+        await state.memory.add(
+            text,
+            category=str(payload.get("category", "")),
+            tags=list(payload.get("tags", []) or []),
+            source="agent",
+            author=by,
+        )
+    else:  # pragma: no cover — Literal-constrained, defensive
+        raise HTTPException(status_code=400, detail=f"unknown proposal kind: {proposal.kind}")
+
+    updated = await state.proposals.set_status(proposal_id, "approved", by)
+    await state.audit.record(
+        action_type=ActionType.PROPOSAL, surface="proposal", actor=by or "analyst",
+        result_summary=f"approved {proposal.kind} proposal {proposal_id}",
+    )
+    return {"ok": True, "proposal": (updated or proposal).model_dump(mode="json")}
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_proposal(
+    proposal_id: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),  # RBAC seam: the single privileged-action gate
+) -> dict[str, Any]:
+    """Reject a pending proposal. Preferences / memory are UNCHANGED — only the
+    proposal status flips to rejected. 404 if missing; 409 if not pending."""
+    proposal = await state.proposals.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"proposal is {proposal.status}, not pending")
+    by = current_username(request)
+    updated = await state.proposals.set_status(proposal_id, "rejected", by)
+    await state.audit.record(
+        action_type=ActionType.PROPOSAL, surface="proposal", actor=by or "analyst",
+        result_summary=f"rejected {proposal.kind} proposal {proposal_id}",
+    )
+    return {"ok": True, "proposal": (updated or proposal).model_dump(mode="json")}
+
+
 @router.get("/playbooks")
 async def playbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
     pbs = state.playbooks.all()
@@ -947,6 +1052,28 @@ async def case_action(
             await state.rag.index_resolved_case(case, note=body.note)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Resolved-case RAG index failed for %s: %s", case_id, exc)
+        # HITL: draft a PENDING suppression proposal from a closed false positive.
+        # Fail-safe (own try/except) so the proposer can NEVER break the analyst's
+        # close — it only WRITES a pending Proposal; nothing auto-applies.
+        try:
+            from ..agents.proposer import draft_suppression_proposal
+
+            proposal = await draft_suppression_proposal(
+                case, source=state.log_source, prefs=state.prefs
+            )
+            if proposal is not None:
+                await state.proposals.add(proposal)
+                await state.audit.record(
+                    action_type=ActionType.PROPOSAL, surface="case", actor="agent",
+                    case_id=case_id,
+                    result_summary=(
+                        f"drafted suppression proposal {proposal.id} "
+                        f"({proposal.payload.get('field')}=={proposal.payload.get('value')}) "
+                        f"confidence={proposal.confidence}"
+                    ),
+                )
+        except Exception as exc:  # noqa: BLE001 — proposing must never break the close
+            logger.warning("Suppression proposal draft failed for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
 
 

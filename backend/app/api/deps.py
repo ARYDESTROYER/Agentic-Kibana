@@ -63,3 +63,40 @@ async def require_auth(request: Request):
     if user is None:
         raise HTTPException(status_code=401, detail="authentication required")
     return user
+
+
+def current_username(request: Request) -> str:
+    """Best-effort username of the requester (``""`` when auth is disabled — the
+    default no-auth profile). Used to attribute proposal approve/reject decisions."""
+    state = get_state(request)
+    auth = getattr(state, "auth", None)
+    if auth is None or not auth.is_enabled:
+        return ""
+    token = request.cookies.get("tlsoc_token") or _bearer(request)
+    user = auth.verify(token) if token else None
+    return user.username if user else ""
+
+
+async def require_admin(request: Request):
+    """RBAC seam — the SINGLE enforcement point for privileged actions (today:
+    approving / rejecting an agent proposal, which writes a LIVE suppression rule or
+    a memory fact).
+
+    Roles do not exist on :class:`app.auth.service.AuthUser` yet (it carries only a
+    username), so this resolves the caller's role and — for now — DEFAULTS TO ALLOW
+    once they are authenticated under the active auth mode. Wiring real roles is a
+    ONE-LINE change here, NOT scattered through the routes.
+
+    # TODO(RBAC): enforce admin once roles land — see
+    # docs/research/CUSTOMIZATION_AND_RBAC.md. When AuthUser gains `role`, replace
+    # the default-allow below with `if role != "admin": raise HTTPException(403)`.
+    """
+    # Reuse the auth gate: when auth is ON this 401s an unauthenticated caller; when
+    # auth is OFF (default) it is a no-op (the whole suite is open in that profile).
+    user = await require_auth(request)
+    role = getattr(user, "role", None) if user is not None else None
+    # Default-allow until roles exist — but the seam (this function) is the obvious,
+    # single place to flip to deny-by-default. Never silently unguarded: every
+    # approve/reject route depends on THIS function.
+    _ = role  # noqa: F841 — placeholder until AuthUser.role lands
+    return user

@@ -87,6 +87,9 @@ class AppState:
         # config/cursor stores use for the active backend (SQL: SqlKVStore; ES: a
         # thin EsKVStore over the config index) — no new index/table/migration.
         self.memory = self._build_memory()
+        # Agent-DRAFTED proposals awaiting human approval (HITL). Backed by the SAME
+        # KV as the MEMORY store — no new index/table/migration.
+        self.proposals = self._build_proposals()
         self.rag = self._build_rag()
         # The agent's read-only log surface as a connector (source-agnostic). The
         # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
@@ -175,6 +178,13 @@ class AppState:
         from .stores.memory import MemoryStore
 
         return MemoryStore(self._kv)
+
+    def _build_proposals(self):
+        """Construct the agent-PROPOSAL store over the active backend's KV (the same
+        KV the MEMORY store uses — works on ES + SQL, no new index/table)."""
+        from .stores.proposals import ProposalStore
+
+        return ProposalStore(self._kv)
 
     def _build_playbooks(self):
         """Construct + load the PlaybookRegistry (never raises; a bad file is

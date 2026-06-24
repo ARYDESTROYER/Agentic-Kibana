@@ -45,6 +45,14 @@ MEMORY_NS = "memory"
 MEMORY_KEY = "entries"
 MEMORY_DOC_ID = "memory"      # ES doc id within CONFIG_INDEX
 
+# Agent-DRAFTED proposals awaiting human approval (HITL). Stored exactly like the
+# operator MEMORY set — one KV document (a single JSON list) under this namespace/
+# key — so it needs NO new ES index / SQL table / migration. The ES backend stores
+# it as a doc in the existing CONFIG_INDEX; the SQL backend uses the shared KV table.
+PROPOSALS_NS = "proposals"
+PROPOSALS_KEY = "entries"
+PROPOSALS_DOC_ID = "proposals"   # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""
@@ -102,6 +110,7 @@ class ActionType(str, Enum):
     FEEDBACK = "feedback"      # analyst graded an AI verdict (eval loop)
     COLLAB = "collab"          # analyst comment / tag / assignment
     CONTEXT = "context"        # the injected investigation context (RAG/memory/enrichment) — explainability
+    PROPOSAL = "proposal"      # agent drafted / human approved-rejected a HITL proposal
 
 
 class ToolTier(str, Enum):

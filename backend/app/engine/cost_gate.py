@@ -18,10 +18,15 @@ from ..utils import dotted_get
 
 def passes_suppression(cluster: Cluster, prefs: Preferences) -> bool:
     """False if EVERY member event matches a suppression rule (defence in depth;
-    the query already excludes suppressed events at layer 1)."""
-    if not prefs.suppression_rules:
+    the query already excludes suppressed events at layer 1).
+
+    Only LIVE rules count: a disabled or expired rule is skipped here AND at the
+    query layer (``querybuilder.scope_must_not``), so toggling ``enabled`` off / an
+    ``expires_at`` lapsing immediately stops suppressing without deleting the rule.
+    Existing rules (no new fields) are always live (enabled True / no expiry)."""
+    rules = [r for r in prefs.suppression_rules if r.is_live()]
+    if not rules:
         return True
-    rules = prefs.suppression_rules
     for ev in cluster.member_events:
         suppressed = any(str(dotted_get(ev.source, r.field)) == r.value for r in rules)
         if not suppressed:

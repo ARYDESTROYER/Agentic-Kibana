@@ -17,6 +17,7 @@ This module defines the schema and the loader for the secret tier. The preferenc
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -465,11 +466,44 @@ class StandupConfig(BaseModel):
 
 
 class SuppressionRule(BaseModel):
-    """A field==value suppression. Matching events are dropped, not investigated."""
+    """A field==value suppression. Matching events are dropped, not investigated.
+
+    All fields beyond ``field``/``value``/``reason`` are ADDITIVE and defaulted, so
+    rules persisted before this change deserialize unchanged and behave exactly as
+    before (``enabled`` True, ``expires_at`` None == never expires). The extra
+    fields carry provenance for agent-PROPOSED rules: ``confidence`` (the proposer's
+    justified 0..1), ``rationale`` (why), ``source_case_ids`` (the closed case(s)
+    that motivated it), ``created_by`` (``agent`` when proposer-drafted, else the
+    operator), ``expires_at`` (auto-expiry so an agent rule self-retires) and
+    ``enabled`` (an operator off-switch without deleting the rule)."""
 
     field: str
     value: str
     reason: str = ""
+    confidence: float = 1.0
+    rationale: str = ""
+    source_case_ids: list[str] = Field(default_factory=list)
+    created_by: str = ""
+    expires_at: datetime | None = None
+    enabled: bool = True
+
+    def is_live(self, now: datetime | None = None) -> bool:
+        """True when this rule should actively suppress: enabled AND not expired.
+
+        Centralises the enabled/expiry check so the cost gate and the query builder
+        honour it identically. A naive ``expires_at`` is treated as UTC."""
+        if not self.enabled:
+            return False
+        if self.expires_at is not None:
+            ref = now or datetime.now(timezone.utc)
+            exp = self.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if ref.tzinfo is None:
+                ref = ref.replace(tzinfo=timezone.utc)
+            if exp <= ref:
+                return False
+        return True
 
 
 class AssetNetwork(BaseModel):
