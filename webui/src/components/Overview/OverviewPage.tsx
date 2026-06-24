@@ -303,21 +303,21 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                 label="RAG documents"
                 value={fmtNumber(rag?.document_count)}
                 icon="documents"
-                accent="#E8ECF1"
+                accent="var(--border-default)"
                 onNavigate={() => onNavigate?.('knowledge')}
               />
               <NavTile
                 label="RAG chunks"
                 value={fmtNumber(rag?.total_chunks)}
                 icon="visText"
-                accent="#E8ECF1"
+                accent="var(--border-default)"
                 onNavigate={() => onNavigate?.('knowledge')}
               />
               <NavTile
                 label="Memory facts"
                 value={fmtNumber(memory?.count)}
                 icon="bell"
-                accent="#E8ECF1"
+                accent="var(--border-default)"
                 onNavigate={() => onNavigate?.('memory')}
               />
             </div>
@@ -472,10 +472,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                   <span>Status</span>
                   <span>Created</span>
                 </div>
-                <div style={{ padding: '20px 0', textAlign: 'center' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>No cases yet</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>Cases will appear as alerts are triaged.</div>
-                  <EuiButton size="s" iconType="play" onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>
+                <div style={{ padding: '24px 0', textAlign: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 2 }}>No cases yet</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>Cases will appear as alerts are triaged.</div>
+                  <EuiButton size="s" iconType="play" fill onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>
                 </div>
               </div>
             )}

@@ -21,9 +21,13 @@ import { DASH, fmtPercent, humanizeToken } from '../../lib/format';
 import { COLORS, riskHex, statusHex, tint, TYPE, verdictColor } from '../../lib/theme';
 import { Sparkline } from './charts';
 
-/** Desaturated accent for subtle UI elements (e.g. KPI top borders). */
+/** Desaturated accent for subtle UI elements (e.g. KPI top borders).
+ *  If the input is a CSS var(), returns it directly (can't parse at build time). */
 function softAccent(hex: string, alpha = 0.7): string {
-  const h = (hex || '').replace('#', '');
+  if (!hex) return hex;
+  // Pass through CSS variables — can't desaturate at build time
+  if (hex.startsWith('var(')) return hex;
+  const h = hex.replace('#', '');
   if (h.length < 6) return hex;
   const r = parseInt(h.substring(0, 2), 16);
   const g = parseInt(h.substring(2, 4), 16);

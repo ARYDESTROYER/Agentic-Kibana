@@ -43,6 +43,7 @@ body {
   --border-strong: #D3DAE6;
   --border-input: #D3DAE6;
   --border-badge: #E4E8F0;
+  --border-sidebar: rgba(0, 0, 0, 0.06);
 
   /* Text */
   --text-primary: #1A1C21;
@@ -75,7 +76,7 @@ body {
   --scrollbar-thumb-hover: rgba(105, 112, 125, 0.5);
 
   /* Chart */
-  --chart-grid: #F0F4F7;
+  --chart-grid: rgba(0, 0, 0, 0.08);
   --chart-bar-bg: rgba(105, 112, 125, 0.14);
 
   /* Sidebar nav */
@@ -117,11 +118,12 @@ body {
   --bg-chart-placeholder: rgba(255, 255, 255, 0.04);
 
   /* Borders */
-  --border-default: #2A3342;
-  --border-subtle: #1E293B;
+  --border-default: #1E2633;
+  --border-subtle: #1A2030;
   --border-strong: #374151;
-  --border-input: #374151;
-  --border-badge: #374151;
+  --border-input: #2A3342;
+  --border-badge: #2A3342;
+  --border-sidebar: rgba(255, 255, 255, 0.06);
 
   /* Text */
   --text-primary: #F3F4F6;
@@ -154,7 +156,7 @@ body {
   --scrollbar-thumb-hover: #4B5563;
 
   /* Chart */
-  --chart-grid: #374151;
+  --chart-grid: rgba(255, 255, 255, 0.30);
   --chart-bar-bg: rgba(255, 255, 255, 0.08);
 
   /* Sidebar nav */
@@ -218,6 +220,40 @@ body {
 /* --- All cards get subtle hover elevation --- */
 .socCard:hover {
   box-shadow: var(--shadow-md);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYBOARD FOCUS STATES — visible focus ring for accessibility
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.socCard:focus-visible,
+.socStat:focus-visible,
+.socNavItem:focus-visible,
+.socPill:focus-visible,
+.socEntity:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--soc-accent, #006BB4);
+  outline-offset: 2px;
+}
+
+/* Remove outline on mouse click, keep on keyboard */
+.socCard:focus:not(:focus-visible),
+.socStat:focus:not(:focus-visible),
+.socNavItem:focus:not(:focus-visible),
+.socPill:focus:not(:focus-visible),
+button:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ENHANCED HOVER STATES — microinteractions
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Buttons: subtle opacity on hover */
+button:not(.socNavItem):hover {
+  opacity: 0.92;
 }
 
 /* --- Stat tiles: gentle hover sheen. --- */
@@ -389,7 +425,7 @@ body {
 
 .socSidebar {
   background: var(--bg-sidebar);
-  border-right: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-sidebar);
   box-shadow: none;
 }
 

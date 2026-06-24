@@ -297,12 +297,13 @@ export const Shell: React.FC<ShellProps> = ({
           {/* Ingestion status */}
           {health ? (
             <span style={{
-              display: 'flex', alignItems: 'center', gap: 4,
+              display: 'flex', alignItems: 'center', gap: 5,
               fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)',
             }}>
               <span style={{
-                width: 6, height: 6, borderRadius: '50%',
-                background: health.es_connected ? '#00BFB3' : '#F5A623',
+                width: 7, height: 7, borderRadius: '50%',
+                background: health.es_connected ? 'var(--status-success)' : 'var(--status-warning)',
+                boxShadow: health.es_connected ? '0 0 4px var(--status-success)' : 'none',
                 flex: 'none',
               }} />
               {health.es_connected ? 'Ingesting' : 'Degraded'}
@@ -312,12 +313,13 @@ export const Shell: React.FC<ShellProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <EuiToolTip content={healthErr ? 'Cannot reach the backend API' : `Store: ${health?.store_type ?? 'unknown'}`}>
               <span style={{
-                display: 'flex', alignItems: 'center', gap: 4,
+                display: 'flex', alignItems: 'center', gap: 5,
                 fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)',
               }}>
                 <span style={{
-                  width: 6, height: 6, borderRadius: '50%',
-                  background: healthErr ? '#BD271E' : health?.es_connected ? '#00BFB3' : '#F5A623',
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: healthErr ? 'var(--status-danger)' : health?.es_connected ? 'var(--status-success)' : 'var(--status-warning)',
+                  boxShadow: !healthErr && health?.es_connected ? '0 0 4px var(--status-success)' : 'none',
                   flex: 'none',
                 }} />
                 {healthErr ? 'Unreachable' : health?.es_connected ? 'Healthy' : 'Degraded'}

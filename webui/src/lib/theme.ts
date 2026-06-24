@@ -1,4 +1,25 @@
 /**
+ * Dark mode audit notes — pages that need review before release:
+ *
+ * ✅ Overview — fully tokenized, verified
+ * ⚠️ Cases — severity badges, table rows need token audit
+ * ⚠️ Investigate — JSON viewers, timelines, evidence cards, logs
+ * ⚠️ Chat — syntax highlighting in code blocks, bubble contrast
+ * ⚠️ Knowledge — document viewer contrast
+ * ⚠️ Sources — form inputs, status indicators
+ * ⚠️ Settings — form controls, toggles, dropdowns
+ * ⚠️ Metrics — chart contrast, gauge colors
+ * ⚠️ Playbooks & Agents — workflow canvas contrast
+ *
+ * Key dark mode principles:
+ * - Never use pure black (#000) for backgrounds — use #0F1117 or #111827
+ * - Borders should be rgba(255,255,255,0.06-0.12), not solid grey
+ * - Status colors must be BRIGHTER on dark (absorbs color)
+ * - Text hierarchy: primary #F3F4F6, secondary #9CA3AF, muted #6B7280
+ * - Elevation via shadows, not borders — dark themes rely on depth
+ */
+
+/**
  * Shared visual language for the Agentic SOC console.
  *
  * The semantic colour palette is reproduced from the former Kibana plugin's
@@ -172,7 +193,10 @@ export const COLORS = {
 
 /** Translucent tint of a hex colour, used for icon chips / soft fills. */
 export function tint(hex: string, alpha = 0.12): string {
-  const h = (hex || '').replace('#', '');
+  if (!hex) return `rgba(28, 102, 224, ${alpha})`;
+  // Pass through CSS variables — can't parse at build time
+  if (hex.startsWith('var(')) return hex;
+  const h = hex.replace('#', '');
   if (h.length < 6) return `rgba(28, 102, 224, ${alpha})`;
   const r = parseInt(h.substring(0, 2), 16);
   const g = parseInt(h.substring(2, 4), 16);
