@@ -266,6 +266,139 @@ button:not(.socNavItem):hover {
   box-shadow: var(--shadow-md);
 }
 
+/* --- Search input with icon and shortcut hint. --- */
+.socSearchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.socSearchWrap .euiFieldSearch {
+  height: 44px !important;
+  padding-left: 36px !important;
+  padding-right: 70px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+}
+.socSearchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.socSearchShortcut {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 10px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  color: var(--text-muted);
+  background: var(--bg-badge);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 2px 6px;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+/* --- Filter group separation. --- */
+.socFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.socFilterGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.socFilterLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* --- Filter pill stronger active state. --- */
+.socPill--active {
+  background: var(--soc-accent);
+  color: #fff;
+  border-color: var(--soc-accent);
+  box-shadow: 0 1px 3px rgba(0, 107, 180, 0.25);
+}
+
+/* --- Assignee select styled like pills. --- */
+.socAssigneeSelect {
+  height: 32px;
+  padding: 0 28px 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2369707D' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+.socAssigneeSelect:hover {
+  border-color: var(--soc-accent);
+}
+.socAssigneeSelect:focus {
+  outline: 2px solid var(--soc-accent);
+  outline-offset: 2px;
+}
+
+/* --- Result count badge. --- */
+.socResultCount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.socResultCount span {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* --- Empty table structure. --- */
+.socEmptyTable {
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-card);
+}
+.socEmptyTableHeader {
+  display: grid;
+  gap: 0;
+  padding: 10px 16px;
+  border-bottom: 2px solid var(--border-strong);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-card);
+}
+.socEmptyTableRow {
+  display: grid;
+  gap: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  align-items: center;
+  min-height: 44px;
+}
+.socEmptyTableRow:last-child {
+  border-bottom: none;
+}
+
 /* --- Left accent bar utility (verdict/status/risk coloured edge). --- */
 .socAccentLeft {
   border-left-width: 4px !important;
@@ -518,6 +651,7 @@ button:not(.socNavItem):hover {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
+  opacity: 0.65;
 }
 
 .socMetricValue {
@@ -622,6 +756,18 @@ button:not(.socNavItem):hover {
   position: sticky;
   top: 56px;
   z-index: 5;
+  font-size: 12px;
+}
+.socBreadcrumb span:first-child {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.socBreadcrumb span:nth-child(2) {
+  color: var(--text-muted);
+}
+.socBreadcrumb span:last-child {
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
