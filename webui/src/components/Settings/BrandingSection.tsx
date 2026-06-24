@@ -25,6 +25,7 @@ import {
   EuiIcon,
   EuiPanel,
   EuiSpacer,
+  EuiSwitch,
   EuiText,
   isValidHex,
 } from '@elastic/eui';
@@ -41,6 +42,15 @@ import {
 const MAX_LOGO_BYTES = 200 * 1024; // ~200 KB
 const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'];
 const LOGO_ACCEPT = LOGO_TYPES.join(',');
+
+// Favicon: a smaller cap (favicons are tiny). Mirrors the backend's data-URL guard.
+const MAX_FAVICON_BYTES = 64 * 1024; // ~64 KB
+const FAVICON_TYPES = ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml'];
+const FAVICON_ACCEPT = '.ico,.png,.svg,image/png,image/svg+xml,image/x-icon';
+
+// Free-text caps — mirror the backend BrandingConfig validators.
+const MAX_TEXT_LEN = 400;
+const MAX_URL_LEN = 2000;
 
 const THEME_OPTIONS = [
   { id: 'light', label: 'Light', iconType: 'sun' },
@@ -88,9 +98,11 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logoError, setLogoError] = useState<string | null>(null);
-  // Force-remount the file picker after a successful read / removal so its label
-  // resets (EuiFilePicker is uncontrolled).
+  const [faviconError, setFaviconError] = useState<string | null>(null);
+  // Force-remount the file pickers after a successful read / removal so their
+  // labels reset (EuiFilePicker is uncontrolled).
   const [pickerKey, setPickerKey] = useState(0);
+  const [faviconPickerKey, setFaviconPickerKey] = useState(0);
 
   // When the saved branding changes underneath us (e.g. another tab), re-seed the
   // draft so the panel reflects the source of truth.
@@ -170,6 +182,44 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
     setPickerKey((k) => k + 1);
   };
 
+  /* ------------------------------------------------------------ favicon ---- */
+
+  const onFavicon = async (files: FileList | null) => {
+    setFaviconError(null);
+    setNote(null);
+    const file = files && files[0];
+    if (!file) return;
+    // .ico files sometimes report an empty type — accept by extension too.
+    const okType = !file.type || FAVICON_TYPES.includes(file.type) || /\.ico$/i.test(file.name);
+    if (!okType) {
+      setFaviconError('Unsupported format. Use an ICO, PNG, or SVG image.');
+      return;
+    }
+    if (file.size > MAX_FAVICON_BYTES) {
+      setFaviconError(
+        `Favicon is too large (${Math.round(file.size / 1024)} KB). The limit is 64 KB.`,
+      );
+      return;
+    }
+    try {
+      const dataUrl = await readAsDataUrl(file);
+      if (!dataUrl.startsWith('data:image/')) {
+        setFaviconError('That file did not read as an image.');
+        return;
+      }
+      set({ favicon_data_url: dataUrl });
+      setFaviconPickerKey((k) => k + 1);
+    } catch {
+      setFaviconError('Could not read the file. Please try again.');
+    }
+  };
+
+  const removeFavicon = () => {
+    set({ favicon_data_url: '' });
+    setFaviconError(null);
+    setFaviconPickerKey((k) => k + 1);
+  };
+
   /* ------------------------------------------------------------ persist ---- */
 
   const dirty = useMemo(
@@ -177,13 +227,24 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
       draft.org_name !== branding.org_name ||
       draft.product_name !== branding.product_name ||
       draft.logo_data_url !== branding.logo_data_url ||
+      draft.favicon_data_url !== branding.favicon_data_url ||
       draft.accent_color !== branding.accent_color ||
       draft.accent_color2 !== branding.accent_color2 ||
-      draft.theme !== branding.theme,
+      draft.theme !== branding.theme ||
+      draft.login_subtitle !== branding.login_subtitle ||
+      draft.footer_text !== branding.footer_text ||
+      draft.support_url !== branding.support_url ||
+      draft.dark_mode_default !== branding.dark_mode_default,
     [draft, branding],
   );
 
-  const canSave = dirty && accentValid && accent2Valid && !readOnly && !saving;
+  // A non-empty support URL must look like an http(s) link (mirrors the backend).
+  const supportUrlValid =
+    !draft.support_url ||
+    (/^https?:\/\//i.test(draft.support_url) && draft.support_url.length <= MAX_URL_LEN);
+
+  const canSave =
+    dirty && accentValid && accent2Valid && supportUrlValid && !readOnly && !saving;
 
   const save = async () => {
     setSaving(true);
@@ -194,9 +255,14 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
         org_name: draft.org_name,
         product_name: draft.product_name,
         logo_data_url: draft.logo_data_url,
+        favicon_data_url: draft.favicon_data_url,
         accent_color: draft.accent_color,
         accent_color2: draft.accent_color2,
         theme: draft.theme,
+        login_subtitle: draft.login_subtitle,
+        footer_text: draft.footer_text,
+        support_url: draft.support_url,
+        dark_mode_default: draft.dark_mode_default,
       });
       setNote('Branding saved.');
     } catch (e) {
@@ -211,7 +277,9 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
     setNote(null);
     setError(null);
     setLogoError(null);
+    setFaviconError(null);
     setPickerKey((k) => k + 1);
+    setFaviconPickerKey((k) => k + 1);
     // Revert the live preview to the saved accents + theme.
     setAccent(branding.accent_color || '', branding.accent_color2 || '');
     if (branding.theme === 'dark') setDarkMode(true);
@@ -423,6 +491,70 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
 
       <EuiSpacer size="l" />
 
+      {/* Favicon ------------------------------------------------------------ */}
+      <EuiFormRow
+        label="Browser tab icon (favicon)"
+        helpText="ICO, PNG, or SVG up to 64 KB. Stored inline; applied to the browser tab."
+        fullWidth
+        isInvalid={Boolean(faviconError)}
+        error={faviconError || undefined}
+      >
+        <EuiFlexGroup alignItems="center" gutterSize="l" responsive={false} wrap>
+          <EuiFlexItem grow={false}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 40,
+                height: 40,
+                borderRadius: 8,
+                background: draft.favicon_data_url ? '#fff' : gradient,
+                border: '1px solid rgba(0,0,0,0.08)',
+                overflow: 'hidden',
+              }}
+            >
+              {draft.favicon_data_url ? (
+                <img
+                  src={draft.favicon_data_url}
+                  alt="Favicon preview"
+                  style={{ maxWidth: 32, maxHeight: 32, objectFit: 'contain' }}
+                />
+              ) : (
+                <EuiIcon type="globe" size="m" color="#fff" />
+              )}
+            </span>
+          </EuiFlexItem>
+          <EuiFlexItem style={{ minWidth: 260 }}>
+            <EuiFilePicker
+              key={faviconPickerKey}
+              accept={FAVICON_ACCEPT}
+              display="default"
+              initialPromptText="Select or drag a favicon"
+              onChange={onFavicon}
+              disabled={readOnly}
+              fullWidth
+            />
+            {draft.favicon_data_url ? (
+              <>
+                <EuiSpacer size="s" />
+                <EuiButtonEmpty
+                  size="s"
+                  color="danger"
+                  iconType="trash"
+                  onClick={removeFavicon}
+                  isDisabled={readOnly}
+                >
+                  Remove favicon
+                </EuiButtonEmpty>
+              </>
+            ) : null}
+          </EuiFlexItem>
+        </EuiFlexGroup>
+      </EuiFormRow>
+
+      <EuiSpacer size="l" />
+
       {/* Accents ------------------------------------------------------------ */}
       <Heading title="Accent colours" sub="Changes preview instantly across the console." />
       <EuiFlexGroup gutterSize="l" alignItems="flexStart" wrap>
@@ -497,6 +629,75 @@ export const BrandingSection: React.FC<BrandingSectionProps> = ({ readOnly = fal
           Currently showing the <strong>{darkMode ? 'dark' : 'light'}</strong> theme.
         </p>
       </EuiText>
+
+      <EuiSpacer size="s" />
+      <EuiSwitch
+        label="Default new sessions to dark mode"
+        checked={draft.dark_mode_default}
+        onChange={(e) => set({ dark_mode_default: e.target.checked })}
+        disabled={readOnly}
+      />
+      <EuiText size="xs" color="subdued">
+        <p style={{ marginTop: 6 }}>
+          Seeds the colour mode for a fresh browser when “System” is selected and no
+          per-user choice exists. A user’s own light/dark toggle always wins.
+        </p>
+      </EuiText>
+
+      <EuiSpacer size="l" />
+
+      {/* Messaging ---------------------------------------------------------- */}
+      <Heading
+        title="Login & messaging"
+        sub="Operator-set copy shown on the login screen and console chrome."
+      />
+      <EuiFormRow
+        label="Login subtitle"
+        helpText="A short welcome line beneath the wordmark on the sign-in screen."
+        fullWidth
+      >
+        <EuiFieldText
+          value={draft.login_subtitle}
+          onChange={(e) => set({ login_subtitle: e.target.value })}
+          placeholder="Welcome back"
+          maxLength={MAX_TEXT_LEN}
+          disabled={readOnly}
+          fullWidth
+        />
+      </EuiFormRow>
+      <EuiSpacer size="m" />
+      <EuiFormRow
+        label="Footer text"
+        helpText="A footer / classification banner line (e.g. “UNCLASSIFIED // FOUO”)."
+        fullWidth
+      >
+        <EuiFieldText
+          value={draft.footer_text}
+          onChange={(e) => set({ footer_text: e.target.value })}
+          placeholder="UNCLASSIFIED"
+          maxLength={MAX_TEXT_LEN}
+          disabled={readOnly}
+          fullWidth
+        />
+      </EuiFormRow>
+      <EuiSpacer size="m" />
+      <EuiFormRow
+        label="Support / docs URL"
+        helpText="Target for the “Docs & help” link. Must be an http(s) URL."
+        fullWidth
+        isInvalid={!supportUrlValid}
+        error={supportUrlValid ? undefined : 'Enter an http(s):// URL or leave blank.'}
+      >
+        <EuiFieldText
+          value={draft.support_url}
+          onChange={(e) => set({ support_url: e.target.value })}
+          placeholder="https://help.example.com"
+          maxLength={MAX_URL_LEN}
+          isInvalid={!supportUrlValid}
+          disabled={readOnly}
+          fullWidth
+        />
+      </EuiFormRow>
 
       <EuiSpacer size="xl" />
 

@@ -371,21 +371,30 @@ class BrandingConfig(BaseModel):
     org_name: str = "TLSOC"
     product_name: str = "Agentic Triage"
     logo_data_url: str = ""           # "data:image/png;base64,...." (bounded), or ""
+    favicon_data_url: str = ""        # browser-tab icon as a data:image/* URL (bounded), or ""
     accent_color: str = ""            # "#RRGGBB" override for the UI accent, or "" = default
     accent_color2: str = ""           # "#RRGGBB" secondary gradient stop, or "" = default
     theme: Literal["dark", "light", "system"] = "dark"
-    # Max accepted logo data-URL length (~700KB image). Keeps the config doc small.
+    # New (all additive, optional, defaulted → back-compatible with older docs):
+    login_subtitle: str = ""          # welcome line under the login wordmark, or ""
+    footer_text: str = ""             # footer / classification banner line, or ""
+    support_url: str = ""             # "Docs & help" / support link target (http/https), or ""
+    dark_mode_default: bool = False   # default colour mode for new sessions (no stored pref)
+    # Max accepted logo/favicon data-URL length (~1MB image). Keeps the config doc small.
     _MAX_LOGO_LEN: int = 1_400_000
+    # Caps for the free-text branding strings (rendered as plain text; bound prefs size).
+    _MAX_TEXT_LEN: int = 400
+    _MAX_URL_LEN: int = 2_000
 
-    @field_validator("logo_data_url")
+    @field_validator("logo_data_url", "favicon_data_url")
     @classmethod
     def _check_logo(cls, v: str) -> str:
         if not v:
             return v
         if not v.startswith("data:image/"):
-            raise ValueError("logo_data_url must be an empty string or a data:image/* URL")
+            raise ValueError("image must be an empty string or a data:image/* URL")
         if len(v) > 1_400_000:
-            raise ValueError("logo_data_url too large (max ~1MB image)")
+            raise ValueError("image too large (max ~1MB)")
         return v
 
     @field_validator("accent_color", "accent_color2")
@@ -395,6 +404,24 @@ class BrandingConfig(BaseModel):
             return v
         if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
             raise ValueError("accent colour must be a #RRGGBB hex string or empty")
+        return v
+
+    @field_validator("login_subtitle", "footer_text")
+    @classmethod
+    def _check_text(cls, v: str) -> str:
+        if v and len(v) > 400:
+            raise ValueError("branding text too long (max 400 characters)")
+        return v
+
+    @field_validator("support_url")
+    @classmethod
+    def _check_support_url(cls, v: str) -> str:
+        if not v:
+            return v
+        if len(v) > 2_000:
+            raise ValueError("support_url too long")
+        if not re.match(r"^https?://", v):
+            raise ValueError("support_url must be an empty string or an http(s) URL")
         return v
 
 
