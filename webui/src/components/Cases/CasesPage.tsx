@@ -356,12 +356,12 @@ export const CasesPage: React.FC = () => {
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: 'var(--text-primary)' }}>Cases</h1>
           <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Audited, human-reviewable triage cases.</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Last refreshed: just now</span>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 7, height: 34, padding: '0 14px', border: '1px solid var(--soc-accent)', background: 'var(--bg-card)', color: 'var(--soc-accent)', borderRadius: 6, fontFamily: 'inherit', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', border: '1px solid var(--border-input)', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
             Refresh
           </button>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updated just now</span>
         </div>
       </div>
 
@@ -384,8 +384,8 @@ export const CasesPage: React.FC = () => {
 
       {/* Search + Filters with visual grouping */}
       <div className="socFilterRow">
-        {/* Search */}
-        <div className="socFilterGroup" style={{ minWidth: 280 }}>
+        {/* Search — 40-50% width */}
+        <div className="socFilterGroup socFilterGroup--search">
           <span className="socFilterLabel">Search</span>
           <div className="socSearchWrap">
             <span className="socSearchIcon">
@@ -475,13 +475,6 @@ export const CasesPage: React.FC = () => {
 
       <EuiSpacer size="m" />
 
-      {/* Result count */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <span className="socResultCount">
-          Cases <span>({filtered.length}{filtered.length !== total ? ` of ${total}` : ''})</span>
-        </span>
-      </div>
-
       {error ? (
         <>
           <ErrorCallout error={error} />
@@ -496,7 +489,12 @@ export const CasesPage: React.FC = () => {
         </div>
       ) : filtered.length === 0 ? (
         <div className="socEmptyTable">
-          {/* Table header preserved */}
+          {/* Cases count header — visually part of the table */}
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-table-header)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Cases</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>(0)</span>
+          </div>
+          {/* Table column header */}
           <div className="socEmptyTableHeader" style={{ gridTemplateColumns: '2fr 1.2fr 1fr 1fr 1fr 0.8fr 0.6fr' }}>
             <span>Title</span>
             <span>Entity</span>
@@ -522,12 +520,10 @@ export const CasesPage: React.FC = () => {
           <div style={{ padding: '24px 16px', textAlign: 'center', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
               {cases.length === 0
-                ? statusFilter === 'all'
-                  ? 'No cases yet'
-                  : 'No matching cases'
-                : 'No cases match your filters'}
+                ? 'No cases available'
+                : 'No matching cases found'}
             </div>
-            {cases.length === 0 && statusFilter === 'all' ? (
+            {cases.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 360, margin: '0 auto', lineHeight: 1.6, textAlign: 'left' }}>
                 <div style={{ marginBottom: 6 }}>Cases appear when:</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
@@ -542,9 +538,7 @@ export const CasesPage: React.FC = () => {
               </div>
             ) : (
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                {cases.length === 0
-                  ? 'Run an investigation or enable background scans to start triaging.'
-                  : 'No cases match the current search / verdict filter. Clear them to see all loaded cases.'}
+                No cases match the current search / verdict filter. Clear them to see all loaded cases.
               </div>
             )}
             <div style={{ marginTop: 12 }}>
@@ -555,17 +549,24 @@ export const CasesPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        <EuiBasicTable
-          items={filtered}
-          columns={columns}
-          rowHeader="title"
-          sorting={{ sort: { field: sortField, direction: sortDir } }}
-          onChange={onTableChange}
-          rowProps={(c: Case) => ({
-            onClick: () => setSelectedCaseId(c.case_id),
-            style: { cursor: 'pointer' },
-          })}
-        />
+        <div style={{ border: '1px solid var(--border-default)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
+          {/* Cases count header — visually part of the table */}
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-table-header)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Cases</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>({filtered.length}{filtered.length !== total ? ` of ${total}` : ''})</span>
+          </div>
+          <EuiBasicTable
+            items={filtered}
+            columns={columns}
+            rowHeader="title"
+            sorting={{ sort: { field: sortField, direction: sortDir } }}
+            onChange={onTableChange}
+            rowProps={(c: Case) => ({
+              onClick: () => setSelectedCaseId(c.case_id),
+              style: { cursor: 'pointer' },
+            })}
+          />
+        </div>
       )}
 
       {selectedCaseId ? (
