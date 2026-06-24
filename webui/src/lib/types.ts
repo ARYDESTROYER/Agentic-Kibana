@@ -624,12 +624,22 @@ export interface Branding {
   product_name: string;
   /** Inline data: URL for a custom logo (renders in place of the glyph). */
   logo_data_url: string;
+  /** Inline data: URL for a custom browser-tab favicon, or "". */
+  favicon_data_url: string;
   /** Primary accent (#rrggbb) or "". */
   accent_color: string;
   /** Secondary accent (#rrggbb) or "". */
   accent_color2: string;
   /** Default theme; "system" follows the OS preference. */
   theme: 'dark' | 'light' | 'system' | '';
+  /** Welcome line shown beneath the login wordmark, or "". */
+  login_subtitle: string;
+  /** Footer / classification banner line, or "". */
+  footer_text: string;
+  /** "Docs & help" / support link target (http/https), or "". */
+  support_url: string;
+  /** Default colour mode for brand-new sessions (no stored user pref). */
+  dark_mode_default: boolean;
 }
 
 // --------------------------------------------------------------------------- //
@@ -779,6 +789,70 @@ export interface MemoryEntry {
 export interface MemoryResponse {
   entries: MemoryEntry[];
   count: number;
+}
+
+// --------------------------------------------------------------------------- //
+// Approval queue — agent-drafted proposals (GET/POST /api/proposals/*).
+// --------------------------------------------------------------------------- //
+/** The kinds of recommendation the agent can draft for human approval. */
+export type ProposalKind = 'suppression' | 'memory' | string;
+
+/** The lifecycle state of a drafted proposal. */
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | string;
+
+/**
+ * One agent-drafted recommendation awaiting human approval.
+ *
+ * Nothing here is applied automatically: a `suppression` rule only goes live, and
+ * a `memory` fact is only saved, once a human approves it. `payload` is
+ * kind-specific and SOURCE-INFLUENCED (it derives from log events), so every value
+ * inside it — and `rationale` — is UNTRUSTED and must render as plain text /
+ * `EuiCode`, never as markup.
+ *
+ * - `kind === 'suppression'` → `payload` carries `{ field, value, reason? }` (the
+ *   candidate `field == value` rule).
+ * - `kind === 'memory'` → `payload` carries `{ text, category? }` (the candidate
+ *   durable fact).
+ */
+export interface Proposal {
+  id: string;
+  kind: ProposalKind;
+  status: ProposalStatus;
+  /** Kind-specific, source-influenced payload — render its values as plain text. */
+  payload: Record<string, unknown>;
+  /** Why the agent drafted this (UNTRUSTED — render as plain text). */
+  rationale: string;
+  /** The agent's confidence in the recommendation (0..1). */
+  confidence: number;
+  /** The case(s) that motivated this proposal. */
+  source_case_ids: string[];
+  created_by: string;
+  created_at: string;
+  decided_by?: string | null;
+  decided_at?: string | null;
+  expires_at?: string | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/proposals — the approval queue listing. */
+export interface ProposalsResponse {
+  proposals: Proposal[];
+  count: number;
+}
+
+/** Well-known fields on a `suppression` proposal's `payload` (all UNTRUSTED). */
+export interface SuppressionPayload {
+  field?: string;
+  value?: unknown;
+  reason?: string;
+  [key: string]: unknown;
+}
+
+/** Well-known fields on a `memory` proposal's `payload` (all UNTRUSTED). */
+export interface MemoryPayload {
+  text?: string;
+  category?: string;
+  [key: string]: unknown;
 }
 
 // --------------------------------------------------------------------------- //

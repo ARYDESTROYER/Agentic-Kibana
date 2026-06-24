@@ -34,6 +34,7 @@ export type PageId =
   | 'scans'
   | 'standup'
   | 'catalog'
+  | 'proposals'
   | 'knowledge'
   | 'memory'
   | 'sources'
@@ -75,6 +76,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { id: 'scans', name: 'Automated scans', icon: 'reportingApp' },
       { id: 'standup', name: 'Standup', icon: 'visText' },
       { id: 'catalog', name: 'Playbooks & Agents', icon: 'article' },
+      { id: 'proposals', name: 'Approvals', icon: 'flag' },
     ],
   },
   {

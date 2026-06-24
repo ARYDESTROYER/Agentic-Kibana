@@ -31,6 +31,8 @@ import type {
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
+  Proposal,
+  ProposalsResponse,
   RagDocument,
   RagDocumentsResponse,
   RagImportResult,
@@ -353,6 +355,21 @@ export const api = {
   // ---- Case decision rationale (consumed by the Cases surface) --------- //
   caseRationale: (id: string) =>
     request<CaseRationale>('GET', `cases/${encodeURIComponent(id)}/rationale`),
+
+  // ---- Approval queue (agent-drafted proposals) ------------------------ //
+  // List proposals; `status` is only sent when set (omitting it returns the
+  // backend default). The status filter scopes the queue (e.g. 'pending').
+  listProposals: (status?: string) =>
+    request<ProposalsResponse>('GET', 'proposals', {
+      query: status ? { status } : undefined,
+    }),
+  // Approve a proposal — the ONLY action that makes a rule live / saves a memory.
+  // Admin-gated server-side (may 403/404/409/400); the panel surfaces the error.
+  approveProposal: (id: string) =>
+    request<Proposal>('POST', `proposals/${encodeURIComponent(id)}/approve`),
+  // Reject (discard) a drafted proposal. Returns ok / the updated proposal.
+  rejectProposal: (id: string) =>
+    request<Proposal>('POST', `proposals/${encodeURIComponent(id)}/reject`),
 };
 
 export type Api = typeof api;

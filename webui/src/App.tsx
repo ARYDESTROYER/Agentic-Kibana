@@ -28,6 +28,7 @@ import { InvestigatePage } from './components/Investigate/InvestigatePage';
 import { ScansPage } from './components/Scans/ScansPage';
 import { StandupPage } from './components/Standup/StandupPage';
 import { CatalogPage } from './components/Catalog/CatalogPage';
+import { ProposalsPanel } from './components/Proposals/ProposalsPanel';
 import { KnowledgePage } from './components/Knowledge/KnowledgePage';
 import { MemoryPage } from './components/Memory/MemoryPage';
 import { CostPage } from './components/Cost/CostPage';
@@ -182,6 +183,10 @@ const AppShell: React.FC = () => {
       break;
     case 'catalog':
       body = <CatalogPage />;
+      break;
+    case 'proposals':
+      // The source-case chips deep-link back to the Cases surface.
+      body = <ProposalsPanel onOpenCase={() => setPage('cases')} />;
       break;
     case 'knowledge':
       body = <KnowledgePage />;
