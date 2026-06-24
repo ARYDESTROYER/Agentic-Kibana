@@ -378,51 +378,52 @@ export const InvestigatePage: React.FC = () => {
   };
 
   return (
-    <div className="socPageEnter" style={{ padding: 24 }}>
+    <div className="socPageEnter socPage" style={{ padding: 24 }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: 'var(--text-primary)' }}>Investigate</h1>
         <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Run an ad-hoc, agentic investigation on an IP, user, or host.</p>
       </div>
 
       {/* Form */}
-      <Card>
-        <EuiFlexGroup gutterSize="m" alignItems="flexEnd" responsive wrap>
+      <div className="socInvestigatePanel">
+        <EuiFlexGroup className="socFilterRow socEntityTabs" gutterSize="m" alignItems="flexEnd" responsive wrap>
+          {/* Entity Type */}
           <EuiFlexItem grow={false}>
-            <EuiText size="xs" color="subdued" style={{ marginBottom: 4 }}>
-              <span>Entity type</span>
-            </EuiText>
-            <EuiButtonGroup
-              legend="Entity type"
-              idSelected={entityType}
-              onChange={(id) => setEntityType(id as EntityType)}
-              options={ENTITY_OPTIONS.map((o) => ({ id: o.id, label: o.label, iconType: o.icon }))}
-              buttonSize="m"
-            />
+            <div className="socFilterGroup">
+              <span className="socFilterLabel">Entity type</span>
+              <EuiButtonGroup
+                legend="Entity type"
+                idSelected={entityType}
+                onChange={(id) => setEntityType(id as EntityType)}
+                options={ENTITY_OPTIONS.map((o) => ({ id: o.id, label: o.label, iconType: o.icon }))}
+                buttonSize="m"
+              />
+            </div>
           </EuiFlexItem>
           <EuiFlexItem style={{ minWidth: 220 }}>
-            <EuiText size="xs" color="subdued" style={{ marginBottom: 4 }}>
-              <span>{selected.label} value</span>
-            </EuiText>
-            <EuiFieldText
-              placeholder={selected.placeholder}
-              value={entityValue}
-              onChange={(e) => setEntityValue(e.target.value)}
-              onKeyDown={onKeyDown}
-              icon={selected.icon}
-              fullWidth
-              aria-label={`${selected.label} to investigate`}
-            />
+            <div className="socFilterGroup">
+              <span className="socFilterLabel">{selected.label} value</span>
+              <EuiFieldText
+                placeholder={selected.placeholder}
+                value={entityValue}
+                onChange={(e) => setEntityValue(e.target.value)}
+                onKeyDown={onKeyDown}
+                icon={selected.icon}
+                fullWidth
+                aria-label={`${selected.label} to investigate`}
+              />
+            </div>
           </EuiFlexItem>
           <EuiFlexItem grow={false} style={{ minWidth: 180 }}>
-            <EuiText size="xs" color="subdued" style={{ marginBottom: 4 }}>
-              <span>Lookback</span>
-            </EuiText>
-            <EuiSelect
-              options={LOOKBACK_OPTIONS.map((o) => ({ value: o.value, text: o.label }))}
-              value={lookback}
-              onChange={(e) => setLookback(e.target.value)}
-              aria-label="Lookback window"
-            />
+            <div className="socFilterGroup">
+              <span className="socFilterLabel">Lookback</span>
+              <EuiSelect
+                options={LOOKBACK_OPTIONS.map((o) => ({ value: o.value, text: o.label }))}
+                value={lookback}
+                onChange={(e) => setLookback(e.target.value)}
+                aria-label="Lookback window"
+              />
+            </div>
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
             <EuiToolTip content="Correlate events, enrich, and reason about this entity">
@@ -438,17 +439,17 @@ export const InvestigatePage: React.FC = () => {
             </EuiToolTip>
           </EuiFlexItem>
         </EuiFlexGroup>
-      </Card>
+      </div>
 
       <EuiSpacer size="l" />
 
       {/* Loading */}
       {loading ? (
-        <Card>
+        <div className="socInvestigatePanel" style={{ padding: 20 }}>
           <Loading
             label={`Investigating ${runningEntity?.value ?? selected.label}… correlating events, enriching, reasoning`}
           />
-        </Card>
+        </div>
       ) : null}
 
       {/* Hard error */}
@@ -477,11 +478,13 @@ export const InvestigatePage: React.FC = () => {
 
       {/* Idle empty state */}
       {!loading && !result && !error && !noEvents ? (
-        <EmptyState
-          iconType="inspect"
-          title="Investigate an entity"
-          body={`Pick an entity type, enter a value (e.g. ${selected.placeholder.replace('e.g. ', '')}), and run an investigation over ${lookbackLabel.toLowerCase()}.`}
-        />
+        <div className="socEmptyStateWrapper">
+          <EmptyState
+            iconType="inspect"
+            title="Investigate an entity"
+            body={`Pick an entity type, enter a value (e.g. ${selected.placeholder.replace('e.g. ', '')}), and run an investigation over ${lookbackLabel.toLowerCase()}.`}
+          />
+        </div>
       ) : null}
 
       {/* Recent (this session) */}

@@ -303,8 +303,8 @@ export const StatTile: React.FC<StatTileProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
-    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+  <div style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '18px 18px 14px' }}>
+    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
       <div style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
       {typeof delta === 'number' ? (
@@ -346,10 +346,10 @@ export const WidgetEmptyState: React.FC<{
   <div style={{ padding: '8px 0', textAlign: 'center' }}>
     <div style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      width: 32, height: 32, borderRadius: 8,
-      background: tint(accent, 0.08), color: accent, marginBottom: 6,
+      width: 36, height: 36, borderRadius: 10,
+      background: tint(accent, 0.08), color: accent, marginBottom: 8,
     }}>
-      <EuiIcon type={icon} size="s" />
+      <EuiIcon type={icon} size="m" />
     </div>
     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{title}</div>
     {description ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: action ? 8 : 0, lineHeight: 1.4 }}>{description}</div> : null}
@@ -478,8 +478,8 @@ export const TrendStat: React.FC<TrendStatProps> = ({
   delta,
   deltaGoodWhenUp,
 }) => (
-  <div className="socStat" style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '10px 14px 8px' }}>
-    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+  <div className="socStat" style={{ borderTop: `3px solid ${softAccent(accent)}`, borderRadius: 12, padding: '18px 18px 14px' }}>
+    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
       <div style={{ fontSize: 40, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
       {typeof delta === 'number' ? (

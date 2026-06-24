@@ -22,7 +22,7 @@ body {
 :root,
 [data-theme="light"] {
   /* Backgrounds */
-  --bg-page: #F8FAFD;
+  --bg-page: #F5F7FA;
   --bg-card: #FFFFFF;
   --bg-sidebar: #FAFBFC;
   --bg-sidebar-header: transparent;
@@ -34,16 +34,19 @@ body {
   --bg-badge: #F0F4F7;
   --bg-input: #FFFFFF;
   --bg-table-hover: #F5F7FA;
+  --bg-table-header: #F8FAFC;
   --bg-code: rgba(105, 112, 125, 0.1);
   --bg-chart-placeholder: rgba(105, 112, 125, 0.04);
+  --bg-empty: rgba(105, 112, 125, 0.04);
 
   /* Borders */
   --border-default: #E8ECF1;
   --border-subtle: #F0F4F7;
   --border-strong: #D3DAE6;
-  --border-input: #D3DAE6;
+  --border-input: #CBD5E1;
   --border-badge: #E4E8F0;
   --border-sidebar: rgba(0, 0, 0, 0.06);
+  --border-table-header: #D3DAE6;
 
   /* Text */
   --text-primary: #1A1C21;
@@ -52,7 +55,7 @@ body {
   --text-inverse: #FFFFFF;
   --text-link: #006BB4;
 
-  /* Status colors — keep identical in both themes */
+  /* Status colors */
   --status-success: #00BFB3;
   --status-warning: #F5A623;
   --status-danger: #BD271E;
@@ -70,6 +73,12 @@ body {
   --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.06);
   --shadow-lg: 0 4px 16px rgba(15, 23, 42, 0.08);
 
+  /* Filter pills */
+  --pill-active-bg: var(--soc-accent);
+  --pill-active-color: #fff;
+  --pill-active-border: var(--soc-accent);
+  --pill-active-shadow: 0 1px 3px rgba(0, 107, 180, 0.25);
+
   /* Scrollbar */
   --scrollbar-track: transparent;
   --scrollbar-thumb: rgba(105, 112, 125, 0.3);
@@ -85,6 +94,7 @@ body {
   --nav-active-bg: #E0ECFA;
   --nav-active-text: #006BB4;
   --nav-active-icon: #006BB4;
+  --nav-active-indicator: #006BB4;
   --nav-group-label: #98A2B3;
   --nav-footer-border: #F0F4F7;
 
@@ -95,35 +105,37 @@ body {
   --soc-success: #00BFB3;
   --soc-bubble2: #006BB4;
 
-  /* EUI overrides for dark theme compatibility */
   color-scheme: light;
 }
 
 /* --- Dark theme --- */
 [data-theme="dark"] {
-  /* Backgrounds */
-  --bg-page: #0F1117;
-  --bg-card: #151A23;
-  --bg-sidebar: #111827;
+  /* Backgrounds — stronger layering hierarchy */
+  --bg-page: #0B0D12;
+  --bg-card: #13171F;
+  --bg-sidebar: #0F1218;
   --bg-sidebar-header: transparent;
-  --bg-header: #151A23;
-  --bg-breadcrumb: #151A23;
-  --bg-hover: #1E293B;
+  --bg-header: #13171F;
+  --bg-breadcrumb: #13171F;
+  --bg-hover: #1A2030;
   --bg-active: rgba(59, 130, 246, 0.15);
-  --bg-skeleton: rgba(255, 255, 255, 0.08);
-  --bg-badge: #1E293B;
-  --bg-input: #151A23;
-  --bg-table-hover: #202938;
+  --bg-skeleton: rgba(255, 255, 255, 0.15);
+  --bg-badge: #1A2030;
+  --bg-input: #13171F;
+  --bg-table-hover: #1A2030;
+  --bg-table-header: #11151D;
   --bg-code: rgba(255, 255, 255, 0.08);
   --bg-chart-placeholder: rgba(255, 255, 255, 0.04);
+  --bg-empty: rgba(255, 255, 255, 0.06);
 
-  /* Borders */
-  --border-default: #1E2633;
-  --border-subtle: #1A2030;
-  --border-strong: #374151;
-  --border-input: #2A3342;
-  --border-badge: #2A3342;
+  /* Borders — subtle, rely on elevation */
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --border-input: rgba(255, 255, 255, 0.12);
+  --border-badge: rgba(255, 255, 255, 0.10);
   --border-sidebar: rgba(255, 255, 255, 0.06);
+  --border-table-header: rgba(255, 255, 255, 0.10);
 
   /* Text */
   --text-primary: #F3F4F6;
@@ -138,17 +150,23 @@ body {
   --status-danger: #F87171;
   --status-info: #60A5FA;
 
-  /* Semantic accents — slightly brighter for contrast */
+  /* Semantic accents */
   --accent-operational: #60A5FA;
   --accent-safe: #34D399;
   --accent-needsReview: #FBBF24;
   --accent-threat: #F87171;
   --accent-ai: #A78BFA;
 
-  /* Shadows — lighter on dark */
+  /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* Filter pills — brighter selected */
+  --pill-active-bg: rgba(59, 130, 246, 0.25);
+  --pill-active-color: #93C5FD;
+  --pill-active-border: rgba(59, 130, 246, 0.5);
+  --pill-active-shadow: 0 0 8px rgba(59, 130, 246, 0.2);
 
   /* Scrollbar */
   --scrollbar-track: #111827;
@@ -165,8 +183,9 @@ body {
   --nav-active-bg: rgba(59, 130, 246, 0.15);
   --nav-active-text: #60A5FA;
   --nav-active-icon: #60A5FA;
+  --nav-active-indicator: #60A5FA;
   --nav-group-label: #6B7280;
-  --nav-footer-border: #1E293B;
+  --nav-footer-border: rgba(255, 255, 255, 0.06);
 
   color-scheme: dark;
 }
@@ -271,6 +290,7 @@ button:not(.socNavItem):hover {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 .socSearchWrap .euiFieldSearch {
   height: 44px !important;
@@ -278,6 +298,7 @@ button:not(.socNavItem):hover {
   padding-right: 70px !important;
   border-radius: 8px !important;
   font-size: 13px !important;
+  border-color: var(--border-input) !important;
 }
 .socSearchIcon {
   position: absolute;
@@ -306,7 +327,7 @@ button:not(.socNavItem):hover {
 /* --- Filter group separation. --- */
 .socFilterRow {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 20px;
   flex-wrap: wrap;
 }
@@ -314,6 +335,10 @@ button:not(.socNavItem):hover {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.socFilterGroup--search {
+  flex: 1;
+  min-width: 240px;
 }
 .socFilterLabel {
   font-size: 10px;
@@ -323,12 +348,41 @@ button:not(.socNavItem):hover {
   letter-spacing: 0.5px;
 }
 
-/* --- Filter pill stronger active state. --- */
+/* --- Filter pill — reduced density + stronger active state. --- */
+.socPill {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-input);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+}
+.socPill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
 .socPill--active {
-  background: var(--soc-accent);
-  color: #fff;
-  border-color: var(--soc-accent);
-  box-shadow: 0 1px 3px rgba(0, 107, 180, 0.25);
+  background: var(--pill-active-bg);
+  color: var(--pill-active-color);
+  border-color: var(--pill-active-border);
+  box-shadow: var(--pill-active-shadow);
+}
+
+/* --- EUI filter buttons — tighter padding. --- */
+.socFilterRow .euiFilterButton {
+  height: 30px !important;
+  font-size: 12px !important;
+}
+.socFilterRow .euiFilterButton .euiFilterButton__content {
+  padding: 0 16px !important;
+}
+.socFilterRow .euiFilterButton .euiFilterButton__text {
+  font-size: 12px !important;
 }
 
 /* --- Assignee select styled like pills. --- */
@@ -379,13 +433,13 @@ button:not(.socNavItem):hover {
   display: grid;
   gap: 0;
   padding: 10px 16px;
-  border-bottom: 2px solid var(--border-strong);
+  border-bottom: 2px solid var(--border-table-header);
   font-size: 10px;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
+  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background: var(--bg-card);
+  letter-spacing: 0.06em;
+  background: var(--bg-table-header);
 }
 .socEmptyTableRow {
   display: grid;
@@ -606,9 +660,10 @@ button:not(.socNavItem):hover {
 
 .socNavItem--active {
   background: var(--nav-active-bg);
-  border-left-color: var(--nav-active-icon);
+  border-left: 3px solid var(--nav-active-indicator);
   color: var(--nav-active-text);
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--nav-active-indicator);
 }
 
 /* Sidebar footer separator */
@@ -618,13 +673,14 @@ button:not(.socNavItem):hover {
 
 .socNavGroupLabel {
   font-size: 10px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--nav-group-label);
   text-transform: uppercase;
-  letter-spacing: 1.2px;
+  letter-spacing: 1.5px;
   padding: 0 10px 8px;
   border-bottom: none;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  opacity: 0.8;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -670,13 +726,13 @@ button:not(.socNavItem):hover {
   display: grid;
   gap: 0;
   padding: 11px 16px;
-  border-bottom: 2px solid var(--border-strong);
+  border-bottom: 2px solid var(--border-table-header);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  background: var(--bg-card);
+  letter-spacing: 0.06em;
+  background: var(--bg-table-header);
 }
 
 .socTableRow {
@@ -768,6 +824,72 @@ button:not(.socNavItem):hover {
 .socBreadcrumb span:last-child {
   color: var(--text-primary);
   font-weight: 600;
+}
+
+/* --- Investigation panel elevation --- */
+.socInvestigatePanel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- Entity tabs (EuiButtonGroup) --- */
+.socEntityTabs .euiButtonGroup {
+  gap: 2px;
+}
+.socEntityTabs .euiButtonGroupButton {
+  height: 48px !important;
+  min-width: 100px !important;
+  font-size: 14px !important;
+  font-weight: 500;
+  border-radius: 10px !important;
+  transition: all 0.15s ease;
+}
+.socEntityTabs .euiButtonGroupButton.euiButtonGroupButton--primary {
+  background: var(--bg-active) !important;
+  color: var(--text-primary) !important;
+  font-weight: 600;
+}
+.socEntityTabs .euiButtonGroupButton:not(.euiButtonGroupButton--primary) {
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+.socEntityTabs .euiButtonGroupButton:not(.euiButtonGroupButton--primary):hover {
+  background: var(--bg-hover);
+}
+
+/* --- Form inputs in investigate --- */
+.socInvestigatePanel .euiFieldText,
+.socInvestigatePanel .euiSelect,
+.socInvestigatePanel .euiButton {
+  height: 48px !important;
+  font-size: 14px !important;
+}
+.socInvestigatePanel .euiSelect {
+  border-radius: 10px !important;
+}
+
+/* --- Disabled button in light mode --- */
+.socInvestigatePanel .euiButton:disabled {
+  opacity: 0.6;
+  border: 1px solid var(--border-input);
+  background: var(--bg-badge);
+}
+
+/* --- Empty state positioning --- */
+.socEmptyStateWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 60vh;
+  padding-top: 10vh;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.socPage {
+  background: var(--bg-page);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
