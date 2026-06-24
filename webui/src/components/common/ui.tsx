@@ -613,8 +613,18 @@ export const EmptyState: React.FC<{ iconType?: string; title: string; body?: Rea
 
 /* ----------------------------------------------------- loading / error ----- */
 
-export const Loading: React.FC<{ label?: string }> = ({ label = 'Loading…' }) => (
-  <EuiFlexGroup alignItems="center" gutterSize="s" responsive={false} style={{ padding: 24 }}>
+export const Loading: React.FC<{ label?: string; center?: boolean }> = ({
+  label = 'Loading…',
+  center,
+}) => (
+  <EuiFlexGroup
+    className="socFadeIn"
+    alignItems="center"
+    justifyContent={center ? 'center' : 'flexStart'}
+    gutterSize="s"
+    responsive={false}
+    style={center ? { padding: 48, minHeight: 220 } : { padding: 24 }}
+  >
     <EuiFlexItem grow={false}>
       <EuiLoadingSpinner size="m" />
     </EuiFlexItem>
@@ -624,6 +634,16 @@ export const Loading: React.FC<{ label?: string }> = ({ label = 'Loading…' }) 
       </EuiText>
     </EuiFlexItem>
   </EuiFlexGroup>
+);
+
+/**
+ * A slim, indeterminate brand-gradient loading bar (CSS `.socLoadingBar`). Drop
+ * it at the top of a panel/page while data is in flight — lighter-weight than a
+ * full spinner block and reads as "working" without shifting layout. Reduced-
+ * motion users get a static sliver (the surrounding spinner/skeleton conveys state).
+ */
+export const LoadingBar: React.FC<{ label?: string }> = ({ label = 'Loading' }) => (
+  <div className="socLoadingBar" role="progressbar" aria-label={label} aria-busy="true" />
 );
 
 export const ErrorCallout: React.FC<{ error: unknown; title?: string }> = ({

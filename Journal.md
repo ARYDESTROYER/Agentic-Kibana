@@ -1093,3 +1093,14 @@
 - Tests: `npx tsc --noEmit` clean; `vite build` ✓ (2516 modules); `vitest run` 1/1; backend `pytest -q` 395 passed; NO new npm deps; 29 files changed (+2985/−409), webui-only.
 - Status: done — committed + pushed to `Testing` (and the dev branch `claude/busy-gauss-dyk7bg`).
 - Next: optional follow-ups deferred this round (streaming chat, global command palette, virtualized table workbench, full useEuiTheme palette refactor) per `scratchpad/synth.json` structural lens. Re-attach-and-extend any further mockups as a new round.
+
+### 2026-06-24 — orchestrator (Opus) — UI polish: loading/entrance motion layer (additive)
+- Context: User follow-up — "further ui cleaning, animations for loading, etc." Done hands-on (no multi-agent workflow); additive, shared-design-layer-first so it propagates with minimal blast radius. EUI-only, no new deps, light+dark, fully reduced-motion-guarded.
+- Did:
+  - **index.css** — motion tokens (`--soc-ease-out`, `--soc-dur-fast/base/slow`); refined `.socSkeleton` (gentle base `socSkeletonPulse` + smoother `--soc-ease` sweep with a solid mid-band); page-enter now uses the easeOut curve + duration token; NEW utilities: `.socFadeIn` (content swap-in), `.socStagger > *` + auto-applied `.socGrid > *` staggered cascade (nth-child delays capped at 9+), `.socPulse` (live/in-progress indicators), `.socLoadingBar` (indeterminate brand-gradient sliver). Extended the `prefers-reduced-motion` block to neutralise all new animations to their final visible state.
+  - **lib/theme.ts** — added `MOTION` tokens (fast/base/slow + ease/easeOut) mirroring the CSS custom properties, so JS inline transitions stay in lock-step.
+  - **components/common/ui.tsx** — `Loading` now fades in (`.socFadeIn`) + optional `center` layout; new `LoadingBar` primitive (the `.socLoadingBar` indeterminate bar, role=progressbar/aria-busy).
+  - **Catalog/CatalogPage.tsx** — persona grid gets `.socStagger` so the persona cards cascade in. (Dashboards using `.socGrid` — Metrics/Scans/Cost/Standup — get the cascade automatically; all 15 pages already had `.socPageEnter`; the improved Skeleton reaches the 10 files that use it and the Loading fade-in reaches 8.)
+- Tests: `npx tsc --noEmit` clean; `vite build` ✓ (2516 modules; CSS 6.0→7.9 kB); `vitest run` 1/1. No new npm deps; 4 files changed.
+- Status: done — committed + pushed to `Testing` (and `claude/busy-gauss-dyk7bg`).
+- Next: `LoadingBar` + `.socPulse` are exported/available for per-page wiring (e.g. health-pill "checking…", scan "N new" badge) in a future pass if desired.

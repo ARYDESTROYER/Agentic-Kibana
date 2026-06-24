@@ -46,6 +46,12 @@ body {
   --soc-elev-3: 0 12px 30px rgba(15, 23, 42, 0.2);
   /* Default (smooth) transition timing — one curve everywhere. */
   --soc-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* A softer spring-ish curve for entrance/loading motion. */
+  --soc-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Standardised motion durations (mirrors MOTION in lib/theme.ts). */
+  --soc-dur-fast: 0.16s;
+  --soc-dur-base: 0.24s;
+  --soc-dur-slow: 0.4s;
 }
 
 /* --- Brand bar: a thin gradient accent under the fixed header. --- */
@@ -310,6 +316,9 @@ button:focus-visible,
   overflow: hidden;
   border-radius: var(--soc-radius-sm);
   background: rgba(105, 112, 125, 0.14);
+  /* A gentle base "breathing" pulse so the block reads as loading even at the
+     moment the sweep is off-screen (and as the reduced-motion-safe fallback feel). */
+  animation: socSkeletonPulse 1.6s ease-in-out infinite;
 }
 .socSkeleton::after {
   content: '';
@@ -322,15 +331,25 @@ button:focus-visible,
   background: linear-gradient(
     90deg,
     rgba(105, 112, 125, 0) 0%,
-    currentColor 50%,
+    currentColor 45%,
+    currentColor 55%,
     rgba(105, 112, 125, 0) 100%
   );
-  opacity: 0.14;
-  animation: socShimmer 1.3s ease-in-out infinite;
+  opacity: 0.16;
+  animation: socShimmer 1.25s var(--soc-ease) infinite;
 }
 @keyframes socShimmer {
   100% {
     transform: translateX(100%);
+  }
+}
+@keyframes socSkeletonPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
   }
 }
 
@@ -346,7 +365,7 @@ button:focus-visible,
 
 /* --- Page transition: a gentle fade + rise on mount (GPU-friendly). --- */
 .socPageEnter {
-  animation: socPageEnter 0.22s var(--soc-ease) both;
+  animation: socPageEnter var(--soc-dur-base) var(--soc-ease-out) both;
 }
 @keyframes socPageEnter {
   from {
@@ -356,6 +375,120 @@ button:focus-visible,
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* --- Entrance motion utilities (loading → content). All GPU-friendly
+       (opacity/transform only) and neutralised under prefers-reduced-motion. --- */
+
+/* A simple fade-in for content that swaps in after a skeleton/spinner. */
+.socFadeIn {
+  animation: socFadeIn var(--soc-dur-base) var(--soc-ease-out) both;
+}
+@keyframes socFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Staggered cascade for grid/list children — dashboards "assemble" as data
+   resolves. Applied automatically to the shared .socGrid boards, and opt-in via
+   .socStagger for any other list/grid. Delays are capped at 10 items so long
+   lists don't feel sluggish. */
+.socGrid > *,
+.socStagger > * {
+  animation: socRiseIn var(--soc-dur-base) var(--soc-ease-out) both;
+}
+.socGrid > *:nth-child(1),
+.socStagger > *:nth-child(1) {
+  animation-delay: 0.02s;
+}
+.socGrid > *:nth-child(2),
+.socStagger > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.socGrid > *:nth-child(3),
+.socStagger > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.socGrid > *:nth-child(4),
+.socStagger > *:nth-child(4) {
+  animation-delay: 0.14s;
+}
+.socGrid > *:nth-child(5),
+.socStagger > *:nth-child(5) {
+  animation-delay: 0.18s;
+}
+.socGrid > *:nth-child(6),
+.socStagger > *:nth-child(6) {
+  animation-delay: 0.22s;
+}
+.socGrid > *:nth-child(7),
+.socStagger > *:nth-child(7) {
+  animation-delay: 0.26s;
+}
+.socGrid > *:nth-child(8),
+.socStagger > *:nth-child(8) {
+  animation-delay: 0.3s;
+}
+.socGrid > *:nth-child(n + 9),
+.socStagger > *:nth-child(n + 9) {
+  animation-delay: 0.34s;
+}
+@keyframes socRiseIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* A gentle pulse for "live"/in-progress indicators (e.g. a "checking…" pill,
+   a fresh-count badge). Opacity-only so it's cheap and theme-agnostic. */
+.socPulse {
+  animation: socPulse 1.8s ease-in-out infinite;
+}
+@keyframes socPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* A slim indeterminate loading bar — a brand-gradient sliver that glides across
+   its container. Use at the top of a panel/page while data is in flight. */
+.socLoadingBar {
+  position: relative;
+  height: 2px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(105, 112, 125, 0.16);
+}
+.socLoadingBar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--soc-accent), var(--soc-accent2));
+  animation: socLoadingBar 1.1s var(--soc-ease) infinite;
+}
+@keyframes socLoadingBar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
   }
 }
 
@@ -397,10 +530,21 @@ button:focus-visible,
   .socIconChip {
     transform: none;
   }
-  .socPageEnter {
+  /* Entrance/loading motion → rest in the final visible state, no movement. */
+  .socPageEnter,
+  .socFadeIn,
+  .socGrid > *,
+  .socStagger > *,
+  .socPulse,
+  .socSkeleton,
+  .socSkeleton::after,
+  .socLoadingBar::before {
     animation: none;
   }
-  .socSkeleton::after {
-    animation: none;
+  .socFadeIn,
+  .socGrid > *,
+  .socStagger > * {
+    opacity: 1;
+    transform: none;
   }
 }

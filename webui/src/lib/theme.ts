@@ -151,6 +151,19 @@ export const WEIGHT = {
 } as const;
 
 /**
+ * Motion tokens — mirror the `--soc-dur-*` / `--soc-ease*` CSS custom properties
+ * in index.css so JS-driven inline transitions stay in lock-step with the plain
+ * CSS chrome. Durations are CSS strings; eases are cubic-bezier curves.
+ */
+export const MOTION = {
+  fast: '0.16s',
+  base: '0.24s',
+  slow: '0.4s',
+  ease: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  easeOut: 'cubic-bezier(0.16, 1, 0.3, 1)',
+} as const;
+
+/**
  * Typography scale — replaces scattered `fontSize:` literals so every surface
  * uses one consistent set of display sizes. Values are plain CSS strings to drop
  * straight into inline `style` (e.g. `style={{ fontSize: TYPE.kpi }}`).

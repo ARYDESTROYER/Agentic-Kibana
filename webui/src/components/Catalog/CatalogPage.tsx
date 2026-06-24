@@ -186,7 +186,7 @@ const PersonasCatalog: React.FC = () => {
         </p>
       </EuiText>
       <EuiSpacer size="m" />
-      <EuiFlexGrid columns={2} gutterSize="m">
+      <EuiFlexGrid columns={2} gutterSize="m" className="socStagger">
         {personas.map((p, i) => (
           <EuiFlexItem key={p.id}>
             <PersonaCard persona={p} index={i} />
