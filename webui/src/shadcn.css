@@ -1,0 +1,45 @@
+/**
+ * Tailwind + shadcn/ui token bridge.
+ *
+ * Imported AFTER index.css. Tailwind's preflight is disabled (tailwind.config.js)
+ * so this file only emits opt-in utilities + component classes — it does NOT reset
+ * the @elastic/eui pages.
+ *
+ * The `--sn-*` tokens map shadcn's semantic colour roles onto the EXISTING theme
+ * variables from index.css. Those variables already switch on `[data-theme="dark"]`
+ * and `--soc-accent` is re-themed at runtime by lib/theme.setAccent — so the
+ * shadcn components follow the same dark/light + brand colour as the rest of the
+ * console with no duplicate dark-mode block here.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --radius: 0.6rem;
+
+  --sn-background: var(--bg-page);
+  --sn-foreground: var(--text-primary);
+  --sn-card: var(--bg-card);
+  --sn-card-foreground: var(--text-primary);
+  --sn-muted: var(--bg-hover);
+  --sn-muted-foreground: var(--text-secondary);
+  --sn-accent: var(--bg-hover);
+  --sn-accent-foreground: var(--text-primary);
+  --sn-secondary: var(--bg-hover);
+  --sn-secondary-foreground: var(--text-primary);
+  --sn-border: var(--border-default);
+  --sn-input: var(--border-input);
+  --sn-ring: var(--soc-accent);
+  --sn-primary: var(--soc-accent);
+  --sn-primary-foreground: #ffffff;
+  --sn-destructive: #bd271e;
+  --sn-destructive-foreground: #ffffff;
+}
+
+/* Tailwind utilities live in their own cascade; keep the shadcn surfaces using
+   the app font (index.css sets it on body, but the explicit class is cheap). */
+.sn-scope {
+  font-family: inherit;
+  color: var(--sn-foreground);
+}

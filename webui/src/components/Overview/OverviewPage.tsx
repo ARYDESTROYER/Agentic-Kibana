@@ -1,19 +1,29 @@
 /**
  * Overview — the at-a-glance SOC dashboard (default landing surface).
  *
+ * Rebuilt on shadcn/ui (Tailwind + Radix primitives, see components/ui/*). The
+ * shadcn tokens map onto the app's existing CSS variables, so these surfaces
+ * follow the same dark/light + `--soc-accent` brand colour as the EUI console.
  * Pulls recent cases (counts + verdict/risk breakdowns), 24h LLM spend, and the
  * configured sources, and renders them as KPI tiles + charts + a recent-cases
- * feed. Everything degrades gracefully when a backend call fails.
+ * feed. Everything degrades gracefully when a backend call fails. The case detail
+ * surface (CaseDetailFlyout) is the existing EUI flyout, opened on demand.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  EuiButton,
-  EuiFlexGrid,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiHealth,
-  EuiText,
-} from '@elastic/eui';
+  AlertTriangle,
+  Bell,
+  Bug,
+  Database,
+  DollarSign,
+  FileText,
+  FolderOpen,
+  Plug,
+  Plus,
+  RefreshCw,
+  ChevronRight,
+  Play,
+} from 'lucide-react';
 import type {
   Case,
   MemoryResponse,
@@ -22,60 +32,93 @@ import type {
   UsageSummary,
 } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, riskBand } from '../../lib/theme';
+import { COLORS, riskBand, tint } from '../../lib/theme';
 import { fmtMoney, fmtNumber, fmtTokens, humanizeAge, humanizeToken } from '../../lib/format';
-import {
-  Card,
-  ErrorCallout,
-  RiskBadge,
-  Skeleton,
-  StatTile,
-  StatusBadge,
-  TrendStat,
-  VerdictBadge,
-  WidgetEmptyState,
-} from '../common/ui';
-import { BarList, DonutWithLegend, MiniBars, StackedHistogram } from '../common/charts';
+import { BarList, DonutWithLegend, MiniBars, StackedHistogram, Sparkline } from '../common/charts';
 import type { HistogramBin } from '../common/charts';
+import { RiskPill, StatusPill, VerdictPill } from '../common/socBadges';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { TooltipProvider } from '../ui/tooltip';
+import { Skeleton } from '../ui/skeleton';
 import { CaseDetailFlyout } from '../Cases/CaseDetailFlyout';
-import { CaseHoverCard } from '../Cases/CaseHoverCard';
 
 interface OverviewProps {
   onNavigate?: (p: 'cases' | 'sources' | 'knowledge' | 'memory') => void;
 }
 
-/** A StatTile that navigates on click/Enter — used for the knowledge/memory
- *  at-a-glance tiles. Keyboard-accessible, matching the recent-cases anchors. */
-const NavTile: React.FC<{
-  label: string;
-  value: React.ReactNode;
-  icon: string;
-  accent: string;
-  onNavigate: () => void;
-}> = ({ label, value, icon, accent, onNavigate }) => (
-  <div
-    role="button"
-    tabIndex={0}
-    onClick={onNavigate}
-    onKeyDown={(e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        onNavigate();
-      }
-    }}
-    aria-label={`Open ${label}`}
-    className="socCard--clickable"
-    style={{ cursor: 'pointer', borderRadius: 8, outline: 'none' }}
+/** Tinted square icon chip. */
+const IconChip: React.FC<{ icon: React.ReactNode; accent: string }> = ({ icon, accent }) => (
+  <span
+    className="inline-flex items-center justify-center rounded-md shrink-0 [&_svg]:h-4 [&_svg]:w-4"
+    style={{ width: 32, height: 32, background: tint(accent, 0.14), color: accent }}
   >
-    <StatTile label={label} value={value} icon={icon} accent={accent} />
+    {icon}
+  </span>
+);
+
+const CardTitleRow: React.FC<{ icon: React.ReactNode; accent: string; text: string }> = ({ icon, accent, text }) => (
+  <div className="flex items-center gap-2.5">
+    <IconChip icon={icon} accent={accent} />
+    <CardTitle>{text}</CardTitle>
   </div>
 );
 
-export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
+/** A KPI tile: tinted top accent + label + big number + optional sub/sparkline. */
+const KpiCard: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  accent: string;
+  icon: React.ReactNode;
+  sub?: React.ReactNode;
+  spark?: number[];
+  onClick?: () => void;
+}> = ({ label, value, accent, icon, sub, spark, onClick }) => (
+  <Card
+    onClick={onClick}
+    className={onClick ? 'cursor-pointer transition-shadow hover:shadow-md' : ''}
+    style={{ borderTop: `3px solid ${tint(accent, 0.85)}` }}
+  >
+    <CardContent>
+      <div className="flex items-start justify-between">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
+          <div className="text-3xl font-bold tracking-tight leading-none text-foreground">{value}</div>
+          {sub ? <div className="text-xs text-muted-foreground mt-1">{sub}</div> : null}
+        </div>
+        <IconChip icon={icon} accent={accent} />
+      </div>
+      {spark && spark.length > 1 ? (
+        <div className="mt-2">
+          <Sparkline values={spark} color={accent} height={22} />
+        </div>
+      ) : null}
+    </CardContent>
+  </Card>
+);
+
+const EmptyWidget: React.FC<{ icon: React.ReactNode; title: string; description?: string; accent: string; action?: React.ReactNode }> = ({
+  icon,
+  title,
+  description,
+  accent,
+  action,
+}) => (
+  <div className="text-center py-2">
+    <div className="inline-flex items-center justify-center rounded-md mb-2 [&_svg]:h-4 [&_svg]:w-4" style={{ width: 36, height: 36, background: tint(accent, 0.1), color: accent }}>
+      {icon}
+    </div>
+    <div className="text-sm font-semibold text-foreground mb-0.5">{title}</div>
+    {description ? <div className="text-xs text-muted-foreground mb-2 leading-relaxed">{description}</div> : null}
+    {action}
+  </div>
+);
+
+const OverviewInner: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [cases, setCases] = useState<Case[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [sources, setSources] = useState<SourceInstance[]>([]);
-  // Point-in-time knowledge-base + memory health for the at-a-glance tiles.
   const [rag, setRag] = useState<RagStats | null>(null);
   const [memory, setMemory] = useState<MemoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,15 +126,10 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [histRange, setHistRange] = useState<string>('24h');
 
-  /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
-  const caseCache = useRef<Map<string, Case>>(new Map());
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // allSettled keeps every call independent — a failing RAG/memory fetch
-      // (or any non-cases call) leaves its tile blank but never blanks the page.
       const [c, u, s, r, m] = await Promise.allSettled([
         api.listCases({ limit: 200 }),
         api.usageSummary(24),
@@ -99,12 +137,7 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
         api.ragStats(),
         api.getMemory(),
       ]);
-      if (c.status === 'fulfilled') {
-        setCases(c.value.cases);
-        for (const k of c.value.cases) {
-          if (!caseCache.current.has(k.case_id)) caseCache.current.set(k.case_id, k);
-        }
-      }
+      if (c.status === 'fulfilled') setCases(c.value.cases);
       if (u.status === 'fulfilled') setUsage(u.value);
       if (s.status === 'fulfilled') setSources(s.value.sources);
       if (r.status === 'fulfilled') setRag(r.value);
@@ -158,14 +191,12 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     [stats],
   );
 
-  const costSeries = useMemo(
-    () => (usage?.cost_over_time || []).map((p) => p.cost),
-    [usage],
-  );
+  const costSeries = useMemo(() => (usage?.cost_over_time || []).map((p) => p.cost), [usage]);
   const modelItems = useMemo(
     () => (usage?.by_model || []).slice(0, 5).map((m) => ({ label: m.key, value: m.cost })),
     [usage],
   );
+
   const histData = useMemo((): HistogramBin[] => {
     const d24h: HistogramBin[] = [
       { fp: 1120, nh: 28, tp: 2, label: '00:00' }, { fp: 980, nh: 19, tp: 0, label: '02:00' },
@@ -188,247 +219,193 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
     return histRange === '7d' ? d7d : histRange === '30d' ? d30d : d24h;
   }, [histRange]);
 
-  const histRanges = ['24h', '7d', '30d'];
-
   const recent = useMemo(
     () => [...cases].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')).slice(0, 6),
     [cases],
   );
   const enabledSources = sources.filter((s) => s.enabled);
-  // Show the knowledge/memory tiles once at least one of the two calls returned.
   const hasKnowledge = rag !== null || memory !== null;
 
+  const legendDot = (color: string, label: string) => (
+    <span className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flex: 'none' }} />
+      {label}
+    </span>
+  );
+
   return (
-    <div className="socPageEnter" style={{ padding: '12px 24px 16px' }}>
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.2 }}>Overview</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>Live triage posture across all sources.</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last updated: just now</span>
-          <button
-            onClick={load}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px',
-              border: '1px solid var(--border-input)', background: 'var(--bg-card)', color: 'var(--text-primary)',
-              borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              transition: 'border-color 0.15s, box-shadow 0.15s',
-            }}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {error ? (
-        <>
-          <ErrorCallout error={error} title="Could not load the dashboard" />
-          <div style={{ height: 16 }} />
-        </>
-      ) : null}
-
-      {loading ? (
-        <>
-          <div className="socKpiGrid" style={{ marginBottom: 12 }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={90} radius={12} />
-            ))}
+    <TooltipProvider delayDuration={150}>
+      <div className="sn-scope socPageEnter" style={{ padding: '16px 24px 24px' }}>
+        {/* Page header */}
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h1 className="text-2xl font-bold leading-tight text-foreground m-0">Overview</h1>
+            <p className="text-[13px] text-muted-foreground m-0 mt-0.5">Live triage posture across all sources.</p>
           </div>
-          <Skeleton height={170} radius={12} />
-          <div style={{ height: 12 }} />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} height={140} radius={12} />
-            ))}
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs text-muted-foreground">Last updated: just now</span>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
+            </Button>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="socWireframeCard" style={{ padding: '6px 14px 8px', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Alerts over time</span>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {histRanges.map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setHistRange(r)}
-                    style={{
-                      height: 26, padding: '0 10px',
-                      border: `1px solid ${histRange === r ? 'var(--soc-accent)' : 'var(--border-input)'}`,
-                      background: histRange === r ? 'var(--soc-accent)' : 'var(--bg-card)',
-                      color: histRange === r ? '#fff' : 'var(--text-primary)',
-                      borderRadius: 4, fontFamily: 'inherit', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {r}
-                  </button>
-                ))}
+        </div>
+
+        {error ? (
+          <Card className="mb-4 border-destructive/40">
+            <CardContent className="flex items-start gap-2 text-sm" style={{ color: COLORS.danger }}>
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Could not load the dashboard</div>
+                <div className="text-muted-foreground">{error instanceof Error ? error.message : String(error)}</div>
               </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {loading ? (
+          <>
+            <Skeleton className="h-44 w-full mb-4" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-24 w-full" />
+              ))}
             </div>
-            <StackedHistogram data={histData} />
-            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 6 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.safe, flex: 'none' }}></span>False positive
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.needsReview, flex: 'none' }}></span>Needs human
-              </span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--text-secondary)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: COLORS.semantic.threat, flex: 'none' }}></span>True positive
-              </span>
-            </div>
-          </div>
-
-          <div className="socKpiGrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
-            <TrendStat label="Open cases" value={stats.open} icon="folderOpen" accent={COLORS.semantic.operational} />
-            <TrendStat label="Needs human" value={stats.needsHuman} icon="alert" accent={COLORS.semantic.needsReview} />
-            <TrendStat label="True positives" value={stats.truePositive} icon="bug" accent={COLORS.semantic.threat} />
-            <TrendStat
-              label="LLM spend (24h)"
-              value={fmtMoney(usage?.total_cost, usage?.currency)}
-              sub={`${fmtTokens(usage?.total_tokens)} tokens`}
-              icon="currency"
-              accent={COLORS.semantic.ai}
-              spark={costSeries}
-            />
-          </div>
-
-          {hasKnowledge ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
-              <NavTile
-                label="RAG documents"
-                value={fmtNumber(rag?.document_count)}
-                icon="documents"
-                accent="var(--border-default)"
-                onNavigate={() => onNavigate?.('knowledge')}
-              />
-              <NavTile
-                label="RAG chunks"
-                value={fmtNumber(rag?.total_chunks)}
-                icon="visText"
-                accent="var(--border-default)"
-                onNavigate={() => onNavigate?.('knowledge')}
-              />
-              <NavTile
-                label="Memory facts"
-                value={fmtNumber(memory?.count)}
-                icon="bell"
-                accent="var(--border-default)"
-                onNavigate={() => onNavigate?.('memory')}
-              />
-            </div>
-          ) : null}
-
-          <EuiFlexGrid columns={2} gutterSize="s">
-            <Card title="Verdict breakdown" icon="visPie" accent={COLORS.semantic.operational}>
-              {verdictSegments.length ? (
-                <DonutWithLegend
-                  segments={verdictSegments}
-                  centerValue={cases.length}
-                  centerLabel="cases"
-                />
-              ) : (
-                <WidgetEmptyState
-                  icon="visPie"
-                  title="No verdict data yet"
-                  description="Start ingesting alerts to build verdict analytics."
-                  accent={COLORS.semantic.operational}
-                />
-              )}
-            </Card>
-
-            <Card title="Risk distribution" icon="visBarVertical" accent={COLORS.semantic.threat}>
-              {riskItems.some(r => r.value > 0) ? (
-                <BarList items={riskItems} />
-              ) : (
-                <WidgetEmptyState
-                  icon="visBarVertical"
-                  title="No risk data yet"
-                  description="Risk scores will populate after case analysis."
-                  accent={COLORS.semantic.threat}
-                />
-              )}
-            </Card>
-
-            <Card
-              title="LLM spend (24h)"
-              icon="visLine"
-              accent={COLORS.semantic.ai}
-              actions={<EuiText size="xs" color="subdued"><span>{fmtMoney(usage?.total_cost, usage?.currency)}</span></EuiText>}
-            >
-              {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.semantic.ai} height={40} /> : null}
-              {modelItems.length ? (
-                <BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} />
-              ) : (
-                <WidgetEmptyState
-                  icon="visLine"
-                  title="No spend in the last 24h"
-                  description="LLM costs will appear after agent runs."
-                  accent={COLORS.semantic.ai}
-                />
-              )}
-            </Card>
-
-            <Card
-              title="Sources"
-              icon="logstashQueue"
-              accent={COLORS.semantic.safe}
-              actions={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Manage</EuiButton>}
-            >
-              {enabledSources.length ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {enabledSources.slice(0, 6).map((s) => (
-                    <EuiFlexGroup key={s.id} alignItems="center" gutterSize="s" responsive={false}>
-                      <EuiFlexItem>
-                        <EuiText size="s">
-                          <strong>{s.display_name || s.id}</strong>{' '}
-                          <EuiText size="xs" color="subdued" component="span">
-                            {humanizeToken(s.source_type)}
-                          </EuiText>
-                        </EuiText>
-                      </EuiFlexItem>
-                      <EuiFlexItem grow={false}>
-                        <EuiHealth color={s.is_primary ? COLORS.semantic.operational : COLORS.semantic.safe}>
-                          {s.is_primary ? 'Primary' : 'Enabled'}
-                        </EuiHealth>
-                      </EuiFlexItem>
-                    </EuiFlexGroup>
-                  ))}
+          </>
+        ) : (
+          <>
+            {/* Alerts over time */}
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle>Alerts over time</CardTitle>
+                <Tabs value={histRange} onValueChange={setHistRange}>
+                  <TabsList>
+                    <TabsTrigger value="24h">24h</TabsTrigger>
+                    <TabsTrigger value="7d">7d</TabsTrigger>
+                    <TabsTrigger value="30d">30d</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </CardHeader>
+              <CardContent>
+                <StackedHistogram data={histData} />
+                <div className="flex gap-4 justify-center mt-1.5">
+                  {legendDot(COLORS.semantic.safe, 'False positive')}
+                  {legendDot(COLORS.semantic.needsReview, 'Needs human')}
+                  {legendDot(COLORS.semantic.threat, 'True positive')}
                 </div>
-              ) : (
-                <WidgetEmptyState
-                  icon="logstashQueue"
-                  title="No sources configured"
-                  description="Connect Elasticsearch, OpenSearch, Wazuh or custom webhook source."
-                  accent={COLORS.semantic.safe}
-                  action={<EuiButton size="s" iconType="plusInCircle" onClick={() => onNavigate?.('sources')}>Add Source</EuiButton>}
-                />
-              )}
+              </CardContent>
             </Card>
-          </EuiFlexGrid>
 
-          <div style={{ height: 12 }} />
+            {/* KPI row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <KpiCard label="Open cases" value={stats.open} accent={COLORS.semantic.operational} icon={<FolderOpen />} />
+              <KpiCard label="Needs human" value={stats.needsHuman} accent={COLORS.semantic.needsReview} icon={<AlertTriangle />} />
+              <KpiCard label="True positives" value={stats.truePositive} accent={COLORS.semantic.threat} icon={<Bug />} />
+              <KpiCard
+                label="LLM spend (24h)"
+                value={fmtMoney(usage?.total_cost, usage?.currency)}
+                sub={`${fmtTokens(usage?.total_tokens)} tokens`}
+                accent={COLORS.semantic.ai}
+                icon={<DollarSign />}
+                spark={costSeries}
+              />
+            </div>
 
-          <Card
-            title="Recent cases"
-            icon="securityApp"
-            actions={<EuiButton size="s" iconType="list" onClick={() => onNavigate?.('cases')}>View all</EuiButton>}
-          >
-            {recent.length ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {recent.map((c) => (
-                  <CaseHoverCard
-                    key={c.case_id}
-                    caseId={c.case_id}
-                    preloaded={c}
-                    cache={caseCache}
-                    display="block"
-                    anchor={
+            {/* Knowledge / memory */}
+            {hasKnowledge ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                <KpiCard label="RAG documents" value={fmtNumber(rag?.document_count)} accent={COLORS.semantic.operational} icon={<FileText />} onClick={() => onNavigate?.('knowledge')} />
+                <KpiCard label="RAG chunks" value={fmtNumber(rag?.total_chunks)} accent={COLORS.semantic.ai} icon={<Database />} onClick={() => onNavigate?.('knowledge')} />
+                <KpiCard label="Memory facts" value={fmtNumber(memory?.count)} accent={COLORS.semantic.safe} icon={<Bell />} onClick={() => onNavigate?.('memory')} />
+              </div>
+            ) : null}
+
+            {/* Analytics grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Card>
+                <CardHeader><CardTitleRow icon={<FileText />} accent={COLORS.semantic.operational} text="Verdict breakdown" /></CardHeader>
+                <CardContent>
+                  {verdictSegments.length ? (
+                    <DonutWithLegend segments={verdictSegments} centerValue={cases.length} centerLabel="cases" />
+                  ) : (
+                    <EmptyWidget icon={<FileText />} title="No verdict data yet" description="Start ingesting alerts to build verdict analytics." accent={COLORS.semantic.operational} />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader><CardTitleRow icon={<Bug />} accent={COLORS.semantic.threat} text="Risk distribution" /></CardHeader>
+                <CardContent>
+                  {riskItems.some((r) => r.value > 0) ? (
+                    <BarList items={riskItems} />
+                  ) : (
+                    <EmptyWidget icon={<Bug />} title="No risk data yet" description="Risk scores populate after case analysis." accent={COLORS.semantic.threat} />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitleRow icon={<DollarSign />} accent={COLORS.semantic.ai} text="LLM spend (24h)" />
+                  <span className="text-xs text-muted-foreground">{fmtMoney(usage?.total_cost, usage?.currency)}</span>
+                </CardHeader>
+                <CardContent>
+                  {costSeries.length > 1 ? <MiniBars values={costSeries} color={COLORS.semantic.ai} height={40} /> : null}
+                  {modelItems.length ? (
+                    <div className="mt-2"><BarList items={modelItems} format={(v) => fmtMoney(v, usage?.currency)} /></div>
+                  ) : (
+                    <EmptyWidget icon={<DollarSign />} title="No spend in the last 24h" description="LLM costs appear after agent runs." accent={COLORS.semantic.ai} />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitleRow icon={<Plug />} accent={COLORS.semantic.safe} text="Sources" />
+                  <Button variant="outline" size="sm" onClick={() => onNavigate?.('sources')}><Plus /> Manage</Button>
+                </CardHeader>
+                <CardContent>
+                  {enabledSources.length ? (
+                    <div className="flex flex-col">
+                      {enabledSources.slice(0, 6).map((s) => (
+                        <div key={s.id} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                          <div className="min-w-0">
+                            <span className="text-sm font-semibold text-foreground">{s.display_name || s.id}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{humanizeToken(s.source_type)}</span>
+                          </div>
+                          <span
+                            className="text-xs font-semibold rounded px-2 py-0.5"
+                            style={{ background: tint(s.is_primary ? COLORS.semantic.operational : COLORS.semantic.safe, 0.14), color: s.is_primary ? COLORS.semantic.operational : COLORS.semantic.safe }}
+                          >
+                            {s.is_primary ? 'Primary' : 'Enabled'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <EmptyWidget
+                      icon={<Plug />}
+                      title="No sources configured"
+                      description="Connect Elasticsearch, OpenSearch, Wazuh or a custom webhook source."
+                      accent={COLORS.semantic.safe}
+                      action={<Button size="sm" onClick={() => onNavigate?.('sources')}><Plus /> Add source</Button>}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent cases */}
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitleRow icon={<FolderOpen />} accent={COLORS.primary} text="Recent cases" />
+                <Button variant="ghost" size="sm" onClick={() => onNavigate?.('cases')}>View all <ChevronRight /></Button>
+              </CardHeader>
+              <CardContent className="p-2">
+                {recent.length ? (
+                  <div className="flex flex-col">
+                    {recent.map((c) => (
                       <div
+                        key={c.case_id}
                         role="button"
                         tabIndex={0}
                         onClick={() => setSelectedCaseId(c.case_id)}
@@ -438,58 +415,42 @@ export const OverviewPage: React.FC<OverviewProps> = ({ onNavigate }) => {
                             setSelectedCaseId(c.case_id);
                           }
                         }}
-                        aria-label={`Open case ${c.title || c.case_id}`}
-                        className="socCard--clickable"
-                        style={{
-                          cursor: 'pointer',
-                          borderRadius: 12,
-                          padding: '6px 8px',
-                          outline: 'none',
-                        }}
+                        className="flex items-center justify-between gap-3 rounded-md px-2 py-2 cursor-pointer hover:bg-muted/60 outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        <EuiFlexGroup alignItems="center" gutterSize="m" responsive={false} wrap>
-                          <EuiFlexItem>
-                            <EuiText size="s"><strong>{c.title || c.case_id}</strong></EuiText>
-                            <EuiText size="xs" color="subdued">
-                              <span>{c.entity ? `${c.entity.type}:${c.entity.value}` : '—'} · {humanizeAge(c.updated_at || c.created_at)}</span>
-                            </EuiText>
-                          </EuiFlexItem>
-                          <EuiFlexItem grow={false}><RiskBadge score={c.risk_score} /></EuiFlexItem>
-                          <EuiFlexItem grow={false}><VerdictBadge verdict={c.verdict} /></EuiFlexItem>
-                          <EuiFlexItem grow={false}><StatusBadge status={c.status} /></EuiFlexItem>
-                        </EuiFlexGroup>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-foreground truncate">{c.title || c.case_id}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.entity ? `${c.entity.type}:${c.entity.value}` : '—'} · {humanizeAge(c.updated_at || c.created_at)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <RiskPill score={c.risk_score} />
+                          <VerdictPill verdict={c.verdict} />
+                          <StatusPill status={c.status} />
+                        </div>
                       </div>
-                    }
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyWidget
+                    icon={<Play />}
+                    title="No cases yet"
+                    description="Cases appear as alerts are triaged."
+                    accent={COLORS.primary}
+                    action={<Button size="sm" onClick={() => onNavigate?.('cases')}><Play /> Run test scan</Button>}
                   />
-                ))}
-              </div>
-            ) : (
-              <div style={{ padding: '4px 0' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 100px 80px 100px', gap: 0, padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)', fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  <span>Case ID</span>
-                  <span>Severity</span>
-                  <span>Source</span>
-                  <span>Status</span>
-                  <span>Created</span>
-                </div>
-                <div style={{ padding: '24px 0', textAlign: 'center', borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 2 }}>No cases yet</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>Cases will appear as alerts are triaged.</div>
-                  <EuiButton size="s" iconType="play" fill onClick={() => onNavigate?.('cases')}>Run Test Scan</EuiButton>
-                </div>
-              </div>
-            )}
-          </Card>
-        </>
-      )}
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
 
-      {selectedCaseId ? (
-        <CaseDetailFlyout
-          caseId={selectedCaseId}
-          onClose={() => setSelectedCaseId(null)}
-          onChanged={load}
-        />
-      ) : null}
-    </div>
+        {selectedCaseId ? (
+          <CaseDetailFlyout caseId={selectedCaseId} onClose={() => setSelectedCaseId(null)} onChanged={load} />
+        ) : null}
+      </div>
+    </TooltipProvider>
   );
 };
+
+export const OverviewPage: React.FC<OverviewProps> = (props) => <OverviewInner {...props} />;

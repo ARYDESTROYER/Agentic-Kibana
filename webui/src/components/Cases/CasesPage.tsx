@@ -1,66 +1,66 @@
 /**
- * Cases / dashboard — the default landing surface and the entry point to the
- * core analyst workflow. Lists recent cases (GET /api/cases) with headline
- * counts, status + verdict filters, and a client-side search; clicking any row
- * opens the CaseDetailFlyout where the analyst reviews evidence, the agent trace,
- * the timeline, and takes a lifecycle action. Hovering a case title surfaces a
- * rich CaseHoverCard preview (zero-network from the loaded row).
+ * Cases — the core analyst workflow surface. Rebuilt on shadcn/ui (Tailwind +
+ * Radix primitives, see components/ui/*), themed via the shared token bridge to
+ * match the EUI console. Lists recent cases (GET /api/cases) with headline
+ * counts, status + verdict + collaboration filters, and a client-side search;
+ * clicking any row opens the EUI CaseDetailFlyout where the analyst reviews
+ * evidence, the agent trace, the timeline, and takes a lifecycle action.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  EuiBadge,
-  EuiBasicTable,
-  EuiButton,
-  EuiFieldSearch,
-  EuiFilterButton,
-  EuiFilterGroup,
-  EuiFlexGroup,
-  EuiFlexItem,
-  EuiSpacer,
-  EuiToolTip,
-} from '@elastic/eui';
-import type { Criteria, EuiBasicTableColumn } from '@elastic/eui';
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Bug,
+  Expand,
+  FileText,
+  MessageSquare,
+  Play,
+  RefreshCw,
+  Search,
+  User,
+} from 'lucide-react';
 import type { Case } from '../../lib/types';
 import { api } from '../../lib/api';
-import { COLORS, riskHex, verdictHex } from '../../lib/theme';
+import { COLORS, riskHex, tint, verdictHex } from '../../lib/theme';
 import { humanizeAge } from '../../lib/format';
-import {
-  ErrorCallout,
-  RiskBadge,
-  Skeleton,
-  StatTile,
-  StatusBadge,
-  VerdictBadge,
-} from '../common/ui';
+import { RiskPill, StatusPill, VerdictPill } from '../common/socBadges';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Input } from '../ui/input';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
+import { Skeleton } from '../ui/skeleton';
 import { CaseDetailFlyout } from './CaseDetailFlyout';
-import { CaseHoverCard } from './CaseHoverCard';
 
 type StatusFilter = 'all' | 'open' | 'needs_human' | 'closed';
 type VerdictFilter = 'all' | 'true' | 'false' | 'needs_human';
-/** Collaboration quick filters (over the loaded rows). */
 type CollabFilter = 'all' | 'unassigned' | 'has_comments';
 
 /** Sentinel select value meaning "no assignee filter applied". */
 const ANY_ASSIGNEE = '__any__';
 
-const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
-  { key: 'all', label: 'All' },
-  { key: 'open', label: 'Open' },
-  { key: 'needs_human', label: 'Needs human' },
-  { key: 'closed', label: 'Closed' },
+const STATUS_FILTERS: Array<{ value: StatusFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open' },
+  { value: 'needs_human', label: 'Needs human' },
+  { value: 'closed', label: 'Closed' },
 ];
 
-const VERDICT_FILTERS: Array<{ key: VerdictFilter; label: string }> = [
-  { key: 'all', label: 'Any verdict' },
-  { key: 'true', label: 'True positive' },
-  { key: 'false', label: 'False positive' },
-  { key: 'needs_human', label: 'Needs human' },
+const VERDICT_FILTERS: Array<{ value: VerdictFilter; label: string }> = [
+  { value: 'all', label: 'Any' },
+  { value: 'true', label: 'True positive' },
+  { value: 'false', label: 'False positive' },
+  { value: 'needs_human', label: 'Needs human' },
 ];
 
-const COLLAB_FILTERS: Array<{ key: CollabFilter; label: string }> = [
-  { key: 'all', label: 'Any' },
-  { key: 'unassigned', label: 'Unassigned' },
-  { key: 'has_comments', label: 'Has comments' },
+const COLLAB_FILTERS: Array<{ value: CollabFilter; label: string }> = [
+  { value: 'all', label: 'Any' },
+  { value: 'unassigned', label: 'Unassigned' },
+  { value: 'has_comments', label: 'Has comments' },
 ];
 
 type SortField = 'title' | 'risk_score' | 'updated_at' | 'status' | 'verdict' | 'assignee';
@@ -69,13 +69,39 @@ function verdictClass(c: Case): VerdictFilter {
   const v = (c.verdict || '').toUpperCase();
   if (v.includes('TRUE')) return 'true';
   if (v.includes('FALSE')) return 'false';
-  if (v.includes('NEEDS') || v.includes('INCONCLUSIVE') || v.includes('UNKNOWN')) {
-    return 'needs_human';
-  }
+  if (v.includes('NEEDS') || v.includes('INCONCLUSIVE') || v.includes('UNKNOWN')) return 'needs_human';
   return 'all';
 }
 
-export const CasesPage: React.FC = () => {
+const StatCard: React.FC<{ label: string; value: React.ReactNode; accent: string; icon: React.ReactNode }> = ({
+  label,
+  value,
+  accent,
+  icon,
+}) => (
+  <Card style={{ borderTop: `3px solid ${tint(accent, 0.85)}` }}>
+    <CardContent>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">{label}</div>
+          <div className="text-3xl font-bold tracking-tight leading-none text-foreground">{value}</div>
+        </div>
+        <span className="inline-flex items-center justify-center rounded-md shrink-0 [&_svg]:h-4 [&_svg]:w-4" style={{ width: 32, height: 32, background: tint(accent, 0.14), color: accent }}>
+          {icon}
+        </span>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const FilterBlock: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <div className="text-[11px] font-semibold text-muted-foreground mb-1">{label}</div>
+    {children}
+  </div>
+);
+
+const CasesInner: React.FC = () => {
   const [cases, setCases] = useState<Case[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -89,9 +115,6 @@ export const CasesPage: React.FC = () => {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
-  /** Page-level cache shared by every CaseHoverCard so hovers never re-fetch. */
-  const caseCache = useRef<Map<string, Case>>(new Map());
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -101,10 +124,6 @@ export const CasesPage: React.FC = () => {
       const res = await api.listCases(query);
       setCases(res.cases);
       setTotal(res.total);
-      // Seed the hover cache with the freshly loaded list rows.
-      for (const c of res.cases) {
-        if (!caseCache.current.has(c.case_id)) caseCache.current.set(c.case_id, c);
-      }
     } catch (e) {
       setError(e);
     } finally {
@@ -116,11 +135,8 @@ export const CasesPage: React.FC = () => {
     void load();
   }, [load]);
 
-  // Counts are over the full fetched list (not the in-view filtered subset).
   const counts = useMemo(() => {
-    let open = 0;
-    let needsHuman = 0;
-    let truePositive = 0;
+    let open = 0, needsHuman = 0, truePositive = 0;
     for (const c of cases) {
       if (c.status === 'open') open += 1;
       if (c.status === 'needs_human') needsHuman += 1;
@@ -129,7 +145,6 @@ export const CasesPage: React.FC = () => {
     return { open, needsHuman, truePositive };
   }, [cases]);
 
-  // Distinct assignees over the loaded rows → options for the assignee <select>.
   const assigneeOptions = useMemo(() => {
     const seen = new Set<string>();
     for (const c of cases) {
@@ -137,19 +152,11 @@ export const CasesPage: React.FC = () => {
       if (a) seen.add(a);
     }
     const names = Array.from(seen).sort((a, b) => a.localeCompare(b));
-    return [
-      { value: ANY_ASSIGNEE, text: 'Any assignee' },
-      ...names.map((n) => ({ value: n, text: n })),
-    ];
+    return [{ value: ANY_ASSIGNEE, label: 'Any assignee' }, ...names.map((n) => ({ value: n, label: n }))];
   }, [cases]);
 
-  // If the active assignee filter no longer exists in the loaded rows
-  // (e.g. after a reload), drop it so the list doesn't silently empty out.
   useEffect(() => {
-    if (
-      assigneeFilter !== ANY_ASSIGNEE &&
-      !assigneeOptions.some((o) => o.value === assigneeFilter)
-    ) {
+    if (assigneeFilter !== ANY_ASSIGNEE && !assigneeOptions.some((o) => o.value === assigneeFilter)) {
       setAssigneeFilter(ANY_ASSIGNEE);
     }
   }, [assigneeFilter, assigneeOptions]);
@@ -157,34 +164,25 @@ export const CasesPage: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let rows = cases;
-    if (verdictFilter !== 'all') {
-      rows = rows.filter((c) => verdictClass(c) === verdictFilter);
-    }
-    if (collabFilter === 'unassigned') {
-      rows = rows.filter((c) => !(c.assignee || '').trim());
-    } else if (collabFilter === 'has_comments') {
-      rows = rows.filter((c) => Array.isArray(c.comments) && c.comments.length > 0);
-    }
-    if (assigneeFilter !== ANY_ASSIGNEE) {
-      rows = rows.filter((c) => (c.assignee || '').trim() === assigneeFilter);
-    }
+    if (verdictFilter !== 'all') rows = rows.filter((c) => verdictClass(c) === verdictFilter);
+    if (collabFilter === 'unassigned') rows = rows.filter((c) => !(c.assignee || '').trim());
+    else if (collabFilter === 'has_comments') rows = rows.filter((c) => Array.isArray(c.comments) && c.comments.length > 0);
+    if (assigneeFilter !== ANY_ASSIGNEE) rows = rows.filter((c) => (c.assignee || '').trim() === assigneeFilter);
     if (q) {
       rows = rows.filter((c) => {
-        const hay = [
-          c.title,
-          c.case_id,
-          c.entity?.value,
-          c.entity?.type,
-          ...(Array.isArray(c.tags) ? c.tags : []),
-        ]
+        const hay = [c.title, c.case_id, c.entity?.value, c.entity?.type, ...(Array.isArray(c.tags) ? c.tags : [])]
           .filter(Boolean)
           .join(' ')
           .toLowerCase();
         return hay.includes(q);
       });
     }
+    return rows;
+  }, [cases, search, verdictFilter, collabFilter, assigneeFilter]);
+
+  const sorted = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
-    const sorted = [...rows].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       switch (sortField) {
         case 'risk_score':
           return ((a.risk_score ?? -1) - (b.risk_score ?? -1)) * dir;
@@ -195,387 +193,224 @@ export const CasesPage: React.FC = () => {
         case 'verdict':
           return (a.verdict || '').localeCompare(b.verdict || '') * dir;
         case 'assignee':
-          // Unassigned (empty) sorts after assigned names within each direction.
           return (a.assignee || '￿').localeCompare(b.assignee || '￿') * dir;
         case 'updated_at':
         default:
-          return (
-            (a.updated_at || a.created_at || '').localeCompare(
-              b.updated_at || b.created_at || '',
-            ) * dir
-          );
+          return (a.updated_at || a.created_at || '').localeCompare(b.updated_at || b.created_at || '') * dir;
       }
     });
-    return sorted;
-  }, [cases, search, verdictFilter, collabFilter, assigneeFilter, sortField, sortDir]);
+  }, [filtered, sortField, sortDir]);
 
-  const onTableChange = useCallback(({ sort }: Criteria<Case>) => {
-    if (sort) {
-      setSortField(sort.field as SortField);
-      setSortDir(sort.direction);
-    }
+  const toggleSort = useCallback((field: SortField) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('desc');
+      return field;
+    });
   }, []);
 
-  const columns: Array<EuiBasicTableColumn<Case>> = [
-    {
-      field: 'title',
-      name: 'Title',
-      sortable: true,
-      render: (_: unknown, c: Case) => {
-        const accent = verdictHex(c.verdict) || riskHex(c.risk_score);
-        return (
-          <CaseHoverCard
-            caseId={c.case_id}
-            preloaded={c}
-            cache={caseCache}
-            anchor={
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  borderLeft: `3px solid ${accent}`,
-                  paddingLeft: 8,
-                  fontWeight: 600,
-                  wordBreak: 'break-word',
-                }}
-              >
-                {c.title || c.case_id}
-              </span>
-            }
-          />
-        );
-      },
-    },
-    {
-      field: 'entity',
-      name: 'Entity',
-      render: (_: unknown, c: Case) =>
-        c.entity ? (
-          <span>
-            {c.entity.type}: <span className="socMono">{c.entity.value}</span>
-          </span>
-        ) : (
-          '—'
-        ),
-    },
-    {
-      field: 'assignee',
-      name: 'Assignee',
-      sortable: true,
-      render: (_: unknown, c: Case) => {
-        const assignee = (c.assignee || '').trim();
-        if (!assignee) {
-          return <EuiBadge color="hollow">Unassigned</EuiBadge>;
-        }
-        return (
-          <EuiBadge color={COLORS.primary} iconType="user">
-            {assignee}
-          </EuiBadge>
-        );
-      },
-    },
-    {
-      field: 'tags',
-      name: 'Tags',
-      render: (_: unknown, c: Case) => {
-        const tags = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
-        const commentCount = Array.isArray(c.comments) ? c.comments.length : 0;
-        if (!tags.length && !commentCount) {
-          return <span style={{ color: COLORS.subdued }}>—</span>;
-        }
-        return (
-          <EuiFlexGroup gutterSize="xs" wrap responsive={false} alignItems="center">
-            {tags.slice(0, 3).map((t) => (
-              <EuiFlexItem grow={false} key={t}>
-                <EuiBadge color="hollow">{t}</EuiBadge>
-              </EuiFlexItem>
-            ))}
-            {tags.length > 3 ? (
-              <EuiFlexItem grow={false}>
-                <EuiBadge color="hollow">+{tags.length - 3}</EuiBadge>
-              </EuiFlexItem>
-            ) : null}
-            {commentCount > 0 ? (
-              <EuiFlexItem grow={false}>
-                <EuiToolTip
-                  content={`${commentCount} analyst comment${commentCount === 1 ? '' : 's'}`}
-                >
-                  <EuiBadge color="hollow" iconType="editorComment">
-                    {commentCount}
-                  </EuiBadge>
-                </EuiToolTip>
-              </EuiFlexItem>
-            ) : null}
-          </EuiFlexGroup>
-        );
-      },
-    },
-    {
-      field: 'verdict',
-      name: 'Verdict',
-      sortable: true,
-      render: (_: unknown, c: Case) => <VerdictBadge verdict={c.verdict} />,
-    },
-    {
-      field: 'risk_score',
-      name: 'Risk',
-      sortable: true,
-      render: (_: unknown, c: Case) => <RiskBadge score={c.risk_score} />,
-    },
-    {
-      field: 'status',
-      name: 'Status',
-      sortable: true,
-      render: (_: unknown, c: Case) => <StatusBadge status={c.status} />,
-    },
-    {
-      field: 'updated_at',
-      name: 'Updated',
-      sortable: true,
-      render: (_: unknown, c: Case) => humanizeAge(c.updated_at || c.created_at),
-    },
-    {
-      name: '',
-      width: '40px',
-      actions: [
-        {
-          name: 'Open',
-          description: 'Open case detail',
-          icon: 'expand',
-          type: 'icon',
-          onClick: (c: Case) => setSelectedCaseId(c.case_id),
-        },
-      ],
-    },
-  ];
+  const SortHead: React.FC<{ field: SortField; children: React.ReactNode; className?: string }> = ({ field, children, className }) => (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => toggleSort(field)}
+        className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground transition-colors"
+      >
+        {children}
+        {sortField === field ? (sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />) : null}
+      </button>
+    </TableHead>
+  );
 
   return (
-    <div className="socPageEnter" style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, color: 'var(--text-primary)' }}>Cases</h1>
-          <p style={{ margin: '5px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Audited, human-reviewable triage cases.</p>
+    <TooltipProvider delayDuration={150}>
+      <div className="sn-scope socPageEnter" style={{ padding: 24 }}>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h1 className="text-2xl font-bold leading-tight text-foreground m-0">Cases</h1>
+            <p className="text-[13px] text-muted-foreground m-0 mt-0.5">Audited, human-reviewable triage cases.</p>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="text-xs text-muted-foreground">Updated just now</span>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
+            </Button>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button onClick={load} style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', border: '1px solid var(--border-input)', background: 'var(--bg-card)', color: 'var(--text-primary)', borderRadius: 6, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>
-            Refresh
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updated just now</span>
+
+        {/* KPI tiles */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <StatCard label="Total cases" value={total} accent={COLORS.primary} icon={<FileText />} />
+          <StatCard label="Open (in view)" value={counts.open} accent={COLORS.semantic.operational} icon={<FileText />} />
+          <StatCard label="Needs human (in view)" value={counts.needsHuman} accent={COLORS.warning} icon={<AlertTriangle />} />
+          <StatCard label="True positives (in view)" value={counts.truePositive} accent={COLORS.danger} icon={<Bug />} />
         </div>
+
+        {/* Filters */}
+        <Card className="mb-4">
+          <CardContent className="p-3">
+            <div className="flex flex-wrap items-end gap-4">
+              <FilterBlock label="SEARCH">
+                <div className="relative min-w-[240px]">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    className="pl-8"
+                    placeholder="Search title, entity, IP, tags…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    aria-label="Search cases"
+                  />
+                </div>
+              </FilterBlock>
+              <FilterBlock label="STATUS">
+                <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                  <TabsList>{STATUS_FILTERS.map((f) => <TabsTrigger key={f.value} value={f.value}>{f.label}</TabsTrigger>)}</TabsList>
+                </Tabs>
+              </FilterBlock>
+              <FilterBlock label="VERDICT">
+                <Tabs value={verdictFilter} onValueChange={(v) => setVerdictFilter(v as VerdictFilter)}>
+                  <TabsList>{VERDICT_FILTERS.map((f) => <TabsTrigger key={f.value} value={f.value}>{f.label}</TabsTrigger>)}</TabsList>
+                </Tabs>
+              </FilterBlock>
+              <FilterBlock label="ASSIGNMENT">
+                <Tabs value={collabFilter} onValueChange={(v) => setCollabFilter(v as CollabFilter)}>
+                  <TabsList>{COLLAB_FILTERS.map((f) => <TabsTrigger key={f.value} value={f.value}>{f.label}</TabsTrigger>)}</TabsList>
+                </Tabs>
+              </FilterBlock>
+              <FilterBlock label="ASSIGNEE">
+                <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                  <SelectTrigger className="min-w-[160px] h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {assigneeOptions.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FilterBlock>
+            </div>
+          </CardContent>
+        </Card>
+
+        {error ? (
+          <Card className="mb-4 border-destructive/40">
+            <CardContent className="flex items-center gap-2 text-sm" style={{ color: COLORS.danger }}>
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {error instanceof Error ? error.message : String(error)}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {loading ? (
+          <Card><CardContent className="flex flex-col gap-2.5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</CardContent></Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Cases <span className="text-muted-foreground font-normal">({sorted.length}{sorted.length !== total ? ` of ${total}` : ''})</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {sorted.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-sm font-semibold text-foreground mb-1">{cases.length === 0 ? 'No cases available' : 'No matching cases found'}</div>
+                  <div className="text-xs text-muted-foreground mb-3">
+                    {cases.length === 0 ? 'Cases appear as investigations complete, scans create findings, or alerts escalate.' : 'Clear the search / filters to see all loaded cases.'}
+                  </div>
+                  <Button size="sm"><Play /> Run investigation</Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <SortHead field="title">Title</SortHead>
+                      <TableHead>Entity</TableHead>
+                      <SortHead field="assignee">Assignee</SortHead>
+                      <TableHead>Tags</TableHead>
+                      <SortHead field="verdict">Verdict</SortHead>
+                      <SortHead field="risk_score">Risk</SortHead>
+                      <SortHead field="status">Status</SortHead>
+                      <SortHead field="updated_at">Updated</SortHead>
+                      <TableHead className="w-12" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sorted.map((c) => {
+                      const accent = verdictHex(c.verdict) || riskHex(c.risk_score);
+                      const tags = Array.isArray(c.tags) ? c.tags.filter(Boolean) : [];
+                      const commentCount = Array.isArray(c.comments) ? c.comments.length : 0;
+                      const assignee = (c.assignee || '').trim();
+                      return (
+                        <TableRow key={c.case_id} className="cursor-pointer" onClick={() => setSelectedCaseId(c.case_id)}>
+                          <TableCell>
+                            <span className="inline-flex items-center font-semibold break-words pl-2" style={{ borderLeft: `3px solid ${accent}` }}>
+                              {c.title || c.case_id}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {c.entity ? (
+                              <span className="text-sm">{c.entity.type}: <span className="socMono">{c.entity.value}</span></span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {assignee ? (
+                              <Badge variant="outline" className="gap-1" style={{ color: COLORS.primary, borderColor: tint(COLORS.primary, 0.3) }}>
+                                <User className="h-3 w-3" /> {assignee}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground">Unassigned</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {!tags.length && !commentCount ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {tags.slice(0, 3).map((t) => <Badge key={t} variant="outline">{t}</Badge>)}
+                                {tags.length > 3 ? <Badge variant="outline">+{tags.length - 3}</Badge> : null}
+                                {commentCount > 0 ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge variant="outline" className="gap-1"><MessageSquare className="h-3 w-3" /> {commentCount}</Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{commentCount} analyst comment{commentCount === 1 ? '' : 's'}</TooltipContent>
+                                  </Tooltip>
+                                ) : null}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell><VerdictPill verdict={c.verdict} /></TableCell>
+                          <TableCell><RiskPill score={c.risk_score} /></TableCell>
+                          <TableCell><StatusPill status={c.status} /></TableCell>
+                          <TableCell><span className="text-muted-foreground whitespace-nowrap">{humanizeAge(c.updated_at || c.created_at)}</span></TableCell>
+                          <TableCell>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setSelectedCaseId(c.case_id); }}>
+                                  <Expand className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Open case detail</TooltipContent>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {selectedCaseId ? (
+          <CaseDetailFlyout caseId={selectedCaseId} onClose={() => setSelectedCaseId(null)} onChanged={load} />
+        ) : null}
       </div>
-
-      <EuiFlexGroup gutterSize="m">
-        <EuiFlexItem>
-          <StatTile label="Total cases" value={total} icon="documents" accent={COLORS.primary} />
-        </EuiFlexItem>
-        <EuiFlexItem>
-          <StatTile label="Open (in view)" value={counts.open} icon="dot" accent={COLORS.primary} />
-        </EuiFlexItem>
-        <EuiFlexItem>
-          <StatTile label="Needs human (in view)" value={counts.needsHuman} icon="alert" accent={COLORS.warning} />
-        </EuiFlexItem>
-        <EuiFlexItem>
-          <StatTile label="True positives (in view)" value={counts.truePositive} icon="bug" accent={COLORS.danger} />
-        </EuiFlexItem>
-      </EuiFlexGroup>
-
-      <EuiSpacer size="l" />
-
-      {/* Search + Filters with visual grouping */}
-      <div className="socFilterRow">
-        {/* Search — 40-50% width */}
-        <div className="socFilterGroup socFilterGroup--search">
-          <span className="socFilterLabel">Search</span>
-          <div className="socSearchWrap">
-            <span className="socSearchIcon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-              </svg>
-            </span>
-            <EuiFieldSearch
-              placeholder="Search title, entity, IP, tags…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              isClearable
-              fullWidth
-              compressed={false}
-              aria-label="Search cases"
-            />
-            <span className="socSearchShortcut">Ctrl+K</span>
-          </div>
-        </div>
-
-        {/* Status */}
-        <div className="socFilterGroup">
-          <span className="socFilterLabel">Status</span>
-          <EuiFilterGroup>
-            {STATUS_FILTERS.map((f) => (
-              <EuiFilterButton
-                key={f.key}
-                hasActiveFilters={statusFilter === f.key}
-                isSelected={statusFilter === f.key}
-                onClick={() => setStatusFilter(f.key)}
-              >
-                {f.label}
-              </EuiFilterButton>
-            ))}
-          </EuiFilterGroup>
-        </div>
-
-        {/* Verdict */}
-        <div className="socFilterGroup">
-          <span className="socFilterLabel">Verdict</span>
-          <EuiFilterGroup>
-            {VERDICT_FILTERS.map((f) => (
-              <EuiFilterButton
-                key={f.key}
-                hasActiveFilters={verdictFilter === f.key}
-                isSelected={verdictFilter === f.key}
-                onClick={() => setVerdictFilter(f.key)}
-              >
-                {f.label}
-              </EuiFilterButton>
-            ))}
-          </EuiFilterGroup>
-        </div>
-
-        {/* Assignment */}
-        <div className="socFilterGroup">
-          <span className="socFilterLabel">Assignment</span>
-          <EuiFilterGroup>
-            {COLLAB_FILTERS.map((f) => (
-              <EuiFilterButton
-                key={f.key}
-                hasActiveFilters={collabFilter === f.key}
-                isSelected={collabFilter === f.key}
-                onClick={() => setCollabFilter(f.key)}
-              >
-                {f.label}
-              </EuiFilterButton>
-            ))}
-          </EuiFilterGroup>
-        </div>
-
-        {/* Assignee */}
-        <div className="socFilterGroup">
-          <span className="socFilterLabel">Assignee</span>
-          <select
-            className="socAssigneeSelect"
-            value={assigneeFilter}
-            onChange={(e) => setAssigneeFilter(e.target.value)}
-            aria-label="Filter cases by assignee"
-          >
-            {assigneeOptions.map((o) => (
-              <option key={o.value} value={o.value}>{o.text}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <EuiSpacer size="m" />
-
-      {error ? (
-        <>
-          <ErrorCallout error={error} />
-          <EuiSpacer size="m" />
-        </>
-      ) : null}
-      {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} height={44} radius={8} />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="socEmptyTable">
-          {/* Cases count header — visually part of the table */}
-          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-table-header)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Cases</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>(0)</span>
-          </div>
-          {/* Table column header */}
-          <div className="socEmptyTableHeader" style={{ gridTemplateColumns: '2fr 1.2fr 1fr 1fr 1fr 0.8fr 0.6fr' }}>
-            <span>Title</span>
-            <span>Entity</span>
-            <span>Assignee</span>
-            <span>Verdict</span>
-            <span>Risk</span>
-            <span>Status</span>
-            <span>Updated</span>
-          </div>
-          {/* Empty rows for structure */}
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="socEmptyTableRow" style={{ gridTemplateColumns: '2fr 1.2fr 1fr 1fr 1fr 0.8fr 0.6fr', opacity: 0.3 }}>
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '60%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '70%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '50%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '60%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '40%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '50%' }} />
-              <span style={{ height: 10, borderRadius: 4, background: 'var(--bg-skeleton)', width: '50%' }} />
-            </div>
-          ))}
-          {/* Empty state message */}
-          <div style={{ padding: '24px 16px', textAlign: 'center', borderTop: '1px solid var(--border-subtle)' }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 8 }}>
-              {cases.length === 0
-                ? 'No cases available'
-                : 'No matching cases found'}
-            </div>
-            {cases.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 360, margin: '0 auto', lineHeight: 1.6, textAlign: 'left' }}>
-                <div style={{ marginBottom: 6 }}>Cases appear when:</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                  <span style={{ color: 'var(--status-info)' }}>•</span> Manual investigations complete
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                  <span style={{ color: 'var(--status-info)' }}>•</span> Automated scans create findings
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ color: 'var(--status-info)' }}>•</span> Alerts are escalated
-                </div>
-              </div>
-            ) : (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                No cases match the current search / verdict filter. Clear them to see all loaded cases.
-              </div>
-            )}
-            <div style={{ marginTop: 12 }}>
-              <EuiButton size="s" fill iconType="play" onClick={() => {/* navigate to investigate */}}>
-                Run Investigation
-              </EuiButton>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div style={{ border: '1px solid var(--border-default)', borderRadius: 12, overflow: 'hidden', background: 'var(--bg-card)' }}>
-          {/* Cases count header — visually part of the table */}
-          <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-table-header)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Cases</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>({filtered.length}{filtered.length !== total ? ` of ${total}` : ''})</span>
-          </div>
-          <EuiBasicTable
-            items={filtered}
-            columns={columns}
-            rowHeader="title"
-            sorting={{ sort: { field: sortField, direction: sortDir } }}
-            onChange={onTableChange}
-            rowProps={(c: Case) => ({
-              onClick: () => setSelectedCaseId(c.case_id),
-              style: { cursor: 'pointer' },
-            })}
-          />
-        </div>
-      )}
-
-      {selectedCaseId ? (
-        <CaseDetailFlyout
-          caseId={selectedCaseId}
-          onClose={() => setSelectedCaseId(null)}
-          onChanged={load}
-        />
-      ) : null}
-    </div>
+    </TooltipProvider>
   );
 };
+
+export const CasesPage: React.FC = () => <CasesInner />;
