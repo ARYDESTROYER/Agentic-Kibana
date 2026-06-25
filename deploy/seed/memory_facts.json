@@ -1,0 +1,9 @@
+[
+ {"text":"Internal RFC1918 ranges are 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16. Traffic between these is east-west/internal; treat reachability direction accordingly.","category":"asset","tags":["network","internal"]},
+ {"text":"10.99.0.0/24 is the out-of-band management network (iLO/IPMI, switch/firewall mgmt). It must never source normal user traffic and never reach the Internet; any such activity is high-severity.","category":"asset","tags":["network","management","high-signal"]},
+ {"text":"172.16.10.0/24 is the Internet-facing DMZ (reverse proxy, public web, mail relay, VPN concentrator). Inbound scan/probe/login-failure noise here is expected baseline, not an incident on its own.","category":"asset","tags":["network","dmz"]},
+ {"text":"10.100.0.0/24 are dynamic staff-VPN addresses; each maps to a named SSO+MFA user for the session, not a fixed asset. Do not treat a VPN IP as a stable host identity.","category":"asset","tags":["network","vpn"]},
+ {"text":"10.30.0.0/16 is the server/datacenter block: 10.30.10.0/24 prod apps, 10.30.20.0/24 databases (crown jewels), 10.30.30.0/24 identity/AD, 10.30.40.0/24 backup. The DB VLAN (10.30.20.0/24) takes app-tier traffic only, never direct user access.","category":"asset","tags":["network","servers","crown-jewel"]},
+ {"text":"10.10.0.0/16 is the staff/internal LAN (10.10.10.0/24 admin+finance, 10.10.30.0/24 IT/NetOps). 10.20.0.0/16 is the student network (labs + hostels) with untrusted endpoints and high baseline noise.","category":"asset","tags":["network","segmentation"]},
+ {"text":"10.30.0.5 is the authorized Nessus vulnerability scanner. Recon/scan activity originating from it is sanctioned and benign; do not raise it as an incident.","category":"asset","tags":["scanner","authorized","suppression"]}
+]

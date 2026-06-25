@@ -1,0 +1,12 @@
+{"asset_networks":[
+ {"cidr":"10.99.0.0/24","criticality":100},
+ {"cidr":"10.30.20.0/24","criticality":95},
+ {"cidr":"10.30.30.0/24","criticality":95},
+ {"cidr":"10.30.10.0/24","criticality":90},
+ {"cidr":"10.10.10.0/24","criticality":90},
+ {"cidr":"172.16.10.0/24","criticality":85},
+ {"cidr":"10.10.0.0/16","criticality":70},
+ {"cidr":"10.100.0.0/24","criticality":60},
+ {"cidr":"10.20.0.0/16","criticality":40},
+ {"cidr":"192.168.50.0/24","criticality":10}
+]}

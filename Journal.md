@@ -973,3 +973,27 @@
 
 ### 2026-06-23 — orchestrator — round wrap-up: browse-logs + read-only test-connection + per-source TLS
 - Did: integrated both features (backend commit d35f578, webui commit 5b9537c); 349 backend tests green, webui build green; docs updated this pass (Journal, CHANGELOG, CLAUDE.md, docs/USAGE.md, docs/TROUBLESHOOTING.md, SECURITY.md). Status: done.
+
+### 2026-06-25 09:27Z — webui — Overview + Cases rebuilt on Ant Design
+- Context: user asked to improve the Overview + Cases UI and requested Ant Design. Chose "Add Ant Design (2 pages only)" — flagged the visual-consistency tradeoff vs the EUI design system used by the other 14 pages.
+- Did: added `antd@5.29.3` (+ transitive `@ant-design/icons`) to webui deps. New `components/common/AntdThemeBridge.tsx` (ConfigProvider themed to the app's dark/light + accent via `COLORS.primary`, tokens mirroring index.css; no antd reset.css imported so it doesn't fight EUI). New `components/common/antdBadges.tsx` (RiskPill/VerdictPill/StatusPill/ConfidencePill reusing riskHex/verdictHex/statusHex). Rewrote `Overview/OverviewPage.tsx` and `Cases/CasesPage.tsx` on antd (Card/Row/Col/Statistic/Table/Segmented/Select/Input.Search/List/Empty/Alert/Skeleton). Kept all data-load/filter/sort logic, the theme-aware SVG charts (Donut/BarList/MiniBars/StackedHistogram/Sparkline), and the EUI `CaseDetailFlyout` for case detail (#9 untrusted rendering untouched).
+- Notes: Overview's recent-cases list dropped the EUI `CaseHoverCard` hover-preview (click-to-open flyout retained). antd is now a webui dep — supersedes the historical "no new npm deps" note in CLAUDE.md §8 for the webui.
+- Tests: `npm run build` GREEN (tsc + vite); backend untouched.
+- Status: done
+- Next: optional — extend antd to other pages for full consistency, or revert if mixed look is undesirable.
+
+### 2026-06-25 10:10Z — webui — Overview + Cases migrated from antd to shadcn/ui
+- Context: user pivoted the component system from Ant Design to shadcn/ui for the Overview + Cases pages; rebuild docker.
+- Did: removed `antd` + deleted AntdThemeBridge/antdBadges. Added Tailwind v3 (`tailwindcss`/`postcss`/`autoprefixer`), shadcn runtime (`class-variance-authority`/`clsx`/`tailwind-merge`/`tailwindcss-animate`/`lucide-react`) and Radix primitives (`react-slot`/`react-select`/`react-tabs`/`react-tooltip`). New `tailwind.config.js` (preflight DISABLED so it never touches the 14 EUI pages; darkMode bound to `[data-theme="dark"]`; colour tokens reference the existing index.css CSS vars so dark/light + `--soc-accent` flip automatically), `postcss.config.js`, `src/shadcn.css` (token bridge, imported after index.css in main.tsx). New shadcn primitives in `src/components/ui/` (button/card/badge/input/select/table/skeleton/tabs/tooltip) + `lib/utils.ts` cn(). New `components/common/socBadges.tsx` (RiskPill/VerdictPill/StatusPill reusing riskHex/verdictHex/statusHex). Rewrote `Overview/OverviewPage.tsx` + `Cases/CasesPage.tsx` on shadcn; kept all data/filter/sort logic, the theme-aware SVG charts, and the EUI `CaseDetailFlyout` (#9 untrusted rendering intact).
+- Verify: confirmed built CSS contains the Tailwind utilities AND no preflight universal reset leaked (EUI pages safe). Bundles dropped vs antd (Overview 28kB→15kB, Cases 239kB→40kB).
+- Tests: `npm run build` GREEN (tsc + vite). Docker image `tlsoc-agentic-triage-webui:1.0.0` rebuilt + recreated; webui + backend report healthy; serving the new bundle on :8080.
+- Status: done
+- Next: optional — extend shadcn to the other pages for full consistency (currently Overview+Cases are shadcn, the rest EUI).
+
+### 2026-06-25 — agent (Opus) — Institutional Knowledge Base §1 (network topology) + live seed
+- Context: build the Static Institutional Knowledge Base doc the user is drafting (Google Docs) — section 1 Network Topology — with REAL data, not placeholders.
+- Investigated: confirmed no real topology exists anywhere yet — `asset_networks`/`asset_criticality` ship empty (config.py:624), no seed log IPs, live stack (webui+backend+redis+postgres healthy on :8080/:8088) is empty (sources:[], cases:0, InMemoryESClient). Decision: commit ONE canonical TLSOC reference network as ground truth and make it real by pushing into the running system.
+- Did: created `docs/INSTITUTIONAL_KNOWLEDGE_BASE.md` (purpose + TOC + §1.1–1.7: address plan, dept segmentation, VLANs, VPN pools, DMZ/mgmt, how-it-feeds-the-agent, seeding). Canonical map consistent with repo conventions (10.10/16 staff crown jewels, 10.20/16 students, 10.30.0.5 Nessus). Pushed live: `PUT /api/settings` → 10 `asset_networks` (most-specific-wins criticality); `POST /api/memory` → 7 `category:asset` baseline facts (RFC1918, OOB mgmt, DMZ noise, dynamic VPN, datacenter, staff/student split, authorized scanner). Added `deploy/seed/{asset_networks.json,memory_facts.json,seed_institutional_kb.sh}` — idempotent loader (PUT replaces; memory skip-if-exists) to re-apply after restart (in-memory store doesn't persist).
+- Tests: seed script run against live backend → asset_networks=10, memory facts=7, re-run idempotent (no dup). No backend code changed; offline suite untouched.
+- Status: done (§1 complete + live). Sections 2–6 stubbed (Asset Inventory, Identity, Authorized Tooling, External Footprint, Naming).
+- Next: build §2 Asset Inventory (crown-jewel hosts) and seed per-host `asset_criticality` exact-value entries, or wire the seed script into compose so restarts re-apply automatically.
