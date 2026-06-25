@@ -19,11 +19,13 @@
 > configuration results in agent misclassification and intelligence degradation. **Owner:**
 > _<SOC / Network Operations Lead>_. **Review Cadence:** _quarterly (or upon infrastructure change)_.
 
-> **Current Status.** As of June 25, 2026, the canonical network topology described herein is
-> operationally configured within the TLSOC backend system (10 asset network entries + 7 network
-> baseline facts; see [§1.6](#16-how-this-feeds-the-soc-agent)). The AI system actively uses these
+> **Current Status.** As of June 25, 2026, the canonical network topology (§1) and asset
+> inventory (§2) described herein are operationally configured within the TLSOC backend system:
+> **23 `asset_networks` entries** (network blocks + per-host crown-jewel elevations), **23
+> `asset_criticality` host entries**, and **11 agent memory facts** (see [§1.6](#16-integration-with-the-ai-investigation-system)
+> and [§2.4](#24-integration-with-the-ai-investigation-system)). The AI system actively uses these
 > parameters for threat classification and risk assessment. This is not a template; these are
-> the operative network parameters. Should your physical environment differ from the topology
+> the operative parameters. Should your physical environment differ from the configuration
 > described, modifications must be made simultaneously to both this document and the live
 > configuration store to preserve system accuracy.
 
@@ -32,7 +34,7 @@
 ## Table of Contents
 
 1. [Network Topology](#1-network-topology) — ✅ **Complete**
-2. [Asset Inventory](#2-asset-inventory) — Crown-jewel infrastructure, ownership, data classification (in development)
+2. [Asset Inventory](#2-asset-inventory) — ✅ **Complete** (crown-jewel infrastructure, ownership, data classification)
 3. [Identity and Authentication](#3-identity--authentication) — Directory systems, IdP, privileged account naming (in development)
 4. [Authorized Security Infrastructure](#4-authorized-security-infrastructure) — Approved scanners, vulnerability assessment windows, SOC data sources (in development)
 5. [External Perimeter](#5-external-perimeter) — Public IP allocations, authoritative domain names, cloud infrastructure (in development)
@@ -173,6 +175,11 @@ Most-specific CIDR match determines the assigned criticality score; /24 entries 
 block values. This configuration is consumed by `engine/risk.py` as the `asset_criticality` 
 component of risk weighting.
 
+> The ten network-block entries above establish subnet-level criticality floors. The
+> [Asset Inventory (§2.4)](#24-integration-with-the-ai-investigation-system) extends
+> `asset_networks` with twelve per-host `/32` elevations and the backup subnet, bringing the
+> live list to 23 entries. The full payload is maintained in `deploy/seed/asset_networks.json`.
+
 **2. Durable Agent Memory Facts**
 
 Seven baseline `category:"asset"` facts have been registered in the agent memory store and 
@@ -276,14 +283,174 @@ compromises system accuracy.
 
 ## 2. Asset Inventory
 
-_In development. This section will document:_
+This section enumerates the institution's server infrastructure and assigns each host an
+operational function, owning team, data classification, and criticality score. Where network
+topology (§1) answers *"where did this activity occur?"*, the asset inventory answers *"what is
+the value and purpose of the specific host involved?"* Together they determine the business
+impact of an observed event and drive risk prioritization within the investigation pipeline.
 
-- Crown-jewel infrastructure (production databases, identity systems, financial systems)
-- Server hostname, IP address, operational function, owning team
-- Data classification and sensitivity levels
-- Patching cadence and maintenance windows
-- Business continuity and disaster recovery role
-- Integration with risk weighting and threat prioritization
+### 2.1 Asset Classification Model
+
+Two orthogonal axes classify every asset: **criticality** (business impact of compromise) and
+**data classification** (sensitivity of resident data). The two are independent — a public web
+server has low data sensitivity but meaningful criticality due to perimeter exposure.
+
+**Criticality Scale (0–100):**
+
+| Tier | Range | Designation | Definition |
+|---|---|---|---|
+| Crown Jewel | 90–100 | Mission-critical | Compromise constitutes a major incident: identity infrastructure, regulated data stores, financial systems, backup repositories. |
+| High | 70–89 | Significant | Core production services or Internet-facing perimeter infrastructure. |
+| Moderate | 40–69 | Standard | General production and authenticated user systems. |
+| Low | 10–39 | Minimal | Untrusted, transient, or network-isolated systems. |
+
+**Data Classification Scheme:**
+
+| Classification | Description | Examples |
+|---|---|---|
+| Restricted | Regulated or highly sensitive data; compromise causes severe legal, financial, or operational harm. | Financial records, student/HR PII, credentials, private keys, vulnerability data. |
+| Confidential | Internal business data not intended for public release. | ERP records, research data, internal mail, file shares. |
+| Internal | Routine operational data with limited individual sensitivity. | LMS content, portal data, mail-transit metadata. |
+| Public | Data intended for, or already in, public disclosure. | Public website content. |
+
+### 2.2 Server Inventory
+
+The following table enumerates production and infrastructure servers, grouped by functional
+tier. Criticality scores correspond to the live configuration described in §2.4.
+
+**Identity and PKI — `10.30.30.0/24` (VLAN 330)**
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `dc-01` | `10.30.30.10` | Primary Active Directory domain controller | IT — Identity | Restricted | 100 |
+| `dc-02` | `10.30.30.11` | Secondary Active Directory domain controller | IT — Identity | Restricted | 98 |
+| `idp-01` | `10.30.30.20` | Single sign-on identity provider (SSO) | IT — Identity | Restricted | 98 |
+| `pki-ca-01` | `10.30.30.30` | Internal Certificate Authority (PKI root/issuing) | IT — Security | Restricted | 97 |
+
+**Databases — `10.30.20.0/24` (VLAN 320)**
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `db-finance-01` | `10.30.20.10` | Finance / ERP database (PostgreSQL) | Finance + DBA | Restricted | 99 |
+| `db-sis-01` | `10.30.20.20` | Student Information System database | Registrar + DBA | Restricted | 98 |
+| `db-hr-01` | `10.30.20.30` | HR / payroll database | HR + DBA | Restricted | 97 |
+| `db-research-01` | `10.30.20.40` | Research data warehouse | Research IT | Confidential | 95 |
+| `db-replica-01` | `10.30.20.50` | Read replica (reporting) | DBA | Restricted | 95 |
+
+**Production Applications — `10.30.10.0/24` (VLAN 310)**
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `app-erp-01` | `10.30.10.10` | ERP / finance application server | Finance IT | Confidential | 92 |
+| `app-sis-01` | `10.30.10.20` | Student Information System application | Registrar IT | Confidential | 92 |
+| `app-mail-01` | `10.30.10.50` | Internal mail / groupware server | IT — Messaging | Confidential | 90 |
+| `app-lms-01` | `10.30.10.30` | Learning Management System (Moodle) | Academic IT | Internal | 90 |
+| `app-portal-01` | `10.30.10.40` | Staff and student web portal | IT — Web | Internal | 90 |
+
+**Backup and Storage — `10.30.40.0/24` (VLAN 340)**
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `backup-01` | `10.30.40.10` | Primary backup server (Veeam) | IT — Infrastructure | Restricted | 95 |
+| `nas-01` | `10.30.40.20` | Departmental file storage (NAS) | IT — Infrastructure | Confidential | 82 |
+| `objstore-01` | `10.30.40.30` | S3-compatible object store | IT — Infrastructure | Confidential | 82 |
+
+**Perimeter / DMZ — `172.16.10.0/24`** (cross-referenced from §1.5)
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `vpn-gw-01` | `172.16.10.5` | VPN concentrator (terminates `10.100.0.0/24`) | IT — NetOps | Restricted | 90 |
+| `proxy-01` | `172.16.10.10` | Reverse proxy / web application firewall | IT — Web | Internal | 88 |
+| `web-pub-01` | `172.16.10.20` | Public website | Communications | Public | 85 |
+| `mail-relay-01` | `172.16.10.30` | Inbound mail relay and filtering | IT — Messaging | Internal | 85 |
+
+**Security and Management**
+
+| Hostname | IP Address | Function | Owner | Data Class | Criticality |
+|---|---|---|---|---|---|
+| `nessus-01` | `10.30.0.5` | Authorized vulnerability scanner (see §1.6, §4) | SOC | Restricted | 80 |
+
+### 2.3 Crown-Jewel Designation
+
+The following assets are designated crown jewels (criticality ≥ 95). Compromise of any
+constitutes a major security incident and warrants immediate escalation regardless of other
+risk factors. Investigators must treat alerts implicating these hosts with elevated priority.
+
+| Asset | Rationale |
+|---|---|
+| `dc-01`, `dc-02` | Active Directory domain controllers; compromise yields domain-wide credential and authorization control. |
+| `idp-01` | SSO provider; compromise enables session forgery and broad application access. |
+| `pki-ca-01` | Certificate Authority; compromise enables identity impersonation via forged certificates. |
+| `db-finance-01`, `db-sis-01`, `db-hr-01` | Restricted databases holding financial, student, and HR records (regulated PII). |
+| `backup-01` | Backup repository; a primary ransomware and data-destruction target. Loss eliminates recovery capability. |
+| `db-research-01`, `db-replica-01` | Sensitive research data and a replica carrying restricted records. |
+
+### 2.4 Integration with the AI Investigation System
+
+The asset inventory is operationally configured within the TLSOC backend and extends the §1
+network configuration. Because the risk engine resolves criticality differently for IP-keyed
+and hostname-keyed entities (`engine/risk.py`, `_asset_criticality`), this section is configured
+through **two complementary mechanisms** to ensure a host is correctly scored whether logs
+reference it by IP address or by hostname.
+
+**1. Per-Host CIDR Elevation (`asset_networks` /32 entries)**
+
+For an entity that is an IP address, the risk engine selects the **most specific (maximum)**
+matching CIDR criticality; the per-host exact-value map is not consulted. Consequently, hosts
+whose criticality exceeds their subnet floor are elevated via `/32` entries appended to
+`asset_networks`. The §1 list is extended from 11 network blocks to 23 total entries (12 host
+`/32` elevations + the newly added backup subnet `10.30.40.0/24` at criticality 82):
+
+```json
+{ "cidr": "10.30.30.10/32", "criticality": 100 },  // dc-01
+{ "cidr": "10.30.20.10/32", "criticality": 99  },  // db-finance-01
+{ "cidr": "10.30.20.20/32", "criticality": 98  },  // db-sis-01
+{ "cidr": "10.30.30.11/32", "criticality": 98  },  // dc-02
+{ "cidr": "10.30.30.20/32", "criticality": 98  },  // idp-01
+{ "cidr": "10.30.20.30/32", "criticality": 97  },  // db-hr-01
+{ "cidr": "10.30.30.30/32", "criticality": 97  },  // pki-ca-01
+{ "cidr": "10.30.40.10/32", "criticality": 95  },  // backup-01
+{ "cidr": "10.30.10.10/32", "criticality": 92  },  // app-erp-01
+{ "cidr": "10.30.10.20/32", "criticality": 92  },  // app-sis-01
+{ "cidr": "172.16.10.5/32",  "criticality": 90 },  // vpn-gw-01
+{ "cidr": "172.16.10.10/32", "criticality": 88 }   // proxy-01
+```
+
+**2. Per-Host Exact-Value Map (`asset_criticality`)**
+
+For an entity that is **not** an IP address (i.e. a hostname), or an IP within no configured
+CIDR, the engine consults the exact-value `asset_criticality` map. A 23-entry hostname→criticality
+map is configured so that log entities referenced by `host.name` are scored identically to their
+IP-keyed counterparts:
+
+```json
+"asset_criticality": {
+  "dc-01": 100, "dc-02": 98, "idp-01": 98, "pki-ca-01": 97,
+  "db-finance-01": 99, "db-sis-01": 98, "db-hr-01": 97,
+  "db-research-01": 95, "db-replica-01": 95,
+  "app-erp-01": 92, "app-sis-01": 92, "app-mail-01": 90,
+  "app-lms-01": 90, "app-portal-01": 90,
+  "backup-01": 95, "nas-01": 82, "objstore-01": 82,
+  "vpn-gw-01": 90, "proxy-01": 88, "mail-relay-01": 85,
+  "web-pub-01": 85, "nessus-01": 80, "10.30.0.5": 80
+}
+```
+
+**3. Durable Agent Memory Facts**
+
+Four crown-jewel facts (in addition to the seven network facts from §1.6) are registered in the
+agent memory store and injected as TRUSTED context into all investigations: (a) the crown-jewel
+server roster, (b) the backup server as a ransomware target, (c) the Certificate Authority as an
+impersonation vector, and (d) DMZ hosts as pivot risks. The live memory store contains 11 facts
+total.
+
+> **Configuration State.** As of the current revision, the live backend is configured with 23
+> `asset_networks` entries, 23 `asset_criticality` entries, and 11 memory facts. The payloads
+> reside in [`deploy/seed/asset_networks.json`](../deploy/seed/asset_networks.json),
+> [`deploy/seed/asset_criticality.json`](../deploy/seed/asset_criticality.json), and
+> [`deploy/seed/memory_facts.json`](../deploy/seed/memory_facts.json), applied via the §1.7 seed
+> script. When asset inventory changes (new server, decommission, ownership transfer, or
+> reclassification), update §2.2, the corresponding seed payloads, and re-run the loader.
 
 ## 3. Identity & Authentication
 

@@ -21,13 +21,20 @@ curl -fsS -X PUT "${BACKEND}/api/settings" \
   -d @"${HERE}/asset_networks.json" >/dev/null
 echo "    done"
 
+echo "  • asset_criticality — per-host map (PUT /api/settings)"
+curl -fsS -X PUT "${BACKEND}/api/settings" \
+  -H 'Content-Type: application/json' \
+  -d @"${HERE}/asset_criticality.json" >/dev/null
+echo "    done"
+
 echo "  • memory facts (POST /api/memory, skip-if-exists)"
 existing="$(curl -fsS "${BACKEND}/api/memory")"
-python3 - "$BACKEND" "$existing" <<'PY' < "${HERE}/memory_facts.json"
+python3 - "$BACKEND" "$existing" "${HERE}/memory_facts.json" <<'PY'
 import json, sys, urllib.request
-backend, existing_raw = sys.argv[1], sys.argv[2]
+backend, existing_raw, facts_path = sys.argv[1], sys.argv[2], sys.argv[3]
 existing = {e.get("text","") for e in json.loads(existing_raw).get("entries", [])}
-facts = json.load(sys.stdin)
+with open(facts_path) as fh:
+    facts = json.load(fh)
 added = skipped = 0
 for f in facts:
     if f["text"] in existing:
@@ -41,6 +48,6 @@ print(f"    added={added} skipped(existing)={skipped}")
 PY
 
 echo "▶ Verify"
-curl -fsS "${BACKEND}/api/settings" | python3 -c "import sys,json;p=json.load(sys.stdin)['prefs'];print('    asset_networks =',len(p.get('asset_networks',[])))"
-curl -fsS "${BACKEND}/api/memory"   | python3 -c "import sys,json;print('    memory facts   =',json.load(sys.stdin)['count'])"
+curl -fsS "${BACKEND}/api/settings" | python3 -c "import sys,json;p=json.load(sys.stdin)['prefs'];print('    asset_networks      =',len(p.get('asset_networks',[])));print('    asset_criticality   =',len(p.get('asset_criticality',{})))"
+curl -fsS "${BACKEND}/api/memory"   | python3 -c "import sys,json;print('    memory facts        =',json.load(sys.stdin)['count'])"
 echo "✓ done"

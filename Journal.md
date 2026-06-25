@@ -997,3 +997,12 @@
 - Tests: seed script run against live backend → asset_networks=10, memory facts=7, re-run idempotent (no dup). No backend code changed; offline suite untouched.
 - Status: done (§1 complete + live). Sections 2–6 stubbed (Asset Inventory, Identity, Authorized Tooling, External Footprint, Naming).
 - Next: build §2 Asset Inventory (crown-jewel hosts) and seed per-host `asset_criticality` exact-value entries, or wire the seed script into compose so restarts re-apply automatically.
+
+### 2026-06-25 — agent (Opus) — Institutional KB §2 (Asset Inventory) + live seed
+- Context: build §2 Asset Inventory (servers, crown jewels, ownership) of docs/INSTITUTIONAL_KNOWLEDGE_BASE.md with real data, consistent with §1 topology, and make it operationally live.
+- Verified mechanism first: engine/risk.py `_asset_criticality` — for an IP entity, most-specific CIDR match wins (exact-value map skipped); exact-value `asset_criticality` map only used for non-IP (hostname) entities or IPs in no CIDR. So crown-jewel hosts need BOTH /32 entries in asset_networks (IP-keyed elevation) AND a hostname→criticality map (name-keyed).
+- Did: authored §2 (classification model, 24-host server inventory grouped by tier, crown-jewel designation, integration). Extended deploy/seed/asset_networks.json 11→23 entries (12 /32 host elevations + backup subnet 10.30.40.0/24). New deploy/seed/asset_criticality.json (23 hostname/IP entries). Appended 4 crown-jewel facts to memory_facts.json (7→11). Updated seed_institutional_kb.sh to also PUT asset_criticality.
+- Fixed a bug in seed_institutional_kb.sh: the memory-facts heredoc used `python3 - ... <<'PY' < facts.json`, where the file redirect overrode stdin so python read the JSON as its script (valid python list literal → silent no-op, 0 facts added). Changed to pass the facts path as argv and open() it. Now adds correctly.
+- Tests/verify: seed script run live → asset_networks=23, asset_criticality=23, memory=11. Idempotent re-run: added=0 skipped=11. All 3 JSON payloads valid; doc/config cross-check — all 23 hosts present in §2.2. No backend code changed; offline suite untouched.
+- Status: done (§1 + §2 complete + live).
+- Next: §3 Identity & Authentication, or §4 Authorized Security Infrastructure (jump hosts, scan windows). Optional: wire seed script into compose for auto-reapply on restart.
