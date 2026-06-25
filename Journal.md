@@ -1013,3 +1013,10 @@
 - Tests/verify: all 3 seed JSON valid; seed re-run idempotent (added=0 skipped=11); live state intact asset_networks=23, asset_criticality=23, memory=11. No backend code changed.
 - Status: done. §1 + §2 are model-centric RAG knowledge; §3-6 brief model-facing placeholders.
 - Next: §3 Identity & Authentication as model-facing knowledge. When real institution data is available, replace the designed topology/inventory wholesale.
+
+### 2026-06-25 — agent (Opus) — KB §3 Identity & Authentication (model-facing)
+- Context: add Section 3 (Identity & Authentication) to the model-facing RAG KB, consistent with the designed §1/§2 environment.
+- Did: wrote §3 as declarative RAG knowledge — 3.1 Directory & domains (ad.tlsoc.ac.in, dc-01/dc-02, email domains tlsoc.ac.in / student.tlsoc.ac.in), 3.2 SSO/federation (idp-01, sso.tlsoc.ac.in, SAML/OIDC), 3.3 account types & naming (staff firstname.lastname, students roll number, adm- admin, svc- service, bg-admin-NN break-glass) with expected-behavior column, 3.4 MFA scope, 3.5 authentication baselines & anomalies (service/admin misuse, break-glass use, DCSync/privileged-group changes, brute/spray, impossible-travel/off-hours). Appended 6 identity memory facts (category:identity) to deploy/seed/memory_facts.json and pushed live.
+- Tests/verify: memory_facts.json valid (17 facts); seed run added=6 skipped=11 → live memory=17; asset_networks=23, asset_criticality=23 unchanged. No backend code changed.
+- Status: done. §1-3 complete as model-facing knowledge; §4-6 placeholders.
+- Next: §4 Authorized Security Infrastructure (scanners/scan windows, jump/bastion hosts). When real institution data arrives, replace the designed identity domain/accounts.

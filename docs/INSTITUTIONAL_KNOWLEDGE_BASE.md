@@ -242,10 +242,82 @@ asset in its own right.
 
 ## 3. Identity and Authentication
 
-_To be documented in a future revision. Will describe the authoritative identity provider and SSO
-configuration, Active Directory and LDAP domains, authoritative email domains, privileged-account
-naming conventions (domain administrators, service accounts, break-glass accounts), and the scope
-of multi-factor authentication._
+This section describes how identities are issued, named, and authenticated within the institution.
+Identity is the connective tissue of most investigations: an account's *type* and *expected
+behavior* determine whether a given authentication event is routine or anomalous. The naming
+conventions and authentication baselines below are the basis for judging whether a login,
+privilege use, or directory operation is consistent with normal operations.
+
+### 3.1 Directory and Domains
+
+The institution operates a single Active Directory forest. The domain is `ad.tlsoc.ac.in`
+(NetBIOS name `TLSOC`), served by two domain controllers: `dc-01` (`10.30.30.10`) and `dc-02`
+(`10.30.30.11`). Active Directory is the authoritative source for staff and administrative
+identities, group membership, and Kerberos authentication.
+
+The authoritative email domains are `tlsoc.ac.in` for staff and `student.tlsoc.ac.in` for
+students. Mail purporting to originate internally but arriving from outside these domains, and
+links or sender addresses using visually similar look-alike domains, are inconsistent with
+legitimate institutional mail.
+
+### 3.2 Single Sign-On and Federation
+
+Single sign-on is provided by `idp-01` (`10.30.30.20`), reachable at `sso.tlsoc.ac.in`. The
+identity provider federates to Active Directory and brokers authentication to institutional
+applications over SAML and OIDC, including the staff and student portal, the Learning Management
+System, internal mail, and the ERP and Student Information System front ends. A successful SSO
+authentication is therefore the normal precursor to access across multiple applications;
+application access that bypasses SSO, or SSO assertions issued for sessions that never
+authenticated, are inconsistent with the intended design.
+
+### 3.3 Account Types and Naming Conventions
+
+Account purpose is encoded in naming. The type of an account, inferred from its name, establishes
+where it should authenticate from and how it should behave.
+
+| Account type | Naming pattern | Example | Expected authentication behavior |
+|---|---|---|---|
+| Staff user | `firstname.lastname` | `asha.rao` | Interactive logon from staff workstations; SSO to applications; MFA on externally reachable apps. |
+| Student user | roll number | `21b0123` | Logon from the student network, labs, portal, and LMS; high baseline volume. |
+| Administrative | `adm-firstname.lastname` | `adm-asha.rao` | Privileged; separate from the holder's daily user account. Used only from the IT/NetOps subnet (`10.10.30.0/24`) or the administrative jump host; MFA required. |
+| Service | `svc-<service>` | `svc-backup`, `svc-erp` | Non-interactive only, authenticating from the owning server or application tier. Never used for interactive logon and never from user, VPN, or guest networks. |
+| Break-glass | `bg-admin-NN` | `bg-admin-01` | Highly privileged emergency accounts. Normally dormant; intended only for sanctioned emergencies. |
+
+The privileged directory groups — `Domain Admins`, `Enterprise Admins`, and `Schema Admins` —
+have small, stable memberships. Changes to these groups are rare, deliberate, audited events.
+
+### 3.4 Multi-Factor Authentication
+
+Multi-factor authentication is mandatory for all VPN access, all administrative (`adm-`) accounts,
+and all externally reachable applications (the portal, mail, and SSO-brokered services).
+Authentication to any of these without a second factor, or evidence of a second factor being
+bypassed or satisfied without user interaction, is inconsistent with policy.
+
+### 3.5 Authentication Baselines and Anomalies
+
+The following patterns are normal or anomalous within this environment and inform the
+significance of authentication-related activity:
+
+- **Service-account misuse.** A `svc-` account performing an interactive logon, or authenticating
+  from a workstation, VPN, or the student or guest network, is anomalous. Service accounts that
+  hold Kerberos service principal names are also targets for credential-extraction (Kerberoasting);
+  unusual ticket requests for these accounts are significant.
+- **Administrative-account misuse.** An `adm-` account authenticating from anywhere other than the
+  IT/NetOps subnet (`10.10.30.0/24`) or the administrative jump host — for example from the student,
+  guest, general-staff, or VPN networks — is anomalous.
+- **Break-glass use.** Any authentication or use of a break-glass account (`bg-admin-01`,
+  `bg-admin-02`) is a critical indicator and should be treated as a major event until confirmed to
+  be a sanctioned emergency.
+- **Directory attacks.** Directory-replication (DCSync) requests from any host other than the
+  domain controllers (`dc-01`, `dc-02`) indicate credential theft and are critical. Unexpected
+  additions to `Domain Admins`, `Enterprise Admins`, or `Schema Admins` are high-severity.
+- **Credential-guessing.** Many failed authentications for one account (brute force), or single
+  failures spread across many accounts (password spraying), are attack patterns; their
+  significance increases sharply when followed by a success, and when directed at administrative,
+  service, or VPN authentication.
+- **Geography and timing.** Authentications that are geographically impossible in sequence
+  (impossible travel), or privileged and service-account activity occurring well outside normal
+  working hours, warrant elevated scrutiny.
 
 ## 4. Authorized Security Infrastructure
 
