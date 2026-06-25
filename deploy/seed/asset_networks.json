@@ -1,4 +1,5 @@
-{"asset_networks":[
+{"_comment":"Seed for Preferences.asset_networks (PUT /api/settings). Source of truth: docs/INSTITUTIONAL_KNOWLEDGE_BASE.md sections 1-2. Consumed by engine/risk.py _asset_criticality: for an IP entity the MOST-SPECIFIC (max) matching CIDR wins, so /32 host entries elevate crown jewels above their /24 subnet floor. The exact-value asset_criticality map (asset_criticality.json) handles hostname-keyed entities. Re-apply with deploy/seed/seed_institutional_kb.sh after any backend restart (in-memory store does not persist). Extra keys like this one are ignored by the settings model.",
+ "asset_networks":[
  {"cidr":"10.99.0.0/24","criticality":100},
  {"cidr":"10.30.20.0/24","criticality":95},
  {"cidr":"10.30.30.0/24","criticality":95},

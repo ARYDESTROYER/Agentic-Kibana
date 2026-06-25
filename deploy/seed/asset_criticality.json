@@ -1,4 +1,5 @@
-{"asset_criticality":{
+{"_comment":"Seed for Preferences.asset_criticality (PUT /api/settings) — exact-value entity->criticality map (0..100). Source of truth: docs/INSTITUTIONAL_KNOWLEDGE_BASE.md section 2.2. engine/risk.py consults this map ONLY for non-IP entities (hostnames) or IPs in no configured asset_networks CIDR; for in-CIDR IPs the CIDR match wins. Hostnames mirror the asset_networks /32 elevations so a host is scored identically whether logs reference it by name or IP. The bare IP 10.30.0.5 (nessus-01) is here because it lies in no asset_networks CIDR. Re-apply via deploy/seed/seed_institutional_kb.sh.",
+ "asset_criticality":{
  "dc-01":100,
  "dc-02":98,
  "idp-01":98,

@@ -1006,3 +1006,10 @@
 - Tests/verify: seed script run live → asset_networks=23, asset_criticality=23, memory=11. Idempotent re-run: added=0 skipped=11. All 3 JSON payloads valid; doc/config cross-check — all 23 hosts present in §2.2. No backend code changed; offline suite untouched.
 - Status: done (§1 + §2 complete + live).
 - Next: §3 Identity & Authentication, or §4 Authorized Security Infrastructure (jump hosts, scan windows). Optional: wire seed script into compose for auto-reapply on restart.
+
+### 2026-06-25 — agent (Opus) — KB refactored to model-centric RAG document
+- Context: user clarified the KB is for the MODEL's RAG (model-centric, professional), not a developer doc. Also asked whether the §1/§2 hosts are real — confirmed they are DESIGNED/invented (grep: none of the hostnames exist in backend/app or webui/src; codebase ships empty asset config). Data is anchored to repo conventions but is a coherent fictional campus, made "real" only by being pushed into the running backend config.
+- Did: rewrote docs/INSTITUTIONAL_KNOWLEDGE_BASE.md as a single clean model-facing knowledge document — stripped ALL developer plumbing (engine/risk.py refs, PUT/POST API calls, deploy/seed paths, JSON config payloads, git-sync workflow, "Integration with the AI Investigation System" sections). Kept and rephrased the knowledge into self-contained declarative passages with behavioral baselines (what is normal vs anomalous per zone/asset) — ideal for RAG chunking. Data identical to live config (same hosts/CIDRs/criticalities). Moved the config mechanics into _comment keys in asset_networks.json + asset_criticality.json (verified the settings model ignores extra keys, so they don't break PUT).
+- Tests/verify: all 3 seed JSON valid; seed re-run idempotent (added=0 skipped=11); live state intact asset_networks=23, asset_criticality=23, memory=11. No backend code changed.
+- Status: done. §1 + §2 are model-centric RAG knowledge; §3-6 brief model-facing placeholders.
+- Next: §3 Identity & Authentication as model-facing knowledge. When real institution data is available, replace the designed topology/inventory wholesale.
