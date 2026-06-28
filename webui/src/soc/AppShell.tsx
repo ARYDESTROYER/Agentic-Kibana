@@ -33,7 +33,7 @@ import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
-import { Dialog, DialogContent } from '@/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
 import {
   Command,
   CommandInput,
@@ -172,6 +172,8 @@ const CommandPalette: React.FC<{
 }> = ({ open, onOpenChange, onNavigate }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="overflow-hidden p-0 sm:max-w-lg">
+      <DialogTitle className="sr-only">Command palette</DialogTitle>
+      <DialogDescription className="sr-only">Jump to a page in the console.</DialogDescription>
       <Command>
         <CommandInput placeholder="Jump to a page…" />
         <CommandList>

@@ -99,7 +99,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
             </span>
           ) : null}
         </div>
-        {sub ? <p className="mt-2 text-xs text-muted-foreground">{sub}</p> : null}
+        {sub ? <span className="mt-2 block text-xs text-muted-foreground">{sub}</span> : null}
       </>
     );
 

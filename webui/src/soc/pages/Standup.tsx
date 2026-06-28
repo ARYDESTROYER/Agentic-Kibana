@@ -287,11 +287,15 @@ export default function Standup(_props: StandupProps) {
     [outcomes],
   );
 
-  const byRule = React.useMemo(() => toSegments(agg.by_rule, true), [agg]);
+  // BarList treats `color` as a token CLASS (e.g. 'bg-high'), not a CSS color
+  // string, so we do NOT seed categorical hsl() here (it would silently no-op
+  // and the bar would fall back to the default accent). by_severity remaps to
+  // token classes via severityBar() below; the rest use the default bar fill.
+  const byRule = React.useMemo(() => toSegments(agg.by_rule), [agg]);
   const topIps = React.useMemo(() => toSegments(agg.top_source_ips), [agg]);
   const topUsers = React.useMemo(() => toSegments(agg.top_users), [agg]);
   const topHosts = React.useMemo(() => toSegments(agg.top_hosts), [agg]);
-  const bySeverity = React.useMemo(() => toSegments(agg.by_severity, true), [agg]);
+  const bySeverity = React.useMemo(() => toSegments(agg.by_severity), [agg]);
   const series = React.useMemo(() => toSeries(agg.events_over_time), [agg]);
 
   const windowHours = asNumber(data?.window_hours) ?? requestedHours;

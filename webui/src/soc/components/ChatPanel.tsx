@@ -498,12 +498,12 @@ const MessageActions: React.FC<{
               size="icon"
               className="h-7 w-7"
               onClick={onRegenerate}
-              aria-label="Regenerate answer"
+              aria-label="Ask this again"
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Regenerate this answer</TooltipContent>
+          <TooltipContent>Ask this again</TooltipContent>
         </Tooltip>
       ) : null}
       {href ? (

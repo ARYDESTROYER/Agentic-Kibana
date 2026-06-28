@@ -88,7 +88,12 @@ export const SourceLogsSheet: React.FC<SourceLogsSheetProps> = ({ source, onClos
   const open = !!source;
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" size="xl" className="flex w-full flex-col p-0 sm:max-w-3xl">
+      <SheetContent
+        side="right"
+        size="xl"
+        className="flex w-full flex-col p-0 sm:max-w-3xl"
+        aria-describedby={undefined}
+      >
         {source ? <SourceLogsBody source={source} /> : null}
       </SheetContent>
     </Sheet>

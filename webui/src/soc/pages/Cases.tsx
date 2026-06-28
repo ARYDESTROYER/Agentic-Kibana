@@ -25,7 +25,7 @@ import {
   Check,
   UserPlus,
   Layers,
-  BookOpen,
+  Clock,
   Sparkles,
   AlertTriangle,
 } from 'lucide-react';
@@ -770,7 +770,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm">
-              <BookOpen className="mr-1.5 size-4" aria-hidden />
+              <Clock className="mr-1.5 size-4" aria-hidden />
               {filters.timeRange === 'all'
                 ? 'Any time'
                 : `Last ${filters.timeRange}`}

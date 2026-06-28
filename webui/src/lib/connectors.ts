@@ -10,8 +10,15 @@
  * are not persisted by this UI beyond the setup/secrets call.
  */
 import { api } from './api';
-import type { ConnectorFormValue } from '../components/common/ConnectorForm';
 import type { ConnectorManifest, SecretsUpdate, SourceUpsert } from './types';
+
+/** A connector form's value: non-secret config + secret values typed this session. */
+export interface ConnectorFormValue {
+  /** Non-secret config values, keyed by field key. */
+  config: Record<string, unknown>;
+  /** Secret values the operator typed THIS session, keyed by field key. */
+  secrets: Record<string, string>;
+}
 
 /** Secret keys the backend accepts on POST /api/setup/secrets. */
 export const KNOWN_SECRET_KEYS = new Set<keyof SecretsUpdate>([

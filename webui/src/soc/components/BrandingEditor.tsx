@@ -346,6 +346,17 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     setDraft((d) => ({ ...d, ...patch }));
   };
 
+  // On unmount, restore the live accent preview to the saved/applied branding so
+  // an unsaved accent edit never leaks globally (e.g. switching settings sections
+  // or navigating away without Save/Discard rewrites `--primary` for the console).
+  const savedAccentRef = React.useRef(saved.accent_color);
+  savedAccentRef.current = saved.accent_color;
+  React.useEffect(() => {
+    return () => {
+      applyAccentPreview(savedAccentRef.current || '');
+    };
+  }, []);
+
   /* --------------------------------------------------------------- accents -- */
 
   const accent = draft.accent_color || '';
