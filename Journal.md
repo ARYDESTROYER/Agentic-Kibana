@@ -1112,3 +1112,11 @@
 - Tests: `npx tsc --noEmit` clean (foundation + legacy together); legacy `vite build` still green; no new errors. Backend untouched.
 - Status: foundation done + committed/pushed to Testing. New entry NOT yet wired (cutover pending).
 - Next: phase 2 = ~14 page agents build src/soc/pages/* (reuse api/types) → phase 3 cutover (new main.tsx/App.tsx, remove EUI) → phase 4 verification fleet → final build + push.
+
+### 2026-06-28 — orchestrator (Opus) — UI OVERHAUL phase 2+3: all pages rebuilt + CUTOVER to new app
+- Context: Continue the Tailwind+shadcn rebuild — build every page on the new foundation, then cut the live entry over to it.
+- Did (pages): a 17-agent workflow rebuilt every surface in src/soc/pages/* (Overview/Cases/CaseDetail/Chat/Investigate/Scans/Standup/Metrics/Cost/Knowledge/Memory/Sources/Catalog/Settings/Approvals/Login/Wizard), each reusing the legacy data wiring (api.*/types/format) with the new command-center UI; all reported zero own-file tsc errors. Sources/Settings/Chat created their own helper components (SourceEditor/SourceLogsSheet/ConnectorPicker, BrandingEditor, ChatPanel).
+- Did (cutover): wrote src/soc/ErrorBoundary.tsx + src/soc/App.tsx (boot: auth.me→login | setup→Wizard | app shell + hash-routed page switch, mirroring legacy flow) and switched src/main.tsx to import styles/theme.css + render the new App. Fixed 3 integration nits (ErrorBoundary override modifiers; Memory/Settings onNavigate prop types). Legacy EUI tree left in place (unused/tree-shaken) pending a cleanup pass after verification.
+- Tests: `npx tsc --noEmit` clean; `vite build` GREEN — bundle 2.84MB→1.20MB (EUI out of the bundle), CSS→52KB Tailwind, 2530 modules; `vitest` 1/1 (legacy test still green). Backend untouched.
+- Status: cutover done + committed/pushed to Testing. New Tailwind/shadcn app is now the live entry.
+- Next: phase 4 = verification fleet (a11y, UNTRUSTED-safety, light+dark, runtime correctness, mockup fidelity) → fixes → optional legacy/EUI prune + dep removal → final build + push.
