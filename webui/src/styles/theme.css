@@ -1,0 +1,154 @@
+/**
+ * Design tokens + base layer for the rebuilt UI (Tailwind + shadcn-style).
+ *
+ * This file is the SOURCE OF TRUTH for the colour system. It is imported by the
+ * new app entry at cutover (NOT by the legacy EUI entry), so the legacy app is
+ * untouched until then. Two first-class themes:
+ *   - light  (:root)          — clean, professional light SOC console
+ *   - dark   (.dark on <html>) — deep-navy "command center"
+ * Branding can override --primary / --accent at runtime (see branding wiring).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ---- Light theme ------------------------------------------------------ */
+    --canvas: 210 40% 98%;
+    --surface: 210 40% 96%;
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 217 91% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 222 47% 18%;
+    --muted: 210 40% 95%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 199 89% 45%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 78% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 88%;
+    --input: 214 32% 86%;
+    --ring: 217 91% 53%;
+
+    /* Semantic SOC scale (severity / status / verdict). */
+    --critical: 0 78% 51%;
+    --high: 22 92% 48%;
+    --medium: 38 92% 42%;
+    --low: 142 64% 38%;
+    --info: 199 89% 45%;
+    --success: 160 78% 35%;
+    --warning: 38 92% 45%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* ---- Dark "command center" theme ------------------------------------- */
+    --canvas: 222 47% 6%;
+    --surface: 222 38% 9%;
+    --background: 222 44% 7%;
+    --foreground: 210 40% 96%;
+
+    --card: 222 38% 11%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 42% 9%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 30% 17%;
+    --secondary-foreground: 210 40% 92%;
+    --muted: 222 25% 16%;
+    --muted-foreground: 215 22% 66%;
+    --accent: 188 95% 48%;
+    --accent-foreground: 222 47% 8%;
+    --destructive: 0 84% 62%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 24% 20%;
+    --input: 217 24% 22%;
+    --ring: 217 91% 60%;
+
+    --critical: 0 84% 62%;
+    --high: 25 95% 56%;
+    --medium: 45 93% 52%;
+    --low: 142 71% 48%;
+    --info: 199 92% 56%;
+    --success: 160 84% 42%;
+    --warning: 38 92% 52%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background-color: hsl(var(--canvas));
+    color: hsl(var(--foreground));
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  /* Thin, subtle scrollbars (both themes). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.28);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+    background-clip: padding-box;
+  }
+  /* Skeleton shimmer sweep used by the Skeleton primitive. */
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--muted-foreground) / 0.12) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.25s ease-in-out infinite;
+  }
+}
+
+/* Respect reduced-motion globally. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
