@@ -1004,7 +1004,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
               </div>
 
               {/* header icon actions */}
-              <div className="flex shrink-0 items-center gap-1">
+              {/* pr-8 keeps these icons clear of the built-in Sheet close X (right-4 top-4) */}
+              <div className="flex shrink-0 items-center gap-1 pr-8">
                 {/* Reinvestigate (popover) */}
                 <Popover open={reinvestOpen} onOpenChange={setReinvestOpen}>
                   <Tooltip>
@@ -1293,21 +1294,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                     <TooltipContent>Notify</TooltipContent>
                   </Tooltip>
                 </Can>
-
-                {/* Close the sheet */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Close"
-                      onClick={onClose}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Close</TooltipContent>
-                </Tooltip>
+                {/*
+                  Panel dismiss is the built-in SheetContent close (X) at
+                  right-4 top-4 — do NOT hand-roll a second header X here, or two
+                  X controls stack. The labeled "Close case" lifecycle action
+                  lives in the footer and is separate.
+                */}
               </div>
             </header>
 

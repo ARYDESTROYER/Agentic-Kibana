@@ -27,6 +27,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import { copyText } from '@/lib/clipboard';
 import type { MfaSetupResult } from '@/lib/types';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -46,6 +47,7 @@ export interface MfaSetupCardProps {
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
   return (
     <Button
       type="button"
@@ -53,14 +55,22 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
       size="sm"
       className="h-8 gap-1.5"
       onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
-          setDone(true);
-          window.setTimeout(() => setDone(false), 1500);
+        // copyText falls back to execCommand over plain HTTP (no secure context),
+        // so this works even when navigator.clipboard is undefined.
+        void copyText(text).then((ok) => {
+          if (ok) {
+            setFailed(false);
+            setDone(true);
+            window.setTimeout(() => setDone(false), 1500);
+          } else {
+            setFailed(true);
+            window.setTimeout(() => setFailed(false), 2500);
+          }
         });
       }}
     >
       {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
-      {done ? 'Copied' : label}
+      {done ? 'Copied' : failed ? 'Copy failed' : label}
     </Button>
   );
 }

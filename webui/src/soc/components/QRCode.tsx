@@ -227,15 +227,21 @@ function placeFormatInfo(m: Cell[][], size: number, mask: number): void {
   const fmt = FORMAT_INFO_M[mask];
   for (let i = 0; i < 15; i++) {
     const bit = ((fmt >> i) & 1) as 0 | 1;
-    // Around the top-left finder.
+    // First copy around the top-left finder (UNCHANGED — ISO/IEC 18004 §8.9):
+    // bits 0..7 along row 8 (horizontal, left), bits 8..14 up column 8 (vertical, top).
     if (i < 6) m[8][i] = bit;
     else if (i === 6) m[8][7] = bit;
     else if (i === 7) m[8][8] = bit;
     else if (i === 8) m[7][8] = bit;
     else m[14 - i][8] = bit;
-    // The split copy near the other two finders.
-    if (i < 8) m[size - 1 - i][8] = bit;
-    else m[8][size - 15 + i] = bit;
+    // Second copy split near the other two finders (ISO/IEC 18004 §8.9):
+    //   bits 0..7  → HORIZONTAL top-right strip, columns size-1 .. size-8 on row 8;
+    //   bits 8..14 → VERTICAL bottom-left strip, rows size-7 .. size-1 on column 8.
+    // (Previously inverted: it wrote bits 0..7 down the vertical bottom-left and bits
+    //  8..14 across only 7 horizontal columns, leaving column size-8 of row 8 a
+    //  permanent null module and making the two 15-bit copies disagree → unscannable.)
+    if (i < 8) m[8][size - 1 - i] = bit;
+    else m[size - 15 + i][8] = bit;
   }
   m[size - 8][8] = 1; // dark module
 }
@@ -318,11 +324,19 @@ function penalty(m: Cell[][]): number {
   return score;
 }
 
+/** Result of the raw encode: the full (nullable) cell matrix + chosen version/mask. */
+export interface EncodeResult {
+  matrix: Cell[][];
+  version: number;
+  mask: number;
+}
+
 /**
- * Encode `text` into a QR module matrix (booleans; true = dark). Returns null when
- * the content does not fit versions 1–10.
+ * Encode `text` into the raw QR module matrix (cells are 0 | 1 | null) plus the
+ * chosen version + mask. Exposed primarily for tests (the public {@link encodeQR}
+ * coerces to booleans); a well-formed symbol has ZERO null cells.
  */
-export function encodeQR(text: string): boolean[][] | null {
+export function encodeMatrix(text: string): EncodeResult | null {
   const bytes = Array.from(new TextEncoder().encode(text));
   let version = 0;
   for (let v = 1; v <= 10; v++) {
@@ -335,14 +349,28 @@ export function encodeQR(text: string): boolean[][] | null {
   const finalCodewords = buildFinalCodewords(dataCodewords, version);
 
   let best: Cell[][] | null = null;
+  let bestMask = 0;
   let bestScore = Infinity;
   for (let mask = 0; mask < 8; mask++) {
     const m = buildMatrix(finalCodewords, version, mask);
     const p = penalty(m);
-    if (p < bestScore) { bestScore = p; best = m; }
+    if (p < bestScore) { bestScore = p; best = m; bestMask = mask; }
   }
   if (!best) return null;
-  return best.map((row) => row.map((cell) => cell === 1));
+  return { matrix: best, version, mask: bestMask };
+}
+
+/** The precomputed 15-bit format strings (ECC level M) — exported for tests. */
+export { FORMAT_INFO_M };
+
+/**
+ * Encode `text` into a QR module matrix (booleans; true = dark). Returns null when
+ * the content does not fit versions 1–10.
+ */
+export function encodeQR(text: string): boolean[][] | null {
+  const res = encodeMatrix(text);
+  if (!res) return null;
+  return res.matrix.map((row) => row.map((cell) => cell === 1));
 }
 
 export interface QRCodeProps {

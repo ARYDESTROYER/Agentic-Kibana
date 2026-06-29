@@ -12,9 +12,13 @@
  * When `caseId` is set it is threaded into every `api.chat(...)` call so the agent
  * has case context, and a "Scoped to case <id>" chip is shown at the top.
  *
- * Layout: a full-height flex column. The transcript lane is the ONLY scrolling
- * region; the composer is pinned at the bottom; the empty state is centred inside
- * the lane so it never pushes the composer down.
+ * Layout: a full-height flex column that FILLS its host (`h-full min-h-0`). The
+ * transcript lane is the ONLY scrolling region (`flex-1 min-h-0 overflow-y-auto`);
+ * the composer is pinned at the bottom of the frame (never floating mid-page); the
+ * empty state is centred BOTH axes inside the lane so it never pushes the composer
+ * down. In full-page mode the transcript content + composer share a readability
+ * max-width (`max-w-3xl`, centred); the embedded `compact` case-flyout surface stays
+ * full-bleed so it is not double-constrained.
  *
  * SECURITY (UNTRUSTED rendering): assistant answers, queries, table cells, memory
  * text, reasoning, knowledge snippets and tool output are all model- or log-derived
@@ -957,6 +961,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const composerPlaceholder =
     placeholder ?? 'Ask a question…  (Enter to send · Shift+Enter for a new line)';
 
+  // Readability frame: full-page chat centres its content + composer at a sensible
+  // max-width; the embedded (compact) flyout surface stays full-bleed so it is not
+  // double-constrained inside the already-narrow case sheet.
+  const laneInner = compact ? 'w-full' : 'mx-auto w-full max-w-3xl';
+
   return (
     <TooltipProvider delayDuration={200}>
       <div className={cn('flex h-full min-h-0 flex-col', className)}>
@@ -986,13 +995,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </div>
         ) : null}
 
-        {/* Transcript lane — the ONLY scrolling region. */}
+        {/* Transcript lane — the ONLY scrolling region. It GROWS to absorb all
+            surplus height (`flex-1 min-h-0 overflow-y-auto`); when empty it centres
+            its single child both axes so the empty-state sits in the middle of the
+            frame rather than floating at the top. */}
         <div
           ref={scrollRef}
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden',
             compact ? 'gap-3 px-1 py-1' : 'gap-5 px-1 py-2',
-            isEmpty && 'justify-center',
+            isEmpty && 'items-center justify-center',
           )}
           role="log"
           aria-live="polite"
@@ -1008,7 +1020,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
               onPick={(p) => void send(p)}
             />
           ) : (
-            <>
+            <div className={cn('flex flex-col', compact ? 'gap-3' : 'gap-5', laneInner)}>
               {transcript.map((item, i) => {
                 const prev = transcript[i - 1];
                 const next = transcript[i + 1];
@@ -1026,14 +1038,16 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
                 );
               })}
               {loading ? <TypingIndicator /> : null}
-            </>
+            </div>
           )}
         </div>
 
-        {/* Composer — pinned bottom card. */}
+        {/* Composer — anchored at the bottom of the frame (shrink-0; never floats
+            mid-page). Centred to the same readability width as the transcript. */}
         <div
           className={cn(
             'shrink-0 rounded-lg border border-border bg-card',
+            laneInner,
             compact ? 'mt-3 p-3' : 'mt-4 p-3.5',
           )}
         >

@@ -19,6 +19,7 @@ import { ShieldCheck, KeyRound, Plus, Trash2, Save, Loader2, Copy, Check, Link2 
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { copyText } from '@/lib/clipboard';
 import type { Preferences, SsoConfig, SsoProviderConfig, UserRole } from '@/lib/types';
 import { useAuth } from '@/soc/auth';
 import { Can } from '@/soc/components/Can';
@@ -84,9 +85,14 @@ function CopyField({ value }: { value: string }) {
         size="sm"
         className="h-8 gap-1.5"
         onClick={() => {
-          void navigator.clipboard?.writeText(value).then(() => {
-            setDone(true);
-            window.setTimeout(() => setDone(false), 1500);
+          // copyText falls back to execCommand over plain HTTP (no secure context).
+          void copyText(value).then((ok) => {
+            if (ok) {
+              setDone(true);
+              window.setTimeout(() => setDone(false), 1500);
+            } else {
+              toast.error('Could not copy to clipboard.');
+            }
           });
         }}
       >

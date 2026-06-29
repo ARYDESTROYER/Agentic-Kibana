@@ -23,6 +23,7 @@ import {
   Shield,
   CheckCircle2,
   AlertTriangle,
+  Database,
   XCircle,
   LogOut,
   User,
@@ -33,6 +34,7 @@ import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
 import {
   Command,
@@ -63,22 +65,55 @@ export interface AppShellProps {
   children: React.ReactNode;
 }
 
-type HealthTone = 'success' | 'warning' | 'critical';
+type HealthTone = 'success' | 'warning' | 'critical' | 'muted';
 
 interface HealthView {
   tone: HealthTone;
+  /** Short pill label. */
   label: string;
   icon: typeof CheckCircle2;
+  /** One-line summary (store_type etc.) — plain text. */
   detail: string;
+  /** A bold popover heading. */
+  title: string;
+  /** Multi-line plain-language help: meaning + consequence + how to fix. */
+  help: string;
 }
 
-function healthView(health: HealthResponse | null, err: boolean): HealthView {
+/** The in-memory ES fallback's class name (own-state runs in memory, no persistence). */
+const isInMemoryStore = (t?: string): boolean => t === 'InMemoryESClient';
+
+export function healthView(health: HealthResponse | null, err: boolean): HealthView {
   if (err) {
     return {
       tone: 'critical',
       label: 'Backend unreachable',
       icon: XCircle,
       detail: 'Cannot reach the backend API',
+      title: 'Backend unreachable',
+      help:
+        'The console cannot reach the backend API. The agentic pipeline, cases and ' +
+        'settings are unavailable until it returns.\n\n' +
+        'How to fix: confirm the tlsoc-backend service is running and reachable; ' +
+        'see docs/TROUBLESHOOTING.md.',
+    };
+  }
+  const storeType = health?.store_type ?? 'unknown';
+  // The in-memory ES fallback pings OK (reports es_connected:true) but does NOT
+  // persist — surface it as a muted, informative note rather than a green "Healthy".
+  if (health?.es_connected && isInMemoryStore(storeType)) {
+    return {
+      tone: 'muted',
+      label: 'In-memory store',
+      icon: Database,
+      detail: `Store: ${storeType}`,
+      title: 'In-memory store (not persistent)',
+      help:
+        "The platform's own state store is running in-memory (Elasticsearch/SQL " +
+        'not reachable). Cases, cursors, audit and settings will NOT persist across ' +
+        'a backend restart.\n\n' +
+        'How to fix: set STATE_BACKEND=elasticsearch or postgres and configure ' +
+        'connectivity (see DEPLOY.md).',
     };
   }
   if (health?.es_connected) {
@@ -86,14 +121,22 @@ function healthView(health: HealthResponse | null, err: boolean): HealthView {
       tone: 'success',
       label: 'Healthy',
       icon: CheckCircle2,
-      detail: `Store: ${health?.store_type ?? 'unknown'}`,
+      detail: `Store: ${storeType}`,
+      title: 'Healthy',
+      help: `Own-state store connected and persisting. Store: ${storeType}.`,
     };
   }
   return {
     tone: 'warning',
-    label: 'Store degraded',
+    label: 'State store unreachable',
     icon: AlertTriangle,
-    detail: `Store: ${health?.store_type ?? 'unknown'}`,
+    detail: `Store: ${storeType}`,
+    title: 'State store unreachable',
+    help:
+      `The platform's own state store (${storeType}) is not reachable. New cases, ` +
+      'cursors and audit may fail to persist.\n\n' +
+      'How to fix: check the store connection and credentials; ' +
+      'see docs/TROUBLESHOOTING.md.',
   };
 }
 
@@ -101,6 +144,7 @@ const TONE_PILL: Record<HealthTone, string> = {
   success: 'border-success/40 text-success',
   warning: 'border-warning/40 text-warning',
   critical: 'border-critical/40 text-critical',
+  muted: 'border-border text-muted-foreground',
 };
 
 /** Poll /api/health every 15s, debouncing transient failures. */
@@ -344,22 +388,36 @@ export const AppShell: React.FC<AppShellProps> = ({
               </Badge>
             ) : null}
 
-            {/* Health pill */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
+            {/* Health pill — a click-to-open Popover with plain-language help.
+                store_type/help text is backend-derived and rendered as PLAIN
+                text only (never markup). */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
                   className={cn(
                     'inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs font-medium',
+                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     TONE_PILL[hv.tone],
                   )}
                   aria-live="polite"
+                  aria-label={`Platform health: ${hv.label}`}
                 >
                   <HealthIcon className="h-3.5 w-3.5" aria-hidden />
                   <span className="hidden sm:inline">{hv.label}</span>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{hv.detail}</TooltipContent>
-            </Tooltip>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 space-y-1.5 text-xs leading-relaxed">
+                <p className="flex items-center gap-1.5 font-semibold text-foreground">
+                  <HealthIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {hv.title}
+                </p>
+                <p className="whitespace-pre-line text-muted-foreground">{hv.help}</p>
+                <p className="border-t border-border pt-1.5 font-mono text-[11px] text-muted-foreground">
+                  {hv.detail}
+                </p>
+              </PopoverContent>
+            </Popover>
 
             {/* User + logout (only when auth enabled + authenticated) */}
             {username ? (
