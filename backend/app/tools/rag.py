@@ -42,8 +42,14 @@ logger = logging.getLogger("tlsoc.tools.rag")
 
 # Built-in seed corpus sources — guarded from deletion via the management API
 # unless an explicit force=True is passed (so an operator cannot accidentally wipe
-# the shipped knowledge base while curating imported documents).
+# the shipped knowledge base while curating imported documents). ``resolved_case``
+# (the institutional-memory loop) is accumulated at runtime, not seeded; it is
+# guarded here so a bulk "clear imported docs" cannot drop prior analyst decisions.
 SEED_SOURCES = frozenset({"runbook", "mitre", "suppression", "resolved_case"})
+
+# The corpus source tag for operator-imported threat-intelligence documents (F11).
+# Retrievable like any other knowledge and injected as a TRUSTED fenced block.
+THREAT_CONTEXT_SOURCE = "threat_context"
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -439,6 +445,18 @@ class RagService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("RAG import_document(%r) failed: %s", title, exc)
             return {"document_id": "", "title": title, "source": source, "chunk_count": 0}
+
+    async def import_threat_context(
+        self, title: str, content: str, *, tags: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Ingest an operator-supplied THREAT-INTEL document into the RAG corpus as
+        ``source="threat_context"`` (F11). Retrievable like any knowledge and injected
+        as a TRUSTED fenced block. Thin wrapper over :meth:`import_document` so all
+        the chunking/embedding/dedup/fail-safe behaviour is reused. The content is
+        UNTRUSTED corpus text — the investigator's render path fences it (#9)."""
+        return await self.import_document(
+            title, content, source=THREAT_CONTEXT_SOURCE, tags=tags
+        )
 
     async def list_documents(self) -> list[dict[str, Any]]:
         """All documents in the corpus (seeds grouped as ``seed:<source>``). Never raises."""

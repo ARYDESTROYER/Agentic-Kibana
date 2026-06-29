@@ -39,6 +39,7 @@ from ..models import (
     TriggerReason,
 )
 from ..state import AppState
+from ..tools.enrich import EnrichTool
 from ..utils import iso_now, relative_to_millis
 from .deps import (
     _bearer,
@@ -2396,6 +2397,114 @@ async def case_reinvestigate(
         cluster, case.source_surface, prefs_eff, force=True
     )
     return updated.model_dump(mode="json")
+
+
+class RunPlaybookRequest(BaseModel):
+    """Manually RUN a specific playbook on a case (F10). ``playbook_id`` selects the
+    playbook to FORCE-inject as TRUSTED operator procedure for a re-investigation."""
+
+    playbook_id: str
+    analyst: str = "analyst"
+
+
+@router.post("/cases/{case_id}/run-playbook")
+async def case_run_playbook(
+    case_id: str,
+    body: RunPlaybookRequest,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("playbooks", "run")),
+) -> dict[str, Any]:
+    """Manually run a chosen playbook on a case (F10) — CONTEXT-ONLY, #3-safe.
+
+    Re-investigates the case through the SHARED pipeline with ``playbook_id`` FORCED
+    as the injected TRUSTED operator procedure. The playbook can only RECOMMEND; the
+    deterministic close/escalate decision in the Case Manager is untouched (#3). 404
+    if the case or playbook is unknown; 400 (NEUTRAL) when no events remain to rebuild
+    the cluster. Returns the updated Case. Gated by ``playbooks:run``."""
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if state.playbooks.get(body.playbook_id) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown playbook: {body.playbook_id}")
+    cluster = await _cluster_for_case(state, case)
+    if cluster is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No events remain for {case.entity.type.value} {case.entity.value} "
+                f"in the last {state.prefs.investigate_lookback}; the activity may have "
+                "aged out of the retained log window."
+            ),
+        )
+    await state.audit.record(
+        action_type=ActionType.DECISION, surface=case.source_surface.value,
+        actor="run_playbook", case_id=case_id,
+        result_summary=(
+            f"manual playbook run requested by {body.analyst or 'analyst'}: "
+            f"playbook={body.playbook_id}"
+        ),
+    )
+    updated = await state.playbooks.run(
+        state.pipeline, cluster, case.source_surface, state.prefs, body.playbook_id
+    )
+    return updated.model_dump(mode="json")
+
+
+@router.get("/cases/{case_id}/threat-context")
+async def case_threat_context(
+    case_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """The assembled, read-only THREAT-CONTEXT panel for a case (F11).
+
+    Parallel + FAIL-OPEN: IOC reputation, MITRE technique metadata, related resolved
+    cases, asset context + evidence. Advisory only — it never touches the
+    deterministic decision (#3). All free-text it carries is case/log-derived and is
+    rendered as plain text / code blocks by the UI (#9). 404 if the case is unknown."""
+    from ..engine import threat_context as tc
+
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    enrich = EnrichTool(state.secrets, state.prefs, state.cache)
+    panel = await tc.assemble(
+        case, state.prefs, enrich=enrich, rag=state.rag, cases=state.cases
+    )
+    return panel.model_dump(mode="json")
+
+
+class ThreatContextImportBody(BaseModel):
+    """Ingest an operator-supplied threat-intelligence document into RAG (F11)."""
+
+    title: str
+    content: str
+    tags: list[str] = Field(default_factory=list)
+
+
+@router.post("/threat-context/import")
+async def threat_context_import(
+    body: ThreatContextImportBody,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "manage")),
+) -> dict[str, Any]:
+    """Import a threat-intel document into the RAG corpus as ``source="threat_context"``
+    (F11). It becomes retrievable knowledge and is injected as a TRUSTED FENCED block
+    in investigations (#9). Gated by ``rag:manage``. Returns the import summary
+    (``{document_id, title, source, chunk_count}``)."""
+    title = (body.title or "").strip()
+    content = (body.content or "").strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title and content are required")
+    result = await state.rag.import_threat_context(title, content, tags=body.tags)
+    await state.audit.record(
+        action_type=ActionType.CONTEXT, surface="rag", actor="analyst",
+        result_summary=(
+            f"imported threat_context document {result.get('document_id')} "
+            f"({result.get('chunk_count')} chunk(s))"
+        ),
+    )
+    return result
 
 
 @router.get("/cases/{case_id}/trace")

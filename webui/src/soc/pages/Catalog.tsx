@@ -27,6 +27,7 @@ import {
   Hash,
   Key,
   Library,
+  Play,
   RefreshCw,
   ScrollText,
   Search,
@@ -34,6 +35,7 @@ import {
   User,
   Users,
   Wrench,
+  Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -368,7 +370,10 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
   );
 };
 
-const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
+const PlaybookCard: React.FC<{ playbook: Playbook; automationCount: number }> = ({
+  playbook,
+  automationCount,
+}) => {
   const ragQueries = playbook.rag_queries ?? [];
   return (
     <Card className="flex h-full flex-col transition-colors hover:border-primary/40">
@@ -391,9 +396,37 @@ const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
               </div>
             </div>
           </div>
-          {typeof playbook.priority === 'number' ? (
-            <Badge variant="warning">priority {playbook.priority}</Badge>
-          ) : null}
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            {typeof playbook.priority === 'number' ? (
+              <Badge variant="warning">priority {playbook.priority}</Badge>
+            ) : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="success" tabIndex={0} className="cursor-default gap-1">
+                  <Play className="h-3 w-3" aria-hidden />
+                  Runnable
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                Can be run from a case (Run a playbook) to re-investigate with this procedure as
+                context.
+              </TooltipContent>
+            </Tooltip>
+            {automationCount > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="info" tabIndex={0} className="cursor-default gap-1">
+                    <Zap className="h-3 w-3" aria-hidden />
+                    {automationCount} automation rule{automationCount === 1 ? '' : 's'}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                  Threshold automation rules queue this playbook. Manage them under Settings →
+                  Threshold automation.
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="flex-1 pt-0">
@@ -433,6 +466,10 @@ const PlaybooksCatalog: React.FC = () => {
   const [error, setError] = React.useState<unknown>(null);
   const [enabled, setEnabled] = React.useState(true);
   const [playbooks, setPlaybooks] = React.useState<Playbook[]>([]);
+  // playbook_id → number of threshold-automation rules that queue it.
+  const [automationByPlaybook, setAutomationByPlaybook] = React.useState<
+    Record<string, number>
+  >({});
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -445,6 +482,21 @@ const PlaybooksCatalog: React.FC = () => {
       setError(e);
     } finally {
       setLoading(false);
+    }
+    // Best-effort: count automation rules that run each playbook (may be 403 for
+    // non-admins; degrade silently to no markers).
+    try {
+      const settings = await api.getSettings();
+      const rules = settings.prefs?.threshold_automation?.rules ?? [];
+      const counts: Record<string, number> = {};
+      for (const r of rules) {
+        if (r.action !== 'run_playbook') continue;
+        const pid = typeof r.payload?.playbook_id === 'string' ? r.payload.playbook_id : '';
+        if (pid) counts[pid] = (counts[pid] ?? 0) + 1;
+      }
+      setAutomationByPlaybook(counts);
+    } catch {
+      setAutomationByPlaybook({});
     }
   }, []);
 
@@ -481,7 +533,7 @@ const PlaybooksCatalog: React.FC = () => {
       </CatalogNote>
       <Stagger className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {playbooks.map((p) => (
-          <PlaybookCard key={p.id} playbook={p} />
+          <PlaybookCard key={p.id} playbook={p} automationCount={automationByPlaybook[p.id] ?? 0} />
         ))}
       </Stagger>
     </>

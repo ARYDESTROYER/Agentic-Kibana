@@ -518,6 +518,8 @@ export interface RagConfig {
   use_mitre?: boolean;
   use_resolved_cases?: boolean;
   use_suppression_rules?: boolean;
+  /** Inject imported threat-intel corpus (source="threat_context") as TRUSTED fenced context (F11). */
+  use_threat_context?: boolean;
 }
 
 export interface StandupConfig {
@@ -544,6 +546,75 @@ export interface FpAutoCloseConfig {
   min_confidence?: number;
   max_risk_score?: number;
   objection_window_minutes?: number;
+}
+
+// --------------------------------------------------------------------------- //
+// Threshold automation (F10) — Preferences.threshold_automation.
+//
+// Rules match a case AFTER the deterministic CaseManager.decide()/apply() has run
+// and saved. A matched rule can only TAG, attach a non-binding RECOMMENDATION,
+// send a NOTIFICATION, QUEUE a playbook re-investigation (which itself re-runs
+// decide() with new context), or create a HITL Proposal for an approval-required
+// action. Automation NEVER sets status/disposition and NEVER auto-closes —
+// NEEDS_HUMAN / escalated cases are always held for a human (code-enforced).
+// --------------------------------------------------------------------------- //
+/** The action a matched automation rule performs (all #3-safe). */
+export type AutomationActionType =
+  | 'tag'
+  | 'recommend'
+  | 'notify'
+  | 'run_playbook'
+  | 'request_approval'
+  | string;
+
+/**
+ * The match criteria for an automation rule. All conditions are ANDed; an absent
+ * condition is "any". `verdict`/`status`/`entity_type` are case-insensitive token
+ * matches; `source_id`/`rule_name` are exact/contains matches (backend decides);
+ * `min_risk`/`min_severity` are floors (0..100 / 0..n).
+ */
+export interface AutomationConditions {
+  verdict?: string;
+  min_risk?: number;
+  min_severity?: number;
+  status?: string;
+  source_id?: string;
+  rule_name?: string;
+  entity_type?: string;
+}
+
+/** One operator-authored threshold-automation rule. */
+export interface AutomationRule {
+  id: string;
+  enabled?: boolean;
+  /** Lower runs first (priority order). Defaults to 100. */
+  priority?: number;
+  conditions?: AutomationConditions;
+  action: AutomationActionType;
+  /**
+   * Action-specific payload (operator-authored, TRUSTED). Well-known keys:
+   *   - tag:              { tags: string[] }
+   *   - recommend:        { text: string }
+   *   - notify:           { channel_id?: string }
+   *   - run_playbook:     { playbook_id: string }
+   *   - request_approval: { kind: string, ... }
+   */
+  payload?: Record<string, unknown>;
+}
+
+/** Preferences.threshold_automation — disabled by default (byte-identical OOTB). */
+export interface ThresholdAutomationConfig {
+  enabled?: boolean;
+  rules?: AutomationRule[];
+}
+
+/** Preferences.threat_context — the threat-context panel + reusable-knowledge loop (F11). */
+export interface ThreatContextConfig {
+  enabled?: boolean;
+  mitre_enabled?: boolean;
+  reuse_resolved_cases?: boolean;
+  /** A reputation score at/above this is treated as malicious (0..100). */
+  ioc_malicious_threshold?: number;
 }
 
 /**
@@ -608,6 +679,11 @@ export interface Preferences {
 
   /** Outbound alerting / notifications (F5 / Wave 4; default disabled). */
   notifications?: NotificationConfig;
+
+  /** Threshold automation (F10; default disabled). #3-safe, never auto-closes. */
+  threshold_automation?: ThresholdAutomationConfig;
+  /** Threat-context panel + reusable-knowledge loop (F11). */
+  threat_context?: ThreatContextConfig;
 
   setup_complete?: boolean;
   read_only_settings_mode?: boolean;
@@ -855,6 +931,30 @@ export interface Case {
   related_case_ids?: string[];
   cross_source_cluster_id?: string;
   source_breakdown?: Record<string, number>;
+  /**
+   * Threshold-automation audit trail (F10; additive). Each entry records a SAFE
+   * action automation applied (tag/recommend/notify/queued playbook) or a Proposal
+   * it drafted for approval — NEVER a status change. Values are operator/agent text
+   * → render as plain text.
+   */
+  automation_actions?: AutomationActionRecord[];
+  /** Knowledge sources the investigation drew on (F11; additive, UNTRUSTED text). */
+  knowledge_used?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/** One recorded threshold-automation action on a case (F10; audit). */
+export interface AutomationActionRecord {
+  /** The kind of action automation took. */
+  action?: AutomationActionType;
+  /** The rule id that matched. */
+  rule_id?: string;
+  /** When it ran (ISO). */
+  at?: string;
+  /** A human-readable note about what happened (UNTRUSTED-safe plain text). */
+  detail?: string;
+  /** For request_approval: the created Proposal id. */
+  proposal_id?: string;
   [key: string]: unknown;
 }
 
@@ -1308,5 +1408,91 @@ export interface CaseRationale {
   decision_rationale?: string;
   mitre?: string[];
   evidence?: Evidence[];
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Threat-context panel (F11) — GET /api/cases/{id}/threat-context.
+//
+// Assembled per-case, parallel-fetched + fail-open per section: a missing /
+// errored section degrades to an empty list, never errors the whole panel. EVERY
+// field is intel/log-derived and UNTRUSTED — render as plain text / CodeBlock,
+// never as markup, and never as live links beyond a known MITRE technique URL.
+// --------------------------------------------------------------------------- //
+/** One IOC's reputation lookup (AbuseIPDB / VirusTotal / GeoIP-derived). */
+export interface IocReputation {
+  /** The indicator value (UNTRUSTED — plain text). */
+  indicator: string;
+  /** The kind of indicator (ip / domain / hash / url / …). */
+  type?: string;
+  /** 0..100 reputation/abuse score, when available. */
+  reputation_score?: number;
+  /** Whether the score crosses the configured malicious threshold. */
+  is_malicious?: boolean;
+  /** Country / source label (UNTRUSTED — plain text). */
+  country?: string;
+  /** The enrichment source that produced this (e.g. "abuseipdb"). */
+  source?: string;
+  [key: string]: unknown;
+}
+
+/** One MITRE ATT&CK technique resolved from the bundled corpus. */
+export interface MitreTechnique {
+  /** The technique id, e.g. "T1110" or "T1110.001". */
+  id: string;
+  /** The technique name (from the curated corpus — TRUSTED). */
+  name?: string;
+  /** Tactic phase labels (e.g. "credential-access"). */
+  tactics?: string[];
+  /** Applicable platforms. */
+  platforms?: string[];
+  /** Canonical MITRE ATT&CK URL for the technique. */
+  url?: string;
+  /** Short description (from the corpus — TRUSTED). */
+  description?: string;
+  [key: string]: unknown;
+}
+
+/** A related case surfaced by the threat-context assembly (Wave 5 / F6 linkage). */
+export interface ThreatContextRelatedCase {
+  case_id: string;
+  case_number?: string;
+  /** UNTRUSTED — plain text. */
+  title?: string;
+  verdict?: string;
+  status?: string;
+  disposition?: Disposition | null;
+  risk_score?: number;
+  created_at?: string;
+  /** Why it relates (shared entity / cross-source / resolved-case match). */
+  reason?: string;
+  [key: string]: unknown;
+}
+
+/** Asset / entity context for the case's primary entity. */
+export interface ThreatContextAsset {
+  /** The entity value (UNTRUSTED — plain text). */
+  entity?: string;
+  entity_type?: string;
+  /** Operator-recorded criticality, when known. */
+  criticality?: string;
+  /** Free-form KV context (UNTRUSTED values — plain text). */
+  attributes?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** GET /api/cases/{id}/threat-context — the assembled panel (all sections fail-open). */
+export interface ThreatContextPanel {
+  case_id?: string;
+  /** A short threat summary banner (UNTRUSTED — plain text). */
+  summary?: string;
+  ioc_reputation?: IocReputation[];
+  mitre_techniques?: MitreTechnique[];
+  related_cases?: ThreatContextRelatedCase[];
+  asset_context?: ThreatContextAsset | null;
+  evidence?: Evidence[];
+  generated_at?: string;
+  /** Present + true when the feature is disabled in Preferences. */
+  disabled?: boolean;
   [key: string]: unknown;
 }

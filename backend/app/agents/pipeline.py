@@ -87,6 +87,11 @@ class InvestigationPipeline:
         # AppState AFTER construction. None → no notifications (today's behaviour). It
         # is called ONLY after apply()+save and never alters the case decision (#3).
         self.notifier = None
+        # Optional threshold-automation executor (F10 / Wave 6), wired by AppState
+        # AFTER construction. None → no automation (today's behaviour). It runs ONLY
+        # after apply()+save and may ONLY tag/recommend/notify/queue a re-investigation/
+        # open a HITL Proposal — it NEVER sets case.status/disposition (#3).
+        self.automation = None
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -114,6 +119,32 @@ class InvestigationPipeline:
             asyncio.create_task(notifier.notify(case, save=self._cases.save))
         except Exception as exc:  # noqa: BLE001 — must never affect the case flow
             logger.debug("notification scheduling skipped: %s", exc)
+
+    async def _maybe_automate(self, case: Case, prefs: Preferences) -> None:
+        """Run post-decision threshold automation for a freshly-saved case (#3-safe).
+
+        A no-op when no automation executor is wired / automation is disabled. The
+        executor itself is error-isolated; this wrapper double-guards so a failure can
+        NEVER break the case path. It NEVER sets case.status/disposition."""
+        automation = getattr(self, "automation", None)
+        if automation is None:
+            return
+        try:
+            await automation.run(case, prefs, save=self._cases.save)
+        except Exception as exc:  # noqa: BLE001 — automation must never affect the case flow
+            logger.warning("threshold automation skipped for %s: %s", case.case_id, exc)
+
+    async def _maybe_index_resolved(self, case: Case) -> None:
+        """Best-effort: index a terminal (closed/resolved) case into the RAG corpus
+        as institutional memory (F11). OUTSIDE the decision logic — a failure never
+        blocks/raises. The RagService method is itself gated + fail-safe."""
+        try:
+            from ..constants import TERMINAL_CASE_STATUSES
+
+            if case.status and case.status.value in TERMINAL_CASE_STATUSES:
+                await self._rag.index_resolved_case(case)
+        except Exception as exc:  # noqa: BLE001 — knowledge loop is best-effort
+            logger.debug("resolved-case indexing skipped for %s: %s", case.case_id, exc)
 
     async def _allocate_case_number(
         self, existing: Case | None, cluster: Cluster, prefs: Preferences
@@ -148,6 +179,7 @@ class InvestigationPipeline:
         prefs: Preferences,
         *,
         force: bool = False,
+        force_playbook_id: str | None = None,
     ) -> Case:
         case_id = new_id("case-")
         existing: Case | None = None
@@ -197,7 +229,18 @@ class InvestigationPipeline:
             persona = select_persona(cluster, prefs)
             playbook = None
             playbook_reason = "playbooks_disabled"
-            if prefs.playbooks.enabled and self._playbooks is not None:
+            if force_playbook_id and self._playbooks is not None:
+                # Manual "run a playbook" (F10): the operator FORCES a specific
+                # playbook as the injected TRUSTED procedure. This is CONTEXT-ONLY —
+                # the playbook can still only RECOMMEND; the deterministic policy
+                # decides close/escalate exactly as for an auto-selected playbook (#3).
+                forced = self._playbooks.get(force_playbook_id)
+                if forced is not None:
+                    playbook = forced
+                    playbook_reason = f"forced:{force_playbook_id}"
+                else:
+                    playbook_reason = f"forced_missing:{force_playbook_id}"
+            elif prefs.playbooks.enabled and self._playbooks is not None:
                 playbook, playbook_reason = self._playbooks.select(cluster)
             await self._audit.record(
                 action_type=ActionType.DECISION, surface=source_surface.value,
@@ -278,6 +321,15 @@ class InvestigationPipeline:
                     f"risk={case.risk_score} cost={round(cost, 6)}"
                 ),
             )
+            # Threshold automation (F10) runs AFTER the deterministic decision + save
+            # (#3). It may ONLY tag/recommend/notify/queue a re-investigation (which
+            # itself re-runs decide()) / open a HITL Proposal — never set status or
+            # close. Fully error-isolated: a failure can never break the case path.
+            await self._maybe_automate(case, prefs)
+            # Reusable-knowledge loop (F11): if this case is terminal (closed/resolved),
+            # index it as a resolved_case RAG chunk so future investigations learn from
+            # it. Best-effort, OUTSIDE the decision logic — never blocks/raises.
+            await self._maybe_index_resolved(case)
             # Fire-and-forget outbound notifications AFTER the deterministic decision +
             # save (#3). A send (or failure) can never block, delay, or alter the case
             # — create_task detaches it and notify() swallows all errors internally.

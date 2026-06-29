@@ -177,7 +177,7 @@ def test_render_cluster_groups_resolved_cases():
     ]
     out = render_cluster(cluster, None, chunks)
     assert "## Prior analyst decisions (baseline)" in out
-    assert "## Retrieved knowledge (runbooks / MITRE / suppression)" in out
+    assert "## Retrieved knowledge (runbooks / MITRE / suppression / threat-intel)" in out
     # The resolved-case chunk appears UNDER the baseline heading.
     assert out.index("Resolved case abc") > out.index("## Prior analyst decisions (baseline)")
     # The runbook chunk appears under the knowledge heading, not the baseline one.

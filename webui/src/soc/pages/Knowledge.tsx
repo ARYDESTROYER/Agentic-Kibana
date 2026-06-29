@@ -24,6 +24,7 @@ import {
   AlertCircle,
   BarChart3,
   Boxes,
+  CheckCircle2,
   Cpu,
   FileText,
   Gauge,
@@ -32,6 +33,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldAlert,
   Tag,
   Trash2,
   Upload,
@@ -52,6 +54,7 @@ import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { Can, useCan } from '@/soc/components/Can';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import {
@@ -131,6 +134,7 @@ function sourceBadgeVariant(source?: string): BadgeProps['variant'] {
   if (s.includes('runbook') || s.includes('playbook')) return 'info';
   if (s.includes('case') || s.includes('resolved')) return 'success';
   if (s.includes('mitre')) return 'critical';
+  if (s.includes('threat')) return 'critical';
   if (s.includes('import') || s.includes('manual') || s.includes('upload'))
     return 'default';
   if (s.includes('suppression')) return 'warning';
@@ -142,7 +146,7 @@ function sourceBarColor(source?: string): string {
   const s = (source || '').toLowerCase();
   if (s.includes('runbook') || s.includes('playbook')) return 'bg-info';
   if (s.includes('case') || s.includes('resolved')) return 'bg-success';
-  if (s.includes('mitre')) return 'bg-critical';
+  if (s.includes('mitre') || s.includes('threat')) return 'bg-critical';
   if (s.includes('suppression')) return 'bg-warning';
   return 'bg-accent-bar';
 }
@@ -711,6 +715,219 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
     </Card>
   );
 };
+
+/* --------------------------------------------------------- threat-intel import */
+
+/**
+ * Import a threat-intel note into the RAG corpus as source="threat_context". It is
+ * retrieved + injected into investigations as a clearly-labelled TRUSTED fenced
+ * block (the content itself is UNTRUSTED corpus material). Gated by rag:manage.
+ */
+const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
+  const [title, setTitle] = React.useState('');
+  const [content, setContent] = React.useState('');
+  const [tagInput, setTagInput] = React.useState('');
+  const [tags, setTags] = React.useState<string[]>([]);
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const bytes = React.useMemo(() => new Blob([content]).size, [content]);
+  const tooBig = bytes > MAX_IMPORT_BYTES;
+  const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !tooBig && !submitting;
+
+  const addTag = React.useCallback((raw: string) => {
+    const label = raw.trim();
+    if (!label) return;
+    setTags((prev) => (prev.includes(label) ? prev : [...prev, label]));
+    setTagInput('');
+  }, []);
+
+  const submit = React.useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const res = await api.threatContext.import({
+        title: title.trim(),
+        content,
+        tags: tags.map((t) => t.trim()).filter(Boolean),
+      });
+      toast.success(
+        `Indexed threat intel "${res.title}" (${fmtNumber(res.chunk_count)} chunk${
+          res.chunk_count === 1 ? '' : 's'
+        }).`,
+      );
+      setTitle('');
+      setContent('');
+      setTags([]);
+      setTagInput('');
+      onImported();
+    } catch (e) {
+      toast.error(errMessage(e, 'Threat-intel import failed.'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [title, content, tags, onImported]);
+
+  return (
+    <Card className="flex h-full flex-col">
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <CardIcon icon={ShieldAlert} />
+          <CardTitle>Import threat intel</CardTitle>
+        </div>
+        <CardDescription className="pt-1">
+          Add a threat-intel note (actor TTPs, IOC writeups, advisories). It is indexed as{' '}
+          <code className="font-mono text-xs">threat_context</code> and injected into
+          investigations as a clearly-labelled TRUSTED fenced block — the content is treated as
+          untrusted evidence, never executed as instructions.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="ti-title">Title</Label>
+          <Input
+            id="ti-title"
+            placeholder="e.g. APT-XX credential-stuffing advisory"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ti-content">Content</Label>
+          <Textarea
+            id="ti-content"
+            rows={6}
+            placeholder="Paste the threat-intel writeup, IOC list, or advisory text…"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            className={cn(tooBig && 'border-critical focus-visible:ring-critical')}
+          />
+          <p className={cn('text-xs', tooBig ? 'text-critical' : 'text-muted-foreground')}>
+            {tooBig ? `Too large — keep notes under ${MAX_IMPORT_KB} KB.` : `${fmtNumber(bytes)} bytes`}
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ti-tags">Tags (optional)</Label>
+          <Input
+            id="ti-tags"
+            placeholder="Type a tag and press enter…"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+          />
+          {tags.length ? (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {tags.map((t) => (
+                <Badge key={t} variant="secondary" className="gap-1">
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
+                    className="rounded-sm hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    aria-label={`Remove tag ${t}`}
+                  >
+                    <X className="size-3" aria-hidden />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="mt-auto flex items-center justify-end gap-2 pt-2">
+          <Button size="sm" onClick={() => void submit()} disabled={!canSubmit}>
+            <Plus aria-hidden />
+            Index threat intel
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+/* ----------------------------------------------- threat-intel / resolved lists */
+
+/** A compact, filtered list of corpus documents for one source kind. */
+const CorpusSourceSection: React.FC<{
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  match: (source?: string) => boolean;
+  documents: RagDocument[];
+  loading: boolean;
+  emptyHint: string;
+  onOpen: (id: string) => void;
+}> = ({ icon: Icon, title, description, match, documents, loading, emptyHint, onOpen }) => {
+  const rows = React.useMemo(
+    () => documents.filter((d) => match(d.source)),
+    [documents, match],
+  );
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <div className="flex items-center gap-3">
+          <CardIcon icon={Icon} />
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription className="mt-0.5">{description}</CardDescription>
+          </div>
+        </div>
+        <Badge variant="outline">
+          {fmtNumber(rows.length)} doc{rows.length === 1 ? '' : 's'}
+        </Badge>
+      </CardHeader>
+      <CardContent>
+        {loading && documents.length === 0 ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState icon={Icon} compact title="Nothing here yet" description={emptyHint} />
+        ) : (
+          <ul className="divide-y divide-border">
+            {rows.map((d) => (
+              <li
+                key={d.document_id}
+                className="flex flex-wrap items-center gap-2 py-2.5 first:pt-0 last:pb-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpen(d.document_id)}
+                  className="min-w-0 flex-1 truncate text-left text-sm font-medium text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                  title={d.title || d.document_id}
+                >
+                  {/* UNTRUSTED title → plain text. */}
+                  {d.title || d.document_id}
+                </button>
+                <Badge variant="outline" className="shrink-0">
+                  <Layers className="size-3" aria-hidden />
+                  {fmtNumber(d.chunk_count)} chunk{d.chunk_count === 1 ? '' : 's'}
+                </Badge>
+                {d.added_at ? (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {humanizeAge(d.added_at)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+const isThreatContextSource = (s?: string): boolean =>
+  (s || '').toLowerCase().includes('threat_context') ||
+  (s || '').toLowerCase().includes('threat-context') ||
+  (s || '').toLowerCase() === 'threat_intel';
+const isResolvedCaseSource = (s?: string): boolean =>
+  (s || '').toLowerCase().includes('resolved_case') ||
+  (s || '').toLowerCase().includes('resolved-case');
 
 /* ------------------------------------------------------------------- search --- */
 
@@ -1342,6 +1559,7 @@ export default function Knowledge(_props: KnowledgeProps) {
   );
 
   const showHealthSkeleton = loading && !stats;
+  const canManageRag = useCan('rag', 'manage');
 
   return (
     <div className="space-y-8">
@@ -1438,11 +1656,42 @@ export default function Knowledge(_props: KnowledgeProps) {
         </Card>
       ) : null}
 
+      {/* ---- threat intel + resolved cases (F11) ---- */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <CorpusSourceSection
+          icon={ShieldAlert}
+          title="Threat intel"
+          description="Imported threat-intel notes (source: threat_context) the investigator can retrieve."
+          match={isThreatContextSource}
+          documents={documents}
+          loading={loading}
+          emptyHint="Import a threat-intel note below to seed this corpus."
+          onOpen={setSelectedDoc}
+        />
+        <CorpusSourceSection
+          icon={CheckCircle2}
+          title="Resolved cases"
+          description="Closed/resolved cases auto-indexed (source: resolved_case) so future triage learns from them."
+          match={isResolvedCaseSource}
+          documents={documents}
+          loading={loading}
+          emptyHint="Resolved cases are indexed automatically when a case closes."
+          onOpen={setSelectedDoc}
+        />
+      </div>
+
       {/* ---- import + search ---- */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ImportCard onImported={load} />
         <SearchCard />
       </div>
+
+      {/* ---- threat-intel import (rag:manage) ---- */}
+      {canManageRag ? (
+        <Can resource="rag" action="manage">
+          <ThreatIntelImportCard onImported={load} />
+        </Can>
+      ) : null}
 
       {/* ---- documents table ---- */}
       <DocumentsSection

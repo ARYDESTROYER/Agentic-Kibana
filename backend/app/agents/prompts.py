@@ -170,13 +170,27 @@ def render_cluster(cluster: Cluster, enrichment: EnrichmentResult | None,
         baseline = [ch for ch in rag_chunks if ch.source == "resolved_case"]
         knowledge = [ch for ch in rag_chunks if ch.source != "resolved_case"]
         if knowledge:
-            lines.append("\n## Retrieved knowledge (runbooks / MITRE / suppression)")
+            lines.append("\n## Retrieved knowledge (runbooks / MITRE / suppression / threat-intel)")
             for ch in knowledge:
-                lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
+                # Shipped operator knowledge (runbooks/MITRE/suppression) is our own
+                # trusted text. IMPORTED threat-intel ("threat_context") is UNTRUSTED
+                # corpus content (operator-pasted, possibly attacker-influenced) — it
+                # is FENCED so it can never smuggle instructions into the TRUSTED
+                # context (#9). fence() also neutralises forged fence/markers.
+                if ch.source == "threat_context":
+                    lines.append(
+                        f"- [{ch.source}] {fence(ch.text, source='threat_context')}"
+                    )
+                else:
+                    lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
         if baseline:
+            # Prior analyst decisions carry case-derived (and therefore log-derived,
+            # attacker-influenceable) text — FENCE them as UNTRUSTED knowledge too.
             lines.append("\n## Prior analyst decisions (baseline)")
             for ch in baseline:
-                lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
+                lines.append(
+                    f"- [{ch.source}] {fence(ch.text, source='resolved_case')}"
+                )
     return "\n".join(lines)
 
 

@@ -571,6 +571,10 @@ class RagConfig(BaseModel):
     vector_weight: float = 0.6
     bm25_weight: float = 0.4
     hybrid_overfetch: int = 4  # candidate pool = top_k * this, before re-rank
+    # Reusable-knowledge loop (Wave 6 / F11): include imported threat-intel documents
+    # (source="threat_context") in retrieval so they are injected as a TRUSTED fenced
+    # block. ``use_resolved_cases`` (above) controls past-case institutional memory.
+    use_threat_context: bool = True
 
 
 class PersonaConfig(BaseModel):
@@ -595,6 +599,59 @@ class RunbookConfig(BaseModel):
     are retrieval knowledge only. Disabling falls back to the in-code seed runbooks."""
 
     enabled: bool = True
+
+
+class ThreatContextConfig(BaseModel):
+    """Threat-context case panel (Wave 6 / F11).
+
+    Assembles a read-only, fail-open context object for a case (IOC reputation,
+    MITRE techniques, related cases, asset context, evidence). All ADVISORY — it
+    never touches the deterministic decision. ``mitre_enabled`` toggles the bundled
+    MITRE technique lookup; ``reuse_resolved_cases`` toggles surfacing prior
+    resolved cases as related context; ``ioc_malicious_threshold`` is the 0..100
+    reputation score at/above which an IOC is shown as malicious in the panel."""
+
+    enabled: bool = True
+    mitre_enabled: bool = True
+    reuse_resolved_cases: bool = True
+    ioc_malicious_threshold: int = Field(default=50, ge=0, le=100)
+
+
+class AutomationRule(BaseModel):
+    """One post-decision threshold-automation rule (Wave 6 / F10).
+
+    Evaluated AFTER the deterministic ``case_manager.decide()`` + save. A rule
+    MATCHES a case when ALL of its present (non-empty) ``conditions`` hold, and
+    fires its single ``action``. The action is ADVISORY/SAFE
+    (``tag``/``recommend``/``notify``/``run_playbook``) — applied directly + audited
+    — OR ``request_approval``, which creates a HITL ``Proposal`` (the existing
+    proposer/approve path is the only live-write route). It can NEVER set
+    ``case.status``/``disposition`` (#3). ``priority`` orders evaluation (lower =
+    earlier); ``conditions`` keys are matched leniently (an absent key never
+    constrains). ``payload`` carries action-specific data (e.g. the tag text, the
+    recommendation, the channel id, the ``playbook_id`` to run)."""
+
+    id: str
+    enabled: bool = True
+    priority: int = 100
+    # Conditions (all-of; an absent/empty key does not constrain):
+    #   verdict (FALSE_POSITIVE|TRUE_POSITIVE|NEEDS_HUMAN), min_risk (0..100),
+    #   min_severity (0..100, the case risk_score), status (a CaseStatus value),
+    #   source_id, rule_name (matched against the case's rule_ids), entity_type.
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    action: Literal["tag", "recommend", "notify", "run_playbook", "request_approval"] = "tag"
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ThresholdAutomationConfig(BaseModel):
+    """Threshold-automation policy (Wave 6 / F10). Default OFF so today's behaviour
+    is byte-identical out of the box. When ``enabled``, the matching ``rules`` are
+    evaluated (priority order) AFTER the deterministic decision + save and may TAG /
+    RECOMMEND / NOTIFY / QUEUE a playbook re-investigation / request HITL approval —
+    NEVER set the case status or close a case (#3)."""
+
+    enabled: bool = False
+    rules: list[AutomationRule] = Field(default_factory=list)
 
 
 class TraceConfig(BaseModel):
@@ -1088,6 +1145,14 @@ class Preferences(BaseModel):
     personas: PersonaConfig = Field(default_factory=PersonaConfig)
     runbooks: RunbookConfig = Field(default_factory=RunbookConfig)
     playbooks: PlaybookConfig = Field(default_factory=PlaybookConfig)
+    # Threat-context case panel (Wave 6 / F11) — advisory, read-only, fail-open.
+    threat_context: ThreatContextConfig = Field(default_factory=ThreatContextConfig)
+    # Threshold automation (Wave 6 / F10) — default OFF; post-decision, #3-safe. It
+    # runs AFTER the deterministic decision + save and may only tag/recommend/notify/
+    # queue a re-investigation/request HITL approval — never set status or close.
+    threshold_automation: ThresholdAutomationConfig = Field(
+        default_factory=ThresholdAutomationConfig
+    )
     # Operator-customisable branding/appearance (org logo + name + accent + theme).
     branding: BrandingConfig = Field(default_factory=BrandingConfig)
     # Customisable human-facing case-ID nomenclature (F7). Default OFF → the UI

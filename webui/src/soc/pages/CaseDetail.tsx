@@ -74,6 +74,8 @@ import type {
   CaseActionInput,
   CaseRationale,
   ModelsResponse,
+  Playbook,
+  ThreatContextPanel,
 } from '@/lib/types';
 import {
   DASH,
@@ -569,9 +571,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [c, setC] = React.useState<Case | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
-  const [tab, setTab] = React.useState<'overview' | 'why' | 'trace' | 'collab' | 'chat'>(
-    'overview',
-  );
+  const [tab, setTab] = React.useState<
+    'overview' | 'why' | 'threat' | 'trace' | 'collab' | 'chat'
+  >('overview');
 
   // Lazy tab payloads.
   const [trace, setTrace] = React.useState<TraceStep[] | null>(null);
@@ -581,6 +583,17 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [rationale, setRationale] = React.useState<CaseRationale | null>(null);
   const [rationaleLoading, setRationaleLoading] = React.useState(false);
   const [rationaleError, setRationaleError] = React.useState<unknown>(null);
+
+  // Threat context (F11) — lazy.
+  const [threat, setThreat] = React.useState<ThreatContextPanel | null>(null);
+  const [threatLoading, setThreatLoading] = React.useState(false);
+  const [threatError, setThreatError] = React.useState<unknown>(null);
+
+  // Run-a-playbook (F10): the playbook catalog + a pending pick + run state.
+  const [playbooks, setPlaybooks] = React.useState<Playbook[]>([]);
+  const [runPlaybookOpen, setRunPlaybookOpen] = React.useState(false);
+  const [runPlaybookId, setRunPlaybookId] = React.useState('');
+  const [runningPlaybook, setRunningPlaybook] = React.useState(false);
 
   // Pending lifecycle action (confirm dialog) + optional structured fields.
   const [pending, setPending] = React.useState<ActionDef | null>(null);
@@ -678,6 +691,65 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       void loadRationale();
     }
   }, [open, tab, rationale, rationaleLoading, loadRationale]);
+
+  const loadThreat = React.useCallback(async () => {
+    if (!id) return;
+    setThreatLoading(true);
+    setThreatError(null);
+    try {
+      const res = await api.cases.threatContext(id);
+      setThreat(res);
+    } catch (e) {
+      setThreatError(e);
+    } finally {
+      setThreatLoading(false);
+    }
+  }, [id]);
+
+  React.useEffect(() => {
+    if (open && tab === 'threat' && threat === null && !threatLoading) {
+      void loadThreat();
+    }
+  }, [open, tab, threat, threatLoading, loadThreat]);
+
+  // Playbook catalog for the run-a-playbook picker (best-effort).
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void api
+      .getPlaybooks()
+      .then((res) => {
+        if (!cancelled) setPlaybooks(res.enabled ? res.playbooks ?? [] : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const runPlaybook = React.useCallback(async () => {
+    const pid = runPlaybookId.trim();
+    if (!pid) return;
+    setRunningPlaybook(true);
+    setError(null);
+    try {
+      const next = await api.cases.runPlaybook(id, pid);
+      setC(next);
+      setRunPlaybookOpen(false);
+      setRunPlaybookId('');
+      // The run is a re-investigation — invalidate the lazy tab payloads.
+      setTrace(null);
+      setRationale(null);
+      setThreat(null);
+      toast.success('Playbook applied — the case was re-investigated with it as context.');
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Could not run the playbook.',
+      );
+    } finally {
+      setRunningPlaybook(false);
+    }
+  }, [id, runPlaybookId]);
 
   // Models for the reinvestigate picker (best-effort).
   React.useEffect(() => {
@@ -1028,6 +1100,104 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   </PopoverContent>
                 </Popover>
 
+                {/* Run a playbook (CONTEXT-ONLY re-investigation) — gated by playbooks:run */}
+                <Can resource="playbooks" action="run">
+                  <Popover open={runPlaybookOpen} onOpenChange={setRunPlaybookOpen}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={runningPlaybook || loading}
+                            aria-label="Run a playbook"
+                            onClick={() => setRunPlaybookId('')}
+                          >
+                            {runningPlaybook ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <BookOpen className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>Run a playbook</TooltipContent>
+                    </Tooltip>
+                    <PopoverContent align="end" className="w-80">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="h-4 w-4 text-primary" />
+                          <span className="text-sm font-semibold text-foreground">
+                            Run a playbook
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Re-investigates this case with the chosen playbook injected as
+                          TRUSTED operator procedure. The playbook can only{' '}
+                          <span className="font-medium text-foreground">recommend</span> — the
+                          close / escalate decision is still made by deterministic code.
+                        </p>
+                        <Alert variant="warning" className="py-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertTitle className="text-xs">Costs tokens</AlertTitle>
+                          <AlertDescription className="text-xs">
+                            This re-runs the LLM pipeline and may replace the verdict /
+                            rationale. It never changes the lifecycle status on its own.
+                          </AlertDescription>
+                        </Alert>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Playbook</Label>
+                          {playbooks.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              No playbooks are loaded. Add Markdown runbooks on the backend.
+                            </p>
+                          ) : (
+                            <Select
+                              value={runPlaybookId || undefined}
+                              onValueChange={setRunPlaybookId}
+                              disabled={runningPlaybook}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Select a playbook…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {playbooks.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {/* Operator-authored name → plain text. */}
+                                    {p.name || p.id}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setRunPlaybookOpen(false)}
+                            disabled={runningPlaybook}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => void runPlaybook()}
+                            disabled={runningPlaybook || !runPlaybookId.trim()}
+                          >
+                            {runningPlaybook ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Play className="h-4 w-4" />
+                            )}
+                            Run playbook
+                          </Button>
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </Can>
+
                 {/* Refresh */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1175,6 +1345,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="why" className="gap-1.5 text-xs">
                         <Brain className="h-3.5 w-3.5" /> Why
                       </TabsTrigger>
+                      <TabsTrigger value="threat" className="gap-1.5 text-xs">
+                        <Globe className="h-3.5 w-3.5" /> Threat context
+                      </TabsTrigger>
                       <TabsTrigger value="trace" className="gap-1.5 text-xs">
                         <GitBranch className="h-3.5 w-3.5" /> Trace
                       </TabsTrigger>
@@ -1203,6 +1376,16 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         loading={rationaleLoading}
                         error={rationaleError}
                         onRetry={loadRationale}
+                      />
+                    </TabsContent>
+                    <TabsContent value="threat" className="mt-0 animate-fade-in">
+                      <ThreatContextTab
+                        c={c}
+                        panel={threat}
+                        loading={threatLoading}
+                        error={threatError}
+                        onRetry={loadThreat}
+                        onNavigate={onNavigate}
                       />
                     </TabsContent>
                     <TabsContent value="trace" className="mt-0 animate-fade-in">
@@ -1732,6 +1915,78 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, o
   );
 };
 
+/* ----------------------------------------------- threshold automation (F10) */
+
+/** Map an automation action verb → label + icon + tone. */
+const AUTOMATION_META: Record<
+  string,
+  { label: string; icon: React.ComponentType<{ className?: string }>; tone: ScoreTone }
+> = {
+  tag: { label: 'Tagged', icon: Tag, tone: 'info' },
+  recommend: { label: 'Recommendation', icon: Info, tone: 'medium' },
+  notify: { label: 'Notified', icon: Bell, tone: 'info' },
+  run_playbook: { label: 'Queued playbook', icon: BookOpen, tone: 'low' },
+  request_approval: { label: 'Proposed (needs approval)', icon: Lock, tone: 'high' },
+};
+
+/**
+ * Shows the SAFE actions threshold automation applied to this case (F10). Renders
+ * nothing when none ran. These are non-binding: automation can tag / recommend /
+ * notify / queue a re-investigation / draft a Proposal, but NEVER sets the case
+ * status or auto-closes — the close/escalate decision is always deterministic. All
+ * detail text is operator/agent-authored → plain text (#9).
+ */
+const AutomationApplied: React.FC<{ c: Case }> = ({ c }) => {
+  const actions = Array.isArray(c.automation_actions) ? c.automation_actions : [];
+  if (!actions.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card p-6">
+      <SectionHeading icon={Zap} tone="info">
+        Automation applied
+      </SectionHeading>
+      <p className="mb-3 text-xs text-muted-foreground">
+        Threshold-automation actions taken after the deterministic decision. These are
+        non-binding — automation can tag, recommend, notify, queue a re-investigation, or draft a
+        proposal, but it never changes the lifecycle status or auto-closes a case.
+      </p>
+      <ul className="space-y-2">
+        {actions.map((a, i) => {
+          const meta = AUTOMATION_META[String(a.action || '')] || {
+            label: humanizeToken(String(a.action || 'Action')),
+            icon: Zap,
+            tone: 'info' as ScoreTone,
+          };
+          const Icon = meta.icon;
+          return (
+            <li
+              key={`${a.rule_id || a.action || i}-${i}`}
+              className="flex items-start gap-2 rounded-md border border-border bg-muted/30 p-3 text-sm"
+            >
+              <Badge variant={meta.tone === 'low' ? 'success' : meta.tone} className="shrink-0 gap-1">
+                <Icon className="h-3 w-3" />
+                {meta.label}
+              </Badge>
+              <div className="min-w-0 flex-1">
+                {a.detail ? (
+                  /* UNTRUSTED — plain text. */
+                  <p className="whitespace-pre-wrap text-foreground/90">{a.detail}</p>
+                ) : null}
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {a.rule_id ? <span className="font-mono">rule {a.rule_id}</span> : null}
+                  {a.proposal_id ? (
+                    <span className="font-mono">proposal {a.proposal_id}</span>
+                  ) : null}
+                  {a.at ? <span>{humanizeAge(a.at)}</span> : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
+
 const OverviewTab: React.FC<{
   c: Case;
   fpPolicy: FpPolicy;
@@ -2122,6 +2377,9 @@ const OverviewTab: React.FC<{
       {/* --------------------------- related cases + source breakdown (F6) */}
       <RelatedCrossSource c={c} onNavigate={onNavigate} />
 
+      {/* ------------------------------- threshold automation (F10) */}
+      <AutomationApplied c={c} />
+
       {/* ------------------------------------------- status timeline */}
       <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
 
@@ -2428,6 +2686,373 @@ const WhyTab: React.FC<{
             ))}
           </div>
         </div>
+      ) : null}
+    </div>
+  );
+};
+
+/* ========================================================== Threat context == */
+
+/** Canonical MITRE ATT&CK technique URL (id like "T1110" or "T1110.001"). */
+function mitreUrl(id: string, fallback?: string): string {
+  if (fallback && /^https?:\/\//i.test(fallback)) return fallback;
+  const clean = (id || '').trim().toUpperCase();
+  const m = /^T(\d{4})(?:\.(\d{3}))?$/.exec(clean);
+  if (!m) return 'https://attack.mitre.org/techniques/';
+  return m[2]
+    ? `https://attack.mitre.org/techniques/T${m[1]}/${m[2]}/`
+    : `https://attack.mitre.org/techniques/T${m[1]}/`;
+}
+
+const ThreatContextTab: React.FC<{
+  c: Case;
+  panel: ThreatContextPanel | null;
+  loading: boolean;
+  error: unknown;
+  onRetry: () => void;
+  onNavigate?: Navigate;
+}> = ({ c, panel, loading, error, onRetry, onNavigate }) => {
+  if (loading) {
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="p-6">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Could not load threat context</AlertTitle>
+          <AlertDescription>
+            {error instanceof Error ? error.message : 'Something went wrong.'}
+          </AlertDescription>
+        </Alert>
+        <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" /> Retry
+        </Button>
+      </div>
+    );
+  }
+  if (panel?.disabled) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          icon={Globe}
+          title="Threat context is disabled"
+          description="Enable the threat-context panel under Settings → Threat context to assemble IOC reputation, MITRE techniques, related cases and asset context for each case."
+        />
+      </div>
+    );
+  }
+  if (!panel) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          icon={Globe}
+          title="No threat context"
+          description="No threat context could be assembled for this case yet."
+        />
+      </div>
+    );
+  }
+
+  const iocs = (panel.ioc_reputation || []).filter((x) => x && x.indicator);
+  const techniques = (panel.mitre_techniques || []).filter((t) => t && t.id);
+  const related = (panel.related_cases || []).filter((r) => r && r.case_id);
+  const asset = panel.asset_context || null;
+  const assetAttrs =
+    asset && asset.attributes && typeof asset.attributes === 'object'
+      ? Object.entries(asset.attributes).filter(
+          ([, v]) => v !== null && v !== undefined && typeof v !== 'object',
+        )
+      : [];
+  const evidence = (panel.evidence || []).filter((e) => e && (e.summary || e.query));
+  const anySection =
+    !!panel.summary ||
+    iocs.length > 0 ||
+    techniques.length > 0 ||
+    related.length > 0 ||
+    !!asset ||
+    evidence.length > 0;
+
+  const openRelated = (rid: string) => {
+    if (onNavigate) onNavigate('cases', { caseId: rid });
+  };
+
+  return (
+    <div className="space-y-7 p-6">
+      {/* ---------------------------------------------- threat banner */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={Shield} tone="critical">
+          Threat summary
+        </SectionHeading>
+        {panel.summary ? (
+          /* UNTRUSTED — plain text. */
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+            {panel.summary}
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No threat summary was assembled for this case.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <VerdictBadge verdict={c.verdict} />
+          <RiskBadge score={c.risk_score} />
+          {iocs.some((i) => i.is_malicious) ? (
+            <Badge variant="critical" className="gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              Malicious indicator present
+            </Badge>
+          ) : null}
+          {panel.generated_at ? (
+            <span className="ml-auto text-xs text-muted-foreground">
+              assembled {humanizeAge(panel.generated_at)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ---------------------------------------------- IOC reputation */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={Target} tone="critical">
+          IOC reputation
+        </SectionHeading>
+        {iocs.length === 0 ? (
+          <EmptyState
+            icon={Target}
+            compact
+            title="No indicator reputation"
+            description="No IOC reputation was available — enrichment may be off, uncached, or the indicators are internal."
+          />
+        ) : (
+          <div className="space-y-2.5">
+            {iocs.map((ioc, i) => (
+              <div
+                key={`${ioc.indicator}-${i}`}
+                className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-3"
+              >
+                {/* UNTRUSTED indicator — plain text, mono. */}
+                <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
+                  {ioc.indicator}
+                </span>
+                {ioc.type ? <Badge variant="outline">{humanizeToken(ioc.type)}</Badge> : null}
+                {typeof ioc.reputation_score === 'number' ? (
+                  <Badge variant={ioc.reputation_score >= 50 ? 'critical' : 'secondary'}>
+                    <Gauge className="h-3 w-3" />
+                    score {Math.round(ioc.reputation_score)}
+                  </Badge>
+                ) : null}
+                {typeof ioc.is_malicious === 'boolean' ? (
+                  <Badge variant={ioc.is_malicious ? 'critical' : 'success'}>
+                    {ioc.is_malicious ? 'Malicious' : 'Clean'}
+                  </Badge>
+                ) : null}
+                {ioc.country ? (
+                  /* UNTRUSTED — plain text. */
+                  <Badge variant="outline" className="gap-1">
+                    <Globe className="h-3 w-3" />
+                    <span className="max-w-[10rem] truncate">{ioc.country}</span>
+                  </Badge>
+                ) : null}
+                {ioc.source ? (
+                  <span className="text-xs text-muted-foreground">{humanizeToken(ioc.source)}</span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ---------------------------------------------- MITRE techniques */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={Shield} tone="medium">
+          MITRE ATT&amp;CK techniques
+        </SectionHeading>
+        {techniques.length === 0 ? (
+          <EmptyState
+            icon={Shield}
+            compact
+            title="No techniques mapped"
+            description="No MITRE ATT&CK techniques were resolved for this case."
+          />
+        ) : (
+          <div className="space-y-2.5">
+            {techniques.map((t, i) => (
+              <div key={`${t.id}-${i}`} className="rounded-md border border-border bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="font-mono">
+                    {t.id}
+                  </Badge>
+                  {/* Name is from the curated MITRE corpus (TRUSTED) — still a plain text node. */}
+                  <span className="text-sm font-semibold text-foreground">
+                    {t.name || 'Unknown technique'}
+                  </span>
+                  <a
+                    href={mitreUrl(t.id, t.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    <Link2 className="h-3 w-3" /> MITRE
+                  </a>
+                </div>
+                {t.tactics && t.tactics.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {t.tactics.map((tac, j) => (
+                      <Badge key={`${tac}-${j}`} variant="medium">
+                        {humanizeToken(tac)}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+                {t.description ? (
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {t.description}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ---------------------------------------------- related cases */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={GitBranch} tone="info">
+          Related cases
+        </SectionHeading>
+        {related.length === 0 ? (
+          <EmptyState
+            icon={GitBranch}
+            compact
+            title="No related cases"
+            description="No prior or cross-source cases were linked to this one."
+          />
+        ) : (
+          <ul className="space-y-2">
+            {related.map((r) => (
+              <li
+                key={r.case_id}
+                className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-3"
+              >
+                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => openRelated(r.case_id)}
+                  disabled={!onNavigate}
+                  className={cn(
+                    'min-w-0 flex-1 truncate text-left text-sm',
+                    onNavigate
+                      ? 'text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                      : 'cursor-default text-foreground',
+                  )}
+                  title={r.title || r.case_number || r.case_id}
+                >
+                  {/* UNTRUSTED — plain text. */}
+                  {r.title || r.case_number || r.case_id}
+                </button>
+                {r.verdict ? <VerdictBadge verdict={r.verdict} /> : null}
+                {r.status ? <StatusBadge status={r.status} /> : null}
+                {typeof r.risk_score === 'number' ? <RiskBadge score={r.risk_score} /> : null}
+                {r.reason ? (
+                  <span className="w-full text-xs text-muted-foreground">{r.reason}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ---------------------------------------------- asset context */}
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={Crosshair} tone="info">
+          Asset context
+        </SectionHeading>
+        {!asset || (!asset.entity && assetAttrs.length === 0) ? (
+          <EmptyState
+            icon={Crosshair}
+            compact
+            title="No asset context"
+            description="No additional context was recorded for the case's primary entity."
+          />
+        ) : (
+          <dl className="divide-y divide-border">
+            {asset.entity ? (
+              <div className="flex items-center justify-between gap-3 py-2.5 first:pt-0">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {humanizeToken(asset.entity_type || 'Entity')}
+                </dt>
+                {/* UNTRUSTED — plain text, mono. */}
+                <dd className="truncate text-right font-mono text-sm text-foreground">
+                  {asset.entity}
+                </dd>
+              </div>
+            ) : null}
+            {asset.criticality ? (
+              <div className="flex items-center justify-between gap-3 py-2.5">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Criticality
+                </dt>
+                <dd className="text-right text-sm text-foreground">
+                  {humanizeToken(asset.criticality)}
+                </dd>
+              </div>
+            ) : null}
+            {assetAttrs.map(([k, v], i) => (
+              <div
+                key={`${k}-${i}`}
+                className="flex items-center justify-between gap-3 py-2.5 last:pb-0"
+              >
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {humanizeToken(k)}
+                </dt>
+                {/* UNTRUSTED — plain text. */}
+                <dd className="truncate text-right font-mono text-sm text-foreground">
+                  {String(v)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+
+      {/* ---------------------------------------------- evidence */}
+      {evidence.length ? (
+        <div className="rounded-lg border border-border bg-card p-6">
+          <SectionHeading icon={Search} tone="info">
+            Evidence
+          </SectionHeading>
+          <div className="space-y-3">
+            {evidence.map((ev, i) => (
+              <div key={i} className="rounded-md border border-border bg-muted/30 p-3">
+                {ev.summary ? (
+                  /* UNTRUSTED — plain text. */
+                  <p className="whitespace-pre-wrap text-sm text-foreground/90">{ev.summary}</p>
+                ) : null}
+                {ev.query ? (
+                  <CodeBlock
+                    value={ev.query}
+                    wrap
+                    copyable
+                    maxHeightClassName="max-h-40"
+                    className="mt-2"
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {!anySection ? (
+        <p className="text-xs text-muted-foreground">
+          Threat context is enabled but produced no sections for this case.
+        </p>
       ) : null}
     </div>
   );

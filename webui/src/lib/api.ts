@@ -56,6 +56,7 @@ import type {
   SourcesResponse,
   SourceUpsert,
   StandupResponse,
+  ThreatContextPanel,
   UsageSummary,
   User,
   UsersResponse,
@@ -336,6 +337,29 @@ export const api = {
       request<NotifyCaseResult>('POST', `cases/${encodeURIComponent(caseId)}/notify`, {
         body: channelId ? { channel_id: channelId } : {},
       }),
+    // playbooks:run — CONTEXT-ONLY re-investigation with `playbookId` forced as the
+    // injected (recommend-only) operator procedure. The deterministic close/escalate
+    // decision is unchanged — decide() re-runs with the new context. Returns the
+    // updated Case (verdict/rationale may change; status is never set by the run).
+    runPlaybook: (caseId: string, playbookId: string) =>
+      request<Case>('POST', `cases/${encodeURIComponent(caseId)}/run-playbook`, {
+        body: { playbook_id: playbookId },
+      }),
+    // cases:read — the assembled threat-context panel (IOC reputation, MITRE
+    // techniques, related cases, asset context, evidence). Fail-open per section.
+    threatContext: (caseId: string) =>
+      request<ThreatContextPanel>(
+        'GET',
+        `cases/${encodeURIComponent(caseId)}/threat-context`,
+      ),
+  },
+
+  // ---- Threat-intel knowledge import (F11) ----------------------------- //
+  // rag:manage — ingest a threat-intel document into the RAG corpus as
+  // source="threat_context"; it is retrieved + injected as a TRUSTED fenced block.
+  threatContext: {
+    import: (input: { title: string; content: string; tags?: string[] }) =>
+      request<RagImportResult>('POST', 'threat-context/import', { body: input }),
   },
 
   // ---- Personas + playbooks (read-only catalog) ------------------------- //

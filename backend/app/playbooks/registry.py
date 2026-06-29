@@ -168,3 +168,20 @@ class PlaybookRegistry:
 
     def select(self, cluster: Cluster) -> tuple[Playbook | None, str]:
         return select_playbook(cluster, self.all())
+
+    async def run(self, pipeline, cluster, source_surface, prefs, playbook_id: str):
+        """Manually RUN a specific playbook on a case (F10) — CONTEXT-ONLY.
+
+        Re-investigates ``cluster`` through the SHARED pipeline with ``playbook_id``
+        FORCED as the injected TRUSTED operator procedure (reusing the reinvestigate
+        + playbook-injection path). It does NOT bypass the decision: the forced
+        playbook can still only RECOMMEND, and ``case_manager.decide()`` makes the
+        close/escalate call exactly as for an auto-selected playbook (#3).
+
+        Raises ``KeyError`` when ``playbook_id`` is unknown so the caller can 404.
+        Returns the updated :class:`app.models.Case`."""
+        if self.get(playbook_id) is None:
+            raise KeyError(playbook_id)
+        return await pipeline.investigate_cluster(
+            cluster, source_surface, prefs, force=True, force_playbook_id=playbook_id
+        )

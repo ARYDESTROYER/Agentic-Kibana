@@ -133,6 +133,74 @@ class AppState:
         # Let the pipeline reach the dispatcher (post-save, fire-and-forget hook).
         self.pipeline.notifier = self.notifications
 
+        # Threshold automation (F10 / Wave 6): post-decision, #3-safe. It runs AFTER
+        # apply()+save and may ONLY tag/recommend/notify/queue a re-investigation
+        # (which re-runs decide())/open a HITL Proposal — never set status/close.
+        from .engine.threshold_automation import ThresholdAutomation
+
+        self.automation = ThresholdAutomation(
+            self.proposals, self.audit,
+            notify=self._automation_notify,
+            queue_playbook_run=self._automation_queue_playbook,
+        )
+        self.pipeline.automation = self.automation
+
+    async def _automation_notify(self, case, trigger: str) -> None:
+        """Automation NOTIFY action → dispatch through the existing notification
+        service. Fire-and-forget; never raises into the case path."""
+        notifier = getattr(self, "notifications", None)
+        if notifier is None:
+            return
+        await notifier.dispatch(case, trigger)
+
+    async def _automation_queue_playbook(self, case, playbook_id: str) -> None:
+        """Automation RUN_PLAYBOOK action → QUEUE a re-investigation of the case with
+        the playbook forced as TRUSTED context. Detached so it never blocks the
+        case path; the re-investigation itself re-runs the deterministic decide()."""
+        import asyncio
+
+        async def _do() -> None:
+            try:
+                cluster = await self._automation_cluster_for_case(case)
+                if cluster is None:
+                    return
+                await self.pipeline.investigate_cluster(
+                    cluster, case.source_surface, self.prefs,
+                    force=True, force_playbook_id=playbook_id,
+                )
+            except Exception:  # noqa: BLE001 — a queued re-investigation never breaks anything
+                logger.debug("automation playbook re-investigation failed for %s", case.case_id)
+
+        asyncio.create_task(_do())
+
+    async def _automation_cluster_for_case(self, case):
+        """Rebuild a cluster for a queued automation re-investigation (read-only).
+
+        Mirrors the routes' ``_cluster_for_case`` but kept dependency-light here to
+        avoid a routes import cycle. Returns None when no events remain."""
+        from .engine.correlation import cluster_from_events
+        from .es.querybuilder import ids_query
+        from .models import RawEvent
+
+        prefs = self.prefs
+        if not case.member_event_ids:
+            return None
+        try:
+            resp = await self.es.search_logs(
+                prefs.data_view_pattern,
+                ids_query(case.member_event_ids, size=len(case.member_event_ids)),
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        hits = resp.get("hits", {}).get("hits", [])
+        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        members = [e for e in events if e.entity_value(case.entity.type) == case.entity.value] or events
+        if not members:
+            return None
+        cluster = cluster_from_events(case.entity.type, case.entity.value, members)
+        cluster.trigger_reason = None  # preserve the existing case's trigger reason
+        return cluster
+
     def _is_sql_backend(self) -> bool:
         return self.secrets.state_backend in ("sqlite", "postgres")
 

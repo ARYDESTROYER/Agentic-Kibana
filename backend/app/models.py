@@ -306,6 +306,24 @@ class RagChunk(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ThreatContextPanel(BaseModel):
+    """The assembled, read-only threat-context panel for a case (Wave 6 / F11).
+
+    Every section is ADVISORY and FAIL-OPEN: a missing enrichment / MITRE map /
+    related-cases lookup degrades that section to empty rather than erroring the
+    whole panel. Nothing here touches the deterministic decision. All free-text
+    fields are case/log-derived and are rendered as plain text / code blocks by the
+    UI (never trusted as instructions, #9)."""
+
+    case_id: str = ""
+    ioc_reputation: list[dict[str, Any]] = Field(default_factory=list)   # [{indicator, type, score, is_malicious, country, sources}]
+    mitre_techniques: list[dict[str, Any]] = Field(default_factory=list)  # [{id, name, tactics, platforms, url, description}]
+    related_cases: list[dict[str, Any]] = Field(default_factory=list)     # [{case_id, verdict, entity, score, snippet}]
+    asset_context: dict[str, Any] = Field(default_factory=dict)           # {entity, criticality, is_internal, networks}
+    evidence: list[dict[str, Any]] = Field(default_factory=list)          # [{summary, event_ids, query}]
+    generated_at: str = Field(default_factory=iso_now)
+
+
 # --------------------------------------------------------------------------- #
 # Verdict (LLM output schema, Section 8.2)
 # --------------------------------------------------------------------------- #
@@ -556,6 +574,16 @@ class Case(BaseModel):
     related_case_ids: list[str] = Field(default_factory=list)
     cross_source_cluster_id: str = ""
     source_breakdown: dict[str, int] = Field(default_factory=dict)
+    # Threshold automation (Wave 6 / F10). Append-only audit list of the post-decision
+    # automation actions matched + applied for this case. Each entry is
+    # ``{ts, rule_id, action, detail, proposal_id?}`` — a NON-BINDING record. Automation
+    # NEVER sets status/disposition (#3): SAFE actions (tag/recommend/notify/run_playbook)
+    # apply directly; ``request_approval`` only records that a HITL Proposal was created.
+    automation_actions: list[dict[str, Any]] = Field(default_factory=list)
+    # Reusable-knowledge loop (Wave 6 / F11). Append-only record of the retrieved
+    # knowledge (resolved cases / threat-intel) surfaced for this case — each entry is
+    # ``{source, snippet, score?}``. Additive/defaulted so old cases load unchanged.
+    knowledge_used: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #
