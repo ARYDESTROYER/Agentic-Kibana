@@ -59,6 +59,7 @@ import { DataTable, type DataTableColumn, type SortState } from '@/soc/component
 import { EmptyState } from '@/soc/components/EmptyState';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
+import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import {
   StatusBadge,
   VerdictBadge,
@@ -519,18 +520,21 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       sortable: true,
       width: '9.5rem',
       cell: (c) => (
-        <CaseHoverCard case={c}>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpenCaseId(c.case_id);
-            }}
-            className="rounded-sm font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {c.case_number || c.case_id}
-          </button>
-        </CaseHoverCard>
+        <div className="flex items-center gap-1.5">
+          <CaseHoverCard case={c}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenCaseId(c.case_id);
+              }}
+              className="rounded-sm font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {c.case_number || c.case_id}
+            </button>
+          </CaseHoverCard>
+          <DemoBadge show={isDemoCase(c)} iconless className="px-1 py-0 text-[10px]" />
+        </div>
       ),
     },
     {

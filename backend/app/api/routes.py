@@ -435,10 +435,21 @@ async def source_logs(
     data_view_pattern (and its own TLS settings); push sources return the last N
     ingested events from the in-memory live-tail buffer. Hard-capped; secrets are
     never returned (rows are log data only)."""
+    limit = max(1, min(int(limit or 100), 200))  # hard cap
+    # Demo Mode (Wave 5): the synthetic 'demo' source isn't in prefs.sources (it never
+    # pollutes the real source list) — serve its bounded synthetic logs directly.
+    if source_id == "demo" and state.demo_active:
+        from ..connectors.demo import DemoPullConnector
+        from ..connectors.base import StructuredQuery
+
+        conn = DemoPullConnector(seed=int(getattr(state.prefs.demo, "seed", 1337)))
+        result = await conn.search(state.prefs, StructuredQuery(size=limit, sort_desc=True))
+        rows = [_log_row(ev) for ev in result.events]
+        return {"source_id": source_id, "mode": "search", "count": len(rows),
+                "total": result.total, "logs": rows, "query": "*"}
     src = next((s for s in state.prefs.sources if s.id == source_id), None)
     if src is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    limit = max(1, min(int(limit or 100), 200))  # hard cap
     reg = get_registry()
     cls = reg.get(src.source_type)
     if cls is None:
@@ -514,6 +525,9 @@ async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state
     if state.prefs.read_only_settings_mode and body.get("read_only_settings_mode") is not False:
         raise HTTPException(status_code=403, detail="Settings are in read-only mode")
     merged = _deep_update(state.prefs.model_dump(mode="json"), body)
+    # Demo Mode is managed ONLY by the /api/demo/* endpoints — never via the settings
+    # write path. Preserve the live demo block so a settings PUT can't flip/corrupt it.
+    merged["demo"] = state.prefs.demo.model_dump(mode="json")
     try:
         prefs = Preferences.model_validate(merged)
     except Exception as exc:  # noqa: BLE001
@@ -1060,6 +1074,64 @@ async def metrics(window_hours: int = 24, state: AppState = Depends(get_state)) 
 async def feedback_stats_route(state: AppState = Depends(get_state)) -> dict[str, Any]:
     cases, _total = await state.cases.list(limit=2000)
     return feedback_stats(cases)
+
+
+# --------------------------------------------------------------------------- #
+# Demo Mode (Wave 5) — reversible, isolated synthetic showcase. All admin-gated.
+# Enabling builds a SEPARATE in-memory store + a $0 deterministic mock LLM and
+# seeds a backdated history; while active the READ endpoints serve the DEMO store
+# (real cases hidden) and disable hard-deletes demo data so real state returns.
+# --------------------------------------------------------------------------- #
+class DemoEnableBody(BaseModel):
+    mode: str = "seeded"                    # 'seeded' | 'live'
+    seed: int | None = None
+    history_days: int | None = None
+    tick_seconds: float | None = None
+    tick_jitter: float | None = None
+    incident_rate: float | None = None
+
+
+@router.get("/demo/status")
+async def demo_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    return await state.demo_status()
+
+
+@router.post("/demo/enable")
+async def demo_enable(
+    body: DemoEnableBody,
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    if state.prefs.read_only_settings_mode:
+        raise HTTPException(status_code=403, detail="settings are read-only")
+    mode = body.mode if body.mode in ("seeded", "live") else "seeded"
+    status = await state.enable_demo(
+        mode=mode, seed=body.seed, history_days=body.history_days,
+        tick_seconds=body.tick_seconds, tick_jitter=body.tick_jitter,
+        incident_rate=body.incident_rate,
+    )
+    # Audit the admin action on the REAL audit log (demo enable is a real action).
+    await state._real_audit.record(  # noqa: SLF001 — real-audit on a real admin action
+        action_type=ActionType.DECISION, surface="demo", actor="admin",
+        result_summary=f"demo enabled mode={mode} run_id={status.get('run_id')}",
+    )
+    return status
+
+
+@router.post("/demo/reset")
+async def demo_reset(
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    return await state.reset_demo()
+
+
+@router.post("/demo/disable")
+async def demo_disable(
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    return await state.disable_demo()
 
 
 # --------------------------------------------------------------------------- #
@@ -3172,6 +3244,12 @@ async def usage_summary(
 # --------------------------------------------------------------------------- #
 @router.post("/poll")
 async def poll_now(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    # While demo is engaged, a manual poll runs a DEMO simulation tick (writing to the
+    # demo store) instead of advancing the REAL durable cursor (#4). The demo tick
+    # generates a deterministic benign batch + possibly a storyline through the demo
+    # pipeline ($0 mock LLM, sandboxed policy). Real cursor stays untouched.
+    if state.demo_active:
+        return await state.demo_tick()
     return await state.poller.poll_once(state.prefs)
 
 
@@ -3587,6 +3665,12 @@ async def notification_test(
 ) -> dict[str, Any]:
     """Send a SAMPLE notification to one configured channel (settings:manage). The
     returned detail never leaks a secret."""
+    # Demo Mode (Wave 5): a real outbound send is refused while demo is engaged — the
+    # showcase must never deliver a real notification. (Demo cases already carry
+    # synthetic notifications_sent records.)
+    if state.demo_active:
+        return {"ok": False, "channel_id": body.channel_id,
+                "detail": "Demo mode is active — real notifications are disabled (simulated)."}
     return await state.notifications.test_channel(body.channel_id)
 
 

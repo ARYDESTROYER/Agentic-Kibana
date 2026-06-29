@@ -31,17 +31,35 @@ class GatewayError(RuntimeError):
     """Raised when a model call cannot be completed. Triggers fail-to-human."""
 
 
+# A plausible per-token blended rate for the Demo Mode cost page (Sonnet-ish).
+# It is purely cosmetic — pricing_source is stamped 'zero' so the UI marks it
+# "simulated" — and is DETERMINISTIC for a given token count ($0 real spend).
+_DEMO_IN_RATE = 3.0 / 1_000_000.0      # $/input token
+_DEMO_OUT_RATE = 15.0 / 1_000_000.0    # $/output token
+
+
+def _demo_synthetic_cost(prompt_tokens: int, completion_tokens: int) -> float:
+    return round(prompt_tokens * _DEMO_IN_RATE + completion_tokens * _DEMO_OUT_RATE, 8)
+
+
 class LLMGateway:
     def __init__(
         self,
         secrets: Secrets,
         usage_store: UsageStore,
         provider_overrides: dict[str, BaseProvider] | None = None,
+        *,
+        demo: bool = False,
     ) -> None:
         self._secrets = secrets
         self._usage = usage_store
         self._providers: dict[str, BaseProvider] = dict(provider_overrides or {})
         self._mock_fallback = MockProvider()
+        # Demo Mode (Wave 5): when set, EVERY usage row is tagged pricing_source='zero'
+        # (it is a $0 mock run) but carries a small PLAUSIBLE synthetic cost so the cost
+        # page has believable numbers. The provider itself is the deterministic
+        # DemoMockProvider, injected via provider_overrides by the demo state stack.
+        self._demo = bool(demo)
 
     # ----- provider resolution -----
     def _provider(self, name: Provider, *, for_embedding: bool = False) -> BaseProvider:
@@ -88,10 +106,15 @@ class LLMGateway:
             raise GatewayError(str(exc)) from exc
 
         latency = int((time.perf_counter() - started) * 1000)
-        cost = cost_for(result.model or model_cfg.model, result.prompt_tokens, result.completion_tokens)
+        model_used = result.model or model_cfg.model
+        if self._demo:
+            # $0 mock run, but stamp a small PLAUSIBLE synthetic cost for the cost page.
+            cost = _demo_synthetic_cost(result.prompt_tokens, result.completion_tokens)
+        else:
+            cost = cost_for(model_used, result.prompt_tokens, result.completion_tokens)
         result.cost = cost  # let callers roll up per-case cost (Case.token_cost)
         await self._record(
-            role_str, surface, case_id, result.model or model_cfg.model,
+            role_str, surface, case_id, model_used,
             result.prompt_tokens, result.completion_tokens, latency, UsageOutcome.OK, cost,
         )
         return result
@@ -140,6 +163,14 @@ class LLMGateway:
         cost: float | None = None,
     ) -> None:
         total = prompt_tokens + completion_tokens
+        # Demo Mode: a $0 mock run — pricing_source is ALWAYS 'zero' (the cost is
+        # synthetic, not a verified rate), so the cost page can badge it "simulated".
+        price_src = "zero" if self._demo else pricing_source(model)
+        if cost is None:
+            cost = (
+                _demo_synthetic_cost(prompt_tokens, completion_tokens)
+                if self._demo else cost_for(model, prompt_tokens, completion_tokens)
+            )
         doc = UsageDoc(
             surface=surface,
             case_id=case_id,
@@ -148,10 +179,10 @@ class LLMGateway:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total,
-            cost=cost if cost is not None else cost_for(model, prompt_tokens, completion_tokens),
+            cost=cost,
             latency_ms=latency_ms,
             outcome=outcome,
-            pricing_source=pricing_source(model),
+            pricing_source=price_src,
         )
         await self._usage.write(doc)
 

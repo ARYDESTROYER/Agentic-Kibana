@@ -158,3 +158,21 @@ def get_registry() -> ConnectorRegistry:
     if _registry is None:
         _registry = _build_default_registry()
     return _registry
+
+
+def set_demo_registered(active: bool) -> None:
+    """Register/unregister the synthetic Demo Mode pull connector (Wave 5).
+
+    Called by ``AppState`` whenever demo mode flips: the ``DemoPullConnector`` only
+    appears in the registry (so its manifest is discoverable) while demo is active.
+    Production (demo off) never sees it. Idempotent + never raises."""
+    reg = get_registry()
+    try:
+        from .demo import DemoPullConnector
+
+        if active:
+            reg.register(DemoPullConnector)
+        else:
+            reg._classes.pop(DemoPullConnector.source_type, None)  # noqa: SLF001 — registry owner
+    except Exception as exc:  # noqa: BLE001 — registry mutation must never break a flip
+        logger.warning("demo connector registration toggle failed: %s", exc)

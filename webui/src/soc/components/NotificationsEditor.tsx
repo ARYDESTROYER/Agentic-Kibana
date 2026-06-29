@@ -30,6 +30,7 @@ import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
+import { useDemoGuard } from '@/soc/demo';
 import type {
   EmailPreset,
   NotificationChannel,
@@ -227,6 +228,8 @@ function ChannelEditor({
   const [savingSecret, setSavingSecret] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const configured = Boolean(channel.configured_secrets && channel.configured_secrets.length);
+  // A "Send test" delivers a REAL notification; block it while demo mode is active.
+  const demoGuard = useDemoGuard();
 
   const recipients: string[] = React.useMemo(() => {
     const r = cfg.recipients;
@@ -538,9 +541,16 @@ function ChannelEditor({
         </p>
       </div>
 
-      {/* Send test */}
+      {/* Send test — disabled in demo mode (would deliver a real notification). */}
       <div className="flex justify-end">
-        <Button size="sm" variant="secondary" disabled={testing} onClick={() => void sendTest()}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={testing || demoGuard.disabled}
+          title={demoGuard.disabled ? demoGuard.reason : undefined}
+          aria-disabled={demoGuard.disabled || undefined}
+          onClick={() => void sendTest()}
+        >
           <Send className="h-4 w-4" aria-hidden />
           {testing ? 'Sending…' : 'Send test'}
         </Button>

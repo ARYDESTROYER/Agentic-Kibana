@@ -29,6 +29,7 @@ import {
 
 import type { Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
+import { useDemo } from '@/soc/demo';
 import type { UsageSummary } from '@/lib/types';
 import {
   DASH,
@@ -294,6 +295,10 @@ interface CostProps {
 // Page
 // --------------------------------------------------------------------------- //
 export default function Cost({ embedded = false }: CostProps = {}) {
+  // While demo mode is active, the cost ledger is fed by the deterministic $0 mock
+  // LLM with plausible synthetic figures — suffix the money tiles "(simulated)" so a
+  // viewer never reads demo spend as real spend.
+  const { active: demoActive } = useDemo();
   const [windowKey, setWindowKey] = React.useState<WindowKey>('24h');
   const [metric, setMetric] = React.useState<Metric>('cost');
   const [dimension, setDimension] = React.useState<Dimension>('model');
@@ -538,7 +543,9 @@ export default function Cost({ embedded = false }: CostProps = {}) {
       {
         label: `Total cost (${windowLabel})`,
         value: fmtMoney(totalCost, currency),
-        sub: `${fmtTokens(totalTokens)} tokens · ${fmtNumber(callCount)} calls`,
+        sub: `${fmtTokens(totalTokens)} tokens · ${fmtNumber(callCount)} calls${
+          demoActive ? ' · simulated' : ''
+        }`,
         icon: CircleDollarSign,
         accent: 'primary',
         delta:
@@ -563,12 +570,12 @@ export default function Cost({ embedded = false }: CostProps = {}) {
       {
         label: "Today's cost",
         value: fmtMoney(num(data?.today_cost), currency),
-        sub: 'spend so far today',
+        sub: demoActive ? 'simulated spend' : 'spend so far today',
         icon: Coins,
         accent: 'medium',
       },
     ],
-    [windowLabel, totalCost, totalTokens, callCount, currency, spendDelta, data],
+    [windowLabel, totalCost, totalTokens, callCount, currency, spendDelta, data, demoActive],
   );
 
   // ----- Efficiency StatCards -------------------------------------------- //

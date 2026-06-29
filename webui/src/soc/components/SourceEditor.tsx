@@ -37,6 +37,7 @@ import type {
   SourceInstance,
 } from '@/lib/types';
 import { api, ApiError } from '@/lib/api';
+import { useDemoGuard } from '@/soc/demo';
 import { saveSource, slugify } from '@/lib/connectors';
 import { cn } from '@/lib/cn';
 
@@ -698,6 +699,8 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const [analyzedFields, setAnalyzedFields] = React.useState<string[]>([]);
 
   const [testing, setTesting] = React.useState(false);
+  // Test-connection runs a REAL connector against a live source — block it in demo.
+  const demoGuard = useDemoGuard();
   const [testResult, setTestResult] = React.useState<TestResult | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
@@ -1147,7 +1150,12 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="outline" onClick={onTest} disabled={testing}>
+            <Button
+              variant="outline"
+              onClick={onTest}
+              disabled={testing || demoGuard.disabled}
+              aria-disabled={demoGuard.disabled || undefined}
+            >
               {testing ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               ) : (
@@ -1157,8 +1165,9 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
             </Button>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs">
-            Tests the connector's currently SAVED configuration on the server. Values you have
-            just typed here are only tested after you Save.
+            {demoGuard.disabled
+              ? demoGuard.reason
+              : "Tests the connector's currently SAVED configuration on the server. Values you have just typed here are only tested after you Save."}
           </TooltipContent>
         </Tooltip>
         <Button onClick={onSave} disabled={saving}>

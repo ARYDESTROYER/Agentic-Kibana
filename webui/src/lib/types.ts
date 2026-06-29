@@ -984,6 +984,67 @@ export interface NotifyCaseResult {
 }
 
 // --------------------------------------------------------------------------- //
+// Demo mode (Round-2 Wave 5) — /api/demo/{status,enable,reset,disable}.
+//
+// First-class, REVERSIBLE tenant state (off | seeded | live). When the mode is not
+// 'off' the backend serves cases/metrics/cost/etc. from a SEPARATE, throwaway
+// in-memory store seeded with synthetic data, run through a deterministic $0 MOCK
+// LLM and a SANDBOXED auto-close policy COPY — the real durable cursor, real stores
+// and live policy are NEVER touched. Disabling stops the tick task and hard-deletes
+// all demo data by `run_id`, returning the real state intact. Every demo case is
+// tagged `['demo', …]` with a `case_id` starting `demo-`. All synthetic text is
+// data (plain-rendered). All endpoints are admin-gated (settings:manage).
+// --------------------------------------------------------------------------- //
+/** The demo tenant mode. 'seeded' = static synthetic history; 'live' = also ticks. */
+export type DemoMode = 'off' | 'seeded' | 'live';
+
+/**
+ * The operator-tunable demo knobs (mirrors backend `Preferences.demo`). Shown when
+ * arming demo mode; defaulted so an absent block uses the backend defaults.
+ */
+export interface DemoConfig {
+  /** Off / seeded (static synthetic history) / live (also simulates new incidents). */
+  mode?: DemoMode;
+  /** Deterministic seed — the same seed reproduces the same synthetic events. */
+  seed?: number;
+  /** How many days of trailing "old" synthetic history to pre-generate. */
+  history_days?: number;
+  /** Live-sim tick cadence in seconds (live mode only). */
+  tick_seconds?: number;
+  /** Jitter fraction applied to the tick interval (0..1). */
+  tick_jitter?: number;
+  /** Per-tick probability of igniting a queued attack storyline (0..1). */
+  incident_rate?: number;
+}
+
+/**
+ * GET /api/demo/status — the live demo tenant state. `mode!=='off'` means demo data
+ * is active and the READ endpoints are serving from the isolated demo store (real
+ * cases are hidden). `run_id` is the opaque id every demo row is tagged with (the
+ * disable path hard-deletes by it). Counts are best-effort for the banner/badges.
+ */
+export interface DemoStatus {
+  mode: DemoMode;
+  /** True when `mode !== 'off'` (convenience; the UI may derive it itself). */
+  active?: boolean;
+  /** The current run's opaque id (present while active); demo rows are tagged with it. */
+  run_id?: string | null;
+  /** The seed the current/last run used. */
+  seed?: number;
+  history_days?: number;
+  tick_seconds?: number;
+  tick_jitter?: number;
+  incident_rate?: number;
+  /** When the current run was seeded (ISO). */
+  started_at?: string | null;
+  /** Best-effort count of synthetic cases in the demo store. */
+  case_count?: number;
+  /** Whether the live-sim tick task is running (live mode). */
+  ticking?: boolean;
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
 // Cases / analytics surfaces.
 // --------------------------------------------------------------------------- //
 export interface Entity {

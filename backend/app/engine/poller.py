@@ -176,7 +176,15 @@ class Poller:
         while self._running:
             prefs = self._get_prefs()
             interval = max(5, prefs.poll_interval_seconds)
-            if prefs.polling_enabled and prefs.setup_complete and not prefs.caps.kill_switch:
+            # Demo Mode (Wave 5): while demo is engaged the REAL poll is GATED here —
+            # BEFORE source.poll — so the durable cursor (#4) is never advanced while
+            # synthetic data is being showcased. The demo telemetry flows through the
+            # SEPARATE DemoSimulator into the demo store instead.
+            demo_active = bool(getattr(getattr(prefs, "demo", None), "active", False))
+            if (
+                prefs.polling_enabled and prefs.setup_complete
+                and not prefs.caps.kill_switch and not demo_active
+            ):
                 try:
                     await self.poll_once(prefs)
                 except Exception as exc:  # noqa: BLE001 — the loop must never die

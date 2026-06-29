@@ -130,3 +130,18 @@ def test_wave3_session_routes_registered_and_not_public() -> None:
     # Refresh exists + IS public (guarded by the refresh-token match, not a session).
     assert "/api/auth/refresh" in paths
     assert "/api/auth/refresh" in PUBLIC_API_PATHS
+
+
+def test_wave5_demo_routes_registered_and_not_public() -> None:
+    # The Wave-5 Demo Mode routes exist on the real app (so the coverage walk guards
+    # them) and NONE of them is public — enable/reset/disable are admin-gated and
+    # status still requires a session when auth is on (deny-by-default).
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for expected in (
+        "/api/demo/status",
+        "/api/demo/enable",
+        "/api/demo/reset",
+        "/api/demo/disable",
+    ):
+        assert expected in paths, f"missing Wave-5 demo route {expected}"
+        assert expected not in PUBLIC_API_PATHS, f"{expected} must NOT be public"

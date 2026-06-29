@@ -235,6 +235,88 @@ class MockProvider(BaseProvider):
         return "mock response"
 
 
+# --------------------------------------------------------------------------- #
+# Demo — deterministic, $0, scenario-keyed. Powers Demo Mode investigations.
+# --------------------------------------------------------------------------- #
+class DemoMockProvider(MockProvider):
+    """A deterministic provider whose verdict is KEYED to the storyline a cluster
+    belongs to, so the SAME synthetic storyline always yields the SAME verdict /
+    confidence (Wave 5). The benign baseline resolves to a confident FALSE_POSITIVE
+    (which flows through the REAL ``decide()`` against a sandboxed policy, proving
+    the deterministic gate); a NEEDS_HUMAN storyline stays OPEN for the HITL
+    showcase. It never makes a network call and never spends a token.
+
+    It inspects the role + the prompt text (which carries the fenced synthetic event
+    summaries) to resolve the scenario by the distinctive synthetic rule names —
+    no RNG, no clock — so a run is byte-reproducible."""
+
+    async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
+        self.calls.append({"role": role, "messages": messages, "model": model})
+        # A pushed script (tests) still wins, mirroring MockProvider.
+        queue = self.scripts.get(role)
+        if queue:
+            text = queue.pop(0)
+        else:
+            text = self._demo_default(role, messages)
+        return CompletionResult(
+            text=text,
+            prompt_tokens=_estimate_tokens(json.dumps(messages)),
+            completion_tokens=_estimate_tokens(text),
+            model=model,
+        )
+
+    @staticmethod
+    def _resolve(messages: list[dict[str, str]]):
+        """Resolve the storyline a prompt belongs to by scanning for the distinctive
+        synthetic rule UID/name. Returns the Storyline or None (benign baseline)."""
+        from ..engine.demo_generator import _RULE_TO_STORY, _STORYLINE_BY_ID
+
+        blob = "\n".join(str(m.get("content", "")) for m in messages)
+        for marker, sid in _RULE_TO_STORY.items():
+            if marker in blob:
+                return _STORYLINE_BY_ID[sid]
+        return None
+
+    def _demo_default(self, role: str, messages: list[dict[str, str]]) -> str:
+        story = self._resolve(messages)
+        if role == "router":
+            # Route every demo cluster to the strong investigator so the showcase
+            # exercises the full pipeline.
+            return json.dumps({"bucket": "needs_strong_model", "reason": "demo: investigate"})
+        if story is not None:
+            verdict = story.expected_verdict.value
+            confidence = story.expected_confidence
+            mitre = list(story.techniques)
+            action = ("Contain affected hosts and rotate credentials."
+                      if verdict == "TRUE_POSITIVE"
+                      else "Analyst review required (impossible to auto-close)."
+                      if verdict == "NEEDS_HUMAN" else "No action required.")
+            summary = f"Demo storyline '{story.name}' — {verdict}."
+        else:
+            # Benign baseline → a CONFIDENT false positive so it flows through the
+            # REAL decide() against the sandboxed policy.
+            verdict, confidence, mitre = "FALSE_POSITIVE", 0.97, []
+            action = "Benign baseline activity; no action required."
+            summary = "Demo benign baseline — false positive."
+        payload = {
+            "verdict": verdict,
+            "confidence": confidence,
+            "evidence": [{"summary": summary, "event_ids": []}],
+            "mitre": mitre,
+            "recommended_action": action,
+            "reproduce_query": "",
+        }
+        if role == "investigator":
+            return json.dumps({"action": "final", "reasoning": summary, "verdict": payload})
+        if role in ("formatter", "overview"):
+            return json.dumps(payload)
+        if role == "standup":
+            return "Demo standup: synthetic activity summarised (no live model)."
+        if role == "chat":
+            return json.dumps({"answer": "Demo chat response (synthetic).", "needs_query": False, "query": None})
+        return json.dumps(payload)
+
+
 def _hash_embed(text: str, dim: int = 256) -> list[float]:
     import hashlib
     import math

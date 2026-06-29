@@ -141,6 +141,7 @@ import {
   RiskBadge,
   ConfidenceBadge,
 } from '@/soc/components/badges';
+import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import { Can } from '@/soc/components/Can';
 
 import type { Navigate } from '@/soc/router';
@@ -977,6 +978,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <span className="shrink-0 font-mono text-xs font-semibold text-primary">
                         {c.case_number || c.case_id}
                       </span>
+                      <DemoBadge show={isDemoCase(c)} className="text-[10px]" />
                     </div>
                     <h2 className="mt-0.5 truncate text-lg font-bold tracking-tight text-foreground">
                       {/* UNTRUSTED title — plain text node. */}

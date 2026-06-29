@@ -62,6 +62,8 @@ import { humanizeToken } from '@/lib/format';
 import type { AccountProfile, HealthResponse } from '@/lib/types';
 import { useTheme } from './theme';
 import { useAuth } from './auth';
+import { useDemo } from './demo';
+import { DemoBanner } from './components/DemoBanner';
 import { NAV_GROUPS, navItem, type NavGroup, type PageId } from './nav';
 import type { Navigate } from './router';
 
@@ -401,8 +403,15 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { isDark, toggle, branding } = useTheme();
   const { hasPermission } = useAuth();
   const { health, err } = useHealth();
+  const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+
+  // Refetch the demo status on every route change so the banner/badges stay fresh
+  // even between the background poll ticks (cheap GET; inert when demo is off).
+  React.useEffect(() => {
+    void refreshDemo();
+  }, [page, refreshDemo]);
 
   // Filter the nav by RBAC: an item with a `perm` is hidden unless the user has the
   // grant; a group with no visible items is dropped. With auth/RBAC off,
@@ -422,7 +431,25 @@ export const AppShell: React.FC<AppShellProps> = ({
   const current = navItem(page);
   const pageLabel = current?.label ?? 'Overview';
 
-  const hv = healthView(health, err);
+  const baseHv = healthView(health, err);
+  // Round-2 Wave 5 tie-in (promised in W1): while demo mode is active the app's own
+  // state runs in a throwaway in-memory store, so a "Store degraded"/unreachable
+  // warning is expected and irrelevant — MUTE it to a calm demo note rather than
+  // alarming the operator. The backend-unreachable critical state still shows.
+  const hv: HealthView =
+    demoActive && baseHv.tone !== 'critical'
+      ? {
+          tone: 'muted',
+          label: 'Demo mode',
+          icon: Database,
+          detail: 'Synthetic data (in-memory)',
+          title: 'Demo mode — health checks muted',
+          help:
+            "Demo mode is active, so the platform's own state runs in a throwaway " +
+            'in-memory store. Store warnings are expected and muted here. Exit demo ' +
+            'mode to see the real store health.',
+        }
+      : baseHv;
   const HealthIcon = hv.icon;
 
   // Cmd/Ctrl-K opens the palette.
@@ -579,7 +606,9 @@ export const AppShell: React.FC<AppShellProps> = ({
         {/* Content slot — re-keyed so the fade-in replays on each route change. */}
         <main id="socMain" role="main" className="flex-1">
           <div key={page} className="mx-auto w-full max-w-[1400px] px-4 py-6 animate-fade-in sm:px-6">
-            {children}
+            {/* Demo-mode banner — renders only when the demo tenant is active. */}
+            <DemoBanner />
+            <div className={cn(demoActive && 'mt-4')}>{children}</div>
           </div>
         </main>
       </div>

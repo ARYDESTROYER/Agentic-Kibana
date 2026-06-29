@@ -739,6 +739,42 @@ class CrossSourceCorrelationConfig(BaseModel):
     )
 
 
+class DemoConfig(BaseModel):
+    """Demo Mode (Wave 5) — a first-class, reversible, fully ISOLATED tenant state.
+
+    Default ``mode='off'`` so the suite behaves byte-for-byte as production out of
+    the box. When ``mode != 'off'`` the suite SHOWCASES the whole product with
+    believable synthetic data that is generated DETERMINISTICALLY from ``seed`` and
+    flows through the REAL pipeline — but every write lands in a SEPARATE in-memory
+    store and a deterministic MOCK LLM, so demo is $0, isolated, and one-flip
+    reversible:
+
+    * ``off``     — disabled (the default). Real cases/metrics/cost are served.
+    * ``seeded``  — a static synthetic spread (a backdated history of finished cases
+                    + a benign baseline) is pre-generated at enable; no live ticking.
+    * ``live``    — ``seeded`` PLUS a background ``DemoSimulator`` that emits a benign
+                    Poisson batch (diurnal-scaled) each jittered tick and low-prob
+                    ignites a MITRE ATT&CK storyline through the demo pipeline.
+
+    ``run_id`` is stamped at enable and tags EVERY demo row (case_id ``demo-…`` /
+    ``demo=True``), so disable can hard-delete demo data by ``run_id`` and the real
+    state returns intact. The knobs are sane-defaulted; all are operator-tunable.
+    """
+
+    mode: Literal["off", "seeded", "live"] = "off"
+    seed: int = 1337
+    run_id: str = ""                       # stamped at enable; "" when off
+    history_days: int = Field(default=14, ge=0, le=365)
+    tick_seconds: float = Field(default=10.0, gt=0.0)
+    tick_jitter: float = Field(default=0.3, ge=0.0, le=1.0)
+    incident_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+
+    @property
+    def active(self) -> bool:
+        """True when demo mode is engaged (seeded OR live)."""
+        return self.mode != "off"
+
+
 class IndexPattern(BaseModel):
     """One index pattern a source reads, with the ROLE it plays.
 
@@ -1208,6 +1244,11 @@ class Preferences(BaseModel):
     # SECRET tier. Fires fire-and-forget AFTER the deterministic decision + save;
     # a send (or failure) can never block or alter the case decision/flow (#3).
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+
+    # Demo Mode (Wave 5) — reversible, isolated synthetic showcase. Default OFF so
+    # production behaviour is byte-identical. When active, READ endpoints serve a
+    # SEPARATE in-memory demo store (real cases hidden) and writes are $0 / mocked.
+    demo: DemoConfig = Field(default_factory=DemoConfig)
 
     # --- Misc ---
     setup_complete: bool = False

@@ -25,6 +25,8 @@ import type {
   ConnectionTest,
   ConnectorManifest,
   ConnectorsResponse,
+  DemoConfig,
+  DemoStatus,
   FeedbackStats,
   HealthResponse,
   LoginResult,
@@ -654,6 +656,20 @@ export const api = {
   // ---- Case decision rationale (consumed by the Cases surface) --------- //
   caseRationale: (id: string) =>
     request<CaseRationale>('GET', `cases/${encodeURIComponent(id)}/rationale`),
+
+  // ---- Demo mode (Round-2 Wave 5; admin-gated) ------------------------- //
+  // First-class, REVERSIBLE tenant state. `enable` seeds the isolated in-memory
+  // demo store (and starts the live-sim tick when mode==='live'); `reset` re-seeds
+  // from the same seed; `disable` stops the tick + hard-deletes all demo data by
+  // run_id and flips back to 'off' (the real state returns intact). Synthetic data
+  // is $0 (deterministic mock LLM). All four are settings:manage server-side.
+  demo: {
+    status: () => request<DemoStatus>('GET', 'demo/status'),
+    enable: (config?: DemoConfig) =>
+      request<DemoStatus>('POST', 'demo/enable', { body: config ?? {} }),
+    reset: () => request<DemoStatus>('POST', 'demo/reset'),
+    disable: () => request<DemoStatus>('POST', 'demo/disable'),
+  },
 
   // ---- Approval queue (agent-drafted proposals) ------------------------ //
   // List proposals; `status` is only sent when set (omitting it returns the

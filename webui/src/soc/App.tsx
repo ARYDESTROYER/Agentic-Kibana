@@ -12,6 +12,7 @@ import type { NavOpts } from '@/lib/types';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ThemeProvider } from './theme';
 import { AuthProvider, useAuth, useUnauthorizedRedirect } from './auth';
+import { DemoProvider } from './demo';
 import { RouterProvider, useRoute, type Navigate } from './router';
 import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -197,9 +198,11 @@ export const App: React.FC = () => (
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
       <AuthProvider>
-        <RouterProvider>
-          <Boot />
-        </RouterProvider>
+        <DemoProvider>
+          <RouterProvider>
+            <Boot />
+          </RouterProvider>
+        </DemoProvider>
       </AuthProvider>
     </TooltipProvider>
   </ThemeProvider>

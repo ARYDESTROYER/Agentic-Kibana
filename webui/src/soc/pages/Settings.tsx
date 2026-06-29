@@ -23,6 +23,7 @@ import {
   Check,
   Database,
   FileText,
+  FlaskConical,
   Globe,
   Hash,
   Info,
@@ -101,6 +102,8 @@ import { SessionsInner } from '@/soc/pages/Sessions';
 import { UsersInner } from '@/soc/pages/Users';
 import { AdminSessionsInner } from '@/soc/pages/AdminSessions';
 import { SecurityMfaInner, SecuritySsoInner } from '@/soc/pages/Security';
+// Round-2 Wave 5 — the Experimental › Demo Mode control.
+import { DemoModeSection } from '@/soc/components/DemoModeSection';
 
 /* --------------------------------------------------------------- sections --- */
 
@@ -124,7 +127,9 @@ type SectionId =
   | 'knowledge'
   | 'enrichment'
   | 'appearance'
-  | 'advanced';
+  | 'advanced'
+  // Experimental (gated; clearly labelled)
+  | 'demo';
 
 interface SectionMeta {
   id: SectionId;
@@ -316,6 +321,22 @@ const SECTION_GROUPS: SectionGroup[] = [
         icon: SlidersHorizontal,
         perm: { resource: 'settings', action: 'manage' },
         keywords: ['advanced', 'caps', 'kill switch', 'suppression', 'rule catalog', 'read-only', 'lock', 'budget', 'allowlist'],
+      },
+    ],
+  },
+  {
+    id: 'experimental',
+    label: 'Experimental',
+    sections: [
+      {
+        // Demo mode — a clearly-labelled experimental control (admin-gated). Seeds an
+        // isolated, $0, fully-reversible synthetic dataset; real cases are hidden while on.
+        id: 'demo',
+        name: 'Demo mode',
+        blurb: 'Populate the console with isolated, $0, reversible synthetic data (experimental).',
+        icon: FlaskConical,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['demo', 'experimental', 'sample', 'synthetic', 'sandbox', 'simulated', 'seed', 'try it', 'preview'],
       },
     ],
   },
@@ -2258,6 +2279,13 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
         return (
           <Can resource="settings" action="manage" fallback={restricted(SlidersHorizontal, 'Advanced settings')}>
             <AdvancedSection {...secProps} onNavigate={onNavigate} />
+          </Can>
+        );
+      // ---- Experimental
+      case 'demo':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(FlaskConical, 'Demo mode')}>
+            <DemoModeSection />
           </Can>
         );
       default:
