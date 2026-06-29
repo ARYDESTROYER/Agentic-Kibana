@@ -62,6 +62,18 @@ USERS_NS = "users"
 USERS_KEY = "entries"
 USERS_DOC_ID = "users"   # ES doc id within CONFIG_INDEX
 
+# Session registry (Wave 3: sessions & access policy — login/idle/absolute TTL +
+# revocation + per-session metadata). Stored exactly like the operator MEMORY /
+# agent PROPOSAL / multi-USER sets — ONE KV document (a single JSON list of session
+# rows) under this namespace/key — so it needs NO new ES index / SQL table /
+# migration. The ES backend stores it as a doc in the existing CONFIG_INDEX; the
+# SQL backend uses the shared KV table. The JWT signature stays the root of trust;
+# this registry only ADDS revocation + idle/absolute expiry + per-session metadata
+# on top of a validly-signed access token.
+SESSIONS_NS = "sessions"
+SESSIONS_KEY = "entries"
+SESSIONS_DOC_ID = "sessions"   # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""

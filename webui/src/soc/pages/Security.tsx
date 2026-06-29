@@ -25,6 +25,7 @@ import { useAuth } from '@/soc/auth';
 import { Can } from '@/soc/components/Can';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
+import { SessionPolicySection } from '@/soc/components/SessionPolicyEditor';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
@@ -384,6 +385,11 @@ export default function Security(_: SecurityPageProps) {
           <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} />
         )}
       </section>
+
+      {/* Admin: Token & session policy */}
+      <Can resource="settings" action="manage">
+        <SessionPolicySection />
+      </Can>
 
       {/* Admin: SSO */}
       <Can resource="settings" action="manage">

@@ -56,6 +56,10 @@ def test_public_paths_are_minimal_and_known() -> None:
         # Wave 2 — each guarded by a single-use token/state, not a session.
         "/api/auth/mfa/verify",
         "/api/auth/sso/providers", "/api/auth/sso/authorize", "/api/auth/sso/callback",
+        # Wave 3 — refresh is self-authenticating via the opaque refresh token (the
+        # access token may have expired); guarded by the refresh-hash match + reuse
+        # detection, not a session.
+        "/api/auth/refresh",
     }
     # GET-only public paths (read-only, non-sensitive) — also guarded.
     assert PUBLIC_GET_PATHS <= {"/api/branding"}
@@ -103,3 +107,26 @@ def test_wave1_public_paths_present_in_allowlist() -> None:
     assert "/api/users" not in PUBLIC_API_PATHS
     assert "/api/roles" not in PUBLIC_API_PATHS
     assert "/api/auth/change-password" not in PUBLIC_API_PATHS
+
+
+def test_wave3_session_routes_registered_and_not_public() -> None:
+    # The Wave-3 session/access-policy routes exist on the real app (so the coverage
+    # walk guards them). All require a live session EXCEPT /auth/refresh, which is
+    # self-authenticating via the opaque refresh token (so it is in the allowlist).
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    session_gated = (
+        "/api/sessions",
+        "/api/sessions/{sid}/revoke",
+        "/api/sessions/revoke-others",
+        "/api/auth/reauth",
+        "/api/account/activity",
+        "/api/admin/sessions",
+        "/api/admin/sessions/{sid}/revoke",
+        "/api/admin/users/{username}/revoke-all",
+    )
+    for expected in session_gated:
+        assert expected in paths, f"missing Wave-3 session route {expected}"
+        assert expected not in PUBLIC_API_PATHS, f"{expected} must NOT be public"
+    # Refresh exists + IS public (guarded by the refresh-token match, not a session).
+    assert "/api/auth/refresh" in paths
+    assert "/api/auth/refresh" in PUBLIC_API_PATHS

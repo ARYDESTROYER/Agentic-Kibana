@@ -97,6 +97,13 @@ class AuditRepository(ABC):
     async def records_for_case(self, case_id: str, limit: int = 500) -> list[dict[str, Any]]:
         """All audit rows for a case, OLDEST first. Never raises."""
 
+    async def records_for_actor(self, actor: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent audit rows attributed to ``actor`` (NEWEST first) — the per-user
+        account-activity feed (Wave 3). NON-abstract with a safe default ([]) so a
+        third-party AuditRepository keeps working; the bundled ES/SQL stores override
+        it. Never raises."""
+        return []
+
 
 class UsageRepository(ABC):
     """Token & cost ledger (Section 7.3). Written ONLY by the LLM gateway (#6)."""

@@ -225,6 +225,34 @@ class SqlAuditRepository(AuditRepository):
             logger.warning("Audit read for case %s failed: %s", case_id, exc)
             return []
 
+    async def records_for_actor(self, actor: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent audit rows attributed to ``actor`` (NEWEST first) — the per-user
+        account-activity feed (Wave 3). ``actor`` lives inside the JSON ``doc`` (not a
+        column), so we scan a bounded recent window (ts desc) and filter in Python —
+        cross-dialect + correct on SQLite + Postgres. Never raises."""
+        if not actor:
+            return []
+        scan = max(limit * 20, 500)
+        stmt = (
+            select(AuditRow)
+            .order_by(AuditRow.ts.desc(), AuditRow.id.desc())
+            .limit(scan)
+        )
+        try:
+            async with self._sm() as session:
+                rows = (await session.execute(stmt)).scalars().all()
+            out: list[dict[str, Any]] = []
+            for r in rows:
+                doc = r.doc or {}
+                if str(doc.get("actor", "")) == actor:
+                    out.append(doc)
+                    if len(out) >= limit:
+                        break
+            return out
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audit read for actor %s failed: %s", actor, exc)
+            return []
+
 
 class SqlUsageRepository(UsageRepository):
     """Cost/token ledger. Summary aggregates in Python (same as the ES store)."""

@@ -869,6 +869,40 @@ class RBACConfig(BaseModel):
     roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
 
+class SessionPolicyConfig(BaseModel):
+    """Token / session lifetime + step-up policy (Wave 3: sessions & access policy).
+
+    UI-editable; mirrors ``MfaConfig`` (a small tuning block on Preferences — NO
+    secrets). The values gate the async session check in ``require_auth`` (idle +
+    absolute expiry) and the ``require_fresh_auth`` step-up window. The JWT signature
+    remains the root of trust; these only ADD revocation + expiry semantics.
+
+    Defaults are DELIBERATELY GENEROUS so an existing auth-on deployment (and the
+    existing auth-on tests that mint tokens directly) never expire mid-run:
+
+    * ``access_ttl`` — short-lived ACCESS-token lifetime (seconds). Informational for
+      the registry (the JWT carries its own ``exp`` via ``auth_token_hours``); a
+      refresh rotates within this window. Default 1h.
+    * ``idle_timeout`` — a session with no activity for this long is rejected
+      (``now > last_active + idle_timeout``). Default 12h (generous).
+    * ``absolute_lifetime`` — a session older than this is rejected regardless of
+      activity (``now > created_at + absolute_lifetime``). Default 30 days.
+    * ``refresh_ttl`` — refresh-token lifetime (seconds). Default 30 days.
+    * ``sudo_reauth_window`` — how recently the user must have re-authenticated for a
+      step-up-gated (``require_fresh_auth``) action. Default 10 min.
+    * ``notify_on_new_device`` / ``notify_on_terminate`` — best-effort operator
+      notifications on a first-seen device / a session termination (default OFF).
+    """
+
+    access_ttl: int = Field(default=3600, ge=60)             # 1h
+    idle_timeout: int = Field(default=43_200, ge=300)        # 12h (generous)
+    absolute_lifetime: int = Field(default=2_592_000, ge=3600)  # 30 days
+    refresh_ttl: int = Field(default=2_592_000, ge=300)      # 30 days
+    sudo_reauth_window: int = Field(default=600, ge=30)      # 10 min step-up window
+    notify_on_new_device: bool = False
+    notify_on_terminate: bool = False
+
+
 class MfaConfig(BaseModel):
     """Multi-factor (TOTP) configuration (Wave 2 / F3).
 
@@ -1164,6 +1198,10 @@ class Preferences(BaseModel):
     # Multi-factor auth (Wave 2 / F3) — per-user opt-in; this block only tunes
     # issuer/format + optional role enforcement (no secrets here).
     mfa: MfaConfig = Field(default_factory=MfaConfig)
+    # Session / token policy (Wave 3) — idle/absolute TTL + step-up window + notify
+    # toggles. Generous defaults so an existing auth-on deployment never expires
+    # mid-run; enforced by the async session check in require_auth (no secrets here).
+    session_policy: SessionPolicyConfig = Field(default_factory=SessionPolicyConfig)
     # SSO / OIDC (Wave 2 / F4) — default OFF; client secrets stay in the SECRET tier.
     sso: SSOConfig = Field(default_factory=SSOConfig)
     # Notifications (Wave 4 / F5) — default OFF; per-channel secrets stay in the

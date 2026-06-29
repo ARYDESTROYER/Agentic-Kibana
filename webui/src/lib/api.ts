@@ -12,6 +12,7 @@
 import type {
   AccountProfile,
   AccountProfileBody,
+  ActivityResponse,
   AuthMe,
   Branding,
   Case,
@@ -47,7 +48,9 @@ import type {
   RagImportResult,
   RagSearchResponse,
   RagStats,
+  ReauthResult,
   RolesResponse,
+  SessionsResponse,
   ScanNotifications,
   SecretsUpdate,
   SettingsResponse,
@@ -156,6 +159,36 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
 
+/**
+ * Optional step-up re-auth gate (Round-2 Wave 3). When auth is enabled the app
+ * registers a callback here; any API call that returns 401 with the backend body
+ * `{code:'reauth_required'}` invokes it, opening a re-auth modal. The callback
+ * resolves `true` once the user has re-authenticated (so the original request is
+ * retried ONCE) or `false` if they cancelled (the original 401 surfaces). When no
+ * callback is registered (auth off, or before the provider mounts) the gate is
+ * inert and the 401 surfaces unchanged — the no-auth path is untouched.
+ */
+let reauthGate: (() => Promise<boolean>) | null = null;
+export function setReauthHandler(handler: (() => Promise<boolean>) | null): void {
+  reauthGate = handler;
+}
+
+/** Extract a backend error `code` (e.g. "reauth_required") from a parsed body. */
+function bodyCode(body: unknown): string | null {
+  if (body && typeof body === 'object') {
+    const detail = (body as { detail?: unknown }).detail;
+    if (detail && typeof detail === 'object' && 'code' in detail) {
+      const c = (detail as { code?: unknown }).code;
+      if (typeof c === 'string') return c;
+    }
+    if ('code' in body) {
+      const c = (body as { code?: unknown }).code;
+      if (typeof c === 'string') return c;
+    }
+  }
+  return null;
+}
+
 function buildQuery(query?: Record<string, unknown>): string {
   if (!query) return '';
   const parts: string[] = [];
@@ -195,7 +228,7 @@ function extractMessage(status: number, body: unknown): string {
 async function request<T>(
   method: string,
   path: string,
-  opts: { body?: unknown; query?: Record<string, unknown> } = {},
+  opts: { body?: unknown; query?: Record<string, unknown>; _retried?: boolean } = {},
 ): Promise<T> {
   const clean = path.replace(/^\/+/, '');
   const url = `${API_BASE}/${clean}${buildQuery(opts.query)}`;
@@ -216,9 +249,27 @@ async function request<T>(
   }
   const body = await parseBody(res);
   if (!res.ok) {
-    // A 401 from a non-auth endpoint means the session lapsed (or auth was just
-    // turned on); bounce to the login screen. The auth endpoints handle their own
-    // 401s inline (expected on a bad password), so they are excluded.
+    // A 401 with `code:'reauth_required'` is a STEP-UP gate (the session is valid
+    // but the action needs fresh credentials). Open the re-auth modal; if the user
+    // re-authenticates, retry the original request exactly ONCE. Never recurse on a
+    // retry, and never treat the /auth/reauth call itself as a gate trigger.
+    if (
+      res.status === 401 &&
+      reauthGate &&
+      !opts._retried &&
+      bodyCode(body) === 'reauth_required' &&
+      clean !== 'auth/reauth'
+    ) {
+      const ok = await reauthGate();
+      if (ok) {
+        return request<T>(method, path, { ...opts, _retried: true });
+      }
+      // User cancelled — surface the original 401.
+      throw new ApiError(res.status, extractMessage(res.status, body), body);
+    }
+    // A plain 401 from a non-auth endpoint means the session lapsed (or auth was
+    // just turned on); bounce to the login screen. The auth endpoints handle their
+    // own 401s inline (expected on a bad password), so they are excluded.
     if (res.status === 401 && onUnauthorized && !clean.startsWith('auth/')) {
       onUnauthorized();
     }
@@ -277,6 +328,65 @@ export const api = {
           'POST',
           `auth/sso/providers/${encodeURIComponent(providerId)}/secret`,
           { body: { client_secret: clientSecret } },
+        ),
+    },
+
+    // ---- Sessions: refresh + step-up re-auth (Round-2 Wave 3) ------------- //
+    // Rotate the access/refresh tokens (new HttpOnly cookie set server-side; no
+    // token is returned to JS). Used to recover from an idle/expired session.
+    refresh: () => request<ReauthResult>('POST', 'auth/refresh'),
+    // Step-up ("sudo") re-auth — re-prove the password (and/or an MFA code) to
+    // stamp `last_authn`, satisfying a `reauth_required` gate before a sensitive
+    // action. The current session is NOT replaced; only freshness is bumped.
+    reauth: (password: string, code?: string) =>
+      request<ReauthResult>('POST', 'auth/reauth', {
+        body: { password, ...(code ? { code } : {}) },
+      }),
+  },
+
+  // ---- Sessions (the signed-in user's OWN sessions) --------------------- //
+  // List the caller's active sessions (the current one flagged `current:true`),
+  // revoke a single session, or sign out every OTHER session. All gated by
+  // current_user server-side; no secret/token is ever returned (#10).
+  sessions: {
+    list: () => request<SessionsResponse>('GET', 'sessions'),
+    revoke: (sid: string) =>
+      request<{ ok: boolean; sid: string }>(
+        'POST',
+        `sessions/${encodeURIComponent(sid)}/revoke`,
+      ),
+    revokeOthers: () =>
+      request<{ ok: boolean; revoked: number }>('POST', 'sessions/revoke-others'),
+  },
+
+  // ---- Account activity (the user's recent audit trail) ----------------- //
+  // GET /api/account/activity — recent audit events for the signed-in user. Every
+  // value is system/operator-derived; render PLAIN.
+  account_activity: () => request<ActivityResponse>('GET', 'account/activity'),
+
+  // ---- Admin session console (all users' sessions) ---------------------- //
+  // users:manage server-side. List ALL sessions (optionally filtered by user),
+  // force-terminate one (optionally notifying the owner), or revoke EVERY session
+  // for a user (bumps their token_version so already-issued tokens stop working).
+  admin: {
+    sessions: {
+      list: (username?: string) =>
+        request<SessionsResponse>('GET', 'admin/sessions', {
+          query: username ? { username } : undefined,
+        }),
+      revoke: (sid: string, notify = false) =>
+        request<{ ok: boolean; sid: string }>(
+          'POST',
+          `admin/sessions/${encodeURIComponent(sid)}/revoke`,
+          { body: { notify } },
+        ),
+    },
+    users: {
+      revokeAll: (username: string, notify = false) =>
+        request<{ ok: boolean; revoked: number }>(
+          'POST',
+          `admin/users/${encodeURIComponent(username)}/revoke-all`,
+          { body: { notify } },
         ),
     },
   },

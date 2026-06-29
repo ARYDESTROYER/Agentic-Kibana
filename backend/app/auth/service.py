@@ -56,12 +56,18 @@ class AuthUser:
     """The authenticated principal carried as the token subject (``sub``).
 
     ``role`` + ``must_change_password`` reflect the CURRENT synced record (so a role
-    change / forced reset takes effect immediately). Defaults keep back-compat."""
+    change / forced reset takes effect immediately). Defaults keep back-compat.
+
+    ``sid`` (Wave 3) is the session-registry id carried as the JWT ``sid`` claim. It
+    is ``None`` for a token minted before sessions existed / a token without the
+    claim (those are LAZILY registered by the deps layer — never rejected for it),
+    so the field is defaulted to keep every prior call site compiling."""
 
     username: str
     role: str = _DEFAULT_ROLE
     must_change_password: bool = False
     mfa_enabled: bool = False
+    sid: str | None = None
 
 
 @dataclass
@@ -121,6 +127,14 @@ class AuthService:
         # Roles for which an MFA challenge is required even before the user enrolled
         # (they'll be routed to set up MFA). Refreshed via set_mfa_enforce_roles().
         self._mfa_enforce_roles: set[str] = {str(r) for r in (mfa_enforce_roles or [])}
+        # Wave 3: a SYNCED snapshot of each user's current session ``token_version``
+        # (from the persistent SessionStore), so the synchronous mint sites
+        # (authenticate / mint_session) can stamp the correct ``tv`` claim WITHOUT an
+        # async store read. Refreshed via :meth:`set_session_versions`; absent users
+        # default to 0 (back-compat: a never-bumped user). The full SessionStore (the
+        # async revocation/expiry check) lives in AppState, consulted by the deps
+        # layer — verify() stays sync + I/O-free.
+        self._session_versions: dict[str, int] = {}
 
         # The env-supplied accounts form the BASE layer; store users overlay it via
         # set_users(). The env admin is super_admin; other env users get the default.
@@ -171,6 +185,27 @@ class AuthService:
         change takes effect without a restart; does not touch the user view."""
         self._mfa_enforce_roles = {str(r) for r in (roles or [])}
 
+    def set_session_versions(self, versions: dict[str, int] | None) -> None:
+        """Refresh the synced per-user session ``token_version`` snapshot (Wave 3)
+        from the persistent SessionStore. Called on startup + after a revoke-all so
+        the next mint stamps the BUMPED ``tv`` (and the synchronous mint sites never
+        do an async read). Keys are lowercased usernames; missing users default 0."""
+        self._session_versions = {
+            str(k).strip().lower(): int(v or 0) for k, v in (versions or {}).items()
+        }
+
+    def _token_version_for(self, username: str) -> int:
+        """The current session ``token_version`` for ``username`` from the synced
+        snapshot (0 when never bumped). Synchronous — used by the mint sites."""
+        return int(self._session_versions.get((username or "").strip().lower(), 0) or 0)
+
+    @staticmethod
+    def _new_sid() -> str:
+        """A fresh opaque 128-bit session id (hex) for the JWT ``sid`` claim."""
+        from .. stores.sessions import new_sid
+
+        return new_sid()
+
     def _lookup(self, username: str) -> _Record | None:
         return self._records.get((username or "").strip().lower())
 
@@ -178,7 +213,11 @@ class AuthService:
         """Verify credentials; return a signed JWT on success, else ``None``.
 
         SYNCHRONOUS (reads the synced view, never the async store). A disabled
-        account never authenticates. The JWT embeds the role + must-change flag."""
+        account never authenticates. The JWT embeds the role + must-change flag plus
+        a fresh ``sid`` (Wave 3 session id) + the user's current ``tv``
+        (token_version). The route layer registers the ``sid`` in the SessionStore at
+        the cookie-set site; an unregistered sid on a validly-signed token is lazily
+        registered by the deps layer (never rejected)."""
         rec = self._lookup(username)
         if rec is None or not rec.active or not rec.password_hash:
             # Verify against a real full-iteration dummy hash so an unknown/disabled
@@ -188,10 +227,25 @@ class AuthService:
         if not verify_password(password or "", rec.password_hash):
             return None
         return encode(
-            {"sub": username, "role": rec.role, "mc": rec.must_change_password},
+            {
+                "sub": username, "role": rec.role, "mc": rec.must_change_password,
+                "sid": self._new_sid(), "tv": self._token_version_for(username),
+            },
             self._jwt_secret,
             expires_in_s=self._token_seconds,
         )
+
+    def claims_of(self, token: str) -> dict | None:
+        """Decode a token and return its raw claims (incl. ``sid``/``tv``), or None on
+        any error. Used by the route layer to register the freshly-minted sid + by
+        the deps layer to read sid/tv for the async session check. NEVER mutates
+        state; the JWT signature is the root of trust here."""
+        if not token:
+            return None
+        try:
+            return decode(token, self._jwt_secret)
+        except TokenError:
+            return None
 
     def principal(self, username: str) -> AuthUser | None:
         """The :class:`AuthUser` for ``username`` from the synced view (role +
@@ -274,14 +328,19 @@ class AuthService:
         rec = self._lookup(username)
         if rec is None or not rec.active:
             return None
+        sid = self._new_sid()
         token = encode(
-            {"sub": username, "role": rec.role, "mc": rec.must_change_password},
+            {
+                "sub": username, "role": rec.role, "mc": rec.must_change_password,
+                "sid": sid, "tv": self._token_version_for(username),
+            },
             self._jwt_secret,
             expires_in_s=self._token_seconds,
         )
         user = self.principal(username)
         if user is None:  # pragma: no cover — rec exists, so principal exists
             return None
+        user.sid = sid
         return token, user
 
     def verify(self, token: str) -> AuthUser | None:
@@ -307,9 +366,11 @@ class AuthService:
         rec = self._lookup(sub)
         if rec is None or not rec.active:
             return None
+        sid = claims.get("sid")
         return AuthUser(
             username=sub,
             role=rec.role,
             must_change_password=rec.must_change_password,
             mfa_enabled=rec.mfa_enabled,
+            sid=sid if isinstance(sid, str) and sid else None,
         )

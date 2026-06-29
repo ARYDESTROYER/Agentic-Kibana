@@ -95,6 +95,130 @@ export interface AccountProfileBody {
   locale?: string;
 }
 
+// --------------------------------------------------------------------------- //
+// Sessions & access policy (Round-2 Wave 3) — /api/sessions, /api/admin/sessions,
+// /api/auth/refresh, /api/auth/reauth, /api/account/activity, prefs.session_policy.
+//
+// Every session field is request-derived (User-Agent / IP / geo) and therefore
+// UNTRUSTED → render `ua_*`, `ip`, `ip_city`, `ip_country`, `location` as PLAIN
+// text (#9). The backend NEVER returns the JWT, the refresh token, or any hash —
+// only non-secret session metadata (#10).
+// --------------------------------------------------------------------------- //
+/**
+ * One registered session (GET /api/sessions own; GET /api/admin/sessions all).
+ *
+ * `current:true` marks the session the caller is using right now ("This device").
+ * All UA/IP/geo values are request-derived → render PLAIN, never as markup/links.
+ */
+export interface Session {
+  /** Opaque 128-bit session id (the `sid` JWT claim). */
+  sid: string;
+  /** The owning account (admin console shows it; own listing omits/echoes it). */
+  username?: string;
+  /** True for the session the request was made from ("This device"). */
+  current?: boolean;
+  /** Whether the session has been revoked (admin listings may include these). */
+  revoked?: boolean;
+  /** ISO timestamps for the session lifecycle (all optional / best-effort). */
+  created_at?: string;
+  last_active_at?: string | null;
+  last_authn_at?: string | null;
+  absolute_expiry_at?: string | null;
+  idle_expiry_at?: string | null;
+  revoked_at?: string | null;
+  /** Who revoked it (admin/self/system) + why — plain text. */
+  revoked_by?: string | null;
+  revoke_reason?: string | null;
+  /** Request-derived network + geo (UNTRUSTED — render PLAIN). */
+  ip?: string | null;
+  ip_city?: string | null;
+  ip_country?: string | null;
+  /** Pre-composed "City, Country" label when the backend supplies one. */
+  location?: string | null;
+  /** Parsed User-Agent fields + the raw header (UNTRUSTED — render PLAIN). */
+  ua_raw?: string | null;
+  ua_browser?: string | null;
+  ua_os?: string | null;
+  /** The client kind (e.g. "web"/"api"/"cli") + the MFA method used at sign-in. */
+  client_type?: string | null;
+  mfa_method?: string | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/sessions and GET /api/admin/sessions — the session listing. */
+export interface SessionsResponse {
+  sessions: Session[];
+  count?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * Preferences.session_policy — the token/session lifecycle policy (admin-editable
+ * under Settings > Security). All durations are in SECONDS. Defaulted + additive:
+ * an absent block uses the backend's generous defaults (so existing sessions never
+ * expire mid-run). Booleans gate the optional new-device / terminate notifications.
+ */
+export interface SessionPolicy {
+  /** Short-lived access-token lifetime (seconds). */
+  access_ttl?: number;
+  /** Idle window — a session is revoked after this long without activity (seconds). */
+  idle_timeout?: number;
+  /** Hard cap on a session's total lifetime regardless of activity (seconds). */
+  absolute_lifetime?: number;
+  /** Refresh-token lifetime (seconds). */
+  refresh_ttl?: number;
+  /** Step-up "sudo" window — sensitive actions re-prompt after this long (seconds). */
+  sudo_reauth_window?: number;
+  /** Email the user when a session is created from a new device/location. */
+  notify_on_new_device?: boolean;
+  /** Email the user when one of their sessions is terminated. */
+  notify_on_terminate?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * One recent audit event for the signed-in user (GET /api/account/activity).
+ * Every value is system/operator-derived → render PLAIN. The shape is loose (the
+ * backend forwards audit docs verbatim); the well-known fields are documented.
+ */
+export interface ActivityEvent {
+  /** Audit doc id (react key). */
+  id?: string;
+  /** When it happened (ISO). */
+  ts?: string;
+  /** The action type (e.g. "AUTH_EVENT" / "USER_MGMT" / "SESSION") — plain text. */
+  action?: string;
+  /** A short human-readable summary of the event (UNTRUSTED — plain text). */
+  detail?: string;
+  /** The actor (usually the user themselves) — plain text. */
+  actor?: string;
+  /** Request-derived network context for the event (UNTRUSTED — plain text). */
+  ip?: string | null;
+  ua_browser?: string | null;
+  ua_os?: string | null;
+  location?: string | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/account/activity — the user's recent audit trail. */
+export interface ActivityResponse {
+  events: ActivityEvent[];
+  count?: number;
+  [key: string]: unknown;
+}
+
+/**
+ * POST /api/auth/refresh / POST /api/auth/reauth — the step-up / rotation result.
+ * The new session cookie is set HttpOnly server-side; the body carries only
+ * non-secret confirmation (no token is returned to JS).
+ */
+export interface ReauthResult {
+  ok: boolean;
+  /** Echoed user (post-reauth identity), when present. */
+  user?: AuthUser;
+  [key: string]: unknown;
+}
+
 /**
  * POST /api/auth/login (200). Two shapes (Wave 2):
  *   - normal:   { token, user }
@@ -732,6 +856,9 @@ export interface Preferences {
   /** Security (Wave 2): MFA tuning + SSO/OIDC providers. */
   mfa?: MfaConfig;
   sso?: SsoConfig;
+
+  /** Token/session lifecycle policy (Round-2 Wave 3; admin-editable). */
+  session_policy?: SessionPolicy;
 
   /** Customisable human-facing case-ID nomenclature (F7). */
   case_id_format?: CaseIdFormatConfig;

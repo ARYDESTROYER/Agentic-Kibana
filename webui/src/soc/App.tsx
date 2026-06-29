@@ -34,8 +34,11 @@ import Security from './pages/Security';
 import Approvals from './pages/Approvals';
 import Users from './pages/Users';
 import Account from './pages/Account';
+import SessionsPage from './pages/Sessions';
+import AdminSessions from './pages/AdminSessions';
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
+import { ReauthDialog } from './components/ReauthDialog';
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -79,6 +82,10 @@ function renderPage(
       return <Cost onNavigate={navigate} />;
     case 'account':
       return <Account onNavigate={navigate} />;
+    case 'sessions':
+      return <SessionsPage onNavigate={navigate} />;
+    case 'admin_sessions':
+      return <AdminSessions onNavigate={navigate} />;
     case 'settings':
       return <Settings onNavigate={navigate} onRerunWizard={onRerunWizard} />;
     case 'security':
@@ -156,16 +163,20 @@ const Boot: React.FC = () => {
 
   const showUser = Boolean(authEnabled && isAuthenticated && username);
   return (
-    <AppShell
-      page={page}
-      onNavigate={navigate}
-      username={showUser ? username : undefined}
-      onLogout={showUser ? onLogout : undefined}
-    >
-      <ErrorBoundary resetKey={page}>
-        {renderPage(page, opts, navigate, () => setForceWizard(true))}
-      </ErrorBoundary>
-    </AppShell>
+    <>
+      <AppShell
+        page={page}
+        onNavigate={navigate}
+        username={showUser ? username : undefined}
+        onLogout={showUser ? onLogout : undefined}
+      >
+        <ErrorBoundary resetKey={page}>
+          {renderPage(page, opts, navigate, () => setForceWizard(true))}
+        </ErrorBoundary>
+      </AppShell>
+      {/* Step-up re-auth modal: only armed when auth is enabled (back-compat). */}
+      <ReauthDialog active={authEnabled} />
+    </>
   );
 };
 

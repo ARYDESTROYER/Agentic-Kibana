@@ -43,12 +43,15 @@ from ..state import AppState
 from ..tools.enrich import EnrichTool
 from ..utils import iso_now, relative_to_millis
 from .deps import (
+    _audit_session,
     _bearer,
     current_user,
     current_username,
     get_state,
     require_admin,
+    require_fresh_auth,
     require_permission,
+    session_metadata,
 )
 
 logger = logging.getLogger("tlsoc.api")
@@ -1097,9 +1100,92 @@ def _resolved_role(state: AppState, user) -> str:
     return getattr(user, "role", "") or state.prefs.rbac.default_role
 
 
+def _session_policy(state: AppState):
+    """The live session/token policy (idle/absolute/window + notify toggles)."""
+    return getattr(state.prefs, "session_policy", None)
+
+
+async def _register_session(
+    state: AppState, request: Request, token: str, *, mfa_method: str = "",
+    refresh_hash: str = "",
+) -> str:
+    """Session-create HOOK (Wave 3) — called at EVERY cookie-set site (login,
+    mfa/verify, sso/callback). Decodes the freshly-minted token to read its ``sid``/
+    ``tv``, records a Session row with PLAIN request metadata (ip + best-effort geo +
+    parsed UA; #9), audits the create (#2), and best-effort fires a
+    ``notify_on_new_device`` notification. Returns the sid ("" when no sid claim /
+    auth off). NEVER raises into the login flow."""
+    sessions = getattr(state, "sessions", None)
+    auth = getattr(state, "auth", None)
+    if sessions is None or auth is None:
+        return ""
+    try:
+        claims = auth.claims_of(token) or {}
+        sid = str(claims.get("sid") or "")
+        if not sid:
+            return ""
+        username = str(claims.get("sub") or "")
+        tv = int(claims.get("tv", 0) or 0)
+        policy = _session_policy(state)
+        idle = int(getattr(policy, "idle_timeout", 0) or 0)
+        absolute = int(getattr(policy, "absolute_lifetime", 0) or 0)
+        meta = session_metadata(request)
+        await sessions.create(
+            sid=sid, username=username, token_version=tv,
+            refresh_hash=refresh_hash or "",
+            idle_timeout=idle, absolute_lifetime=absolute,
+            mfa_method=mfa_method or "", **meta,
+        )
+        await _audit_session(
+            state, "session_create", username, sid,
+            f"new session ({meta.get('client_type', '') or 'unknown'} "
+            f"{meta.get('ua_browser', '')}/{meta.get('ua_os', '')})".strip(),
+        )
+        # Best-effort new-device notification (a first session for this UA/device).
+        try:
+            if bool(getattr(policy, "notify_on_new_device", False)):
+                await _notify_session_event(state, username, "new_device", meta)
+        except Exception:  # noqa: BLE001
+            pass
+        return sid
+    except Exception:  # noqa: BLE001 — a session-record failure never blocks login
+        return ""
+
+
+async def _notify_session_event(state: AppState, username: str, kind: str,
+                                meta: dict[str, str]) -> None:
+    """Best-effort operator notification for a session lifecycle event (new device /
+    termination). Reuses the existing NotificationService.dispatch with a synthetic
+    'case' payload. Fire-and-forget; never raises."""
+    notifier = getattr(state, "notifications", None)
+    if notifier is None:
+        return
+    label = "New device sign-in" if kind == "new_device" else "Session terminated"
+    payload = {
+        "case_id": f"session-{kind}",
+        "cluster_signature": f"session:{kind}:{username}",
+        "title": f"{label} for {username}",
+        "entity": {"type": "user", "value": username},
+        "verdict": "NEEDS_HUMAN",
+        "status": "needs_human",
+        "risk_score": 0.0,
+        "summary": (
+            f"{label} for account '{username}' from "
+            f"{meta.get('ip', '') or 'unknown IP'} "
+            f"({meta.get('ua_browser', '')}/{meta.get('ua_os', '')})."
+        ),
+        "source_name": "Session security",
+    }
+    try:
+        await notifier.dispatch(payload, "manual", check_triggers=False)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @router.post("/auth/login")
 async def auth_login(
-    body: LoginBody, response: Response, state: AppState = Depends(get_state)
+    body: LoginBody, request: Request, response: Response,
+    state: AppState = Depends(get_state),
 ) -> dict[str, Any]:
     auth = state.auth
     if not auth.is_enabled:
@@ -1134,6 +1220,8 @@ async def auth_login(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
         result_summary="login ok",
     )
+    # Wave 3: register the session (sid/tv from the token) with request metadata.
+    await _register_session(state, request, token, mfa_method="password")
     response.set_cookie(
         "tlsoc_token", token, httponly=True, samesite="lax",
         secure=state.secrets.auth_cookie_secure,
@@ -1173,7 +1261,23 @@ async def auth_me(request: Request, state: AppState = Depends(get_state)) -> dic
 
 
 @router.post("/auth/logout")
-async def auth_logout(response: Response, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def auth_logout(
+    request: Request, response: Response, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    # Wave 3: revoke THIS session's sid in the registry (so the token can't be
+    # replayed even before its JWT exp). Best-effort; auth-off is a strict no-op.
+    auth = getattr(state, "auth", None)
+    if auth is not None and auth.is_enabled:
+        token = request.cookies.get("tlsoc_token") or _bearer(request)
+        claims = auth.claims_of(token) if token else None
+        sid = str((claims or {}).get("sid") or "")
+        username = str((claims or {}).get("sub") or "")
+        if sid:
+            try:
+                if await state.sessions.revoke(sid, by=username, reason="logout"):
+                    await _audit_session(state, "session_revoke", username, sid, "logout")
+            except Exception:  # noqa: BLE001
+                pass
     # Mirror the set_cookie attributes so the cookie is reliably cleared.
     response.delete_cookie("tlsoc_token", samesite="lax", secure=state.secrets.auth_cookie_secure)
     return {"ok": True}
@@ -1223,6 +1327,254 @@ async def auth_change_password(
         result_summary="password changed",
     )
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Sessions & access policy — Wave 3
+#
+# A short-lived signed JWT is the ACCESS token; a parallel SessionStore registry
+# adds revocation + idle/absolute expiry + per-session metadata. Endpoints below let
+# a user see + terminate their OWN sessions, rotate a refresh token (with reuse
+# detection), step up (re-auth), and let an admin force-terminate any session. Every
+# create/revoke is audited (#2); session metadata renders PLAIN (#9); no secret is
+# ever returned (#10). All auth-off paths are strict no-ops / 400s.
+# --------------------------------------------------------------------------- #
+class RefreshBody(BaseModel):
+    refresh_token: str = ""
+
+
+class ReauthBody(BaseModel):
+    password: str = ""
+
+
+class RevokeOthersBody(BaseModel):
+    notify: bool = False
+
+
+def _require_auth_enabled(state: AppState) -> None:
+    if not getattr(state.auth, "is_enabled", False):
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+
+
+@router.get("/sessions")
+async def list_my_sessions(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """The caller's OWN sessions (UI-safe projection; current session flagged)."""
+    principal = _require_session(state, request)
+    rows = await state.sessions.list_for(principal.username)
+    current_sid = getattr(principal, "sid", None)
+    return {
+        "sessions": [
+            {**state.sessions.public(r), "current": bool(current_sid and r.get("sid") == current_sid)}
+            for r in rows
+        ],
+        "current_sid": current_sid or "",
+    }
+
+
+@router.post("/sessions/{sid}/revoke")
+async def revoke_my_session(
+    sid: str, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Revoke ONE of the caller's own sessions by sid. 404 if it isn't theirs."""
+    principal = _require_session(state, request)
+    row = await state.sessions.get(sid)
+    if row is None or _norm_user(row.get("username", "")) != _norm_user(principal.username):
+        raise HTTPException(status_code=404, detail="session not found")
+    ok = await state.sessions.revoke(sid, by=principal.username, reason="user_revoke")
+    if ok:
+        await _audit_session(state, "session_revoke", principal.username, sid, "self revoke")
+    return {"ok": True, "revoked": bool(ok)}
+
+
+@router.post("/sessions/revoke-others")
+async def revoke_other_sessions(
+    body: RevokeOthersBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Sign out all of the caller's OTHER sessions (keep this one). Bumps the user's
+    token_version so any still-valid JWT is rejected next request, EXCEPT the kept
+    sid (its row is preserved). Audited (#2)."""
+    principal = _require_session(state, request)
+    keep = getattr(principal, "sid", "") or ""
+    count = await state.sessions.revoke_others(
+        principal.username, keep, by=principal.username,
+    )
+    await _audit_session(
+        state, "session_revoke_others", principal.username, keep,
+        f"revoked {count} other session(s)",
+    )
+    if body.notify:
+        try:
+            await _notify_session_event(state, principal.username, "terminate", {})
+        except Exception:  # noqa: BLE001
+            pass
+    return {"ok": True, "revoked": count}
+
+
+@router.post("/auth/refresh")
+async def auth_refresh(
+    body: RefreshBody, request: Request, response: Response,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Rotate a refresh token → mint a fresh ACCESS token + a NEW refresh token.
+
+    Reuse detection (theft): if the presented token matches an ALREADY-ROTATED
+    previous hash, the session is treated as compromised → revoke + bump the user's
+    token_version (global sign-out) + audit + best-effort notify, and 401."""
+    _require_auth_enabled(state)
+    from ..stores.sessions import hash_refresh, new_refresh_token
+
+    presented = (body.refresh_token or "").strip()
+    if not presented:
+        raise HTTPException(status_code=400, detail="refresh_token is required")
+    row, match = await state.sessions.find_by_refresh(presented)
+    if match == "prev":
+        # THEFT: a replay of a rotated token. Nuke every session for the user.
+        username = str((row or {}).get("username") or "")
+        await state.sessions.revoke_all(username, by="system", reason="refresh_reuse_detected")
+        await state.refresh_sessions()
+        await _audit_session(
+            state, "refresh_reuse", username, str((row or {}).get("sid") or ""),
+            "refresh-token reuse detected — all sessions revoked",
+        )
+        try:
+            await _notify_session_event(state, username, "terminate", {})
+        except Exception:  # noqa: BLE001
+            pass
+        raise HTTPException(status_code=401, detail={"code": "session_invalid", "reason": "refresh_reuse"})
+    if row is None or match != "current":
+        raise HTTPException(status_code=401, detail={"code": "session_invalid", "reason": "unknown_refresh"})
+    sid = str(row.get("sid") or "")
+    username = str(row.get("username") or "")
+    # The session must still be usable (not revoked/expired) to rotate.
+    policy = _session_policy(state)
+    reason = state.sessions.is_active(
+        row, idle_timeout=int(getattr(policy, "idle_timeout", 0) or 0),
+        absolute_lifetime=int(getattr(policy, "absolute_lifetime", 0) or 0),
+    )
+    if reason is not None:
+        raise HTTPException(status_code=401, detail={"code": "session_expired", "reason": reason})
+    minted = state.auth.mint_session(username)
+    if minted is None:
+        raise HTTPException(status_code=401, detail={"code": "session_invalid", "reason": "inactive_user"})
+    token, _principal = minted
+    # The NEW access token carries a NEW sid. Keep ONE logical session row by
+    # RE-KEYING the existing row to the new sid + rotating its refresh hash (the old
+    # refresh hash slides to refresh_prev_hash for theft detection). This preserves
+    # the created_at anchor (absolute lifetime) while the access sid resolves.
+    new_refresh = new_refresh_token()
+    new_sid = str((state.auth.claims_of(token) or {}).get("sid") or "")
+    await state.sessions.rekey_and_rotate(
+        sid, new_sid, hash_refresh(new_refresh),
+        idle_timeout=int(getattr(policy, "idle_timeout", 0) or 0),
+    )
+    await _audit_session(state, "refresh_rotate", username, new_sid, f"rotated from {_short(sid)}")
+    response.set_cookie(
+        "tlsoc_token", token, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure,
+        max_age=state.secrets.auth_token_hours * 3600,
+    )
+    return {"token": token, "refresh_token": new_refresh, "sid": new_sid}
+
+
+@router.post("/auth/reauth")
+async def auth_reauth(
+    body: ReauthBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Step-up (sudo): re-verify the current user's password and stamp a fresh
+    ``last_authn_at`` on the session so a ``require_fresh_auth``-gated action is
+    unlocked for the policy window. Audited (#2)."""
+    principal = _require_session(state, request)
+    if state.auth.authenticate(principal.username, body.password or "") is None:
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="session", actor=principal.username,
+            result_summary="reauth failed",
+        )
+        raise HTTPException(status_code=401, detail={"code": "reauth_required", "reason": "bad_password"})
+    sid = getattr(principal, "sid", "") or ""
+    if sid:
+        await state.sessions.stamp_authn(sid)
+    await _audit_session(state, "session_reauth", principal.username, sid, "step-up re-auth ok")
+    return {"ok": True}
+
+
+@router.get("/account/activity")
+async def account_activity(
+    request: Request, limit: int = Query(default=50, ge=1, le=200),
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """The caller's OWN recent account/audit activity (newest first). Reads the
+    append-only audit log filtered by actor. Read-only; never raises."""
+    principal = _require_session(state, request)
+    rows = await _records_for_actor(state, principal.username, limit)
+    return {"activity": rows}
+
+
+# --------------------------------------------------------------------------- #
+# Admin sessions console — Wave 3 (require_admin = users:manage). Step-up gated.
+# --------------------------------------------------------------------------- #
+@router.get("/admin/sessions")
+async def admin_list_sessions(
+    request: Request, state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    """Every session across all users (admin console). UI-safe projection."""
+    rows = await state.sessions.list_all()
+    return {"sessions": [state.sessions.public(r) for r in rows]}
+
+
+@router.post("/admin/sessions/{sid}/revoke")
+async def admin_revoke_session(
+    sid: str, request: Request, state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+    _fresh=Depends(require_fresh_auth()),
+) -> dict[str, Any]:
+    """Admin force-terminate ANY session by sid. Step-up gated. Audited (#2)."""
+    row = await state.sessions.get(sid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    by = current_username(request)
+    ok = await state.sessions.revoke(sid, by=by, reason="admin_revoke")
+    if ok:
+        await _audit_session(state, "session_admin_revoke", by, sid,
+                             f"admin revoked session of {row.get('username', '')}")
+    return {"ok": True, "revoked": bool(ok)}
+
+
+@router.post("/admin/users/{username}/revoke-all")
+async def admin_revoke_all(
+    username: str, request: Request, state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+    _fresh=Depends(require_fresh_auth()),
+) -> dict[str, Any]:
+    """Admin global sign-out for ONE user: revoke every session + bump token_version.
+    Step-up gated. Audited (#2)."""
+    by = current_username(request)
+    count = await state.sessions.revoke_all(username, by=by, reason="admin_revoke_all")
+    await state.refresh_sessions()
+    await _audit_session(state, "session_admin_revoke_all", by, "",
+                         f"admin revoked all {count} session(s) for {username}")
+    return {"ok": True, "revoked": count}
+
+
+def _norm_user(username: str) -> str:
+    return (username or "").strip().lower()
+
+
+def _short(sid: str) -> str:
+    s = str(sid or "")
+    return (s[:8] + "…") if len(s) > 8 else s
+
+
+async def _records_for_actor(state: AppState, actor: str, limit: int) -> list[dict[str, Any]]:
+    """Read the caller's own audit rows (newest first) via the audit repository's
+    per-actor reader. Best-effort — returns [] on any error."""
+    audit = getattr(state, "audit", None)
+    if audit is None:
+        return []
+    try:
+        return await audit.records_for_actor(actor, limit)
+    except Exception:  # noqa: BLE001
+        return []
 
 
 # --------------------------------------------------------------------------- #
@@ -1513,7 +1865,8 @@ class MfaVerifyBody(BaseModel):
 
 @router.post("/auth/mfa/verify")
 async def mfa_verify(
-    body: MfaVerifyBody, response: Response, state: AppState = Depends(get_state)
+    body: MfaVerifyBody, request: Request, response: Response,
+    state: AppState = Depends(get_state),
 ) -> dict[str, Any]:
     """Login phase 2 (PUBLIC — gated by the pending_token). Verify the TOTP code (or a
     single-use recovery code) for the pending-token subject; on success mint the full
@@ -1572,6 +1925,8 @@ async def mfa_verify(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
         result_summary=f"mfa login ok ({method})",
     )
+    # Wave 3: register the session from the freshly-minted token (carries sid/tv).
+    await _register_session(state, request, token, mfa_method=method)
     response.set_cookie(
         "tlsoc_token", token, httponly=True, samesite="lax",
         secure=state.secrets.auth_cookie_secure,
@@ -1783,6 +2138,8 @@ async def sso_callback(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
         result_summary=f"sso login ok ({provider_id})",
     )
+    # Wave 3: register the SSO session from the freshly-minted token (carries sid/tv).
+    await _register_session(state, request, token, mfa_method=f"sso:{provider_id}")
     redirect = RedirectResponse(url="/", status_code=302)
     redirect.set_cookie(
         "tlsoc_token", token, httponly=True, samesite="lax",

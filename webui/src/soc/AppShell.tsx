@@ -28,6 +28,7 @@ import {
   LogOut,
   UserCircle2,
   ShieldCheck,
+  MonitorSmartphone,
   ChevronDown,
   Command as CommandIcon,
   type LucideIcon,
@@ -368,6 +369,10 @@ const UserMenu: React.FC<{
         <DropdownMenuItem onSelect={() => onNavigate('security')}>
           <ShieldCheck aria-hidden />
           Security &amp; two-factor
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate('sessions')}>
+          <MonitorSmartphone aria-hidden />
+          Sessions &amp; activity
         </DropdownMenuItem>
         {onLogout ? (
           <>

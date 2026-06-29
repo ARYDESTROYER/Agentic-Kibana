@@ -86,6 +86,11 @@ class AppState:
         # — no new index/table/migration. Seeded + folded into AuthService during
         # async startup() (and after user-mgmt mutations) via refresh_users().
         self.users = self._build_users()
+        # Session registry (Wave 3) over the SAME shared KV — no new index/table.
+        # Persisted so it survives _wire() rebuilds. The async revocation/expiry
+        # check runs in the deps layer (require_auth) against this store; the per-user
+        # token_version snapshot is folded into AuthService (set_session_versions).
+        self.sessions = self._build_sessions()
         # Markdown playbook registry (loaded from disk; deterministic per-cluster
         # selection). Reloaded in startup() once prefs (and any dir override) load.
         self.playbooks = self._build_playbooks()
@@ -280,6 +285,14 @@ class AppState:
 
         return UserStore(self._kv)
 
+    def _build_sessions(self):
+        """Construct the session registry store (Wave 3) over the active backend's KV
+        (the same KV the MEMORY/USER stores use — works on ES + SQL, no new
+        index/table). Persisted so it survives _wire() rebuilds."""
+        from .stores.sessions import SessionStore
+
+        return SessionStore(self._kv)
+
     def _build_case_seq(self):
         """Construct the case-number SequenceStore (F7) over the active backend's KV
         (the same KV the MEMORY store uses — its own namespace, no new index/table)."""
@@ -345,6 +358,36 @@ class AppState:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("AuthService.set_users failed (%s)", exc)
+        # Keep the per-user session token_version snapshot in AuthService current so
+        # the next mint stamps the right ``tv`` (Wave 3). Best-effort.
+        await self.refresh_sessions(users)
+
+    async def refresh_sessions(self, users: list | None = None) -> None:
+        """Fold the CURRENT per-user session ``token_version`` snapshot (from the
+        persistent SessionStore) into AuthService so synchronous token minting stamps
+        the right ``tv`` claim. Called on startup, after a user-mgmt mutation, and
+        after a revoke-all (which bumps a tv). Best-effort + never raises."""
+        sessions = getattr(self, "sessions", None)
+        if sessions is None:
+            return
+        try:
+            if users is None:
+                users = await self.users.list()
+        except Exception:  # noqa: BLE001
+            users = []
+        versions: dict[str, int] = {}
+        try:
+            for u in users or []:
+                uname = str(getattr(u, "username", "") or "")
+                if uname:
+                    versions[uname] = await sessions.token_version_for(uname)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Refreshing session token_versions failed (%s)", exc)
+            return
+        try:
+            self.auth.set_session_versions(versions)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AuthService.set_session_versions failed (%s)", exc)
 
     def _build_playbooks(self):
         """Construct + load the PlaybookRegistry (never raises; a bad file is
@@ -680,6 +723,92 @@ def _source_es_overrides(merged: dict[str, Any]) -> dict[str, Any]:
     if merged.get("es_ca_cert"):
         out["es_ca_cert"] = str(merged["es_ca_cert"])
     return out
+
+
+def parse_user_agent(ua: str) -> dict[str, str]:
+    """A tiny, dependency-free User-Agent parser (Wave 3, stdlib only).
+
+    Returns ``{"ua_browser", "ua_os", "client_type"}`` — best-effort, never raises.
+    This is heuristic (NOT a full UA database) and produces PLAIN labels rendered as
+    text by the UI (#9). An unrecognised UA degrades to empty strings."""
+    raw = (ua or "").strip()
+    low = raw.lower()
+    if not raw:
+        return {"ua_browser": "", "ua_os": "", "client_type": ""}
+    # Browser (order matters — Edge/Chrome share tokens; check the more specific first).
+    browser = ""
+    for needle, label in (
+        ("edg/", "Edge"), ("edga/", "Edge"), ("edgios/", "Edge"),
+        ("opr/", "Opera"), ("opera", "Opera"),
+        ("chrome/", "Chrome"), ("crios/", "Chrome"),
+        ("firefox/", "Firefox"), ("fxios/", "Firefox"),
+        ("safari/", "Safari"),
+        ("curl/", "curl"), ("python-requests", "python-requests"),
+        ("postmanruntime", "Postman"), ("httpie", "HTTPie"),
+    ):
+        if needle in low:
+            browser = label
+            break
+    # OS family.
+    os_name = ""
+    for needle, label in (
+        ("windows nt 10", "Windows"), ("windows nt 11", "Windows"), ("windows", "Windows"),
+        ("iphone", "iOS"), ("ipad", "iPadOS"),
+        ("mac os x", "macOS"), ("macintosh", "macOS"),
+        ("android", "Android"),
+        ("cros", "ChromeOS"),
+        ("linux", "Linux"),
+    ):
+        if needle in low:
+            os_name = label
+            break
+    # Client type heuristic.
+    if any(t in low for t in ("curl/", "python-requests", "postmanruntime", "httpie", "go-http", "okhttp")):
+        client_type = "api"
+    elif any(t in low for t in ("mobile", "iphone", "android")):
+        client_type = "mobile"
+    elif browser:
+        client_type = "browser"
+    else:
+        client_type = ""
+    return {"ua_browser": browser, "ua_os": os_name, "client_type": client_type}
+
+
+def client_ip_from(request) -> str:
+    """Best-effort client IP from a Starlette/FastAPI request (Wave 3, stdlib only).
+
+    Honors a single ``X-Forwarded-For`` hop (first entry) when present, else the
+    socket peer. PLAIN text, never raises. (No trust decision is made here — the IP
+    is metadata only, never an authz input.)"""
+    try:
+        xff = request.headers.get("x-forwarded-for") or ""
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+        client = getattr(request, "client", None)
+        return str(getattr(client, "host", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def geo_for_ip(ip: str) -> dict[str, str]:
+    """Best-effort IP → ``{"ip_city", "ip_country"}`` (Wave 3). Stdlib only and a
+    NO-OP by default — we add NO geo dependency and make NO network call. A private/
+    loopback/empty IP yields a friendly local label; everything else yields empties
+    (a future operator-supplied offline geo DB could fill these in). Never raises."""
+    addr = (ip or "").strip()
+    if not addr:
+        return {"ip_city": "", "ip_country": ""}
+    try:
+        import ipaddress
+
+        parsed = ipaddress.ip_address(addr)
+        if parsed.is_loopback or parsed.is_private or parsed.is_link_local:
+            return {"ip_city": "", "ip_country": "Local network"}
+    except ValueError:
+        pass
+    return {"ip_city": "", "ip_country": ""}
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

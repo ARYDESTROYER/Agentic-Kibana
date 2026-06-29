@@ -26,6 +26,7 @@ vi.mock('@/lib/api', () => {
   };
   return {
     setUnauthorizedHandler: vi.fn(),
+    setReauthHandler: vi.fn(),
     api: {
       auth: {
         me: ok({ auth_enabled: false, authenticated: true, user: null }),

@@ -80,3 +80,22 @@ class AuditLogger(AuditRepository):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Audit read for case %s failed: %s", case_id, exc)
             return []
+
+    async def records_for_actor(self, actor: str, limit: int = 50) -> list[dict[str, Any]]:
+        """Recent audit rows attributed to ``actor`` (NEWEST first) — the per-user
+        account-activity feed (Wave 3). Read-only; never raises."""
+        if not actor:
+            return []
+        try:
+            resp = await self._es.search(
+                AUDIT_READ_PATTERN,
+                {
+                    "query": {"term": {"actor": actor}},
+                    "sort": [{"ts": {"order": "desc"}}],
+                    "size": limit,
+                },
+            )
+            return [h.get("_source", {}) or {} for h in resp.get("hits", {}).get("hits", [])]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audit read for actor %s failed: %s", actor, exc)
+            return []

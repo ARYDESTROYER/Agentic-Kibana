@@ -34,6 +34,11 @@ PUBLIC_API_PATHS = frozenset(
         "/api/auth/sso/providers",
         "/api/auth/sso/authorize",
         "/api/auth/sso/callback",
+        # Wave 3 — refresh is self-authenticating via the refresh token (the ACCESS
+        # token may already have expired), so it must be reachable WITHOUT a live
+        # access session. It is itself guarded by the opaque refresh-token match +
+        # reuse detection, NOT a session — so it doesn't weaken deny-by-default.
+        "/api/auth/refresh",
     }
 )
 # Public for GET ONLY (read-only, non-sensitive) — e.g. branding so the login
@@ -67,7 +72,17 @@ async def require_auth(request: Request):
     auth). When enabled, every /api route requires a valid JWT (cookie ``tlsoc_token``
     or ``Authorization: Bearer``) EXCEPT the small public allowlist; otherwise 401.
     Deny-by-default: a new route is protected automatically (verified by the CI
-    route-coverage test)."""
+    route-coverage test).
+
+    Wave 3: once ``verify()`` returns a principal (the JWT signature is the root of
+    trust), an ADDITIONAL async session check enforces the SessionStore registry:
+    revocation, per-user token_version, and idle/absolute expiry. CRITICAL
+    back-compat — the check DENIES only on an explicit negative signal (the sid is
+    REVOKED, the stamped ``tv`` no longer matches the user's current version, or the
+    session is past idle/absolute expiry). An UNKNOWN sid on a validly-signed token
+    is LAZILY REGISTERED (first-seen) and ALLOWED, so a token minted directly via
+    ``authenticate()``/``mint_session`` (without a route's session-create hook) keeps
+    working. ``last_active`` is best-effort touched (only when >60s stale)."""
     state = get_state(request)
     auth = getattr(state, "auth", None)
     if auth is None or not auth.is_enabled:
@@ -83,7 +98,130 @@ async def require_auth(request: Request):
     user = auth.verify(token) if token else None
     if user is None:
         raise HTTPException(status_code=401, detail="authentication required")
+    await _session_check(request, state, auth, user, token)
     return user
+
+
+# Map a SessionStore rejection reason → the {code} surfaced on the 401 body.
+_SESSION_REASON_CODE = {
+    "revoked": "session_invalid",
+    "tv_mismatch": "reauth_required",
+    "absolute_expired": "session_expired",
+    "idle_expired": "session_expired",
+}
+
+
+async def _session_check(request: Request, state: AppState, auth, user, token: str | None) -> None:
+    """The Wave-3 async session-registry check (see :func:`require_auth`).
+
+    DENIES only on an explicit negative signal; an unknown sid is lazily registered
+    and allowed. Best-effort: a SessionStore I/O failure NEVER hard-denies a
+    validly-signed token (the JWT remains the root of trust) — it is logged and the
+    request proceeds, so a transient store glitch can't lock everyone out."""
+    sessions = getattr(state, "sessions", None)
+    if sessions is None:
+        return
+    sid = getattr(user, "sid", None)
+    if not sid:
+        return  # a token minted before sessions existed — never reject for it (#back-compat)
+    policy = getattr(getattr(state, "prefs", None), "session_policy", None)
+    idle = int(getattr(policy, "idle_timeout", 0) or 0)
+    absolute = int(getattr(policy, "absolute_lifetime", 0) or 0)
+    try:
+        row = await sessions.get(sid)
+        # token_version (tv) check — a revoke-all bumps the user's tv so an old token
+        # is rejected even if its sid row is unknown/pruned.
+        claims = auth.claims_of(token) if token else None
+        stamped_tv = int((claims or {}).get("tv", 0) or 0)
+        current_tv = await sessions.token_version_for(user.username)
+        if stamped_tv < current_tv:
+            raise HTTPException(
+                status_code=401, detail={"code": "reauth_required", "reason": "tv_mismatch"}
+            )
+        if row is None:
+            # UNKNOWN sid on a validly-signed token → lazily register (first-seen) and
+            # ALLOW. This keeps direct-mint tokens (auth tests, mint_session without a
+            # route hook) working. The JWT signature already vouched for it.
+            await _lazy_register(request, state, sessions, user, sid, stamped_tv, idle, absolute)
+            return
+        reason = sessions.is_active(row, idle_timeout=idle, absolute_lifetime=absolute)
+        if reason is not None:
+            code = _SESSION_REASON_CODE.get(reason, "session_invalid")
+            raise HTTPException(status_code=401, detail={"code": code, "reason": reason})
+        # Best-effort touch (only writes when >60s stale).
+        try:
+            await sessions.touch(sid, idle_timeout=idle)
+        except Exception:  # noqa: BLE001
+            pass
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — a store glitch must not lock everyone out
+        import logging
+
+        logging.getLogger("tlsoc.api.deps").warning("session check soft-failed: %s", exc)
+
+
+async def _lazy_register(request: Request, state: AppState, sessions, user, sid: str,
+                         tv: int, idle: int, absolute: int) -> None:
+    """First-seen registration of an unknown-but-validly-signed sid. Records the
+    session with best-effort request metadata + audits the create (#2). Never raises
+    into the caller."""
+    meta: dict[str, str] = session_metadata(request)
+    try:
+        await sessions.create(
+            sid=sid, username=user.username, token_version=int(tv),
+            idle_timeout=idle, absolute_lifetime=absolute,
+            **meta,
+        )
+        await _audit_session(state, "session_register", user.username, sid,
+                             "lazy first-seen session registration")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def session_metadata(request: Request) -> dict[str, str]:
+    """Extract PLAIN per-session metadata (ip + best-effort geo + parsed UA) from a
+    request (#9 — rendered as text, never an LLM prompt input). Used by both the
+    lazy-register path here and the explicit session-create hooks in routes. Never
+    raises — degrades to empty strings."""
+    try:
+        from ..state import client_ip_from, geo_for_ip, parse_user_agent
+
+        ip = client_ip_from(request)
+        ua_raw = (request.headers.get("user-agent") or "")[:512]
+        ua = parse_user_agent(ua_raw)
+        geo = geo_for_ip(ip)
+        return {
+            "ip": ip, "ua_raw": ua_raw,
+            "ua_browser": ua.get("ua_browser", ""), "ua_os": ua.get("ua_os", ""),
+            "client_type": ua.get("client_type", ""),
+            "ip_city": geo.get("ip_city", ""), "ip_country": geo.get("ip_country", ""),
+        }
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+async def _audit_session(state: AppState, event: str, actor: str, sid: str, detail: str) -> None:
+    """Append-only audit of a session lifecycle event (#2). Best-effort."""
+    audit = getattr(state, "audit", None)
+    if audit is None:
+        return
+    try:
+        from ..constants import ActionType
+
+        await audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="session", actor=actor or "",
+            result_summary=f"{event} sid={_sid_tag(sid)} {detail}".strip(),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _sid_tag(sid: str) -> str:
+    """A short, non-reversible tag for a sid in audit text (avoid logging the full
+    session id verbatim while keeping it correlatable)."""
+    s = str(sid or "")
+    return (s[:8] + "…") if len(s) > 8 else s
 
 
 def current_user(request: Request):
@@ -194,3 +332,43 @@ async def require_admin(request: Request):
     administrative grant. Every approve/reject route still depends on THIS function,
     so privileged actions are gated in exactly one place."""
     return await _enforce(request, "users", "manage")
+
+
+def require_fresh_auth(window: int | None = None):
+    """FastAPI dependency factory: a STEP-UP (sudo) gate (Wave 3).
+
+    Composed onto a sensitive route, it 401s ``reauth_required`` when the session
+    last (re-)authenticated longer ago than ``window`` seconds (the operator-tunable
+    ``session_policy.sudo_reauth_window`` when ``window`` is None). A strict NO-OP
+    when auth is disabled. It runs the normal auth gate FIRST (so an unauthenticated
+    caller still 401s), then enforces freshness. A token without a registered session
+    (no sid / unknown sid) is treated as fresh (the lazy-register just stamped it) —
+    never spuriously blocked, mirroring the require_auth back-compat rule."""
+
+    async def _dep(request: Request):
+        user = await require_auth(request)
+        state = get_state(request)
+        auth = getattr(state, "auth", None)
+        if auth is None or not auth.is_enabled:
+            return user  # auth off → no step-up needed
+        sessions = getattr(state, "sessions", None)
+        sid = getattr(user, "sid", None)
+        if sessions is None or not sid:
+            return user  # no registry / pre-session token → don't block (back-compat)
+        policy = getattr(getattr(state, "prefs", None), "session_policy", None)
+        win = int(window if window is not None else getattr(policy, "sudo_reauth_window", 600) or 600)
+        try:
+            row = await sessions.get(sid)
+        except Exception:  # noqa: BLE001
+            return user  # store glitch → don't block a step-up
+        if row is None:
+            return user  # just lazily-registered → treat as fresh
+        age = sessions.reauth_age_seconds(row)
+        if age is not None and age > win:
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "reauth_required", "reason": "stale_authn", "window": win},
+            )
+        return user
+
+    return _dep

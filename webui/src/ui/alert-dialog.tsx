@@ -1,0 +1,151 @@
+/**
+ * AlertDialog — a confirmation dialog (destructive-action guard).
+ *
+ * shadcn normally builds this on `@radix-ui/react-alert-dialog`, but to honour the
+ * ZERO-new-deps rule we vendor it over the already-installed `@radix-ui/react-dialog`
+ * (the same primitive `dialog.tsx` uses). The public surface mirrors shadcn's
+ * AlertDialog (Trigger/Content/Header/Footer/Title/Description/Action/Cancel) so
+ * call sites read identically; the only behavioural nuance is that, like a real
+ * alert dialog, there is no top-right close affordance — the user must pick an
+ * explicit Action or Cancel.
+ *
+ * `AlertDialogAction` is a `<button>` styled like the primary/destructive Button;
+ * `AlertDialogCancel` is an outline button that closes the dialog. Both compose
+ * `onClick` with the dialog's close so consumers can pass a handler directly.
+ */
+import * as React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { cn } from '@/lib/cn';
+import { buttonVariants } from '@/ui/button';
+
+const AlertDialog = DialogPrimitive.Root;
+const AlertDialogTrigger = DialogPrimitive.Trigger;
+const AlertDialogPortal = DialogPrimitive.Portal;
+
+const AlertDialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
+      'data-[state=open]:animate-in data-[state=open]:fade-in-0',
+      'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
+      className,
+    )}
+    {...props}
+  />
+));
+AlertDialogOverlay.displayName = 'AlertDialogOverlay';
+
+const AlertDialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, ...props }, ref) => (
+  <AlertDialogPortal>
+    <AlertDialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      // role=alertdialog signals an assertive confirmation to AT.
+      role="alertdialog"
+      className={cn(
+        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5',
+        'rounded-lg border border-border bg-card p-6 text-foreground shadow-elev2',
+        'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+        'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
+        'duration-200',
+        className,
+      )}
+      {...props}
+    />
+  </AlertDialogPortal>
+));
+AlertDialogContent.displayName = 'AlertDialogContent';
+
+const AlertDialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn('flex flex-col gap-1.5 text-left', className)} {...props} />
+);
+AlertDialogHeader.displayName = 'AlertDialogHeader';
+
+const AlertDialogFooter = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end', className)}
+    {...props}
+  />
+);
+AlertDialogFooter.displayName = 'AlertDialogFooter';
+
+const AlertDialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn('text-lg font-semibold leading-none tracking-tight text-foreground', className)}
+    {...props}
+  />
+));
+AlertDialogTitle.displayName = 'AlertDialogTitle';
+
+const AlertDialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn('text-sm text-muted-foreground', className)}
+    {...props}
+  />
+));
+AlertDialogDescription.displayName = 'AlertDialogDescription';
+
+/**
+ * The confirm button. Defaults to the primary Button look; pass
+ * `variant="destructive"` for a dangerous action. Closes the dialog AND runs the
+ * consumer's onClick.
+ */
+const AlertDialogAction = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: 'default' | 'destructive';
+  }
+>(({ className, variant = 'default', ...props }, ref) => (
+  <DialogPrimitive.Close asChild>
+    <button
+      ref={ref}
+      className={cn(buttonVariants({ variant }), className)}
+      {...props}
+    />
+  </DialogPrimitive.Close>
+));
+AlertDialogAction.displayName = 'AlertDialogAction';
+
+/** The cancel button — outline look; closes the dialog. */
+const AlertDialogCancel = React.forwardRef<
+  HTMLButtonElement,
+  React.ButtonHTMLAttributes<HTMLButtonElement>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Close asChild>
+    <button
+      ref={ref}
+      className={cn(buttonVariants({ variant: 'outline' }), 'mt-2 sm:mt-0', className)}
+      {...props}
+    />
+  </DialogPrimitive.Close>
+));
+AlertDialogCancel.displayName = 'AlertDialogCancel';
+
+export {
+  AlertDialog,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+};

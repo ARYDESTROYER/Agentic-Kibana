@@ -25,6 +25,8 @@ import {
   ShieldCheck,
   Users,
   UserCircle2,
+  MonitorSmartphone,
+  Network,
 } from 'lucide-react';
 
 /** Stable page ids — the router validates the hash against these. */
@@ -43,9 +45,11 @@ export type PageId =
   | 'sources'
   | 'cost'
   | 'account'
+  | 'sessions'
   | 'settings'
   | 'security'
-  | 'users';
+  | 'users'
+  | 'admin_sessions';
 
 export type NavGroupId = 'triage' | 'automation' | 'platform' | 'admin';
 
@@ -107,6 +111,10 @@ export const NAV_GROUPS: NavGroup[] = [
       // Temporary placement — Wave 4 folds this into Settings > Personal account.
       // No perm gate: every signed-in user edits their OWN profile.
       { id: 'account', label: 'Account', icon: UserCircle2, group: 'platform' },
+      // Temporary placement (Round-2 Wave 3) — W4 folds this into Settings >
+      // Account > Security. No perm gate: every signed-in user manages their OWN
+      // sessions (the backend scopes the listing to the caller).
+      { id: 'sessions', label: 'Sessions', icon: MonitorSmartphone, group: 'platform' },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
     ],
   },
@@ -118,6 +126,15 @@ export const NAV_GROUPS: NavGroup[] = [
         id: 'users',
         label: 'Users & roles',
         icon: Users,
+        group: 'admin',
+        perm: { resource: 'users', action: 'manage' },
+      },
+      {
+        // Round-2 Wave 3: the all-users session console. Temporary placement —
+        // W4 folds it under Settings > Administration. Gated by users:manage.
+        id: 'admin_sessions',
+        label: 'Active sessions',
+        icon: Network,
         group: 'admin',
         perm: { resource: 'users', action: 'manage' },
       },
