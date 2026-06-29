@@ -2046,6 +2046,26 @@ async def case_action(
                 )
         except Exception as exc:  # noqa: BLE001 — proposing must never break the close
             logger.warning("Suppression proposal draft failed for %s: %s", case_id, exc)
+    # Fire-and-forget notification on a lifecycle transition (escalate / close /
+    # resolve). Detached + fully swallowed so a send can NEVER block or alter the
+    # analyst action (#3). A no-op unless notifications are enabled + a trigger matches.
+    try:
+        from ..notifications.dispatch import (
+            TRIGGER_CLOSED, TRIGGER_ESCALATED, NotificationService,
+        )
+
+        _trig = None
+        if body.action == "escalate":
+            _trig = TRIGGER_ESCALATED
+        elif body.action in ("close", "confirm_fp", "resolve"):
+            _trig = TRIGGER_CLOSED
+        notifier: NotificationService | None = getattr(state, "notifications", None)
+        if _trig and notifier is not None:
+            import asyncio
+
+            asyncio.create_task(notifier.dispatch(case, _trig))
+    except Exception as exc:  # noqa: BLE001 — notifications never affect the action
+        logger.debug("lifecycle notification scheduling skipped for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
 
 
@@ -2822,3 +2842,107 @@ def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
         result_summary=row.get("result_summary"),
         prompt_excerpt=(row.get("prompt_excerpt") if include_prompts else None),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Notifications (F5 / Wave 4) — providers catalog, test-send, manual case notify,
+# and per-channel secret. Config rides PUT /api/settings (notifications subtree).
+# Notification SENDS are fire-and-forget and never block/alter a case decision (#3).
+# --------------------------------------------------------------------------- #
+@router.get("/notifications/providers")
+async def notification_providers(
+    _=Depends(require_permission("settings", "read")),
+) -> dict[str, Any]:
+    """The email provider presets + the available channel types (for the Settings
+    notification editor). No secrets; settings:read."""
+    from ..notifications.channel import channel_types, ensure_registered
+    from ..notifications.email import preset_list
+
+    ensure_registered()
+    return {"email_presets": preset_list(), "channel_types": channel_types()}
+
+
+class NotificationTestBody(BaseModel):
+    channel_id: str
+
+
+@router.post("/notifications/test")
+async def notification_test(
+    body: NotificationTestBody,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    """Send a SAMPLE notification to one configured channel (settings:manage). The
+    returned detail never leaks a secret."""
+    return await state.notifications.test_channel(body.channel_id)
+
+
+class NotificationChannelSecretBody(BaseModel):
+    field: str = "secret"
+    value: str | None = None
+
+
+@router.post("/notifications/channels/{channel_id}/secret")
+async def set_notification_channel_secret(
+    channel_id: str,
+    body: NotificationChannelSecretBody,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    """Set/clear one notification channel's secret field (settings:manage). The value
+    goes to the SECRET tier (in memory), NEVER to Preferences; only a configured-
+    boolean is returned. Also stamps the channel's ``configured_secrets`` (names only)."""
+    state.secrets.set_notification_secret(channel_id, body.field or "secret", body.value)
+    configured = sorted(state.secrets.notification_channel_secrets(channel_id).keys())
+    # Reflect the configured field NAMES (not values) onto the channel config so the
+    # UI can show ✓ across reloads. Best-effort — never blocks the secret write.
+    try:
+        cfg = getattr(state.prefs, "notifications", None)
+        if cfg is not None:
+            channels = list(cfg.channels)
+            for i, ch in enumerate(channels):
+                if ch.id == channel_id:
+                    channels[i] = ch.model_copy(update={"configured_secrets": configured})
+                    new_notif = cfg.model_copy(update={"channels": channels})
+                    await state.update_prefs(
+                        state.prefs.model_copy(update={"notifications": new_notif})
+                    )
+                    break
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notification configured_secrets stamp failed for %s: %s", channel_id, exc)
+    await state.audit.record(
+        action_type=ActionType.NOTIFICATION, surface="notification",
+        actor=current_username(request),
+        result_summary=(
+            f"channel secret '{body.field or 'secret'}' "
+            f"{'set' if body.value else 'cleared'} for '{channel_id}'"
+        ),
+    )
+    return {"ok": True, "configured": bool(configured), "configured_secrets": configured}
+
+
+class NotifyCaseBody(BaseModel):
+    channel_id: str | None = None
+
+
+@router.post("/cases/{case_id}/notify")
+async def notify_case(
+    case_id: str,
+    body: NotifyCaseBody,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "write")),
+) -> dict[str, Any]:
+    """Manually send a case notification to one channel (or all enabled when no
+    channel_id). cases:write. Fire-and-forget semantics still apply (the send can
+    never alter the case)."""
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    from ..notifications.dispatch import TRIGGER_MANUAL
+
+    channel_ids = [body.channel_id] if body.channel_id else None
+    sent = await state.notifications.dispatch(
+        case, TRIGGER_MANUAL, channel_ids=channel_ids, check_triggers=False
+    )
+    return {"ok": True, "sent": sent}

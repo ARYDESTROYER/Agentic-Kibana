@@ -491,6 +491,10 @@ class Case(BaseModel):
     verdict_history: list[dict[str, Any]] = Field(default_factory=list)
     # Deterministic "why was this triggered" explanation (Feature 3).
     trigger_reason: TriggerReason | None = None
+    # Append-only record of outbound notifications fired for this case (F5). Each
+    # entry is ``{ts, trigger, channel_id, channel_type, ok, detail}`` — the detail
+    # is redacted (never a secret). Additive + defaulted so old cases load unchanged.
+    notifications_sent: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- #

@@ -83,6 +83,10 @@ class InvestigationPipeline:
         # Case-number sequence store (F7). None → case_number stays "" and the UI
         # falls back to case_id (today's behaviour).
         self._seq_store = seq_store
+        # Optional fire-and-forget notification dispatcher (F5 / Wave 4), wired by
+        # AppState AFTER construction. None → no notifications (today's behaviour). It
+        # is called ONLY after apply()+save and never alters the case decision (#3).
+        self.notifier = None
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -94,6 +98,22 @@ class InvestigationPipeline:
         formatter = Formatter(self._gateway, self._audit)
         investigator = Investigator(self._gateway, registry, self._audit, formatter)
         return investigator, enrich
+
+    def _maybe_notify(self, case: Case) -> None:
+        """Schedule a fire-and-forget notification for a freshly-saved case (#3-safe).
+
+        Detached via ``asyncio.create_task`` so it never blocks/awaits in the case
+        path; ``NotificationService.notify`` swallows every error. A no-op when no
+        notifier is wired / notifications are disabled. NEVER raises."""
+        notifier = getattr(self, "notifier", None)
+        if notifier is None:
+            return
+        try:
+            import asyncio
+
+            asyncio.create_task(notifier.notify(case, save=self._cases.save))
+        except Exception as exc:  # noqa: BLE001 — must never affect the case flow
+            logger.debug("notification scheduling skipped: %s", exc)
 
     async def _allocate_case_number(
         self, existing: Case | None, cluster: Cluster, prefs: Preferences
@@ -258,6 +278,10 @@ class InvestigationPipeline:
                     f"risk={case.risk_score} cost={round(cost, 6)}"
                 ),
             )
+            # Fire-and-forget outbound notifications AFTER the deterministic decision +
+            # save (#3). A send (or failure) can never block, delay, or alter the case
+            # — create_task detaches it and notify() swallows all errors internally.
+            self._maybe_notify(case)
             return case
         except Exception as exc:  # noqa: BLE001 — never drop an alert
             logger.exception("Pipeline failed for cluster %s; failing to human", cluster.signature)

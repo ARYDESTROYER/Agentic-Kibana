@@ -32,6 +32,9 @@ import type {
   MemoryResponse,
   Metrics,
   ModelsResponse,
+  NotificationProviders,
+  NotificationTestResult,
+  NotifyCaseResult,
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
@@ -284,6 +287,36 @@ export const api = {
       }),
     remove: (username: string) =>
       request<{ ok: boolean }>('DELETE', `users/${encodeURIComponent(username)}`),
+  },
+
+  // ---- Notifications / alerting (F5 / Wave 4) --------------------------- //
+  // Config rides PUT /api/settings (notifications subtree). These cover the
+  // provider catalog, per-channel secret (write-only), a test send, and a manual
+  // per-case notify. Secrets are never returned (only configured booleans).
+  notifications: {
+    // settings:read — email presets + the available channel types.
+    providers: () => request<NotificationProviders>('GET', 'notifications/providers'),
+    // settings:manage — send a sample to one channel (detail never leaks a secret).
+    test: (channelId: string) =>
+      request<NotificationTestResult>('POST', 'notifications/test', {
+        body: { channel_id: channelId },
+      }),
+    // settings:manage — set/clear one channel's secret field (write-only). `value`
+    // null/"" clears it. Returns { ok, configured, configured_secrets }.
+    channelSecret: (channelId: string, value: string | null, field = 'secret') =>
+      request<{ ok: boolean; configured: boolean; configured_secrets: string[] }>(
+        'POST',
+        `notifications/channels/${encodeURIComponent(channelId)}/secret`,
+        { body: { field, value } },
+      ),
+  },
+  cases: {
+    // cases:write — manually send a case notification to one channel (or all
+    // enabled when channelId is omitted). Fire-and-forget; never alters the case.
+    notify: (caseId: string, channelId?: string) =>
+      request<NotifyCaseResult>('POST', `cases/${encodeURIComponent(caseId)}/notify`, {
+        body: channelId ? { channel_id: channelId } : {},
+      }),
   },
 
   // ---- Personas + playbooks (read-only catalog) ------------------------- //

@@ -161,6 +161,14 @@ class Secrets(BaseSettings):
     # blank, the effective key is derived from auth_jwt_secret (see mfa_server_key()).
     mfa_obfuscation_key: str | None = None
 
+    # --- Notification channel secrets (Wave 4 / F5; SECRET tier — env / in-memory
+    # ONLY, NEVER persisted to Preferences/the config doc, NEVER returned to the UI).
+    # Per-channel: {channel_id: {field: value}} — e.g. {"email-1": {"password": "..."}},
+    # {"slack-1": {"url": "https://hooks.slack.com/..."}}. Set at runtime via
+    # POST /api/notifications/channels/{id}/secret (the connector-secret pattern) or
+    # from the env (TLSOC_NOTIFICATION_SECRETS as a JSON object). ---
+    notification_secrets: dict[str, dict[str, str]] = Field(default_factory=dict)
+
     def source_secrets(self, source_id: str) -> dict[str, str]:
         """The configured secret values for one source (empty if none)."""
         return dict(self.connector_secrets.get(source_id, {}))
@@ -196,6 +204,32 @@ class Secrets(BaseSettings):
         if not bucket:
             self.connector_secrets.pop(source_id, None)
 
+    def notification_channel_secrets(self, channel_id: str) -> dict[str, str]:
+        """The configured secret values for one notification channel (empty if none).
+        SECRET tier — env/in-memory only, never persisted to Preferences (#10)."""
+        return dict(self.notification_secrets.get(channel_id, {}))
+
+    def notification_secret(self, channel_id: str, field: str = "secret") -> str:
+        """One notification-channel secret field (``""`` when unset). The default
+        field name ``secret`` holds the primary credential (SMTP password / API key /
+        webhook URL / routing key / bot token) — channels resolve it generically."""
+        return self.notification_secrets.get(channel_id, {}).get(field, "") or ""
+
+    def set_notification_secret(self, channel_id: str, field: str, value: str | None) -> None:
+        """Set/clear one notification-channel secret field (value=None clears it)."""
+        bucket = self.notification_secrets.setdefault(channel_id, {})
+        if value is None or value == "":
+            bucket.pop(field, None)
+        else:
+            bucket[field] = value
+        if not bucket:
+            self.notification_secrets.pop(channel_id, None)
+
+    def notification_configured_status(self) -> dict[str, bool]:
+        """Per-channel configured-boolean view (channel_id -> any-secret-set). NEVER
+        returns values — only whether each channel has a secret configured."""
+        return {cid: bool(fields) for cid, fields in self.notification_secrets.items()}
+
     def provider_key(self, provider: Provider) -> str | None:
         if provider == "openai":
             return self.openai_api_key
@@ -230,6 +264,8 @@ class Secrets(BaseSettings):
             # Wave 2: configured-booleans only (never the values).
             "mfa_obfuscation_key": bool(self.mfa_obfuscation_key),
             "sso_client_secrets": bool(self.sso_client_secrets),
+            # Wave 4: per-channel configured-booleans only (never the values).
+            "notification_secrets": bool(self.notification_secrets),
         }
 
 
@@ -777,6 +813,77 @@ class SSOConfig(BaseModel):
         return next((p for p in self.providers if p.id == provider_id), None)
 
 
+class NotificationChannelConfig(BaseModel):
+    """One configured notification channel (F5).
+
+    NON-SECRET configuration only: the SMTP password / API key / sensitive webhook
+    URL lives in the SECRET tier (``Secrets.notification_secrets[id]``, env/in-memory)
+    and is resolved into the channel at send time — never persisted here, never
+    returned to the UI (#10). ``config`` carries the type-specific NON-secret fields:
+
+    * ``email``  — provider, host, port, security, username, from_addr, recipients[],
+                   region (SES)
+    * ``slack`` / ``teams`` / ``webhook`` — the webhook URL may be EITHER a non-secret
+                   ``config["url"]`` OR the per-channel secret (preferred for sensitive
+                   URLs); the secret takes precedence.
+    * ``pagerduty`` — routing_key is the SECRET; source_name is non-secret config.
+    * ``telegram``  — bot_token is the SECRET; chat_id is non-secret config.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    id: str
+    type: Literal["email", "slack", "teams", "webhook", "pagerduty", "telegram"] = "email"
+    enabled: bool = True
+    name: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+    # The secret FIELD NAMES configured for this channel (NOT values) — UI shows ✓.
+    configured_secrets: list[str] = Field(default_factory=list)
+
+
+class NotificationTriggers(BaseModel):
+    """When a notification fires (F5). Each boolean gates a lifecycle/verdict event;
+    ``min_severity`` (0..100 risk) + ``min_risk`` floor every trigger so low-signal
+    cases stay quiet. All default conservative so enabling notifications doesn't
+    flood out of the box."""
+
+    on_case_created: bool = False
+    on_escalated: bool = True
+    on_true_positive: bool = True
+    on_needs_human: bool = False
+    on_closed: bool = False
+    min_severity: float = Field(default=0.0, ge=0.0, le=100.0)
+    min_risk: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class NotificationDigest(BaseModel):
+    """Optional digest batching (F5). When enabled the dispatcher BATCHES matching
+    events per channel and flushes them together every ``interval_minutes`` instead
+    of sending each immediately."""
+
+    enabled: bool = False
+    interval_minutes: int = Field(default=60, ge=1)
+
+
+class NotificationConfig(BaseModel):
+    """Pluggable notification configuration (F5). Default OFF (full back-compat —
+    nothing is ever sent until an operator enables it AND configures a channel)."""
+
+    enabled: bool = False
+    channels: list[NotificationChannelConfig] = Field(default_factory=list)
+    triggers: NotificationTriggers = Field(default_factory=NotificationTriggers)
+    dedup_window_seconds: int = Field(default=300, ge=0)
+    rate_limit_per_hour: int = Field(default=60, ge=0)
+    digest: NotificationDigest = Field(default_factory=NotificationDigest)
+    default_recipients: list[str] = Field(default_factory=list)
+    # Base URL used to build the case deep-link in a notification body (e.g.
+    # "https://soc.example.com"). Empty → no link is rendered.
+    base_url: str = ""
+
+    def channel(self, channel_id: str) -> "NotificationChannelConfig | None":
+        return next((c for c in self.channels if c.id == channel_id), None)
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
 
@@ -933,6 +1040,10 @@ class Preferences(BaseModel):
     mfa: MfaConfig = Field(default_factory=MfaConfig)
     # SSO / OIDC (Wave 2 / F4) — default OFF; client secrets stay in the SECRET tier.
     sso: SSOConfig = Field(default_factory=SSOConfig)
+    # Notifications (Wave 4 / F5) — default OFF; per-channel secrets stay in the
+    # SECRET tier. Fires fire-and-forget AFTER the deterministic decision + save;
+    # a send (or failure) can never block or alter the case decision/flow (#3).
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
 
     # --- Misc ---
     setup_complete: bool = False

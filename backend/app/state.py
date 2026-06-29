@@ -122,6 +122,16 @@ class AppState:
         # Shared ingest path for PUSH receivers (webhook/syslog/queues/…): the same
         # correlate → case path the poller uses.
         self.ingest_service = IngestService(self.cases, self.audit, self.pipeline, self.get_prefs)
+        # Fire-and-forget outbound notifications (F5 / Wave 4). Built AFTER the case
+        # stores so the case-creation pipeline + lifecycle routes can fire it post-save.
+        # It never blocks or alters the case decision (#3).
+        from .notifications.dispatch import NotificationService
+
+        self.notifications = NotificationService(
+            get_prefs=self.get_prefs, secrets=self.secrets, cache=self.cache, audit=self.audit,
+        )
+        # Let the pipeline reach the dispatcher (post-save, fire-and-forget hook).
+        self.pipeline.notifier = self.notifications
 
     def _is_sql_backend(self) -> bool:
         return self.secrets.state_backend in ("sqlite", "postgres")

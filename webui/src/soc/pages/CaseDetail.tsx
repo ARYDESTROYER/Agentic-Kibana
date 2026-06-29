@@ -50,6 +50,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Send,
   Shield,
   SlidersHorizontal,
   Star,
@@ -62,6 +63,8 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+
+import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import type { CaseFeedbackInput } from '@/lib/api';
@@ -159,6 +162,14 @@ interface TraceResponse {
   case_id: string;
   steps: TraceStep[];
   total: number;
+}
+
+/** One selectable notification channel in the Notify dialog. */
+interface NotifyChannelOption {
+  id: string;
+  type: string;
+  name: string;
+  enabled: boolean;
 }
 
 type ActionKind =
@@ -594,6 +605,13 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // FP auto-close policy (best-effort).
   const [fpPolicy, setFpPolicy] = React.useState<FpPolicy>(null);
 
+  // Notify (manual send) — F5/Wave 4. Channels come from the loaded settings.
+  const [notifyOpen, setNotifyOpen] = React.useState(false);
+  const [notifyChannels, setNotifyChannels] = React.useState<NotifyChannelOption[]>([]);
+  const [notifyEnabled, setNotifyEnabled] = React.useState(false);
+  const [notifyChannelId, setNotifyChannelId] = React.useState<string>('');
+  const [notifying, setNotifying] = React.useState(false);
+
   const loadCase = React.useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -682,13 +700,46 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     void api
       .getSettings()
       .then((res) => {
-        if (!cancelled) setFpPolicy((res?.prefs?.fp_auto_close as FpPolicy) || null);
+        if (cancelled) return;
+        setFpPolicy((res?.prefs?.fp_auto_close as FpPolicy) || null);
+        const notif = res?.prefs?.notifications;
+        setNotifyEnabled(Boolean(notif?.enabled));
+        const chans = (notif?.channels || []).map((c) => ({
+          id: c.id,
+          type: String(c.type),
+          name: c.name || c.id,
+          enabled: Boolean(c.enabled),
+        }));
+        setNotifyChannels(chans);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [open]);
+
+  const runNotify = React.useCallback(async () => {
+    setNotifying(true);
+    try {
+      const res = await api.cases.notify(id, notifyChannelId || undefined);
+      const okCount = res.sent.filter((s) => s.ok).length;
+      const failCount = res.sent.length - okCount;
+      if (res.sent.length === 0) {
+        toast.message('No channels matched — nothing was sent.');
+      } else if (failCount === 0) {
+        toast.success(`Notification sent to ${okCount} channel(s).`);
+      } else if (okCount === 0) {
+        toast.error(`Notification failed (${res.sent[0]?.detail || 'see audit log'}).`);
+      } else {
+        toast.warning(`Sent to ${okCount}, ${failCount} failed.`);
+      }
+      setNotifyOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send notification.');
+    } finally {
+      setNotifying(false);
+    }
+  }, [id, notifyChannelId]);
 
   const resetActionFields = React.useCallback(() => {
     setNote('');
@@ -1051,6 +1102,27 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   </DropdownMenuContent>
                 </DropdownMenu>
 
+                {/* Notify (manual send) — gated by cases:write */}
+                <Can resource="cases" action="write">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Notify"
+                        disabled={loading}
+                        onClick={() => {
+                          setNotifyChannelId('');
+                          setNotifyOpen(true);
+                        }}
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Notify</TooltipContent>
+                  </Tooltip>
+                </Can>
+
                 {/* Close the sheet */}
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1327,6 +1399,76 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
             </DialogFooter>
           </DialogContent>
         ) : null}
+      </Dialog>
+
+      {/* Notify (manual send) dialog — F5/Wave 4. Picks one configured channel or
+          all enabled; the send is fire-and-forget and never changes the case. */}
+      <Dialog open={notifyOpen} onOpenChange={setNotifyOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="h-4 w-4" />
+              Notify
+            </DialogTitle>
+            <DialogDescription>
+              Send this case to a notification channel. Delivery is fire-and-forget and never
+              changes the case.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!notifyEnabled ? (
+            <Alert>
+              <Send className="h-4 w-4" aria-hidden />
+              <AlertTitle>Notifications are off</AlertTitle>
+              <AlertDescription>
+                Enable alerting under Settings → Alerting &amp; notifications and configure a
+                channel first.
+              </AlertDescription>
+            </Alert>
+          ) : notifyChannels.length === 0 ? (
+            <Alert>
+              <Send className="h-4 w-4" aria-hidden />
+              <AlertTitle>No channels configured</AlertTitle>
+              <AlertDescription>
+                Add a channel under Settings → Alerting &amp; notifications.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="space-y-1.5 py-1">
+              <Label>Channel</Label>
+              <Select value={notifyChannelId || '__all__'} onValueChange={(v) => setNotifyChannelId(v === '__all__' ? '' : v)}>
+                <SelectTrigger aria-label="Channel">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All enabled channels</SelectItem>
+                  {notifyChannels.map((c) => (
+                    <SelectItem key={c.id} value={c.id} disabled={!c.enabled}>
+                      {c.name} · {c.type}
+                      {c.enabled ? '' : ' (disabled)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Choose a single channel, or send to every enabled channel at once.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNotifyOpen(false)} disabled={notifying}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void runNotify()}
+              disabled={notifying || !notifyEnabled || notifyChannels.length === 0}
+            >
+              {notifying ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </TooltipProvider>
   );

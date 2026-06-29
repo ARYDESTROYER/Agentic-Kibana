@@ -169,6 +169,7 @@ class ActionType(str, Enum):
     STATUS = "status"          # analyst case-lifecycle transition (hold/resume/resolve/escalate/set_disposition/...)
     CONTEXT = "context"        # the injected investigation context (RAG/memory/enrichment) — explainability
     PROPOSAL = "proposal"      # agent drafted / human approved-rejected a HITL proposal
+    NOTIFICATION = "notification"  # an outbound notification send attempt (email/slack/teams/webhook/...)
     USER_MGMT = "user_mgmt"        # user-management action (create/update/delete/role/password reset)
     AUTH_EVENT = "auth"            # login success/failure, logout, password change (auth events)
     ACCESS_DENIED = "access_denied"  # an authenticated caller was denied by the RBAC policy

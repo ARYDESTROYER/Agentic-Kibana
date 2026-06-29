@@ -550,6 +550,9 @@ export interface Preferences {
   /** Customisable human-facing case-ID nomenclature (F7). */
   case_id_format?: CaseIdFormatConfig;
 
+  /** Outbound alerting / notifications (F5 / Wave 4; default disabled). */
+  notifications?: NotificationConfig;
+
   setup_complete?: boolean;
   read_only_settings_mode?: boolean;
 
@@ -560,6 +563,106 @@ export interface SettingsResponse {
   prefs: Preferences;
   configured: ConfiguredStatus;
   read_only: boolean;
+}
+
+// --------------------------------------------------------------------------- //
+// Notifications / alerting (F5 / Wave 4) — Preferences.notifications + endpoints.
+// --------------------------------------------------------------------------- //
+/** The kinds of delivery channel (mirrors backend `NotificationChannelConfig.type`). */
+export type NotificationChannelType =
+  | 'email'
+  | 'slack'
+  | 'teams'
+  | 'webhook'
+  | 'pagerduty'
+  | 'telegram';
+
+/** SMTP message security for an email channel. */
+export type EmailSecurity = 'starttls' | 'ssl' | 'none';
+
+/**
+ * One configured notification channel. Channel-specific NON-secret fields live in
+ * `config` (email: provider/host/port/security/username/from_addr/recipients/region;
+ * slack/teams/webhook: url; telegram: chat_id; pagerduty: source_name). The SECRET
+ * (SMTP password / API key / sensitive URL / token / routing key) is NEVER carried
+ * here — only the configured field NAMES in `configured_secrets` (the UI shows ✓).
+ */
+export interface NotificationChannel {
+  id: string;
+  type: NotificationChannelType | string;
+  enabled: boolean;
+  name?: string;
+  config?: Record<string, unknown>;
+  /** The secret field names configured for this channel (names only, never values). */
+  configured_secrets?: string[];
+}
+
+/** When notifications fire + the severity/risk floors (mirrors backend). */
+export interface NotificationTriggers {
+  on_case_created?: boolean;
+  on_escalated?: boolean;
+  on_true_positive?: boolean;
+  on_needs_human?: boolean;
+  on_closed?: boolean;
+  /** 0..100 risk floor. */
+  min_severity?: number;
+  min_risk?: number;
+}
+
+/** Optional digest batching. */
+export interface NotificationDigest {
+  enabled?: boolean;
+  interval_minutes?: number;
+}
+
+/** Preferences.notifications — the full alerting config (default disabled). */
+export interface NotificationConfig {
+  enabled?: boolean;
+  channels?: NotificationChannel[];
+  triggers?: NotificationTriggers;
+  dedup_window_seconds?: number;
+  rate_limit_per_hour?: number;
+  digest?: NotificationDigest;
+  default_recipients?: string[];
+  base_url?: string;
+}
+
+/** One email provider preset (GET /api/notifications/providers). */
+export interface EmailPreset {
+  id: string;
+  host: string;
+  port: number;
+  security: EmailSecurity | string;
+  username_hint?: string;
+  fixed_username?: string | null;
+}
+
+/** GET /api/notifications/providers — presets + the available channel types. */
+export interface NotificationProviders {
+  email_presets: EmailPreset[];
+  channel_types: string[];
+}
+
+/** POST /api/notifications/test — a sample send to one channel. */
+export interface NotificationTestResult {
+  ok: boolean;
+  detail?: string;
+}
+
+/** One per-channel send record (POST /api/cases/{id}/notify). */
+export interface NotificationSendRecord {
+  channel_id: string;
+  type: string;
+  ok: boolean;
+  detail?: string;
+  trigger?: string;
+  ts?: string;
+}
+
+/** POST /api/cases/{id}/notify — the manual-notify result. */
+export interface NotifyCaseResult {
+  ok: boolean;
+  sent: NotificationSendRecord[];
 }
 
 // --------------------------------------------------------------------------- //
@@ -685,6 +788,8 @@ export interface Case {
   comments?: CaseComment[];
   /** Assigned analyst (POST /api/cases/{id}/assign). */
   assignee?: string;
+  /** Outbound notification send records (F5; additive, optional). */
+  notifications_sent?: NotificationSendRecord[];
   [key: string]: unknown;
 }
 

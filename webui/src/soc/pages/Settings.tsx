@@ -18,6 +18,7 @@
 import * as React from 'react';
 import {
   AlertTriangle,
+  Bell,
   Brush,
   Check,
   Database,
@@ -74,6 +75,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { BrandingEditor } from '@/soc/components/BrandingEditor';
+import { NotificationsEditor } from '@/soc/components/NotificationsEditor';
 import { Can } from '@/soc/components/Can';
 
 /* --------------------------------------------------------------- sections --- */
@@ -89,6 +91,7 @@ type SectionId =
   | 'standup'
   | 'autonomy'
   | 'safety'
+  | 'notifications'
   | 'caseid'
   | 'branding';
 
@@ -103,6 +106,7 @@ const SECTIONS: Array<{ id: SectionId; name: string; icon: LucideIcon }> = [
   { id: 'standup', name: 'Standup', icon: FileText },
   { id: 'autonomy', name: 'Autonomy', icon: Gauge },
   { id: 'safety', name: 'Automation & safety', icon: Lock },
+  { id: 'notifications', name: 'Alerting & notifications', icon: Bell },
   { id: 'caseid', name: 'Case-ID format', icon: Hash },
   { id: 'branding', name: 'Branding', icon: Brush },
 ];
@@ -1167,6 +1171,20 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
               <AutonomySection {...secProps} />
             ) : section === 'safety' ? (
               <SafetySection {...secProps} />
+            ) : section === 'notifications' ? (
+              <Can
+                resource="settings"
+                action="manage"
+                fallback={
+                  <EmptyState
+                    icon={Bell}
+                    title="Restricted"
+                    description="Alerting & notifications are managed by administrators."
+                  />
+                }
+              >
+                <NotificationsEditor {...secProps} />
+              </Can>
             ) : section === 'caseid' ? (
               <Can
                 resource="settings"
