@@ -16,9 +16,15 @@ import * as React from 'react';
 import {
   Bell,
   Check,
+  Cloud,
+  Code2,
+  Eye,
+  FileText,
   Mail,
+  MailCheck,
   MessageSquare,
   Plus,
+  RotateCcw,
   Send,
   Slack,
   Trash2,
@@ -36,9 +42,14 @@ import type {
   NotificationChannel,
   NotificationChannelType,
   NotificationConfig,
+  NotificationPreview,
   NotificationProviders,
+  NotificationTemplate,
+  NotificationTemplates,
+  NotificationTemplateTrigger,
   Preferences,
 } from '@/lib/types';
+import { NOTIFICATION_TEMPLATE_TRIGGERS } from '@/lib/types';
 import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
@@ -64,6 +75,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/ui/dialog';
+import { Textarea } from '@/ui/textarea';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 
 import { HelpTip } from './HelpTip';
 
@@ -75,7 +88,14 @@ function errMsg(e: unknown, fallback: string): string {
 
 const CHANNEL_META: Record<
   NotificationChannelType,
-  { label: string; icon: LucideIcon; secretLabel: string; secretHelp: string }
+  {
+    label: string;
+    icon: LucideIcon;
+    secretLabel: string;
+    secretHelp: string;
+    /** An optional informational note shown as a callout in the channel card. */
+    note?: string;
+  }
 > = {
   email: {
     label: 'Email (SMTP)',
@@ -83,6 +103,24 @@ const CHANNEL_META: Record<
     secretLabel: 'SMTP password',
     secretHelp:
       'Your mailbox password or, for Gmail / Yahoo / iCloud, an APP PASSWORD (not your normal password). For SendGrid / Mailjet / Brevo this is the API key.',
+  },
+  resend: {
+    label: 'Resend',
+    icon: MailCheck,
+    secretLabel: 'Resend API key',
+    secretHelp:
+      'A Resend API key (starts with re_). Create one at resend.com → API Keys with "Sending access". Stored write-only as a secret.',
+    note:
+      'Resend delivers over its HTTPS API (no SMTP). The From address MUST use a domain you have verified in the Resend dashboard (Domains → add + verify DNS) or sends are rejected.',
+  },
+  ses: {
+    label: 'Amazon SES',
+    icon: Cloud,
+    secretLabel: 'SMTP password / IAM secret',
+    secretHelp:
+      'Either your SES SMTP password, or — if you paste an IAM access-key id below — the matching IAM secret access key (the SMTP password is derived from it). Stored write-only as a secret.',
+    note:
+      'New SES accounts start in the SANDBOX: you can only send to verified identities and are rate-limited until you request production access in the SES console. Pick the AWS region your SES identities live in below.',
   },
   slack: {
     label: 'Slack',
@@ -120,12 +158,17 @@ const CHANNEL_META: Record<
 
 const CHANNEL_TYPES: NotificationChannelType[] = [
   'email',
+  'resend',
+  'ses',
   'slack',
   'teams',
   'webhook',
   'pagerduty',
   'telegram',
 ];
+
+/** Channel types whose config surface is e-mail-shaped (from + recipients). */
+const EMAIL_LIKE: ReadonlySet<string> = new Set(['email', 'resend', 'ses']);
 
 function channelIcon(type: string): LucideIcon {
   return CHANNEL_META[type as NotificationChannelType]?.icon ?? Bell;
@@ -138,7 +181,7 @@ function channelLabel(type: string): string {
 /** A short, friendly destination string for a channel (no secrets). */
 function channelTarget(ch: NotificationChannel): string {
   const cfg = (ch.config || {}) as Record<string, unknown>;
-  if (ch.type === 'email') {
+  if (EMAIL_LIKE.has(ch.type)) {
     const r = cfg.recipients;
     const list = Array.isArray(r) ? r : typeof r === 'string' ? [r] : [];
     return list.length ? `${list.length} recipient(s)` : 'no recipients';
@@ -220,6 +263,7 @@ function ChannelEditor({
 }) {
   const Icon = channelIcon(channel.type);
   const meta = CHANNEL_META[channel.type as NotificationChannelType];
+  const isEmailLike = EMAIL_LIKE.has(channel.type);
   const cfg = (channel.config || {}) as Record<string, unknown>;
   const setCfg = (patch: Record<string, unknown>) =>
     onChange({ ...channel, config: { ...cfg, ...patch } });
@@ -340,28 +384,107 @@ function ChannelEditor({
         </div>
       </div>
 
-      {/* Email-specific config */}
-      {channel.type === 'email' ? (
+      {/* Provider note (Resend domain verification / SES sandbox / …) */}
+      {meta?.note ? (
+        <Alert>
+          <Cloud className="h-4 w-4" aria-hidden />
+          <AlertDescription>{meta.note}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {/* Email-like config (SMTP email · Resend HTTPS API · Amazon SES) */}
+      {isEmailLike ? (
         <div className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          {/* SMTP preset + host/port/security/username — only for SMTP-based email + SES */}
+          {channel.type === 'email' ? (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <FieldRow
+                  label="Provider preset"
+                  help="Pick your email provider to prefill host / port / security. Gmail, Yahoo and iCloud require an app password as the secret below."
+                >
+                  <Select value={String(cfg.provider || 'custom')} onValueChange={applyPreset}>
+                    <SelectTrigger aria-label="Provider preset">
+                      <SelectValue placeholder="Select a provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {presets.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.id === 'custom' ? 'Custom (SMTP)' : p.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
+                <FieldRow
+                  label="From address"
+                  help="The envelope/From email address sent on the message."
+                >
+                  <Input
+                    type="email"
+                    value={String(cfg.from_addr || '')}
+                    placeholder="soc-alerts@example.com"
+                    onChange={(e) => setCfg({ from_addr: e.target.value })}
+                  />
+                </FieldRow>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <FieldRow label="SMTP host">
+                  <Input
+                    value={String(cfg.host || '')}
+                    placeholder={selectedPreset?.host || 'smtp.example.com'}
+                    disabled={Boolean(cfg.provider && cfg.provider !== 'custom')}
+                    onChange={(e) => setCfg({ host: e.target.value })}
+                  />
+                </FieldRow>
+                <FieldRow label="Port">
+                  <Input
+                    type="number"
+                    value={Number(cfg.port || selectedPreset?.port || 587)}
+                    disabled={Boolean(cfg.provider && cfg.provider !== 'custom')}
+                    onChange={(e) => setCfg({ port: Number(e.target.value) })}
+                  />
+                </FieldRow>
+                <FieldRow label="Security">
+                  <Select
+                    value={String(cfg.security || 'starttls')}
+                    onValueChange={(v) => setCfg({ security: v })}
+                  >
+                    <SelectTrigger aria-label="Security">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="starttls">STARTTLS</SelectItem>
+                      <SelectItem value="ssl">SSL/TLS</SelectItem>
+                      <SelectItem value="none">None</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FieldRow>
+              </div>
+
+              <FieldRow
+                label="Username"
+                help={selectedPreset?.username_hint || 'The SMTP login username.'}
+              >
+                <Input
+                  value={String(cfg.username || '')}
+                  placeholder={selectedPreset?.fixed_username || 'username'}
+                  disabled={Boolean(selectedPreset?.fixed_username)}
+                  onChange={(e) => setCfg({ username: e.target.value })}
+                />
+              </FieldRow>
+            </>
+          ) : (
+            /* Resend + SES: just a From address (no SMTP host/port). */
             <FieldRow
-              label="Provider preset"
-              help="Pick your email provider to prefill host / port / security. Gmail, Yahoo and iCloud require an app password as the secret below."
+              label="From address"
+              help={
+                channel.type === 'resend'
+                  ? 'The From email. MUST use a domain verified in your Resend dashboard.'
+                  : 'The From email. MUST be a verified SES identity (address or domain).'
+              }
             >
-              <Select value={String(cfg.provider || 'custom')} onValueChange={applyPreset}>
-                <SelectTrigger aria-label="Provider preset">
-                  <SelectValue placeholder="Select a provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  {presets.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.id === 'custom' ? 'Custom (SMTP)' : p.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FieldRow>
-            <FieldRow label="From address" help="The envelope/From email address sent on the message.">
               <Input
                 type="email"
                 value={String(cfg.from_addr || '')}
@@ -369,65 +492,35 @@ function ChannelEditor({
                 onChange={(e) => setCfg({ from_addr: e.target.value })}
               />
             </FieldRow>
-          </div>
+          )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <FieldRow label="SMTP host">
-              <Input
-                value={String(cfg.host || '')}
-                placeholder={selectedPreset?.host || 'smtp.example.com'}
-                disabled={Boolean(cfg.provider && cfg.provider !== 'custom')}
-                onChange={(e) => setCfg({ host: e.target.value })}
-              />
-            </FieldRow>
-            <FieldRow label="Port">
-              <Input
-                type="number"
-                value={Number(cfg.port || selectedPreset?.port || 587)}
-                disabled={Boolean(cfg.provider && cfg.provider !== 'custom')}
-                onChange={(e) => setCfg({ port: Number(e.target.value) })}
-              />
-            </FieldRow>
-            <FieldRow label="Security">
-              <Select
-                value={String(cfg.security || 'starttls')}
-                onValueChange={(v) => setCfg({ security: v })}
+          {/* SES region + optional IAM access-key id (SES SMTP-or-IAM creds) */}
+          {channel.type === 'ses' ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FieldRow
+                label="AWS region"
+                help="The SES region your verified identities live in, e.g. us-east-1. The SMTP endpoint is derived from it."
               >
-                <SelectTrigger aria-label="Security">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="starttls">STARTTLS</SelectItem>
-                  <SelectItem value="ssl">SSL/TLS</SelectItem>
-                  <SelectItem value="none">None</SelectItem>
-                </SelectContent>
-              </Select>
-            </FieldRow>
-          </div>
-
-          <FieldRow
-            label="Username"
-            help={selectedPreset?.username_hint || 'The SMTP login username.'}
-          >
-            <Input
-              value={String(cfg.username || '')}
-              placeholder={selectedPreset?.fixed_username || 'username'}
-              disabled={Boolean(selectedPreset?.fixed_username)}
-              onChange={(e) => setCfg({ username: e.target.value })}
-            />
-          </FieldRow>
-
-          {cfg.provider === 'ses' ? (
-            <FieldRow label="AWS region" help="The SES region for the SMTP endpoint, e.g. us-east-1.">
-              <Input
-                value={String(cfg.region || '')}
-                placeholder="us-east-1"
-                onChange={(e) => setCfg({ region: e.target.value })}
-              />
-            </FieldRow>
+                <Input
+                  value={String(cfg.region || '')}
+                  placeholder="us-east-1"
+                  onChange={(e) => setCfg({ region: e.target.value })}
+                />
+              </FieldRow>
+              <FieldRow
+                label="IAM access key id (optional)"
+                help="Leave blank if you pasted a ready-made SES SMTP password as the secret. If you paste your IAM access-key id here, the SMTP password is derived from the IAM secret you save below."
+              >
+                <Input
+                  value={String(cfg.access_key_id || '')}
+                  placeholder="AKIA…"
+                  onChange={(e) => setCfg({ access_key_id: e.target.value })}
+                />
+              </FieldRow>
+            </div>
           ) : null}
 
-          {/* recipients */}
+          {/* recipients (shared across all email-like channels) */}
           <FieldRow label="Recipients" help="Email addresses that receive alerts from this channel.">
             <Input
               value={recipientDraft}
@@ -606,6 +699,299 @@ function AddChannelDialog({
   );
 }
 
+/* ----------------------------------------------------------- template editor */
+
+/** Human label per template trigger. */
+const TRIGGER_LABEL: Record<NotificationTemplateTrigger, string> = {
+  'case.new': 'New case',
+  'case.escalation': 'Case escalated',
+  'case.resolved': 'Case resolved',
+  'digest.daily': 'Daily digest',
+  test: 'Test message',
+};
+
+/**
+ * A best-effort default variable reference list shown until the server returns its
+ * authoritative whitelist (PREVIEW response `variables`). Display-only — interpolation
+ * + escaping is done SERVER-SIDE; the UI never renders these against real case data.
+ */
+const DEFAULT_TEMPLATE_VARS: readonly string[] = [
+  'org_name',
+  'case_id',
+  'case_url',
+  'title',
+  'entity',
+  'verdict',
+  'disposition',
+  'status',
+  'risk_score',
+  'severity_label',
+  'rule',
+  'source_name',
+  'summary',
+];
+
+/** Build a NotificationTemplate from the current draft, dropping empty parts. */
+function draftToTemplate(draft: { subject: string; html: string; text: string }): NotificationTemplate {
+  const t: NotificationTemplate = {};
+  if (draft.subject.trim()) t.subject = draft.subject;
+  if (draft.html.trim()) t.html = draft.html;
+  if (draft.text.trim()) t.text = draft.text;
+  return t;
+}
+
+function TemplateEditor({
+  templates,
+  onChange,
+}: {
+  templates: NotificationTemplates;
+  onChange: (next: NotificationTemplates) => void;
+}) {
+  const [trigger, setTrigger] = React.useState<NotificationTemplateTrigger>('case.new');
+  const current = templates[trigger] || {};
+  const hasOverride = Boolean(current.subject || current.html || current.text);
+
+  // Local editable draft, re-seeded whenever the selected trigger / stored override
+  // changes. Empty parts mean "inherit the built-in default" on save.
+  const [draft, setDraft] = React.useState({
+    subject: current.subject || '',
+    html: current.html || '',
+    text: current.text || '',
+  });
+  React.useEffect(() => {
+    setDraft({
+      subject: current.subject || '',
+      html: current.html || '',
+      text: current.text || '',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trigger, current.subject, current.html, current.text]);
+
+  const [preview, setPreview] = React.useState<NotificationPreview | null>(null);
+  const [previewing, setPreviewing] = React.useState(false);
+  const [previewError, setPreviewError] = React.useState<string | null>(null);
+
+  const persistDraft = () => {
+    const tmpl = draftToTemplate(draft);
+    const next: NotificationTemplates = { ...templates };
+    if (Object.keys(tmpl).length === 0) delete next[trigger];
+    else next[trigger] = tmpl;
+    onChange(next);
+  };
+
+  const revertToDefault = () => {
+    setDraft({ subject: '', html: '', text: '' });
+    const next: NotificationTemplates = { ...templates };
+    delete next[trigger];
+    onChange(next);
+    setPreview(null);
+  };
+
+  // Live preview: the SERVER renders the (unsaved) draft against a sample case and
+  // returns the already-escaped subject/html/text — authoritative for #9.
+  const runPreview = async () => {
+    setPreviewing(true);
+    setPreviewError(null);
+    try {
+      const tmpl = draftToTemplate(draft);
+      const res = await api.notifications.preview(
+        trigger,
+        Object.keys(tmpl).length ? tmpl : undefined,
+      );
+      setPreview(res);
+    } catch (e) {
+      setPreviewError(errMsg(e, 'Could not render the preview.'));
+      setPreview(null);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const vars = preview?.variables?.length ? preview.variables : DEFAULT_TEMPLATE_VARS;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <FieldRow
+          label="Template"
+          help="Override the subject / HTML / plain-text body for one trigger. Leave a field blank to inherit the built-in default. The server renders + escapes every case value (the live preview is authoritative)."
+        >
+          <Select
+            value={trigger}
+            onValueChange={(v) => setTrigger(v as NotificationTemplateTrigger)}
+          >
+            <SelectTrigger aria-label="Template trigger" className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {NOTIFICATION_TEMPLATE_TRIGGERS.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {TRIGGER_LABEL[t]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FieldRow>
+        <div className="flex items-center gap-2">
+          {hasOverride ? (
+            <Badge variant="success" className="gap-1">
+              <Check className="h-3 w-3" aria-hidden />
+              Override
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              Default
+            </Badge>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!hasOverride && !draft.subject && !draft.html && !draft.text}
+            onClick={revertToDefault}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden />
+            Revert to default
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* --- left: the editable template parts --- */}
+        <div className="space-y-3">
+          <FieldRow label="Subject" help="The email Subject line. Header-injection chars are stripped server-side.">
+            <Input
+              value={draft.subject}
+              placeholder="[{{org_name}}] {{title}}"
+              aria-label="Template subject"
+              onChange={(e) => setDraft((d) => ({ ...d, subject: e.target.value }))}
+              onBlur={persistDraft}
+            />
+          </FieldRow>
+          <FieldRow
+            label="HTML body"
+            help="The HTML part. {{var}} is auto-escaped; {{{raw}}} is allowed ONLY for trusted header HTML. Blank inherits the default."
+          >
+            <Textarea
+              value={draft.html}
+              rows={8}
+              placeholder="<h2>{{title}}</h2> …"
+              aria-label="Template HTML body"
+              className="font-mono text-xs"
+              onChange={(e) => setDraft((d) => ({ ...d, html: e.target.value }))}
+              onBlur={persistDraft}
+            />
+          </FieldRow>
+          <FieldRow
+            label="Plain-text body"
+            help="The text/plain part for clients without HTML. Newlines in untrusted vars are stripped server-side."
+          >
+            <Textarea
+              value={draft.text}
+              rows={6}
+              placeholder={'{{title}}\nRisk: {{risk_score}}\n{{case_url}}'}
+              aria-label="Template plain-text body"
+              className="font-mono text-xs"
+              onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
+              onBlur={persistDraft}
+            />
+          </FieldRow>
+
+          <div className="flex items-center justify-between gap-2">
+            <Button size="sm" variant="secondary" disabled={previewing} onClick={() => void runPreview()}>
+              <Eye className="h-4 w-4" aria-hidden />
+              {previewing ? 'Rendering…' : 'Render preview'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Edits save with the rest of Settings.
+            </p>
+          </div>
+
+          {/* variable reference list */}
+          <div className="space-y-1.5 rounded-md border border-border bg-surface px-3 py-3">
+            <div className="flex items-center gap-1.5">
+              <Code2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Available variables
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {vars.map((v) => (
+                <code
+                  key={v}
+                  className="rounded bg-accent px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+                >
+                  {`{{${v}}}`}
+                </code>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* --- right: the SERVER-rendered preview --- */}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Preview
+          </p>
+          {previewError ? (
+            <Alert variant="destructive">
+              <X className="h-4 w-4" aria-hidden />
+              <AlertTitle>Preview failed</AlertTitle>
+              <AlertDescription>{previewError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {preview ? (
+            <div className="space-y-3">
+              <div className="rounded-md border border-border bg-surface px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Subject
+                </p>
+                <p className="break-words text-sm font-medium text-foreground">{preview.subject}</p>
+              </div>
+              <Tabs defaultValue="html">
+                <TabsList>
+                  <TabsTrigger value="html">
+                    <FileText className="h-3.5 w-3.5" aria-hidden />
+                    HTML
+                  </TabsTrigger>
+                  <TabsTrigger value="text">
+                    <Code2 className="h-3.5 w-3.5" aria-hidden />
+                    Plain text
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="html">
+                  {/* The server already escaped every interpolated case value (#9).
+                      Render it in a SANDBOXED iframe with no script/same-origin so even
+                      a malformed override cannot run script or touch the console. */}
+                  <iframe
+                    title="Email HTML preview"
+                    sandbox=""
+                    srcDoc={preview.html}
+                    className="h-80 w-full rounded-md border border-border bg-white"
+                  />
+                </TabsContent>
+                <TabsContent value="text">
+                  <pre className="h-80 overflow-auto rounded-md border border-border bg-surface p-3 font-mono text-xs text-foreground">
+                    {preview.text}
+                  </pre>
+                </TabsContent>
+              </Tabs>
+            </div>
+          ) : (
+            <div className="flex h-80 flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface text-center">
+              <Eye className="h-5 w-5 text-muted-foreground" aria-hidden />
+              <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+                Render a preview to see the server-escaped subject, HTML, and plain-text
+                parts for the selected trigger.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------- editor -- */
 
 export interface NotificationsEditorProps {
@@ -621,6 +1007,7 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
   const channels = notif.channels || [];
   const triggers = notif.triggers || {};
   const digest = notif.digest || {};
+  const templates = notif.templates || {};
 
   const [providers, setProviders] = React.useState<NotificationProviders | null>(null);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -651,12 +1038,16 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
   };
   const addChannel = (type: NotificationChannelType) => {
     const id = newChannelId(type, channels);
+    let config: Record<string, unknown> = {};
+    if (type === 'email') config = { provider: 'custom', security: 'starttls', recipients: [] };
+    else if (type === 'resend') config = { recipients: [] };
+    else if (type === 'ses') config = { region: '', recipients: [] };
     const ch: NotificationChannel = {
       id,
       type,
       enabled: true,
       name: CHANNEL_META[type].label,
-      config: type === 'email' ? { provider: 'custom', security: 'starttls', recipients: [] } : {},
+      config,
       configured_secrets: [],
     };
     setNotif({ channels: [...channels, ch] });
@@ -686,8 +1077,9 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
           </h2>
         </div>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Deliver case alerts to email, Slack, Teams, PagerDuty, Telegram, or a generic webhook.
-          Notifications fire AFTER the deterministic case decision and never block or change it.
+          Deliver case alerts to email (SMTP, Resend, or Amazon SES), Slack, Teams, PagerDuty,
+          Telegram, or a generic webhook. Notifications fire AFTER the deterministic case
+          decision and never block or change it.
         </p>
       </div>
 
@@ -731,6 +1123,22 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
               ))}
             </div>
           )}
+        </div>
+
+        <Separator />
+
+        {/* Email templates */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Email templates
+            </p>
+            <HelpTip text="Customize the subject + HTML + plain-text body delivered by the email-style channels (SMTP / Resend / SES). Each trigger falls back to a built-in default until you override it. The server renders + escapes every case value." />
+          </div>
+          <TemplateEditor
+            templates={templates}
+            onChange={(next) => setNotif({ templates: next })}
+          />
         </div>
 
         <Separator />

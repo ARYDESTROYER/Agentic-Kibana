@@ -940,6 +940,8 @@ export interface SettingsResponse {
 /** The kinds of delivery channel (mirrors backend `NotificationChannelConfig.type`). */
 export type NotificationChannelType =
   | 'email'
+  | 'resend'
+  | 'ses'
   | 'slack'
   | 'teams'
   | 'webhook'
@@ -984,6 +986,37 @@ export interface NotificationDigest {
   interval_minutes?: number;
 }
 
+/**
+ * The triggers a notification template can target (mirrors the backend renderer's
+ * template set; the live PREVIEW endpoint accepts one of these keys via ?trigger=).
+ */
+export const NOTIFICATION_TEMPLATE_TRIGGERS = [
+  'case.new',
+  'case.escalation',
+  'case.resolved',
+  'digest.daily',
+  'test',
+] as const;
+export type NotificationTemplateTrigger =
+  (typeof NOTIFICATION_TEMPLATE_TRIGGERS)[number];
+
+/**
+ * A per-trigger template OVERRIDE. Any omitted field falls back to the built-in
+ * default for that trigger. All three parts are operator-authored TRUSTED strings;
+ * the SERVER-SIDE renderer (POST /api/notifications/preview) is authoritative for
+ * escaping every interpolated case/log var (#9) — the UI never escapes locally.
+ */
+export interface NotificationTemplate {
+  subject?: string;
+  html?: string;
+  text?: string;
+}
+
+/** Per-trigger overrides (mirrors backend `NotificationTemplates`). */
+export type NotificationTemplates = Partial<
+  Record<NotificationTemplateTrigger, NotificationTemplate>
+>;
+
 /** Preferences.notifications — the full alerting config (default disabled). */
 export interface NotificationConfig {
   enabled?: boolean;
@@ -994,6 +1027,24 @@ export interface NotificationConfig {
   digest?: NotificationDigest;
   default_recipients?: string[];
   base_url?: string;
+  /** Operator-authored per-trigger template overrides (Wave 7). */
+  templates?: NotificationTemplates;
+}
+
+/**
+ * POST /api/notifications/preview?trigger= — the SERVER-rendered subject + HTML +
+ * text for a sample case, with escaping already applied authoritatively. `variables`
+ * (when returned) is the whitelisted variable reference list for the editor.
+ */
+export interface NotificationPreview {
+  trigger: string;
+  subject: string;
+  html: string;
+  text: string;
+  /** The variable names available to this trigger's template (for the reference list). */
+  variables?: string[];
+  /** Whether an operator override is in effect (vs the built-in default). */
+  is_override?: boolean;
 }
 
 /** One email provider preset (GET /api/notifications/providers). */

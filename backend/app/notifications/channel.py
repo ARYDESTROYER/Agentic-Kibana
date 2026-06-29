@@ -51,6 +51,10 @@ class NotificationEvent:
     html: str
     text: str
     meta: dict[str, Any] = field(default_factory=dict)
+    # Threading/routing email headers (Message-Id / In-Reply-To / References /
+    # X-TLSOC-*). Already CRLF/control-stripped by templates.threading_headers; the
+    # email channels add them to the message. Empty for non-email channels.
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -121,14 +125,26 @@ def build_channel(
     return cls(config, secret)
 
 
+_BUILTINS_LOADED = False
+
+
 def _load_builtins() -> None:
     """Import the built-in channel modules so their classes self-register. Imported
     lazily (and idempotently) the first time the registry is used so importing this
-    module alone has no side effects / import cycles."""
-    if _REGISTRY:
+    module alone has no side effects / import cycles.
+
+    Guarded by a module-level flag (NOT ``if _REGISTRY``): if one channel module was
+    imported first and self-registered, an ``if _REGISTRY: return`` would skip the
+    REST, leaving the registry partial (e.g. only ``email``). The flag guarantees
+    every built-in is imported exactly once. Module imports are idempotent, so a
+    re-entrant/duplicate call is harmless."""
+    global _BUILTINS_LOADED
+    if _BUILTINS_LOADED:
         return
+    _BUILTINS_LOADED = True
     # Importing these modules triggers @register_channel at definition time.
     from . import email as _email  # noqa: F401
+    from . import resend as _resend  # noqa: F401  (Wave 7 — Resend HTTPS-API)
     from . import webhook as _webhook  # noqa: F401
 
 

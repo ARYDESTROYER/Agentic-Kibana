@@ -13,6 +13,9 @@ The body is the already-rendered, UNTRUSTED-safe HTML+text from :mod:`templates`
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import logging
 import smtplib
 import ssl
@@ -20,6 +23,7 @@ from email.message import EmailMessage
 from typing import Any, Callable
 
 from .channel import NotificationChannel, NotificationEvent, SendResult, register_channel
+from .templates import header_safe
 
 logger = logging.getLogger("tlsoc.notifications.email")
 
@@ -89,7 +93,12 @@ EMAIL_PRESETS: dict[str, EmailPreset] = {
                             username_hint='literal "apikey" (the API key is the password)',
                             fixed_username="apikey"),
     "ses": EmailPreset("ses", "email-smtp.{region}.amazonaws.com", 587, _STARTTLS,
-                       username_hint="your SES SMTP username (set region in config)"),
+                       username_hint=(
+                           "EITHER a pre-made SES SMTP username (secret = SMTP password) "
+                           "OR set config.aws_access_key_id (username) + secret = the IAM "
+                           "SECRET access key; the SMTP password is derived automatically. "
+                           "Set config.region."
+                       )),
     "mailgun": EmailPreset("mailgun", "smtp.mailgun.org", 587, _STARTTLS,
                            username_hint="your Mailgun SMTP login (postmaster@your-domain)"),
     "postmark": EmailPreset("postmark", "smtp.postmarkapp.com", 587, _STARTTLS,
@@ -109,6 +118,45 @@ EMAIL_PRESETS: dict[str, EmailPreset] = {
 def preset_list() -> list[dict[str, Any]]:
     """Serialisable preset table for the ``GET /api/notifications/providers`` route."""
     return [p.as_dict() for p in EMAIL_PRESETS.values()]
+
+
+# --------------------------------------------------------------------------- #
+# Amazon SES SMTP credential derivation (stdlib HMAC only — ZERO new deps).
+#
+# SES exposes SMTP on ``email-smtp.{region}.amazonaws.com``. The SMTP *password* is
+# NOT the IAM secret access key — it is a DERIVED value: a fixed AWS Signature V4
+# key-ladder over the literal message ``SendRawEmail``, prefixed with a version byte
+# (0x04) and base64-encoded. This lets an operator supply EITHER a pre-made SES SMTP
+# password OR a raw IAM access-key/secret pair (no boto3, no AWS console step) — we
+# derive the SMTP password here at send time. The IAM access-key id becomes the SMTP
+# username. The IAM SECRET access key stays in the secret tier (#10) and is never
+# echoed (only the derived password is used to authenticate, never logged).
+# --------------------------------------------------------------------------- #
+_SES_DATE = "11111111"          # a FIXED literal, NOT a real date (per the AWS algo)
+_SES_SERVICE = "ses"
+_SES_TERMINATOR = "aws4_request"
+_SES_MESSAGE = "SendRawEmail"
+_SES_VERSION = 0x04
+
+
+def _hmac_sha256(key: bytes, msg: str) -> bytes:
+    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+
+def derive_ses_smtp_password(secret_access_key: str, region: str) -> str:
+    """Derive the SES SMTP password from an IAM secret access key + region.
+
+    Implements AWS's published key ladder:
+    ``HMAC("AWS4"+secret, "11111111") → region → "ses" → "aws4_request" →
+    "SendRawEmail"``, then ``base64(bytes([0x04]) + signature)``. Pure stdlib."""
+    region = (region or "us-east-1").strip() or "us-east-1"
+    sig = _hmac_sha256(("AWS4" + (secret_access_key or "")).encode("utf-8"), _SES_DATE)
+    sig = _hmac_sha256(sig, region)
+    sig = _hmac_sha256(sig, _SES_SERVICE)
+    sig = _hmac_sha256(sig, _SES_TERMINATOR)
+    sig = _hmac_sha256(sig, _SES_MESSAGE)
+    signature_and_version = bytes([_SES_VERSION]) + sig
+    return base64.b64encode(signature_and_version).decode("ascii")
 
 
 def resolve_smtp(config: dict[str, Any]) -> tuple[str, int, str, str]:
@@ -140,15 +188,27 @@ def _send_via_smtp(
     subject: str,
     text: str,
     html: str,
+    headers: dict[str, str] | None = None,
     timeout: float = 15.0,
 ) -> None:
     """BLOCKING SMTP send (runs in a worker thread). Raises on failure — the caller
     converts that into a SendResult. STARTTLS vs SSL vs plaintext is selected by
-    ``security``. Auth is attempted only when a username+password are present."""
+    ``security``. Auth is attempted only when a username+password are present.
+
+    ``headers`` are extra threading/routing headers (Message-Id / In-Reply-To /
+    References / X-TLSOC-*). Every header value is ``header_safe``'d (CRLF/control
+    stripped) before it reaches the header block (#9 — no header injection)."""
     msg = EmailMessage()
-    msg["Subject"] = subject
+    msg["Subject"] = header_safe(subject, 200)
     msg["From"] = from_addr
     msg["To"] = ", ".join(recipients)
+    for hk, hv in (headers or {}).items():
+        safe_v = header_safe(hv, 998)
+        if hk and safe_v:
+            # email.message rejects a duplicate; replace defensively.
+            if hk in msg:
+                del msg[hk]
+            msg[hk] = safe_v
     msg.set_content(text or "")
     if html:
         msg.add_alternative(html, subtype="html")
@@ -194,9 +254,27 @@ class EmailChannel(NotificationChannel):
             raw = [r.strip() for r in raw.replace(";", ",").split(",")]
         return [str(r).strip() for r in raw if str(r).strip()]
 
+    def _credentials(self, username: str) -> tuple[str, str]:
+        """Resolve the SMTP (username, password) — the password is the per-channel
+        SECRET (never persisted / echoed).
+
+        SES dual-credential mode: when ``provider == 'ses'`` AND
+        ``config['aws_access_key_id']`` is set, the channel secret is treated as the
+        IAM SECRET access key and the SMTP password is DERIVED (stdlib HMAC); the
+        access-key id becomes the SMTP username. Otherwise the secret is used as a
+        pre-made SMTP password verbatim."""
+        provider = str(self._config.get("provider") or "").strip().lower()
+        secret = self._secret or str(self._config.get("password") or "")
+        access_key_id = str(self._config.get("aws_access_key_id") or "").strip()
+        if provider == "ses" and access_key_id and secret:
+            region = str(self._config.get("region") or "us-east-1").strip() or "us-east-1"
+            return access_key_id, derive_ses_smtp_password(secret, region)
+        return username, secret
+
     async def send(self, event: NotificationEvent) -> SendResult:
         try:
             host, port, security, username = resolve_smtp(self._config)
+            username, password = self._credentials(username)
             from_addr = str(self._config.get("from_addr") or username or "").strip()
             recipients = self._recipients()
             if not host:
@@ -205,8 +283,8 @@ class EmailChannel(NotificationChannel):
                 return SendResult(ok=False, detail="email channel has no from address configured")
             if not recipients:
                 return SendResult(ok=False, detail="email channel has no recipients configured")
-            # The password is the per-channel SECRET (never persisted / echoed).
-            password = self._secret or str(self._config.get("password") or "")
+            # Threading/routing headers (already CRLF-safe in the sender too).
+            headers = dict(getattr(event, "headers", None) or {})
             await asyncio.to_thread(
                 self._sender,
                 host=host,
@@ -219,6 +297,7 @@ class EmailChannel(NotificationChannel):
                 subject=event.subject,
                 text=event.text,
                 html=event.html,
+                headers=headers,
             )
             return SendResult(
                 ok=True,

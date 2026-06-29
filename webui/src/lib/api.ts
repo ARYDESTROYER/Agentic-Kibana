@@ -37,7 +37,9 @@ import type {
   MemoryResponse,
   Metrics,
   ModelsResponse,
+  NotificationPreview,
   NotificationProviders,
+  NotificationTemplate,
   NotificationTestResult,
   NotifyCaseResult,
   PersonasResponse,
@@ -456,6 +458,16 @@ export const api = {
         'POST',
         `notifications/channels/${encodeURIComponent(channelId)}/secret`,
         { body: { field, value } },
+      ),
+    // settings:manage — SERVER-side render a template against a sample case for the
+    // trigger. The server is authoritative for #9 escaping; the optional `template`
+    // body lets the editor preview an UNSAVED draft override before persisting it.
+    // Returns { trigger, subject, html, text, variables?, is_override? }.
+    preview: (trigger: string, template?: NotificationTemplate) =>
+      request<NotificationPreview>(
+        'POST',
+        `notifications/preview?trigger=${encodeURIComponent(trigger)}`,
+        { body: template ? { template } : {} },
       ),
   },
   cases: {

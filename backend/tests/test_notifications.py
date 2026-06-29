@@ -172,9 +172,16 @@ async def test_http_channel_no_url_is_safe():
 
 def test_registry_builds_all_channel_types():
     ensure_registered()
-    for t in ("email", "slack", "teams", "webhook", "pagerduty", "telegram"):
+    for t in ("email", "resend", "slack", "teams", "webhook", "pagerduty", "telegram"):
         assert build_channel(t, {}) is not None
     assert build_channel("nope", {}) is None
+
+
+def test_resend_in_channel_types():
+    from app.notifications.channel import channel_types
+
+    ensure_registered()
+    assert "resend" in channel_types()
 
 
 # --------------------------------------------------------------------------- #

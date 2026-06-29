@@ -3692,13 +3692,69 @@ def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
 async def notification_providers(
     _=Depends(require_permission("settings", "read")),
 ) -> dict[str, Any]:
-    """The email provider presets + the available channel types (for the Settings
-    notification editor). No secrets; settings:read."""
+    """The email provider presets + the available channel types + the built-in
+    template ids (for the Settings notification editor). No secrets; settings:read.
+    ``resend`` + ``ses`` (SMTP preset) both appear in the surfaced lists."""
     from ..notifications.channel import channel_types, ensure_registered
     from ..notifications.email import preset_list
+    from ..notifications.templates import builtin_template_ids
 
     ensure_registered()
-    return {"email_presets": preset_list(), "channel_types": channel_types()}
+    return {
+        "email_presets": preset_list(),
+        "channel_types": channel_types(),
+        "template_ids": builtin_template_ids(),
+    }
+
+
+class NotificationPreviewBody(BaseModel):
+    # Optional per-trigger {subject, html, text} override to preview UNSAVED edits.
+    subject: str | None = None
+    html: str | None = None
+    text: str | None = None
+
+
+@router.post("/notifications/preview")
+async def notification_preview(
+    trigger: str = "case_created",
+    body: NotificationPreviewBody | None = None,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    """Server-side render of a SAMPLE case for ``trigger`` → ``{subject, html, text}``
+    (settings:manage). The escaping/fencing is AUTHORITATIVE here — the UI shows
+    exactly what would ship. An optional unsaved per-trigger override in the body is
+    layered on top of the live operator templates so the editor can preview edits.
+    No real case data, no real send, never leaks a secret."""
+    from ..notifications.dispatch import _sample_case
+    from ..notifications import templates as _tpl
+    from ..config import NotificationTemplates, NotificationTemplateOverride
+
+    cfg = getattr(state.prefs, "notifications", None)
+    base_url = (getattr(cfg, "base_url", "") or "") if cfg else ""
+    tpl = getattr(cfg, "templates", None) if cfg else None
+    branding = getattr(state.prefs, "branding", None)
+    org_name = (getattr(branding, "org_name", "") or "TLSOC") if branding else "TLSOC"
+
+    # Layer an UNSAVED override (from the editor) over the live templates for preview.
+    if body is not None and (body.subject or body.html or body.text):
+        merged = dict(getattr(tpl, "overrides", {}) or {})
+        merged[trigger] = NotificationTemplateOverride(
+            subject=body.subject or "", html=body.html or "", text=body.text or "",
+        )
+        tpl = NotificationTemplates(overrides=merged)
+
+    rendered = _tpl.render(
+        _sample_case(), trigger, base_url=base_url, org_name=org_name,
+        templates=tpl, branding=branding,
+    )
+    return {
+        "trigger": trigger,
+        "subject": rendered["subject"],
+        "html": rendered["html"],
+        "text": rendered["text"],
+        "headers": rendered.get("headers") or {},
+    }
 
 
 class NotificationTestBody(BaseModel):

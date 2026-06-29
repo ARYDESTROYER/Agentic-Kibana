@@ -1169,7 +1169,9 @@ class NotificationChannelConfig(BaseModel):
     model_config = {"protected_namespaces": ()}
 
     id: str
-    type: Literal["email", "slack", "teams", "webhook", "pagerduty", "telegram"] = "email"
+    type: Literal[
+        "email", "resend", "slack", "teams", "webhook", "pagerduty", "telegram"
+    ] = "email"
     enabled: bool = True
     name: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
@@ -1201,6 +1203,40 @@ class NotificationDigest(BaseModel):
     interval_minutes: int = Field(default=60, ge=1)
 
 
+class NotificationTemplateOverride(BaseModel):
+    """One operator-authored template override for a single trigger (Wave 7).
+
+    Each part is OPTIONAL — an empty string falls back to the built-in default for
+    that part, so an operator can override just the subject (or just the HTML) and
+    keep the shipped defaults for the rest. The strings are MUSTACHE-SUBSET templates
+    rendered by :mod:`app.notifications.templates`: ``{{var}}`` is auto HTML-escaped,
+    ``{{{var}}}`` is raw (TRUSTED header HTML only), ``{{#section}}`` / ``{{^section}}``
+    are truthiness blocks. The variable set is WHITELISTED from ``build_meta`` so an
+    operator template can never reference a non-derived (potentially unsafe) field.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    subject: str = ""
+    html: str = ""
+    text: str = ""
+
+
+class NotificationTemplates(BaseModel):
+    """Per-trigger template overrides (Wave 7). Each key is a trigger id
+    (``case_created`` / ``escalated`` / ``true_positive`` / ``needs_human`` /
+    ``closed`` / ``manual`` / ``digest_daily`` / ``test``); a missing/empty entry uses
+    the shipped default template for that trigger. Defaults to no overrides (the 5
+    preloaded built-in templates render verbatim)."""
+
+    model_config = {"protected_namespaces": ()}
+
+    overrides: dict[str, NotificationTemplateOverride] = Field(default_factory=dict)
+
+    def override_for(self, trigger: str) -> "NotificationTemplateOverride | None":
+        return self.overrides.get(trigger)
+
+
 class NotificationConfig(BaseModel):
     """Pluggable notification configuration (F5). Default OFF (full back-compat —
     nothing is ever sent until an operator enables it AND configures a channel)."""
@@ -1212,6 +1248,9 @@ class NotificationConfig(BaseModel):
     rate_limit_per_hour: int = Field(default=60, ge=0)
     digest: NotificationDigest = Field(default_factory=NotificationDigest)
     default_recipients: list[str] = Field(default_factory=list)
+    # Operator-overridable per-trigger email templates (Wave 7). Empty → the 5
+    # preloaded built-in defaults render verbatim.
+    templates: NotificationTemplates = Field(default_factory=NotificationTemplates)
     # Base URL used to build the case deep-link in a notification body (e.g.
     # "https://soc.example.com"). Empty → no link is rendered.
     base_url: str = ""

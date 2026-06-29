@@ -204,6 +204,12 @@ class NotificationService:
         branding = getattr(prefs, "branding", None)
         return (getattr(branding, "org_name", "") or "TLSOC") if branding else "TLSOC"
 
+    def _branding(self):
+        """The live BrandingConfig (or None) — feeds the email shell tokens (logo /
+        accent / footer) into :func:`templates.render`. Best-effort; never raises."""
+        prefs = self._safe_prefs()
+        return getattr(prefs, "branding", None) if prefs else None
+
     def _safe_prefs(self):
         try:
             return self._get_prefs()
@@ -234,11 +240,13 @@ class NotificationService:
                 return sent
 
             body = templates.render(
-                case, trigger, base_url=cfg.base_url or "", org_name=self._org_name(cfg)
+                case, trigger, base_url=cfg.base_url or "", org_name=self._org_name(cfg),
+                templates=getattr(cfg, "templates", None), branding=self._branding(),
             )
             event = NotificationEvent(
                 case=case, trigger=trigger, subject=body["subject"],
                 html=body["html"], text=body["text"], meta=body["meta"],
+                headers=body.get("headers") or {},
             )
             case_id = _val(case, "case_id", "") or ""
             for ch in channels:
@@ -309,10 +317,13 @@ class NotificationService:
         ensure_registered()
         sample = _sample_case()
         body = templates.render(sample, TRIGGER_TEST, base_url=cfg.base_url or "",
-                                org_name=self._org_name(cfg))
+                                org_name=self._org_name(cfg),
+                                templates=getattr(cfg, "templates", None),
+                                branding=self._branding())
         event = NotificationEvent(
             case=sample, trigger=TRIGGER_TEST, subject=body["subject"],
             html=body["html"], text=body["text"], meta=body["meta"],
+            headers=body.get("headers") or {},
         )
         try:
             rec = await self._send_one(ch, event)

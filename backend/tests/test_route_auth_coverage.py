@@ -132,6 +132,18 @@ def test_wave3_session_routes_registered_and_not_public() -> None:
     assert "/api/auth/refresh" in PUBLIC_API_PATHS
 
 
+def test_wave7_notification_routes_registered_and_not_public() -> None:
+    # The Wave-7 email/template routes exist on the real app (so the coverage walk
+    # guards them) and the new preview route is auth-gated (NOT public).
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for expected in (
+        "/api/notifications/providers",
+        "/api/notifications/preview",
+    ):
+        assert expected in paths, f"missing Wave-7 notification route {expected}"
+        assert expected not in PUBLIC_API_PATHS, f"{expected} must NOT be public"
+
+
 def test_wave5_demo_routes_registered_and_not_public() -> None:
     # The Wave-5 Demo Mode routes exist on the real app (so the coverage walk guards
     # them) and NONE of them is public — enable/reset/disable are admin-gated and
