@@ -116,8 +116,101 @@ def test_manager_apply_tp_opt_in_closes():
     assert case.decision_by == DecisionBy.AGENT
 
 
-def test_manager_apply_tp_default_routes_to_human():
+def test_manager_apply_tp_default_routes_to_human_as_escalated():
+    # Status taxonomy (F8): a confident TP is NOT auto-closed by default, and the
+    # existing decide().escalate flag now surfaces as the ESCALATED lifecycle status
+    # in apply() (non-close branch only). It is still a human/SYSTEM decision — not
+    # closed — so the close invariant is intact.
     p = Preferences()  # defaults: tp auto-close off
     case = _case(Verdict.TRUE_POSITIVE, 0.99, 5.0)
     CaseManager(p).apply(case)
-    assert case.status == CaseStatus.NEEDS_HUMAN
+    assert case.status == CaseStatus.ESCALATED
+    assert case.status != CaseStatus.CLOSED
+    assert case.decision_by == DecisionBy.SYSTEM
+    assert case.escalation_level >= 1
+
+
+# --- Status taxonomy (F8) — decide() UNCHANGED + apply() layers disposition -----
+def test_decide_truth_table_byte_identical():
+    """Guard non-negotiable #3: decide()'s pure truth table is unchanged by the F8
+    additions. We re-assert the exact (status, decision_by, escalate) tuples the
+    legacy table produced for every verdict class and both policy outcomes."""
+    pol = _policy(fp=True, fp_conf=0.9, fp_risk=30.0, tp=True, tp_conf=0.9, tp_risk=10.0)
+
+    # FP clears the bar → CLOSED by AGENT, no escalate.
+    d = decide(Verdict.FALSE_POSITIVE, 0.95, 10.0, pol)
+    assert (d.status, d.decision_by, d.escalate) == (CaseStatus.CLOSED, DecisionBy.AGENT, False)
+    # FP misses the bar → NEEDS_HUMAN by SYSTEM, no escalate (FP never escalates).
+    d = decide(Verdict.FALSE_POSITIVE, 0.5, 10.0, pol)
+    assert (d.status, d.decision_by, d.escalate) == (CaseStatus.NEEDS_HUMAN, DecisionBy.SYSTEM, False)
+    # TP clears the bar → CLOSED by AGENT, escalate forced False on close.
+    d = decide(Verdict.TRUE_POSITIVE, 0.95, 5.0, pol)
+    assert (d.status, d.decision_by, d.escalate) == (CaseStatus.CLOSED, DecisionBy.AGENT, False)
+    # TP misses the bar but is confident → NEEDS_HUMAN by SYSTEM, escalate True.
+    d = decide(Verdict.TRUE_POSITIVE, 0.95, 80.0, pol)
+    assert (d.status, d.decision_by, d.escalate) == (CaseStatus.NEEDS_HUMAN, DecisionBy.SYSTEM, True)
+    # NEEDS_HUMAN / None → always NEEDS_HUMAN by SYSTEM, never closed.
+    assert decide(Verdict.NEEDS_HUMAN, 0.99, 1.0, pol).status == CaseStatus.NEEDS_HUMAN
+    assert decide(None, 0.99, 1.0, pol).status == CaseStatus.NEEDS_HUMAN
+
+
+def test_apply_sets_disposition_from_verdict_when_unset():
+    p = Preferences()
+    p.auto_close.false_positive = VerdictAutoClose(enabled=True, min_confidence=0.9, max_risk_score=30.0)
+    case = _case(Verdict.FALSE_POSITIVE, 0.95, 10.0)
+    assert case.disposition is None
+    CaseManager(p).apply(case)
+    from app.constants import Disposition
+    assert case.disposition == Disposition.FALSE_POSITIVE
+
+
+def test_apply_does_not_override_analyst_disposition():
+    from app.constants import Disposition
+    p = Preferences()
+    case = _case(Verdict.TRUE_POSITIVE, 0.99, 5.0)
+    case.disposition = Disposition.BENIGN  # analyst already classified it
+    CaseManager(p).apply(case)
+    assert case.disposition == Disposition.BENIGN
+
+
+def test_apply_escalated_only_in_non_close_branch_and_records_history():
+    # A confident TP that does NOT auto-close becomes ESCALATED (non-close) and the
+    # transition is recorded on the append-only status timeline.
+    p = Preferences()  # tp auto-close off → non-close branch
+    case = _case(Verdict.TRUE_POSITIVE, 0.9, 90.0)
+    CaseManager(p).apply(case)
+    assert case.status == CaseStatus.ESCALATED
+    assert case.status_history and case.status_history[-1].to_status == CaseStatus.ESCALATED.value
+
+
+def test_apply_close_branch_never_escalates():
+    # When the decision closes the case, ESCALATED must NOT override CLOSED (the
+    # escalate→ESCALATED mapping is guarded to the non-close branch).
+    p = Preferences()
+    p.auto_close.true_positive = VerdictAutoClose(enabled=True, min_confidence=0.9, max_risk_score=95.0)
+    case = _case(Verdict.TRUE_POSITIVE, 0.95, 90.0)  # would escalate if not closed
+    CaseManager(p).apply(case)
+    assert case.status == CaseStatus.CLOSED
+
+
+def test_apply_needs_human_never_closed_invariant_still_raises():
+    """The defence-in-depth invariant (NEEDS_HUMAN/None never CLOSED) must still
+    raise if a decision ever attempts it — even with the F8 additions in place."""
+    import pytest
+
+    from app.engine.case_manager import Decision
+
+    p = Preferences()
+    mgr = CaseManager(p)
+    case = _case(Verdict.NEEDS_HUMAN, 0.99, 1.0)
+
+    # Force decide() to (impossibly) return CLOSED to prove the assertion fires.
+    import app.engine.case_manager as cm
+
+    orig = cm.decide
+    cm.decide = lambda *a, **k: Decision(status=CaseStatus.CLOSED, decision_by=DecisionBy.AGENT)
+    try:
+        with pytest.raises(AssertionError):
+            mgr.apply(case)
+    finally:
+        cm.decide = orig

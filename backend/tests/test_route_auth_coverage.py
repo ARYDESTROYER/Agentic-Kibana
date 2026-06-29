@@ -52,6 +52,10 @@ def test_public_paths_are_minimal_and_known() -> None:
     # A small, deliberate allowlist — guard against accidental growth.
     assert PUBLIC_API_PATHS <= {
         "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+        "/api/setup/status", "/api/setup/init-admin",
+        # Wave 2 — each guarded by a single-use token/state, not a session.
+        "/api/auth/mfa/verify",
+        "/api/auth/sso/providers", "/api/auth/sso/authorize", "/api/auth/sso/callback",
     }
     # GET-only public paths (read-only, non-sensitive) — also guarded.
     assert PUBLIC_GET_PATHS <= {"/api/branding"}
@@ -75,3 +79,27 @@ def test_ingest_public_path_is_tight() -> None:
     assert not _PUBLIC_INGEST_RE.match("/api/ingest/my-source/config")
     assert not _PUBLIC_INGEST_RE.match("/api/ingestion-status")
     assert not _PUBLIC_INGEST_RE.match("/api/ingest/")
+
+
+def test_wave1_identity_routes_are_registered() -> None:
+    # The Wave-1 OOBE / multi-user / RBAC routes exist on the real app (so the
+    # coverage walk above actually guards them).
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for expected in (
+        "/api/setup/init-admin",
+        "/api/auth/change-password",
+        "/api/roles",
+        "/api/users",
+        "/api/users/{username}",
+    ):
+        assert expected in paths, f"missing Wave-1 identity route {expected}"
+
+
+def test_wave1_public_paths_present_in_allowlist() -> None:
+    # The two new OOBE public paths are in the allowlist (reachable pre-session).
+    assert "/api/setup/status" in PUBLIC_API_PATHS
+    assert "/api/setup/init-admin" in PUBLIC_API_PATHS
+    # ...and the user-management routes are NOT public (deny-by-default).
+    assert "/api/users" not in PUBLIC_API_PATHS
+    assert "/api/roles" not in PUBLIC_API_PATHS
+    assert "/api/auth/change-password" not in PUBLIC_API_PATHS

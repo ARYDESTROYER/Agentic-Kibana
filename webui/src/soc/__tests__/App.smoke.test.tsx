@@ -28,9 +28,17 @@ vi.mock('@/lib/api', () => {
     setUnauthorizedHandler: vi.fn(),
     api: {
       auth: {
-        me: ok({ enabled: false, authenticated: false, user: null }),
-        login: ok({ ok: true }),
+        me: ok({ auth_enabled: false, authenticated: true, user: null }),
+        login: ok({ token: 't', user: { username: 'x' } }),
         logout: ok({ ok: true }),
+        changePassword: ok({ ok: true }),
+      },
+      setup: {
+        status: ok({ setup_complete: true }),
+        initAdmin: ok({ ok: true, username: 'x' }),
+      },
+      roles: {
+        get: ok({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} }),
       },
       getBranding: ok(branding),
       setupStatus: ok({ setup_complete: true }),

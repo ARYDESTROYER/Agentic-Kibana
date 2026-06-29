@@ -2,9 +2,26 @@
 
 :class:`AuthService` is the single object the orchestrator wires into the app. It
 holds the toggle (auth on/off), the signing secret, the token lifetime, and the
-configured user table (username -> PBKDF2 hash from
-:func:`app.auth.passwords.hash_password`). It issues short-lived HS256 JWTs on a
-successful login and decodes/validates them on subsequent requests.
+configured user table. It issues short-lived HS256 JWTs on a successful login and
+decodes/validates them on subsequent requests.
+
+Wave 1 (F1/F2) adds real multi-user accounts + roles:
+
+* The user view is a SYNCED in-memory snapshot (lowercase-username ->
+  :class:`_Record`) loaded from the persistent ``UserStore`` at startup and refreshed
+  via :meth:`set_users` after every mutation. :meth:`authenticate` stays SYNCHRONOUS
+  (it reads the snapshot, never the async store) so the login route is unchanged.
+* :class:`AuthUser` carries ``role`` + ``must_change_password``; the JWT embeds
+  ``role`` and ``mc`` claims, read back (authoritatively from the synced record) in
+  :meth:`verify`.
+* The env single-admin fallback (``auth_admin_*``) is folded into the base layer as
+  a ``super_admin`` so an env-only deployment keeps working with full privileges;
+  the persistent store overlays it.
+* :meth:`verify` rejects a token whose subject is no longer an ACTIVE user (so
+  disabling an account invalidates its sessions on the next request).
+
+Back-compat: :meth:`authenticate` returns the signed TOKEN (as the original did),
+so the existing ``/api/auth/login`` route is unchanged.
 
 Stdlib only — see :mod:`app.auth.tokens` and :mod:`app.auth.passwords`.
 """
@@ -13,10 +30,11 @@ from __future__ import annotations
 
 import logging
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.auth.passwords import hash_password, verify_password
 from app.auth.tokens import TokenError, decode, encode
+from app.constants import UserRole
 
 log = logging.getLogger(__name__)
 
@@ -24,12 +42,42 @@ log = logging.getLogger(__name__)
 # real verify — removes the username-enumeration timing oracle. Computed once.
 _DUMMY_HASH = hash_password("tlsoc-timing-equaliser")
 
+_DEFAULT_ROLE = UserRole.ANALYST_TIER1.value
+
+# Wave 2 / F3: the pending half-session (after password OK, before TOTP). It is a
+# DISTINCT token kind — a normal session-verify (require_auth) MUST reject it. The
+# pending token is short-lived and carries ``mfa: "pending"``.
+_MFA_PENDING_SECONDS = 5 * 60  # ~5 minutes to enter the second factor.
+_MFA_PENDING_CLAIM = "pending"
+
 
 @dataclass
 class AuthUser:
-    """The authenticated principal carried as the token subject (``sub``)."""
+    """The authenticated principal carried as the token subject (``sub``).
+
+    ``role`` + ``must_change_password`` reflect the CURRENT synced record (so a role
+    change / forced reset takes effect immediately). Defaults keep back-compat."""
 
     username: str
+    role: str = _DEFAULT_ROLE
+    must_change_password: bool = False
+    mfa_enabled: bool = False
+
+
+@dataclass
+class _Record:
+    """The synced in-memory view of one account (no secret beyond the hash).
+
+    ``mfa_enabled`` is mirrored so :meth:`login` can decide synchronously whether to
+    return a pending half-session; the TOTP SECRET itself is NEVER mirrored here (it
+    stays on the persistent User record and is read by the route layer for phase 2)."""
+
+    password_hash: str
+    role: str = _DEFAULT_ROLE
+    active: bool = True
+    must_change_password: bool = False
+    groups: list[str] = field(default_factory=list)
+    mfa_enabled: bool = False
 
 
 class AuthService:
@@ -48,8 +96,13 @@ class AuthService:
     token_hours:
         Session token lifetime in hours.
     users:
-        Mapping of ``username -> password_hash`` where each hash comes from
-        :func:`app.auth.passwords.hash_password`.
+        Env-supplied ``username -> password_hash`` map (``auth_users`` + the single
+        admin). Forms the BASE layer of the synced view; the persistent store
+        overlays it via :meth:`set_users`. The single admin (matching
+        ``admin_username``) is granted ``super_admin``; any other env user gets the
+        default role.
+    admin_username:
+        The env single-admin's username (granted ``super_admin`` in the base layer).
     """
 
     def __init__(
@@ -58,11 +111,25 @@ class AuthService:
         enabled: bool,
         jwt_secret: str,
         token_hours: int,
-        users: dict[str, str],
+        users: dict[str, str] | None = None,
+        admin_username: str = "admin",
+        mfa_enforce_roles: list[str] | None = None,
     ) -> None:
         self._enabled = bool(enabled)
-        self._users = dict(users or {})
         self._token_seconds = max(1, int(token_hours) * 3600)
+        self._admin_username = admin_username
+        # Roles for which an MFA challenge is required even before the user enrolled
+        # (they'll be routed to set up MFA). Refreshed via set_mfa_enforce_roles().
+        self._mfa_enforce_roles: set[str] = {str(r) for r in (mfa_enforce_roles or [])}
+
+        # The env-supplied accounts form the BASE layer; store users overlay it via
+        # set_users(). The env admin is super_admin; other env users get the default.
+        self._base: dict[str, _Record] = {}
+        for uname, h in (users or {}).items():
+            role = UserRole.SUPER_ADMIN.value if uname == admin_username else _DEFAULT_ROLE
+            self._base[uname.strip().lower()] = _Record(password_hash=h, role=role, active=True)
+        # The live, lookup-keyed-by-lowercase view (base, store overlay on top).
+        self._records: dict[str, _Record] = dict(self._base)
 
         secret = jwt_secret or ""
         if self._enabled and not secret:
@@ -80,27 +147,169 @@ class AuthService:
         """Whether authentication enforcement is turned on."""
         return self._enabled
 
+    def set_users(self, store_users: list) -> None:
+        """Refresh the synced view from the persistent ``UserStore`` (call after the
+        startup load + after every user mutation). ``store_users`` is a list of
+        :class:`app.models.User`. The store overlays the env base layer (an
+        operator-edited account overrides an env-seeded one). Keeps
+        :meth:`authenticate` synchronous."""
+        view: dict[str, _Record] = dict(self._base)
+        for u in store_users or []:
+            view[str(u.username).strip().lower()] = _Record(
+                password_hash=u.password_hash,
+                role=str(getattr(u.role, "value", u.role) or _DEFAULT_ROLE),
+                active=bool(u.active),
+                must_change_password=bool(u.must_change_password),
+                groups=list(getattr(u, "groups", []) or []),
+                mfa_enabled=bool(getattr(u, "mfa_enabled", False)),
+            )
+        self._records = view
+
+    def set_mfa_enforce_roles(self, roles: list[str] | None) -> None:
+        """Refresh the set of roles for which MFA is enforced (from
+        ``Preferences.mfa.enforce_for_roles``). Called on prefs reload so a settings
+        change takes effect without a restart; does not touch the user view."""
+        self._mfa_enforce_roles = {str(r) for r in (roles or [])}
+
+    def _lookup(self, username: str) -> _Record | None:
+        return self._records.get((username or "").strip().lower())
+
     def authenticate(self, username: str, password: str) -> str | None:
-        """Verify credentials; return a signed JWT on success, else ``None``."""
-        stored = self._users.get(username)
-        if not stored:
-            # Verify against a real full-iteration dummy hash so an unknown user
-            # costs the same as a known one (no timing-based enumeration).
+        """Verify credentials; return a signed JWT on success, else ``None``.
+
+        SYNCHRONOUS (reads the synced view, never the async store). A disabled
+        account never authenticates. The JWT embeds the role + must-change flag."""
+        rec = self._lookup(username)
+        if rec is None or not rec.active or not rec.password_hash:
+            # Verify against a real full-iteration dummy hash so an unknown/disabled
+            # user costs the same as a known active one (no timing enumeration).
             verify_password(password or "", _DUMMY_HASH)
             return None
-        if not verify_password(password or "", stored):
+        if not verify_password(password or "", rec.password_hash):
             return None
-        return encode({"sub": username}, self._jwt_secret, expires_in_s=self._token_seconds)
+        return encode(
+            {"sub": username, "role": rec.role, "mc": rec.must_change_password},
+            self._jwt_secret,
+            expires_in_s=self._token_seconds,
+        )
+
+    def principal(self, username: str) -> AuthUser | None:
+        """The :class:`AuthUser` for ``username`` from the synced view (role +
+        must-change), or ``None`` if unknown/inactive. Used by the login route to
+        build the ``user`` object alongside the token."""
+        rec = self._lookup(username)
+        if rec is None or not rec.active:
+            return None
+        return AuthUser(
+            username=username,
+            role=rec.role,
+            must_change_password=rec.must_change_password,
+            mfa_enabled=rec.mfa_enabled,
+        )
+
+    def login(self, username: str, password: str) -> tuple[str, AuthUser] | None:
+        """Authenticate and, on success, return ``(token, AuthUser)``; else ``None``.
+
+        Convenience for the login route: pairs the minted token with the principal
+        (role + must-change) so the response can surface the ``user`` object."""
+        token = self.authenticate(username, password)
+        if token is None:
+            return None
+        user = self.principal(username)
+        if user is None:  # pragma: no cover — authenticate succeeded, so principal exists
+            return None
+        return token, user
+
+    # ----- MFA (Wave 2 / F3) -------------------------------------------------- #
+    def requires_mfa(self, username: str) -> bool:
+        """Whether ``username`` must clear a second factor before getting a session:
+        the user has MFA enabled, OR its role is in the enforce-for-roles set."""
+        rec = self._lookup(username)
+        if rec is None or not rec.active:
+            return False
+        return bool(rec.mfa_enabled) or (rec.role in self._mfa_enforce_roles)
+
+    def mfa_enabled(self, username: str) -> bool:
+        """Whether ``username`` currently has MFA ENROLLED (from the synced view).
+        Lets /auth/me surface ``mfa_enabled`` without an async store read."""
+        rec = self._lookup(username)
+        return bool(rec and rec.mfa_enabled)
+
+    def begin_mfa(self, username: str) -> str:
+        """Mint a SHORT-LIVED pending half-session token (``mfa:"pending"``) for
+        ``username``. It is NOT a full session — :meth:`verify` rejects it — so it
+        can only be exchanged via :meth:`mint_session` after the second factor."""
+        return encode(
+            {"sub": username, "mfa": _MFA_PENDING_CLAIM},
+            self._jwt_secret,
+            expires_in_s=_MFA_PENDING_SECONDS,
+        )
+
+    def pending_subject(self, pending_token: str) -> str | None:
+        """Validate a pending token and return its subject username, or ``None``.
+
+        Accepts ONLY a token carrying the ``mfa:"pending"`` claim whose subject is
+        still an active user. A full session token is rejected here (wrong kind)."""
+        if not pending_token:
+            return None
+        try:
+            claims = decode(pending_token, self._jwt_secret)
+        except TokenError:
+            return None
+        if claims.get("mfa") != _MFA_PENDING_CLAIM:
+            return None
+        sub = claims.get("sub")
+        if not isinstance(sub, str) or not sub:
+            return None
+        rec = self._lookup(sub)
+        if rec is None or not rec.active:
+            return None
+        return sub
+
+    def mint_session(self, username: str) -> tuple[str, AuthUser] | None:
+        """Mint a FULL session token for ``username`` WITHOUT a password check —
+        used after a second factor (TOTP/recovery) or a verified SSO login has
+        already established the identity. Returns ``(token, AuthUser)`` or ``None``
+        if the user is unknown/inactive."""
+        rec = self._lookup(username)
+        if rec is None or not rec.active:
+            return None
+        token = encode(
+            {"sub": username, "role": rec.role, "mc": rec.must_change_password},
+            self._jwt_secret,
+            expires_in_s=self._token_seconds,
+        )
+        user = self.principal(username)
+        if user is None:  # pragma: no cover — rec exists, so principal exists
+            return None
+        return token, user
 
     def verify(self, token: str) -> AuthUser | None:
-        """Decode + validate ``token``; return the :class:`AuthUser` or ``None``."""
+        """Decode + validate ``token``; return the :class:`AuthUser` or ``None``.
+
+        A token whose subject is no longer an ACTIVE user is rejected (so disabling
+        an account invalidates its live sessions). The role/must-change reflect the
+        CURRENT synced record (not the stale token claim) so a role change takes
+        effect immediately."""
         if not token:
             return None
         try:
             claims = decode(token, self._jwt_secret)
         except TokenError:
             return None
+        # A pending MFA half-session is NOT a full session — reject it here so it can
+        # never be presented to a protected route (it is only valid at /auth/mfa/verify).
+        if claims.get("mfa") == _MFA_PENDING_CLAIM:
+            return None
         sub = claims.get("sub")
         if not isinstance(sub, str) or not sub:
             return None
-        return AuthUser(username=sub)
+        rec = self._lookup(sub)
+        if rec is None or not rec.active:
+            return None
+        return AuthUser(
+            username=sub,
+            role=rec.role,
+            must_change_password=rec.must_change_password,
+            mfa_enabled=rec.mfa_enabled,
+        )

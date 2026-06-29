@@ -100,6 +100,14 @@ class Secrets(BaseSettings):
     auth_admin_password: str | None = None    # env-only plaintext; hashed at startup
     auth_users: dict[str, str] = Field(default_factory=dict)  # username -> pbkdf2 hash
     auth_cookie_secure: bool = False          # set True behind TLS (prod) so the cookie is HTTPS-only
+    # When auth is ENABLED and the user store is EMPTY, seed a demo super_admin
+    # (``Admin`` / ``Admin@123``) so the deployment is immediately usable. The demo
+    # wants these creds to work directly, so must_change_password is False. Set this
+    # False to require the OOBE first-admin flow instead. The env single-admin
+    # (auth_admin_username/password) remains a separate fallback credential.
+    auth_seed_admin: bool = True
+    auth_seed_admin_username: str = "Admin"
+    auth_seed_admin_password: str = "Admin@123"
 
     # --- Security middleware toggles (all independent of auth) ---
     # security headers ON by default (harmless, only affect backend-served
@@ -143,9 +151,40 @@ class Secrets(BaseSettings):
     # only ever sees the field NAMES via SourceInstance.configured_secrets.
     connector_secrets: dict[str, dict[str, str]] = Field(default_factory=dict)
 
+    # --- SSO / MFA secrets (Wave 2; SECRET tier — env / in-memory ONLY, NEVER
+    # persisted to Preferences/the config doc, NEVER returned to the UI). ---
+    # OIDC client secrets keyed by provider id (e.g. {"google": "..."}). Set at
+    # runtime via POST /api/auth/sso/providers/{id}/secret (the connector-secret
+    # pattern) or from the env (TLSOC_SSO_CLIENT_SECRETS as a JSON object).
+    sso_client_secrets: dict[str, str] = Field(default_factory=dict)
+    # Key used to obfuscate TOTP secrets at rest (auth/mfa.obfuscate_secret). When
+    # blank, the effective key is derived from auth_jwt_secret (see mfa_server_key()).
+    mfa_obfuscation_key: str | None = None
+
     def source_secrets(self, source_id: str) -> dict[str, str]:
         """The configured secret values for one source (empty if none)."""
         return dict(self.connector_secrets.get(source_id, {}))
+
+    def sso_client_secret(self, provider_id: str) -> str:
+        """The configured OIDC client secret for one provider (``""`` if none)."""
+        return self.sso_client_secrets.get(provider_id, "") or ""
+
+    def set_sso_client_secret(self, provider_id: str, value: str | None) -> None:
+        """Set/clear one provider's OIDC client secret (value=None/"" clears it)."""
+        if value is None or value == "":
+            self.sso_client_secrets.pop(provider_id, None)
+        else:
+            self.sso_client_secrets[provider_id] = value
+
+    def mfa_server_key(self) -> str:
+        """The effective server key for at-rest MFA-secret obfuscation: the explicit
+        ``mfa_obfuscation_key`` when set, else derived from ``auth_jwt_secret`` (so a
+        deployment that already has a stable JWT secret needs no extra config). The
+        derivation is namespaced so the JWT secret and the MFA key never collide."""
+        if self.mfa_obfuscation_key:
+            return self.mfa_obfuscation_key
+        base = self.auth_jwt_secret or "tlsoc-mfa-fallback-key"
+        return f"mfa-obf:{base}"
 
     def set_source_secret(self, source_id: str, field: str, value: str | None) -> None:
         """Set/clear one per-source secret field (value=None clears/revokes it)."""
@@ -188,6 +227,9 @@ class Secrets(BaseSettings):
             "abuseipdb_api_key": bool(self.abuseipdb_api_key),
             "virustotal_api_key": bool(self.virustotal_api_key),
             "embedding_api_key": bool(self.embedding_key()),
+            # Wave 2: configured-booleans only (never the values).
+            "mfa_obfuscation_key": bool(self.mfa_obfuscation_key),
+            "sso_client_secrets": bool(self.sso_client_secrets),
         }
 
 
@@ -356,6 +398,47 @@ class PlaybookConfig(BaseModel):
     enabled: bool = True
     dir: str | None = None
     llm_select: bool = False
+
+
+class CaseIdFormatConfig(BaseModel):
+    """Customisable, human-facing case-ID nomenclature (F7).
+
+    ``Case.case_id`` stays the immutable internal id; this drives the OPTIONAL
+    ``Case.case_number`` DISPLAY id. Default ``enabled=False`` preserves today's
+    behaviour (the UI shows ``case_id``); enabling it renders ``CASE-000001`` etc.
+    from ``template`` against an allowlisted placeholder set (validated below).
+    ``reset_period`` rolls a fresh sequence at each boundary; ``seq_start`` is the
+    first number issued in a bucket."""
+
+    enabled: bool = False
+    template: str = "CASE-{seq:06d}"
+    prefix: str = "CASE"
+    reset_period: Literal["none", "calendar_year", "fiscal_year", "fiscal_quarter"] = "none"
+    seq_start: int = 1
+
+    @field_validator("template")
+    @classmethod
+    def _check_template(cls, v: str) -> str:
+        from .engine.case_id import validate_template
+
+        ok, err = validate_template(v)
+        if not ok:
+            raise ValueError(err)
+        return v
+
+    @field_validator("prefix")
+    @classmethod
+    def _check_prefix(cls, v: str) -> str:
+        if len(v) > 40:
+            raise ValueError("prefix too long (max 40 characters)")
+        return v
+
+    @field_validator("seq_start")
+    @classmethod
+    def _check_seq_start(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("seq_start must be >= 0")
+        return v
 
 
 class BrandingConfig(BaseModel):
@@ -621,6 +704,79 @@ class SourceInstance(BaseModel):
             return None
 
 
+class RBACConfig(BaseModel):
+    """Role-based access control configuration (Wave 1 / F2).
+
+    ``enabled`` defaults to ``False`` for full back-compat: when auth is ON but RBAC
+    is OFF, every authenticated user is treated as ``super_admin`` (so an existing
+    single-admin deployment is unchanged). When RBAC is ON, the permission matrix in
+    ``app/rbac/policy.py`` (deep-merged with any ``roles`` overrides here) is
+    enforced on every gated action. ``roles`` is an ADDITIVE override: a
+    role/resource not mentioned keeps its built-in default.
+    """
+
+    enabled: bool = False
+    default_role: str = "analyst_tier1"
+    # role -> resource -> [actions]; an empty dict means "use the built-in matrix".
+    roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+
+
+class MfaConfig(BaseModel):
+    """Multi-factor (TOTP) configuration (Wave 2 / F3).
+
+    MFA is per-user opt-in; this block only tunes issuer/format + optional
+    role-level enforcement. NO secrets live here (the per-user TOTP secret lives
+    obfuscated on the User record; the obfuscation key is in the SECRET tier).
+    ``issuer`` (blank → branding.org_name → "Agentic SOC") labels the authenticator
+    entry. ``enforce_for_roles`` lists roles for which a password login is treated as
+    requiring MFA even before the user enrolled (they'll be prompted to set it up)."""
+
+    issuer: str = ""
+    digits: int = Field(default=6, ge=6, le=8)
+    period: int = Field(default=30, ge=10, le=120)
+    enforce_for_roles: list[str] = Field(default_factory=list)
+
+
+class SSOProvider(BaseModel):
+    """One configured OIDC provider (Wave 2 / F4).
+
+    The client SECRET is NOT here — it lives in the SECRET tier
+    (``Secrets.sso_client_secrets[id]``); this model carries only non-secret
+    configuration. ``type`` selects a discovery preset (google/microsoft) or a
+    generic operator-supplied ``discovery_url``."""
+
+    id: str
+    type: Literal["google", "microsoft", "generic"] = "generic"
+    display_name: str = ""
+    enabled: bool = True
+    client_id: str = ""
+    tenant: str | None = None            # microsoft: common/organizations/{guid}
+    discovery_url: str | None = None     # generic: operator-supplied
+    scopes: str = "openid email profile"
+    allowed_domains: list[str] = Field(default_factory=list)
+    allowed_tenants: list[str] = Field(default_factory=list)
+    group_claim: str | None = None
+    group_role_map: dict[str, str] = Field(default_factory=dict)
+    auto_create_users: bool = False
+    default_role: str = "analyst_tier1"
+
+
+class SSOConfig(BaseModel):
+    """SSO (OIDC) configuration (Wave 2 / F4). Default OFF — full back-compat."""
+
+    enabled: bool = False
+    providers: list[SSOProvider] = Field(default_factory=list)
+
+    def enabled_providers(self) -> list[SSOProvider]:
+        """The configured providers that are enabled (when SSO is on)."""
+        if not self.enabled:
+            return []
+        return [p for p in self.providers if p.enabled]
+
+    def get(self, provider_id: str) -> "SSOProvider | None":
+        return next((p for p in self.providers if p.id == provider_id), None)
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
 
@@ -766,6 +922,17 @@ class Preferences(BaseModel):
     playbooks: PlaybookConfig = Field(default_factory=PlaybookConfig)
     # Operator-customisable branding/appearance (org logo + name + accent + theme).
     branding: BrandingConfig = Field(default_factory=BrandingConfig)
+    # Customisable human-facing case-ID nomenclature (F7). Default OFF → the UI
+    # shows ``case_id`` exactly as before; enabling renders ``Case.case_number``.
+    case_id_format: CaseIdFormatConfig = Field(default_factory=CaseIdFormatConfig)
+    # Role-based access control (Wave 1). Default OFF → every authenticated user is
+    # treated as super_admin (back-compat with the single-admin deployment).
+    rbac: RBACConfig = Field(default_factory=RBACConfig)
+    # Multi-factor auth (Wave 2 / F3) — per-user opt-in; this block only tunes
+    # issuer/format + optional role enforcement (no secrets here).
+    mfa: MfaConfig = Field(default_factory=MfaConfig)
+    # SSO / OIDC (Wave 2 / F4) — default OFF; client secrets stay in the SECRET tier.
+    sso: SSOConfig = Field(default_factory=SSOConfig)
 
     # --- Misc ---
     setup_complete: bool = False

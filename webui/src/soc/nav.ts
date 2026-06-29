@@ -22,6 +22,8 @@ import {
   Database,
   DollarSign,
   Settings,
+  ShieldCheck,
+  Users,
 } from 'lucide-react';
 
 /** Stable page ids — the router validates the hash against these. */
@@ -39,15 +41,29 @@ export type PageId =
   | 'memory'
   | 'sources'
   | 'cost'
-  | 'settings';
+  | 'settings'
+  | 'security'
+  | 'users';
 
-export type NavGroupId = 'triage' | 'automation' | 'platform';
+export type NavGroupId = 'triage' | 'automation' | 'platform' | 'admin';
+
+/**
+ * A permission requirement (`resource:action`) gating a nav item. When present,
+ * the shell hides the item from users without the grant. Items without a `perm`
+ * are always shown (back-compat: visible when auth/RBAC are off).
+ */
+export interface NavPerm {
+  resource: string;
+  action: string;
+}
 
 export interface NavItem {
   id: PageId;
   label: string;
   icon: LucideIcon;
   group: NavGroupId;
+  /** Optional RBAC gate; the item is hidden unless the user has this grant. */
+  perm?: NavPerm;
 }
 
 export interface NavGroup {
@@ -86,7 +102,21 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'memory', label: 'Memory', icon: Brain, group: 'platform' },
       { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
       { id: 'cost', label: 'Cost & usage', icon: DollarSign, group: 'platform' },
+      { id: 'security', label: 'Security', icon: ShieldCheck, group: 'platform' },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
+    ],
+  },
+  {
+    id: 'admin',
+    label: 'Administration',
+    items: [
+      {
+        id: 'users',
+        label: 'Users & roles',
+        icon: Users,
+        group: 'admin',
+        perm: { resource: 'users', action: 'manage' },
+      },
     ],
   },
 ];

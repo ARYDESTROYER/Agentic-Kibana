@@ -1,0 +1,456 @@
+/**
+ * Security — account two-factor (self-service) + SSO/OIDC configuration (admin).
+ *
+ * Two sections:
+ *   1. "My account" — every authenticated user can enroll/disable TOTP MFA here
+ *      (<MfaSetupCard>). When auth is OFF this page still renders but MFA is moot
+ *      (there is no account); we surface a gentle note in that case.
+ *   2. "Single sign-on" — admin-only (gated by <Can resource="settings" action="manage">):
+ *      enable SSO, add/edit OIDC providers (Google/Microsoft presets + generic), set
+ *      the client id + write-only client secret, group→role map, allowed domains/
+ *      tenants, and the redirect/callback URL to register with the IdP.
+ *
+ * All provider config rides PUT /api/settings (prefs.sso); the client SECRET is set
+ * separately via POST /api/auth/sso/providers/{id}/secret (write-only; the UI only
+ * sees a configured-boolean). Operator-entered values are trusted text.
+ */
+import * as React from 'react';
+import { ShieldCheck, KeyRound, Plus, Trash2, Save, Loader2, Copy, Check, Link2 } from 'lucide-react';
+import { toast } from 'sonner';
+
+import { api } from '@/lib/api';
+import type { Preferences, SsoConfig, SsoProviderConfig, UserRole } from '@/lib/types';
+import { useAuth } from '@/soc/auth';
+import { Can } from '@/soc/components/Can';
+import { PageHeader } from '@/soc/components/PageHeader';
+import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
+import { Button } from '@/ui/button';
+import { Input } from '@/ui/input';
+import { Label } from '@/ui/label';
+import { Switch } from '@/ui/switch';
+import { Badge } from '@/ui/badge';
+import { Card, CardContent } from '@/ui/card';
+import { Separator } from '@/ui/separator';
+import { Skeleton } from '@/ui/skeleton';
+import { Alert, AlertDescription } from '@/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/ui/select';
+
+const ROLES: UserRole[] = [
+  'super_admin',
+  'soc_manager',
+  'analyst_tier2',
+  'analyst_tier1',
+  'responder',
+  'auditor',
+];
+
+const PROVIDER_PRESETS: Record<string, Partial<SsoProviderConfig>> = {
+  google: { type: 'google', display_name: 'Google', scopes: 'openid email profile' },
+  microsoft: { type: 'microsoft', display_name: 'Microsoft', scopes: 'openid email profile', tenant: 'organizations' },
+  generic: { type: 'generic', display_name: '', scopes: 'openid email profile' },
+};
+
+function newProvider(type: 'google' | 'microsoft' | 'generic'): SsoProviderConfig {
+  const id = `${type}-${Math.random().toString(36).slice(2, 7)}`;
+  return {
+    id,
+    enabled: true,
+    client_id: '',
+    allowed_domains: [],
+    allowed_tenants: [],
+    group_role_map: {},
+    auto_create_users: false,
+    default_role: 'analyst_tier1',
+    ...PROVIDER_PRESETS[type],
+  } as SsoProviderConfig;
+}
+
+function CopyField({ value }: { value: string }) {
+  const [done, setDone] = React.useState(false);
+  return (
+    <div className="flex items-center gap-2">
+      <code className="min-w-0 flex-1 truncate rounded border border-border bg-muted px-2 py-1 font-mono text-xs">
+        {value}
+      </code>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-8 gap-1.5"
+        onClick={() => {
+          void navigator.clipboard?.writeText(value).then(() => {
+            setDone(true);
+            window.setTimeout(() => setDone(false), 1500);
+          });
+        }}
+      >
+        {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+      </Button>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- SSO provider editor -- */
+
+function ProviderEditor({
+  provider,
+  callbackUrl,
+  configuredSecret,
+  onChange,
+  onRemove,
+  onSetSecret,
+}: {
+  provider: SsoProviderConfig;
+  callbackUrl: string;
+  configuredSecret: boolean;
+  onChange: (next: SsoProviderConfig) => void;
+  onRemove: () => void;
+  onSetSecret: (clientSecret: string | null) => Promise<void>;
+}) {
+  const [secretInput, setSecretInput] = React.useState('');
+  const [savingSecret, setSavingSecret] = React.useState(false);
+  const set = (patch: Partial<SsoProviderConfig>) => onChange({ ...provider, ...patch });
+
+  const domains = (provider.allowed_domains ?? []).join(', ');
+  const tenants = (provider.allowed_tenants ?? []).join(', ');
+  const groupMapText = Object.entries(provider.group_role_map ?? {})
+    .map(([g, r]) => `${g}=${r}`)
+    .join('\n');
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="uppercase">{provider.type}</Badge>
+            <span className="font-mono text-xs text-muted-foreground">{provider.id}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`en-${provider.id}`} className="text-xs">Enabled</Label>
+              <Switch
+                id={`en-${provider.id}`}
+                checked={Boolean(provider.enabled)}
+                onCheckedChange={(v) => set({ enabled: v })}
+              />
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={onRemove} aria-label="Remove provider">
+              <Trash2 className="h-4 w-4 text-critical" aria-hidden />
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Display name</Label>
+            <Input value={provider.display_name ?? ''} onChange={(e) => set({ display_name: e.target.value })} placeholder="Sign in with…" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Client ID</Label>
+            <Input value={provider.client_id ?? ''} onChange={(e) => set({ client_id: e.target.value })} placeholder="OIDC client id" />
+          </div>
+          {provider.type === 'microsoft' ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tenant</Label>
+              <Input value={provider.tenant ?? ''} onChange={(e) => set({ tenant: e.target.value })} placeholder="organizations | common | {guid}" />
+            </div>
+          ) : null}
+          {provider.type === 'generic' ? (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Discovery URL</Label>
+              <Input value={provider.discovery_url ?? ''} onChange={(e) => set({ discovery_url: e.target.value })} placeholder="https://idp.example.com/.well-known/openid-configuration" />
+            </div>
+          ) : null}
+        </div>
+
+        {/* Client secret (write-only) */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Client secret</Label>
+            <Badge variant={configuredSecret ? 'default' : 'outline'} className="text-[10px]">
+              {configuredSecret ? 'configured' : 'not set'}
+            </Badge>
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              value={secretInput}
+              onChange={(e) => setSecretInput(e.target.value)}
+              placeholder={configuredSecret ? '•••••••• (set — leave blank to keep)' : 'paste the OIDC client secret'}
+              autoComplete="off"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={savingSecret || !secretInput.trim()}
+              onClick={async () => {
+                setSavingSecret(true);
+                try {
+                  await onSetSecret(secretInput.trim());
+                  setSecretInput('');
+                } finally {
+                  setSavingSecret(false);
+                }
+              }}
+            >
+              {savingSecret ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
+              Save secret
+            </Button>
+          </div>
+        </div>
+
+        {/* Allowlists */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Allowed domains (comma-separated)</Label>
+            <Input
+              value={domains}
+              onChange={(e) => set({ allowed_domains: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+              placeholder="acme.com, sub.acme.com"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Allowed tenants (comma-separated)</Label>
+            <Input
+              value={tenants}
+              onChange={(e) => set({ allowed_tenants: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })}
+              placeholder="tenant-guid"
+            />
+          </div>
+        </div>
+
+        {/* Group → role mapping */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Group claim</Label>
+            <Input value={provider.group_claim ?? ''} onChange={(e) => set({ group_claim: e.target.value })} placeholder="groups | roles" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Default role</Label>
+            <Select value={provider.default_role ?? 'analyst_tier1'} onValueChange={(v) => set({ default_role: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Group → role map (one per line, e.g. <span className="font-mono">soc-admins=super_admin</span>)</Label>
+          <textarea
+            className="w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs"
+            rows={3}
+            value={groupMapText}
+            onChange={(e) => {
+              const map: Record<string, string> = {};
+              for (const line of e.target.value.split('\n')) {
+                const [g, r] = line.split('=');
+                if (g?.trim() && r?.trim()) map[g.trim()] = r.trim();
+              }
+              set({ group_role_map: map });
+            }}
+            placeholder={'soc-admins=super_admin\nanalysts=analyst_tier2'}
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Switch
+            id={`acu-${provider.id}`}
+            checked={Boolean(provider.auto_create_users)}
+            onCheckedChange={(v) => set({ auto_create_users: v })}
+          />
+          <Label htmlFor={`acu-${provider.id}`} className="text-xs">
+            Auto-provision new users on first sign-in (else only existing accounts may sign in)
+          </Label>
+        </div>
+
+        <Separator />
+        <div className="space-y-1.5">
+          <Label className="flex items-center gap-1.5 text-xs"><Link2 className="h-3.5 w-3.5" aria-hidden /> Redirect / callback URL (register this with the IdP)</Label>
+          <CopyField value={callbackUrl} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* --------------------------------------------------------------------- page -- */
+
+export interface SecurityPageProps {
+  onNavigate?: unknown;
+}
+
+export default function Security(_: SecurityPageProps) {
+  const { authEnabled, isAuthenticated, username, refresh } = useAuth();
+  const [mfaEnabled, setMfaEnabled] = React.useState(false);
+  const [prefs, setPrefs] = React.useState<Preferences | null>(null);
+  const [configured, setConfigured] = React.useState<Record<string, boolean>>({});
+  const [secretConfigured, setSecretConfigured] = React.useState<Record<string, boolean>>({});
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  const callbackUrl = `${window.location.origin}/api/auth/sso/callback`;
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const me = await api.auth.me();
+      setMfaEnabled(Boolean(me.user?.mfa_enabled));
+    } catch {
+      setMfaEnabled(false);
+    }
+    try {
+      const s = await api.getSettings();
+      setPrefs(s.prefs);
+      setConfigured(s.configured ?? {});
+    } catch {
+      setPrefs(null);
+    }
+    setLoading(false);
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const sso: SsoConfig = (prefs?.sso as SsoConfig) ?? { enabled: false, providers: [] };
+  const providers = sso.providers ?? [];
+
+  const updateSso = (next: SsoConfig) => {
+    setPrefs((p) => (p ? { ...p, sso: next } : p));
+  };
+
+  const saveSso = async () => {
+    if (!prefs) return;
+    setSaving(true);
+    try {
+      await api.putSettings({ sso });
+      toast.success('Single sign-on settings saved.');
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save SSO settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onChanged = React.useCallback(async () => {
+    await refresh();
+    await load();
+    toast.success('Two-factor settings updated.');
+  }, [refresh, load]);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Settings"
+        title="Security"
+        description="Manage your two-factor authentication and (admins) single sign-on."
+        icon={ShieldCheck}
+      />
+
+      {/* My account: MFA */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">My account</h2>
+        {!authEnabled ? (
+          <Alert>
+            <KeyRound aria-hidden />
+            <AlertDescription>
+              Authentication is disabled, so there is no account to protect. Enable auth on the
+              backend to use two-factor sign-in.
+            </AlertDescription>
+          </Alert>
+        ) : !isAuthenticated || !username ? (
+          <Alert>
+            <KeyRound aria-hidden />
+            <AlertDescription>Sign in to manage two-factor authentication.</AlertDescription>
+          </Alert>
+        ) : loading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : (
+          <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} />
+        )}
+      </section>
+
+      {/* Admin: SSO */}
+      <Can resource="settings" action="manage">
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h2>
+            <Button size="sm" onClick={saveSso} disabled={saving || !prefs}>
+              {saving ? <Loader2 className="animate-spin" aria-hidden /> : <Save aria-hidden />}
+              Save SSO settings
+            </Button>
+          </div>
+
+          {loading ? (
+            <Skeleton className="h-32 w-full" />
+          ) : (
+            <Card>
+              <CardContent className="space-y-4 p-5">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="sso-enabled"
+                    checked={Boolean(sso.enabled)}
+                    onCheckedChange={(v) => updateSso({ ...sso, enabled: v })}
+                  />
+                  <Label htmlFor="sso-enabled" className="text-sm">Enable single sign-on</Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add one or more OIDC providers below. Register the callback URL shown on each
+                  provider with your identity provider. Client secrets are stored server-side and
+                  never shown back.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(['google', 'microsoft', 'generic'] as const).map((t) => (
+                    <Button
+                      key={t}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateSso({ ...sso, providers: [...providers, newProvider(t)] })}
+                    >
+                      <Plus aria-hidden />
+                      Add {t === 'generic' ? 'generic OIDC' : t}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {providers.map((p, idx) => (
+            <ProviderEditor
+              key={p.id}
+              provider={p}
+              callbackUrl={callbackUrl}
+              configuredSecret={Boolean(secretConfigured[p.id]) || Boolean(configured.sso_client_secrets)}
+              onChange={(next) => {
+                const arr = [...providers];
+                arr[idx] = next;
+                updateSso({ ...sso, providers: arr });
+              }}
+              onRemove={() => updateSso({ ...sso, providers: providers.filter((_, i) => i !== idx) })}
+              onSetSecret={async (clientSecret) => {
+                try {
+                  const res = await api.auth.sso.setSecret(p.id, clientSecret);
+                  setSecretConfigured((m) => ({ ...m, [p.id]: Boolean(res.configured) }));
+                  toast.success('Client secret saved.');
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : 'Could not save the secret.');
+                }
+              }}
+            />
+          ))}
+        </section>
+      </Can>
+    </div>
+  );
+}

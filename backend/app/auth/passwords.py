@@ -19,7 +19,10 @@ import secrets
 
 _ALGORITHM = "pbkdf2_sha256"
 _SALT_BYTES = 16
-_DEFAULT_ITERATIONS = 200_000
+# Iteration count bumped to 310k (OWASP 2023 PBKDF2-SHA256 guidance). The count is
+# embedded in every stored hash, so lower-iteration hashes written by older
+# versions still verify transparently — no migration needed.
+_DEFAULT_ITERATIONS = 310_000
 
 
 def hash_password(password: str, *, iterations: int = _DEFAULT_ITERATIONS) -> str:

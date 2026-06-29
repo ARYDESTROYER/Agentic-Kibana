@@ -194,15 +194,20 @@ def test_action_back_compat_without_extra_fields(client, mock_provider):
     ip = "192.0.2.42"
     case_id = _create_case(client, mock_provider, ip)
 
-    # The original minimal contract still works and transitions deterministically.
+    # The original minimal contract still works. Under the F8 status taxonomy the
+    # escalate action now maps to the dedicated ESCALATED lifecycle status (was the
+    # NEEDS_HUMAN alias); the analyst decision_by + history shape are unchanged.
     r = client.post(f"/api/cases/{case_id}/action", json={"action": "escalate", "note": "hi"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["status"] == "needs_human"
+    assert body["status"] == "escalated"
+    assert body["escalation_level"] >= 1
     assert body["decision_by"] == "analyst"
     hist = body["history"][-1]
     assert hist["action"] == "escalate"
     assert "resolution" not in hist and "priority" not in hist  # not added when omitted
+    # The lifecycle transition is recorded on the append-only status timeline.
+    assert body["status_history"][-1]["to_status"] == "escalated"
 
 
 def test_action_unknown_action_400(client, mock_provider):

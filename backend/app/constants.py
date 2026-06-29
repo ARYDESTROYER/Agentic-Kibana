@@ -53,6 +53,15 @@ PROPOSALS_NS = "proposals"
 PROPOSALS_KEY = "entries"
 PROPOSALS_DOC_ID = "proposals"   # ES doc id within CONFIG_INDEX
 
+# Multi-USER store (Wave 1: real users for login + RBAC). Stored exactly like the
+# operator MEMORY / agent PROPOSAL sets — ONE KV document (a single JSON list) under
+# this namespace/key — so it needs NO new ES index / SQL table / migration. The ES
+# backend stores it as a doc in the existing CONFIG_INDEX; the SQL backend uses the
+# shared KV table.
+USERS_NS = "users"
+USERS_KEY = "entries"
+USERS_DOC_ID = "users"   # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""
@@ -63,11 +72,59 @@ class Verdict(str, Enum):
 
 
 class CaseStatus(str, Enum):
-    """Lifecycle of a case (Section 7.1). DECISION is deterministic code."""
+    """Lifecycle of a case (Section 7.1). DECISION is deterministic code.
 
-    OPEN = "open"
-    NEEDS_HUMAN = "needs_human"
-    CLOSED = "closed"
+    Two-axis model (see docs/research/.../STATUS_TAXONOMY.md): this is the
+    LIFECYCLE axis; the investigative outcome is the separate :class:`Disposition`.
+    The three ORIGINAL string values (``open``/``needs_human``/``closed``) are kept
+    BYTE-FOR-BYTE so stored cases load unchanged and ``decide()`` (#3) is untouched;
+    the richer states below are ADDED additively and reached via analyst lifecycle
+    actions + the existing ``escalate`` flag — never by rewriting the deterministic
+    decision. ``NEEDS_HUMAN`` is a RETAINED, deprecated alias of "open · awaiting
+    analyst" (the UI renders it that way)."""
+
+    NEW = "new"                    # created, not yet investigated (candidate / pre-LLM)
+    OPEN = "open"                  # retained — investigated, awaiting analyst
+    NEEDS_HUMAN = "needs_human"    # retained alias of "open · awaiting analyst" (decide() still uses it)
+    INVESTIGATING = "investigating"  # an analyst / re-investigation is actively working it
+    ESCALATED = "escalated"        # flagged high-priority for senior / Tier-3
+    ON_HOLD = "on_hold"            # paused (awaiting info / maintenance / third party)
+    RESOLVED = "resolved"          # worked to completion, pending final close / audit
+    CLOSED = "closed"              # retained — terminal
+
+
+# Lifecycle statuses that count as STILL OPEN for the case-signature idempotency
+# lookup (Non-negotiable #4 / find_open_by_signature). Any non-terminal status must
+# attach to its existing case rather than spawn a duplicate; only RESOLVED + CLOSED
+# are terminal. This is the single source of truth for "is this case still live?",
+# used by BOTH the ES and SQL case stores so the F8 statuses don't break dedupe.
+OPEN_CASE_STATUSES: tuple[str, ...] = (
+    CaseStatus.NEW.value,
+    CaseStatus.OPEN.value,
+    CaseStatus.NEEDS_HUMAN.value,
+    CaseStatus.INVESTIGATING.value,
+    CaseStatus.ESCALATED.value,
+    CaseStatus.ON_HOLD.value,
+)
+# Terminal statuses (a case here is DONE; a new occurrence opens a fresh case).
+TERMINAL_CASE_STATUSES: tuple[str, ...] = (
+    CaseStatus.RESOLVED.value,
+    CaseStatus.CLOSED.value,
+)
+
+
+class Disposition(str, Enum):
+    """Investigative OUTCOME (verdict-class) axis — the analyst-confirmable,
+    reportable classification on/after close. Orthogonal to :class:`CaseStatus`
+    (lifecycle). Defaulted to ``None`` on the Case so old stored cases load
+    unchanged; the LLM ``Verdict`` is unchanged and still feeds ``decide()``."""
+
+    TRUE_POSITIVE = "true_positive"
+    FALSE_POSITIVE = "false_positive"
+    BENIGN = "benign"
+    SUSPICIOUS = "suspicious"
+    DUPLICATE = "duplicate"
+    UNDETERMINED = "undetermined"
 
 
 class SourceSurface(str, Enum):
@@ -109,8 +166,26 @@ class ActionType(str, Enum):
     SCAN = "scan"
     FEEDBACK = "feedback"      # analyst graded an AI verdict (eval loop)
     COLLAB = "collab"          # analyst comment / tag / assignment
+    STATUS = "status"          # analyst case-lifecycle transition (hold/resume/resolve/escalate/set_disposition/...)
     CONTEXT = "context"        # the injected investigation context (RAG/memory/enrichment) — explainability
     PROPOSAL = "proposal"      # agent drafted / human approved-rejected a HITL proposal
+    USER_MGMT = "user_mgmt"        # user-management action (create/update/delete/role/password reset)
+    AUTH_EVENT = "auth"            # login success/failure, logout, password change (auth events)
+    ACCESS_DENIED = "access_denied"  # an authenticated caller was denied by the RBAC policy
+
+
+class UserRole(str, Enum):
+    """SOC operator roles for multi-user RBAC (Wave 1). Distinct from the LLM
+    :class:`Role` (model roles). The permission matrix that maps each role to
+    ``resource:action`` grants lives in ``app/rbac/policy.py`` (DEFAULT_MATRIX),
+    and is operator-overridable via ``Preferences.rbac.roles``."""
+
+    SUPER_ADMIN = "super_admin"
+    SOC_MANAGER = "soc_manager"
+    ANALYST_TIER2 = "analyst_tier2"
+    ANALYST_TIER1 = "analyst_tier1"
+    RESPONDER = "responder"
+    AUDITOR = "auditor"
 
 
 class ToolTier(str, Enum):

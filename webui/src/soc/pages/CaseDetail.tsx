@@ -26,6 +26,7 @@ import * as React from 'react';
 import {
   Activity,
   AlertTriangle,
+  ArrowDownCircle,
   Bell,
   BookOpen,
   Brain,
@@ -43,13 +44,16 @@ import {
   Info,
   Lock,
   MessageSquare,
+  PauseCircle,
   Play,
+  PlayCircle,
   RefreshCw,
   Save,
   Search,
   Shield,
   SlidersHorizontal,
   Star,
+  Tag,
   Target,
   Terminal,
   User,
@@ -127,9 +131,11 @@ import { CodeBlock } from '@/soc/components/CodeBlock';
 import {
   VerdictBadge,
   StatusBadge,
+  DispositionBadge,
   RiskBadge,
   ConfidenceBadge,
 } from '@/soc/components/badges';
+import { Can } from '@/soc/components/Can';
 
 import type { Navigate } from '@/soc/router';
 
@@ -155,8 +161,43 @@ interface TraceResponse {
   total: number;
 }
 
-type ActionKind = 'close' | 'confirm_fp' | 'escalate' | 'reopen' | 'acknowledge';
-type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority';
+type ActionKind =
+  | 'close'
+  | 'confirm_fp'
+  | 'escalate'
+  | 'deescalate'
+  | 'reopen'
+  | 'acknowledge'
+  | 'hold'
+  | 'resume'
+  | 'resolve'
+  | 'set_disposition';
+type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority' | 'disposition' | 'reason';
+
+/** The RBAC grant an action needs: close-class moves need cases:close, the rest
+ *  cases:write. The footer gates each button with <Can> using this. */
+const ACTION_PERMISSION: Record<ActionKind, { resource: 'cases'; action: 'close' | 'write' }> = {
+  close: { resource: 'cases', action: 'close' },
+  confirm_fp: { resource: 'cases', action: 'close' },
+  resolve: { resource: 'cases', action: 'close' },
+  reopen: { resource: 'cases', action: 'close' },
+  escalate: { resource: 'cases', action: 'write' },
+  deescalate: { resource: 'cases', action: 'write' },
+  acknowledge: { resource: 'cases', action: 'write' },
+  hold: { resource: 'cases', action: 'write' },
+  resume: { resource: 'cases', action: 'write' },
+  set_disposition: { resource: 'cases', action: 'write' },
+};
+
+/** Disposition options for the set_disposition picker (mirrors the backend enum). */
+const DISPOSITION_OPTIONS: Array<{ value: string; text: string }> = [
+  { value: 'true_positive', text: 'True positive' },
+  { value: 'false_positive', text: 'False positive' },
+  { value: 'benign', text: 'Benign' },
+  { value: 'suspicious', text: 'Suspicious' },
+  { value: 'duplicate', text: 'Duplicate' },
+  { value: 'undetermined', text: 'Undetermined' },
+];
 
 interface ActionDef {
   key: ActionKind;
@@ -225,6 +266,57 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     help: 'Mark as seen / being worked, without closing.',
     fields: [],
   },
+  hold: {
+    key: 'hold',
+    label: 'Put on hold',
+    icon: PauseCircle,
+    variant: 'outline',
+    confirmTitle: 'Put this case on hold?',
+    confirmBody: 'Pause the case (awaiting info / a maintenance window / a third party).',
+    help: 'Pause — awaiting info / maintenance / third party.',
+    fields: ['reason'],
+  },
+  resume: {
+    key: 'resume',
+    label: 'Resume',
+    icon: PlayCircle,
+    variant: 'outline',
+    confirmTitle: 'Resume this case?',
+    confirmBody: 'Return a held case to the open queue.',
+    help: 'Return a held case to the open queue.',
+    fields: [],
+  },
+  resolve: {
+    key: 'resolve',
+    label: 'Mark resolved',
+    icon: CheckCircle2,
+    variant: 'default',
+    confirmTitle: 'Mark this case resolved?',
+    confirmBody: 'Mark the case RESOLVED — worked to completion, pending final close / audit.',
+    help: 'RESOLVED — worked to completion, pending final close.',
+    fields: ['reason', 'tags'],
+  },
+  deescalate: {
+    key: 'deescalate',
+    label: 'De-escalate',
+    icon: ArrowDownCircle,
+    variant: 'outline',
+    confirmTitle: 'De-escalate this case?',
+    confirmBody: 'Clear the escalation and return the case to the open queue.',
+    help: 'Clear the escalation; return to the open queue.',
+    fields: ['reason'],
+  },
+  set_disposition: {
+    key: 'set_disposition',
+    label: 'Set disposition',
+    icon: Tag,
+    variant: 'outline',
+    confirmTitle: 'Set the investigative disposition',
+    confirmBody:
+      'Record the investigative OUTCOME (true/false positive, benign, suspicious, …). This does not change the lifecycle status.',
+    help: 'Record the investigative outcome (true/false positive, benign, …).',
+    fields: ['disposition', 'reason'],
+  },
 };
 
 const RESOLUTION_OPTIONS: Array<{ value: string; text: string }> = [
@@ -242,23 +334,48 @@ const PRIORITY_OPTIONS: Array<{ value: string; text: string }> = [
   { value: 'critical', text: 'Critical' },
 ];
 
-/** Lifecycle buttons appropriate to the current status (left→right priority). */
+/** Lifecycle buttons appropriate to the current status (left→right priority).
+ *  Extended for the F8 taxonomy — hold/resume/resolve/de-escalate/set-disposition
+ *  surface contextually; close-class moves only from non-terminal states. */
 function actionsForStatus(status?: string): ActionDef[] {
   const s = (status || '').toLowerCase();
-  if (s === 'closed' || s === 'resolved' || s === 'auto_closed') {
-    return [{ ...ALL_ACTIONS.reopen, fill: true }];
+  // Terminal states: only reopen (and re-classify) is legal.
+  if (s === 'closed' || s === 'auto_closed') {
+    return [{ ...ALL_ACTIONS.reopen, fill: true }, ALL_ACTIONS.set_disposition];
   }
-  if (s === 'needs_human') {
+  if (s === 'resolved') {
     return [
       { ...ALL_ACTIONS.close, fill: true },
-      ALL_ACTIONS.confirm_fp,
-      ALL_ACTIONS.acknowledge,
+      ALL_ACTIONS.reopen,
+      ALL_ACTIONS.set_disposition,
     ];
   }
+  if (s === 'on_hold') {
+    return [
+      { ...ALL_ACTIONS.resume, fill: true },
+      ALL_ACTIONS.resolve,
+      ALL_ACTIONS.close,
+      ALL_ACTIONS.set_disposition,
+    ];
+  }
+  if (s === 'escalated') {
+    return [
+      { ...ALL_ACTIONS.resolve, fill: true },
+      ALL_ACTIONS.deescalate,
+      ALL_ACTIONS.close,
+      ALL_ACTIONS.confirm_fp,
+      ALL_ACTIONS.hold,
+      ALL_ACTIONS.set_disposition,
+    ];
+  }
+  // Open-ish states (new / open / needs_human / investigating).
   return [
     { ...ALL_ACTIONS.escalate, fill: true },
+    ALL_ACTIONS.resolve,
     ALL_ACTIONS.close,
     ALL_ACTIONS.confirm_fp,
+    ALL_ACTIONS.hold,
+    ALL_ACTIONS.set_disposition,
     ALL_ACTIONS.acknowledge,
   ];
 }
@@ -461,6 +578,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [actionAssignee, setActionAssignee] = React.useState('');
   const [actionTags, setActionTags] = React.useState<string[]>([]);
   const [actionTagDraft, setActionTagDraft] = React.useState('');
+  const [actionDisposition, setActionDisposition] = React.useState('');
+  const [actionReason, setActionReason] = React.useState('');
   const [acting, setActing] = React.useState(false);
 
   // Reinvestigate.
@@ -578,14 +697,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setActionAssignee('');
     setActionTags([]);
     setActionTagDraft('');
+    setActionDisposition('');
+    setActionReason('');
   }, []);
 
   const openAction = React.useCallback(
     (a: ActionDef) => {
       resetActionFields();
+      // Pre-seed the disposition picker with the case's current value, if any.
+      if (a.fields.includes('disposition') && typeof c?.disposition === 'string') {
+        setActionDisposition(c.disposition);
+      }
       setPending(a);
     },
-    [resetActionFields],
+    [resetActionFields, c],
   );
 
   const closeAction = React.useCallback(() => {
@@ -609,6 +734,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
         const tags = Array.from(new Set(actionTags.map((t) => t.trim()).filter(Boolean)));
         if (tags.length) input.tags = tags;
       }
+      if (pending.fields.includes('disposition') && actionDisposition) {
+        input.disposition = actionDisposition;
+      }
+      if (pending.fields.includes('reason') && actionReason.trim()) {
+        input.reason = actionReason.trim();
+      }
       const next = await api.caseActionExec(id, input);
       setC(next);
       setPending(null);
@@ -621,7 +752,18 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     } finally {
       setActing(false);
     }
-  }, [pending, note, resolution, priority, actionAssignee, actionTags, id, resetActionFields]);
+  }, [
+    pending,
+    note,
+    resolution,
+    priority,
+    actionAssignee,
+    actionTags,
+    actionDisposition,
+    actionReason,
+    id,
+    resetActionFields,
+  ]);
 
   const runReinvestigate = React.useCallback(async () => {
     setReinvesting(true);
@@ -705,12 +847,29 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                 {loading || !c ? (
                   <Skeleton className="h-6 w-72" />
                 ) : (
-                  <h2 className="truncate text-lg font-bold tracking-tight text-foreground">
-                    {/* UNTRUSTED title — plain text node. */}
-                    {c.title || c.case_id}
-                  </h2>
+                  <>
+                    <div className="flex items-center gap-2">
+                      {/* Human-facing display id (F7) — falls back to case_id. */}
+                      <span className="shrink-0 font-mono text-xs font-semibold text-primary">
+                        {c.case_number || c.case_id}
+                      </span>
+                    </div>
+                    <h2 className="mt-0.5 truncate text-lg font-bold tracking-tight text-foreground">
+                      {/* UNTRUSTED title — plain text node. */}
+                      {c.title || c.case_id}
+                    </h2>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <StatusBadge status={c.status} />
+                      <DispositionBadge disposition={c.disposition ?? null} />
+                      {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+                        <Badge variant="critical" className="gap-1">
+                          <Bell className="h-3 w-3" /> L{c.escalation_level}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </>
                 )}
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {c?.created_at ? (
                     <>Created {humanizeAge(c.created_at)}</>
                   ) : (
@@ -997,22 +1156,25 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                 <div className="flex flex-wrap items-center justify-end gap-2">
                   {headerActions.map((a) => {
                     const Icon = a.icon;
+                    const perm = ACTION_PERMISSION[a.key];
                     return (
-                      <Tooltip key={a.key}>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant={a.fill ? a.variant : 'outline'}
-                            disabled={loading || acting}
-                            onClick={() => openAction(a)}
-                            aria-label={`${a.label} — ${a.help}`}
-                          >
-                            <Icon className="h-4 w-4" />
-                            {a.label}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>{a.help}</TooltipContent>
-                      </Tooltip>
+                      <Can key={a.key} resource={perm.resource} action={perm.action}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant={a.fill ? a.variant : 'outline'}
+                              disabled={loading || acting}
+                              onClick={() => openAction(a)}
+                              aria-label={`${a.label} — ${a.help}`}
+                            >
+                              <Icon className="h-4 w-4" />
+                              {a.label}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>{a.help}</TooltipContent>
+                        </Tooltip>
+                      </Can>
                     );
                   })}
                 </div>
@@ -1107,6 +1269,35 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                 </div>
               ) : null}
 
+              {pending.fields.includes('disposition') ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Disposition</Label>
+                  <Select value={actionDisposition} onValueChange={setActionDisposition}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select an outcome…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DISPOSITION_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.text}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
+              {pending.fields.includes('reason') ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Reason (optional)</Label>
+                  <Input
+                    placeholder="Why — e.g. awaiting vendor reply, confirmed benign…"
+                    value={actionReason}
+                    onChange={(e) => setActionReason(e.target.value)}
+                  />
+                </div>
+              ) : null}
+
               <div className="space-y-1.5">
                 <Label className="text-xs">Analyst note (optional)</Label>
                 <Textarea
@@ -1125,7 +1316,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
               <Button
                 variant={pending.variant === 'outline' ? 'default' : pending.variant}
                 onClick={() => void runAction()}
-                disabled={acting}
+                disabled={
+                  acting ||
+                  (pending.fields.includes('disposition') && !actionDisposition)
+                }
               >
                 {acting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <pending.icon className="h-4 w-4" />}
                 {pending.label}
@@ -1202,6 +1396,62 @@ const RULED_OUT_RE =
 function isRuledOut(summary?: string): boolean {
   return !!summary && RULED_OUT_RE.test(summary);
 }
+
+/* ------------------------------------------------------- status timeline -- */
+
+/** Append-only lifecycle transition trail (F8). `by`/`reason` are operator/agent
+ *  text — rendered as plain text (#9). Renders nothing when empty. */
+const StatusTimeline: React.FC<{
+  history?: Case['status_history'];
+  statusReason?: string;
+}> = ({ history, statusReason }) => {
+  const entries = Array.isArray(history) ? history : [];
+  if (!entries.length && !statusReason) return null;
+  // Newest last (chronological), reversed for newest-first display.
+  const ordered = [...entries].reverse();
+  return (
+    <div className="rounded-lg border border-border bg-card p-6">
+      <SectionHeading icon={History} tone="info">
+        Status timeline
+      </SectionHeading>
+      {statusReason ? (
+        <p className="mb-3 text-xs text-muted-foreground">
+          {/* UNTRUSTED status reason — plain text. */}
+          Current reason: <span className="text-foreground/90">{statusReason}</span>
+        </p>
+      ) : null}
+      {ordered.length ? (
+        <ol className="relative space-y-4 border-l border-border pl-5">
+          {ordered.map((e, i) => (
+            <li key={`${e.at}-${i}`} className="relative">
+              <span
+                aria-hidden="true"
+                className="absolute -left-[1.4rem] top-1 h-2.5 w-2.5 rounded-full border-2 border-card bg-primary"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                {e.from_status ? <StatusBadge status={e.from_status} /> : null}
+                <span className="text-xs text-muted-foreground">{DASH}</span>
+                <StatusBadge status={e.to_status} />
+                <span className="text-xs text-muted-foreground">
+                  {e.at ? humanizeAge(e.at) : ''}
+                  {e.by ? <> · {humanizeToken(e.by)}</> : null}
+                </span>
+              </div>
+              {e.reason ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {/* UNTRUSTED — plain text. */}
+                  {e.reason}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-sm text-muted-foreground">No lifecycle transitions recorded yet.</p>
+      )}
+    </div>
+  );
+};
 
 const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> = ({
   c,
@@ -1327,6 +1577,13 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
       <div className="flex flex-wrap items-center gap-2">
         <VerdictBadge verdict={c.verdict} />
         <StatusBadge status={c.status} />
+        <DispositionBadge disposition={c.disposition ?? null} />
+        {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+          <Badge variant="critical" className="gap-1">
+            <Bell className="h-3 w-3" />
+            Escalation L{c.escalation_level}
+          </Badge>
+        ) : null}
         <RiskBadge score={c.risk_score} />
         <ConfidenceBadge
           confidence={c.confidence}
@@ -1581,6 +1838,9 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
           </div>
         </div>
       ) : null}
+
+      {/* ------------------------------------------- status timeline */}
+      <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
 
       {/* ------------------------------------------- footer meta */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">

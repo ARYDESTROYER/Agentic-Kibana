@@ -32,7 +32,7 @@ import {
 
 import { api } from '@/lib/api';
 import type { Case, CaseActionInput } from '@/lib/types';
-import { humanizeAge, DASH } from '@/lib/format';
+import { humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
@@ -60,6 +60,7 @@ import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
 import {
   StatusBadge,
   VerdictBadge,
+  DispositionBadge,
   RiskBadge,
   SeverityBadge,
   ConfidenceBadge,
@@ -143,6 +144,7 @@ const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all'>, number> = {
 interface CaseFilters {
   search: string;
   status: string; // ANY | a status value
+  disposition: string; // ANY | a disposition value
   severity: string; // ANY | 'critical'|'high'|'medium'|'low'|'info'
   assignee: string; // ANY | UNASSIGNED | a name
   timeRange: TimeRange;
@@ -151,6 +153,7 @@ interface CaseFilters {
 const EMPTY_FILTERS: CaseFilters = {
   search: '',
   status: ANY,
+  disposition: ANY,
   severity: ANY,
   assignee: ANY,
   timeRange: 'all',
@@ -158,6 +161,7 @@ const EMPTY_FILTERS: CaseFilters = {
 
 interface Facets {
   statuses: string[];
+  dispositions: string[];
   assignees: string[];
 }
 
@@ -166,13 +170,19 @@ const sortedUniq = (vals: Iterable<string>): string[] =>
 
 function buildFacets(cases: Case[]): Facets {
   const statuses = new Set<string>();
+  const dispositions = new Set<string>();
   const assignees = new Set<string>();
   for (const c of cases) {
     if (c.status) statuses.add(c.status);
+    if (typeof c.disposition === 'string' && c.disposition) dispositions.add(c.disposition);
     const a = (c.assignee || '').trim();
     if (a) assignees.add(a);
   }
-  return { statuses: sortedUniq(statuses), assignees: sortedUniq(assignees) };
+  return {
+    statuses: sortedUniq(statuses),
+    dispositions: sortedUniq(dispositions),
+    assignees: sortedUniq(assignees),
+  };
 }
 
 /** Drop a single-select facet value no longer present (self-healing). */
@@ -180,6 +190,9 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
   let next = f;
   if (f.status !== ANY && !facets.statuses.includes(f.status)) {
     next = { ...next, status: ANY };
+  }
+  if (f.disposition !== ANY && !facets.dispositions.includes(f.disposition)) {
+    next = { ...next, disposition: ANY };
   }
   if (
     f.assignee !== ANY &&
@@ -219,6 +232,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
 
   return cases.filter((c) => {
     if (f.status !== ANY && (c.status || '') !== f.status) return false;
+    if (f.disposition !== ANY && (c.disposition || '') !== f.disposition) return false;
 
     if (f.severity !== ANY) {
       if (severityBandKey(caseSeverity(c)) !== f.severity) return false;
@@ -264,6 +278,7 @@ function countActiveFilters(f: CaseFilters): number {
   return (
     (f.search.trim() ? 1 : 0) +
     (f.status !== ANY ? 1 : 0) +
+    (f.disposition !== ANY ? 1 : 0) +
     (f.severity !== ANY ? 1 : 0) +
     (f.assignee !== ANY ? 1 : 0) +
     (f.timeRange !== 'all' ? 1 : 0)
@@ -276,6 +291,7 @@ type SortId =
   | 'case_id'
   | 'title'
   | 'status'
+  | 'disposition'
   | 'category'
   | 'severity'
   | 'severity_ai'
@@ -283,9 +299,12 @@ type SortId =
   | 'updated_at';
 
 const sortComparators: Record<SortId, (a: Case, b: Case) => number> = {
-  case_id: (a, b) => a.case_id.localeCompare(b.case_id),
+  case_id: (a, b) =>
+    (a.case_number || a.case_id).localeCompare(b.case_number || b.case_id),
   title: (a, b) => (a.title || a.case_id).localeCompare(b.title || b.case_id),
   status: (a, b) => (a.status || '').localeCompare(b.status || ''),
+  disposition: (a, b) =>
+    (a.disposition || '￿').localeCompare(b.disposition || '￿'),
   category: (a, b) => (caseCategory(a) || '￿').localeCompare(caseCategory(b) || '￿'),
   severity: (a, b) => {
     const order = ['info', 'low', 'medium', 'high', 'critical'];
@@ -489,7 +508,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
             }}
             className="rounded-sm font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {c.case_id}
+            {c.case_number || c.case_id}
           </button>
         </CaseHoverCard>
       ),
@@ -512,6 +531,13 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       sortable: true,
       width: '9rem',
       cell: (c) => <StatusBadge status={c.status} />,
+    },
+    {
+      id: 'disposition',
+      header: 'Disposition',
+      sortable: true,
+      width: '8rem',
+      cell: (c) => <DispositionBadge disposition={c.disposition ?? null} />,
     },
     {
       id: 'alerts',
@@ -737,11 +763,30 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
             <SelectItem value={ANY}>All statuses</SelectItem>
             {facets.statuses.map((s) => (
               <SelectItem key={s} value={s}>
-                {s}
+                {s === 'needs_human' ? 'Open · awaiting analyst' : humanizeToken(s)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
+        {facets.dispositions.length ? (
+          <Select
+            value={filters.disposition}
+            onValueChange={(v) => setFilter('disposition', v)}
+          >
+            <SelectTrigger className="w-[11rem]" aria-label="Filter by disposition">
+              <SelectValue placeholder="Disposition" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All dispositions</SelectItem>
+              {facets.dispositions.map((d) => (
+                <SelectItem key={d} value={d}>
+                  {humanizeToken(d)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
 
         <Select value={filters.severity} onValueChange={(v) => setFilter('severity', v)}>
           <SelectTrigger className="w-[10rem]" aria-label="Filter by severity">

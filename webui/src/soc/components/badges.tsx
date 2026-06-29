@@ -93,15 +93,23 @@ export function SeverityBadge({ severity, className, showValue }: SeverityBadgeP
 function statusVariant(status: string): Variant {
   const t = status.trim().toLowerCase();
   switch (t) {
+    case 'new':
+      return 'secondary';
     case 'open':
-    case 'investigating':
     case 'in_progress':
       return 'info';
+    case 'investigating':
+      return 'info';
     case 'needs_human':
-    case 'escalated':
+      // Legacy alias of "open · awaiting analyst" — treated as an open/attention state.
       return 'high';
-    case 'closed':
+    case 'escalated':
+      return 'critical';
+    case 'on_hold':
+      return 'warning';
     case 'resolved':
+      return 'success';
+    case 'closed':
     case 'auto_closed':
       return 'success';
     case 'reopened':
@@ -112,6 +120,15 @@ function statusVariant(status: string): Variant {
     default:
       return 'secondary';
   }
+}
+
+/** Human-facing label for a status. The legacy NEEDS_HUMAN alias renders as a
+ *  clearer "Open · awaiting analyst" per the F8 taxonomy. */
+function statusLabel(status: string): string {
+  const t = status.trim().toLowerCase();
+  if (t === 'needs_human') return 'Open · awaiting analyst';
+  if (t === 'on_hold') return 'On hold';
+  return humanizeToken(status);
 }
 
 export interface StatusBadgeProps {
@@ -129,7 +146,50 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   }
   return (
     <Badge variant={statusVariant(status)} className={className}>
-      {humanizeToken(status)}
+      {statusLabel(status)}
+    </Badge>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Disposition — the investigative OUTCOME axis (orthogonal to lifecycle status).
+// true_positive (alarming) / false_positive + benign (success) / suspicious
+// (amber) / duplicate + undetermined (neutral). Permissive to unknown values.
+// --------------------------------------------------------------------------- //
+function dispositionVariant(disposition: string): Variant {
+  const t = disposition.trim().toLowerCase();
+  switch (t) {
+    case 'true_positive':
+      return 'critical';
+    case 'false_positive':
+    case 'benign':
+      return 'success';
+    case 'suspicious':
+      return 'high';
+    case 'duplicate':
+    case 'undetermined':
+      return 'secondary';
+    default:
+      return 'secondary';
+  }
+}
+
+export interface DispositionBadgeProps {
+  disposition: string | null | undefined;
+  className?: string;
+}
+
+export function DispositionBadge({ disposition, className }: DispositionBadgeProps) {
+  if (!disposition || disposition.trim().toLowerCase() === 'none') {
+    return (
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
+        Undetermined
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant={dispositionVariant(disposition)} className={className}>
+      {humanizeToken(disposition)}
     </Badge>
   );
 }

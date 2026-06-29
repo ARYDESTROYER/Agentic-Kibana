@@ -7,10 +7,11 @@
  */
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
-import { api, setUnauthorizedHandler } from '@/lib/api';
-import type { AuthMe, NavOpts } from '@/lib/types';
+import { api } from '@/lib/api';
+import type { NavOpts } from '@/lib/types';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ThemeProvider } from './theme';
+import { AuthProvider, useAuth, useUnauthorizedRedirect } from './auth';
 import { RouterProvider, useRoute, type Navigate } from './router';
 import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -29,11 +30,11 @@ import Memory from './pages/Memory';
 import Sources from './pages/Sources';
 import Catalog from './pages/Catalog';
 import Settings from './pages/Settings';
+import Security from './pages/Security';
 import Approvals from './pages/Approvals';
+import Users from './pages/Users';
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
-
-type Boot = 'loading' | 'login' | 'wizard' | 'app';
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -77,86 +78,72 @@ function renderPage(
       return <Cost onNavigate={navigate} />;
     case 'settings':
       return <Settings onNavigate={navigate} onRerunWizard={onRerunWizard} />;
+    case 'security':
+      return <Security onNavigate={navigate} />;
+    case 'users':
+      return <Users onNavigate={navigate} />;
     default:
       return <Overview onNavigate={navigate} />;
   }
 }
 
 const Boot: React.FC = () => {
-  const [boot, setBoot] = React.useState<Boot>('loading');
-  const [auth, setAuth] = React.useState<AuthMe | null>(null);
+  const { authEnabled, isAuthenticated, username, loading: authLoading, refresh, logout } =
+    useAuth();
+  const [setupChecked, setSetupChecked] = React.useState(false);
+  const [setupComplete, setSetupComplete] = React.useState(true);
   const [forceWizard, setForceWizard] = React.useState(false);
   const { page, opts, navigate } = useRoute();
+
+  // Whether the gate currently shows the login screen (auth on + no session).
+  const showLogin = authEnabled && !isAuthenticated;
 
   const checkSetup = React.useCallback(async () => {
     try {
       const st = await api.setupStatus();
-      setBoot(st.setup_complete ? 'app' : 'wizard');
+      setSetupComplete(st.setup_complete);
     } catch {
-      setBoot('app');
+      setSetupComplete(true);
+    } finally {
+      setSetupChecked(true);
     }
   }, []);
 
-  const boot0 = React.useCallback(async () => {
-    let me: AuthMe | null = null;
-    try {
-      me = await api.auth.me();
-    } catch {
-      me = null;
-    }
-    setAuth(me);
-    if (me?.enabled && !me.authenticated) {
-      setBoot('login');
-      return;
-    }
-    await checkSetup();
-  }, [checkSetup]);
-
+  // Once we have a session (or auth is off), check whether the wizard is needed.
   React.useEffect(() => {
-    void boot0();
-  }, [boot0]);
+    if (authLoading || showLogin) return;
+    void checkSetup();
+  }, [authLoading, showLogin, checkSetup]);
 
-  React.useEffect(() => {
-    if (auth?.enabled) {
-      setUnauthorizedHandler(() => {
-        setAuth((prev) => (prev ? { ...prev, authenticated: false, user: null } : prev));
-        setBoot('login');
-      });
-      return () => setUnauthorizedHandler(null);
-    }
-    setUnauthorizedHandler(null);
-    return undefined;
-  }, [auth?.enabled]);
+  // A 401 on any non-auth call bounces back to the login screen (auth on only).
+  useUnauthorizedRedirect(
+    React.useCallback(() => {
+      void refresh();
+    }, [refresh]),
+    authEnabled,
+  );
 
   const onAuthenticated = React.useCallback(async () => {
-    setBoot('loading');
-    try {
-      setAuth(await api.auth.me());
-    } catch {
-      /* fall through to setup */
-    }
+    setSetupChecked(false);
+    await refresh();
     await checkSetup();
-  }, [checkSetup]);
+  }, [refresh, checkSetup]);
 
   const onLogout = React.useCallback(async () => {
-    try {
-      await api.auth.logout();
-    } catch {
-      /* drop to login regardless */
-    }
-    setAuth((prev) => (prev ? { ...prev, authenticated: false, user: null } : prev));
+    await logout();
     navigate('overview');
-    setBoot('login');
-  }, [navigate]);
+  }, [logout, navigate]);
 
-  if (boot === 'loading') return <CenterSpinner label="Starting console…" />;
-  if (boot === 'login') return <Login onAuthenticated={onAuthenticated} />;
-  if (boot === 'wizard' || forceWizard) {
+  if (authLoading) return <CenterSpinner label="Starting console…" />;
+  if (showLogin) return <Login onAuthenticated={onAuthenticated} />;
+  if (!setupChecked) return <CenterSpinner label="Starting console…" />;
+
+  if (!setupComplete || forceWizard) {
     return (
       <Wizard
         onComplete={() => {
           setForceWizard(false);
-          setBoot('app');
+          setSetupComplete(true);
           navigate('overview');
         }}
         onExit={forceWizard ? () => setForceWizard(false) : undefined}
@@ -164,12 +151,12 @@ const Boot: React.FC = () => {
     );
   }
 
-  const showUser = Boolean(auth?.enabled && auth?.authenticated && auth?.user);
+  const showUser = Boolean(authEnabled && isAuthenticated && username);
   return (
     <AppShell
       page={page}
       onNavigate={navigate}
-      username={showUser ? auth?.user?.username : undefined}
+      username={showUser ? username : undefined}
       onLogout={showUser ? onLogout : undefined}
     >
       <ErrorBoundary resetKey={page}>
@@ -182,9 +169,11 @@ const Boot: React.FC = () => {
 export const App: React.FC = () => (
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
-      <RouterProvider>
-        <Boot />
-      </RouterProvider>
+      <AuthProvider>
+        <RouterProvider>
+          <Boot />
+        </RouterProvider>
+      </AuthProvider>
     </TooltipProvider>
   </ThemeProvider>
 );

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -15,10 +16,12 @@ from ..constants import (
     ActionType,
     CaseStatus,
     DecisionBy,
+    Disposition,
     EntityType,
     IngestMode,
     SourceSurface,
     SourceType,
+    UserRole,
 )
 from ..engine.correlation import cluster_from_events
 from ..engine.metrics import compute_metrics, feedback_stats
@@ -31,12 +34,20 @@ from ..models import (
     FeedbackEntry,
     InvestigateRequest,
     RawEvent,
+    StatusHistoryEntry,
     TraceStep,
     TriggerReason,
 )
 from ..state import AppState
 from ..utils import iso_now, relative_to_millis
-from .deps import _bearer, current_username, get_state, require_admin
+from .deps import (
+    _bearer,
+    current_user,
+    current_username,
+    get_state,
+    require_admin,
+    require_permission,
+)
 
 logger = logging.getLogger("tlsoc.api")
 router = APIRouter(prefix="/api")
@@ -73,9 +84,26 @@ class SecretsUpdate(BaseModel):
 
 @router.get("/setup/status")
 async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """PUBLIC first-run status. Carries both the legacy wizard fields AND the Wave-1
+    OOBE fields (auth/RBAC/user-count) the login/setup screen needs before a session
+    exists. ``needs_user`` is true only when auth is enabled and NO users exist yet
+    (so the UI shows the create-first-admin form). ``seeded_default`` hints that the
+    demo Admin/Admin@123 credentials are live (subtle login hint)."""
     p = state.prefs
+    auth_enabled = bool(state.secrets.auth_enabled)
+    user_count = 0
+    if auth_enabled:
+        try:
+            user_count = await state.users.count()
+        except Exception:  # noqa: BLE001
+            user_count = 0
     return {
         "setup_complete": p.setup_complete,
+        "needs_user": bool(auth_enabled and user_count == 0),
+        "auth_enabled": auth_enabled,
+        "rbac_enabled": bool(getattr(p, "rbac", None) and p.rbac.enabled),
+        "user_count": user_count,
+        "seeded_default": bool(getattr(state, "_seeded_default_admin", False)),
         "configured": state.secrets.configured_status(),
         "data_view_pattern": p.data_view_pattern,
         "entity_mapping": {
@@ -85,6 +113,48 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
         },
         "es_connected": await state.es.ping(),
     }
+
+
+class InitAdminBody(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/setup/init-admin")
+async def setup_init_admin(
+    body: InitAdminBody, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """PUBLIC OOBE: create the FIRST super_admin. Succeeds ONLY when no users exist
+    (409 otherwise) so it can never be used to add or escalate accounts once the
+    platform is bootstrapped. No-op-rejecting when auth is disabled."""
+    if not state.secrets.auth_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    uname = (body.username or "").strip()
+    pw = (body.password or "").strip()
+    if not uname or len(pw) < 8:
+        raise HTTPException(
+            status_code=400, detail="username required and password must be >= 8 characters"
+        )
+    if await state.users.count() > 0:
+        raise HTTPException(status_code=409, detail="a user already exists; admin already initialised")
+    from ..auth.passwords import hash_password
+
+    created = await state.users.create_if_absent(
+        username=uname,
+        password_hash=hash_password(pw),
+        role=UserRole.SUPER_ADMIN.value,
+        active=True,
+        must_change_password=False,
+    )
+    if created is None:  # lost a race — someone else just initialised
+        raise HTTPException(status_code=409, detail="a user already exists; admin already initialised")
+    state._seeded_default_admin = False
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.USER_MGMT, surface="setup", actor=uname,
+        result_summary=f"initialised first super_admin '{uname}'",
+    )
+    return {"ok": True, "username": created.username}
 
 
 @router.post("/setup/secrets")
@@ -389,6 +459,28 @@ async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state
     if prefs.setup_complete and prefs.polling_enabled and not prefs.caps.kill_switch:
         state.poller.start()
     return {"ok": True, "prefs": prefs.model_dump(mode="json")}
+
+
+class CaseIdPreviewBody(BaseModel):
+    template: str
+    prefix: str = "CASE"
+    seq_start: int = 1
+
+
+@router.post("/settings/case-id/preview")
+async def case_id_preview(
+    body: CaseIdPreviewBody,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    """Render 5 sample case numbers from a CANDIDATE template without persisting or
+    consuming the live sequence. Returns ``{samples, valid, error}`` (F7 live
+    preview). Gated by settings:manage."""
+    from ..engine.case_id import preview_samples
+
+    return preview_samples(
+        body.template, prefix=body.prefix or "CASE", seq_start=int(body.seq_start), count=5
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -918,6 +1010,16 @@ class LoginBody(BaseModel):
     password: str
 
 
+def _resolved_role(state: AppState, user) -> str:
+    """The role to surface to the UI. When RBAC is OFF (or auth is the legacy env
+    single-admin), an authenticated principal is effectively super_admin — report
+    that so the webui unlocks every surface, matching the server-side back-compat."""
+    rbac = getattr(state.prefs, "rbac", None)
+    if not getattr(rbac, "enabled", False):
+        return UserRole.SUPER_ADMIN.value
+    return getattr(user, "role", "") or state.prefs.rbac.default_role
+
+
 @router.post("/auth/login")
 async def auth_login(
     body: LoginBody, response: Response, state: AppState = Depends(get_state)
@@ -927,26 +1029,69 @@ async def auth_login(
         raise HTTPException(status_code=400, detail="authentication is disabled")
     token = auth.authenticate(body.username, body.password)
     if not token:
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=body.username or "",
+            result_summary="login failed",
+        )
         raise HTTPException(status_code=401, detail="invalid credentials")
+    user = auth.principal(body.username) or auth.verify(token)
+    # --- MFA phase 1 (Wave 2 / F3): the password is correct, but the user has MFA
+    # enabled (or its role is enforced). Do NOT mint a session cookie/token here —
+    # return a SHORT-LIVED pending token the client exchanges at /auth/mfa/verify
+    # with a TOTP/recovery code. A user with mfa_enabled=False is UNAFFECTED. ---
+    if auth.requires_mfa(user.username):
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
+            result_summary="password ok; mfa challenge issued",
+        )
+        return {
+            "requires_mfa": True,
+            "pending_token": auth.begin_mfa(user.username),
+        }
+    # Best-effort: record the login timestamp (multi-user store only).
+    try:
+        await state.users.update(user.username, last_login_at=iso_now())
+    except Exception:  # noqa: BLE001
+        pass
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
+        result_summary="login ok",
+    )
     response.set_cookie(
         "tlsoc_token", token, httponly=True, samesite="lax",
         secure=state.secrets.auth_cookie_secure,
         max_age=state.secrets.auth_token_hours * 3600,
     )
-    return {"ok": True, "user": {"username": body.username}}
+    return {
+        "token": token,
+        "user": {
+            "username": user.username,
+            "role": _resolved_role(state, user),
+            "must_change_password": bool(user.must_change_password),
+            "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
+        },
+    }
 
 
 @router.get("/auth/me")
 async def auth_me(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
     auth = state.auth
     if not auth.is_enabled:
-        return {"enabled": False, "authenticated": False, "user": None}
+        return {"authenticated": True, "auth_enabled": False, "user": None}
     token = request.cookies.get("tlsoc_token") or _bearer(request)
     user = auth.verify(token) if token else None
     return {
-        "enabled": True,
         "authenticated": user is not None,
-        "user": ({"username": user.username} if user else None),
+        "auth_enabled": True,
+        "user": (
+            {
+                "username": user.username,
+                "role": _resolved_role(state, user),
+                "must_change_password": bool(user.must_change_password),
+                "mfa_enabled": bool(getattr(user, "mfa_enabled", False)),
+            }
+            if user else None
+        ),
     }
 
 
@@ -954,6 +1099,708 @@ async def auth_me(request: Request, state: AppState = Depends(get_state)) -> dic
 async def auth_logout(response: Response, state: AppState = Depends(get_state)) -> dict[str, Any]:
     # Mirror the set_cookie attributes so the cookie is reliably cleared.
     response.delete_cookie("tlsoc_token", samesite="lax", secure=state.secrets.auth_cookie_secure)
+    return {"ok": True}
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/auth/change-password")
+async def auth_change_password(
+    body: ChangePasswordBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Self-service password change (requires a valid session). Verifies the current
+    password, sets the new one and clears ``must_change_password``. Works only for
+    multi-user accounts; the env single-admin has no persisted record to update."""
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    token = request.cookies.get("tlsoc_token") or _bearer(request)
+    principal = auth.verify(token) if token else None
+    if principal is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    new_pw = (body.new_password or "").strip()
+    if len(new_pw) < 8:
+        raise HTTPException(status_code=400, detail="new password must be at least 8 characters")
+    # Re-authenticate with the current password (constant-time, no oracle).
+    if auth.authenticate(principal.username, body.current_password) is None:
+        raise HTTPException(status_code=400, detail="current password is incorrect")
+    user = await state.users.get(principal.username)
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is managed via environment configuration and cannot self-change",
+        )
+    from ..auth.passwords import hash_password
+
+    await state.users.update(
+        principal.username,
+        password_hash=hash_password(new_pw),
+        must_change_password=False,
+    )
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
+        result_summary="password changed",
+    )
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# MFA (TOTP) — Wave 2 / F3
+# --------------------------------------------------------------------------- #
+def _mfa_issuer(state: AppState) -> str:
+    """The authenticator issuer label: Preferences.mfa.issuer → branding.org_name →
+    "Agentic SOC"."""
+    mfa = getattr(state.prefs, "mfa", None)
+    issuer = (getattr(mfa, "issuer", "") or "").strip()
+    if issuer:
+        return issuer
+    org = (getattr(getattr(state.prefs, "branding", None), "org_name", "") or "").strip()
+    return org or "Agentic SOC"
+
+
+def _mfa_params(state: AppState) -> tuple[int, int]:
+    mfa = getattr(state.prefs, "mfa", None)
+    return int(getattr(mfa, "digits", 6) or 6), int(getattr(mfa, "period", 30) or 30)
+
+
+def _require_session(state: AppState, request: Request):
+    """Resolve the authenticated principal from a FULL session, or raise 401/400.
+    Used by the self-service MFA routes (setup/confirm/disable)."""
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    token = request.cookies.get("tlsoc_token") or _bearer(request)
+    principal = auth.verify(token) if token else None
+    if principal is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return principal
+
+
+# Where a freshly-generated, NOT-yet-confirmed TOTP secret + recovery codes are
+# parked between /mfa/setup and /mfa/confirm. In-memory ONLY (secret tier) keyed by
+# lowercased username — never persisted until the user proves possession via confirm.
+_MFA_PENDING_ENROLL: dict[str, dict[str, Any]] = {}
+
+
+@router.post("/auth/mfa/setup")
+async def mfa_setup(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """Begin MFA enrollment (self, authenticated). Generates a PENDING TOTP secret +
+    recovery codes and returns them ONCE (the secret + otpauth URI for the QR, and the
+    plaintext recovery codes for the user to save). Does NOT enable MFA — the user must
+    prove possession via /auth/mfa/confirm. Re-calling regenerates the pending secret."""
+    from ..auth import mfa as mfa_mod
+
+    principal = _require_session(state, request)
+    digits, period = _mfa_params(state)
+    secret = mfa_mod.generate_secret()
+    recovery = mfa_mod.generate_recovery_codes(10)
+    uri = mfa_mod.provisioning_uri(
+        secret, principal.username, _mfa_issuer(state), digits=digits, period=period
+    )
+    _MFA_PENDING_ENROLL[principal.username.strip().lower()] = {
+        "secret": secret,
+        "recovery_hashes": [mfa_mod.hash_recovery_code(c) for c in recovery],
+    }
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
+        result_summary="mfa enrollment started",
+    )
+    return {"secret": secret, "otpauth_uri": uri, "recovery_codes": recovery}
+
+
+class MfaCodeBody(BaseModel):
+    code: str
+
+
+@router.post("/auth/mfa/confirm")
+async def mfa_confirm(
+    body: MfaCodeBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Confirm MFA enrollment (self): verify a TOTP code against the PENDING secret,
+    then persist the obfuscated secret + hashed recovery codes and set
+    ``mfa_enabled=True``. Idempotent only in that a wrong code 400s and leaves MFA off."""
+    from ..auth import mfa as mfa_mod
+
+    principal = _require_session(state, request)
+    pending = _MFA_PENDING_ENROLL.get(principal.username.strip().lower())
+    if not pending:
+        raise HTTPException(status_code=400, detail="no pending MFA enrollment; call setup first")
+    digits, period = _mfa_params(state)
+    ok, step = mfa_mod.verify_totp(
+        pending["secret"], body.code, window=1, period=period, digits=digits
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail="invalid code")
+    user = await state.users.get(principal.username)
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is managed via environment configuration and cannot enroll MFA",
+        )
+    obf = mfa_mod.obfuscate_secret(pending["secret"], state.secrets.mfa_server_key())
+    updated = user.model_copy(update={
+        "mfa_enabled": True,
+        "mfa_secret": obf,
+        "mfa_recovery_hashes": list(pending["recovery_hashes"]),
+        "mfa_last_step": int(step),
+    })
+    await state.users.save(updated)
+    await state.refresh_users()
+    _MFA_PENDING_ENROLL.pop(principal.username.strip().lower(), None)
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
+        result_summary="mfa enabled",
+    )
+    return {"ok": True}
+
+
+class MfaVerifyBody(BaseModel):
+    pending_token: str
+    code: str
+
+
+@router.post("/auth/mfa/verify")
+async def mfa_verify(
+    body: MfaVerifyBody, response: Response, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Login phase 2 (PUBLIC — gated by the pending_token). Verify the TOTP code (or a
+    single-use recovery code) for the pending-token subject; on success mint the full
+    session, set the cookie, and return ``{token, user}``."""
+    from ..auth import mfa as mfa_mod
+
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    username = auth.pending_subject(body.pending_token)
+    if username is None:
+        raise HTTPException(status_code=401, detail="invalid or expired pending session")
+    user = await state.users.get(username)
+    if user is None or not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is not enabled for this account")
+    digits, period = _mfa_params(state)
+    server_key = state.secrets.mfa_server_key()
+    secret = mfa_mod.deobfuscate_secret(user.mfa_secret, server_key)
+    method = ""
+    # 1) TOTP (with replay rejection against the stored last step).
+    if secret:
+        ok, step = mfa_mod.verify_totp(
+            secret, body.code, window=1, period=period, digits=digits,
+            last_step=user.mfa_last_step,
+        )
+        if ok:
+            method = "totp"
+            await state.users.save(user.model_copy(update={"mfa_last_step": int(step)}))
+    # 2) Recovery code (single-use): consume the matching hash on success.
+    if not method:
+        remaining = list(user.mfa_recovery_hashes)
+        match_idx = next(
+            (i for i, h in enumerate(remaining) if mfa_mod.verify_recovery_code(body.code, h)),
+            -1,
+        )
+        if match_idx >= 0:
+            method = "recovery"
+            del remaining[match_idx]
+            await state.users.save(user.model_copy(update={"mfa_recovery_hashes": remaining}))
+    if not method:
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+            result_summary="mfa verify failed",
+        )
+        raise HTTPException(status_code=401, detail="invalid code")
+    await state.refresh_users()
+    minted = auth.mint_session(username)
+    if minted is None:  # pragma: no cover — username verified above
+        raise HTTPException(status_code=401, detail="invalid credentials")
+    token, principal = minted
+    try:
+        await state.users.update(username, last_login_at=iso_now())
+    except Exception:  # noqa: BLE001
+        pass
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+        result_summary=f"mfa login ok ({method})",
+    )
+    response.set_cookie(
+        "tlsoc_token", token, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure,
+        max_age=state.secrets.auth_token_hours * 3600,
+    )
+    return {
+        "token": token,
+        "user": {
+            "username": principal.username,
+            "role": _resolved_role(state, principal),
+            "must_change_password": bool(principal.must_change_password),
+            "mfa_enabled": True,
+        },
+    }
+
+
+@router.post("/auth/mfa/disable")
+async def mfa_disable(
+    body: MfaCodeBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Disable MFA for the calling user (self). Requires a valid CURRENT TOTP or a
+    single-use recovery code (so a hijacked session alone cannot turn MFA off).
+    Clears the secret + recovery hashes. (A super_admin can force-disable another
+    user via PUT /api/users/{username} {mfa_enabled:false}.)"""
+    from ..auth import mfa as mfa_mod
+
+    principal = _require_session(state, request)
+    user = await state.users.get(principal.username)
+    if user is None or not user.mfa_enabled:
+        raise HTTPException(status_code=400, detail="MFA is not enabled for this account")
+    digits, period = _mfa_params(state)
+    secret = mfa_mod.deobfuscate_secret(user.mfa_secret, state.secrets.mfa_server_key())
+    ok = False
+    if secret:
+        ok, _ = mfa_mod.verify_totp(
+            secret, body.code, window=1, period=period, digits=digits,
+            last_step=user.mfa_last_step,
+        )
+    if not ok:
+        ok = any(mfa_mod.verify_recovery_code(body.code, h) for h in user.mfa_recovery_hashes)
+    if not ok:
+        raise HTTPException(status_code=400, detail="invalid code")
+    await state.users.save(user.model_copy(update={
+        "mfa_enabled": False, "mfa_secret": "", "mfa_recovery_hashes": [], "mfa_last_step": 0,
+    }))
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
+        result_summary="mfa disabled",
+    )
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# SSO (OIDC) — Wave 2 / F4
+# --------------------------------------------------------------------------- #
+_OIDC_STATE_NS = "oidc_state"
+_OIDC_STATE_TTL_SECONDS = 600  # 10 minutes for the round-trip to the IdP + back.
+
+
+def _sso_redirect_uri(request: Request) -> str:
+    """The absolute callback URL to hand the IdP — derived from THIS request's base
+    URL so it matches whatever host the browser reached us on (proxy-aware)."""
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/auth/sso/callback"
+
+
+def _build_oidc_provider(state: AppState, provider_id: str):
+    """Construct an :class:`OidcProvider` for ``provider_id`` from prefs + the
+    secret-tier client secret, or raise 404 when unknown/disabled."""
+    from ..auth.oidc import OidcProvider
+
+    sso = getattr(state.prefs, "sso", None)
+    if sso is None or not sso.enabled:
+        raise HTTPException(status_code=404, detail="SSO is not enabled")
+    cfg = sso.get(provider_id)
+    if cfg is None or not cfg.enabled:
+        raise HTTPException(status_code=404, detail="unknown SSO provider")
+    return OidcProvider(
+        cfg.model_dump(mode="json"),
+        client_secret=state.secrets.sso_client_secret(provider_id),
+    )
+
+
+@router.get("/auth/sso/providers")
+async def sso_providers(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """PUBLIC: the ENABLED SSO providers (id/type/display_name only — no secrets)."""
+    sso = getattr(state.prefs, "sso", None)
+    out = []
+    for p in (sso.enabled_providers() if sso else []):
+        out.append({"id": p.id, "type": p.type, "display_name": p.display_name or p.id})
+    return {"providers": out}
+
+
+@router.get("/auth/sso/authorize")
+async def sso_authorize(
+    request: Request, provider: str = Query(...), state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
+    the KV (ns ``oidc_state``) with a short TTL, then returns ``{auth_url}`` for the
+    browser to follow."""
+    from ..auth import oidc as oidc_mod
+
+    prov = _build_oidc_provider(state, provider)
+    state_tok = oidc_mod.new_state()
+    nonce = oidc_mod.new_nonce()
+    redirect_uri = _sso_redirect_uri(request)
+    try:
+        auth_url = await prov.authorization_url(
+            state=state_tok, nonce=nonce, redirect_uri=redirect_uri
+        )
+    except oidc_mod.OidcError as exc:
+        raise HTTPException(status_code=502, detail=f"SSO unavailable: {exc}") from exc
+    await state._kv.put(_OIDC_STATE_NS, state_tok, {
+        "provider": provider,
+        "nonce": nonce,
+        "redirect_uri": redirect_uri,
+        "expires_at": iso_now(),
+        "expires_epoch": int(__import__("time").time()) + _OIDC_STATE_TTL_SECONDS,
+    })
+    return {"auth_url": auth_url}
+
+
+async def _consume_oidc_state(state: AppState, state_tok: str) -> dict[str, Any] | None:
+    """Validate + SINGLE-USE consume a stored state token. Returns the stored record
+    when valid + unexpired, else ``None``. Consumption is best-effort overwrite (the
+    KV has no delete): the record is marked ``used`` so a replay finds it consumed."""
+    import time as _t
+
+    if not state_tok:
+        return None
+    rec = await state._kv.get(_OIDC_STATE_NS, state_tok)
+    if not isinstance(rec, dict) or rec.get("used"):
+        return None
+    if int(rec.get("expires_epoch", 0) or 0) < int(_t.time()):
+        return None
+    try:
+        await state._kv.put(_OIDC_STATE_NS, state_tok, {**rec, "used": True})
+    except Exception:  # noqa: BLE001 — single-use marking is best-effort
+        pass
+    return rec
+
+
+@router.get("/auth/sso/callback")
+async def sso_callback(
+    request: Request,
+    response: Response,
+    state: AppState = Depends(get_state),
+    code: str = Query(default=""),
+    state_param: str = Query(default="", alias="state"),
+) -> Response:
+    """PUBLIC: the IdP redirect target. Validates state, exchanges the code
+    server-side, calls userinfo, enforces the domain/tenant allowlist + group→role
+    map, provisions the user when ``auto_create_users`` is on, mints the session
+    cookie, and 302-redirects to ``/``. On any error → ``/login?sso_error=...``."""
+    from fastapi.responses import RedirectResponse
+
+    from ..auth import oidc as oidc_mod
+
+    def _fail(reason: str) -> Response:
+        return RedirectResponse(url=f"/login?sso_error={quote_plus(reason)}", status_code=302)
+
+    if not code or not state_param:
+        return _fail("missing_code_or_state")
+    rec = await _consume_oidc_state(state, state_param)
+    if rec is None:
+        return _fail("invalid_state")
+    provider_id = str(rec.get("provider") or "")
+    try:
+        prov = _build_oidc_provider(state, provider_id)
+    except HTTPException:
+        return _fail("unknown_provider")
+    try:
+        tokens = await prov.exchange_code(
+            code=code, redirect_uri=str(rec.get("redirect_uri") or _sso_redirect_uri(request))
+        )
+        claims = await prov.fetch_userinfo(str(tokens.get("access_token")))
+    except oidc_mod.OidcError as exc:
+        logger.warning("SSO exchange failed for %s: %s", provider_id, exc)
+        return _fail("token_exchange_failed")
+    identity = prov.identity_from(claims)
+    if not identity.get("sub") or not identity.get("email"):
+        return _fail("incomplete_identity")
+    denied = prov.check_allowed(identity)
+    if denied:
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=identity.get("email") or "",
+            result_summary=f"sso denied: {denied}",
+        )
+        return _fail("not_allowed")
+    role = prov.role_for(identity)
+    username = await _provision_sso_user(state, provider_id, identity, role)
+    if username is None:
+        await state.audit.record(
+            action_type=ActionType.AUTH_EVENT, surface="auth", actor=identity.get("email") or "",
+            result_summary="sso login rejected: user not provisioned",
+        )
+        return _fail("user_not_provisioned")
+    await state.refresh_users()
+    minted = state.auth.mint_session(username)
+    if minted is None:
+        return _fail("session_failed")
+    token, _principal = minted
+    try:
+        await state.users.update(username, last_login_at=iso_now())
+    except Exception:  # noqa: BLE001
+        pass
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
+        result_summary=f"sso login ok ({provider_id})",
+    )
+    redirect = RedirectResponse(url="/", status_code=302)
+    redirect.set_cookie(
+        "tlsoc_token", token, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure,
+        max_age=state.secrets.auth_token_hours * 3600,
+    )
+    return redirect
+
+
+async def _provision_sso_user(
+    state: AppState, provider_id: str, identity: dict[str, Any], role: str
+) -> str | None:
+    """Map an SSO identity to a local account; provision it (atomically) when
+    ``auto_create_users`` is on. Returns the local username, or ``None`` when no
+    matching user exists and auto-provisioning is off.
+
+    Matching precedence: an EXISTING user already linked to this (provider, sub) →
+    an existing user by email/username → else (if allowed) create one. The username
+    is the email (stable + unique). Idempotent: a returning user is NOT duplicated;
+    its role is refreshed from the group map."""
+    from ..auth.passwords import hash_password
+
+    sso = getattr(state.prefs, "sso", None)
+    cfg = sso.get(provider_id) if sso else None
+    auto_create = bool(getattr(cfg, "auto_create_users", False))
+    email = str(identity.get("email") or "").strip()
+    sub = str(identity.get("sub") or "").strip()
+    username = email or f"{provider_id}:{sub}"
+
+    # Find an existing linked account (by oauth_sub) or by username/email.
+    existing = None
+    for u in await state.users.list():
+        if u.oauth_provider == provider_id and u.oauth_sub and u.oauth_sub == sub:
+            existing = u
+            break
+    if existing is None:
+        existing = await state.users.get(username)
+
+    if existing is not None:
+        # Idempotent re-login: refresh role + provider linkage, never duplicate.
+        if not existing.active:
+            return None
+        await state.users.save(existing.model_copy(update={
+            "role": role if (cfg and cfg.group_role_map) else existing.role,
+            "oauth_provider": provider_id,
+            "oauth_sub": sub or existing.oauth_sub,
+        }))
+        return existing.username
+
+    if not auto_create:
+        return None
+    # Atomic create-if-absent at our single-process scale (create() raises on a
+    # concurrent duplicate, which we treat as "already provisioned").
+    try:
+        created = await state.users.create(
+            username=username,
+            password_hash=hash_password(secrets_token()),
+            role=role,
+            active=True,
+            must_change_password=False,
+        )
+    except ValueError:
+        # Raced with another callback that just created it — fetch + return.
+        again = await state.users.get(username)
+        return again.username if again else None
+    await state.users.save(created.model_copy(update={
+        "oauth_provider": provider_id, "oauth_sub": sub,
+    }))
+    return created.username
+
+
+def secrets_token() -> str:
+    """A random, unusable password for an SSO-provisioned account (they log in via
+    the IdP, never with a local password)."""
+    import secrets as _s
+
+    return _s.token_urlsafe(32)
+
+
+class SSOProviderSecretBody(BaseModel):
+    client_secret: str | None = None
+
+
+@router.post("/auth/sso/providers/{provider_id}/secret")
+async def set_sso_provider_secret(
+    provider_id: str,
+    body: SSOProviderSecretBody,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    """Set/clear one OIDC provider's client secret (super_admin only). The value goes
+    to the SECRET tier (in memory), NEVER to Preferences/the config doc; only a
+    configured-boolean is returned."""
+    state.secrets.set_sso_client_secret(provider_id, body.client_secret)
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=current_username(request),
+        result_summary=f"sso client secret {'set' if body.client_secret else 'cleared'} for '{provider_id}'",
+    )
+    return {"ok": True, "configured": bool(state.secrets.sso_client_secret(provider_id))}
+
+
+# --------------------------------------------------------------------------- #
+# RBAC: roles matrix (for the UI) + multi-user administration
+# --------------------------------------------------------------------------- #
+@router.get("/roles")
+async def list_roles(state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """The role -> resource -> [actions] matrix (default merged with any operator
+    override) for the webui's permission checks + the RBAC settings view."""
+    from ..rbac.policy import resolve_matrix
+
+    rbac = getattr(state.prefs, "rbac", None)
+    return {
+        "roles": [r.value for r in UserRole],
+        "default_role": getattr(rbac, "default_role", UserRole.ANALYST_TIER1.value),
+        "rbac_enabled": bool(getattr(rbac, "enabled", False)),
+        "matrix": resolve_matrix(rbac),
+    }
+
+
+class UserCreateBody(BaseModel):
+    username: str
+    password: str
+    role: str = UserRole.ANALYST_TIER1.value
+
+
+class UserUpdateBody(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+    password: str | None = None
+    # Wave 2 / F3 — a super_admin may FORCE-DISABLE another user's MFA (e.g. lost
+    # device). Only False is honored here; enabling MFA is always a self-service
+    # enroll (setup→confirm) so the user actually possesses the authenticator.
+    mfa_enabled: bool | None = None
+
+
+_VALID_ROLES = {r.value for r in UserRole}
+
+
+def _validate_role(role: str) -> str:
+    if role not in _VALID_ROLES:
+        raise HTTPException(status_code=400, detail=f"unknown role: {role}")
+    return role
+
+
+@router.get("/users")
+async def list_users(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("users", "manage")),
+) -> dict[str, Any]:
+    users = await state.users.list()
+    return {"users": [u.public() for u in users]}
+
+
+@router.post("/users")
+async def create_user(
+    body: UserCreateBody,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("users", "manage")),
+) -> dict[str, Any]:
+    pw = (body.password or "").strip()
+    if len(pw) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+    _validate_role(body.role)
+    from ..auth.passwords import hash_password
+
+    try:
+        user = await state.users.create(
+            username=body.username,
+            password_hash=hash_password(pw),
+            role=body.role,
+            active=True,
+            must_change_password=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
+        result_summary=f"created user '{user.username}' ({user.role})",
+    )
+    return {"ok": True, "user": user.public()}
+
+
+async def _would_orphan_super_admin(state: AppState, target: "object", *, demoting: bool, disabling: bool) -> bool:
+    """True if the requested change would remove the LAST active super_admin."""
+    role = getattr(target, "role", "")
+    if role != UserRole.SUPER_ADMIN.value or not getattr(target, "active", False):
+        return False
+    if not (demoting or disabling):
+        return False
+    remaining = await state.users.count_active_super_admins(super_admin_role=UserRole.SUPER_ADMIN.value)
+    return remaining <= 1
+
+
+@router.put("/users/{username}")
+async def update_user(
+    username: str,
+    body: UserUpdateBody,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("users", "manage")),
+) -> dict[str, Any]:
+    target = await state.users.get(username)
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    patch: dict[str, Any] = {}
+    if body.role is not None:
+        _validate_role(body.role)
+        patch["role"] = body.role
+    if body.active is not None:
+        patch["active"] = body.active
+    if body.password is not None:
+        pw = body.password.strip()
+        if len(pw) < 8:
+            raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+        from ..auth.passwords import hash_password
+
+        patch["password_hash"] = hash_password(pw)
+        patch["must_change_password"] = True
+    if body.mfa_enabled is False:
+        # Force-disable: clear the secret material too (the user re-enrolls later).
+        patch.update({
+            "mfa_enabled": False, "mfa_secret": "", "mfa_recovery_hashes": [], "mfa_last_step": 0,
+        })
+    elif body.mfa_enabled is True:
+        raise HTTPException(
+            status_code=400,
+            detail="MFA can only be enabled by the user via self-service enrollment",
+        )
+    if not patch:
+        raise HTTPException(status_code=400, detail="no changes provided")
+    demoting = body.role is not None and body.role != UserRole.SUPER_ADMIN.value
+    disabling = body.active is False
+    if await _would_orphan_super_admin(state, target, demoting=demoting, disabling=disabling):
+        raise HTTPException(
+            status_code=409, detail="cannot demote or disable the last active super_admin"
+        )
+    updated = await state.users.update(username, **patch)
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
+        result_summary=f"updated user '{username}'",
+    )
+    return {"ok": True, "user": (updated or target).public()}
+
+
+@router.delete("/users/{username}")
+async def delete_user(
+    username: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("users", "manage")),
+) -> dict[str, Any]:
+    target = await state.users.get(username)
+    if target is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if await _would_orphan_super_admin(state, target, demoting=True, disabling=True):
+        raise HTTPException(status_code=409, detail="cannot delete the last active super_admin")
+    await state.users.delete(username)
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
+        result_summary=f"deleted user '{username}'",
+    )
     return {"ok": True}
 
 
@@ -985,9 +1832,13 @@ async def get_case(case_id: str, state: AppState = Depends(get_state)) -> dict[s
 
 
 class CaseAction(BaseModel):
-    action: str  # close | reopen | escalate | confirm_fp | acknowledge
+    # Lifecycle/disposition actions. Original: close | reopen | escalate |
+    # confirm_fp | acknowledge. Added (F8): hold | resume | resolve |
+    # set_disposition | deescalate | set_status.
+    action: str
     note: str = ""
     analyst: str = "analyst"
+    reason: str = ""                       # why (status_reason / timeline reason)
     # Optional, additive collaboration fields collected alongside an action (all
     # default empty/None so existing callers are unaffected). They are persisted
     # ADDITIVELY and NEVER change the deterministic status mapping below.
@@ -995,28 +1846,127 @@ class CaseAction(BaseModel):
     assignee: str | None = None
     priority: str | None = None
     tags: list[str] | None = None
+    # F8 fields (additive, optional):
+    disposition: str | None = None         # set_disposition target (a Disposition value)
+    status: str | None = None              # set_status target (a CaseStatus value)
+    level: int | None = None               # escalate level
+
+
+# Lifecycle status reached by each action. ``None`` = the action does not move the
+# lifecycle status by itself (e.g. set_disposition / acknowledge keep status). The
+# deterministic close-axis from decide()/#3 is NOT touched here — these are analyst
+# moves on a separate, additive layer.
+_ACTION_STATUS: dict[str, CaseStatus | None] = {
+    "close": CaseStatus.CLOSED,
+    "confirm_fp": CaseStatus.CLOSED,
+    "reopen": CaseStatus.OPEN,
+    "escalate": CaseStatus.ESCALATED,
+    "deescalate": CaseStatus.OPEN,
+    "hold": CaseStatus.ON_HOLD,
+    "resume": CaseStatus.OPEN,
+    "resolve": CaseStatus.RESOLVED,
+    "acknowledge": None,
+    "set_disposition": None,
+    "set_status": None,                    # target carried in body.status
+}
+
+# RBAC grant required per action (resource "cases"). Terminal/close-class moves
+# need cases:close; everything else needs cases:write.
+_CLOSE_ACTIONS = {"close", "confirm_fp", "resolve", "reopen"}
+
+# Terminal lifecycle statuses (a case here is DONE). A backward move out of a
+# terminal status is only allowed via an explicit reopen.
+_TERMINAL = {CaseStatus.CLOSED, CaseStatus.RESOLVED}
+
+
+def _guard_transition(action: str, current: CaseStatus, target: CaseStatus | None) -> None:
+    """Reject illegal lifecycle moves (e.g. CLOSED→NEW without reopen). Allows
+    reopen explicitly out of a terminal status; allows same-status no-ops."""
+    if target is None or target == current:
+        return
+    # Moving OUT of a terminal status is only legal via reopen/deescalate→reopen.
+    if current in _TERMINAL and action not in ("reopen",):
+        raise HTTPException(
+            status_code=400,
+            detail=f"illegal transition: {current.value} → {target.value}; reopen the case first",
+        )
+    # Never let an analyst move a non-investigated NEEDS_HUMAN/None verdict to a
+    # CLOSED via a generic set_status sidestep — close must go through close/resolve.
+    if target == CaseStatus.CLOSED and action == "set_status":
+        raise HTTPException(
+            status_code=400,
+            detail="use the close action to close a case",
+        )
 
 
 @router.post("/cases/{case_id}/action")
 async def case_action(
-    case_id: str, body: CaseAction, state: AppState = Depends(get_state)
+    case_id: str,
+    body: CaseAction,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    mapping = {
-        "close": CaseStatus.CLOSED,
-        "confirm_fp": CaseStatus.CLOSED,
-        "reopen": CaseStatus.OPEN,
-        "escalate": CaseStatus.NEEDS_HUMAN,
-        "acknowledge": case.status,
-    }
-    if body.action not in mapping:
+    if body.action not in _ACTION_STATUS:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
-    # Deterministic status transition — UNCHANGED by the optional extra fields.
-    case.status = mapping[body.action]
+
+    # RBAC: close-class moves need cases:close, the rest cases:write. A strict
+    # no-op when auth is disabled (the no-auth default), so back-compat holds.
+    # ``request`` is always present over HTTP; it is None only for direct in-process
+    # test calls, where RBAC would be a no-op anyway.
+    user = None
+    if request is not None:
+        from .deps import _enforce
+
+        need = "close" if body.action in _CLOSE_ACTIONS else "write"
+        user = await _enforce(request, "cases", need)
+    actor = getattr(user, "username", "") or body.analyst or "analyst"
+
+    prev_status = case.status
+
+    # Resolve the lifecycle target.
+    target = _ACTION_STATUS[body.action]
+    if body.action == "set_status":
+        if not body.status:
+            raise HTTPException(status_code=400, detail="set_status requires a status")
+        try:
+            target = CaseStatus(body.status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"unknown status: {body.status}")
+    if body.action == "escalate" and body.level is not None:
+        case.escalation_level = max(int(body.level), 1)
+    elif body.action == "escalate":
+        case.escalation_level = max(case.escalation_level, 1)
+    elif body.action == "deescalate":
+        case.escalation_level = 0
+
+    _guard_transition(body.action, prev_status, target)
+
+    # set_disposition: validate + set the investigative outcome (no status move).
+    if body.action == "set_disposition":
+        if not body.disposition:
+            raise HTTPException(status_code=400, detail="set_disposition requires a disposition")
+        try:
+            case.disposition = Disposition(body.disposition)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"unknown disposition: {body.disposition}")
+
+    # confirm_fp records the FALSE_POSITIVE disposition (an analyst confirming an FP),
+    # overriding only an unset / UNDETERMINED auto-mapping — never a deliberate
+    # analyst classification.
+    if body.action == "confirm_fp" and case.disposition in (None, Disposition.UNDETERMINED):
+        case.disposition = Disposition.FALSE_POSITIVE
+
+    # Apply the lifecycle status move (analyst layer — NOT decide()/#3).
+    if target is not None:
+        case.status = target
     case.decision_by = DecisionBy.ANALYST
     case.updated_at = iso_now()
+    reason = (body.reason or body.note or "").strip()[:500]
+    if reason and body.action in ("hold", "resolve", "set_status"):
+        case.status_reason = reason
 
     # --- Additive optional fields (persisted without touching status logic) -----
     # assignee → set the case owner when provided (non-empty).
@@ -1032,11 +1982,21 @@ async def case_action(
                 merged.append(t)
         case.tags = merged[:25]
 
+    # Record the lifecycle transition on the append-only status timeline.
+    if case.status != prev_status:
+        case.status_history.append(StatusHistoryEntry(
+            from_status=(prev_status.value if prev_status else ""),
+            to_status=case.status.value,
+            by=actor,
+            at=case.updated_at,
+            reason=reason,
+        ))
+
     # Build the history entry, recording resolution/priority when supplied (they
     # have no dedicated Case field, so the audited history entry is their home).
     entry: dict[str, Any] = {
         "ts": case.updated_at, "event": "analyst_action", "action": body.action,
-        "analyst": body.analyst, "note": body.note,
+        "analyst": actor, "note": body.note,
     }
     if body.resolution is not None:
         entry["resolution"] = str(body.resolution)
@@ -1044,6 +2004,18 @@ async def case_action(
         entry["priority"] = str(body.priority)
     case.history.append(entry)
     await state.cases.save(case)
+    # Append-only audit of the lifecycle transition (#2) — best-effort.
+    try:
+        await state.audit.record(
+            action_type=ActionType.STATUS, surface="case", actor=actor, case_id=case_id,
+            result_summary=(
+                f"action={body.action} status {prev_status.value if prev_status else '?'}"
+                f"→{case.status.value} disposition={case.disposition.value if case.disposition else 'none'}"
+                + (f" reason={reason}" if reason else "")
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — audit is best-effort, never blocks the action
+        logger.warning("Status audit failed for %s: %s", case_id, exc)
     # On close / confirm-FP, index the resolved case as RAG baseline memory (C3-5)
     # so future investigations of similar entities learn from this decision + note.
     # Fail-safe: a RAG/embedding failure must NEVER break the analyst's action.

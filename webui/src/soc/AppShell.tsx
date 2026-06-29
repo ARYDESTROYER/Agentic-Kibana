@@ -46,7 +46,8 @@ import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
 import type { HealthResponse } from '@/lib/types';
 import { useTheme } from './theme';
-import { NAV_GROUPS, navItem, type PageId } from './nav';
+import { useAuth } from './auth';
+import { NAV_GROUPS, navItem, type NavGroup, type PageId } from './nav';
 import type { Navigate } from './router';
 
 export interface AppShellProps {
@@ -169,7 +170,8 @@ const CommandPalette: React.FC<{
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onNavigate: Navigate;
-}> = ({ open, onOpenChange, onNavigate }) => (
+  groups: NavGroup[];
+}> = ({ open, onOpenChange, onNavigate, groups }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="overflow-hidden p-0 sm:max-w-lg">
       <DialogTitle className="sr-only">Command palette</DialogTitle>
@@ -178,7 +180,7 @@ const CommandPalette: React.FC<{
         <CommandInput placeholder="Jump to a page…" />
         <CommandList>
           <CommandEmpty>No matching pages.</CommandEmpty>
-          {NAV_GROUPS.map((group) => (
+          {groups.map((group) => (
             <CommandGroup key={group.id} heading={group.label}>
               {group.items.map((item) => {
                 const Icon = item.icon;
@@ -212,8 +214,21 @@ export const AppShell: React.FC<AppShellProps> = ({
   children,
 }) => {
   const { isDark, toggle, branding } = useTheme();
+  const { hasPermission } = useAuth();
   const { health, err } = useHealth();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+
+  // Filter the nav by RBAC: an item with a `perm` is hidden unless the user has the
+  // grant; a group with no visible items is dropped. With auth/RBAC off,
+  // hasPermission() is always true so the full nav shows (back-compat).
+  const navGroups = React.useMemo<NavGroup[]>(
+    () =>
+      NAV_GROUPS.map((g) => ({
+        ...g,
+        items: g.items.filter((it) => !it.perm || hasPermission(it.perm.resource, it.perm.action)),
+      })).filter((g) => g.items.length > 0),
+    [hasPermission],
+  );
 
   // Product name for the breadcrumb prefix; falls back to a neutral default.
   const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'ASP';
@@ -255,7 +270,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           )}
         </div>
         <nav className="flex flex-1 flex-col items-center gap-1">
-          {NAV_GROUPS.map((group, gi) => (
+          {navGroups.map((group, gi) => (
             <React.Fragment key={group.id}>
               {gi > 0 && <Separator className="my-1.5 w-6" />}
               {group.items.map((item) => (
@@ -388,7 +403,12 @@ export const AppShell: React.FC<AppShellProps> = ({
         </main>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onNavigate={onNavigate} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onNavigate={onNavigate}
+        groups={navGroups}
+      />
     </div>
   );
 };

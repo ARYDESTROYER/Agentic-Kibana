@@ -14,6 +14,7 @@ import type {
   Branding,
   Case,
   CaseActionInput,
+  CaseIdPreview,
   CaseRationale,
   CasesResponse,
   ChatResponse,
@@ -24,6 +25,9 @@ import type {
   FeedbackStats,
   HealthResponse,
   LoginResult,
+  MfaSetupResult,
+  SsoAuthorizeResult,
+  SsoProvidersResponse,
   MemoryEntry,
   MemoryResponse,
   Metrics,
@@ -38,6 +42,7 @@ import type {
   RagImportResult,
   RagSearchResponse,
   RagStats,
+  RolesResponse,
   ScanNotifications,
   SecretsUpdate,
   SettingsResponse,
@@ -49,6 +54,8 @@ import type {
   SourceUpsert,
   StandupResponse,
   UsageSummary,
+  User,
+  UsersResponse,
 } from './types';
 
 /** Payload for POST /api/cases/{id}/feedback (analyst grading). */
@@ -209,6 +216,74 @@ export const api = {
     login: (username: string, password: string) =>
       request<LoginResult>('POST', 'auth/login', { body: { username, password } }),
     logout: () => request<{ ok: boolean }>('POST', 'auth/logout'),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<{ ok: boolean }>('POST', 'auth/change-password', {
+        body: { current_password: currentPassword, new_password: newPassword },
+      }),
+
+    // ---- MFA (TOTP) — Wave 2 / F3 ------------------------------------------ //
+    mfa: {
+      // Begin enrollment (self): returns secret + otpauth URI + recovery codes ONCE.
+      setup: () => request<MfaSetupResult>('POST', 'auth/mfa/setup'),
+      // Confirm enrollment: verify a TOTP code against the pending secret + enable.
+      confirm: (code: string) =>
+        request<{ ok: boolean }>('POST', 'auth/mfa/confirm', { body: { code } }),
+      // Login phase 2 (PUBLIC; gated by the pending_token). Accepts a TOTP OR a
+      // single-use recovery code. Returns { token, user } like a normal login.
+      verify: (pendingToken: string, code: string) =>
+        request<LoginResult>('POST', 'auth/mfa/verify', {
+          body: { pending_token: pendingToken, code },
+        }),
+      // Disable MFA (self): requires a current TOTP or a recovery code.
+      disable: (code: string) =>
+        request<{ ok: boolean }>('POST', 'auth/mfa/disable', { body: { code } }),
+    },
+
+    // ---- SSO (OIDC) — Wave 2 / F4 ------------------------------------------ //
+    sso: {
+      // PUBLIC: the enabled providers for the login screen.
+      providers: () => request<SsoProvidersResponse>('GET', 'auth/sso/providers'),
+      // PUBLIC: the IdP authorization URL to redirect the browser to.
+      authorize: (provider: string) =>
+        request<SsoAuthorizeResult>('GET', 'auth/sso/authorize', { query: { provider } }),
+      // Admin: set/clear a provider's OIDC client secret (write-only).
+      setSecret: (providerId: string, clientSecret: string | null) =>
+        request<{ ok: boolean; configured: boolean }>(
+          'POST',
+          `auth/sso/providers/${encodeURIComponent(providerId)}/secret`,
+          { body: { client_secret: clientSecret } },
+        ),
+    },
+  },
+
+  // ---- OOBE first-run setup (PUBLIC status + init-admin) ---------------- //
+  setup: {
+    status: () => request<SetupStatus>('GET', 'setup/status'),
+    initAdmin: (username: string, password: string) =>
+      request<{ ok: boolean; username: string }>('POST', 'setup/init-admin', {
+        body: { username, password },
+      }),
+  },
+
+  // ---- RBAC: roles matrix + multi-user administration ------------------- //
+  roles: {
+    get: () => request<RolesResponse>('GET', 'roles'),
+  },
+  users: {
+    list: () => request<UsersResponse>('GET', 'users'),
+    create: (username: string, password: string, role: string) =>
+      request<{ ok: boolean; user: User }>('POST', 'users', {
+        body: { username, password, role },
+      }),
+    update: (
+      username: string,
+      patch: { role?: string; active?: boolean; password?: string },
+    ) =>
+      request<{ ok: boolean; user: User }>('PUT', `users/${encodeURIComponent(username)}`, {
+        body: patch,
+      }),
+    remove: (username: string) =>
+      request<{ ok: boolean }>('DELETE', `users/${encodeURIComponent(username)}`),
   },
 
   // ---- Personas + playbooks (read-only catalog) ------------------------- //
@@ -229,6 +304,10 @@ export const api = {
   getSettings: () => request<SettingsResponse>('GET', 'settings'),
   putSettings: (patch: Partial<Preferences>) =>
     request<{ ok: boolean; prefs: Preferences }>('PUT', 'settings', { body: patch }),
+  // Live-preview a CANDIDATE case-id template without persisting / consuming the
+  // sequence (F7). Returns { samples, valid, error }.
+  caseIdPreview: (body: { template: string; prefix?: string; seq_start?: number }) =>
+    request<CaseIdPreview>('POST', 'settings/case-id/preview', { body }),
 
   // ---- Models ----------------------------------------------------------- //
   getModels: () => request<ModelsResponse>('GET', 'models'),

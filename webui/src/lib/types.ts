@@ -12,21 +12,129 @@
 // --------------------------------------------------------------------------- //
 // Auth (optional; the gate is a no-op when `enabled` is false).
 // --------------------------------------------------------------------------- //
+/** The six SOC operator roles (Wave 1 RBAC). Mirrors backend `UserRole`. */
+export type UserRole =
+  | 'super_admin'
+  | 'soc_manager'
+  | 'analyst_tier2'
+  | 'analyst_tier1'
+  | 'responder'
+  | 'auditor';
+
 export interface AuthUser {
   username: string;
+  role?: UserRole | string;
+  must_change_password?: boolean;
+  /** Wave 2 (MFA): whether this account has a second factor enrolled. */
+  mfa_enabled?: boolean;
 }
 
 /** GET /api/auth/me — describes whether auth is on and the session state. */
 export interface AuthMe {
-  enabled: boolean;
   authenticated: boolean;
+  auth_enabled: boolean;
   user: AuthUser | null;
 }
 
-/** POST /api/auth/login (200). 401s surface as an ApiError with `detail`. */
+/**
+ * POST /api/auth/login (200). Two shapes (Wave 2):
+ *   - normal:   { token, user }
+ *   - MFA step: { requires_mfa:true, pending_token } (NO session yet — phase 2 at
+ *               /api/auth/mfa/verify). 401s surface as an ApiError with `detail`.
+ */
 export interface LoginResult {
-  ok: boolean;
-  user: AuthUser;
+  token?: string;
+  user?: AuthUser;
+  /** Present (true) when the account needs a second factor before a session. */
+  requires_mfa?: boolean;
+  /** A short-lived half-auth token to exchange at /api/auth/mfa/verify. */
+  pending_token?: string;
+}
+
+// --------------------------------------------------------------------------- //
+// MFA (TOTP) — Wave 2 / F3.
+// --------------------------------------------------------------------------- //
+/** POST /api/auth/mfa/setup — the enrollment payload (shown ONCE). */
+export interface MfaSetupResult {
+  /** The Base32 TOTP secret (also encoded in `otpauth_uri`) — for manual entry. */
+  secret: string;
+  /** The `otpauth://totp/...` URI to render as a QR for authenticator apps. */
+  otpauth_uri: string;
+  /** 10 single-use recovery codes — show + let the operator save them now. */
+  recovery_codes: string[];
+}
+
+// --------------------------------------------------------------------------- //
+// SSO (OIDC) — Wave 2 / F4.
+// --------------------------------------------------------------------------- //
+/** One enabled SSO provider for the login screen (GET /api/auth/sso/providers). */
+export interface SsoProviderPublic {
+  id: string;
+  type: 'google' | 'microsoft' | 'generic' | string;
+  display_name: string;
+}
+
+export interface SsoProvidersResponse {
+  providers: SsoProviderPublic[];
+}
+
+/** GET /api/auth/sso/authorize — the IdP redirect URL. */
+export interface SsoAuthorizeResult {
+  auth_url: string;
+}
+
+/** A configured SSO provider (the admin editor; mirrors backend `SSOProvider`). */
+export interface SsoProviderConfig {
+  id: string;
+  type: 'google' | 'microsoft' | 'generic';
+  display_name?: string;
+  enabled?: boolean;
+  client_id?: string;
+  tenant?: string | null;
+  discovery_url?: string | null;
+  scopes?: string;
+  allowed_domains?: string[];
+  allowed_tenants?: string[];
+  group_claim?: string | null;
+  group_role_map?: Record<string, string>;
+  auto_create_users?: boolean;
+  default_role?: string;
+}
+
+/** Preferences.sso block (admin editor). */
+export interface SsoConfig {
+  enabled?: boolean;
+  providers?: SsoProviderConfig[];
+}
+
+/** Preferences.mfa block (admin tuning; per-user enrollment is self-service). */
+export interface MfaConfig {
+  issuer?: string;
+  digits?: number;
+  period?: number;
+  enforce_for_roles?: string[];
+}
+
+/** A managed multi-user account (GET/POST/PUT /api/users). Never carries a hash. */
+export interface User {
+  username: string;
+  role: UserRole | string;
+  active: boolean;
+  must_change_password: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface UsersResponse {
+  users: User[];
+}
+
+/** GET /api/roles — the role → resource → [actions] permission matrix for the UI. */
+export interface RolesResponse {
+  roles: string[];
+  default_role: string;
+  rbac_enabled: boolean;
+  matrix: Record<string, Record<string, string[]>>;
 }
 
 // --------------------------------------------------------------------------- //
@@ -277,6 +385,12 @@ export type ConfiguredStatus = Record<string, boolean>;
 
 export interface SetupStatus {
   setup_complete: boolean;
+  // Wave-1 OOBE + auth fields (additive).
+  needs_user?: boolean;
+  auth_enabled?: boolean;
+  rbac_enabled?: boolean;
+  user_count?: number;
+  seeded_default?: boolean;
   configured: ConfiguredStatus;
   data_view_pattern?: string;
   entity_mapping?: {
@@ -429,6 +543,13 @@ export interface Preferences {
   rag?: RagConfig;
   standup?: StandupConfig;
 
+  /** Security (Wave 2): MFA tuning + SSO/OIDC providers. */
+  mfa?: MfaConfig;
+  sso?: SsoConfig;
+
+  /** Customisable human-facing case-ID nomenclature (F7). */
+  case_id_format?: CaseIdFormatConfig;
+
   setup_complete?: boolean;
   read_only_settings_mode?: boolean;
 
@@ -479,8 +600,46 @@ export interface CaseComment {
   body?: string;
 }
 
+/**
+ * Lifecycle status axis (F8). Keeps the original three values
+ * (open/needs_human/closed) and adds the richer states. `needs_human` is a
+ * retained, deprecated alias rendered "Open · awaiting analyst" in the UI. Unknown
+ * values still render safely (the StatusBadge degrades gracefully).
+ */
+export type CaseStatus =
+  | 'new'
+  | 'open'
+  | 'needs_human'
+  | 'investigating'
+  | 'escalated'
+  | 'on_hold'
+  | 'resolved'
+  | 'closed'
+  | string;
+
+/** Investigative OUTCOME axis (F8), orthogonal to {@link CaseStatus}. */
+export type Disposition =
+  | 'true_positive'
+  | 'false_positive'
+  | 'benign'
+  | 'suspicious'
+  | 'duplicate'
+  | 'undetermined'
+  | string;
+
+/** One append-only lifecycle transition on a case (status timeline). */
+export interface StatusHistoryEntry {
+  from_status?: string;
+  to_status?: string;
+  by?: string;
+  at?: string;
+  reason?: string;
+}
+
 export interface Case {
   case_id: string;
+  /** Human-facing DISPLAY id (template-driven, F7). "" → fall back to case_id. */
+  case_number?: string;
   cluster_signature?: string;
   created_at?: string;
   updated_at?: string;
@@ -496,7 +655,15 @@ export interface Case {
   mitre?: string[];
   recommended_action?: string;
   reproduce_query?: string;
-  status?: string;
+  status?: CaseStatus;
+  /** Investigative outcome (F8). null/undefined → "Undetermined" in the UI. */
+  disposition?: Disposition | null;
+  /** Free-text reason for the current lifecycle state (why on hold / how resolved). */
+  status_reason?: string;
+  /** Escalation priority level (0 == not escalated). */
+  escalation_level?: number;
+  /** Append-only lifecycle transition trail (from→to, by, when, reason). */
+  status_history?: StatusHistoryEntry[];
   decision_by?: string;
   title?: string;
   summary?: string;
@@ -551,8 +718,22 @@ export type NavOpts = { caseId?: string; status?: string; window?: number; tab?:
  * close, `assignee`/`priority` on an escalate).
  */
 export interface CaseActionInput {
-  action: 'close' | 'reopen' | 'escalate' | 'confirm_fp' | 'acknowledge' | string;
+  action:
+    | 'close'
+    | 'reopen'
+    | 'escalate'
+    | 'deescalate'
+    | 'confirm_fp'
+    | 'acknowledge'
+    | 'hold'
+    | 'resume'
+    | 'resolve'
+    | 'set_disposition'
+    | 'set_status'
+    | string;
   note?: string;
+  /** Why (status_reason + status-timeline reason). */
+  reason?: string;
   /** close / confirm_fp: why the case was resolved that way. */
   resolution?: string;
   /** escalate: the analyst/team to escalate to. */
@@ -561,6 +742,28 @@ export interface CaseActionInput {
   priority?: string;
   /** Optional follow-up tags to attach as part of the action. */
   tags?: string[];
+  /** set_disposition: the investigative outcome to record. */
+  disposition?: Disposition;
+  /** set_status: the lifecycle status to move to. */
+  status?: CaseStatus;
+  /** escalate: priority level. */
+  level?: number;
+}
+
+/** Response from POST /api/settings/case-id/preview (F7 live preview). */
+export interface CaseIdPreview {
+  samples: string[];
+  valid: boolean;
+  error?: string;
+}
+
+/** Preferences.case_id_format — customisable case-ID nomenclature (F7). */
+export interface CaseIdFormatConfig {
+  enabled: boolean;
+  template: string;
+  prefix: string;
+  reset_period: 'none' | 'calendar_year' | 'fiscal_year' | 'fiscal_quarter';
+  seq_start: number;
 }
 
 export interface ChatTurn {
@@ -711,6 +914,8 @@ export interface Metrics {
   needs_human_cases: number;
   closed_cases: number;
   by_status: Record<string, number>;
+  /** Disposition (investigative outcome) breakdown (F8). */
+  by_disposition?: Record<string, number>;
   by_verdict: VerdictBreakdown;
   persona_usage: Record<string, number>;
   playbook_usage: Record<string, number>;

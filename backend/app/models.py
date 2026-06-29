@@ -19,9 +19,11 @@ from .constants import (
     ActionType,
     CaseStatus,
     DecisionBy,
+    Disposition,
     EntityType,
     SourceSurface,
     UsageOutcome,
+    UserRole,
     Verdict,
 )
 from .utils import coerce_float, dotted_get, iso_now, new_id, parse_es_timestamp, to_millis
@@ -298,6 +300,21 @@ class CaseComment(BaseModel):
     body: str = ""
 
 
+class StatusHistoryEntry(BaseModel):
+    """One append-only lifecycle transition on a case (status taxonomy / F8).
+
+    Records WHO moved the case FROM which status TO which, WHEN, and WHY. Written
+    by analyst lifecycle actions (and by the deterministic decision when it changes
+    the status); rendered as a status timeline in the case overview. ``by``/``reason``
+    are operator/agent text — render-escaped in the UI, never trusted as prompt."""
+
+    from_status: str = ""
+    to_status: str = ""
+    by: str = ""
+    at: str = Field(default_factory=iso_now)
+    reason: str = ""
+
+
 class MemoryEntry(BaseModel):
     """A durable operator FACT the agents remember across cases + chats (the
     Claude.ai-style "MEMORY" feature). Examples: "10.0.0.0/8 is internal",
@@ -350,6 +367,59 @@ class Proposal(BaseModel):
     expires_at: str | None = None
 
 
+class User(BaseModel):
+    """A multi-user SOC account (Wave 1: login + RBAC).
+
+    Persisted backend-agnostically as one entry in the single ``users`` KV document
+    (the same JSON-list-in-KV pattern as :class:`MemoryEntry`/:class:`Proposal`) —
+    NO new ES index / SQL table / migration. ``password_hash`` is a PBKDF2 string
+    from :func:`app.auth.passwords.hash_password`; it is NEVER returned by any API
+    (routes project to a safe public view). ``role`` is a :class:`app.constants.UserRole`
+    value. ``must_change_password`` forces a password reset on next login.
+    """
+
+    username: str = ""
+    password_hash: str = ""
+    role: UserRole = UserRole.ANALYST_TIER1
+    active: bool = True
+    must_change_password: bool = False
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+    last_login_at: str | None = None
+    groups: list[str] = Field(default_factory=list)
+
+    # --- MFA (Wave 2 / F3; all additive + defaulted — a user with mfa_enabled=False
+    # logs in EXACTLY as Wave 1). ``mfa_secret`` is the TOTP shared secret OBFUSCATED
+    # at rest (HMAC keystream XOR keyed by the server key; see auth/mfa.py) — never
+    # returned by any API. ``mfa_recovery_hashes`` are PBKDF2-hashed single-use codes
+    # (a code is consumed by dropping its hash). ``mfa_last_step`` is the last accepted
+    # TOTP time-step (replay rejection). ---
+    mfa_enabled: bool = False
+    mfa_secret: str = ""
+    mfa_recovery_hashes: list[str] = Field(default_factory=list)
+    mfa_last_step: int = 0
+
+    # --- SSO (Wave 2 / F4; additive). When a user is provisioned via OIDC these
+    # record the originating provider id + the IdP's stable subject so a returning
+    # SSO user maps back to the SAME local account. Empty for password accounts. ---
+    oauth_provider: str = ""
+    oauth_sub: str = ""
+
+    def public(self) -> dict[str, Any]:
+        """A safe projection for API responses — NEVER includes the password hash
+        or the MFA secret/recovery hashes (only the ``mfa_enabled`` boolean)."""
+        return {
+            "username": self.username,
+            "role": self.role.value if isinstance(self.role, UserRole) else str(self.role),
+            "active": self.active,
+            "must_change_password": self.must_change_password,
+            "created_at": self.created_at,
+            "last_login_at": self.last_login_at,
+            "mfa_enabled": self.mfa_enabled,
+            "oauth_provider": self.oauth_provider,
+        }
+
+
 # --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
@@ -379,6 +449,21 @@ class Case(BaseModel):
     recommended_action: str = ""
     reproduce_query: str = ""
     status: CaseStatus = CaseStatus.OPEN
+    # Investigative OUTCOME axis (status taxonomy / F8) — orthogonal to ``status``
+    # (lifecycle). Defaulted None so old stored cases load unchanged; populated in
+    # CaseManager.apply() from the verdict (when unset) or refined by an analyst.
+    disposition: Disposition | None = None
+    # Free-text reason for the current lifecycle state (why on hold / how resolved).
+    status_reason: str = ""
+    # Escalation priority level (0 == not escalated). Set by the escalate action /
+    # the deterministic escalate flag; never changes the close truth table.
+    escalation_level: int = 0
+    # Append-only lifecycle transition trail (from→to, by, when, reason).
+    status_history: list[StatusHistoryEntry] = Field(default_factory=list)
+    # Human-facing DISPLAY id (template-driven, F7). ``case_id`` stays the immutable
+    # internal id; ``case_number`` is "" until set at creation (then renders e.g.
+    # "CASE-000001"). The UI falls back to ``case_id`` when empty.
+    case_number: str = ""
     decision_by: DecisionBy | None = None
     objection_window_expires_at: str | None = None
     # The specialized investigator persona deterministically assigned to this case

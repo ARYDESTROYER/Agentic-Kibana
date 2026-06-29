@@ -59,6 +59,9 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
     total = len(cases)
     by_status = Counter((c.status.value if c.status else "unknown") for c in cases)
     by_verdict = Counter((c.verdict.value if c.verdict else "none") for c in cases)
+    by_disposition = Counter(
+        (c.disposition.value if getattr(c, "disposition", None) else "undetermined") for c in cases
+    )
     by_persona = Counter((c.agent_persona or "generalist") for c in cases)
     by_playbook = Counter((c.playbook_id or "none") for c in cases)
 
@@ -88,6 +91,7 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
         "needs_human_cases": by_status.get(CaseStatus.NEEDS_HUMAN.value, 0),
         "closed_cases": by_status.get(CaseStatus.CLOSED.value, 0),
         "by_status": dict(by_status),
+        "by_disposition": dict(by_disposition),
         "by_verdict": {
             "TRUE_POSITIVE": by_verdict.get(Verdict.TRUE_POSITIVE.value, 0),
             "FALSE_POSITIVE": by_verdict.get(Verdict.FALSE_POSITIVE.value, 0),

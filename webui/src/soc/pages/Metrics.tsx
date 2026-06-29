@@ -256,6 +256,22 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
       }));
   }, [data]);
 
+  const dispositionSegments = React.useMemo<DonutSegment[]>(() => {
+    const bd = data?.by_disposition;
+    if (!bd) return [];
+    return Object.entries(bd)
+      .filter(([, v]) => typeof v === 'number' && v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => ({
+        label: humanizeToken(k),
+        value: v,
+        color:
+          k === 'undetermined' || k === 'duplicate'
+            ? token('muted-foreground')
+            : semanticColor(k),
+      }));
+  }, [data]);
+
   const personaItems = React.useMemo(
     () => recordItems(data?.persona_usage, rankSort),
     [data, rankSort],
@@ -698,6 +714,43 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
                 </div>
               ) : (
                 <ChartEmpty>No verdicts recorded in this window.</ChartEmpty>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Disposition mix" icon={BarChart3}>
+              {dispositionSegments.length ? (
+                <div className="space-y-3">
+                  <DonutChart
+                    segments={dispositionSegments}
+                    format={(n) => fmtNumber(n)}
+                    ariaLabel="Disposition mix"
+                    center={
+                      <>
+                        <span className="text-2xl font-bold tabular-nums text-foreground">
+                          {fmtNumber(data?.total_cases)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">cases</span>
+                      </>
+                    }
+                  />
+                  <ul className="flex flex-col divide-y divide-border border-t border-border">
+                    {dispositionSegments.map((s) => (
+                      <li key={s.label} className="flex items-center gap-2 py-1.5 text-xs">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: s.color }}
+                          aria-hidden
+                        />
+                        <span className="truncate text-muted-foreground">{s.label}</span>
+                        <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
+                          {fmtNumber(s.value)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <ChartEmpty>No dispositions recorded in this window.</ChartEmpty>
               )}
             </ChartCard>
 

@@ -40,6 +40,7 @@ from .personas import select_persona
 from .router import Router
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..engine.case_id import SequenceStore
     from ..playbooks.registry import PlaybookRegistry
     from ..stores.memory import MemoryStore
 
@@ -59,6 +60,7 @@ class InvestigationPipeline:
         source: PullConnector | None = None,
         playbooks: "PlaybookRegistry | None" = None,
         memory: "MemoryStore | None" = None,
+        seq_store: "SequenceStore | None" = None,
     ) -> None:
         self._es = es
         # The agent's read-only log surface. Defaults to wrapping ``es`` in an
@@ -78,6 +80,9 @@ class InvestigationPipeline:
         # Operator MEMORY store (durable trusted facts auto-injected into every
         # investigation). None → no memory injected (today's behaviour).
         self._memory = memory
+        # Case-number sequence store (F7). None → case_number stays "" and the UI
+        # falls back to case_id (today's behaviour).
+        self._seq_store = seq_store
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -89,6 +94,32 @@ class InvestigationPipeline:
         formatter = Formatter(self._gateway, self._audit)
         investigator = Investigator(self._gateway, registry, self._audit, formatter)
         return investigator, enrich
+
+    async def _allocate_case_number(
+        self, existing: Case | None, cluster: Cluster, prefs: Preferences
+    ) -> str:
+        """Render a human-facing display id (F7) for a NEW case, preserving an
+        existing case's number on re-investigation. Returns "" when the feature is
+        disabled / no sequence store is wired (the UI then falls back to case_id).
+        Never raises — a numbering glitch must never break case creation."""
+        if existing is not None and existing.case_number:
+            return existing.case_number
+        fmt = getattr(prefs, "case_id_format", None)
+        if not fmt or not getattr(fmt, "enabled", False) or self._seq_store is None:
+            return ""
+        try:
+            from ..engine.case_id import render, reset_bucket
+
+            bucket = reset_bucket(fmt.reset_period)
+            seq = await self._seq_store.next(fmt.prefix, bucket, start=fmt.seq_start)
+            return render(fmt.template, {
+                "seq": seq,
+                "prefix": fmt.prefix,
+                "source": cluster.source_name or "",
+            })
+        except Exception as exc:  # noqa: BLE001 — numbering must never break creation
+            logger.warning("Case-number allocation failed (%s); falling back to case_id", exc)
+            return ""
 
     async def investigate_cluster(
         self,
@@ -210,9 +241,11 @@ class InvestigationPipeline:
                         reproduce_query=entity_kql(cluster, prefs),
                     )
 
+            case_number = await self._allocate_case_number(existing, cluster, prefs)
             case = self._assemble_case(
                 case_id, cluster, verdict, source_surface, existing, cost, prefs,
                 persona_id=persona.id, playbook_id=(playbook.id if playbook else ""),
+                case_number=case_number,
             )
             CaseManager(prefs).apply(case)
             await self._cases.save(case)
@@ -253,8 +286,10 @@ class InvestigationPipeline:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         ))
+        case_number = await self._allocate_case_number(existing, cluster, prefs)
         case = Case(
             case_id=case_id,
+            case_number=case_number,
             cluster_signature=cluster.signature,
             created_at=existing.created_at if existing else iso_now(),
             updated_at=iso_now(),
@@ -296,6 +331,7 @@ class InvestigationPipeline:
         prefs: Preferences,
         persona_id: str = "",
         playbook_id: str = "",
+        case_number: str = "",
     ) -> Case:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
@@ -325,6 +361,7 @@ class InvestigationPipeline:
         reproduce_query = normalize_kql(raw_reproduce, prefs)
         return Case(
             case_id=case_id,
+            case_number=(existing.case_number if existing and existing.case_number else case_number),
             cluster_signature=cluster.signature,
             created_at=created_at,
             updated_at=iso_now(),

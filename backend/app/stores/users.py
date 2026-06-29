@@ -1,0 +1,202 @@
+"""Multi-USER store — real SOC accounts for login + RBAC (Wave 1).
+
+A USER is a login account with a role (see :class:`app.constants.UserRole`), a
+PBKDF2 password hash, an ``active`` flag and a ``must_change_password`` flag.
+
+Backend-agnostic by construction (same shape as :mod:`app.stores.memory` /
+:mod:`app.stores.proposals`): the WHOLE user set is ONE JSON list persisted through
+the existing :class:`KVStore` abstraction (``ns="users"``, ``key="entries"``) — so it
+needs NO new ES index / SQL table / migration. The SQL backend uses ``SqlKVStore``
+(the shared KV table); the ES backend uses the thin :class:`app.stores.memory.EsKVStore`
+adapter (a doc in the existing config index).
+
+Reads + writes are read-modify-write over the single list — fine at our scale (a
+handful of operator accounts, not log volume). The store NEVER raises on a load: a
+load failure degrades to an empty list and is logged. Mutations DO surface errors so
+the caller (e.g. the user-admin route) can report a failure.
+
+Usernames are unique, case-insensitively matched, and stored as entered. The
+``create_if_absent`` seeding path is race-safe at our single-process scale (one
+read-modify-write under the asyncio event loop; no two coroutines interleave a save).
+"""
+
+from __future__ import annotations
+
+import logging
+
+from ..constants import USERS_KEY, USERS_NS, UserRole
+from ..models import User
+from ..utils import iso_now
+from .base import KVStore
+
+logger = logging.getLogger("tlsoc.stores.users")
+
+
+def _norm(username: str) -> str:
+    return (username or "").strip().lower()
+
+
+class UserStore:
+    """CRUD over the user list, persisted as one KV document.
+
+    The KV value is ``{"entries": [<User json>, ...]}``. Methods are
+    read-modify-write. ``_load`` never raises (a failure logs + returns an empty
+    list); mutations surface persistence errors."""
+
+    def __init__(self, kv: KVStore) -> None:
+        self._kv = kv
+
+    async def _load(self) -> list[User]:
+        try:
+            doc = await self._kv.get(USERS_NS, USERS_KEY)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Loading users failed (%s); using empty set", exc)
+            return []
+        if not doc:
+            return []
+        raw = doc.get("entries", []) if isinstance(doc, dict) else []
+        out: list[User] = []
+        for item in raw or []:
+            try:
+                out.append(User.model_validate(item))
+            except Exception:  # noqa: BLE001 — skip a single corrupt entry, keep the rest
+                continue
+        return out
+
+    async def _save(self, entries: list[User]) -> None:
+        await self._kv.put(
+            USERS_NS, USERS_KEY,
+            {"entries": [u.model_dump(mode="json") for u in entries]},
+        )
+
+    async def list(self) -> list[User]:
+        """All users, oldest first (stable admin-table order)."""
+        return sorted(await self._load(), key=lambda u: u.created_at)
+
+    async def save(self, user: User) -> None:
+        """Upsert ``user`` by (case-insensitive) username — append if new, replace
+        in place if it already exists. ``updated_at`` is refreshed on replace; the
+        stored ``created_at`` is preserved so it remains the true creation time."""
+        needle = _norm(user.username)
+        entries = await self._load()
+        for idx, existing in enumerate(entries):
+            if _norm(existing.username) == needle:
+                entries[idx] = user.model_copy(update={
+                    "created_at": existing.created_at,
+                    "updated_at": iso_now(),
+                })
+                await self._save(entries)
+                return
+        entries.append(user)
+        await self._save(entries)
+
+    async def count(self) -> int:
+        return len(await self._load())
+
+    async def get(self, username: str) -> User | None:
+        needle = _norm(username)
+        for u in await self._load():
+            if _norm(u.username) == needle:
+                return u
+        return None
+
+    async def find_active(self, username: str) -> User | None:
+        u = await self.get(username)
+        return u if (u is not None and u.active) else None
+
+    async def credentials(self) -> dict[str, str]:
+        """``username -> password_hash`` for ACTIVE users (the AuthService user map)."""
+        return {u.username: u.password_hash for u in await self._load() if u.active}
+
+    async def create(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        role: str = UserRole.ANALYST_TIER1.value,
+        active: bool = True,
+        must_change_password: bool = False,
+    ) -> User:
+        """Create a user. Raises ``ValueError`` if the username already exists."""
+        uname = (username or "").strip()
+        if not uname:
+            raise ValueError("username is required")
+        entries = await self._load()
+        if any(_norm(u.username) == _norm(uname) for u in entries):
+            raise ValueError(f"user '{uname}' already exists")
+        user = User(
+            username=uname,
+            password_hash=password_hash,
+            role=role,
+            active=active,
+            must_change_password=must_change_password,
+        )
+        entries.append(user)
+        await self._save(entries)
+        return user
+
+    async def create_if_absent(
+        self,
+        *,
+        username: str,
+        password_hash: str,
+        role: str = UserRole.ANALYST_TIER1.value,
+        active: bool = True,
+        must_change_password: bool = False,
+    ) -> User | None:
+        """Race-safe seed: create the user ONLY if the store is empty AND the
+        username is absent. Returns the created user, or ``None`` if it already
+        existed / the store was non-empty (so seeding never clobbers real users)."""
+        entries = await self._load()
+        if entries:
+            return None
+        user = User(
+            username=(username or "").strip(),
+            password_hash=password_hash,
+            role=role,
+            active=active,
+            must_change_password=must_change_password,
+        )
+        await self._save([user])
+        return user
+
+    async def update(self, username: str, **fields: object) -> User | None:
+        """Patch a user (role / active / password_hash / must_change_password).
+        Returns the updated user, or ``None`` if the username is unknown."""
+        needle = _norm(username)
+        entries = await self._load()
+        updated: User | None = None
+        allowed = {
+            "role", "active", "password_hash", "must_change_password", "last_login_at",
+            # Wave 2 (MFA / SSO) — additive, set via the auth routes (never the UI).
+            "mfa_enabled", "mfa_secret", "mfa_recovery_hashes", "mfa_last_step",
+            "oauth_provider", "oauth_sub",
+        }
+        for idx, u in enumerate(entries):
+            if _norm(u.username) != needle:
+                continue
+            patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+            patch["updated_at"] = iso_now()
+            updated = u.model_copy(update=patch)
+            entries[idx] = updated
+            break
+        if updated is not None:
+            await self._save(entries)
+        return updated
+
+    async def delete(self, username: str) -> bool:
+        needle = _norm(username)
+        entries = await self._load()
+        remaining = [u for u in entries if _norm(u.username) != needle]
+        if len(remaining) == len(entries):
+            return False
+        await self._save(remaining)
+        return True
+
+    async def count_active_super_admins(self, *, super_admin_role: str) -> int:
+        """How many ACTIVE users hold the super-admin role — used to forbid
+        deleting/demoting/disabling the last super_admin (lockout guard)."""
+        return sum(
+            1 for u in await self._load()
+            if u.active and u.role == super_admin_role
+        )

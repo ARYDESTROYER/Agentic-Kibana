@@ -121,7 +121,7 @@ def test_auth_disabled_is_open(client) -> None:
     # Default conftest client: auth off → endpoints open; /auth/me reports disabled.
     assert client.get("/api/cases").status_code == 200
     me = client.get("/api/auth/me").json()
-    assert me["enabled"] is False and me["authenticated"] is False
+    assert me["auth_enabled"] is False and me["authenticated"] is True
 
 
 def _auth_client():
@@ -153,14 +153,14 @@ def test_auth_enabled_requires_login_then_allows() -> None:
         # Public endpoints work without a session.
         assert c.get("/api/health").status_code == 200
         me = c.get("/api/auth/me").json()
-        assert me["enabled"] is True and me["authenticated"] is False
+        assert me["auth_enabled"] is True and me["authenticated"] is False
         # A protected endpoint is 401 without a token.
         assert c.get("/api/cases").status_code == 401
         # Bad credentials → 401.
         assert c.post("/api/auth/login", json={"username": "admin", "password": "nope"}).status_code == 401
         # Good credentials → 200 + cookie (TestClient persists it).
         r = c.post("/api/auth/login", json={"username": "admin", "password": "s3cret-pw"})
-        assert r.status_code == 200 and r.json()["ok"] is True
+        assert r.status_code == 200 and r.json()["token"]
         # Now the protected endpoint is reachable.
         assert c.get("/api/cases").status_code == 200
         assert c.get("/api/auth/me").json()["authenticated"] is True

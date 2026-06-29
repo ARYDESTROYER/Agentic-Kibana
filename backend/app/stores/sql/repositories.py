@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from ...config import Preferences
-from ...constants import CaseStatus, SourceSurface, ActionType
+from ...constants import CaseStatus, OPEN_CASE_STATUSES, SourceSurface, ActionType
 from ...models import AuditDoc, Case, Cursor, UsageDoc
 from ...utils import now_utc, parse_es_timestamp, to_millis, truncate
 from ..base import (
@@ -34,7 +34,9 @@ from .models import AuditRow, CaseRow, KVRow, UsageRow
 
 logger = logging.getLogger("tlsoc.stores.sql")
 
-_OPEN_STATUSES = [CaseStatus.OPEN.value, CaseStatus.NEEDS_HUMAN.value]
+# Any NON-terminal lifecycle status counts as "open" for signature idempotency (#4),
+# including the F8 statuses (NEW/INVESTIGATING/ESCALATED/ON_HOLD).
+_OPEN_STATUSES = list(OPEN_CASE_STATUSES)
 
 # Config/cursor namespaces + keys for the KV store (mirror the ES doc ids).
 _CONFIG_NS = "config"

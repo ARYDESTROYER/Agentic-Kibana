@@ -79,7 +79,13 @@ class AppState:
             jwt_secret=self.secrets.auth_jwt_secret or "",
             token_hours=self.secrets.auth_token_hours,
             users=self.secrets.auth_user_map(),
+            admin_username=self.secrets.auth_admin_username,
+            mfa_enforce_roles=list(getattr(getattr(self.prefs, "mfa", None), "enforce_for_roles", []) or []),
         )
+        # Multi-USER store (Wave 1) over the SAME KV the MEMORY/PROPOSAL stores use
+        # — no new index/table/migration. Seeded + folded into AuthService during
+        # async startup() (and after user-mgmt mutations) via refresh_users().
+        self.users = self._build_users()
         # Markdown playbook registry (loaded from disk; deterministic per-cluster
         # selection). Reloaded in startup() once prefs (and any dir override) load.
         self.playbooks = self._build_playbooks()
@@ -90,6 +96,8 @@ class AppState:
         # Agent-DRAFTED proposals awaiting human approval (HITL). Backed by the SAME
         # KV as the MEMORY store — no new index/table/migration.
         self.proposals = self._build_proposals()
+        # Case-number sequence store (F7) over the SAME shared KV — no new index/table.
+        self.case_seq = self._build_case_seq()
         self.rag = self._build_rag()
         # The agent's read-only log surface as a connector (source-agnostic). The
         # poller, the es_query tool (via pipeline/chat) read through this. Behaviour
@@ -99,6 +107,7 @@ class AppState:
         self.pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self.cases, self.audit,
             source=self.log_source, playbooks=self.playbooks, memory=self.memory,
+            seq_store=self.case_seq,
         )
         self.chat_engine = ChatEngine(
             es, self.gateway, self.audit, self.cases, self.rag,
@@ -185,6 +194,79 @@ class AppState:
         from .stores.proposals import ProposalStore
 
         return ProposalStore(self._kv)
+
+    def _build_users(self):
+        """Construct the multi-USER store over the active backend's KV (the same KV
+        the MEMORY/PROPOSAL stores use — works on ES + SQL, no new index/table)."""
+        from .stores.users import UserStore
+
+        return UserStore(self._kv)
+
+    def _build_case_seq(self):
+        """Construct the case-number SequenceStore (F7) over the active backend's KV
+        (the same KV the MEMORY store uses — its own namespace, no new index/table)."""
+        from .engine.case_id import SequenceStore
+
+        return SequenceStore(self._kv)
+
+    async def seed_users(self) -> None:
+        """First-run seeding of the demo super_admin (``Admin``/``Admin@123``), and
+        of the env single-admin as a real user, when auth is ENABLED and the user
+        store is EMPTY. Race-safe (create-if-absent only when empty) and a strict
+        no-op when auth is disabled. Records a transient ``_seeded_default_admin``
+        signal for /api/setup/status. Best-effort: a store failure never blocks
+        startup."""
+        self._seeded_default_admin = False
+        if not self.secrets.auth_enabled:
+            return
+        try:
+            if await self.users.count() > 0:
+                return
+            from .auth.passwords import hash_password
+            from .constants import UserRole
+
+            # When an env single-admin is configured (auth_admin_password set), that
+            # IS the bootstrap admin — don't also seed the demo Admin (it would
+            # collide on the lowercased username and shadow the env creds). The demo
+            # seed is for the zero-config deployment that has no env admin.
+            env_admin = bool(self.secrets.auth_admin_password)
+            if self.secrets.auth_seed_admin and not env_admin:
+                created = await self.users.create_if_absent(
+                    username=self.secrets.auth_seed_admin_username,
+                    password_hash=hash_password(self.secrets.auth_seed_admin_password),
+                    role=UserRole.SUPER_ADMIN.value,
+                    active=True,
+                    must_change_password=False,
+                )
+                if created is not None:
+                    self._seeded_default_admin = True
+                    logger.info(
+                        "Seeded demo super_admin '%s' (change the password!)",
+                        created.username,
+                    )
+        except Exception as exc:  # noqa: BLE001 — seeding is best-effort
+            logger.warning("User seeding failed (%s); continuing", exc)
+
+    async def refresh_users(self) -> None:
+        """Sync :attr:`auth` with the CURRENT multi-user store records (role / active
+        / must_change_password / password hash) via ``AuthService.set_users`` —
+        WITHOUT rebuilding the service (so the JWT signing secret is stable across
+        refreshes and live sessions survive a user-mgmt mutation). Called after
+        startup seeding and after any user-mgmt mutation so a new/disabled/role-
+        changed user takes effect on the next request without a restart."""
+        try:
+            users = await self.users.list()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Refreshing users into AuthService failed (%s)", exc)
+            return
+        try:
+            self.auth.set_users(users)
+            # Keep the MFA-enforce role set in sync with current prefs (Wave 2 / F3).
+            self.auth.set_mfa_enforce_roles(
+                list(getattr(getattr(self.prefs, "mfa", None), "enforce_for_roles", []) or [])
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AuthService.set_users failed (%s)", exc)
 
     def _build_playbooks(self):
         """Construct + load the PlaybookRegistry (never raises; a bad file is
@@ -337,6 +419,10 @@ class AppState:
         # First-run seeding of the built-in rule catalog (C3-1): idempotent and
         # guarded by rule_catalog_seed_version so operator edits are never clobbered.
         self.prefs = await self.config_store.seed_rule_catalog(self.prefs)
+        # Seed the demo/first admin (when auth is on + the store is empty) and fold
+        # the user store into the AuthService so login + RBAC use real accounts.
+        await self.seed_users()
+        await self.refresh_users()
         self.rag = self._build_rag()
         self.pipeline._rag = self.rag
         self.chat_engine._rag = self.rag
@@ -427,6 +513,13 @@ class AppState:
         # Keep the long-lived RagService pointed at the latest prefs so a settings
         # change (rag.enabled / use_resolved_cases / min_score / top_k) is live.
         self.rag.set_prefs(prefs)
+        # Keep the MFA-enforce role set live after a settings change (Wave 2 / F3).
+        try:
+            self.auth.set_mfa_enforce_roles(
+                list(getattr(getattr(prefs, "mfa", None), "enforce_for_roles", []) or [])
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return prefs
 
     async def apply_secrets(self, updates: dict[str, str | bool | None]) -> None:

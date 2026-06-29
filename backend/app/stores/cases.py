@@ -14,7 +14,7 @@ from typing import Any
 from ..constants import (
     CASES_READ_PATTERN,
     CASES_WRITE_ALIAS,
-    CaseStatus,
+    OPEN_CASE_STATUSES,
     SourceSurface,
 )
 from ..es.base import BaseESClient
@@ -23,7 +23,10 @@ from .base import CaseRepository
 
 logger = logging.getLogger("tlsoc.cases")
 
-_OPEN_STATUSES = [CaseStatus.OPEN.value, CaseStatus.NEEDS_HUMAN.value]
+# Any NON-terminal lifecycle status counts as "open" for the signature idempotency
+# lookup (#4) — including the F8 statuses (NEW/INVESTIGATING/ESCALATED/ON_HOLD), so
+# an escalated/held case still attaches its new events instead of duplicating.
+_OPEN_STATUSES = list(OPEN_CASE_STATUSES)
 
 
 class CaseStore(CaseRepository):

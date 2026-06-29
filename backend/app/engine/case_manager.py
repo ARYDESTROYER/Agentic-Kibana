@@ -25,9 +25,18 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from ..config import AutoClosePolicy, Preferences, VerdictAutoClose
-from ..constants import CaseStatus, DecisionBy, Verdict
+from ..constants import CaseStatus, DecisionBy, Disposition, Verdict
 from ..models import Case
 from ..utils import iso_now, now_utc
+
+# Verdict → default Disposition map (status taxonomy / F8). Applied in apply()
+# ONLY when the case has no disposition yet; an analyst can later refine it. This
+# is a pure lookup beside decide() — decide()'s truth table is unchanged.
+_VERDICT_TO_DISPOSITION: dict[Verdict, Disposition] = {
+    Verdict.TRUE_POSITIVE: Disposition.TRUE_POSITIVE,
+    Verdict.FALSE_POSITIVE: Disposition.FALSE_POSITIVE,
+    Verdict.NEEDS_HUMAN: Disposition.UNDETERMINED,
+}
 
 
 @dataclass(frozen=True)
@@ -134,10 +143,42 @@ class CaseManager:
         if case.verdict in (None, Verdict.NEEDS_HUMAN) and decision.status == CaseStatus.CLOSED:
             raise AssertionError("Invariant violated: attempted to auto-close a NEEDS_HUMAN case")
 
+        prev_status = case.status
+
         case.status = decision.status
         case.decision_by = decision.decision_by
         case.objection_window_expires_at = decision.objection_window_expires_at
         case.updated_at = iso_now()
+
+        # --- Status taxonomy (F8) — ADDITIVE, layered ONLY here in apply() ---------
+        # decide() is byte-for-byte unchanged (#3). We map the existing escalate flag
+        # to the richer ESCALATED lifecycle status — but ONLY in the non-close branch,
+        # so the close invariant (NEEDS_HUMAN/None never CLOSED, asserted above) is
+        # preserved: ESCALATED is not CLOSED.
+        if decision.escalate and decision.status != CaseStatus.CLOSED:
+            case.status = CaseStatus.ESCALATED
+            if case.escalation_level < 1:
+                case.escalation_level = 1
+
+        # Populate the disposition from the verdict when the analyst has not already
+        # set one. Never overrides an analyst-confirmed disposition.
+        if case.disposition is None and case.verdict is not None:
+            mapped = _VERDICT_TO_DISPOSITION.get(case.verdict)
+            if mapped is not None:
+                case.disposition = mapped
+
+        # Record the transition on the append-only status timeline when it moved.
+        if case.status != prev_status:
+            from ..models import StatusHistoryEntry  # local import avoids a cycle
+
+            case.status_history.append(StatusHistoryEntry(
+                from_status=(prev_status.value if prev_status else ""),
+                to_status=case.status.value,
+                by=decision.decision_by.value,
+                at=case.updated_at,
+                reason=decision.rationale,
+            ))
+
         case.history.append({
             "ts": case.updated_at,
             "event": "decision",

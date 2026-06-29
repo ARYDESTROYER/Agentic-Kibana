@@ -89,7 +89,14 @@ const SEMANTIC: Record<string, string> = {
   investigating: palette.primary,
   closed: palette.success,
   resolved: palette.success,
+  on_hold: palette.warning,
+  'on hold': palette.warning,
+  'new': palette.muted,
   suppressed: palette.muted,
+  // disposition (investigative outcome axis)
+  suspicious: palette.high,
+  duplicate: palette.muted,
+  undetermined: palette.muted,
 };
 
 /** Resolve a semantic color for a domain label, else a stable categorical color. */

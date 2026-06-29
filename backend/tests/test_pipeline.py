@@ -49,7 +49,11 @@ async def test_true_positive_not_autoclosed_by_default(app_state: AppState, mock
 
     case = await app_state.pipeline.investigate_cluster(_cluster(), SourceSurface.INVESTIGATE, app_state.prefs)
     assert case.verdict == Verdict.TRUE_POSITIVE
-    assert case.status == CaseStatus.NEEDS_HUMAN
+    # TP is not auto-closed (default); the confident TP surfaces as ESCALATED (the
+    # F8 lifecycle mapping of decide().escalate in the non-close branch) — still a
+    # human/SYSTEM decision, never CLOSED.
+    assert case.status == CaseStatus.ESCALATED
+    assert case.status != CaseStatus.CLOSED
     assert case.decision_by == DecisionBy.SYSTEM
     assert case.token_cost >= 0.0
 
