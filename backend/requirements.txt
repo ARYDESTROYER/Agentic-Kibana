@@ -20,6 +20,7 @@ elasticsearch[async]==8.12.1
 # imported LAZILY (only when state_backend=postgres) so an ES/SQLite deployment
 # does not require them at import time. aiosqlite is the SQLite async driver.
 sqlalchemy>=2.0
+greenlet>=3.0          # SQLAlchemy async runtime dep (not always pulled in transitively)
 aiosqlite>=0.19
 asyncpg>=0.29
 pgvector>=0.2.5

@@ -43,9 +43,10 @@ Components, loosely coupled:
   the two-tier LLM investigation, the deterministic case manager, tools
   (es_query/enrich/rag), the single LLM gateway + cost ledger, and the suite's own
   state (ES | Postgres | SQLite) behind a `StateStore` abstraction.
-- **Web UI** (`webui/`) — the **primary** surface: a standalone Vite + React +
-  @elastic/eui SPA (the first-run wizard + console), talking to the backend via an
-  `/api` proxy. Ships in the agnostic compose stack as `tlsoc-webui` (nginx).
+- **Web UI** (`webui/`) — the **primary** surface: a standalone Vite + React + TS +
+  Tailwind + shadcn/Radix SPA (the first-run wizard + console), talking to the
+  backend via an `/api` proxy. Ships in the agnostic compose stack as `tlsoc-webui`
+  (nginx). (EUI was removed in the UI overhaul.)
 - **Plugin** (`archive/kibana-plugin/`) — **ARCHIVED (2026-06-21)**: the original
   thin Kibana plugin (React + EUI). Retired into `archive/` when we went
   vendor-neutral (the standalone webui is the sole primary surface). It is no longer
@@ -71,7 +72,7 @@ plan), `ROADMAP.md` (work tracking).
 ## 3. Architecture (end to end)
 
 ```
-┌──────────── PRIMARY surface: standalone Web UI (webui/, Vite+React+EUI) ──────────┐
+┌────── PRIMARY surface: standalone Web UI (webui/, Vite+React+Tailwind+shadcn) ─────┐
 │ SPA: Wizard · Chat · Investigate · Automated Scans · Standup · Cost · Settings     │
 │ api (webui/src/lib) → /api proxy (nginx) ───────────────────────▶ tlsoc-backend    │
 └────────────────────────────────────────────────────────────────────────┬──────────┘
@@ -127,33 +128,49 @@ backend/app/
                      rag (hybrid BM25+vector retrieval; import/list/get/delete +
                      stats) · vectorstore (+ list_documents/list_chunks/
                      delete_document/stats)
-  engine/            correlation · risk · cost_gate · case_manager (AutoClosePolicy) ·
+  engine/            correlation (multi-strategy + opt-in cross-source linking) ·
+                     risk · cost_gate · case_manager (AutoClosePolicy; decide() pure) ·
                      signatures · poller · ingest (push/queue → OCSF) · runbooks
-                     (RAG-knowledge loader) · chunking (chunk_text; dep-free
-                     paragraph-pack + overlap)
+                     (RAG-knowledge loader) · chunking · case_id (customizable
+                     case-XXXX nomenclature; KV sequence + template) ·
+                     threshold_automation (#3-safe rule actions → HITL proposal) ·
+                     threat_context (IOC reputation + MITRE + related cases, fail-open) ·
+                     mitre (bundled ATT&CK technique lookup)
+  threat/            mitre_techniques.json (bundled ATT&CK, 697 techniques) +
+                     refresh_mitre.py + SOURCE.md (data corpus, not live fetch)
   runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
   playbooks/         Markdown PLAYBOOK engine: manifest · loader · registry
                      (deterministic per-cluster selection + atomic hot-reload)
   auth/              passwords (PBKDF2) · tokens (stdlib HS256 JWT) · service
+                     (multi-user + 6-role RBAC + permission matrix + require_permission) ·
+                     mfa (stdlib RFC-6238 TOTP + recovery codes) · oidc (Google/
+                     Microsoft/generic SSO via code-exchange + userinfo)
+  notifications/     channel (NotificationChannel SPI) · email (stdlib SMTP, 13 presets) ·
+                     webhook (Slack/Teams/generic/PagerDuty/Telegram) · dispatch
+                     (per-condition triggers + dedup/rate-limit/digest) · templates
   middleware/        security_headers · csrf · rate_limit (Starlette middleware)
   agents/            prompts · router · investigator · formatter · chat · standup ·
                      graph (LangGraph) · pipeline · common · personas (multi-agent roster)
   stores/            base (abstract repositories — backend-agnostic StateStore) ·
-                     cases · usage · config_store · cursor_store · memory
+                     cases · usage · config_store · cursor_store · users (UserStore
+                     over KV — multi-user, no new index/table) · memory
                      (MemoryStore over the KVStore — durable operator facts;
                      EsKVStore/SqlKVStore adapters, no new index) · audit/audit_log
                      (ES-backed) · sql/ (engine · models · repositories ·
                      vectorstore — SQLite/Postgres+pgvector)
-  api/               routes (UI contract; incl. /sources, /sources/{id}/secrets) ·
-                     deps    state.py (DI hub) · main.py
+  api/               routes (UI contract; incl. /sources, /auth+/users+/auth/mfa+
+                     /auth/sso, /notifications, /proposals, /settings/schema) ·
+                     deps (require_auth + require_permission) · state.py (DI hub) · main.py
 backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
                      dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
-webui/               PRIMARY surface: standalone Vite+React+TS+@elastic/eui SPA
-  package.json       Node 22, @elastic/eui 95; build = tsc --noEmit && vite build
-  src/               App.tsx · main.tsx · components/ (incl. Knowledge/ = RAG
-                     corpus page, Memory/ = agent-memory page; both new Platform
-                     nav entries) · lib/ (api etc.)
+webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/Radix SPA
+  package.json       Node 22; Tailwind + Radix primitives; build = tsc --noEmit && vite build
+  src/               main.tsx · styles/theme.css (design tokens) · ui/* (shadcn/Radix
+                     primitives) · soc/ (App/AppShell/router/nav/theme/auth; pages/*
+                     incl. Users/Security/Approvals/Settings/Knowledge/Memory;
+                     components/* incl. Can RBAC guard, MfaSetupCard, QRCode,
+                     NotificationsEditor, RiskGauge, palette) · lib/ (api etc.) · test/
   Dockerfile         nginx image (tlsoc-webui) with the /api proxy
 archive/             FROZEN legacy code (not built/tested/shipped) — see archive/README.md
   kibana-plugin/     the retired Kibana plugin (tlsoc_agentic_triage/ + dist/ + BUILD.md)
@@ -240,7 +257,7 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 300 tests
+# Backend tests (offline; MUST stay green) — currently 649 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
 python -m pytest -q
 
@@ -264,20 +281,25 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 - **Python:** `from __future__ import annotations`, type hints, module docstrings,
   Pydantic v2 (`model_dump(mode="json")` for ES writes). Async throughout.
   Never let an LLM/ES/tool error drop an alert → route to NEEDS_HUMAN.
-- **TS/React:** functional components + hooks + EUI; NO new npm deps (only
-  monorepo packages — adding deps breaks the build). Import platform code via
-  `@kbn/*` aliases (NOT deep relative paths — they move between versions).
+- **TS/React (webui, the only surface):** functional components + hooks.
+  Stack is **Vite + React + TypeScript + Tailwind CSS + shadcn-style primitives on
+  Radix UI** — **NOT @elastic/eui** (EUI was fully removed in the UI overhaul). NO
+  new npm deps without a deliberate decision; the build is `tsc --noEmit && vite
+  build`. (The archived Kibana plugin's old `@kbn/*`/EUI conventions no longer apply.)
 - **UI design system (the suite's shared look — use it, don't re-roll it):**
-  `public/lib/format.ts` = framework-free formatters (`humanizeAge`,
-  `formatTimestamp`, `fmtMoney/Number/Tokens/Percent`, `humanizeToken`, `DASH`);
-  `public/components/ui.tsx` = the single source of truth for the colour scheme
-  (`COLORS` + `tint()`), semantic helpers (`verdictColor/verdictHex/statusHex/
-  riskHex`) and reusable primitives (`SectionHeader`, `StatTile`, `EmptyState`,
-  `RiskBadge`, `VerdictBadge`, `StatusBadge`, `ConfidenceBadge`); layout/elevation
-  utility classes live in `public/index.scss` (`tlsocIconChip`, `tlsocStatTile`,
-  `tlsocCard`, `tlsocBoard__*`). Every surface composes these so the console stays
-  consistent. Semantic colours are defined ONCE in `COLORS` and applied via inline
-  style; the scss is plain (no deps) so it builds for both 8.12 and 8.19.
+  - **Design tokens** live in `webui/src/styles/theme.css` as CSS custom properties
+    (dual light/dark "command-center" theme) consumed through Tailwind; semantic
+    colours (verdict/status/risk) come from `webui/src/soc/components/palette.ts`.
+  - **Low-level primitives** are the shadcn/Radix components under `webui/src/ui/*`
+    (`button`, `card`, `dialog`, `select`, `tabs`, `table`, `tooltip`, `sheet`,
+    `skeleton`, `popover`, `hover-card`, `badge`, … — wrap Radix, do not fork them).
+  - **SOC-domain components** live in `webui/src/soc/components/*`
+    (`PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
+    `CaseHoverCard`, `ChatPanel`, `badges.tsx`, `charts.tsx`, `Can.tsx` RBAC guard,
+    `LoadingBar`/`Stagger` motion, `HelpTip`, editors for sources/notifications/
+    branding/MFA). Pages are `webui/src/soc/pages/*`; shell/nav/router/theme/auth in
+    `webui/src/soc/{AppShell,nav,router,theme,auth}.tsx`. Compose these everywhere so
+    the console stays consistent (8px grid, WCAG AA).
 - **Backend↔plugin contract:** additive request/response fields are safe (proxy
   forwards arbitrary JSON). Keep `common/index.ts` types in sync with `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
@@ -301,26 +323,53 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(**Waves 1–3**) shipped — **395 backend tests green**; the standalone **webui
-builds clean** (tsc+vite) + a dev-only Vitest harness. Latest round: **HITL agent-drafted
-suppression/asset PROPOSALS with human approval** (code-guarded proposer on FP-confirm →
-pending `Proposal` → admin-gated `POST /api/proposals/{id}/approve` is the only write path;
-`case_manager.decide()` byte-identical), a **white-screen fix** (EuiAvatar rgba) + a
-top-level **React error boundary**, **deeper cost breakdown**, and **expanded branding**
-(favicon/secondary-accent/footer/etc.). Prior round: **entity-agnostic correlation** (no-source-IP
-fix — events without an IP no longer silently dropped; `entity_strategy` IP→host→user→rule),
-**per-source multiple index patterns with `events`/`alerts` roles** (auto-investigate
-all alerts), `source_id`/`source_name` on cases + **filter-by-source** + sort everywhere
-+ a Chat **source selector**, per-source field mapping + `message_field` + **CA-cert
-file/drag-drop**, a **chat layout rebuild** (full-height, hides all-empty columns),
-Knowledge/Memory feature upgrades, and a **design-token standardization** pass. Competitor
-research + an **RBAC** and **cross-source-aggregation** design captured in
-`docs/research/` (both scoped as the next round). Prior round: EUI icon fix
-(`appendIconComponentCache`), Chat redesign + `ChatPanel`, in-case chat,
-**Reinvestigate**, structured lifecycle actions, robust Standup. The legacy Kibana
-plugin is **archived** (`archive/`).
-Active development branch: **`Testing`**. See `docs/VIGIL_STUDY.md` for the study +
-multi-wave plan and `ROADMAP.md` for live status.
+(Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) all shipped — **649 backend tests
+green** (was 395); the standalone **webui builds clean** (tsc+vite) + **27 Vitest
+specs green**. The whole SOC overhaul was additive, zero new deps, with
+non-negotiable #3 intact (`case_manager.decide()` byte-identical). The legacy Kibana
+plugin is **archived** (`archive/`). Active branch: **`Testing`**. See
+`docs/VIGIL_STUDY.md` for the study + multi-wave plan and `ROADMAP.md` for live status.
+
+**Done — the 7-wave SOC overhaul (W1–W7; commits since `91f8616`):**
+- **W1 Identity** — persisted **multi-user** (`stores/users.py` over the KV doc store,
+  no new index/table) + **6-role RBAC** (super_admin / soc_manager / analyst_tier2 /
+  analyst_tier1 / responder / auditor) + permission matrix + `require_permission`
+  deps + React `<Can>` guards; OOBE first-run; seeds **Admin / Admin@123**
+  (super_admin) **only when auth is enabled**.
+- **W2 MFA + SSO** — stdlib **RFC-6238 TOTP** (verified against the official vectors)
+  + browser inline-SVG **QR** + single-use **recovery codes** + two-phase login
+  (`auth/mfa.py`, `/api/auth/mfa/{setup,confirm,verify,disable}`); **OIDC SSO**
+  (Google / Microsoft / generic) via server-side code-exchange + userinfo (no
+  id_token-verify dep), group→role provisioning (`auth/oidc.py`, `/api/auth/sso/*`).
+- **W3 Cases** — extended **status + disposition** taxonomy (`CaseStatus`
+  NEW/INVESTIGATING/ESCALATED/ON_HOLD/RESOLVED keeping open/needs_human/closed;
+  `Disposition` true_positive/false_positive/benign/suspicious/duplicate/undetermined;
+  `needs_human` retained as alias) + lifecycle actions + transition guard +
+  `status_history`; **`decide()` byte-identical**; customizable **`case-XXXX`
+  nomenclature** (`engine/case_id.py` template + KV sequence + live preview); polished
+  case overview panel.
+- **W4 Notifications** — pluggable `NotificationChannel` SPI + **email** (stdlib SMTP,
+  13 provider presets) + **Slack/Teams/webhook/PagerDuty/Telegram**; per-condition
+  triggers + dedup/rate-limit/digest; fire-and-forget **after** `apply()`+save;
+  channel secrets in the secret tier (`notifications/`, `/api/notifications/*`).
+- **W5 Multi-source** — **Auto-Correlate** toggle per source AND per sub-source
+  (`IndexPattern`); opt-in **cross-source correlation** linking RELATED cases by
+  shared entity (ip/host/user/file_hash/domain); per-source field-mapping overrides +
+  connector `setup_help` + `HelpTip`s + analyze-sample.
+- **W6 Automation + Threat-context** — **#3-safe threshold automation**
+  (`engine/threshold_automation.py`: tag/recommend/notify/run_playbook/request_approval
+  → HITL proposal; **never sets status**); **run-a-playbook** (context-only
+  re-investigation); **threat-context panel** (`engine/threat_context.py`: IOC
+  reputation + bundled **MITRE ATT&CK 697 techniques** in `threat/` + related cases,
+  fail-open); resolved-case → RAG knowledge loop.
+- **W7 Settings + UI** — consolidated **Settings** (13 sections / 4 nav groups) +
+  `GET /api/settings/schema`; **RiskGauge** redesign (fixes the Active-Risk-Index
+  glitch); skeleton/shimmer loading + staggered reveals; 8px-grid alignment; WCAG AA.
+
+**Auth is DEFAULT OFF** (`Secrets.auth_enabled`) so the no-auth "old version" and the
+offline test suite keep working unchanged. Enable it with `TLSOC_AUTH_ENABLED=true`
+to get the login + RBAC + MFA/SSO and the **Admin / Admin@123** super_admin seed
+(change the password immediately).
 
 Done (this round — browse logs per source + connection-test/TLS fixes; additive,
 spine + the 12 non-negotiables intact):

@@ -75,6 +75,34 @@ services:
       - ES_CA_CERT=${TLSOC_ES_CA_CERT:-}
       - ES_VERIFY_CERTS=${TLSOC_ES_VERIFY_CERTS:-true}
       - LOG_LEVEL=${TLSOC_LOG_LEVEL:-INFO}
+      # --- API auth + RBAC + MFA + SSO (default OFF; see DEMO.md / DEPLOY.md §9).
+      #     Set TLSOC_AUTH_ENABLED=true + a stable TLSOC_AUTH_JWT_SECRET in .env to
+      #     get the login screen, the 6-role RBAC, and the MFA/SSO surfaces. When
+      #     auth is on and the user store is empty, the backend auto-seeds a demo
+      #     super_admin (Admin / Admin@123 — change it for real use).
+      #     DEMO example .env:
+      #       TLSOC_AUTH_ENABLED=true
+      #       TLSOC_AUTH_JWT_SECRET=<openssl rand -hex 32>
+      - AUTH_ENABLED=${TLSOC_AUTH_ENABLED:-false}
+      - AUTH_JWT_SECRET=${TLSOC_AUTH_JWT_SECRET:-}
+      - AUTH_ADMIN_USERNAME=${TLSOC_AUTH_ADMIN_USERNAME:-admin}
+      - AUTH_ADMIN_PASSWORD=${TLSOC_AUTH_ADMIN_PASSWORD:-}
+      - AUTH_USERS=${TLSOC_AUTH_USERS:-{}}
+      - AUTH_TOKEN_HOURS=${TLSOC_AUTH_TOKEN_HOURS:-12}
+      # Set true behind a TLS terminator so the session cookie is HTTPS-only.
+      - AUTH_COOKIE_SECURE=${TLSOC_AUTH_COOKIE_SECURE:-false}
+      # MFA TOTP secret obfuscation key (blank -> derived from AUTH_JWT_SECRET).
+      - MFA_OBFUSCATION_KEY=${TLSOC_MFA_OBFUSCATION_KEY:-}
+      # SSO (OIDC) client secrets — JSON map of provider id -> secret (SECRET tier).
+      # Register the IdP redirect URI as  <base-url>/api/auth/sso/callback .
+      - SSO_CLIENT_SECRETS=${TLSOC_SSO_CLIENT_SECRETS:-{}}
+      # --- Notification channel secrets (SMTP password / Slack/Teams/webhook URL /
+      #     PagerDuty/Telegram token) — JSON map of channel id -> {field: value}. ---
+      - NOTIFICATION_SECRETS=${TLSOC_NOTIFICATION_SECRETS:-{}}
+      # --- Opt-in hardening middleware (independent of auth) ---
+      - SECURITY_HEADERS_ENABLED=${TLSOC_SECURITY_HEADERS_ENABLED:-true}
+      - RATE_LIMIT_ENABLED=${TLSOC_RATE_LIMIT_ENABLED:-false}
+      - CSRF_ENABLED=${TLSOC_CSRF_ENABLED:-false}
     volumes:
       # Mount a CA cert here if your log cluster uses a private CA (then set
       # TLSOC_ES_CA_CERT=/certs/ca.crt). Safe to leave commented out.

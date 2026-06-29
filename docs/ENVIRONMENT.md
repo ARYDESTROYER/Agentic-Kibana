@@ -4,10 +4,12 @@ There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
 > The suite is now **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
-> **standalone web UI** (`webui/`, Vite+React+@elastic/eui) are the primary
-> artifacts; the Kibana plugin (`plugin/`) is a legacy/optional surface. The
-> suite's own state runs on a **selectable backend** (Elasticsearch, PostgreSQL,
-> or SQLite). See `COMPATIBILITY.md` for the full matrix.
+> **standalone web UI** (`webui/`, Vite+React+TS+**Tailwind+shadcn/Radix** — EUI was
+> removed in the UI overhaul) are the primary artifacts; the Kibana plugin is
+> **archived** (`archive/kibana-plugin/`). The suite's own state runs on a
+> **selectable backend** (Elasticsearch, PostgreSQL, or SQLite). Optional auth
+> (RBAC/MFA/SSO) is **DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on. See
+> `COMPATIBILITY.md` for the full matrix.
 
 ---
 
@@ -28,7 +30,7 @@ plugin zips are built.
 |---|---|---|
 | Node (default) | `/opt/node22` → `node v22.x` on PATH | Fine for the **webui** build; WRONG for **plugin** builds (use the per-version pin) |
 | nvm | `/opt/nvm/nvm.sh` | `nvm use "$(cat <checkout>/.nvmrc)"` for the Kibana plugin |
-| Node for the webui | **22** | Vite+React+TS+EUI; the default `/opt/node22` works |
+| Node for the webui | **22** | Vite+React+TS+Tailwind+shadcn/Radix; the default `/opt/node22` works |
 | Node for Kibana 8.19.12 | `22.22.0` (repo `.nvmrc`/`.node-version`) | Bazel removed in 8.19 |
 | Node for Kibana 8.12.2 | `18.18.2` | Bazel-based bootstrap |
 | Python | `3.11` | backend venv at `backend/.venv` |
@@ -52,8 +54,9 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **221 tests**
-  green is the primary correctness gate. The **SQL state backend is tested offline
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. **649 tests**
+  green is the primary correctness gate (auth DEFAULT OFF, so the suite runs
+  unauthenticated). The **SQL state backend is tested offline
   on SQLite** (`sqlalchemy`+`aiosqlite`); `asyncpg`/`pgvector` are imported lazily,
   so no Postgres is needed in the sandbox.
 - **Web UI (primary surface):** builds fully (the npm registry is reachable).
@@ -100,7 +103,7 @@ Self-contained; **no Elasticsearch required for the app's own state.** Brings up
   `tlsoc-agent-*` ES indices. Backend runs with `STATE_BACKEND=postgres`.
 - `tlsoc-redis` — enrichment/dedup cache (optional; degrades to in-memory).
 - `tlsoc-backend` — FastAPI+LangGraph agent on `8088`.
-- `tlsoc-webui` — the standalone React/EUI SPA (nginx) on `8080`; talks to the
+- `tlsoc-webui` — the standalone React/Tailwind SPA (nginx) on `8080`; talks to the
   backend via an `/api` proxy. This is the first-run wizard + console.
 
 Your SIEM/EDR/XDR is **not** part of this stack — connect to it from the UI's
@@ -150,6 +153,21 @@ unprefixed backend vars, so the suite's `.env` cannot clash with the host stack'
 | `TLSOC_EMBEDDING_API_KEY` | `EMBEDDING_API_KEY` | embeddings (falls back to the OpenAI key) |
 | `TLSOC_REDIS_URL` | `REDIS_URL` | enrichment cache (degrades to in-memory) |
 | `TLSOC_LOG_LEVEL` | `LOG_LEVEL` | backend log level |
+| `TLSOC_AUTH_ENABLED` | `AUTH_ENABLED` | **DEFAULT OFF.** `true` turns on login + 6-role RBAC + MFA/SSO and (on first run, no users) seeds **Admin / Admin@123** (super_admin). Leaving it unset preserves the no-auth "old version" + the offline test path. |
+| `TLSOC_AUTH_JWT_SECRET` | `AUTH_JWT_SECRET` | HS256 signing secret for session JWTs (auto-generated per process if unset → tokens invalidated on restart; set it in prod for stable sessions). |
+| `TLSOC_AUTH_TOKEN_TTL` | `AUTH_TOKEN_TTL` | session token lifetime (seconds); optional. |
+| `TLSOC_OIDC_GOOGLE_CLIENT_ID` / `TLSOC_OIDC_GOOGLE_CLIENT_SECRET` | `OIDC_GOOGLE_CLIENT_ID` / `OIDC_GOOGLE_CLIENT_SECRET` | Google SSO (OIDC) — server-side code-exchange creds. |
+| `TLSOC_OIDC_MICROSOFT_CLIENT_ID` / `TLSOC_OIDC_MICROSOFT_CLIENT_SECRET` | `OIDC_MICROSOFT_CLIENT_ID` / `OIDC_MICROSOFT_CLIENT_SECRET` | Microsoft/Entra SSO (OIDC). |
+| `TLSOC_OIDC_GENERIC_*` | `OIDC_GENERIC_*` | generic OIDC provider (issuer/client-id/secret); group→role provisioning. |
+| `TLSOC_SMTP_HOST` / `TLSOC_SMTP_PORT` / `TLSOC_SMTP_USER` / `TLSOC_SMTP_PASSWORD` | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | email-notification SMTP creds (stdlib SMTP; 13 provider presets in the UI). |
+| `TLSOC_SMTP_FROM` / `TLSOC_SMTP_TLS` | `SMTP_FROM` / `SMTP_TLS` | sender + STARTTLS/SSL toggle for email notifications. |
+
+> **Most auth/MFA/SSO/notification settings are configured in the UI**, not env.
+> Channel + SSO **secrets** can also be pushed via the API into the in-memory secret
+> tier (`POST /api/notifications/channels/{id}/secret`,
+> `POST /api/auth/sso/providers/{id}/secret`) — durable only when set via env. The
+> env vars above are the durable/bootstrap path; the only one usually needed to turn
+> the platform "on" is `TLSOC_AUTH_ENABLED=true`.
 
 ### 2.4 Secrets model (read this)
 - **Global secrets** live in the deploy `.env` (`TLSOC_*`) / container environment —

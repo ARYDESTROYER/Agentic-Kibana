@@ -284,11 +284,14 @@ disclosure.
 
 ---
 
-## Optional API authentication (Wave 2)
+## API authentication, RBAC, MFA & SSO
 
 API auth ships **disabled by default** — the no-auth deployment (the original
 model, where the network/reverse-proxy is the trust boundary) remains fully
-supported and behaviourally unchanged out of the box. Enable JWT auth per-deploy:
+supported and behaviourally unchanged out of the box. Enabling it
+(`TLSOC_AUTH_ENABLED=true`) turns on a **login screen, persisted multi-user
+accounts, 6-role RBAC, MFA (TOTP), and SSO (OIDC)**. Deploy steps + IdP redirect
+URIs are in `DEPLOY.md` §9; a guided demo is in `DEMO.md`.
 
 ```bash
 TLSOC_AUTH_ENABLED=true
@@ -301,15 +304,71 @@ TLSOC_AUTH_COOKIE_SECURE=true                # REQUIRED behind TLS (HTTPS-only c
 ```
 
 When enabled, every `/api/*` route requires a valid session **except** the tiny
-public allowlist (`/api/health`, `/api/auth/{login,me,logout}`) and the
-self-authenticating `/api/ingest/<source>` receivers. Deny-by-default is enforced
-by a router-level dependency and a CI test (`tests/test_route_auth_coverage.py`)
-that fails if any route slips the gate. The webui shows a login screen and gates
-the app automatically (it is a strict no-op when auth is off).
+public allowlist (`/api/health`, `/api/auth/{login,me,logout}`, the SSO
+authorize/callback) and the self-authenticating `/api/ingest/<source>` receivers.
+Deny-by-default is enforced by a router-level dependency and a CI test
+(`tests/test_route_auth_coverage.py`) that fails if any route slips the gate. The
+webui shows a login screen and gates the app automatically (it is a strict no-op
+when auth is off).
 
-**Hardening notes:**
+### First-run seed (OOBE)
+
+When auth is enabled **and the user store is empty**, the backend auto-seeds a
+demo **super_admin**: **`Admin` / `Admin@123`** (`config.auth_seed_admin*`). It
+exists only to make a fresh, auth-on deployment usable — **change it
+immediately** (create real accounts, then delete/disable the seed). The store
+blocks removing the **last** active super_admin to prevent lockout
+(`stores/users.py:count_active_super_admins`).
+
+### RBAC — 6 roles + permission matrix
+
+Accounts are persisted (a KV-doc in the state store — no new index/table). Each
+user has exactly one role: `super_admin` · `soc_manager` · `analyst_tier2` ·
+`analyst_tier1` · `responder` · `auditor`. Every privileged `/api` route is gated
+by a `require_permission` dependency against the permission matrix (server-side,
+deny-by-default); the webui mirrors it with `<Can>` guards purely for UX. When
+auth is **OFF**, every authenticated principal is treated as `super_admin` for
+back-compat with the original single-admin deployment.
+
+### MFA (TOTP)
+
+Per-user, opt-in **RFC-6238 TOTP** (verified against the official RFC test
+vectors), enrolled from the UI with a **browser-rendered inline-SVG QR** (no
+external QR service / no egress) and **single-use recovery codes**; login is
+two-phase (password → 6-digit code).
+
+> **Hardening TODO — MFA secret at rest.** The per-user TOTP seed is stored
+> **obfuscated** with `Secrets.mfa_server_key()` (`TLSOC_MFA_OBFUSCATION_KEY`, or
+> derived from the JWT secret when blank) — this is stdlib **obfuscation, not a
+> KMS/HSM-backed envelope encryption** (`auth/mfa.py`). Treat the obfuscation key
+> (and the JWT secret it can derive from) as sensitive, and prefer a future
+> KMS-backed secret store. Recovery codes are single-use and stored hashed.
+
+### SSO (OIDC — Google / Microsoft / generic)
+
+Providers are configured in Settings (issuer, client id, group→role mapping);
+the **client secret stays in the SECRET tier** (`Secrets.sso_client_secrets`, env
+`TLSOC_SSO_CLIENT_SECRETS` or runtime `POST /api/auth/sso/providers/{id}/secret`,
+never the config store). Login uses **server-side authorization-code exchange +
+the userinfo endpoint**, with `state`/`nonce` for CSRF/replay defence; IdP groups
+are provisioned onto the 6 roles. Register the redirect URI
+`<base-url>/api/auth/sso/callback` with the IdP (`DEPLOY.md` §9.3).
+
+> **Hardening TODO — id_token signature verification.** To avoid adding a
+> JWKS/JWT-verify dependency, the current flow trusts the **server-side
+> code-exchange + userinfo** result over TLS rather than independently verifying
+> the `id_token`'s signature. This is safe given the confidential-client,
+> back-channel exchange, but a JWKS-based `id_token` signature + `aud`/`iss`/`nonce`
+> verification is a planned hardening step.
+
+### Hardening notes (middleware)
+
 - Set `TLSOC_AUTH_COOKIE_SECURE=true` in production (TLS); the session cookie is
   always `HttpOnly` + `SameSite=Lax`.
+- Passwords are hashed with **PBKDF2-HMAC-SHA256** (`auth/passwords.py`). The
+  iteration count is a fixed default — **review/raise it** (and migrate hashes) as
+  hardware improves; consider a memory-hard KDF (argon2/scrypt) for a hardened
+  profile.
 - Security headers (CSP/HSTS/nosniff/frame-deny) are on by default. The Redis-free
   in-process **rate limiter** (`TLSOC_RATE_LIMIT_ENABLED`, default **off**) and
   **CSRF** (`TLSOC_CSRF_ENABLED`, default **off**) are opt-in.
@@ -320,3 +379,13 @@ the app automatically (it is a strict no-op when auth is off).
 - The rate limiter only trusts `X-Forwarded-For` when constructed with
   `trust_forwarded_for=True` (behind a known proxy); otherwise it keys on the
   socket peer to prevent header-spoofed bucket rotation.
+
+### Notification-channel secrets
+
+Notification delivery (email/Slack/Teams/webhook/PagerDuty/Telegram) keeps each
+channel's credential (SMTP password / webhook URL / API token) in the **SECRET
+tier** (`Secrets.notification_secrets`, env `TLSOC_NOTIFICATION_SECRETS` or runtime
+`POST /api/notifications/channels/{id}/secret`) — never the config store; the UI
+shows `configured ✓` only. Channels fire **fire-and-forget after** a case is
+saved, so a failing/slow channel never blocks or alters triage, and a
+notification **cannot change a case's status** (non-negotiable #3 is untouched).

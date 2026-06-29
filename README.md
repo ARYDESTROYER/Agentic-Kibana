@@ -11,7 +11,8 @@ It builds on the prior **TLSOC Agentic Triage Suite** (an ELK/Kibana-coupled
 backend + Kibana plugin) but is now **product-agnostic**: it works against
 Elasticsearch, OpenSearch, Wazuh, Splunk-HEC, syslog, Kafka, cloud queues, object
 stores, plain webhooks, and more — and ships its **own standalone web UI** so it
-no longer depends on Kibana at all.
+no longer depends on Kibana at all. The UI is a self-hosted **Vite + React +
+Tailwind + shadcn** SPA (the old `@elastic/eui` UI has been retired).
 
 **Docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
 · ingestion → [`docs/INGESTION.md`](docs/INGESTION.md) · architecture →
@@ -26,8 +27,8 @@ Raw alert volume from any source becomes audited, cost-metered, human-reviewable
 **cases**. Two loosely-coupled components do the work: a **backend** (`backend/`,
 FastAPI + LangGraph) that holds all the agentic logic, connectors, OCSF
 normalisation, the deterministic funnel, the LLM gateway + cost ledger, and the
-suite's own state; and a **standalone web UI** (`webui/`, Vite + React +
-`@elastic/eui`) that talks to the backend directly over `/api`. The legacy Kibana
+suite's own state; and a **standalone web UI** (`webui/`, Vite + React + Tailwind
++ shadcn) that talks to the backend directly over `/api`. The legacy Kibana
 plugin (`plugin/`) still works but is **optional** — the standalone UI is the
 primary front door.
 
@@ -53,15 +54,18 @@ primary front door.
                           ▼
    Case Manager (deterministic close/escalate; never auto-closes a TP)
                           ▼
-   case + audit + usage store  (Elasticsearch | Postgres+pgvector | SQLite)
+   Case Manager decides ─▶ notifications (fire-and-forget) ─▶ threshold automation
                           ▼
-                 standalone web UI  (webui/, /api)
+   case + audit + usage + users store  (Elasticsearch | Postgres+pgvector | SQLite)
+                          ▼
+   standalone web UI  (webui/, /api) — optional auth: RBAC · MFA (TOTP) · OIDC SSO
 ```
 
 Every LLM call goes through one gateway → a usage/cost ledger; every agent action
 is appended to an append-only audit trail; log-derived values are treated as
-UNTRUSTED data in prompts. See [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md)
-for the full design.
+UNTRUSTED data in prompts. Notifications and threshold automation run only **after**
+the deterministic close/escalate decision and never alter it. See
+[`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for the full design.
 
 ## Features
 
@@ -102,10 +106,53 @@ for the full design.
   `postgres` (asyncpg + pgvector), or `sqlite`. The app's own state
   (cases/audit/usage/config/cursor/RAG) lives there; with **postgres or sqlite no
   Elasticsearch is required at all**.
-- **Standalone web UI + first-run wizard.** A self-hosted SPA (`webui/`) with a
-  multi-step setup wizard that lists connectors, renders a dynamic form per
-  connector, tests the connection, configures LLM providers and per-role models,
-  and manages multiple sources — all without Kibana.
+- **Standalone web UI + first-run wizard.** A self-hosted SPA (`webui/`,
+  Vite + React + Tailwind + shadcn) with a multi-step setup wizard that lists
+  connectors, renders a dynamic form per connector, tests the connection,
+  configures LLM providers and per-role models, and manages multiple sources — all
+  without Kibana.
+- **Multi-user identity + RBAC (optional, default OFF).** When auth is enabled
+  (`TLSOC_AUTH_ENABLED=true`), the suite persists real users (a KV-doc store — no
+  new index/table) and enforces a six-role permission matrix in code:
+  `super_admin` / `soc_manager` / `analyst_tier2` / `analyst_tier1` / `responder` /
+  `auditor`. A first-run OOBE seeds an `Admin` / `Admin@123` super-admin (forced to
+  change the password on first login); `require_permission` FastAPI deps gate every
+  state-changing route and `<Can>` guards filter the UI. Default-OFF preserves the
+  zero-auth back-compat behaviour and the offline tests.
+- **MFA + SSO.** Stdlib RFC-6238 **TOTP** (no new backend dep) with a browser
+  inline-SVG QR enrolment, single-use recovery codes, and a two-phase login;
+  **OIDC SSO** for Google / Microsoft / generic providers via server-side code
+  exchange + `userinfo` (no `id_token`-verify dependency), with group→role
+  auto-provisioning.
+- **Notifications.** A pluggable `NotificationChannel` abstraction with **email**
+  (stdlib SMTP, 13 provider presets), plus **Slack / Microsoft Teams / webhook /
+  PagerDuty / Telegram** channels. Per-condition triggers (create / verdict-change /
+  escalate / close) with dedup, rate-limiting, and digest batching; sends are
+  fire-and-forget *after* the deterministic decision + save (never inside it), and
+  channel secrets live in the secret tier.
+- **Two-axis case taxonomy + custom case IDs.** Lifecycle **status**
+  (`new` / `investigating` / `escalated` / `on_hold` / `resolved`, plus the retained
+  `open` / `needs_human` / `closed`) and analyst **disposition**
+  (`true_positive` / `false_positive` / `benign` / `suspicious` / `duplicate` /
+  `undetermined`), with guarded lifecycle transitions and a status history.
+  `case_manager.decide()` is **byte-identical** — the taxonomy is an additive layer.
+  A configurable `case_id_format` template (e.g. `CASE-2026-000123`) with a KV
+  sequence and a live preview gives human-facing case numbers.
+- **Multi-source correlation + Auto-Correlate toggles.** An **Auto-Correlate**
+  switch per source *and* per sub-source (index pattern); an opt-in **cross-source
+  correlation** pass links RELATED cases that share an entity (IP / host / user /
+  file hash / domain) without forcing a merge (1:1 cluster→case preserved).
+  Per-source field-mapping overrides and per-connector contextual setup help.
+- **Playbook automation + threat context.** A **run-a-playbook** action
+  re-investigates a case with a chosen playbook injected as context (recommend-only,
+  #3-safe); **threshold automation** matches cases after the decision and may tag /
+  recommend / notify / queue a playbook run / raise a HITL approval — but it **never
+  sets status directly**. A **threat-context** panel assembles IOC reputation, a
+  bundled MITRE ATT&CK corpus (697 techniques), and related cases (fail-open); a
+  resolved-case → RAG knowledge loop lets future investigations learn from closures.
+- **Consolidated Settings.** A single Settings surface organised into 13 sections
+  across 4 nav groups (`GET /api/settings/schema`) covering every Preferences
+  subtree and the admin areas (Users, RBAC, MFA, SSO, notifications, automation).
 
 ## Quick start (deploy)
 
@@ -167,12 +214,18 @@ backend/                FastAPI + LangGraph backend (all agentic logic) + tests
     ocsf/               OCSF canonical schema + ECS→OCSF mapping
     connectors/         connector SPI + registry; elastic · opensearch · wazuh (pull)
       receivers/        16 push/queue/object-store receivers + format parsers
-    engine/             correlation · risk · cost_gate · case_manager · poller · signatures
+    engine/             correlation (+ cross-source) · risk · cost_gate · case_manager ·
+                        case_id · threshold_automation · threat_context · mitre · poller
     agents/             router · investigator (ReAct) · formatter · chat · standup · graph
-    stores/             cases · usage · config · cursor (+ audit)
+    auth/               passwords · tokens (JWT) · service · mfa (TOTP) · oidc (SSO)
+    rbac/               policy (role → resource → action permission matrix)
+    notifications/      channel (ABC) · email · slack · teams · webhook · pagerduty ·
+                        telegram · dispatch (dedup/rate-limit/digest) · templates
+    threat/             bundled MITRE ATT&CK technique corpus (mitre_techniques.json)
+    stores/             cases · usage · config · cursor · users (+ audit)
       sql/              SQL StateStore: engine · models · repositories · vectorstore
     api/                routes (the backend contract) · deps   state.py · main.py
-webui/                  standalone Vite + React + @elastic/eui SPA (primary UI)
+webui/                  standalone Vite + React + Tailwind + shadcn SPA (primary UI)
 deploy/                 docker-compose.agnostic.yml (self-contained) ·
                         docker-compose.tlsoc.yml (legacy ELK) · mappings · dashboards
 docs/                   USAGE · INGESTION · AGNOSTIC_ARCHITECTURE · ENVIRONMENT ·
@@ -192,8 +245,12 @@ values.
 
 ## Status & verification
 
-Verified offline this cycle: **349 backend tests green** (fake/in-memory backends
-+ mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite).
+Verified offline this cycle: **649 backend tests green** (fake/in-memory backends
++ mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite) with
+a dev-only Vitest harness (27 tests). The seven-wave SOC overhaul (identity / RBAC /
+MFA / SSO, notifications, taxonomy + case-ID, multi-source correlation, playbook
+automation + threat context, consolidated Settings + UI) was **additive with zero
+new runtime dependencies** and left `case_manager.decide()` byte-identical.
 Live-stack validation against a real SIEM is a deploy step. See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
 status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.

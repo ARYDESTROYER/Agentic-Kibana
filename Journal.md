@@ -1136,3 +1136,66 @@
 - Tests: tsc --noEmit clean; vite build green (2533 modules); vitest 1/1 (app smoke); no new deps beyond react-hover-card; backend untouched.
 - Status: done — committed + pushed to Testing. (theme.css/tailwind.config intentionally retuned for the calmer look.)
 - Next: optional — gather fresh screenshots for another fidelity pass; add per-page render tests.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul Phase 0: research + design
+- Context: Scope a full SOC-platform overhaul (identity/RBAC, MFA/SSO, case taxonomy, notifications, multi-source correlation, automation, threat-context, settings/UI) on top of the agnostic suite. Captured prior round in `docs/research/` (RBAC + cross-source-aggregation designs).
+- Did: Decomposed the work into 7 additive waves (W1 identity, W2 MFA+SSO, W3 cases, W4 notifications, W5 multi-source, W6 automation+threat, W7 settings+UI) with hard constraints: zero new deps, non-negotiable #3 (`case_manager.decide()`) byte-identical, auth DEFAULT OFF (back-compat + offline tests), every wave green before the next. Sequenced agents around the shared files (`models.py`/`config.py`/`routes.py`/webui shell). Baseline: 395 backend tests green.
+- Tests: n/a (design); baseline 395.
+- Status: done — plan locked; waves begin.
+- Next: W1 identity foundation (persisted users + RBAC + OOBE).
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W1: identity (multi-user + RBAC + OOBE)
+- Context: Add a persisted multi-user identity layer + role-based access control without a new index/table and without breaking the no-auth default.
+- Did: `stores/users.py` UserStore over the existing KV doc store (no migration). `auth/service.py` grew the **6-role** model (super_admin/soc_manager/analyst_tier2/analyst_tier1/responder/auditor) + a permission matrix + `require_permission(resource, action)` deps (no-op when auth disabled). Routes gated by permission (sources/settings/users/...). OOBE first-run; when `auth_enabled` and no users exist, seed **Admin / Admin@123** (super_admin). webui: `/users` page + `Can.tsx` guard component wrapping privileged UI; login flow. Auth stays DEFAULT OFF (`Secrets.auth_enabled`).
+- Tests: backend 395 → **481** (+86; users/RBAC/permission-coverage); webui tsc+vite clean.
+- Status: done.
+- Next: W2 — MFA (TOTP) + OIDC SSO.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W2: MFA + SSO
+- Context: Strengthen auth with TOTP MFA + recovery codes and federated SSO, all stdlib (no new deps).
+- Did: `auth/mfa.py` — stdlib **RFC-6238 TOTP** (verified against the official RFC test vectors), single-use **recovery codes**, two-phase login (password → MFA challenge). Browser inline-SVG **QR** (`webui/.../QRCode.tsx` + `MfaSetupCard.tsx`) so no qrcode dep. Routes `POST /api/auth/mfa/{setup,confirm,verify,disable}`. `auth/oidc.py` — **OIDC SSO** for Google/Microsoft/generic via server-side authorization-code exchange + userinfo (no id_token-signature-verify dependency), with group→role provisioning; routes `GET /api/auth/sso/{providers,authorize,callback}` + `POST /api/auth/sso/providers/{id}/secret`.
+- Tests: backend 481 → **527** (+46; TOTP vectors, recovery codes, two-phase login, OIDC code-exchange/provisioning); webui clean.
+- Status: done.
+- Next: W3 — case status/disposition taxonomy + nomenclature.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W3: case taxonomy + nomenclature
+- Context: Richer case lifecycle (analyst-grade status + disposition) and a customizable case-id scheme — without changing the deterministic auto-close.
+- Did: Extended `CaseStatus` (NEW/INVESTIGATING/ESCALATED/ON_HOLD/RESOLVED) **keeping** open/needs_human/closed; added `Disposition` (true_positive/false_positive/benign/suspicious/duplicate/undetermined); `needs_human` retained as an alias. Lifecycle actions + a **transition guard** + `status_history` on the case. **`case_manager.decide()` is byte-identical** (#3 intact — verified by an equality test). `engine/case_id.py` — customizable **`case-XXXX`** nomenclature (template + KV-backed sequence) with a live preview. Polished the case overview panel in the webui.
+- Tests: backend 527 → **554** (+27; taxonomy transitions, decide() byte-identity, case-id sequence/template); webui clean.
+- Status: done.
+- Next: W4 — notifications.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W4: notifications
+- Context: Pluggable outbound alerting on case events, secrets in the secret tier, never blocking the pipeline.
+- Did: `notifications/` — `NotificationChannel` SPI + **email** (stdlib SMTP, **13 provider presets**) + **Slack / Teams / generic webhook / PagerDuty / Telegram**; per-condition triggers + **dedup / rate-limit / digest** (`dispatch.py`); templates. Dispatch is **fire-and-forget after `apply()`+save** so a failing channel never affects case state. Channel secrets keyed in the in-memory secret tier (UI sees only `configured ✓`). Routes `GET /api/notifications/providers`, `POST /api/notifications/test`, `POST /api/notifications/channels/{id}/secret`; webui `NotificationsEditor`.
+- Tests: backend 554 → **571** (+17; channel rendering, trigger matching, dedup/rate-limit, secret redaction); webui clean.
+- Status: done.
+- Next: W5 — multi-source correlation.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W5: multi-source correlation
+- Context: Let operators control correlation per source/sub-source and optionally link cases across sources by shared entity.
+- Did: **Auto-Correlate** toggle per source AND per sub-source (`IndexPattern`). Opt-in **cross-source correlation** in `engine/correlation.py` that links RELATED cases by a shared entity (ip / host / user / file_hash / domain) without merging them. Per-source field-mapping overrides; connector `setup_help` surfaced as `HelpTip`s + an analyze-sample affordance in the webui source editor.
+- Tests: backend 571 → **600** (+29; per-source toggle, cross-source entity linking, mapping overrides); webui clean.
+- Status: done.
+- Next: W6 — threshold automation + threat context.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W6: automation + threat-context
+- Context: Add operator-tunable automation and richer triage context — automation MUST stay #3-safe (never auto-decides a case).
+- Did: `engine/threshold_automation.py` — threshold rules with actions tag / recommend / notify / run_playbook / **request_approval → HITL `Proposal`**; **automation never sets case status** (#3 enforced; only humans/`decide()` change disposition). **Run-a-playbook** = context-only re-investigation. `engine/threat_context.py` + `engine/mitre.py` + `threat/mitre_techniques.json` — a **threat-context panel**: IOC reputation + bundled **MITRE ATT&CK (697 techniques)** + related cases, **fail-open** (context degrades, never blocks). Resolved-case → RAG knowledge loop closed.
+- Tests: backend 600 → **638** (+38; automation action mapping, #3-safety asserts, MITRE lookup, threat-context fail-open, playbook re-investigation); webui clean.
+- Status: done.
+- Next: W7 — consolidated settings + UI polish.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul W7: settings + UI polish
+- Context: Consolidate the sprawling preferences into one coherent Settings surface and finish the visual pass.
+- Did: Consolidated **Settings** into **13 sections / 4 nav groups** driven by a new `GET /api/settings/schema`. **RiskGauge** redesign (fixes the Active-Risk-Index glitch). Skeleton/shimmer loading + staggered reveals (`LoadingBar`/`Stagger`), 8px-grid alignment, WCAG AA contrast pass across the app.
+- Tests: backend 638 → **649** (+11; settings schema coverage); webui **27 Vitest specs green** + tsc/vite clean.
+- Status: done.
+- Next: overhaul complete — update master docs.
+
+### 2026-06-29 — orchestrator (Opus) — SOC overhaul COMPLETE + docs sync
+- Context: Close out the 7-wave SOC overhaul and bring the master context/history/roadmap/env docs in sync.
+- Did: Shipped W1–W7 (identity/RBAC, MFA/SSO, case taxonomy+nomenclature, notifications, multi-source correlation, threshold automation+threat-context, settings+UI) — **all additive, zero new deps, non-negotiable #3 (`decide()`) byte-identical, auth DEFAULT OFF**. Updated `CLAUDE.md` (status + module map + corrected UI design-system section: webui is Vite+React+**Tailwind+shadcn/Radix**, NOT EUI), `ROADMAP.md` (RBAC/auth-on/HITL/threshold-automation/multi-source-correlation marked done), `docs/ENVIRONMENT.md` (new auth/MFA/SSO/notification `TLSOC_*` env vars + demo-enable note).
+- Tests: backend **649** green (395 → 481 → 527 → 554 → 571 → 600 → 638 → 649 across W1–W7); webui tsc+vite clean + **27 Vitest** green.
+- Status: done — committed/pushed to `Testing`.
+- Next: remaining backlog — pre-flight projected-cost gate + `$`-budget ceiling; persisted encrypted secret store; Splunk + Microsoft Sentinel connectors; Wave-4/Epoch-E scale-out (ARQ/KEDA, Helm, OTEL+Grafana).

@@ -10,3 +10,8 @@ respx==0.21.0
 # imported lazily, so the full suite runs on SQLite alone.
 sqlalchemy>=2.0
 aiosqlite>=0.19
+# greenlet is SQLAlchemy's async runtime dependency. Pip does not always pull it in
+# transitively (platform/wheel dependent), and without it the SQLite-async state-store
+# tests error out — pin it explicitly so a fresh `pip install -r requirements-dev.txt`
+# yields a green suite.
+greenlet>=3.0

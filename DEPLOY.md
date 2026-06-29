@@ -10,6 +10,11 @@ human-reviewable cases.
 > compose file. One deployment can read from Elasticsearch, OpenSearch, Wazuh, a
 > webhook, syslog, Kafka, and more.
 
+> **Just want a guided demo?** See **[`DEMO.md`](DEMO.md)** — `./scripts/run-demo.sh`
+> brings the suite up locally with **auth enabled** (login + RBAC + MFA + SSO live)
+> and the seeded `Admin` / `Admin@123` super_admin, then walks every headline
+> feature in order.
+
 ---
 
 ## 1. Overview — two deployment modes
@@ -445,10 +450,11 @@ and complete the same wizard described in §3.4.
 ## 8. Production hardening
 
 - **TLS / reverse proxy in front of the UI.** The web UI serves plain HTTP on
-  `:8080` (nginx) with no auth of its own. In production, place it behind a TLS
-  terminator / reverse proxy (e.g. nginx, Caddy, Traefik) and add
-  authentication / SSO in front. In Mode B, the Kibana plugin inherits Kibana's
-  authenticated session.
+  `:8080` (nginx). In production, place it behind a TLS terminator / reverse proxy
+  (e.g. nginx, Caddy, Traefik). The suite now ships **built-in API auth + RBAC +
+  MFA + SSO** (default OFF — enable per §9); enable it (and set
+  `TLSOC_AUTH_COOKIE_SECURE=true` behind TLS), and/or add proxy-level auth in
+  front. In Mode B, the Kibana plugin inherits Kibana's authenticated session.
 - **Restrict the `:8088` backend port.** The compose files publish `8088:8088`
   for direct API access / debugging. In production, remove that mapping (the UI
   reaches the backend over the internal Docker network at
@@ -466,7 +472,141 @@ and complete the same wizard described in §3.4.
 
 ---
 
-## 9. Troubleshooting
+## 9. Authentication, RBAC, MFA & SSO
+
+API auth ships **disabled by default** — the no-auth deployment (network /
+reverse-proxy as the trust boundary) is fully supported and unchanged out of the
+box. Enable it per-deploy to get a **login screen, persisted multi-user accounts,
+6-role RBAC, MFA (TOTP), and SSO (OIDC)**. See `SECURITY.md` for the full posture.
+
+> All knobs below use the `.env` `TLSOC_*` names. The **agnostic compose maps
+> them** onto the backend's unprefixed names (`AUTH_ENABLED`, `AUTH_JWT_SECRET`,
+> `MFA_OBFUSCATION_KEY`, `SSO_CLIENT_SECRETS`, …). A **direct uvicorn** run reads
+> the **unprefixed** names directly (see `DEMO.md` Option B).
+
+### 9.1 Enable auth + RBAC
+
+In `.env`:
+
+```bash
+TLSOC_AUTH_ENABLED=true
+TLSOC_AUTH_JWT_SECRET=$(openssl rand -hex 32)   # STABLE — else sessions die on restart
+TLSOC_AUTH_COOKIE_SECURE=true                    # REQUIRED behind TLS
+```
+
+Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
+
+- **First-run seed.** When auth is enabled **and the user store is empty**, the
+  backend auto-seeds a demo **super_admin**: **`Admin` / `Admin@123`**. **Change it
+  immediately** — create real users and delete/disable the seed (the suite blocks
+  removing the *last* super_admin to avoid lockout).
+- **6 roles:** `super_admin` · `soc_manager` · `analyst_tier2` · `analyst_tier1` ·
+  `responder` · `auditor`. Enforced **server-side** (every `/api` route is gated by
+  `require_permission`, deny-by-default + a CI coverage test) **and** in the UI
+  (`<Can>` guards). When auth is OFF, every user is treated as `super_admin`.
+- **Env fallback admin** (optional, separate from the seed):
+  `TLSOC_AUTH_ADMIN_USERNAME` + `TLSOC_AUTH_ADMIN_PASSWORD` (plaintext, hashed in
+  memory at startup, never stored; granted super_admin), or a boot-time map
+  `TLSOC_AUTH_USERS={"alice":"pbkdf2_sha256$..."}`.
+- Manage users/roles in **Settings → Users / Access** after logging in.
+
+### 9.2 MFA (TOTP)
+
+Per-user, opt-in **RFC-6238 TOTP** — enrolled from the UI (**Settings → Security →
+My MFA**), with an **inline-SVG QR code** (no external calls) and **single-use
+recovery codes**. Login becomes two-phase (password → 6-digit code).
+
+```bash
+# Optional: key used to obfuscate the per-user TOTP secret at rest.
+# Blank -> derived from TLSOC_AUTH_JWT_SECRET.
+TLSOC_MFA_OBFUSCATION_KEY=$(openssl rand -hex 32)
+```
+
+> This is stdlib **obfuscation, not a KMS** — a documented hardening TODO (see
+> `SECURITY.md`). Treat the obfuscation key (or the JWT secret it derives from) as
+> sensitive.
+
+### 9.3 SSO (OIDC — Google / Microsoft / generic)
+
+Configure providers in **Settings → Security → SSO** (issuer, client id, the
+group→role mapping). The **client secret** stays in the SECRET tier — set it via
+`.env` or at runtime:
+
+```bash
+# .env (JSON map of provider id -> client secret):
+TLSOC_SSO_CLIENT_SECRETS={"google":"GOCSPX-...","corp":"..."}
+# …or push at runtime (super_admin):
+#   POST /api/auth/sso/providers/{id}/secret
+```
+
+The suite uses **server-side code exchange + userinfo** (no `id_token`
+signature-verify dependency — a documented hardening TODO in `SECURITY.md`).
+Group→role provisioning maps IdP groups onto the 6 roles.
+
+**Register this redirect / callback URI with your IdP** (the suite derives it from
+the request's base URL):
+
+```
+<your-base-url>/api/auth/sso/callback
+# e.g. local demo:   http://localhost:5173/api/auth/sso/callback
+#      docker stack:  http://localhost:8080/api/auth/sso/callback
+#      production:    https://soc.example.com/api/auth/sso/callback
+```
+
+- **Google** — Google Cloud Console → APIs & Services → **Credentials** → *Create
+  OAuth client ID* → *Web application* → add the callback above under **Authorized
+  redirect URIs**. Copy the client id (→ Settings) + client secret (→
+  `TLSOC_SSO_CLIENT_SECRETS["google"]`).
+- **Microsoft (Entra ID)** — Azure Portal → **App registrations** → *New
+  registration* → add the callback above as a **Web** *Redirect URI*. Copy the
+  Application (client) ID + tenant/issuer (→ Settings) and a **client secret** from
+  *Certificates & secrets* (→ `TLSOC_SSO_CLIENT_SECRETS["<provider-id>"]`).
+- **Generic OIDC** — point the issuer at the provider's discovery document and
+  register the same callback.
+
+---
+
+## 10. Notifications (email / Slack / Teams / webhook / PagerDuty / Telegram)
+
+Notifications are **default OFF** and configured per-channel in **Settings →
+Notifications**. Channels fire **fire-and-forget after** a case is saved, with
+**per-condition triggers** and **dedup / rate-limit / digest** controls.
+
+- **Email** is stdlib **SMTP** with **13 provider presets** (Gmail/Workspace,
+  Microsoft 365/Outlook, SES, SendGrid, Mailgun, Postmark, …). Pick a preset, set
+  the from/to addresses, and put the **SMTP password** in the SECRET tier.
+- **Slack / Teams / webhook** use an incoming-webhook URL; **PagerDuty** uses a
+  routing/integration key; **Telegram** a bot token + chat id.
+
+The channel **secret** (SMTP password / webhook URL / API token) lives in the
+SECRET tier — never the config store. Set it via the UI, or:
+
+```bash
+# Runtime (the connector-secret pattern):
+POST /api/notifications/channels/{id}/secret      # body: {"secret": "..."}
+
+# …or seed at boot via .env (JSON map of channel id -> {field: value}):
+TLSOC_NOTIFICATION_SECRETS={"email-ops":{"secret":"<smtp-password>"},"slack-soc":{"secret":"https://hooks.slack.com/services/..."}}
+```
+
+Use the channel's **Send test** button to verify delivery before wiring triggers.
+
+---
+
+## 11. Demo quick start
+
+For a presenter-ready, copy-pasteable walkthrough that brings the suite up
+**locally with auth enabled** and tours every headline feature, see
+**[`DEMO.md`](DEMO.md)**. The fast path, from the repo root:
+
+```bash
+./scripts/run-demo.sh        # backend :8088 (auth on) + web UI :5173
+# then open http://localhost:5173 and log in as  Admin / Admin@123
+```
+
+---
+
+## 12. Troubleshooting
 
 For runtime / usage / deploy failures (health checks, `es_connected:false`,
 no cases after polling, connector errors, plugin install issues), see

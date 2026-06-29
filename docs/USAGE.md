@@ -5,10 +5,10 @@ A deep, example-driven guide to operating the suite once it is deployed (see
 shipped UI and the backend API contract (`backend/app/api/routes.py`).
 
 > **The standalone web UI is the primary surface.** It is a self-hosted SPA
-> (Vite + React + `@elastic/eui`, in `webui/`) that talks to the FastAPI backend
-> **directly** over `/api/*` (proxied by nginx in production). The old Kibana
-> plugin (`plugin/tlsoc_agentic_triage/`) is **legacy**; this document describes
-> the standalone UI.
+> (Vite + React + **Tailwind + shadcn**, in `webui/`) that talks to the FastAPI
+> backend **directly** over `/api/*` (proxied by nginx in production). The old
+> Kibana plugin (`plugin/tlsoc_agentic_triage/`) is **legacy**; this document
+> describes the standalone UI.
 
 The suite is **vendor-agnostic**: it ingests from any number of configured
 **sources** (pull connectors like Elasticsearch / OpenSearch / Wazuh, or push
@@ -216,11 +216,24 @@ attacker-influenceable and fenced/escaped as UNTRUSTED (see `SECURITY.md`).
 ## 3. Cases (Surface)
 
 The triage workbench. The cases table (`GET /api/cases?limit=100`) shows **Entity
-· Rules · Risk · Status · Verdict · Created** with per-status filtering
-(`?status=needs_human`), per-surface filtering (`?surface=automated_scan`), and
-per-entity filtering (`?entity=10.10.1.152`). Statuses: `open` (candidate awaiting
-investigation), `needs_human` (escalated / fail-safe), `closed` (confirmed /
-auto-closed FP).
+· Rules · Risk · Status · Disposition · Verdict · Created** with per-status
+filtering (`?status=escalated`), per-surface filtering (`?surface=automated_scan`),
+and per-entity filtering (`?entity=10.10.1.152`).
+
+**Two-axis taxonomy (Wave 3).** A case now carries both a lifecycle **status** and
+an analyst **disposition** — they are independent.
+
+- **status** (where the case is in its lifecycle): `new` (candidate, pre-LLM),
+  `open` (investigated, awaiting an analyst), `investigating` (actively worked),
+  `escalated` (flagged for senior / Tier-3), `on_hold` (paused), `resolved` (worked
+  to completion, pending final close), `closed` (terminal). `needs_human` is
+  **retained as a deprecated alias** of "open · awaiting analyst" — the deterministic
+  `decide()` still uses it internally, and old stored cases load unchanged.
+- **disposition** (what the case turned out to be): `true_positive`,
+  `false_positive`, `benign`, `suspicious`, `duplicate`, `undetermined` (the default
+  for cases that predate the taxonomy). Set it explicitly with the `set_disposition`
+  action; `confirm_fp` also stamps `false_positive` when the disposition is still
+  undetermined.
 
 ### Case detail + lifecycle
 
@@ -230,18 +243,31 @@ badges, entity, rules, summary, the `trigger_reason` ("why this fired"), evidenc
 MITRE techniques, recommended action, the reproduce query, and the **History**.
 
 **Analyst actions** go through `POST /api/cases/{id}/action` with
-`{ "action": "...", "note": "...", "analyst": "..." }`:
+`{ "action": "...", "note": "...", "analyst": "..." }` (plus the optional fields
+noted below):
 
 | action | resulting status | meaning |
 |---|---|---|
 | `close` | `closed` | analyst closes the case |
-| `confirm_fp` | `closed` | analyst confirms a false positive |
-| `reopen` | `open` | reopen a closed case |
-| `escalate` | `needs_human` | push to a human queue |
+| `confirm_fp` | `closed` | analyst confirms a false positive (sets disposition `false_positive` if still undetermined) |
+| `resolve` | `resolved` | worked to completion, pending final close |
+| `reopen` | `open` | reopen a closed/resolved case |
+| `escalate` | `escalated` | flag for senior / Tier-3 (optional `level` raises `escalation_level`) |
+| `deescalate` | `open` | undo an escalation |
+| `hold` | `on_hold` | pause the case (awaiting info / third party) |
+| `resume` | `open` | take a held case off hold |
+| `set_status` | the `status` field | move to an arbitrary legal status |
+| `set_disposition` | unchanged | set the analyst `disposition` (no status change) |
 | `acknowledge` | unchanged | record an ack in history (no status change) |
 
-Every action sets `decision_by=analyst`, stamps `updated_at`, and appends an
-`analyst_action` entry to the case **history**. A `close` / `confirm_fp` also
+The body may carry `status` (for `set_status`), `disposition` (for
+`set_disposition`), `level` (for `escalate`), `reason` (recorded as `status_reason`
+on `hold` / `resolve` / `set_status`), and the existing `resolution` / `assignee` /
+`priority` / `tags`. A **transition guard** rejects illegal moves — e.g. leaving a
+terminal status (`closed` / `resolved`) is only legal via `reopen` (a `400`
+otherwise). Every action sets `decision_by=analyst`, stamps `updated_at`, appends
+an entry to the case **history** + `status_history`, and is audited. A `close` /
+`confirm_fp` also
 indexes the resolved case (entity, rules, verdict, risk, note, trigger reason)
 into the **resolved-case RAG baseline** when `rag.enabled` + `rag.use_resolved_cases`
 — a RAG/embedding failure can never break the action (fail-safe).
@@ -502,17 +528,275 @@ deterministic policy outcome rather than raw model output. (The **Agent trace** 
 
 ---
 
+## 8f. Run a playbook on a case + threat context
+
+**Run a playbook** (`POST /api/cases/{id}/run-playbook` with
+`{ "playbook_id": "...", "analyst": "..." }`). A run is a **context-only**
+re-investigation: the chosen playbook is **forced** into the investigator's
+TRUSTED `<<<PLAYBOOK>>>` block and the case is re-investigated through the shared
+pipeline. The playbook can only RECOMMEND — it can never change the deterministic
+close/escalate outcome (non-negotiable #3). An unknown `playbook_id` returns `404`.
+List the catalog first with `GET /api/playbooks`. In the UI, open a case and use
+**Run playbook** (pick from the catalog); the resulting re-investigation renders in
+place.
+
+**Threat context** (`GET /api/cases/{id}/threat-context`) assembles a defensive,
+**fail-open** panel for the case (each section degrades independently if its source
+is missing):
+
+- **IOC reputation** — AbuseIPDB / VirusTotal lookups for the case's indicators
+  (an indicator is flagged malicious above `threat_context.ioc_malicious_threshold`,
+  default 50).
+- **MITRE ATT&CK** — technique metadata (name, tactics, platforms, sub-techniques)
+  resolved from a **bundled corpus of 697 enterprise techniques**
+  (`backend/app/threat/mitre_techniques.json`); no network call.
+- **Related cases** — cases sharing the entity (the cross-source linkage from §8g).
+
+The case-detail flyout shows this as a **Threat Context** tab. All untrusted log /
+intel text renders as plain text / code blocks (#9). You can grow the intel corpus
+with `POST /api/threat-context/import` (admin) — `{ title, content, tags? }` —
+which chunks the doc into RAG as `source="threat_context"` and injects it as a
+fenced TRUSTED block at investigation time.
+
+**Resolved-case knowledge loop.** When a case transitions to `closed`/`resolved`,
+the suite auto-chunks it into the RAG corpus (`source="resolved_case"`, best-effort,
+never blocks the action) so future investigations retrieve *"we've seen this
+before"*. Gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
+`rag.use_resolved_cases`.
+
+---
+
+## 8g. Multi-source correlation — Auto-Correlate + cross-source related cases
+
+By default each configured source is correlated on its own. Two controls change
+that, both in the **source editor** (and on the `SourceInstance` config):
+
+- **Auto-Correlate (per source).** A switch on each source. When **on** (default),
+  that source's correlated clusters auto-forward into triage. When **off**, its
+  clusters are still formed but routed to **candidates** (Cases, manual triage) —
+  use this to keep a noisy source from auto-investigating. Stored as the source's
+  `config.auto_correlate`.
+- **Auto-Correlate (per sub-source).** Each pull source can carry multiple **index
+  patterns** with an `events` / `alerts` role; each pattern has its **own**
+  Auto-Correlate toggle (`IndexPattern.auto_correlate`). This lets you, say,
+  auto-investigate the `alerts` pattern while leaving a high-volume `events` pattern
+  on manual.
+
+**Cross-source correlation (opt-in, default OFF).** Enable
+`cross_source_correlation` (Settings → Automation) to run a **second** pass that
+links clusters from *different* sources that share an entity
+(`ip` / `host` / `user` / `file_hash` / `domain`) within a time window. Tunables:
+`time_window_seconds` (default 300), `min_sources_to_cluster` (default 2), and the
+`entity_keys`. The result is surfaced as **RELATED cases** — the cases are linked
+(`related_case_ids`, `cross_source_cluster_id`, a source breakdown) but **never
+force-merged**, so the per-source 1:1 cluster→case signature and audit trail stay
+intact. The case-detail flyout shows a "Sources" pill and a "Related cases" facet;
+the Cases list can filter to related-only.
+
+**Per-source field-mapping overrides + connector help.** Beyond the wizard's field
+mapping, a source's config can carry `field_mappings_extra` overrides applied at
+ingest. Each connector field can also ship contextual setup help (`help_link` /
+`help_code`), rendered as a (?) `HelpTip` in the source editor so you can see, e.g.,
+the exact read-only API-key grant for that connector inline.
+
+---
+
+## 8h. Authentication — enabling auth, users, RBAC, MFA, SSO
+
+Auth is **default OFF** (the no-auth "old version" is the default and stays fully
+functional, which is also why the offline tests run unauthenticated). Turn it on
+with the env flag and restart the backend:
+
+```bash
+# in .env (mapped to the backend's UNPREFIXED env names by compose)
+TLSOC_AUTH_ENABLED=true
+```
+
+When auth is enabled, the relevant `Secrets` are `auth_enabled`,
+`auth_seed_admin` (default true), `auth_seed_admin_username` (default `Admin`), and
+`auth_seed_admin_password` (default `Admin@123`).
+
+### First login + OOBE
+
+On first boot with an **empty** user store, the suite seeds a single
+**`super_admin`** — `Admin` / `Admin@123` — with `must_change_password=true`. At
+the login screen sign in as `Admin` / `Admin@123`; the login flow detects the flag
+and forces a **change-password** step (`POST /api/auth/change-password`) before it
+issues a real session. **Change this password immediately** — the seed is a known
+default. (You can disable the seed with `TLSOC_AUTH_SEED_ADMIN=false` and create the
+first admin via `POST /api/setup/init-admin`, which is only accepted while no users
+exist.)
+
+### Roles (RBAC)
+
+The suite ships a **six-role** permission matrix, enforced **in code** on every
+state-changing route (and mirrored in the UI by `<Can>` guards that hide actions a
+role can't perform):
+
+| Role | Typical scope |
+|---|---|
+| `super_admin` | everything, incl. users / RBAC / SSO / settings |
+| `soc_manager` | manage cases + approvals + most settings |
+| `analyst_tier2` | investigate + close cases |
+| `analyst_tier1` | investigate + work cases (no close) |
+| `responder` | act on assigned cases |
+| `auditor` | read-only (cases, audit, metrics) |
+
+`GET /api/roles` returns the role→permission matrix the UI renders. Manage users
+(super_admin only):
+
+```bash
+curl -s localhost:8088/api/users                                   # list
+curl -s -X POST localhost:8088/api/users \
+  -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2"}'
+curl -s -X PUT localhost:8088/api/users/alice \
+  -H 'content-type: application/json' -d '{"role":"soc_manager","active":true}'
+curl -s -X DELETE localhost:8088/api/users/alice
+```
+
+In the UI, **Settings → Administration → Users** is the add / disable /
+reset-password / role-picker table.
+
+### Enrolling MFA (TOTP)
+
+MFA is per-user, RFC-6238 TOTP, stdlib-only:
+
+1. Signed in, go to **Settings → Security → MFA** (or `POST /api/auth/mfa/setup`).
+   The backend returns `{ secret, otpauth_uri, recovery_codes }`.
+2. The UI renders the `otpauth://` URI as an **inline-SVG QR** — **scan it** with
+   Google Authenticator / Authy / 1Password / etc. (or type the `secret` by hand).
+   **Save the recovery codes** (single-use, shown once).
+3. Confirm enrolment by entering a current 6-digit code:
+   `POST /api/auth/mfa/confirm` — this persists MFA as enabled.
+
+After that, **login is two-phase**: the password call returns
+`{ requires_mfa: true, session }`, and the client posts the code to
+`POST /api/auth/mfa/verify` to receive the real JWT (a recovery code works here too,
+once). Disable with `POST /api/auth/mfa/disable` (self, requires a current code; an
+admin can force-disable). `mfa.enforce_for_roles` can require MFA for chosen roles.
+
+### Configuring SSO (OIDC)
+
+Configure an OIDC provider in **Settings → Security → SSO** (writes the `sso`
+Preferences block). Supported: **Google**, **Microsoft**, and **generic** OIDC.
+The flow is server-side: the suite redirects to the provider, exchanges the `code`
+server-side, then calls the provider's **`userinfo`** endpoint and maps the claims
+to a user (id_token *signature* verification is intentionally skipped — see
+`SECURITY.md` — so there is **no `PyJWT`/JWKS dependency**).
+
+1. Set `sso.enabled=true`, the provider `type`, `client_id`, `discovery_url` (for
+   generic), `scopes`, the `allowed_domains` / `allowed_tenants`, and the
+   `group_claim_name` + `group_role_map` (group → one of the six roles); set
+   `auto_create_users` to provision users on first login at `default_role`.
+2. Put the client secret in the secret tier:
+   `POST /api/auth/sso/providers/{provider_id}/secret`.
+3. Register the **callback URL** shown in the SSO settings panel with your IdP.
+
+Endpoints: `GET /api/auth/sso/providers` (public; powers the "Sign in with …"
+buttons), `GET /api/auth/sso/authorize?provider=` (returns the auth URL + sets a
+single-use state/nonce), `GET /api/auth/sso/callback?code=&state=` (validates,
+mints the JWT, redirects to `/`).
+
+---
+
+## 8i. Notifications — email, Slack, and other channels
+
+Configure notifications in **Settings → Notifications** (the `notifications`
+Preferences block). The suite ships a pluggable `NotificationChannel` abstraction;
+the channel types available are **email**, **Slack**, **Microsoft Teams**,
+**webhook**, **PagerDuty**, and **Telegram**.
+
+**Email (SMTP).** Pick a **provider preset** from the dropdown — 13 are built in
+(gmail, o365, yahoo, zoho, icloud, sendgrid, mailgun, postmark, brevo, sparkpost,
+… and `custom`) — which fills host / port / encryption; supply `from_addr`,
+recipients, and the SMTP credential (stored in the **secret tier**, never in
+Preferences). `GET /api/notifications/providers` returns the preset table the UI
+renders.
+
+**Slack / Teams / webhook / PagerDuty / Telegram.** Add the channel and supply its
+secret (a Slack/Teams incoming-webhook URL, a PagerDuty routing key, a Telegram bot
+token, etc.) via `POST /api/notifications/channels/{channel_id}/secret`.
+
+**Triggers, dedup, digest.** Each channel chooses **triggers** — on case create,
+on verdict change, on escalate, on close — plus an `immediate_severity_threshold`.
+Noise control is built in: **dedup** within `dedup_window_seconds`, per-recipient
+**rate limiting**, and **digest** batching within `digest_window_seconds`.
+
+**When sends happen.** Notifications fire **fire-and-forget, *after* the
+deterministic `apply()` + save** — never inside `decide()` — so a channel failure
+can never block or alter a case decision. Every send is audited; untrusted log
+fields in the message body are fenced as plain text (#9).
+
+```bash
+# Send a sample notification to one configured channel (settings:manage)
+curl -s -X POST localhost:8088/api/notifications/test \
+  -H 'content-type: application/json' -d '{"channel_id":"email-1"}'
+
+# Manually notify on a specific case (cases:write); omit channel_id to fan out
+curl -s -X POST localhost:8088/api/cases/case-abc123/notify \
+  -H 'content-type: application/json' -d '{"channel_id":"slack-1"}'
+```
+
+---
+
+## 8j. Threshold automation — #3-safe post-decision rules
+
+**Settings → Automation** holds the threshold-automation rules
+(`threshold_automation`, default OFF). Each rule has `conditions` (on verdict /
+risk / severity / entity type / rule / source) and an `action`, evaluated in
+priority order **after** the Case Manager decides:
+
+- `tag` — add a tag to the case.
+- `recommend` — attach a recommendation.
+- `notify` — fire a notification (§8i).
+- `run_playbook` — queue a context-only playbook re-investigation (§8f).
+- `request_approval` — raise a **HITL `Proposal`** (the existing admin-gated
+  approve/reject path — see the Approvals queue).
+
+**The hard guarantee:** automation **never sets `case.status` directly**. A SAFE
+action (tag / recommend / notify) is applied and audited; anything that would write
+the world routes through the HITL `Proposal` path; a re-investigation calls
+`decide()` again with new inputs. `decide()` remains the only producer of a
+CLOSED / auto-closed case, and `NEEDS_HUMAN` never auto-closes (CI-asserted,
+non-negotiable #3). Automation rules ride `PUT /api/settings` under
+`threshold_automation`.
+
+---
+
 ## 9. Settings — full reference
 
 Settings GET `/api/settings` (`{ prefs, configured, read_only }`) and PUT a
 partial patch (deep-merged server-side; validated against the `Preferences`
-schema). When **read-only mode** is on, a `403` is returned. The page renders
-**every** `Preferences` field — data scope, entity mapping, severity/rules,
-polling, the **seven per-role models** (router, investigator, formatter, standup,
-chat, `overview_model`, embedding), decision thresholds, the correlation table +
-risk weights + `asset_networks`, caps + kill switch, suppression rules, the
-auto-forward allowlist, enrichment, RAG, standup, the **rule catalog** + per-rule
-model overrides, the **trace** toggle, and read-only mode.
+schema). When **read-only mode** is on, a `403` is returned. Large subtrees can be
+fetched section-by-section with `GET /api/settings/{section}`, and
+`GET /api/settings/schema` returns the form-generation schema.
+
+**Consolidated layout (Wave 7).** The page is organised into **13 sections across
+4 nav groups** rather than one long form: Data Sources; Models & LLM; Correlation &
+Cases (incl. the case-ID format, §below); Automation (playbooks + threshold
+automation §8j + cross-source correlation §8g); Notifications (§8i); Security
+(RBAC / MFA / SSO / rate-limits, §8h); Knowledge & Threat Context (§8c/§8f);
+Enrichment; Appearance (branding); Advanced (caps, read-only mode); plus the
+admin-only **Administration** group (Users, audit). It still renders **every**
+`Preferences` field — data scope, entity mapping, severity/rules, polling, the
+**seven per-role models** (router, investigator, formatter, standup, chat,
+`overview_model`, embedding), decision thresholds, the correlation table + risk
+weights + `asset_networks`, caps + kill switch, suppression rules, the auto-forward
+allowlist, enrichment, RAG, standup, the **rule catalog** + per-rule model
+overrides, the **trace** toggle, and read-only mode.
+
+### Custom case-ID nomenclature
+
+`case_id_format` (Settings → Correlation & Cases) controls the human-facing
+**case number** (the immutable system `case_id` is unchanged). Set `enabled=true`
+and a `template` (placeholders include `{prefix}`, `{sep}`, `{year}`, `{yy}`,
+`{mm}`, `{seq:0Nd}`, `{source}`, `{verdict}` — e.g. `CASE-{year}-{seq:06d}` →
+`CASE-2026-000123`), a `reset_period` (`none` / `calendar_year` / `fiscal_year` /
+`fiscal_quarter`), and `seq_start`. The sequence is an atomic KV counter bucketed
+by period. Preview candidate templates without persisting:
+`POST /api/settings/case-id/preview`. When set, the UI shows `case_number` and
+falls back to `case_id`.
 
 ### Per-role model selection
 
@@ -691,13 +975,25 @@ curl -s localhost:8088/api/cases/case-abc123                       # one case
 curl -s localhost:8088/api/cases/case-abc123/trace                 # agent trace
 curl -s localhost:8088/api/cases/case-abc123/rationale             # the "Why" object (deterministic decision + reasoning + knowledge + commands + memory)
 
-# Analyst action
+# Analyst lifecycle actions (close/confirm_fp/resolve/reopen/escalate/deescalate/
+# hold/resume/set_status/set_disposition/acknowledge); illegal moves → 400
 curl -s -X POST localhost:8088/api/cases/case-abc123/action \
   -H 'content-type: application/json' \
-  -d '{"action":"escalate","note":"paging on-call","analyst":"alice"}'
+  -d '{"action":"escalate","level":2,"note":"paging on-call","analyst":"alice"}'
+curl -s -X POST localhost:8088/api/cases/case-abc123/action \
+  -H 'content-type: application/json' \
+  -d '{"action":"set_disposition","disposition":"true_positive","analyst":"alice"}'
 
 # Re-investigate a stored case in place (NEUTRAL 400 if activity aged out)
 curl -s -X POST localhost:8088/api/cases/case-abc123/investigate
+
+# Run a playbook on a case (context-only re-investigation; #3-safe)
+curl -s -X POST localhost:8088/api/cases/case-abc123/run-playbook \
+  -H 'content-type: application/json' \
+  -d '{"playbook_id":"brute-force-login","analyst":"alice"}'
+
+# Threat context for a case (IOC reputation + MITRE + related cases; fail-open)
+curl -s localhost:8088/api/cases/case-abc123/threat-context
 
 # Investigate an entity (optional "lookback" overrides; auto-widens on 0 hits)
 curl -s -X POST localhost:8088/api/investigate \
@@ -745,14 +1041,64 @@ curl -s "localhost:8088/api/scans/notifications?since=now-24h"
 curl -s "localhost:8088/api/standup?window_hours=24"
 curl -s "localhost:8088/api/usage/summary?window_hours=24"
 
-# Settings get / patch
+# Settings get / patch (+ section / schema / case-id preview)
 curl -s localhost:8088/api/settings
+curl -s localhost:8088/api/settings/schema
+curl -s localhost:8088/api/settings/notifications        # one section
 curl -s -X PUT localhost:8088/api/settings \
   -H 'content-type: application/json' \
   -d '{"background_scan_enabled":true,"auto_forward_allowlist":["sshd","suricata"]}'
+curl -s -X POST localhost:8088/api/settings/case-id/preview \
+  -H 'content-type: application/json' \
+  -d '{"template":"CASE-{year}-{seq:06d}","count":3}'
 
 # Manual poll (pull sources)
 curl -s -X POST localhost:8088/api/poll
+```
+
+### Auth, users + RBAC (only when TLSOC_AUTH_ENABLED=true)
+
+```bash
+# Login (returns {requires_mfa, pending_token} when the user has MFA; else {token, user})
+curl -s -X POST localhost:8088/api/auth/login \
+  -H 'content-type: application/json' -d '{"username":"Admin","password":"Admin@123"}'
+# Forced on the seeded admin's first login:
+curl -s -X POST localhost:8088/api/auth/change-password \
+  -H 'content-type: application/json' \
+  -d '{"current_password":"Admin@123","new_password":"<strong-new>"}'
+curl -s localhost:8088/api/auth/me                 # current user + role + must_change_password
+curl -s localhost:8088/api/roles                   # role → permission matrix
+
+# Users (super_admin)
+curl -s localhost:8088/api/users
+curl -s -X POST localhost:8088/api/users \
+  -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2"}'
+curl -s -X PUT localhost:8088/api/users/alice \
+  -H 'content-type: application/json' -d '{"role":"soc_manager","active":true}'
+curl -s -X DELETE localhost:8088/api/users/alice
+
+# MFA enrolment (self): setup → scan the otpauth_uri QR → confirm
+curl -s -X POST localhost:8088/api/auth/mfa/setup     # -> {secret, otpauth_uri, recovery_codes}
+curl -s -X POST localhost:8088/api/auth/mfa/confirm -H 'content-type: application/json' -d '{"code":"123456"}'
+# Login phase 2: exchange the pending_token + a TOTP (or recovery) code for a session
+curl -s -X POST localhost:8088/api/auth/mfa/verify  -H 'content-type: application/json' -d '{"pending_token":"...","code":"123456"}'
+
+# SSO (OIDC)
+curl -s localhost:8088/api/auth/sso/providers
+curl -s "localhost:8088/api/auth/sso/authorize?provider=google"
+```
+
+### Notifications
+
+```bash
+curl -s localhost:8088/api/notifications/providers        # email presets + channel types
+curl -s -X POST localhost:8088/api/notifications/test \
+  -H 'content-type: application/json' -d '{"channel_id":"email-1"}'   # send a sample to one configured channel
+curl -s -X POST localhost:8088/api/notifications/channels/slack-1/secret \
+  -H 'content-type: application/json' -d '{"field":"webhook_url","value":"https://hooks.slack.com/..."}'
+curl -s -X POST localhost:8088/api/cases/case-abc123/notify \
+  -H 'content-type: application/json' -d '{"channel_id":"slack-1"}'
 ```
 
 ---

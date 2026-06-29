@@ -11,6 +11,40 @@ commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **SOC overhaul — 7 waves (W1–W7)** (branch `Testing`; **649 backend tests green**
+  (395→481→527→554→571→600→638→649) + webui tsc/vite clean + **27 Vitest** green;
+  **additive, zero new deps, non-negotiable #3 `decide()` byte-identical, auth DEFAULT OFF**):
+  - ☑ **W1 Identity** — persisted multi-user (`stores/users.py` over the KV doc store,
+    no new index/table) + **6-role RBAC** (super_admin/soc_manager/analyst_tier2/
+    analyst_tier1/responder/auditor) + permission matrix + `require_permission` deps +
+    React `<Can>` guards; OOBE first-run; seed **Admin/Admin@123** (super_admin) when
+    auth enabled. (481)
+  - ☑ **W2 MFA + SSO** — stdlib **RFC-6238 TOTP** (vs the official vectors) + inline-SVG
+    QR + single-use recovery codes + two-phase login (`auth/mfa.py`,
+    `/api/auth/mfa/*`); **OIDC SSO** Google/Microsoft/generic via server-side
+    code-exchange + userinfo + group→role provisioning (`auth/oidc.py`,
+    `/api/auth/sso/*`). (527)
+  - ☑ **W3 Cases** — extended `CaseStatus` (NEW/INVESTIGATING/ESCALATED/ON_HOLD/RESOLVED,
+    keeps open/needs_human/closed) + `Disposition` taxonomy + lifecycle actions +
+    transition guard + `status_history`; **`decide()` byte-identical**; customizable
+    `case-XXXX` nomenclature (`engine/case_id.py` template + KV sequence + preview). (554)
+  - ☑ **W4 Notifications** — pluggable `NotificationChannel` + email (stdlib SMTP, 13
+    presets) + Slack/Teams/webhook/PagerDuty/Telegram; per-condition triggers +
+    dedup/rate-limit/digest; fire-and-forget after `apply()`+save; channel secrets in
+    the secret tier (`notifications/`, `/api/notifications/*`). (571)
+  - ☑ **W5 Multi-source** — Auto-Correlate toggle per source AND per sub-source
+    (`IndexPattern`); opt-in cross-source correlation linking RELATED cases by shared
+    entity (ip/host/user/file_hash/domain); per-source mapping overrides + connector
+    `setup_help` + `HelpTip`s + analyze-sample. (600)
+  - ☑ **W6 Automation + Threat-context** — **#3-safe** threshold automation
+    (`engine/threshold_automation.py`: tag/recommend/notify/run_playbook/request_approval
+    → HITL proposal; **never sets status**); run-a-playbook (context-only
+    re-investigation); threat-context panel (`engine/threat_context.py`: IOC reputation
+    + bundled **MITRE ATT&CK 697 techniques** in `threat/` + related cases, fail-open);
+    resolved-case → RAG knowledge loop. (638)
+  - ☑ **W7 Settings + UI** — consolidated Settings (13 sections / 4 nav groups) +
+    `GET /api/settings/schema`; RiskGauge redesign (fixes Active-Risk-Index glitch);
+    skeleton/shimmer loading + staggered reveals; 8px grid; WCAG AA. (649)
 - ☑ **Browse a source's logs + read-only Test-connection & per-source TLS fixes**
   (branch `Testing`; **349 tests green** (+9, `test_browse_and_connection.py`);
   webui clean, no new deps; additive, spine + the 12 non-negotiables intact):
@@ -72,18 +106,24 @@ commit + push.
   `fp_auto_close` migrated); optional auth (default OFF — no-auth version preserved):
   `app/auth/` (PBKDF2 + stdlib HS256) + `app/middleware/` + router-level
   `require_auth` + CI route-coverage test; webui login gate + Playbooks/Agents catalog.
-  - ☐ Wave-2 leftovers: approval workflow + pre-flight cost projection + `$`-budget.
+  - ◐ Wave-2 leftovers: approval workflow ☑ DONE (HITL `Proposal` + admin approve;
+    extended by W6 threshold `request_approval`). Still ☐: pre-flight projected-cost
+    gate + `$`-budget ceiling.
 - ☑ **Vigil-inspired overhaul — Wave 1** (additive, spine intact; 244 tests green;
   webui clean). Multi-agent persona roster (`agents/personas.py`, `GET /personas`),
   plain-text runbooks (`runbooks/*.md` + `engine/runbooks.py`, `GET /runbooks`),
   hybrid BM25+vector RAG (`tools/rag.py`), tool safety tiers (`ToolTier`), hardened
   fencing + `pricing_source` provenance. Legacy Kibana plugin archived →
   `archive/kibana-plugin/`. Full study + multi-wave plan in `docs/VIGIL_STUDY.md`.
-  - ☐ **Wave 2:** auth-by-default + CI route-coverage test; CSRF/headers/rate-limit;
-    approval workflow + pre-flight projected-cost gate + `$`-budget ceiling.
-  - ◐ **Wave 3:** durable operator memory + case explainability + RAG management/
-    visibility DONE (this cycle, above). Still open: temporal KG + cross-case memory
-    linkage; MITRE-from-STIX; detection-rule RAG corpus; HITL / Auto-Ops webui surfaces.
+  - ◐ **Wave 2:** ☑ CI route-coverage test; CSRF/headers/rate-limit; ☑ auth-on
+    profile available (DEFAULT OFF, `TLSOC_AUTH_ENABLED=true` → RBAC/MFA/SSO +
+    Admin/Admin@123 seed — SOC overhaul W1/W2); ☑ approval workflow (HITL proposals).
+    Still ☐: pre-flight projected-cost gate + `$`-budget ceiling.
+  - ☑ **Wave 3:** durable operator memory + case explainability + RAG management/
+    visibility DONE. Also DONE via the SOC overhaul: a real bundled **MITRE ATT&CK**
+    module (`threat/mitre_techniques.json`, 697 techniques) + **HITL / Auto-Ops webui
+    surfaces** (Approvals/Users/Security pages + threshold automation). Still ☐:
+    temporal KG + cross-case memory linkage; a detection-rule RAG corpus.
   - ☐ **Wave 4 / Epoch E:** ARQ workers + KEDA; Helm chart; OTEL + Grafana.
 - ☑ **UI redesign** — new shared design system (`public/lib/format.ts`,
   `public/components/ui.tsx`, expanded `public/index.scss`) and a presentation-only

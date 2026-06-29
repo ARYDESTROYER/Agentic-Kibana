@@ -7,6 +7,113 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-29 — Agentic SOC overhaul (Waves 1–7)
+
+A seven-wave SOC overhaul: multi-user identity + RBAC, MFA + SSO, a two-axis case
+taxonomy + custom case IDs, pluggable notifications, multi-source / cross-source
+correlation, playbook automation + threat context, and a consolidated Settings +
+UI pass. Every wave was **additive** with **zero new runtime dependencies**
+(MFA/TOTP, SSO, and SMTP email all use the Python standard library). The backend
+offline suite grew **395 → 649 tests green**; the webui `tsc + vite build` is GREEN
+with a dev-only Vitest harness (27 tests). The non-negotiables hold throughout —
+in particular **`case_manager.decide()` is byte-identical** (CI-verified): the new
+status/disposition taxonomy, notifications, and threshold automation all sit on an
+additive layer and run only *after* the deterministic decision. Developed on the
+`Testing` branch (commits since `91f8616`).
+
+### Added — Wave 1: identity (multi-user + RBAC)
+- **Persisted multi-user store** backed by the existing KV layer (no new index or
+  SQL table); a first-run **OOBE** creates the first admin, and when auth is enabled
+  on an empty store the suite seeds an `Admin` / `Admin@123` **super_admin** with a
+  `must_change_password` flag (forced replacement on first login).
+- **Six-role RBAC** (`super_admin` / `soc_manager` / `analyst_tier2` /
+  `analyst_tier1` / `responder` / `auditor`) with a permission matrix
+  (`app/rbac/policy.py`), `require_permission` / `require_role` FastAPI deps on every
+  state-changing route, and React `<Can>` guards filtering nav + actions. Routes:
+  `POST /api/setup/init-admin`, `POST /api/auth/change-password`,
+  `GET /api/roles`, `GET|POST /api/users`, `PUT|DELETE /api/users/{username}`.
+
+### Added — Wave 2: MFA + SSO
+- **MFA (TOTP)** — stdlib RFC-6238 (verified against the official RFC test vectors),
+  a browser **inline-SVG QR** enrolment (no QR dependency), single-use recovery
+  codes, and a two-phase login (password → `requires_mfa` → verify). Routes:
+  `POST /api/auth/mfa/{setup,confirm,verify,disable}`.
+- **SSO (OIDC)** — Google / Microsoft / generic providers via **server-side code
+  exchange + `userinfo`** (no `id_token`-signature-verify dependency), with
+  group→role auto-provisioning. Routes: `GET /api/auth/sso/{providers,authorize,
+  callback}`, `POST /api/auth/sso/providers/{id}/secret`.
+
+### Added — Wave 3: case taxonomy + custom case IDs
+- **Two-axis taxonomy** — `CaseStatus` extended additively
+  (`new` / `investigating` / `escalated` / `on_hold` / `resolved`; `open` /
+  `needs_human` / `closed` retained, `needs_human` kept as a deprecated alias) plus
+  a new `Disposition` enum (`true_positive` / `false_positive` / `benign` /
+  `suspicious` / `duplicate` / `undetermined`). New lifecycle actions
+  (`hold` / `resume` / `resolve` / `set_status` / `set_disposition` / `deescalate`)
+  on `POST /api/cases/{id}/action` with a transition guard (illegal moves → 400) and
+  a status history. **`decide()` is byte-identical** — the taxonomy is layered in
+  `apply()` and analyst actions only.
+- **Customizable case-ID nomenclature** — `engine/case_id.py` renders a template
+  (e.g. `CASE-{year}-{seq:06d}`) backed by an atomic KV sequence, with a live preview
+  via `POST /api/settings/case-id/preview`. `Case.case_number` is additive; the
+  immutable `case_id` is unchanged.
+
+### Added — Wave 4: notifications
+- **Pluggable `NotificationChannel`** abstraction (`app/notifications/`) with
+  **email** over stdlib SMTP (**13 provider presets** — gmail / o365 / yahoo / zoho /
+  icloud / sendgrid / mailgun / postmark / brevo / sparkpost / … + custom), plus
+  **Slack / Microsoft Teams / webhook / PagerDuty / Telegram** channels. Per-condition
+  triggers (create / verdict-change / escalate / close) with dedup, per-recipient
+  rate-limiting, and digest batching; sends are **fire-and-forget after `apply()` +
+  save** (never inside `decide()`) and audited. Channel secrets live in the secret
+  tier. Routes: `GET /api/notifications/providers`, `POST /api/notifications/test`,
+  `POST /api/notifications/channels/{id}/secret`, `POST /api/cases/{id}/notify`.
+
+### Added — Wave 5: multi-source + cross-source correlation
+- **Auto-Correlate toggle** per **source** *and* per **sub-source** (the
+  `events` / `alerts` index pattern); disabling it routes that source's clusters to
+  candidates instead of auto-forwarding.
+- **Opt-in cross-source correlation** (`CrossSourceCorrelationConfig`,
+  default OFF) links **RELATED** cases that share an entity (IP / host / user /
+  file hash / domain) within a window — surfaced as related cases, **not** a forced
+  merge (the 1:1 cluster→case signature/audit invariant is preserved).
+- **Per-source field-mapping overrides** + per-connector **contextual setup help**
+  (`AuthField.help_link` / `help_code`, rendered as `HelpTip`s) + an
+  analyze-a-sample affordance.
+
+### Added — Wave 6: automation + threat context
+- **Run-a-playbook** action (`POST /api/cases/{id}/run-playbook`) re-investigates a
+  case through the shared pipeline with the chosen playbook **forced as context**
+  (recommend-only, #3-safe).
+- **Threshold automation** (`engine/threshold_automation.py`, default OFF) matches
+  cases *after* the decision and may **tag / recommend / notify / run a playbook /
+  request approval** (→ a HITL `Proposal`) — but it **never sets status directly**;
+  `NEEDS_HUMAN` never auto-closes.
+- **Threat-context panel** (`GET /api/cases/{id}/threat-context`) assembles IOC
+  reputation, a **bundled MITRE ATT&CK corpus (697 techniques)**, and related cases,
+  **fail-open** per section. A resolved-case → RAG knowledge loop auto-chunks a
+  closed case into the corpus so future investigations retrieve prior decisions;
+  `POST /api/threat-context/import` ingests threat-intel docs (fenced UNTRUSTED).
+
+### Added / Changed — Wave 7: consolidated Settings + UI
+- **Consolidated Settings** — a single surface across **13 sections / 4 nav groups**
+  (Data Sources, Models & LLM, Correlation & Cases, Automation, Notifications,
+  Security, Knowledge & Threat Context, Enrichment, Appearance, Advanced, plus the
+  admin areas). Everything rides `GET/PUT /api/settings` (deep-merge + validate);
+  `GET /api/settings/schema` and `GET /api/settings/{section}` support form
+  generation.
+- **UI cleanup** — RiskGauge redesign (fixes the Active-Risk-Index gauge glitch),
+  skeleton/shimmer loading + staggered reveals, 8px-grid alignment, and a WCAG-AA
+  contrast pass. The UI stack is Vite + React + **Tailwind + shadcn** (the legacy
+  `@elastic/eui` surface was removed).
+
+### Notes
+- **Auth is DEFAULT OFF** (`Secrets.auth_enabled`) for back-compat and the offline
+  tests. Enable it with `TLSOC_AUTH_ENABLED=true` to get the login screen, the OOBE,
+  and the `Admin` / `Admin@123` seed (which must be changed on first login).
+
+---
+
 ## [Unreleased] — 2026-06-24 — HITL proposal approvals, white-screen fix + error boundary, cost/branding
 
 Backend offline suite **395 tests green** (was 380); webui `npm run build` GREEN +
