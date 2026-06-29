@@ -410,7 +410,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
         sub: `${fmtNumber(rag?.total_chunks)} indexed chunks`,
         icon: Database,
         accent: 'success',
-        onClick: onNavigate ? () => onNavigate('knowledge') : undefined,
+        onClick: onNavigate ? () => onNavigate('intelligence', { tab: 'knowledge' }) : undefined,
       },
       {
         label: 'LLM Spend',
@@ -421,7 +421,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
             : 'No spend recorded',
         icon: CircleDollarSign,
         accent: 'primary',
-        onClick: onNavigate ? () => onNavigate('cost') : undefined,
+        onClick: onNavigate ? () => onNavigate('metrics', { tab: 'cost' }) : undefined,
       },
     ],
     [derived, metrics, cases.length, rag, usage, windowKey, onNavigate],

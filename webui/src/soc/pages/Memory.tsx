@@ -497,9 +497,15 @@ function MemoryRow({
 
 export interface MemoryPageProps {
   onNavigate?: (page: any, opts?: any) => void;
+  /**
+   * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader and surface only the Refresh action so the
+   * host owns the title (no duplicate headers).
+   */
+  embedded?: boolean;
 }
 
-export default function Memory(_props: MemoryPageProps) {
+export default function Memory({ embedded = false }: MemoryPageProps = {}) {
   const [entries, setEntries] = React.useState<MemoryEntry[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
@@ -697,20 +703,26 @@ export default function Memory(_props: MemoryPageProps) {
     />
   );
 
+  const refreshAction = (
+    <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+      <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
+      Refresh
+    </Button>
+  );
+
   return (
     <div className="space-y-8">
-      <PageHeader
-        icon={Brain}
-        eyebrow="Platform"
-        title="Memory"
-        description="Durable facts the agents always know — injected into every investigation and chat turn as trusted operator context."
-        actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
-            Refresh
-          </Button>
-        }
-      />
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
+      ) : (
+        <PageHeader
+          icon={Brain}
+          eyebrow="Platform"
+          title="Memory"
+          description="Durable facts the agents always know — injected into every investigation and chat turn as trusted operator context."
+          actions={refreshAction}
+        />
+      )}
 
       <Alert>
         <Info className="h-4 w-4" aria-hidden />

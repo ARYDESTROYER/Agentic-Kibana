@@ -43,12 +43,23 @@ vi.mock('@/lib/api', () => {
     sources: [],
     setup_complete: true,
   };
+  class ApiError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = 'ApiError';
+    }
+  }
   return {
+    ApiError,
     setUnauthorizedHandler: vi.fn(),
+    setReauthHandler: vi.fn(),
     api: {
       auth: {
         me: ok({ auth_enabled: false, authenticated: true, user: null }),
         logout: ok({ ok: true }),
+        sso: { setSecret: ok({ configured: true }) },
       },
       roles: {
         get: ok({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} }),
@@ -60,6 +71,16 @@ vi.mock('@/lib/api', () => {
       getPlaybooks: ok({ enabled: false, playbooks: [] }),
       getBranding: ok({}),
       caseIdPreview: ok({ samples: [], valid: true }),
+      // Round-2 Wave 4 — the embedded Account/Admin sub-section bodies fetch these
+      // when their Settings section is active.
+      account: { get: ok({ username: '', role: '', env_managed: false }), put: ok({}), avatar: ok({}) },
+      account_activity: ok({ events: [] }),
+      sessions: { list: ok({ sessions: [] }), revoke: ok({ ok: true }), revokeOthers: ok({ revoked: 0 }) },
+      users: { list: ok({ users: [] }), create: ok({}), update: ok({}), remove: ok({}) },
+      admin: {
+        sessions: { list: ok({ sessions: [] }), revoke: ok({ ok: true }) },
+        users: { revokeAll: ok({ ok: true, revoked: 0 }) },
+      },
     },
   };
 });
@@ -96,6 +117,35 @@ describe('Settings page — #310 render regression', () => {
 
     // The page title is present too (it renders in both loading and ready states).
     expect(screen.getAllByText('Settings').length).toBeGreaterThan(0);
+  });
+});
+
+describe('Settings IA consolidation (Round-2 Wave 4)', () => {
+  it('shows the folded-in Account + Administration sections in the auth-off default', async () => {
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () => expect(screen.getAllByText('General & data scope').length).toBeGreaterThan(0),
+      { timeout: 5000 },
+    );
+    // Personal-account group (no perm → always visible).
+    expect(screen.getByText('Profile')).toBeInTheDocument();
+    expect(screen.getByText('Security & two-factor')).toBeInTheDocument();
+    expect(screen.getByText('Sessions & activity')).toBeInTheDocument();
+    // Administration group — in the auth-off default, hasPermission() is true so the
+    // perm-gated sections still render in the rail (nothing hidden by default).
+    expect(screen.getByText('Users & roles')).toBeInTheDocument();
+    expect(screen.getByText('Security & SSO')).toBeInTheDocument();
+    expect(screen.getByText('Active sessions')).toBeInTheDocument();
+  });
+
+  it('deep-links to an admin section via #/settings?s=admin_users', async () => {
+    window.location.hash = '#/settings?s=admin_users';
+    renderWithProviders(<Settings />);
+    // The embedded Users body renders its "Add user" affordance (auth-off → allow-all).
+    await waitFor(() => expect(screen.getByText('Add user')).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    window.location.hash = '';
   });
 });
 

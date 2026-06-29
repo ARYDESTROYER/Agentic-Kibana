@@ -339,9 +339,15 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
 
 export interface InvestigateProps {
   onNavigate?: Navigate;
+  /**
+   * When hosted as a tab inside the Workspace scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader and surface only the "View cases" action so
+   * the host owns the title (no duplicate headers).
+   */
+  embedded?: boolean;
 }
 
-export default function Investigate({ onNavigate }: InvestigateProps = {}) {
+export default function Investigate({ onNavigate, embedded = false }: InvestigateProps = {}) {
   const [entityType, setEntityType] = React.useState<EntityType>('ip');
   const [entityValue, setEntityValue] = React.useState('');
   const [lookback, setLookback] = React.useState<string>('now-24h');
@@ -472,21 +478,27 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
   const errMessage =
     error instanceof Error ? error.message : 'Something went wrong.';
 
+  const viewCasesAction = onNavigate ? (
+    <Button variant="outline" size="sm" onClick={() => onNavigate('cases')}>
+      View cases
+    </Button>
+  ) : undefined;
+
   return (
     <div className="animate-fade-in space-y-7">
-      <PageHeader
-        icon={Telescope}
-        eyebrow="Ad-hoc triage"
-        title="Investigate"
-        description="Run an ad-hoc, agentic investigation on an IP, user, or host."
-        actions={
-          onNavigate ? (
-            <Button variant="outline" size="sm" onClick={() => onNavigate('cases')}>
-              View cases
-            </Button>
-          ) : undefined
-        }
-      />
+      {embedded ? (
+        viewCasesAction ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">{viewCasesAction}</div>
+        ) : null
+      ) : (
+        <PageHeader
+          icon={Telescope}
+          eyebrow="Ad-hoc triage"
+          title="Investigate"
+          description="Run an ad-hoc, agentic investigation on an IP, user, or host."
+          actions={viewCasesAction}
+        />
+      )}
 
       {/* Form */}
       <Card>

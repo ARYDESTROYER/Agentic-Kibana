@@ -143,6 +143,26 @@ const AvatarBlock: React.FC<{ src?: string; name: string; size?: number }> = ({
 };
 
 export default function Account({ onNavigate }: AccountPageProps) {
+  // Standalone route: the "Security & two-factor" button navigates to the
+  // standalone Security page (cutover-safe).
+  return <AccountInner onNavigateToSecurity={() => onNavigate?.('security')} />;
+}
+
+export interface AccountInnerProps {
+  /**
+   * Called by the "Security & two-factor" button. When embedded in Settings this
+   * jumps to the embedded Security section; standalone it navigates to /security.
+   * When omitted the button is hidden.
+   */
+  onNavigateToSecurity?: () => void;
+}
+
+/**
+ * The self-service profile body, without the page wrapper. Exported so Settings can
+ * embed it under the Account (Personal) group. No `<Can>` gate: every signed-in user
+ * edits their OWN profile (the backend scopes it to the caller).
+ */
+export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
   const { authEnabled, username: sessionUser, role: sessionRole } = useAuth();
 
   const [profile, setProfile] = React.useState<AccountProfile | null>(null);
@@ -287,8 +307,6 @@ export default function Account({ onNavigate }: AccountPageProps) {
     }
   }, [avatarBusy, avatarPending, avatar, hydrate]);
 
-  const goSecurity = React.useCallback(() => onNavigate?.('security'), [onNavigate]);
-
   const tzOptions = React.useMemo(timezoneOptions, []);
   const previewAvatar = avatarPending ?? avatar;
 
@@ -300,10 +318,12 @@ export default function Account({ onNavigate }: AccountPageProps) {
         description="How you appear across the console. Identity (username, role) is managed by your administrator."
         icon={UserCircle2}
         actions={
-          <Button type="button" variant="outline" onClick={goSecurity}>
-            <ShieldCheck aria-hidden />
-            Security &amp; two-factor
-          </Button>
+          onNavigateToSecurity ? (
+            <Button type="button" variant="outline" onClick={onNavigateToSecurity}>
+              <ShieldCheck aria-hidden />
+              Security &amp; two-factor
+            </Button>
+          ) : null
         }
       />
 

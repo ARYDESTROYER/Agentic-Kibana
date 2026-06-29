@@ -52,7 +52,13 @@ export default function AdminSessions(_props: AdminSessionsPageProps) {
   );
 }
 
-function AdminSessionsInner() {
+/**
+ * The all-users session console body, without the page wrapper. Exported so
+ * Settings can embed it under the Administration group (already gated by
+ * `users:manage` there) while the standalone /admin_sessions route keeps using the
+ * default export below during cutover.
+ */
+export function AdminSessionsInner() {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState('');

@@ -17,14 +17,15 @@ import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
 import type { PageId } from './nav';
 
-import Overview from './pages/Overview';
+import Home from './pages/Home';
 import Cases from './pages/Cases';
-import Chat from './pages/Chat';
+import Workspace from './pages/Workspace';
 import Investigate from './pages/Investigate';
 import Scans from './pages/Scans';
 import Standup from './pages/Standup';
-import Metrics from './pages/Metrics';
+import Analytics from './pages/Analytics';
 import Cost from './pages/Cost';
+import Intelligence from './pages/Intelligence';
 import Knowledge from './pages/Knowledge';
 import Memory from './pages/Memory';
 import Sources from './pages/Sources';
@@ -54,32 +55,44 @@ function renderPage(
   onRerunWizard: () => void,
 ): React.ReactNode {
   switch (page) {
+    // ---- Round-2 W4 consolidated HOST pages (render a tabbed scaffold) ---- //
     case 'overview':
-      return <Overview onNavigate={navigate} />;
+      // Home = Dashboard (Overview) | Standup.
+      return <Home onNavigate={navigate} tab={opts?.tab} />;
+    case 'chat':
+      // Workspace = Chat | Investigate (ONE chat engine).
+      return <Workspace onNavigate={navigate} tab={opts?.tab} />;
+    case 'metrics':
+      // Analytics = Dashboard (Metrics) | Cost & usage.
+      return <Analytics onNavigate={navigate} tab={opts?.tab} />;
+    case 'intelligence':
+      // Intelligence = Knowledge | Memory | Playbooks & Agents.
+      return <Intelligence onNavigate={navigate} tab={opts?.tab} />;
+
     case 'cases':
       return <Cases onNavigate={navigate} initialStatus={opts?.status} />;
-    case 'investigate':
-      return <Investigate onNavigate={navigate} />;
-    case 'chat':
-      return <Chat onNavigate={navigate} />;
-    case 'metrics':
-      return <Metrics onNavigate={navigate} />;
     case 'scans':
       return <Scans onNavigate={navigate} />;
-    case 'standup':
-      return <Standup onNavigate={navigate} />;
-    case 'catalog':
-      return <Catalog onNavigate={navigate} />;
     case 'approvals':
       return <Approvals onNavigate={navigate} />;
+    case 'sources':
+      return <Sources onNavigate={navigate} />;
+
+    // ---- Hidden-but-routable consolidated sub-pages (deep-link fallbacks; the
+    //      host pages above are the primary entry, but bare `#/cost` etc. still
+    //      resolve to the standalone page rather than falling through to Home). -- //
+    case 'investigate':
+      return <Investigate onNavigate={navigate} />;
+    case 'standup':
+      return <Standup onNavigate={navigate} />;
+    case 'cost':
+      return <Cost onNavigate={navigate} />;
     case 'knowledge':
       return <Knowledge onNavigate={navigate} />;
     case 'memory':
       return <Memory onNavigate={navigate} />;
-    case 'sources':
-      return <Sources onNavigate={navigate} />;
-    case 'cost':
-      return <Cost onNavigate={navigate} />;
+    case 'catalog':
+      return <Catalog onNavigate={navigate} />;
     case 'account':
       return <Account onNavigate={navigate} />;
     case 'sessions':
@@ -93,7 +106,7 @@ function renderPage(
     case 'users':
       return <Users onNavigate={navigate} />;
     default:
-      return <Overview onNavigate={navigate} />;
+      return <Home onNavigate={navigate} tab={opts?.tab} />;
   }
 }
 

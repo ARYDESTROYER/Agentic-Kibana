@@ -26,6 +26,7 @@ import { useRef } from 'react';
 import { MessageSquare, RefreshCw } from 'lucide-react';
 
 import type { Navigate } from '@/soc/router';
+import { cn } from '@/lib/cn';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { Button } from '@/ui/button';
 import { ChatPanel, type ChatPanelHandle } from '@/soc/components/ChatPanel';
@@ -40,30 +41,50 @@ const SUGGESTED_PROMPTS = [
 
 export interface ChatPageProps {
   onNavigate?: Navigate;
+  /**
+   * When hosted as a tab inside the Workspace scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader and surface only the "New chat" reset action
+   * (the host owns the title) and shrink the full-height frame to fit below the tab
+   * bar so the transcript still fills the slot without overflowing.
+   */
+  embedded?: boolean;
 }
 
-export default function Chat(_props: ChatPageProps) {
+export default function Chat({ embedded = false }: ChatPageProps = {}) {
   const panelRef = useRef<ChatPanelHandle>(null);
+
+  const resetAction = (
+    <Button variant="outline" size="sm" onClick={() => panelRef.current?.reset()}>
+      <RefreshCw className="h-4 w-4" />
+      New chat
+    </Button>
+  );
 
   return (
     // Full-height frame anchored to the viewport (see header note): fills the shell
     // content slot exactly so the chat never collapses to content height. `min-h-0`
     // on the column lets the transcript lane scroll instead of the whole page.
-    <div className="flex h-[calc(100vh-104px)] min-h-0 flex-col gap-5">
-      {/* Fixed page header — does not scroll. */}
+    // Embedded inside the Workspace scaffold, the header + tab bar already consume
+    // vertical space, so the frame is a touch shorter.
+    <div
+      className={cn(
+        'flex min-h-0 flex-col gap-5',
+        embedded ? 'h-[calc(100vh-220px)]' : 'h-[calc(100vh-104px)]',
+      )}
+    >
+      {/* Fixed page header — does not scroll. Embedded: just the reset action. */}
       <div className="shrink-0">
-        <PageHeader
-          eyebrow="Assistant"
-          icon={MessageSquare}
-          title="Chat"
-          description="Ask the SOC agent about your environment — it queries logs, summarizes, and explains."
-          actions={
-            <Button variant="outline" size="sm" onClick={() => panelRef.current?.reset()}>
-              <RefreshCw className="h-4 w-4" />
-              New chat
-            </Button>
-          }
-        />
+        {embedded ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">{resetAction}</div>
+        ) : (
+          <PageHeader
+            eyebrow="Assistant"
+            icon={MessageSquare}
+            title="Chat"
+            description="Ask the SOC agent about your environment — it queries logs, summarizes, and explains."
+            actions={resetAction}
+          />
+        )}
       </div>
 
       {/* Panel host — grows to fill everything below the header; min-h-0 lets the

@@ -545,17 +545,25 @@ const PlaybooksCatalog: React.FC = () => {
 export interface CatalogProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   onNavigate?: (page: any, opts?: any) => void;
+  /**
+   * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader so the host owns the title (no duplicate
+   * headers).
+   */
+  embedded?: boolean;
 }
 
-export default function Catalog(_props: CatalogProps) {
+export default function Catalog({ embedded = false }: CatalogProps = {}) {
   return (
     <div className="space-y-8">
-      <PageHeader
-        icon={Library}
-        eyebrow="Knowledge"
-        title="Playbooks & Agents"
-        description="The declarative knowledge the triage spine uses — specialist personas and plain-text runbooks. Read-only."
-      />
+      {embedded ? null : (
+        <PageHeader
+          icon={Library}
+          eyebrow="Knowledge"
+          title="Playbooks & Agents"
+          description="The declarative knowledge the triage spine uses — specialist personas and plain-text runbooks. Read-only."
+        />
+      )}
 
       <Tabs defaultValue="personas">
         <TabsList>

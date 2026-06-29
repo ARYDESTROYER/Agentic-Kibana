@@ -29,6 +29,8 @@ import {
   KeyRound,
   Library,
   Lock,
+  MonitorSmartphone,
+  Network,
   Plus,
   RefreshCw,
   Save,
@@ -39,6 +41,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  UserCircle2,
   Users as UsersIcon,
   Wand2,
   Workflow,
@@ -84,14 +87,29 @@ import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { BrandingEditor } from '@/soc/components/BrandingEditor';
 import { NotificationsEditor } from '@/soc/components/NotificationsEditor';
-import { Can, useCan } from '@/soc/components/Can';
+import { Can } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { useNavigate } from '@/soc/router';
 import { useAuth } from '@/soc/auth';
 
+// Round-2 Wave 4 — Settings IA consolidation. These page bodies are embedded here as
+// Settings sub-sections (the standalone routes stay live during cutover). Account &
+// Sessions live under the Account (Personal) group; Users / Admin sessions / the org
+// Security & SSO + token policy live under the Administration group (perm-gated).
+import { AccountInner } from '@/soc/pages/Account';
+import { SessionsInner } from '@/soc/pages/Sessions';
+import { UsersInner } from '@/soc/pages/Users';
+import { AdminSessionsInner } from '@/soc/pages/AdminSessions';
+import { SecurityMfaInner, SecuritySsoInner } from '@/soc/pages/Security';
+
 /* --------------------------------------------------------------- sections --- */
 
 type SectionId =
+  // Personal account (no perm → every signed-in user)
+  | 'profile'
+  | 'account_security'
+  | 'sessions'
+  // Configuration / triage / integrations / administration
   | 'general'
   | 'models'
   | 'keys'
@@ -101,6 +119,8 @@ type SectionId =
   | 'standup'
   | 'notifications'
   | 'security'
+  | 'admin_users'
+  | 'admin_sessions'
   | 'knowledge'
   | 'enrichment'
   | 'appearance'
@@ -125,6 +145,37 @@ interface SectionGroup {
 }
 
 const SECTION_GROUPS: SectionGroup[] = [
+  {
+    id: 'account',
+    label: 'My account',
+    sections: [
+      {
+        // No perm → every signed-in user edits their OWN profile. In the auth-off /
+        // rbac-off default, hasPermission() is true so this still shows (back-compat).
+        id: 'profile',
+        name: 'Profile',
+        blurb: 'Your display name, avatar, secondary email, timezone, and language.',
+        icon: UserCircle2,
+        keywords: ['profile', 'account', 'display name', 'avatar', 'photo', 'email', 'timezone', 'locale', 'language'],
+      },
+      {
+        // No perm → self-service MFA enrollment for every signed-in user.
+        id: 'account_security',
+        name: 'Security & two-factor',
+        blurb: 'Enroll TOTP two-factor authentication for your own account.',
+        icon: ShieldCheck,
+        keywords: ['security', 'mfa', '2fa', 'two factor', 'totp', 'authenticator', 'password'],
+      },
+      {
+        // No perm → the backend scopes the session list to the caller.
+        id: 'sessions',
+        name: 'Sessions & activity',
+        blurb: 'Where you are signed in, and your recent account activity.',
+        icon: MonitorSmartphone,
+        keywords: ['sessions', 'devices', 'activity', 'sign out', 'revoke', 'login history'],
+      },
+    ],
+  },
   {
     id: 'configuration',
     label: 'Configuration',
@@ -222,11 +273,33 @@ const SECTION_GROUPS: SectionGroup[] = [
     label: 'Administration',
     sections: [
       {
+        // Users & roles — admin-only (was the standalone /users page).
+        id: 'admin_users',
+        name: 'Users & roles',
+        blurb: 'Add accounts, assign roles, reset passwords, and enable/disable users.',
+        icon: UsersIcon,
+        perm: { resource: 'users', action: 'manage' },
+        keywords: ['users', 'roles', 'rbac', 'accounts', 'permissions', 'add user', 'reset password', 'admin'],
+      },
+      {
+        // Org Security & SSO + token/session policy — admin-only (was the admin half
+        // of the standalone /security page). The self-service MFA lives under My
+        // account › Security & two-factor.
         id: 'security',
-        name: 'Security & access',
-        blurb: 'RBAC, MFA, single sign-on, users, and platform hardening.',
+        name: 'Security & SSO',
+        blurb: 'Single sign-on (OIDC) providers and the token / session policy.',
         icon: ShieldCheck,
-        keywords: ['security', 'rbac', 'roles', 'mfa', 'sso', 'oidc', 'users', 'access', 'csrf', 'rate limit', 'headers'],
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['security', 'sso', 'oidc', 'single sign-on', 'google', 'microsoft', 'session policy', 'token', 'idle', 'access ttl', 'csrf', 'rate limit'],
+      },
+      {
+        // All-users session console — admin-only (was the standalone /admin_sessions).
+        id: 'admin_sessions',
+        name: 'Active sessions',
+        blurb: 'Review and force-terminate sessions across all accounts.',
+        icon: Network,
+        perm: { resource: 'users', action: 'manage' },
+        keywords: ['sessions', 'active sessions', 'terminate', 'revoke', 'force sign out', 'admin'],
       },
       {
         id: 'appearance',
@@ -500,7 +573,7 @@ function SecretInput({
 
 /* ------------------------------------------------------------- sub-sections - */
 
-function GeneralSection({ prefs, update, onNavigate }: SecProps & { onNavigate?: (p: any) => void }) {
+function GeneralSection({ prefs, update, onNavigate }: SecProps & { onNavigate?: (p: any, opts?: any) => void }) {
   return (
     <div className="space-y-8">
       <SectionTitle title="General & data scope" sub="The index pattern, the fields the agent maps entities from, and how the durable poller pulls new events." />
@@ -902,7 +975,7 @@ function AdvancedSection({
   prefs,
   update,
   onNavigate,
-}: SecProps & { onNavigate?: (p: any) => void }) {
+}: SecProps & { onNavigate?: (p: any, opts?: any) => void }) {
   const caps = prefs.caps || {};
   const setCaps = (patch: Partial<typeof caps>) => update({ caps: { ...caps, ...patch } });
   const rag = prefs.rag || {};
@@ -1024,7 +1097,11 @@ function AdvancedSection({
         <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
           <span className="text-sm text-muted-foreground">Detection rule catalog &amp; playbooks</span>
           {onNavigate ? (
-            <Button variant="outline" size="sm" onClick={() => onNavigate('catalog')}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+            >
               <FileText className="h-4 w-4" aria-hidden />
               Open catalog
             </Button>
@@ -1047,24 +1124,21 @@ function AdvancedSection({
   );
 }
 
-/** Security & access — the admin/self-service security hub (links + posture). */
-function SecuritySection({
-  prefs,
-  onNavigate,
-}: {
-  prefs: Preferences;
-  onNavigate?: (p: any) => void;
-}) {
+/**
+ * Org Security & SSO (Administration) — a read-only posture summary, then the admin
+ * token/session policy + OIDC providers, controlled by Settings' single save. The
+ * SELF-SERVICE MFA lives separately under My account › Security & two-factor.
+ */
+function OrgSecuritySection({ prefs, update, configured }: SecProps & { configured: ConfiguredStatus }) {
   const { authEnabled, rbacEnabled, role } = useAuth();
-  const canManageUsers = useCan('users', 'manage');
   const sso = (prefs.sso as { enabled?: boolean; providers?: unknown[] } | undefined) ?? {};
   const providerCount = Array.isArray(sso.providers) ? sso.providers.length : 0;
 
   return (
     <div className="space-y-8">
       <SectionTitle
-        title="Security & access"
-        sub="Authentication posture, role-based access control, multi-factor auth, single sign-on, and user administration."
+        title="Security & single sign-on"
+        sub="Authentication posture, single sign-on (OIDC) providers, and the token / session policy."
       />
 
       <div className="space-y-4">
@@ -1083,41 +1157,8 @@ function SecuritySection({
         ) : null}
       </div>
 
-      <div className="space-y-4">
-        <SubHeader title="Multi-factor & single sign-on">
-          <HelpTip text="Enroll your own TOTP MFA (self-service) and — for admins — configure OIDC single sign-on providers, on the Security page." />
-        </SubHeader>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
-          <p className="text-sm text-muted-foreground">
-            Manage two-factor authentication and SSO/OIDC providers.
-          </p>
-          {onNavigate ? (
-            <Button variant="outline" size="sm" onClick={() => onNavigate('security')}>
-              <ShieldCheck className="h-4 w-4" aria-hidden />
-              Open Security
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <Can resource="users" action="manage">
-        <div className="space-y-4">
-          <SubHeader title="Users & roles">
-            <HelpTip text="Add accounts, assign roles, reset passwords, and enable/disable users. The permission matrix per role is defined by RBAC." />
-          </SubHeader>
-          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
-            <p className="text-sm text-muted-foreground">
-              Administer accounts and their roles, and review the RBAC permission matrix.
-            </p>
-            {onNavigate ? (
-              <Button variant="outline" size="sm" onClick={() => onNavigate('users')} disabled={!canManageUsers}>
-                <UsersIcon className="h-4 w-4" aria-hidden />
-                Open Users &amp; roles
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </Can>
+      {/* Token/session policy + OIDC providers — controlled by the Settings save. */}
+      <SecuritySsoInner prefs={prefs} update={update} configured={configured} />
     </div>
   );
 }
@@ -1624,7 +1665,7 @@ function KnowledgeSection({
   prefs,
   update,
   onNavigate,
-}: SecProps & { onNavigate?: (p: any) => void }) {
+}: SecProps & { onNavigate?: (p: any, opts?: any) => void }) {
   const cfg: ThreatContextConfig = prefs.threat_context || {};
   const set = (patch: Partial<ThreatContextConfig>) =>
     update({ threat_context: { ...cfg, ...patch } });
@@ -1690,7 +1731,11 @@ function KnowledgeSection({
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
             <span className="text-sm text-muted-foreground">Knowledge corpus (RAG)</span>
             {onNavigate ? (
-              <Button variant="outline" size="sm" onClick={() => onNavigate('knowledge')}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate('intelligence', { tab: 'knowledge' })}
+              >
                 <Library className="h-4 w-4" aria-hidden />
                 Open
               </Button>
@@ -1699,7 +1744,11 @@ function KnowledgeSection({
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
             <span className="text-sm text-muted-foreground">Playbooks & agents</span>
             {onNavigate ? (
-              <Button variant="outline" size="sm" onClick={() => onNavigate('catalog')}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+              >
                 <FileText className="h-4 w-4" aria-hidden />
                 Open
               </Button>
@@ -1902,7 +1951,8 @@ export interface SettingsPageProps {
 /** Read the active section from the hash query (`#/settings?s=<id>`). */
 function sectionFromHash(): SectionId | null {
   try {
-    const m = (window.location.hash || '').match(/[?&]s=([a-z]+)/i);
+    // Allow underscores so deep-links like `#/settings?s=admin_users` resolve.
+    const m = (window.location.hash || '').match(/[?&]s=([a-z_]+)/i);
     const id = m?.[1];
     return id && isSectionId(id) ? id : null;
   } catch {
@@ -2121,6 +2171,16 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   const renderSection = () => {
     switch (section) {
+      // ---- My account (Personal) — no perm gate; the embedded bodies self-scope to
+      // the signed-in caller. Do NOT wrap in <Can>: in the auth-off default these
+      // must still render (back-compat).
+      case 'profile':
+        return <AccountInner onNavigateToSecurity={() => setSection('account_security')} />;
+      case 'account_security':
+        return <SecurityMfaInner />;
+      case 'sessions':
+        return <SessionsInner />;
+      // ---- Configuration / triage / integrations
       case 'general':
         return <GeneralSection {...secProps} onNavigate={onNavigate} />;
       case 'models':
@@ -2158,8 +2218,28 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
             <NotificationsEditor {...secProps} />
           </Can>
         );
+      // ---- Administration (perm-gated). The section-rail already filters these out
+      // for users without the grant; the <Can> fallback here is belt-and-braces for a
+      // direct deep-link (`#/settings?s=admin_users`).
+      case 'admin_users':
+        return (
+          <Can resource="users" action="manage" fallback={restricted(UsersIcon, 'Users & roles')}>
+            <UsersInner />
+          </Can>
+        );
       case 'security':
-        return <SecuritySection prefs={prefs} onNavigate={onNavigate} />;
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(ShieldCheck, 'Security & single sign-on')}>
+            {/* Posture + org SSO + token/session policy, controlled by Settings' save. */}
+            <OrgSecuritySection {...secProps} configured={configured} />
+          </Can>
+        );
+      case 'admin_sessions':
+        return (
+          <Can resource="users" action="manage" fallback={restricted(Network, 'Active sessions')}>
+            <AdminSessionsInner />
+          </Can>
+        );
       case 'knowledge':
         return (
           <Can resource="settings" action="manage" fallback={restricted(ShieldAlert, 'Knowledge & threat context')}>

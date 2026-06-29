@@ -1,32 +1,32 @@
 /**
  * Navigation model for the SOC console.
  *
- * Three groups (TRIAGE / AUTOMATION / PLATFORM), each a list of nav items keyed
- * by a stable page id (the same ids the hash router validates against). Icons are
- * lucide-react component types so the shell + command palette can render them
- * without a string→icon lookup table.
+ * Round-2 W4 page consolidation: the rail is grouped into ≤5 top-level groups
+ * (Overview / Triage / Intelligence / Analytics / Platform — Miller's 7±2) and a
+ * batch of near-duplicate pages now live as tabbed sub-views of a host page rather
+ * than as standalone rail items:
+ *
+ *   - `chat`         (Workspace)    hosts Chat | Investigate.
+ *   - `metrics`      (Analytics)    hosts Dashboard | Cost.
+ *   - `overview`     (Home)         hosts Dashboard | Standup.
+ *   - `intelligence` (Intelligence) hosts Knowledge | Memory | Playbooks & Agents.
+ *
+ * The merged sub-pages keep their page ids in the union + the App.renderPage switch
+ * (so old `#/cost`, `#/investigate`, … deep-links still resolve), but they are no
+ * longer top-level rail items. Icons are lucide-react component types so the shell +
+ * command palette can render them without a string→icon lookup table.
  */
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
   ShieldAlert,
-  Search,
   MessageSquare,
   BarChart3,
   ScanLine,
-  ClipboardList,
-  BookOpenCheck,
   CheckCircle2,
   Library,
-  Brain,
   Database,
-  DollarSign,
   Settings,
-  ShieldCheck,
-  Users,
-  UserCircle2,
-  MonitorSmartphone,
-  Network,
 } from 'lucide-react';
 
 /** Stable page ids — the router validates the hash against these. */
@@ -35,6 +35,7 @@ export type PageId =
   | 'cases'
   | 'investigate'
   | 'chat'
+  | 'intelligence'
   | 'metrics'
   | 'scans'
   | 'standup'
@@ -51,7 +52,14 @@ export type PageId =
   | 'users'
   | 'admin_sessions';
 
-export type NavGroupId = 'triage' | 'automation' | 'platform' | 'admin';
+export type NavGroupId =
+  | 'overview'
+  | 'triage'
+  | 'intelligence'
+  | 'analytics'
+  | 'platform'
+  | 'automation'
+  | 'admin';
 
 /**
  * A permission requirement (`resource:action`) gating a nav item. When present,
@@ -80,82 +88,90 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'triage',
-    label: 'Triage',
+    id: 'overview',
+    label: 'Overview',
     items: [
-      { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'triage' },
-      { id: 'cases', label: 'Cases', icon: ShieldAlert, group: 'triage' },
-      { id: 'investigate', label: 'Investigate', icon: Search, group: 'triage' },
-      { id: 'chat', label: 'Chat', icon: MessageSquare, group: 'triage' },
-      { id: 'metrics', label: 'Metrics', icon: BarChart3, group: 'triage' },
+      // Host page: hosts the posture Dashboard + the daily Standup as sub-tabs.
+      { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'overview' },
     ],
   },
   {
-    id: 'automation',
-    label: 'Automation',
+    id: 'triage',
+    label: 'Triage',
     items: [
-      { id: 'scans', label: 'Automated scans', icon: ScanLine, group: 'automation' },
-      { id: 'standup', label: 'Standup', icon: ClipboardList, group: 'automation' },
-      { id: 'catalog', label: 'Playbooks & Agents', icon: BookOpenCheck, group: 'automation' },
-      { id: 'approvals', label: 'Approvals', icon: CheckCircle2, group: 'automation' },
+      { id: 'cases', label: 'Cases', icon: ShieldAlert, group: 'triage' },
+      // Host page: Workspace = Chat | Investigate (ONE chat engine, CLAUDE.md).
+      { id: 'chat', label: 'Workspace', icon: MessageSquare, group: 'triage' },
+      { id: 'scans', label: 'Automated scans', icon: ScanLine, group: 'triage' },
+      { id: 'approvals', label: 'Approvals', icon: CheckCircle2, group: 'triage' },
+    ],
+  },
+  {
+    id: 'intelligence',
+    label: 'Intelligence',
+    items: [
+      // Host page: Intelligence = Knowledge | Memory | Playbooks & Agents.
+      { id: 'intelligence', label: 'Intelligence', icon: Library, group: 'intelligence' },
+    ],
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    items: [
+      // Host page: Analytics = Dashboard (metrics) | Cost & usage.
+      { id: 'metrics', label: 'Analytics', icon: BarChart3, group: 'analytics' },
     ],
   },
   {
     id: 'platform',
     label: 'Platform',
     items: [
-      { id: 'knowledge', label: 'Knowledge', icon: Library, group: 'platform' },
-      { id: 'memory', label: 'Memory', icon: Brain, group: 'platform' },
       { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
-      { id: 'cost', label: 'Cost & usage', icon: DollarSign, group: 'platform' },
-      // Temporary placement — Wave 4 folds this into Settings > Personal account.
-      // No perm gate: every signed-in user edits their OWN profile.
-      { id: 'account', label: 'Account', icon: UserCircle2, group: 'platform' },
-      // Temporary placement (Round-2 Wave 3) — W4 folds this into Settings >
-      // Account > Security. No perm gate: every signed-in user manages their OWN
-      // sessions (the backend scopes the listing to the caller).
-      { id: 'sessions', label: 'Sessions', icon: MonitorSmartphone, group: 'platform' },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
     ],
   },
-  {
-    id: 'admin',
-    label: 'Administration',
-    items: [
-      {
-        id: 'users',
-        label: 'Users & roles',
-        icon: Users,
-        group: 'admin',
-        perm: { resource: 'users', action: 'manage' },
-      },
-      {
-        // Round-2 Wave 3: the all-users session console. Temporary placement —
-        // W4 folds it under Settings > Administration. Gated by users:manage.
-        id: 'admin_sessions',
-        label: 'Active sessions',
-        icon: Network,
-        group: 'admin',
-        perm: { resource: 'users', action: 'manage' },
-      },
-      {
-        id: 'security',
-        label: 'Security & SSO',
-        icon: ShieldCheck,
-        group: 'admin',
-        // No perm gate: self-service MFA enrollment lives here for EVERY signed-in
-        // user. The admin-only SSO/RBAC editors inside are gated by
-        // `<Can resource="settings" action="manage">`.
-      },
-    ],
-  },
+  // Round-2 Wave 4 — page + Settings IA consolidation. Pages folded into host tabs
+  // or into Settings keep their PageId + App.renderPage arm (deep-linkable, cutover
+  // safety) but are NOT top-level rail items:
+  //   - chat (Workspace) hosts:        Chat | Investigate          (#/chat?…)
+  //   - metrics (Analytics) hosts:     Dashboard | Cost            (#/metrics, #/cost)
+  //   - overview (Home) hosts:         Dashboard | Standup         (#/overview, #/standup)
+  //   - intelligence hosts:            Knowledge | Memory | Catalog
+  //   - Settings hosts (Stage 1):      Account/Security/Sessions + Users/Security/SSO
+  // The merged sub-page ids (investigate, cost, standup, knowledge, memory, catalog,
+  // account, sessions, security, users, admin_sessions) remain valid routes.
 ];
 
-/** Flat list of all nav items (handy for lookups + the command palette). */
+/** Flat list of all nav items shown in the rail (lookups + command palette). */
 export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
-/** All valid page ids, derived from the nav model. */
-export const PAGE_IDS: PageId[] = NAV_ITEMS.map((i) => i.id);
+/**
+ * Every ROUTABLE page id — the rail items PLUS the consolidated sub-pages that are
+ * no longer rail items but remain valid deep-link targets (Round-2 W4). The router
+ * validates the hash against this set so `#/cost`, `#/investigate`, `#/standup`,
+ * `#/knowledge`, `#/memory`, `#/catalog`, and the Settings-folded
+ * account/sessions/security/users/admin_sessions routes still resolve to their
+ * App.renderPage arm instead of falling back to Overview.
+ */
+const HIDDEN_ROUTE_IDS: PageId[] = [
+  'investigate',
+  'cost',
+  'standup',
+  'knowledge',
+  'memory',
+  'catalog',
+  'account',
+  'sessions',
+  'security',
+  'users',
+  'admin_sessions',
+];
+
+/** All valid page ids (rail items + hidden-but-routable consolidated sub-pages). */
+export const PAGE_IDS: PageId[] = [
+  ...NAV_ITEMS.map((i) => i.id),
+  ...HIDDEN_ROUTE_IDS,
+];
 
 /** Look up a nav item by id (used for breadcrumbs + the active rail square). */
 export function navItem(id: PageId): NavItem | undefined {

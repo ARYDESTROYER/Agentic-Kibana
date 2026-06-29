@@ -1471,6 +1471,12 @@ const DeleteDialog: React.FC<{
 
 export interface KnowledgeProps {
   onNavigate?: Navigate;
+  /**
+   * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader and surface only the Refresh action so the
+   * host owns the title (no duplicate headers).
+   */
+  embedded?: boolean;
 }
 
 const KPI_ACCENTS: Record<string, KpiAccent> = {
@@ -1480,7 +1486,7 @@ const KPI_ACCENTS: Record<string, KpiAccent> = {
   dim: 'medium',
 };
 
-export default function Knowledge(_props: KnowledgeProps) {
+export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
   const [stats, setStats] = React.useState<RagStats | null>(null);
   const [documents, setDocuments] = React.useState<RagDocument[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -1561,20 +1567,26 @@ export default function Knowledge(_props: KnowledgeProps) {
   const showHealthSkeleton = loading && !stats;
   const canManageRag = useCan('rag', 'manage');
 
+  const refreshAction = (
+    <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+      <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
+      Refresh
+    </Button>
+  );
+
   return (
     <div className="space-y-8">
-      <PageHeader
-        icon={Boxes}
-        eyebrow="Knowledge"
-        title="Knowledge & RAG"
-        description="The retrieval corpus the investigator draws on. Import, inspect and search the index — see exactly what the agents know."
-        actions={
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
-            Refresh
-          </Button>
-        }
-      />
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
+      ) : (
+        <PageHeader
+          icon={Boxes}
+          eyebrow="Knowledge"
+          title="Knowledge & RAG"
+          description="The retrieval corpus the investigator draws on. Import, inspect and search the index — see exactly what the agents know."
+          actions={refreshAction}
+        />
+      )}
 
       {error ? (
         <Alert variant="destructive">

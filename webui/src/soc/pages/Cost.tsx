@@ -282,12 +282,18 @@ function ShareBar({ share, colorIndex }: { share: number; colorIndex: number }) 
 interface CostProps {
   /** Drill-through navigation (unused today, kept for shell parity). */
   onNavigate?: Navigate;
+  /**
+   * When hosted as a tab inside another page (Round-2 W4 consolidation), suppress
+   * the page's own PageHeader/title block and surface only the action controls so
+   * the host's single header owns the title (no duplicate headers).
+   */
+  embedded?: boolean;
 }
 
 // --------------------------------------------------------------------------- //
 // Page
 // --------------------------------------------------------------------------- //
-export default function Cost(_props: CostProps) {
+export default function Cost({ embedded = false }: CostProps = {}) {
   const [windowKey, setWindowKey] = React.useState<WindowKey>('24h');
   const [metric, setMetric] = React.useState<Metric>('cost');
   const [dimension, setDimension] = React.useState<Dimension>('model');
@@ -619,7 +625,9 @@ export default function Cost(_props: CostProps) {
     </>
   );
 
-  const header = (
+  const header = embedded ? (
+    <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
+  ) : (
     <PageHeader
       eyebrow="Spend"
       icon={CircleDollarSign}

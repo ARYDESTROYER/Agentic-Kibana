@@ -284,6 +284,15 @@ export interface SessionsPageProps {
 }
 
 export default function Sessions(_props: SessionsPageProps) {
+  return <SessionsInner />;
+}
+
+/**
+ * The "Sessions & activity" body, without the page wrapper. Exported so Settings can
+ * embed it under the Account (Personal) group. No `<Can>` gate: every signed-in user
+ * manages their OWN sessions (the backend scopes the listing to the caller).
+ */
+export function SessionsInner() {
   const { authEnabled, isAuthenticated } = useAuth();
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [activity, setActivity] = React.useState<ActivityEvent[]>([]);

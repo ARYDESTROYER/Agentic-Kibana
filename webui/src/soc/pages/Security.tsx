@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import { copyText } from '@/lib/clipboard';
-import type { Preferences, SsoConfig, SsoProviderConfig, UserRole } from '@/lib/types';
+import type { Preferences, SessionPolicy, SsoConfig, SsoProviderConfig, UserRole } from '@/lib/types';
 import { useAuth } from '@/soc/auth';
 import { Can } from '@/soc/components/Can';
 import { PageHeader } from '@/soc/components/PageHeader';
@@ -288,22 +288,17 @@ function ProviderEditor({
   );
 }
 
-/* --------------------------------------------------------------------- page -- */
+/* ----------------------------------------------------- self-service MFA card -- */
 
-export interface SecurityPageProps {
-  onNavigate?: unknown;
-}
-
-export default function Security(_: SecurityPageProps) {
+/**
+ * The "My account · two-factor" block — every signed-in user can enroll/disable
+ * TOTP MFA here. Exported so Settings can embed it under the Account (Personal)
+ * group. Self-contained: loads its own `me` to read the enrolled state.
+ */
+export function SecurityMfaInner() {
   const { authEnabled, isAuthenticated, username, refresh } = useAuth();
   const [mfaEnabled, setMfaEnabled] = React.useState(false);
-  const [prefs, setPrefs] = React.useState<Preferences | null>(null);
-  const [configured, setConfigured] = React.useState<Record<string, boolean>>({});
-  const [secretConfigured, setSecretConfigured] = React.useState<Record<string, boolean>>({});
   const [loading, setLoading] = React.useState(true);
-  const [saving, setSaving] = React.useState(false);
-
-  const callbackUrl = `${window.location.origin}/api/auth/sso/callback`;
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -312,26 +307,113 @@ export default function Security(_: SecurityPageProps) {
       setMfaEnabled(Boolean(me.user?.mfa_enabled));
     } catch {
       setMfaEnabled(false);
+    } finally {
+      setLoading(false);
     }
-    try {
-      const s = await api.getSettings();
-      setPrefs(s.prefs);
-      setConfigured(s.configured ?? {});
-    } catch {
-      setPrefs(null);
-    }
-    setLoading(false);
   }, []);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
+  const onChanged = React.useCallback(async () => {
+    await refresh();
+    await load();
+    toast.success('Two-factor settings updated.');
+  }, [refresh, load]);
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-semibold text-foreground">Two-factor authentication</h2>
+      {!authEnabled ? (
+        <Alert>
+          <KeyRound aria-hidden />
+          <AlertDescription>
+            Authentication is disabled, so there is no account to protect. Enable auth on the
+            backend to use two-factor sign-in.
+          </AlertDescription>
+        </Alert>
+      ) : !isAuthenticated || !username ? (
+        <Alert>
+          <KeyRound aria-hidden />
+          <AlertDescription>Sign in to manage two-factor authentication.</AlertDescription>
+        </Alert>
+      ) : loading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : (
+        <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} />
+      )}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------- admin SSO/OIDC block -- */
+
+export interface SecuritySsoInnerProps {
+  /**
+   * When provided, the editor is CONTROLLED by the parent (Settings owns prefs.sso
+   * and the single Save button) — there is no local load/save here. When omitted,
+   * the block self-loads settings and renders its own "Save SSO settings" button
+   * (the standalone /security route).
+   */
+  prefs?: Preferences | null;
+  /** Controlled update of prefs.sso (embedded mode). */
+  update?: (patch: Partial<Preferences>) => void;
+  /** Controlled `configured` map (embedded mode); reads `sso_client_secrets`. */
+  configured?: Record<string, boolean>;
+}
+
+/**
+ * The admin single-sign-on (OIDC) provider editor. Renders the token/session policy
+ * editor above the providers. In CONTROLLED mode (Settings) the SSO config rides the
+ * parent's prefs/update + the parent's single Save; in UNCONTROLLED mode (standalone
+ * /security) it self-loads and has its own Save. Either way the per-provider client
+ * secret is set via the separate write-only endpoint (`api.auth.sso.setSecret`), and
+ * the `secretConfigured` booleans are preserved across both paths.
+ *
+ * Mount inside `<Can resource="settings" action="manage">`.
+ */
+export function SecuritySsoInner({
+  prefs: controlledPrefs,
+  update,
+  configured: controlledConfigured,
+}: SecuritySsoInnerProps) {
+  const controlled = Boolean(update);
+
+  // Uncontrolled (standalone) local state — only used when `update` is absent.
+  const [localPrefs, setLocalPrefs] = React.useState<Preferences | null>(null);
+  const [localConfigured, setLocalConfigured] = React.useState<Record<string, boolean>>({});
+  const [loading, setLoading] = React.useState(!controlled);
+  const [saving, setSaving] = React.useState(false);
+  const [secretConfigured, setSecretConfigured] = React.useState<Record<string, boolean>>({});
+
+  const callbackUrl = `${window.location.origin}/api/auth/sso/callback`;
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const s = await api.getSettings();
+      setLocalPrefs(s.prefs);
+      setLocalConfigured(s.configured ?? {});
+    } catch {
+      setLocalPrefs(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!controlled) void load();
+  }, [controlled, load]);
+
+  const prefs = controlled ? controlledPrefs ?? null : localPrefs;
+  const configured = controlled ? controlledConfigured ?? {} : localConfigured;
   const sso: SsoConfig = (prefs?.sso as SsoConfig) ?? { enabled: false, providers: [] };
   const providers = sso.providers ?? [];
 
   const updateSso = (next: SsoConfig) => {
-    setPrefs((p) => (p ? { ...p, sso: next } : p));
+    if (controlled) update?.({ sso: next });
+    else setLocalPrefs((p) => (p ? { ...p, sso: next } : p));
   };
 
   const saveSso = async () => {
@@ -348,12 +430,119 @@ export default function Security(_: SecurityPageProps) {
     }
   };
 
-  const onChanged = React.useCallback(async () => {
-    await refresh();
-    await load();
-    toast.success('Two-factor settings updated.');
-  }, [refresh, load]);
+  // Token/session policy: controlled by the parent's prefs/update in embedded mode.
+  const policyProps = controlled
+    ? {
+        policy: (prefs?.session_policy as SessionPolicy | undefined) ?? {},
+        onChange: (next: SessionPolicy) => update?.({ session_policy: next }),
+      }
+    : {};
 
+  return (
+    <>
+      {/* Admin: Token & session policy */}
+      <SessionPolicySection {...policyProps} />
+
+      {/* Admin: SSO */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h2>
+          {/* In controlled (Settings) mode the parent owns the single Save button. */}
+          {!controlled ? (
+            <Button size="sm" onClick={saveSso} disabled={saving || !prefs}>
+              {saving ? <Loader2 className="animate-spin" aria-hidden /> : <Save aria-hidden />}
+              Save SSO settings
+            </Button>
+          ) : null}
+        </div>
+
+        {loading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : (
+          <Card>
+            <CardContent className="space-y-4 p-5">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="sso-enabled"
+                  checked={Boolean(sso.enabled)}
+                  onCheckedChange={(v) => updateSso({ ...sso, enabled: v })}
+                />
+                <Label htmlFor="sso-enabled" className="text-sm">Enable single sign-on</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Add one or more OIDC providers below. Register the callback URL shown on each
+                provider with your identity provider. Client secrets are stored server-side and
+                never shown back.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(['google', 'microsoft', 'generic'] as const).map((t) => (
+                  <Button
+                    key={t}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => updateSso({ ...sso, providers: [...providers, newProvider(t)] })}
+                  >
+                    <Plus aria-hidden />
+                    Add {t === 'generic' ? 'generic OIDC' : t}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {providers.map((p, idx) => (
+          <ProviderEditor
+            key={p.id}
+            provider={p}
+            callbackUrl={callbackUrl}
+            configuredSecret={Boolean(secretConfigured[p.id]) || Boolean(configured.sso_client_secrets)}
+            onChange={(next) => {
+              const arr = [...providers];
+              arr[idx] = next;
+              updateSso({ ...sso, providers: arr });
+            }}
+            onRemove={() => updateSso({ ...sso, providers: providers.filter((_, i) => i !== idx) })}
+            onSetSecret={async (clientSecret) => {
+              try {
+                const res = await api.auth.sso.setSecret(p.id, clientSecret);
+                setSecretConfigured((m) => ({ ...m, [p.id]: Boolean(res.configured) }));
+                toast.success('Client secret saved.');
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Could not save the secret.');
+              }
+            }}
+          />
+        ))}
+      </section>
+    </>
+  );
+}
+
+/* --------------------------------------------------------------------- page -- */
+
+export interface SecurityPageProps {
+  onNavigate?: unknown;
+}
+
+/**
+ * The full Security body, without the page header — self-service MFA followed by the
+ * admin token-policy + SSO block (gated by `settings:manage`). Exported for tests /
+ * any future embed. The standalone page wraps it with the PageHeader below.
+ */
+export function SecurityInner() {
+  return (
+    <div className="space-y-6">
+      <SecurityMfaInner />
+      <Can resource="settings" action="manage">
+        <SecuritySsoInner />
+      </Can>
+    </div>
+  );
+}
+
+export default function Security(_: SecurityPageProps) {
   return (
     <div className="space-y-6">
       <PageHeader
@@ -362,107 +551,7 @@ export default function Security(_: SecurityPageProps) {
         description="Manage your two-factor authentication and (admins) single sign-on."
         icon={ShieldCheck}
       />
-
-      {/* My account: MFA */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">My account</h2>
-        {!authEnabled ? (
-          <Alert>
-            <KeyRound aria-hidden />
-            <AlertDescription>
-              Authentication is disabled, so there is no account to protect. Enable auth on the
-              backend to use two-factor sign-in.
-            </AlertDescription>
-          </Alert>
-        ) : !isAuthenticated || !username ? (
-          <Alert>
-            <KeyRound aria-hidden />
-            <AlertDescription>Sign in to manage two-factor authentication.</AlertDescription>
-          </Alert>
-        ) : loading ? (
-          <Skeleton className="h-40 w-full" />
-        ) : (
-          <MfaSetupCard enabled={mfaEnabled} onChanged={onChanged} />
-        )}
-      </section>
-
-      {/* Admin: Token & session policy */}
-      <Can resource="settings" action="manage">
-        <SessionPolicySection />
-      </Can>
-
-      {/* Admin: SSO */}
-      <Can resource="settings" action="manage">
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Single sign-on (OIDC)</h2>
-            <Button size="sm" onClick={saveSso} disabled={saving || !prefs}>
-              {saving ? <Loader2 className="animate-spin" aria-hidden /> : <Save aria-hidden />}
-              Save SSO settings
-            </Button>
-          </div>
-
-          {loading ? (
-            <Skeleton className="h-32 w-full" />
-          ) : (
-            <Card>
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    id="sso-enabled"
-                    checked={Boolean(sso.enabled)}
-                    onCheckedChange={(v) => updateSso({ ...sso, enabled: v })}
-                  />
-                  <Label htmlFor="sso-enabled" className="text-sm">Enable single sign-on</Label>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Add one or more OIDC providers below. Register the callback URL shown on each
-                  provider with your identity provider. Client secrets are stored server-side and
-                  never shown back.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {(['google', 'microsoft', 'generic'] as const).map((t) => (
-                    <Button
-                      key={t}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => updateSso({ ...sso, providers: [...providers, newProvider(t)] })}
-                    >
-                      <Plus aria-hidden />
-                      Add {t === 'generic' ? 'generic OIDC' : t}
-                    </Button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {providers.map((p, idx) => (
-            <ProviderEditor
-              key={p.id}
-              provider={p}
-              callbackUrl={callbackUrl}
-              configuredSecret={Boolean(secretConfigured[p.id]) || Boolean(configured.sso_client_secrets)}
-              onChange={(next) => {
-                const arr = [...providers];
-                arr[idx] = next;
-                updateSso({ ...sso, providers: arr });
-              }}
-              onRemove={() => updateSso({ ...sso, providers: providers.filter((_, i) => i !== idx) })}
-              onSetSecret={async (clientSecret) => {
-                try {
-                  const res = await api.auth.sso.setSecret(p.id, clientSecret);
-                  setSecretConfigured((m) => ({ ...m, [p.id]: Boolean(res.configured) }));
-                  toast.success('Client secret saved.');
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : 'Could not save the secret.');
-                }
-              }}
-            />
-          ))}
-        </section>
-      </Can>
+      <SecurityInner />
     </div>
   );
 }

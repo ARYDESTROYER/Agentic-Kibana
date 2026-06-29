@@ -82,9 +82,25 @@ function DurationField({
   );
 }
 
-export function SessionPolicyEditor() {
-  const [policy, setPolicy] = React.useState<SessionPolicy | null>(null);
-  const [loading, setLoading] = React.useState(true);
+export interface SessionPolicyEditorProps {
+  /**
+   * Controlled value (embedded in Settings). When provided, the editor edits the
+   * parent's `prefs.session_policy` via `onChange` and hides its own Save button —
+   * Settings owns the single Save. When omitted, the editor self-loads settings and
+   * renders its own Save (the standalone /security route).
+   */
+  policy?: SessionPolicy;
+  /** Controlled change handler (embedded mode). */
+  onChange?: (next: SessionPolicy) => void;
+}
+
+export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: SessionPolicyEditorProps = {}) {
+  const controlled = Boolean(onChange);
+
+  const [localPolicy, setLocalPolicy] = React.useState<SessionPolicy | null>(
+    controlled ? { ...DEFAULTS, ...(controlledPolicy ?? {}) } : null,
+  );
+  const [loading, setLoading] = React.useState(!controlled);
   const [saving, setSaving] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -92,20 +108,28 @@ export function SessionPolicyEditor() {
     try {
       const s = await api.getSettings();
       const p = (s.prefs.session_policy as SessionPolicy | undefined) ?? {};
-      setPolicy({ ...DEFAULTS, ...p });
+      setLocalPolicy({ ...DEFAULTS, ...p });
     } catch {
-      setPolicy({ ...DEFAULTS });
+      setLocalPolicy({ ...DEFAULTS });
     } finally {
       setLoading(false);
     }
   }, []);
 
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    if (!controlled) void load();
+  }, [controlled, load]);
 
-  const set = (patch: Partial<SessionPolicy>) =>
-    setPolicy((prev) => ({ ...(prev ?? {}), ...patch }));
+  // In controlled mode, fold the parent's value over the generous defaults so a
+  // blank stored policy never expires a live session mid-edit.
+  const policy: SessionPolicy | null = controlled
+    ? { ...DEFAULTS, ...(controlledPolicy ?? {}) }
+    : localPolicy;
+
+  const set = (patch: Partial<SessionPolicy>) => {
+    if (controlled) onChange?.({ ...DEFAULTS, ...(controlledPolicy ?? {}), ...patch });
+    else setLocalPolicy((prev) => ({ ...(prev ?? {}), ...patch }));
+  };
 
   const save = async () => {
     if (!policy) return;
@@ -195,19 +219,22 @@ export function SessionPolicyEditor() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button size="sm" onClick={() => void save()} disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
-            Save session policy
-          </Button>
-        </div>
+        {/* In controlled (Settings) mode the parent owns the single Save button. */}
+        {!controlled ? (
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => void save()} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Save className="h-4 w-4" aria-hidden />}
+              Save session policy
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-/** A titled section wrapper for the Security page. */
-export function SessionPolicySection() {
+/** A titled section wrapper for the Security page. Forwards controlled props. */
+export function SessionPolicySection(props: SessionPolicyEditorProps = {}) {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -217,7 +244,7 @@ export function SessionPolicySection() {
       <p className="text-xs text-muted-foreground">
         Control how long sign-ins last and when sensitive actions require re-authentication.
       </p>
-      <SessionPolicyEditor />
+      <SessionPolicyEditor {...props} />
     </section>
   );
 }

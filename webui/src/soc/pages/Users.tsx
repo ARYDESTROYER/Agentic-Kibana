@@ -72,7 +72,14 @@ export default function Users(_props: UsersPageProps) {
   );
 }
 
-function UsersInner() {
+/**
+ * The Users-&-roles body, without the page wrapper. Exported so Settings can embed
+ * it (under the Administration group) while the standalone /users route keeps using
+ * the default export below during cutover. The Administration section in Settings
+ * already gates this behind `users:manage`, so embedding does NOT add a second
+ * ProtectedRoute (back-compat: auth-off shows everything).
+ */
+export function UsersInner() {
   const { username: me } = useAuth();
   const [users, setUsers] = React.useState<User[]>([]);
   const [roles, setRoles] = React.useState<string[]>([]);

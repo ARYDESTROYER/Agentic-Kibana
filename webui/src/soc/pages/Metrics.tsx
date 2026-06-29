@@ -189,9 +189,15 @@ function ChartEmpty({ children }: { children: React.ReactNode }) {
 // --------------------------------------------------------------------------- //
 export interface MetricsProps {
   onNavigate?: Navigate;
+  /**
+   * When hosted as a tab inside the Analytics scaffold (Round-2 W4 consolidation),
+   * suppress the page's own PageHeader and surface only the window/refresh controls
+   * so the host owns the title (no duplicate headers).
+   */
+  embedded?: boolean;
 }
 
-export default function MetricsPage({ onNavigate }: MetricsProps) {
+export default function MetricsPage({ onNavigate, embedded = false }: MetricsProps) {
   const [windowId, setWindowId] = React.useState<WindowId>('168');
   const [rankSort, setRankSort] = React.useState<RankSort>('count');
 
@@ -344,13 +350,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
   const hasAny = (data?.total_cases ?? 0) > 0;
 
   // ---- header actions ---------------------------------------------------- //
-  const header = (
-    <PageHeader
-      eyebrow="Analytics"
-      icon={BarChart3}
-      title="Metrics"
-      description="Triage volume, verdict mix, agent routing, and analyst feedback quality."
-      actions={
+  const headerActions = (
         <>
           {/* Time window toggle */}
           <div
@@ -420,7 +420,17 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
             Refresh
           </Button>
         </>
-      }
+  );
+
+  const header = embedded ? (
+    <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
+  ) : (
+    <PageHeader
+      eyebrow="Analytics"
+      icon={BarChart3}
+      title="Metrics"
+      description="Triage volume, verdict mix, agent routing, and analyst feedback quality."
+      actions={headerActions}
     />
   );
 
