@@ -31,6 +31,9 @@ export default {
         info: 'hsl(var(--info))',
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
+        /** Optional secondary brand accent (login hero aurora). Falls back to the
+            primary hue when `--accent2` is not set by branding. */
+        accent2: 'hsl(var(--accent2, var(--primary)))',
       },
       borderRadius: {
         lg: 'var(--radius)',

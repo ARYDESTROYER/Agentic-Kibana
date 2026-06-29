@@ -7,9 +7,12 @@ field to Section 7. Internal types (``RawEvent``, ``Cluster``, ``VerdictResult``
 
 from __future__ import annotations
 
+import base64
+import binascii
+import re
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .config import Preferences
 
@@ -436,6 +439,59 @@ class Proposal(BaseModel):
     expires_at: str | None = None
 
 
+# Max accepted profile-avatar data-URL length. The browser resizes to 256×256
+# WebP q0.85 before upload, so a real avatar is a tiny string; cap defends the KV
+# doc (and #10 — no large blobs in a user record).
+MAX_AVATAR_LEN: int = 64_000
+
+# (raster image type → magic-byte prefix(es)) used to sniff a decoded avatar body.
+# SVG is intentionally absent — it is rejected (it can carry script; #9/#10).
+_AVATAR_MAGIC: dict[str, tuple[bytes, ...]] = {
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "webp": (b"RIFF",),  # "RIFF"...."WEBP" container; sniffed below
+}
+_AVATAR_RE = re.compile(r"^data:image/(png|webp|jpeg);base64,(.+)$", re.DOTALL)
+
+
+def validate_avatar(v: str) -> str:
+    """Validate a profile avatar data-URL. Returns the value unchanged when valid.
+
+    Accepts an empty string (cleared avatar) OR a
+    ``data:image/(png|webp|jpeg);base64,<body>`` URL whose base64 body decodes and
+    whose decoded bytes start with the matching raster magic. SVG is rejected (it
+    can embed script). Bounded by :data:`MAX_AVATAR_LEN`. Mirrors the
+    :class:`app.config.BrandingConfig` logo validator, tightened for user input.
+
+    Raises ``ValueError`` on any malformed / oversize / wrong-type / non-decoding
+    input so callers (the model + the route) reject with one consistent rule (#9)."""
+    if not v:
+        return v
+    if len(v) > MAX_AVATAR_LEN:
+        raise ValueError(f"avatar too large (max ~{MAX_AVATAR_LEN} characters)")
+    m = _AVATAR_RE.match(v)
+    if not m:
+        raise ValueError(
+            "avatar must be empty or a data:image/(png|webp|jpeg);base64,<body> URL"
+        )
+    kind, body = m.group(1), m.group(2)
+    try:
+        # validate=True so stray (e.g. svg/markup) chars fail rather than being skipped.
+        raw = base64.b64decode(body, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("avatar base64 body is malformed") from exc
+    if not raw:
+        raise ValueError("avatar image body is empty")
+    if kind == "webp":
+        # RIFF container: "RIFF"<4-byte size>"WEBP".
+        if not (raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"):
+            raise ValueError("avatar is not a valid webp image")
+    else:
+        if not any(raw.startswith(p) for p in _AVATAR_MAGIC[kind]):
+            raise ValueError(f"avatar is not a valid {kind} image")
+    return v
+
+
 class User(BaseModel):
     """A multi-user SOC account (Wave 1: login + RBAC).
 
@@ -474,6 +530,24 @@ class User(BaseModel):
     oauth_provider: str = ""
     oauth_sub: str = ""
 
+    # --- Self-service profile (Wave 2 / W2; ALL additive + defaulted → old stored
+    # KV docs load unchanged, no index/migration). Every field here is NON-secret
+    # and user-influenceable, so it is rendered as PLAIN text by the UI (#9). The
+    # avatar is a bounded data-URL (see :func:`validate_avatar`); ``prefs`` is a
+    # small free-form UI-preferences bag (capped at the route). ---
+    display_name: str = ""
+    alias: str = ""
+    avatar: str = ""
+    alt_email: str = ""
+    timezone: str = ""
+    locale: str = ""
+    prefs: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("avatar")
+    @classmethod
+    def _check_avatar(cls, v: str) -> str:
+        return validate_avatar(v)
+
     def public(self) -> dict[str, Any]:
         """A safe projection for API responses — NEVER includes the password hash
         or the MFA secret/recovery hashes (only the ``mfa_enabled`` boolean)."""
@@ -486,6 +560,14 @@ class User(BaseModel):
             "last_login_at": self.last_login_at,
             "mfa_enabled": self.mfa_enabled,
             "oauth_provider": self.oauth_provider,
+            # Self-service profile (non-secret; W2).
+            "display_name": self.display_name,
+            "alias": self.alias,
+            "avatar": self.avatar,
+            "alt_email": self.alt_email,
+            "timezone": self.timezone,
+            "locale": self.locale,
+            "prefs": self.prefs,
         }
 
 

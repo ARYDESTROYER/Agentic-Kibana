@@ -26,7 +26,9 @@ import {
   Database,
   XCircle,
   LogOut,
-  User,
+  UserCircle2,
+  ShieldCheck,
+  ChevronDown,
   Command as CommandIcon,
   type LucideIcon,
 } from 'lucide-react';
@@ -37,6 +39,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/ui/dropdown-menu';
+import {
   Command,
   CommandInput,
   CommandList,
@@ -46,7 +56,9 @@ import {
 } from '@/ui/command';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
-import type { HealthResponse } from '@/lib/types';
+import { initialsFrom } from '@/lib/avatar';
+import { humanizeToken } from '@/lib/format';
+import type { AccountProfile, HealthResponse } from '@/lib/types';
 import { useTheme } from './theme';
 import { useAuth } from './auth';
 import { NAV_GROUPS, navItem, type NavGroup, type PageId } from './nav';
@@ -179,6 +191,34 @@ function useHealth(): { health: HealthResponse | null; err: boolean } {
   return { health, err };
 }
 
+/**
+ * Best-effort fetch of the signed-in user's profile (avatar + display name) so the
+ * shell user chip reflects it. Only runs when auth is on + a username is present;
+ * any failure leaves `profile` null and the chip falls back to initials + username.
+ */
+function useAccountProfile(active: boolean): AccountProfile | null {
+  const [profile, setProfile] = React.useState<AccountProfile | null>(null);
+  React.useEffect(() => {
+    if (!active) {
+      setProfile(null);
+      return undefined;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const p = await api.account.get();
+        if (alive) setProfile(p);
+      } catch {
+        if (alive) setProfile(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+  return profile;
+}
+
 /** One rail item: an icon button with a tooltip; active = filled primary square. */
 const RailItem: React.FC<{
   id: PageId;
@@ -250,6 +290,102 @@ const CommandPalette: React.FC<{
   </Dialog>
 );
 
+/** Small round avatar (image + initials fallback) used in the shell user chip. */
+const UserAvatar: React.FC<{ src?: string; name: string; className?: string }> = ({
+  src,
+  name,
+  className,
+}) => {
+  const [broken, setBroken] = React.useState(false);
+  if (src && !broken) {
+    return (
+      <img
+        src={src}
+        alt=""
+        onError={() => setBroken(true)}
+        className={cn('h-6 w-6 rounded-full border border-border object-cover', className)}
+      />
+    );
+  }
+  return (
+    <span
+      className={cn(
+        'flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-[10px] font-semibold text-primary',
+        className,
+      )}
+      aria-hidden
+    >
+      {initialsFrom(name)}
+    </span>
+  );
+};
+
+/**
+ * The signed-in user chip — an avatar + display name that opens a menu with the
+ * profile, security, and a destructive log-out. Reflects the live profile
+ * (avatar/display_name) when available; falls back to the username + initials. All
+ * text is user-set → rendered as PLAIN text (#9).
+ */
+const UserMenu: React.FC<{
+  username: string;
+  profile: AccountProfile | null;
+  onNavigate: Navigate;
+  onLogout?: () => void;
+}> = ({ username, profile, onNavigate, onLogout }) => {
+  const display = (profile?.display_name || username).trim();
+  const role = profile?.role ? humanizeToken(String(profile.role)) : '';
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'inline-flex items-center gap-2 rounded-full border border-border bg-card py-1 pl-1 pr-2 text-xs',
+            'transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+          aria-label="Open account menu"
+        >
+          <UserAvatar src={profile?.avatar} name={display} />
+          <span className="hidden max-w-[140px] truncate font-medium sm:inline">{display}</span>
+          <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:inline" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="flex items-center gap-2.5 py-2.5 text-foreground">
+          <UserAvatar src={profile?.avatar} name={display} className="h-8 w-8 text-xs" />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{display}</span>
+            <span className="block truncate text-xs font-normal text-muted-foreground">
+              {role ? `${role} · @${username}` : `@${username}`}
+            </span>
+          </span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onNavigate('account')}>
+          <UserCircle2 aria-hidden />
+          Profile
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNavigate('security')}>
+          <ShieldCheck aria-hidden />
+          Security &amp; two-factor
+        </DropdownMenuItem>
+        {onLogout ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={onLogout}
+              className="text-critical focus:text-critical [&>svg]:text-critical"
+            >
+              <LogOut aria-hidden />
+              Log out
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 export const AppShell: React.FC<AppShellProps> = ({
   page,
   onNavigate,
@@ -260,6 +396,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { isDark, toggle, branding } = useTheme();
   const { hasPermission } = useAuth();
   const { health, err } = useHealth();
+  const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
 
   // Filter the nav by RBAC: an item with a `perm` is hidden unless the user has the
@@ -419,35 +556,16 @@ export const AppShell: React.FC<AppShellProps> = ({
               </PopoverContent>
             </Popover>
 
-            {/* User + logout (only when auth enabled + authenticated) */}
+            {/* User chip + menu (only when auth enabled + authenticated) */}
             {username ? (
               <>
                 <Separator orientation="vertical" className="hidden h-6 sm:block" />
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs">
-                      <User className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                      <span className="hidden max-w-[120px] truncate sm:inline">{username}</span>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Signed in as {username}</TooltipContent>
-                </Tooltip>
-                {onLogout ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={onLogout}
-                        aria-label="Log out"
-                      >
-                        <LogOut className="h-4 w-4" aria-hidden />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Log out</TooltipContent>
-                  </Tooltip>
-                ) : null}
+                <UserMenu
+                  username={username}
+                  profile={profile}
+                  onNavigate={onNavigate}
+                  onLogout={onLogout}
+                />
               </>
             ) : null}
           </div>

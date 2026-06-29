@@ -33,6 +33,7 @@ import Settings from './pages/Settings';
 import Security from './pages/Security';
 import Approvals from './pages/Approvals';
 import Users from './pages/Users';
+import Account from './pages/Account';
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
 
@@ -76,6 +77,8 @@ function renderPage(
       return <Sources onNavigate={navigate} />;
     case 'cost':
       return <Cost onNavigate={navigate} />;
+    case 'account':
+      return <Account onNavigate={navigate} />;
     case 'settings':
       return <Settings onNavigate={navigate} onRerunWizard={onRerunWizard} />;
     case 'security':

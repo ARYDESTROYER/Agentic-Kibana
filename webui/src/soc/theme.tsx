@@ -116,8 +116,16 @@ function hexToHslTriplet(hex: string): string | null {
   return `${H} ${S}% ${L}%`;
 }
 
-/** Apply the branding accent (hex) to the primary/ring CSS vars, or clear them. */
-function applyAccent(accentHex: string): void {
+/**
+ * Apply the branding accent(s) to CSS vars, or clear them.
+ *
+ * - The PRIMARY hex drives `--primary` / `--ring` (the brand colour everywhere).
+ * - The SECONDARY hex (`accent_color2`, previously plumbed but unused) drives a
+ *   new `--accent2` triplet, consumed by the login hero's aurora gradient. When
+ *   no secondary is set, `--accent2` is cleared so the hero falls back to a tint
+ *   of `--primary` (see `bg-aurora` / the inline hero styles).
+ */
+function applyAccent(accentHex: string, accent2Hex = ''): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const triplet = accentHex ? hexToHslTriplet(accentHex) : null;
@@ -127,6 +135,12 @@ function applyAccent(accentHex: string): void {
   } else {
     root.style.removeProperty('--primary');
     root.style.removeProperty('--ring');
+  }
+  const triplet2 = accent2Hex ? hexToHslTriplet(accent2Hex) : null;
+  if (triplet2) {
+    root.style.setProperty('--accent2', triplet2);
+  } else {
+    root.style.removeProperty('--accent2');
   }
 }
 
@@ -155,7 +169,7 @@ function applyDocumentTitle(branding: Branding): void {
 
 /** Apply all passive branding side effects (accent + favicon + title). */
 function applyBranding(branding: Branding): void {
-  applyAccent(branding.accent_color || '');
+  applyAccent(branding.accent_color || '', branding.accent_color2 || '');
   applyFavicon(branding);
   applyDocumentTitle(branding);
 }

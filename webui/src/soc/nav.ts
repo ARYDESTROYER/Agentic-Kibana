@@ -24,6 +24,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  UserCircle2,
 } from 'lucide-react';
 
 /** Stable page ids — the router validates the hash against these. */
@@ -41,6 +42,7 @@ export type PageId =
   | 'memory'
   | 'sources'
   | 'cost'
+  | 'account'
   | 'settings'
   | 'security'
   | 'users';
@@ -102,6 +104,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'memory', label: 'Memory', icon: Brain, group: 'platform' },
       { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
       { id: 'cost', label: 'Cost & usage', icon: DollarSign, group: 'platform' },
+      // Temporary placement — Wave 4 folds this into Settings > Personal account.
+      // No perm gate: every signed-in user edits their OWN profile.
+      { id: 'account', label: 'Account', icon: UserCircle2, group: 'platform' },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
     ],
   },

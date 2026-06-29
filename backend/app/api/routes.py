@@ -37,6 +37,7 @@ from ..models import (
     StatusHistoryEntry,
     TraceStep,
     TriggerReason,
+    validate_avatar,
 )
 from ..state import AppState
 from ..tools.enrich import EnrichTool
@@ -1222,6 +1223,177 @@ async def auth_change_password(
         result_summary="password changed",
     )
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# Account self-service profile — Wave 2 / W2
+#
+# A user edits their OWN non-secret profile (display name / avatar / contact /
+# locale / a small UI-prefs bag). Gated by an authenticated session (current_user)
+# — NOT users:manage — so any logged-in user can edit themselves but only their own
+# record. The env single-admin (no persisted User) is read-only here. Secrets never
+# appear in a profile and public() never leaks the password/MFA material (#10). All
+# fields are rendered as PLAIN text by the UI (#9).
+# --------------------------------------------------------------------------- #
+# Cap on the serialized self-service prefs bag (keeps the user KV doc small).
+_MAX_PREFS_JSON_LEN = 8_000
+
+
+class AccountProfileBody(BaseModel):
+    """A self-service profile patch. EVERY field is optional — only provided
+    (non-None) fields are written; an omitted field is left unchanged. Clearing a
+    field is an explicit empty string / empty object (never null)."""
+
+    display_name: str | None = None
+    alias: str | None = None
+    avatar: str | None = None
+    alt_email: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+    prefs: dict[str, Any] | None = None
+
+
+class AvatarBody(BaseModel):
+    """Thin set/clear of just the avatar (empty string clears it)."""
+
+    avatar: str = ""
+
+
+# Per-field caps for the free-text profile strings (rendered as plain text; bound
+# the user KV doc). Matches the BrandingConfig text-length discipline.
+_MAX_PROFILE_TEXT = 200
+
+
+def _empty_profile() -> dict[str, Any]:
+    return {
+        "display_name": "", "alias": "", "avatar": "", "alt_email": "",
+        "timezone": "", "locale": "", "prefs": {},
+    }
+
+
+def _account_principal(state: AppState, request: Request):
+    """Resolve the authenticated principal for the account routes, or raise.
+
+    Mirrors :func:`_require_session`: 400 when auth is disabled (no account to
+    manage), 401 when no valid session is presented."""
+    auth = state.auth
+    if not auth.is_enabled:
+        raise HTTPException(status_code=400, detail="authentication is disabled")
+    principal = current_user(request)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    return principal
+
+
+@router.get("/account/me")
+async def account_me(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
+    """The caller's own account view. Auth-disabled → an anonymous stub; the env
+    single-admin (no persisted User) → identity + ``env_managed:true`` + an empty
+    profile; a real multi-user account → its ``public()`` projection."""
+    auth = state.auth
+    if not auth.is_enabled:
+        return {
+            "authenticated": True, "auth_enabled": False, "env_managed": False,
+            "user": {"username": "", "role": UserRole.SUPER_ADMIN.value, **_empty_profile()},
+        }
+    principal = current_user(request)
+    if principal is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    user = await state.users.get(principal.username)
+    if user is None:
+        # Env single-admin: a real session but no persisted record to edit.
+        return {
+            "authenticated": True, "auth_enabled": True, "env_managed": True,
+            "user": {
+                "username": principal.username,
+                "role": _resolved_role(state, principal),
+                **_empty_profile(),
+            },
+        }
+    return {
+        "authenticated": True, "auth_enabled": True, "env_managed": False,
+        "user": user.public(),
+    }
+
+
+def _validate_profile_text(value: str, field: str) -> str:
+    if len(value) > _MAX_PROFILE_TEXT:
+        raise HTTPException(
+            status_code=400, detail=f"{field} too long (max {_MAX_PROFILE_TEXT} characters)"
+        )
+    return value
+
+
+@router.put("/account/me")
+async def update_account_me(
+    body: AccountProfileBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Patch the caller's OWN profile. Authenticated-session gated (not
+    users:manage). The env single-admin (no persisted record) is rejected with 400,
+    matching the change-password seam."""
+    principal = _account_principal(state, request)
+    user = await state.users.get(principal.username)
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is managed via environment configuration and cannot self-edit",
+        )
+    patch: dict[str, Any] = {}
+    for field in ("display_name", "alias", "alt_email", "timezone", "locale"):
+        val = getattr(body, field)
+        if val is not None:
+            patch[field] = _validate_profile_text(str(val), field)
+    if body.avatar is not None:
+        try:
+            patch["avatar"] = validate_avatar(body.avatar)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.prefs is not None:
+        import json
+
+        try:
+            serialized = json.dumps(body.prefs)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="prefs is not JSON-serializable") from exc
+        if len(serialized) > _MAX_PREFS_JSON_LEN:
+            raise HTTPException(
+                status_code=400, detail=f"prefs too large (max {_MAX_PREFS_JSON_LEN} bytes)"
+            )
+        patch["prefs"] = body.prefs
+    if not patch:
+        raise HTTPException(status_code=400, detail="no changes provided")
+    updated = await state.users.update(principal.username, **patch)
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="account", actor=principal.username,
+        result_summary=f"updated profile ({', '.join(sorted(patch))})",
+    )
+    return {"ok": True, "user": (updated or user).public()}
+
+
+@router.put("/me/avatar")
+async def update_my_avatar(
+    body: AvatarBody, request: Request, state: AppState = Depends(get_state)
+) -> dict[str, Any]:
+    """Thin set/clear of just the caller's avatar (empty string clears it)."""
+    principal = _account_principal(state, request)
+    user = await state.users.get(principal.username)
+    if user is None:
+        raise HTTPException(
+            status_code=400,
+            detail="this account is managed via environment configuration and cannot self-edit",
+        )
+    try:
+        avatar = validate_avatar(body.avatar or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    updated = await state.users.update(principal.username, avatar=avatar)
+    await state.refresh_users()
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="account", actor=principal.username,
+        result_summary=("cleared avatar" if not avatar else "updated avatar"),
+    )
+    return {"ok": True, "user": (updated or user).public()}
 
 
 # --------------------------------------------------------------------------- #

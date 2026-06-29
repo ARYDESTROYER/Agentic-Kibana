@@ -1,16 +1,23 @@
 /**
- * Login — branded sign-in surface for the SOC console, with Wave-1 identity flows.
+ * Login — branded sign-in surface for the SOC console, with Wave-1/2 identity flows.
  *
- * Three modes, decided from GET /api/setup/status (public):
- *   1. FIRST-RUN ("create your admin account") — when `needs_user` is true (auth on,
- *      no users yet): POST /api/setup/init-admin, then sign in.
- *   2. NORMAL sign-in — POST /api/auth/login. If the user `must_change_password`,
- *      transition inline to:
- *   3. SET-A-NEW-PASSWORD — POST /api/auth/change-password before completing.
+ * FOUR modes, decided from GET /api/setup/status (public) + the login response:
+ *   1. FIRST-RUN ("create your admin account") — `needs_user` true (auth on, no
+ *      users yet): POST /api/setup/init-admin, then sign in.            (`setup`)
+ *   2. NORMAL sign-in — POST /api/auth/login.                           (`signin`)
+ *   3. TWO-FACTOR — when the password is correct but MFA is required, exchange the
+ *      pending token at /api/auth/mfa/verify.                           (`mfa`)
+ *   4. SET-A-NEW-PASSWORD — when `must_change_password`.                (`change`)
+ *
+ * Round-2 Wave 2 restyle: a 2-column split (brand hero + form) on lg+, collapsing
+ * to a single column with a compact brand header below. The submit handlers and
+ * the mode state machine are UNCHANGED — only the presentation and a few UX
+ * niceties (password-strength meter, segmented OTP, per-provider SSO icons) are new.
  *
  * When `seeded_default` is true, a subtle hint surfaces the demo Admin / Admin@123
- * credentials. When auth is disabled this component is never mounted, so the no-auth
- * experience is untouched. All branding text is operator-set → rendered as PLAIN text.
+ * credentials. When auth is disabled this component is never mounted, so the
+ * no-auth experience is untouched. All branding text is operator-set → rendered as
+ * PLAIN text (#9).
  */
 import * as React from 'react';
 import {
@@ -23,7 +30,6 @@ import {
   UserPlus,
   KeyRound,
   ShieldCheck,
-  LogIn,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { LoginResult, SetupStatus, SsoProviderPublic } from '@/lib/types';
@@ -40,6 +46,12 @@ import {
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription } from '@/ui/alert';
+import {
+  BrandHero,
+  OtpInput,
+  PasswordStrengthMeter,
+  SsoBrandIcon,
+} from '@/soc/components/auth/loginParts';
 
 export interface LoginProps {
   /** Called after a fully-successful login so the app can re-fetch the session. */
@@ -273,292 +285,339 @@ export default function Login({ onAuthenticated }: LoginProps) {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-6 py-12">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow" aria-hidden />
+    <div className="grid min-h-screen lg:grid-cols-2">
+      {/* ---- Left: brand hero (lg+ only) --------------------------------- */}
+      <BrandHero
+        wordmark={wordmark}
+        tagline={tagline}
+        logoUrl={logoUrl}
+        subtitle={loginSubtitle}
+        footerText={footerText}
+      />
 
-      <div className="relative z-10 w-full max-w-sm animate-rise-in">
-        {/* Brand mark */}
-        <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card shadow-elev1">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" className="h-9 w-9 rounded-md object-contain" />
-            ) : (
-              <Shield className="h-7 w-7 text-primary" aria-hidden />
-            )}
-          </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{wordmark}</h1>
-          <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            {tagline}
-          </p>
-        </div>
+      {/* ---- Right: the form column (vertically centered) ---------------- */}
+      <div className="relative flex items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow lg:hidden"
+          aria-hidden
+        />
 
-        <Card className="shadow-elev1">
-          <CardHeader>
-            <CardTitle>{titleByMode[mode]}</CardTitle>
-            <CardDescription>{descByMode[mode]}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {error ? (
-              <Alert variant="destructive" className="mb-4">
-                <AlertCircle aria-hidden />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            {seededHint ? (
-              <Alert className="mb-4">
-                <KeyRound aria-hidden />
-                <AlertDescription>
-                  Default sign-in — <span className="font-medium">Admin</span> /{' '}
-                  <span className="font-medium">Admin@123</span>
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            {/* ---- Mode: create first admin -------------------------------- */}
-            {mode === 'setup' ? (
-              <form onSubmit={submitSetup} className="space-y-4" noValidate>
-                <div className="space-y-1.5">
-                  <Label htmlFor="setup-username">Admin username</Label>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                    <Input
-                      id="setup-username"
-                      className="pl-9"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoComplete="username"
-                      disabled={busy}
-                      autoFocus
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="setup-password">Password</Label>
-                  <Input
-                    id="setup-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={busy}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="setup-confirm">Confirm password</Label>
-                  <Input
-                    id="setup-confirm"
-                    type="password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={busy}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={busy || username.trim().length === 0 || password.length === 0}
-                >
-                  {busy ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
-                  {busy ? 'Creating…' : 'Create admin & sign in'}
-                </Button>
-              </form>
-            ) : null}
-
-            {/* ---- Mode: normal sign-in ------------------------------------ */}
-            {mode === 'signin' ? (
-              <form onSubmit={submitSignin} className="space-y-4" noValidate>
-                <div className="space-y-1.5">
-                  <Label htmlFor="login-username">Username</Label>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                    <Input
-                      id="login-username"
-                      className="pl-9"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      autoComplete="username"
-                      name="username"
-                      disabled={busy}
-                      autoFocus
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="login-password">Password</Label>
-                  <div className="relative">
-                    <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                    <Input
-                      id="login-password"
-                      type="password"
-                      className="pl-9"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="current-password"
-                      name="password"
-                      disabled={busy}
-                    />
-                  </div>
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={busy || username.trim().length === 0 || password.length === 0}
-                >
-                  {busy ? <Loader2 className="animate-spin" aria-hidden /> : <LockKeyhole aria-hidden />}
-                  {busy ? 'Signing in…' : 'Sign in'}
-                </Button>
-              </form>
-            ) : null}
-
-            {/* ---- SSO: "Sign in with …" (only on the sign-in screen) ------- */}
-            {mode === 'signin' && ssoProviders.length > 0 ? (
-              <div className="mt-5">
-                <div className="relative mb-4 flex items-center">
-                  <span className="h-px flex-1 bg-border" aria-hidden />
-                  <span className="px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span>
-                  <span className="h-px flex-1 bg-border" aria-hidden />
-                </div>
-                <div className="space-y-2">
-                  {ssoProviders.map((p) => (
-                    <Button
-                      key={p.id}
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => void startSso(p.id)}
-                      disabled={Boolean(ssoBusy)}
-                    >
-                      {ssoBusy === p.id ? (
-                        <Loader2 className="animate-spin" aria-hidden />
-                      ) : (
-                        <LogIn aria-hidden />
-                      )}
-                      Sign in with {ssoLabel(p)}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {/* ---- Mode: MFA second factor (TOTP / recovery) --------------- */}
-            {mode === 'mfa' ? (
-              <form onSubmit={submitMfa} className="space-y-4" noValidate>
-                <div className="space-y-1.5">
-                  <Label htmlFor="mfa-code">
-                    {useRecovery ? 'Recovery code' : 'Authentication code'}
-                  </Label>
-                  <div className="relative">
-                    <ShieldCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                    <Input
-                      id="mfa-code"
-                      className="pl-9"
-                      inputMode={useRecovery ? 'text' : 'numeric'}
-                      autoComplete="one-time-code"
-                      placeholder={useRecovery ? 'XXXX-XXXX' : '123456'}
-                      value={mfaCode}
-                      onChange={(e) => setMfaCode(e.target.value)}
-                      disabled={busy}
-                      autoFocus
-                    />
-                  </div>
-                </div>
-                <Button type="submit" className="w-full" disabled={busy || mfaCode.trim().length === 0}>
-                  {busy ? <Loader2 className="animate-spin" aria-hidden /> : <ShieldCheck aria-hidden />}
-                  {busy ? 'Verifying…' : 'Verify & continue'}
-                </Button>
-                <div className="flex items-center justify-between text-xs">
-                  <button
-                    type="button"
-                    className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                    onClick={() => { setUseRecovery((v) => !v); setMfaCode(''); setError(null); }}
-                    disabled={busy}
-                  >
-                    {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                    onClick={() => {
-                      setMode('signin');
-                      setMfaCode('');
-                      setPendingToken('');
-                      setPassword('');
-                      setError(null);
-                    }}
-                    disabled={busy}
-                  >
-                    Back to sign in
-                  </button>
-                </div>
-              </form>
-            ) : null}
-
-            {/* ---- Mode: forced password change ---------------------------- */}
-            {mode === 'change' ? (
-              <form onSubmit={submitChange} className="space-y-4" noValidate>
-                <div className="space-y-1.5">
-                  <Label htmlFor="change-new">New password</Label>
-                  <Input
-                    id="change-new"
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={busy}
-                    autoFocus
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="change-confirm">Confirm new password</Label>
-                  <Input
-                    id="change-confirm"
-                    type="password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    autoComplete="new-password"
-                    disabled={busy}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full"
-                  disabled={busy || newPassword.length === 0 || confirm.length === 0}
-                >
-                  {busy ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
-                  {busy ? 'Updating…' : 'Set password & continue'}
-                </Button>
-              </form>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Audited, cost-metered agentic triage.
-        </p>
-
-        {supportUrl ? (
-          <div className="mt-3 flex justify-center">
-            <a
-              href={supportUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground',
-                'transition-colors hover:text-foreground focus-visible:outline-none',
-                'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+        <div className="relative z-10 w-full max-w-sm animate-rise-in">
+          {/* Compact brand header — only when the hero is hidden (below lg). */}
+          <div className="mb-8 flex flex-col items-center text-center lg:hidden">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card shadow-elev1">
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="h-9 w-9 rounded-md object-contain" />
+              ) : (
+                <Shield className="h-7 w-7 text-primary" aria-hidden />
               )}
-            >
-              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-              Docs &amp; help
-            </a>
+            </div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">{wordmark}</h1>
+            <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              {tagline}
+            </p>
           </div>
-        ) : null}
 
-        {footerText ? (
-          <p className="mt-3 text-center text-xs text-muted-foreground">{footerText}</p>
-        ) : null}
+          <Card className="shadow-elev2">
+            <CardHeader>
+              <CardTitle className="text-lg">{titleByMode[mode]}</CardTitle>
+              <CardDescription>{descByMode[mode]}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {error ? (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle aria-hidden />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              {seededHint ? (
+                <Alert className="mb-4">
+                  <KeyRound aria-hidden />
+                  <AlertDescription>
+                    Default sign-in — <span className="font-medium">Admin</span> /{' '}
+                    <span className="font-medium">Admin@123</span>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+
+              {/* ---- Mode: create first admin -------------------------------- */}
+              {mode === 'setup' ? (
+                <form onSubmit={submitSetup} className="space-y-4" noValidate>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="setup-username">Admin username</Label>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="setup-username"
+                        className="pl-9"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        autoComplete="username"
+                        disabled={busy}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="setup-password">Password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="setup-password"
+                        type="password"
+                        className="pl-9"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={busy}
+                      />
+                    </div>
+                    <PasswordStrengthMeter password={password} className="pt-0.5" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="setup-confirm">Confirm password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="setup-confirm"
+                        type="password"
+                        className="pl-9"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={busy || username.trim().length === 0 || password.length === 0}
+                  >
+                    {busy ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
+                    {busy ? 'Creating…' : 'Create admin & sign in'}
+                  </Button>
+                </form>
+              ) : null}
+
+              {/* ---- Mode: normal sign-in ------------------------------------ */}
+              {mode === 'signin' ? (
+                <form onSubmit={submitSignin} className="space-y-4" noValidate>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="login-username">Username</Label>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="login-username"
+                        className="pl-9"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        autoComplete="username"
+                        name="username"
+                        disabled={busy}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="login-password">Password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="login-password"
+                        type="password"
+                        className="pl-9"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        name="password"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={busy || username.trim().length === 0 || password.length === 0}
+                  >
+                    {busy ? <Loader2 className="animate-spin" aria-hidden /> : <LockKeyhole aria-hidden />}
+                    {busy ? 'Signing in…' : 'Sign in'}
+                  </Button>
+                </form>
+              ) : null}
+
+              {/* ---- SSO: "Sign in with …" (only on the sign-in screen) ------- */}
+              {mode === 'signin' && ssoProviders.length > 0 ? (
+                <div className="mt-5">
+                  <div className="relative mb-4 flex items-center">
+                    <span className="h-px flex-1 bg-border" aria-hidden />
+                    <span className="px-3 text-xs uppercase tracking-wide text-muted-foreground">
+                      or continue with
+                    </span>
+                    <span className="h-px flex-1 bg-border" aria-hidden />
+                  </div>
+                  <div className="space-y-2">
+                    {ssoProviders.map((p) => (
+                      <Button
+                        key={p.id}
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => void startSso(p.id)}
+                        disabled={Boolean(ssoBusy)}
+                      >
+                        {ssoBusy === p.id ? (
+                          <Loader2 className="animate-spin" aria-hidden />
+                        ) : (
+                          <SsoBrandIcon type={p.type} />
+                        )}
+                        Sign in with {ssoLabel(p)}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* ---- Mode: MFA second factor (TOTP / recovery) --------------- */}
+              {mode === 'mfa' ? (
+                <form onSubmit={submitMfa} className="space-y-4" noValidate>
+                  <div className="space-y-2">
+                    <Label htmlFor="mfa-code">
+                      {useRecovery ? 'Recovery code' : 'Authentication code'}
+                    </Label>
+                    {useRecovery ? (
+                      <div className="relative">
+                        <ShieldCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                        <Input
+                          id="mfa-code"
+                          className="pl-9 font-mono tracking-wider"
+                          inputMode="text"
+                          autoComplete="one-time-code"
+                          placeholder="XXXX-XXXX"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          disabled={busy}
+                          autoFocus
+                        />
+                      </div>
+                    ) : (
+                      <OtpInput
+                        value={mfaCode}
+                        onChange={setMfaCode}
+                        disabled={busy}
+                        autoFocus
+                        aria-label="Authentication code"
+                      />
+                    )}
+                  </div>
+                  <Button type="submit" className="w-full" disabled={busy || mfaCode.trim().length === 0}>
+                    {busy ? <Loader2 className="animate-spin" aria-hidden /> : <ShieldCheck aria-hidden />}
+                    {busy ? 'Verifying…' : 'Verify & continue'}
+                  </Button>
+                  <div className="flex items-center justify-between text-xs">
+                    <button
+                      type="button"
+                      className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      onClick={() => { setUseRecovery((v) => !v); setMfaCode(''); setError(null); }}
+                      disabled={busy}
+                    >
+                      {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      onClick={() => {
+                        setMode('signin');
+                        setMfaCode('');
+                        setPendingToken('');
+                        setPassword('');
+                        setError(null);
+                      }}
+                      disabled={busy}
+                    >
+                      Back to sign in
+                    </button>
+                  </div>
+                </form>
+              ) : null}
+
+              {/* ---- Mode: forced password change ---------------------------- */}
+              {mode === 'change' ? (
+                <form onSubmit={submitChange} className="space-y-4" noValidate>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="change-new">New password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="change-new"
+                        type="password"
+                        className="pl-9"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={busy}
+                        autoFocus
+                      />
+                    </div>
+                    <PasswordStrengthMeter password={newPassword} className="pt-0.5" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="change-confirm">Confirm new password</Label>
+                    <div className="relative">
+                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="change-confirm"
+                        type="password"
+                        className="pl-9"
+                        value={confirm}
+                        onChange={(e) => setConfirm(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={busy || newPassword.length === 0 || confirm.length === 0}
+                  >
+                    {busy ? <Loader2 className="animate-spin" aria-hidden /> : <KeyRound aria-hidden />}
+                    {busy ? 'Updating…' : 'Set password & continue'}
+                  </Button>
+                </form>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Audited, cost-metered agentic triage.
+          </p>
+
+          {supportUrl ? (
+            <div className="mt-3 flex justify-center">
+              <a
+                href={supportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground',
+                  'transition-colors hover:text-foreground focus-visible:outline-none',
+                  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+                )}
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                Docs &amp; help
+              </a>
+            </div>
+          ) : null}
+
+          {/* Footer line — shown here only when the hero (which also carries it) is
+              hidden, to avoid duplicating it on large screens. */}
+          {footerText ? (
+            <p className="mt-3 text-center text-xs text-muted-foreground lg:hidden">{footerText}</p>
+          ) : null}
+        </div>
       </div>
     </div>
   );

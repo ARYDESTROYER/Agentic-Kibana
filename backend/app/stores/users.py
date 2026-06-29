@@ -171,6 +171,8 @@ class UserStore:
             # Wave 2 (MFA / SSO) — additive, set via the auth routes (never the UI).
             "mfa_enabled", "mfa_secret", "mfa_recovery_hashes", "mfa_last_step",
             "oauth_provider", "oauth_sub",
+            # Wave 2 (W2) self-service profile — patched via /api/account/me.
+            "display_name", "alias", "avatar", "alt_email", "timezone", "locale", "prefs",
         }
         for idx, u in enumerate(entries):
             if _norm(u.username) != needle:

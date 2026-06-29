@@ -27,6 +27,21 @@ export interface AuthUser {
   must_change_password?: boolean;
   /** Wave 2 (MFA): whether this account has a second factor enrolled. */
   mfa_enabled?: boolean;
+  // ---- Round-2 Wave 2: self-service profile fields (all additive, defaulted). //
+  // Every value here is operator/user-entered → render as PLAIN text (#9). The
+  // backend `User.public()` projection NEVER includes password_hash/mfa_secret.
+  /** Friendly name shown instead of the username (or ""). */
+  display_name?: string;
+  /** A short handle / nickname (or ""). */
+  alias?: string;
+  /** A bounded `data:image/(png|webp|jpeg)` URL for the user avatar (or ""). */
+  avatar?: string;
+  /** A secondary contact email (or ""). */
+  alt_email?: string;
+  /** IANA timezone id the user prefers (e.g. "Europe/London"), or "". */
+  timezone?: string;
+  /** BCP-47 locale tag (e.g. "en-US"), or "". */
+  locale?: string;
 }
 
 /** GET /api/auth/me — describes whether auth is on and the session state. */
@@ -34,6 +49,50 @@ export interface AuthMe {
   authenticated: boolean;
   auth_enabled: boolean;
   user: AuthUser | null;
+}
+
+// --------------------------------------------------------------------------- //
+// Account / profile self-service (Round-2 Wave 2) — GET/PUT /api/account/me.
+// --------------------------------------------------------------------------- //
+/**
+ * GET /api/account/me — the signed-in user's own profile.
+ *
+ * `username` + `role` are read-only identity; the rest are self-editable. Every
+ * value is user-entered → render as PLAIN text (#9). Secrets are NEVER present
+ * (the backend `public()` projection excludes password_hash/mfa_secret/etc).
+ *
+ * `env_managed:true` means the principal is the env single-admin (not a stored
+ * KV user): the profile is a read-only stub and PUT is rejected server-side.
+ */
+export interface AccountProfile {
+  username: string;
+  role?: UserRole | string;
+  /** True for the env-provisioned single admin (no editable stored profile). */
+  env_managed?: boolean;
+  /** Whether this account has a TOTP second factor enrolled. */
+  mfa_enabled?: boolean;
+  display_name?: string;
+  alias?: string;
+  /** A bounded `data:image/...` avatar URL, or "". */
+  avatar?: string;
+  alt_email?: string;
+  timezone?: string;
+  locale?: string;
+  created_at?: string;
+  last_login_at?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Body for PUT /api/account/me — all fields optional (partial update). Omitted
+ * fields are left untouched; an empty string clears a value.
+ */
+export interface AccountProfileBody {
+  display_name?: string;
+  alias?: string;
+  alt_email?: string;
+  timezone?: string;
+  locale?: string;
 }
 
 /**

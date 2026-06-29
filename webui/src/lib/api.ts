@@ -10,6 +10,8 @@
  * can show a meaningful error state.
  */
 import type {
+  AccountProfile,
+  AccountProfileBody,
   AuthMe,
   Branding,
   Case,
@@ -277,6 +279,20 @@ export const api = {
           { body: { client_secret: clientSecret } },
         ),
     },
+  },
+
+  // ---- Account / profile self-service (Round-2 Wave 2) ------------------ //
+  // The signed-in user's OWN profile. Gated server-side by current_user (NOT
+  // users:manage). Secrets are never returned; the avatar string is a tiny
+  // data: URL the browser has already cropped/resized to 256x256 WebP.
+  account: {
+    get: () => request<AccountProfile>('GET', 'account/me'),
+    put: (patch: AccountProfileBody) =>
+      request<AccountProfile>('PUT', 'account/me', { body: patch }),
+    // Thin set/clear of just the avatar. `value` null/"" clears it. The backend
+    // validates the data: URL (png/webp/jpeg, magic-byte sniff, bounded length).
+    avatar: (value: string | null) =>
+      request<AccountProfile>('PUT', 'me/avatar', { body: { avatar: value } }),
   },
 
   // ---- OOBE first-run setup (PUBLIC status + init-admin) ---------------- //
