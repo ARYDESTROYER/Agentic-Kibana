@@ -413,9 +413,21 @@ class SqlCursorStore(CursorRepository):
     def __init__(self, kv: SqlKVStore) -> None:
         self._kv = kv
 
+    @staticmethod
+    def _key(key: str) -> str:
+        """KV key for a per-feed cursor; the primary maps to the legacy key (no
+        migration — an existing single-source cursor is read unchanged)."""
+        return _CURSOR_KEY if key in ("", "primary") else f"feed:{key}"
+
     async def load(self) -> Cursor:
+        return await self.load_keyed("primary")
+
+    async def save(self, cursor: Cursor) -> None:
+        await self.save_keyed("primary", cursor)
+
+    async def load_keyed(self, key: str) -> Cursor:
         try:
-            doc = await self._kv.get(_CURSOR_NS, _CURSOR_KEY)
+            doc = await self._kv.get(_CURSOR_NS, self._key(key))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Loading cursor failed (%s); starting cold", exc)
             return Cursor()
@@ -426,5 +438,5 @@ class SqlCursorStore(CursorRepository):
         except Exception:  # noqa: BLE001
             return Cursor()
 
-    async def save(self, cursor: Cursor) -> None:
-        await self._kv.put(_CURSOR_NS, _CURSOR_KEY, cursor.model_dump(mode="json"))
+    async def save_keyed(self, key: str, cursor: Cursor) -> None:
+        await self._kv.put(_CURSOR_NS, self._key(key), cursor.model_dump(mode="json"))

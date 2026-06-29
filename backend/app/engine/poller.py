@@ -92,16 +92,55 @@ class Poller:
         # the trailing edge of the window without re-scanning unboundedly.
         return max(widest, interval) + 2 * interval
 
+    def _cursor_key(self, prefs: Preferences, feed_id: str) -> str:
+        """The durable cursor key for one feed: ``f'{source.id}:{feed.id}'`` so a fast
+        alerts feed and a slow events feed never share/skip a cursor (#4). Falls back
+        to the legacy ``primary`` key when the source/feed has no stable id (so an
+        existing single-source cursor is read unchanged — no migration)."""
+        source_id = getattr(self._source, "connector_id", "") or ""
+        if not source_id or not feed_id:
+            return "primary"
+        return f"{source_id}:{feed_id}"
+
+    def _source_feeds(self):
+        """The connector's per-feed list (Wave 6) — empty for a connector that does
+        not expose feeds (legacy single-cursor union path)."""
+        getter = getattr(self._source, "feeds", None)
+        if getter is None:
+            return []
+        try:
+            return list(getter())
+        except Exception:  # noqa: BLE001
+            return []
+
     async def poll_once(self, prefs: Preferences | None = None) -> dict[str, Any]:
         prefs = prefs or self._get_prefs()
-        cursor = await self._cursor_store.load()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
 
-        # Read the incremental batch through the connector (source-agnostic). The
-        # connector reproduces the legacy poll_query read exactly; the cursor still
-        # governs what is "new" and the dedup/advance logic below is unchanged.
-        fetched = await self._source.poll(prefs, cursor, cold_from)
-        new_events = [e for e in fetched if not cursor.should_skip(e)]
+        # Wave 6: read each FEED on its OWN durable cursor (so a fast alerts feed and a
+        # slow events feed never share/skip a cursor, #4). A legacy/un-fed source has
+        # no feeds → the single-cursor union path below, byte-identical to before. Each
+        # per-feed cursor still governs what is "new" for THAT feed; dedup/advance is
+        # unchanged, just applied per feed.
+        feeds = self._source_feeds()
+        fetched: list[RawEvent] = []
+        new_events: list[RawEvent] = []
+        # Track each feed's (key, loaded cursor, fetched batch) so we advance + persist
+        # each cursor independently after handling.
+        feed_state: list[tuple[str, Cursor, list[RawEvent]]] = []
+        if feeds:
+            for feed in feeds:
+                key = self._cursor_key(prefs, feed.id)
+                fcursor = await self._cursor_store.load_keyed(key)
+                fbatch = await self._source.poll_feed(prefs, feed, fcursor, cold_from)
+                feed_state.append((key, fcursor, fbatch))
+                fetched.extend(fbatch)
+                new_events.extend(e for e in fbatch if not fcursor.should_skip(e))
+        else:
+            cursor = await self._cursor_store.load()
+            fetched = await self._source.poll(prefs, cursor, cold_from)
+            new_events = [e for e in fetched if not cursor.should_skip(e)]
+            feed_state.append(("primary", cursor, fetched))
 
         stats = {"polled": len(fetched), "new": len(new_events),
                  "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
@@ -149,13 +188,15 @@ class Poller:
                 except Exception as exc:  # noqa: BLE001 — never break the poll loop
                     logger.warning("cross-source correlation failed: %s", exc)
 
-        # Advance cursor over ALL fetched events (even boundary dupes) so we never
-        # re-scan the same window, then persist durably.
-        new_cursor = advance_cursor(cursor, fetched)
-        if (new_cursor.timestamp_millis, tuple(new_cursor.boundary_ids)) != (
-            cursor.timestamp_millis, tuple(cursor.boundary_ids)
-        ):
-            await self._cursor_store.save(new_cursor)
+        # Advance EACH feed's cursor over ITS OWN fetched batch (even boundary dupes)
+        # so we never re-scan a window, then persist durably + independently (#4 — a
+        # slow feed's cursor is never dragged forward by a fast feed's events).
+        for key, fcursor, fbatch in feed_state:
+            new_cursor = advance_cursor(fcursor, fbatch)
+            if (new_cursor.timestamp_millis, tuple(new_cursor.boundary_ids)) != (
+                fcursor.timestamp_millis, tuple(fcursor.boundary_ids)
+            ):
+                await self._cursor_store.save_keyed(key, new_cursor)
 
         await self._audit.record(
             action_type=ActionType.POLL, surface="poller", actor="poller",

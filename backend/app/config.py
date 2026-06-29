@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .constants import CorrelationMode, EntityStrategy, EntityType, IndexRole, IngestMode, SourceType
-from .utils import dotted_get, iso_now
+from .utils import dotted_get, iso_now, slug
 
 Provider = Literal["anthropic", "openai", "mock"]
 
@@ -776,22 +776,155 @@ class DemoConfig(BaseModel):
 
 
 class IndexPattern(BaseModel):
-    """One index pattern a source reads, with the ROLE it plays.
+    """One FEED a source reads — an index pattern plus the per-feed config that
+    governs how its events are read, correlated and auto-forwarded (Wave 6).
 
-    ``events`` (default) — ordinary logs: correlate → auto-forward only when the
-    rule is on ``auto_forward_allowlist``. ``alerts`` — SIEM-generated detections
-    the operator wants every one of triaged: any cluster touching an alerts-role
-    pattern is AUTO-FORWARDED to investigation, bypassing the allowlist.
+    A single source (e.g. one ELK cluster) typically has SEVERAL feeds: an alerts
+    feed (``role=alerts`` — every detection triaged), an all-events feed
+    (``role=events`` — correlate → auto-forward only on the allowlist) and an
+    ignore feed (``role=ignore`` — muted, dropped entirely at ingest). The wire key
+    stays ``config['index_patterns']`` and the class name stays ``IndexPattern`` to
+    avoid a breaking rename; ``feeds()`` is the canonical accessor that returns these.
 
-    ``auto_correlate`` (the per-SUB-SOURCE "Auto-Correlate" toggle, Wave 5 / F6) —
-    defaults TRUE so today's behaviour is byte-identical. When FALSE, clusters that
-    touch ONLY this pattern are correlated into clusters as usual but are NOT
-    auto-forwarded to investigation (manual triage only); they still register as
-    candidate cases so nothing is ever dropped (#4)."""
+    BACK-COMPAT IS PARAMOUNT. Every field is Optional+defaulted so a stored legacy
+    entry — ``{pattern, role, auto_correlate}`` OR a bare ``"all-logs-*"`` string —
+    still validates and yields IDENTICAL effective behaviour:
+
+      * ``id`` — lazy ``slug(pattern)`` when blank (deterministic; no migration).
+      * ``role`` — ``events`` default; ``alerts`` auto-forwards; ``ignore`` drops.
+      * ``query`` — a connector-native filter the operator authors (TRUSTED, #9 — it
+        is operator config, NOT log-derived; still never interpolated into a prompt).
+      * ``field_mapping`` — per-feed override; falls back to source-level then global.
+      * ``message_field`` — per-feed message column override (falls back the same way).
+      * ``severity_floor`` — OCSF severity_id 1-6: below it, an event is NOT
+        auto-forwarded BUT is STILL correlated + live-tailed (NEVER dropped, #4).
+      * ``correlate`` — the per-feed "Auto-Correlate" toggle (legacy ``auto_correlate``
+        is mapped onto this); FALSE → candidate-only (manual triage), still correlated.
+      * ``auto_investigate`` — None → DERIVED from role/legacy ``auto_correlate``
+        (``role=='alerts' or legacy auto_correlate``); set True/False to pin it.
+      * ``poll_interval_seconds`` — per-feed schedule override (None → source/global).
+      * ``label`` — a human display label for the feed.
+
+    The legacy ``auto_correlate`` attribute is preserved (read-only property aliasing
+    ``correlate``) so every existing call site keeps working unchanged."""
+
+    # ``role`` etc. are plain data, not Pydantic config — and we accept legacy keys
+    # (``auto_correlate``) that are not declared fields, so we ignore extras silently.
+    model_config = {"protected_namespaces": (), "extra": "ignore"}
 
     pattern: str
+    id: str = ""
     role: IndexRole = IndexRole.EVENTS
-    auto_correlate: bool = True
+    enabled: bool = True
+    query: str | None = None
+    field_mapping: dict[str, Any] = Field(default_factory=dict)
+    message_field: str | None = None
+    severity_floor: int | None = None
+    correlate: bool = True
+    auto_investigate: bool | None = None
+    poll_interval_seconds: int | None = None
+    label: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_legacy(cls, data: Any) -> Any:
+        """Accept a bare-string entry and the legacy ``auto_correlate`` key.
+
+        A bare ``"all-logs-*"`` string becomes ``{pattern: ...}``. A legacy
+        ``{pattern, role, auto_correlate}`` dict maps ``auto_correlate`` onto
+        ``correlate`` (only when ``correlate`` is not explicitly present), so an old
+        config validates and the per-feed "Auto-Correlate" toggle reads identically."""
+        if isinstance(data, str):
+            return {"pattern": data}
+        if isinstance(data, dict):
+            d = dict(data)
+            if "auto_correlate" in d and "correlate" not in d:
+                d["correlate"] = d["auto_correlate"]
+            return d
+        return data
+
+    @model_validator(mode="after")
+    def _derive_id(self) -> "IndexPattern":
+        """Lazily slug the id from the pattern when blank (deterministic, no migration)."""
+        if not self.id:
+            object.__setattr__(self, "id", slug(self.pattern))
+        return self
+
+    @property
+    def auto_correlate(self) -> bool:
+        """Legacy alias for ``correlate`` — keeps every existing call site working."""
+        return self.correlate
+
+    def effective_auto_investigate(self) -> bool:
+        """Whether a cluster touching ONLY this feed auto-forwards to investigation.
+
+        ``auto_investigate`` pins it when set; otherwise it is DERIVED to preserve
+        legacy behaviour EXACTLY: an alerts-role feed auto-forwards (bypassing the
+        allowlist) and an events-role feed auto-forwards only when ``correlate`` is on
+        (the legacy ``auto_correlate`` semantics). An ignore feed never auto-forwards
+        (it is dropped before this is consulted)."""
+        if self.auto_investigate is not None:
+            return self.auto_investigate
+        if self.role == IndexRole.IGNORE:
+            return False
+        return self.role == IndexRole.ALERTS or self.correlate
+
+
+# Feed is the canonical NAME for the per-feed model; the class is still called
+# ``IndexPattern`` to keep the config wire key + every existing import unchanged
+# (no breaking rename). New code may use either name interchangeably.
+Feed = IndexPattern
+
+
+def upgrade_feed(raw: Any) -> dict[str, Any]:
+    """Pure migration of a LEGACY feed entry to the richer Feed dict (Wave 6).
+
+    Accepts a bare ``"all-logs-*"`` string OR a legacy ``{pattern, role,
+    auto_correlate}`` dict (or an already-rich Feed dict) and returns a plain dict
+    with the derived ``id`` + the split ``correlate``/``auto_investigate`` filled in,
+    yielding IDENTICAL effective behaviour:
+
+      * ``id = slug(pattern)`` (deterministic),
+      * ``correlate = legacy auto_correlate`` (default True),
+      * ``auto_investigate = (role == 'alerts') or legacy auto_correlate``.
+
+    Pure + side-effect-free: it never mutates the input and is safe to call on an
+    already-upgraded entry (idempotent). NO config migration is performed anywhere —
+    this exists so the UI / tests can resolve the effective shape on demand."""
+    if isinstance(raw, str):
+        raw = {"pattern": raw}
+    if not isinstance(raw, dict):
+        return {}
+    d = dict(raw)
+    pattern = str(d.get("pattern") or "")
+    role = str(d.get("role") or "events").lower()
+    if role not in ("events", "alerts", "ignore"):
+        role = "events"
+    # Legacy split: auto_correlate → correlate; auto_investigate derived if unset.
+    if "correlate" in d:
+        correlate = bool(d["correlate"])
+    elif "auto_correlate" in d:
+        correlate = bool(d["auto_correlate"])
+    else:
+        correlate = True
+    ai = d.get("auto_investigate")
+    if ai is None:
+        ai = (role == "alerts") or correlate
+    out: dict[str, Any] = {
+        "id": str(d.get("id") or slug(pattern)),
+        "pattern": pattern,
+        "role": role,
+        "enabled": bool(d.get("enabled", True)),
+        "correlate": correlate,
+        "auto_investigate": bool(ai),
+    }
+    # Carry through the optional richer fields when present (no defaults injected so
+    # the dict stays minimal for a legacy entry).
+    for k in ("query", "field_mapping", "message_field", "severity_floor",
+              "poll_interval_seconds", "label"):
+        if k in d and d[k] is not None:
+            out[k] = d[k]
+    return out
 
 
 class SourceInstance(BaseModel):
@@ -827,12 +960,14 @@ class SourceInstance(BaseModel):
     updated_at: str = Field(default_factory=iso_now)
 
     def index_patterns(self) -> list[IndexPattern]:
-        """The configured index patterns + roles for this source.
+        """The configured FEEDS for this source (canonical parser).
 
-        Reads ``config["index_patterns"]`` (a list of ``{pattern, role}``); falls
-        back to the single ``config["data_view_pattern"]`` (role=events) when none
-        is configured. Empty when neither is set (caller uses global prefs). This is
-        what makes a source read across N patterns and tag alerts-role detections."""
+        Reads ``config["index_patterns"]`` — a list of richer ``Feed`` dicts AND/OR
+        the legacy ``{pattern, role, auto_correlate}`` dicts AND/OR bare strings, all
+        of which validate to :class:`IndexPattern` (Wave 6). A malformed entry is
+        skipped (as today). Falls back to the single ``config["data_view_pattern"]``
+        (role=events) when none is configured. Empty when neither is set (caller uses
+        global prefs). ``feeds()`` is the canonical alias for this method."""
         raw = self.config.get("index_patterns")
         out: list[IndexPattern] = []
         if isinstance(raw, list):
@@ -850,6 +985,25 @@ class SourceInstance(BaseModel):
         if dv:
             return [IndexPattern(pattern=str(dv))]
         return []
+
+    def feeds(self) -> list[IndexPattern]:
+        """Canonical accessor for this source's resolved feeds (Wave 6).
+
+        Identical to :meth:`index_patterns` — the wire key + class name are kept to
+        avoid a breaking rename; this is the name new code should call."""
+        return self.index_patterns()
+
+    def live_data_view(self) -> str:
+        """The comma-joined union of all ENABLED, NON-IGNORE feed patterns (Wave 6).
+
+        This is what should be synced into ``config['data_view_pattern']`` so the
+        legacy single-pattern fallback (and any reader of ``data_view_pattern``) sees
+        the live log surface MINUS the muted ignore feeds. Empty when no feeds are
+        configured — the caller keeps the existing ``data_view_pattern`` unchanged."""
+        live = [f.pattern for f in self.index_patterns()
+                if f.enabled and f.role != IndexRole.IGNORE and f.pattern]
+        # Preserve order + de-dupe.
+        return ",".join(dict.fromkeys(live))
 
     def entity_strategy(self) -> EntityStrategy | None:
         """This source's entity-resolution strategy override, or None (use global)."""

@@ -77,6 +77,18 @@ def new_id(prefix: str = "") -> str:
     return f"{prefix}{uid}" if prefix else uid
 
 
+def slug(value: Any, fallback: str = "feed") -> str:
+    """A stable, filesystem/key-safe slug for an arbitrary string.
+
+    Lowercases, replaces every run of non-alphanumeric characters with a single
+    ``-`` and trims leading/trailing ``-``. Used to derive a deterministic feed id
+    from its index pattern (so a legacy ``{pattern, role}`` entry yields the SAME id
+    on every load — no migration, idempotent). Returns ``fallback`` when the input
+    slugifies to empty (e.g. ``"*"`` → ``""`` → fallback)."""
+    s = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+    return s or fallback
+
+
 def stable_signature(*parts: Any) -> str:
     """Deterministic, order-defined signature used as the case idempotency key.
 

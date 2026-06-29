@@ -272,6 +272,13 @@ async def upsert_source(
         is_primary=body.is_primary,
         config=body.config,
     )
+    # Wave 6: keep ``config['data_view_pattern']`` synced to the comma-join of the
+    # non-ignore feed patterns, so the legacy single-pattern fallback + any reader of
+    # ``data_view_pattern`` see the live surface MINUS muted ignore feeds. No-op when
+    # no feeds are configured (the operator-set ``data_view_pattern`` is left intact).
+    live_dv = instance.live_data_view()
+    if live_dv:
+        instance.config["data_view_pattern"] = live_dv
     # Upsert by id; a new primary unsets any previous primary.
     others = [s for s in state.prefs.sources if s.id != body.id]
     if instance.is_primary:
@@ -494,6 +501,47 @@ async def source_logs(
                     pass
 
     raise HTTPException(status_code=501, detail="Browsing logs is not supported for this source")
+
+
+@router.get("/sources/{source_id}/feeds")
+async def source_feeds(
+    source_id: str,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """The resolved EFFECTIVE feeds for a source (Wave 6) — for the per-source Feeds
+    editor.
+
+    Returns each configured feed with its derived id, role and the resolved
+    ``auto_investigate`` (None → ``role=='alerts' or correlate``) so the UI shows the
+    same effective behaviour the engine applies — including for a LEGACY
+    ``{pattern, role, auto_correlate}`` / bare-string config (which upgrades on read,
+    no migration). Secrets are never involved (feeds are non-secret config)."""
+    src = next((s for s in state.prefs.sources if s.id == source_id), None)
+    if src is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    feeds = [
+        {
+            "id": f.id,
+            "pattern": f.pattern,
+            "role": f.role.value,
+            "enabled": f.enabled,
+            "label": f.label,
+            "query": f.query,
+            "field_mapping": f.field_mapping,
+            "message_field": f.message_field,
+            "severity_floor": f.severity_floor,
+            "correlate": f.correlate,
+            "auto_investigate": f.effective_auto_investigate(),
+            "auto_investigate_explicit": f.auto_investigate,
+            "poll_interval_seconds": f.poll_interval_seconds,
+        }
+        for f in src.feeds()
+    ]
+    return {
+        "source_id": source_id,
+        "feeds": feeds,
+        "data_view_pattern": src.live_data_view() or src.config.get("data_view_pattern", ""),
+    }
 
 
 # --------------------------------------------------------------------------- #

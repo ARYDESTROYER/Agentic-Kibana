@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..config import Preferences
-from ..constants import IngestMode, SourceType
+from ..config import IndexPattern, Preferences
+from ..constants import IndexRole, IngestMode, SourceType
 from ..es.base import BaseESClient
 from ..es.querybuilder import ids_query, poll_query
 from ..models import Cursor, RawEvent
@@ -103,6 +103,26 @@ class ElasticConnector(PullConnector):
         "time_field",
     )
 
+    def _base_overrides(self) -> dict[str, Any]:
+        """Source-level field-mapping/scope overrides (excludes the per-feed split).
+
+        Precedence (highest first): ``config["field_mappings_extra"][k]`` (F9 explicit
+        per-source override) → ``config[k]`` (top-level overlay) → global ``prefs``.
+        This is the SOURCE layer of the effective mapping; a per-feed override
+        (``feed.field_mapping`` / ``feed.message_field``) is layered ON TOP in
+        :meth:`_feed_prefs`."""
+        overrides = {
+            k: self.config[k] for k in self._OVERLAY_KEYS
+            if k in self.config and self.config[k] is not None
+        }
+        extra = self.config.get("field_mappings_extra")
+        if isinstance(extra, dict):
+            for k in self._FIELD_MAPPING_EXTRA_KEYS:
+                v = extra.get(k)
+                if v is not None and v != "":
+                    overrides[k] = v
+        return overrides
+
     def _effective_prefs(self, prefs: Preferences) -> Preferences:
         """Overlay this source's ``config`` field-mapping/scope keys onto ``prefs``.
 
@@ -111,78 +131,136 @@ class ElasticConnector(PullConnector):
         non-ECS source it yields a prefs whose field mapping + index pattern match
         that source, so poll/search/normalisation extract the right fields.
 
-        Precedence (highest first): ``config["field_mappings_extra"][k]`` (F9 explicit
-        per-source override) → ``config[k]`` (top-level overlay) → global ``prefs``.
-
-        When the source configures multiple ``index_patterns`` (events/alerts roles)
-        the effective ``data_view_pattern`` becomes the comma-joined union of ALL
-        configured patterns, so a single poll/search reads across every pattern;
-        per-pattern role tagging happens on the resulting events."""
-        overrides = {
-            k: self.config[k] for k in self._OVERLAY_KEYS
-            if k in self.config and self.config[k] is not None
-        }
-        # F9: explicit per-source field-mapping overrides win over the top-level keys.
-        extra = self.config.get("field_mappings_extra")
-        if isinstance(extra, dict):
-            for k in self._FIELD_MAPPING_EXTRA_KEYS:
-                v = extra.get(k)
-                if v is not None and v != "":
-                    overrides[k] = v
-        patterns = self._index_patterns()
-        if patterns:
-            joined = ",".join(p["pattern"] for p in patterns)
+        When the source configures multiple feeds the effective ``data_view_pattern``
+        becomes the comma-joined union of all NON-IGNORE feed patterns (ignore feeds
+        are EXCLUDED — they are muted), so a single union search reads across every
+        live feed; per-feed role/floor tagging happens on the resulting events. This
+        union form backs ``search``/``fetch_by_ids``/``test_connection`` + the legacy
+        ``data_view_pattern`` fallback; ``poll`` uses per-feed sub-queries (so a
+        per-feed ``query``/``severity_floor`` applies)."""
+        overrides = self._base_overrides()
+        feeds = self._index_patterns()
+        live = [f for f in feeds if f.role != IndexRole.IGNORE and f.enabled]
+        if live:
+            joined = ",".join(f.pattern for f in live)
             if joined:
                 overrides["data_view_pattern"] = joined
         return prefs.model_copy(update=overrides) if overrides else prefs
 
-    def _index_patterns(self) -> list[dict[str, str]]:
-        """The source's configured index patterns + roles (normalised dicts).
+    def _index_patterns(self) -> list[IndexPattern]:
+        """The source's configured feeds (canonical, role-coerced).
 
-        Reads ``config["index_patterns"]`` (list of ``{pattern, role}`` or bare
-        strings). Empty when not configured (caller uses the single
-        ``data_view_pattern`` with role ``events`` — full back-compat)."""
+        Reads ``config["index_patterns"]`` via the shared :class:`IndexPattern`
+        parser so the TWO parsers (here + ``SourceInstance.index_patterns``) stay in
+        lock-step. Accepts richer Feed dicts, legacy ``{pattern, role,
+        auto_correlate}`` dicts and bare strings; an unknown role coerces to ``events``
+        (NOT silently — the IndexRole allowlist now includes ``ignore``). Empty when
+        not configured (caller uses the single ``data_view_pattern`` with role
+        ``events`` — full back-compat)."""
         raw = self.config.get("index_patterns")
-        out: list[dict[str, str]] = []
+        out: list[IndexPattern] = []
         if isinstance(raw, list):
             for item in raw:
-                if isinstance(item, dict) and item.get("pattern"):
-                    role = str(item.get("role") or "events").lower()
-                    role = role if role in ("events", "alerts") else "events"
-                    out.append({"pattern": str(item["pattern"]), "role": role})
-                elif isinstance(item, str) and item:
-                    out.append({"pattern": item, "role": "events"})
+                try:
+                    if isinstance(item, dict) and item.get("pattern"):
+                        out.append(IndexPattern.model_validate(item))
+                    elif isinstance(item, str) and item:
+                        out.append(IndexPattern(pattern=item))
+                except Exception:  # noqa: BLE001 — skip a malformed entry
+                    continue
         return out
 
-    def _role_for_index(self, index: str) -> str:
-        """Role of the configured pattern an event's ``_index`` belongs to.
+    def _poll_feeds(self) -> list[IndexPattern]:
+        """The feeds ``poll`` reads — enabled, NON-ignore. Empty when the source has
+        no feeds configured; ``poll`` then takes the legacy single-union path over
+        ``_effective_prefs(prefs).data_view_pattern`` (byte-identical to before)."""
+        return [f for f in self._index_patterns()
+                if f.enabled and f.role != IndexRole.IGNORE]
 
-        Matches the event's index against each configured pattern (``*`` glob); the
-        FIRST alerts-role pattern that matches wins (so an alerts pattern is honoured
-        even if an events pattern also matches). Defaults to ``events``."""
+    def _feed_prefs(self, prefs: Preferences, feed: IndexPattern) -> Preferences:
+        """Per-feed effective prefs: source overrides + the feed's own pattern, field
+        mapping and message field.
+
+        Effective mapping = ``{**global, **source.field_mapping, **feed.field_mapping}``;
+        effective message_field = ``feed.message_field or source.message_field or
+        global`` — so a feed can pin its own schema while inheriting the rest."""
+        overrides = self._base_overrides()
+        if feed.field_mapping:
+            for k, v in feed.field_mapping.items():
+                if v is not None and v != "":
+                    overrides[k] = v
+        if feed.message_field:
+            overrides["message_field"] = feed.message_field
+        overrides["data_view_pattern"] = feed.pattern
+        return prefs.model_copy(update=overrides)
+
+    def _role_for_index(self, index: str) -> str:
+        """Role of the configured feed an event's ``_index`` belongs to.
+
+        Matches the event's index against each configured feed pattern (``*`` glob);
+        the FIRST alerts-role feed that matches wins (so an alerts feed is honoured
+        even if an events feed also matches). Ignore feeds are never read so they do
+        not appear here. Defaults to ``events``."""
         import fnmatch
 
-        patterns = self._index_patterns()
-        if not patterns:
+        feeds = self._index_patterns()
+        if not feeds:
             return "events"
-        for p in patterns:
-            if p["role"] == "alerts" and fnmatch.fnmatch(index, p["pattern"]):
+        for f in feeds:
+            if f.role == IndexRole.ALERTS and fnmatch.fnmatch(index, f.pattern):
                 return "alerts"
         return "events"
 
-    def _tag_events(self, events: list[RawEvent]) -> list[RawEvent]:
-        """Stamp source provenance + per-pattern role onto each RawEvent.
+    def _feed_for_index(self, index: str) -> IndexPattern | None:
+        """The most-specific configured feed an event's ``_index`` matches.
 
-        ``source_id``/``source_name`` identify the originating source (UI filter);
-        ``index_role`` is the role of the pattern the event's index belongs to, so
-        ``handle_clusters`` can auto-forward alerts-role clusters. No-op fields when
-        nothing is configured (back-compat)."""
+        Longest-pattern-wins precedence (a narrow ``host-secure-*`` feed beats a broad
+        ``host-*`` feed) so an IGNORE sub-index carved out of a broad events feed is
+        attributed to the IGNORE feed, and a per-feed ``severity_floor`` is applied
+        from the right feed. Returns None when nothing matches (back-compat)."""
+        import fnmatch
+
+        best: IndexPattern | None = None
+        best_len = -1
+        for f in self._index_patterns():
+            if f.pattern and fnmatch.fnmatch(index, f.pattern) and len(f.pattern) > best_len:
+                best, best_len = f, len(f.pattern)
+        return best
+
+    def _tag_events(
+        self, events: list[RawEvent], feed: IndexPattern | None = None
+    ) -> list[RawEvent]:
+        """Stamp source/feed provenance + per-feed role + severity_floor onto events.
+
+        ``source_id``/``source_name`` identify the originating source (UI filter).
+        When ``feed`` is given (the per-feed poll path) the event is attributed to
+        THAT feed; otherwise (the union search/poll path) the matching feed is resolved
+        by index (longest-pattern-wins) AND an event whose most-specific feed is an
+        IGNORE feed is DROPPED (a broad pattern reading an ignore carve-out is muted).
+        ``index_role`` drives alerts auto-forward; ``feed_id`` records the feed;
+        ``auto_investigate_eligible`` is FALSE when the event is below the feed's
+        ``severity_floor`` — such an event is STILL returned (so it registers a
+        candidate + live-tail) but its cluster will not auto-forward (#4, never
+        dropped). All no-ops when nothing is configured."""
         name = self.config.get("display_name") or self.connector_id
+        out: list[RawEvent] = []
         for ev in events:
             ev.source_id = self.connector_id
             ev.source_name = name
-            ev.index_role = self._role_for_index(ev.index)
-        return events
+            f = feed if feed is not None else self._feed_for_index(ev.index)
+            if f is not None:
+                # Union path: drop an event owned by an ignore feed (carve-out mute).
+                if feed is None and f.role == IndexRole.IGNORE:
+                    continue
+                ev.feed_id = f.id
+                ev.index_role = f.role.value if f.role != IndexRole.IGNORE else "events"
+                floor = f.severity_floor
+                if floor is not None and ev.severity < float(floor):
+                    ev.auto_investigate_eligible = False
+            else:
+                ev.index_role = self._role_for_index(ev.index)
+            out.append(ev)
+        return out
 
     # --------------------------------------------------------------------- #
     # Wizard-facing self-description
@@ -385,17 +463,85 @@ class ElasticConnector(PullConnector):
     ) -> list[RawEvent]:
         """Fetch one in-scope polling batch at/after the cursor (oldest first).
 
-        Reproduces ``Poller.poll_once``'s read EXACTLY: the body is built by
-        ``poll_query(prefs, cursor, cold_start_from_millis)`` and executed via
-        ``search_logs(prefs.data_view_pattern, body)``; each hit is projected to
-        a :class:`RawEvent` by the same ``RawEvent.from_hit`` path. The poller
-        owns cursor advancement and dedup — the connector only fetches.
-        """
-        prefs = self._effective_prefs(prefs)
-        body = poll_query(prefs, cursor, from_millis)
-        resp = await self._es.search_logs(prefs.data_view_pattern, body)
+        Splits the read into PER-FEED sub-queries (Wave 6) so each feed's own
+        ``query`` (a connector-native, operator-TRUSTED filter) and ``severity_floor``
+        apply, and each event is attributed to its feed. For a legacy/un-fed source
+        this is ONE sub-query over ``data_view_pattern`` — byte-identical to before
+        (same ``poll_query`` body, same ``from_hit`` projection, same oldest-first
+        sort). IGNORE feeds are excluded (muted); a below-floor event is still
+        returned (NEVER dropped) but flagged ``auto_investigate_eligible=False``.
+
+        The poller owns cursor advancement + dedup — the connector only fetches. The
+        ``cursor``/``from_millis`` lower bound is applied IDENTICALLY to every feed's
+        body so a single shared cursor (a feed group of equal interval) never skips."""
+        feeds = self._poll_feeds()
+        if not feeds:
+            # Legacy / un-fed source: ONE union read over the effective data view —
+            # byte-identical to the pre-Wave-6 connector.
+            prefs = self._effective_prefs(prefs)
+            body = poll_query(prefs, cursor, from_millis)
+            resp = await self._es.search_logs(prefs.data_view_pattern, body)
+            hits = resp.get("hits", {}).get("hits", [])
+            return self._tag_events([RawEvent.from_hit(h, prefs) for h in hits])
+        out: list[RawEvent] = []
+        for feed in feeds:
+            out.extend(await self.poll_feed(prefs, feed, cursor, from_millis))
+        return out
+
+    def feeds(self) -> list[IndexPattern]:
+        """The enabled, NON-ignore feeds this connector polls (Wave 6).
+
+        The poller iterates these to drive a PER-FEED durable cursor (so a fast alerts
+        feed and a slow events feed never share/skip a cursor, #4). Empty for a
+        legacy/un-fed source — the poller then takes the single-cursor union path,
+        byte-identical to before."""
+        return self._poll_feeds()
+
+    async def poll_feed(
+        self, prefs: Preferences, feed: IndexPattern, cursor: Cursor, from_millis: int
+    ) -> list[RawEvent]:
+        """Fetch one in-scope polling batch FOR A SINGLE FEED (oldest first).
+
+        The feed's own pattern + field mapping + message field + ``query`` +
+        ``severity_floor`` apply; each event is attributed to ``feed``. Backs the
+        poller's per-feed cursor loop. ``poll`` (the union) is a thin wrapper that
+        concatenates ``poll_feed`` over every feed with a shared cursor.
+
+        A hit is KEPT only when THIS feed is its longest-pattern ("most specific")
+        owner — so when a broad events feed (``logs-host-*``) overlaps a narrower
+        IGNORE feed (``logs-host-noise*``), the noise sub-index is read by the broad
+        feed but DROPPED here (it belongs to the ignore feed), and no event is ever
+        read twice. With a single feed (or no overlap) every hit is kept."""
+        fp = self._feed_prefs(prefs, feed)
+        body = poll_query(fp, cursor, from_millis)
+        self._apply_feed_query(body, feed)
+        resp = await self._es.search_logs(fp.data_view_pattern, body)
         hits = resp.get("hits", {}).get("hits", [])
-        return self._tag_events([RawEvent.from_hit(h, prefs) for h in hits])
+        kept = [h for h in hits if self._owns_index(feed, str(h.get("_index", "")))]
+        return self._tag_events([RawEvent.from_hit(h, fp) for h in kept], feed=feed)
+
+    def _owns_index(self, feed: IndexPattern, index: str) -> bool:
+        """True when ``feed`` is the most-specific (longest-pattern) feed matching
+        ``index`` — i.e. this feed OWNS the index (longest-pattern-wins). Used to
+        partition overlapping feed reads so an index is read exactly once and an
+        IGNORE carve-out of a broad pattern is attributed to (and dropped by) the
+        ignore feed. True when no other feed matches (single-feed / no overlap)."""
+        owner = self._feed_for_index(index)
+        return owner is None or owner.id == feed.id
+
+    @staticmethod
+    def _apply_feed_query(body: dict[str, Any], feed: IndexPattern) -> None:
+        """Append the feed's operator-authored ``query`` as a connector-native filter.
+
+        The query is OPERATOR config (TRUSTED, #9 — not log-derived; still never
+        interpolated into a prompt). It is added as a ``query_string`` filter so a
+        broad feed pattern can be narrowed per feed (e.g. ``event.category:network``).
+        Best-effort: a blank query is a no-op (the body is unchanged)."""
+        q = (feed.query or "").strip()
+        if not q:
+            return
+        flt = body.setdefault("query", {}).setdefault("bool", {}).setdefault("filter", [])
+        flt.append({"query_string": {"query": q}})
 
     async def search(self, prefs: Preferences, query: StructuredQuery) -> SearchResult:
         """Run a structured ad-hoc search (backs the ``es_query`` tool).

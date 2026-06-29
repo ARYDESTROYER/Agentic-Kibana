@@ -310,6 +310,22 @@ async def test_cursor_store_load_save(engine) -> None:
     assert loaded.boundary_ids == ["e1", "e2"]
 
 
+async def test_cursor_store_per_feed_keyed_isolation(engine) -> None:
+    """Wave 6 — a fast and a slow feed each get their OWN durable cursor on the SQL
+    backend; neither shares/skips with the other nor with the primary cursor (#4)."""
+    store = SqlCursorStore(SqlKVStore(engine))
+    await store.save_keyed("elk:alerts", Cursor(timestamp_millis=2000, boundary_ids=["a"]))
+    await store.save_keyed("elk:events", Cursor(timestamp_millis=1000, boundary_ids=["b"]))
+    await store.save(Cursor(timestamp_millis=50))  # primary is a DISTINCT slot
+    assert (await store.load_keyed("elk:alerts")).timestamp_millis == 2000
+    assert (await store.load_keyed("elk:events")).timestamp_millis == 1000
+    assert (await store.load()).timestamp_millis == 50
+    # An unknown feed cold-starts; advancing one feed never moves another.
+    assert not (await store.load_keyed("elk:never-seen")).is_set()
+    await store.save_keyed("elk:events", Cursor(timestamp_millis=9999))
+    assert (await store.load_keyed("elk:alerts")).timestamp_millis == 2000  # unaffected
+
+
 # --------------------------------------------------------------------------- #
 # SqlVectorStore
 # --------------------------------------------------------------------------- #

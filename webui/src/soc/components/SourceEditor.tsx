@@ -15,6 +15,8 @@
 import * as React from 'react';
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   Plus,
   Trash2,
   Beaker,
@@ -46,7 +48,17 @@ import { Input } from '@/ui/input';
 import { Textarea } from '@/ui/textarea';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
+import { Slider } from '@/ui/slider';
+import { Badge } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetTrigger,
+} from '@/ui/sheet';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import {
   Select,
@@ -85,11 +97,51 @@ interface ConnectorFormValue {
   secrets: Record<string, string>;
 }
 
-/** Roles a pattern can carry (matches the backend's canonical IndexPattern.role). */
-const ROLE_OPTIONS: Array<{ value: IndexPattern['role']; text: string }> = [
-  { value: 'events', text: 'Events — correlate, then triage' },
-  { value: 'alerts', text: 'Alerts — investigate every match' },
+type FeedRole = 'events' | 'alerts' | 'ignore';
+
+/** The three feed roles + their meaning, colour, and operator help (Wave 6). */
+const ROLE_DEFS: Array<{
+  value: FeedRole;
+  label: string;
+  help: string;
+  /** Tailwind classes for the segmented control's active state. */
+  active: string;
+}> = [
+  {
+    value: 'events',
+    label: 'Events',
+    help: 'Raw logs. Correlated into clusters, then auto-investigated only when the firing rule is on the auto-forward allowlist (or per-feed auto-investigate is on).',
+    active: 'bg-info/15 text-info border-info/40',
+  },
+  {
+    value: 'alerts',
+    label: 'Alerts',
+    help: 'Pre-triaged detections. Every matching cluster is auto-investigated, bypassing the allowlist.',
+    active: 'bg-critical/15 text-critical border-critical/40',
+  },
+  {
+    value: 'ignore',
+    label: 'Ignore',
+    help: 'The feed is dropped — its events are skipped at ingest entirely and never form cases. Pinned last for precedence (a more specific ignore feed overrides a broader events/alerts feed).',
+    active: 'bg-muted text-muted-foreground border-border line-through decoration-1',
+  },
 ];
+
+const ROLE_HELP: Record<FeedRole, string> = {
+  events: ROLE_DEFS[0].help,
+  alerts: ROLE_DEFS[1].help,
+  ignore: ROLE_DEFS[2].help,
+};
+
+/** OCSF severity_id (1-6) → human label, for the per-feed severity-floor slider. */
+const SEVERITY_LABELS: Record<number, string> = {
+  1: 'Informational',
+  2: 'Low',
+  3: 'Medium',
+  4: 'High',
+  5: 'Critical',
+  6: 'Fatal',
+};
 
 /** Entity-strategy choices (matches the backend's canonical EntityStrategy). */
 const ENTITY_OPTIONS: Array<{ value: EntityStrategy; text: string }> = [
@@ -155,23 +207,181 @@ function splitPatterns(s: unknown): string[] {
     .filter(Boolean);
 }
 
-/** Derive editable index-pattern rows from a source config (migrates legacy single). */
-function deriveIndexPatterns(cfg: Record<string, unknown>): IndexPattern[] {
-  const existing = cfg.index_patterns;
-  if (Array.isArray(existing) && existing.length) {
-    return existing
-      .filter((p): p is IndexPattern => !!p && typeof (p as IndexPattern).pattern === 'string')
-      .map((p) => ({
-        pattern: String(p.pattern),
-        role: p.role === 'alerts' ? 'alerts' : 'events',
-        // Per-pattern Auto-Correlate (F6); absent → TRUE (back-compat).
-        auto_correlate: p.auto_correlate !== false,
-      }));
-  }
-  const fromSingle = splitPatterns(cfg.data_view_pattern).map(
-    (pattern): IndexPattern => ({ pattern, role: 'events', auto_correlate: true }),
+/**
+ * The editor's in-memory feed row — the rich Wave-6 shape with every field resolved
+ * to a concrete (non-undefined) value so the form is fully controlled. Maps onto the
+ * `config['index_patterns']` wire entries on save.
+ */
+interface FeedRow {
+  /** Stable feed id (derived from the pattern when absent). */
+  id: string;
+  label: string;
+  pattern: string;
+  role: FeedRole;
+  enabled: boolean;
+  query: string;
+  /** OCSF severity_id floor 1-6; null = no floor ("none"). */
+  severityFloor: number | null;
+  correlate: boolean;
+  /** null = derive the role default; otherwise an explicit operator override. */
+  autoInvestigate: boolean | null;
+  /** Per-feed poll interval seconds; null = inherit the source. */
+  pollInterval: number | null;
+  /** Per-feed field-mapping override (only non-empty entries are persisted). */
+  fieldMapping: FieldMappingsExtra;
+  messageField: string;
+}
+
+/** Lower-case slug of a pattern, mirroring the backend `slug(pattern)` fallback. */
+function slugPattern(pattern: string): string {
+  return (
+    pattern
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'feed'
   );
-  return fromSingle.length ? fromSingle : [{ pattern: '', role: 'events', auto_correlate: true }];
+}
+
+function coerceRole(v: unknown): FeedRole {
+  return v === 'alerts' || v === 'ignore' ? v : 'events';
+}
+
+/** The derived (role-aware) auto-investigate default when `auto_investigate` is null. */
+function derivedAutoInvestigate(row: Pick<FeedRow, 'role' | 'correlate'>): boolean {
+  if (row.role === 'ignore') return false;
+  if (row.role === 'alerts') return true;
+  // events: legacy `auto_correlate` drove the auto-forward decision.
+  return row.correlate;
+}
+
+function emptyFeed(): FeedRow {
+  return {
+    id: '',
+    label: '',
+    pattern: '',
+    role: 'events',
+    enabled: true,
+    query: '',
+    severityFloor: null,
+    correlate: true,
+    autoInvestigate: null,
+    pollInterval: null,
+    fieldMapping: {},
+    messageField: '',
+  };
+}
+
+/**
+ * Derive editable feed rows from a source config. Accepts BOTH legacy entries
+ * (`{pattern, role, auto_correlate}` or a bare string) AND the rich Wave-6 feed
+ * shape, yielding identical effective behaviour for old configs:
+ *   - legacy → `id=slug(pattern)`, `correlate=true`,
+ *     `auto_investigate=(role=='alerts' || legacy auto_correlate)`.
+ * Malformed entries are skipped (as the backend does).
+ */
+function deriveIndexPatterns(cfg: Record<string, unknown>): FeedRow[] {
+  const existing = cfg.index_patterns;
+  const rows: FeedRow[] = [];
+  if (Array.isArray(existing)) {
+    for (const item of existing) {
+      // Bare-string legacy entry.
+      if (typeof item === 'string' && item.trim()) {
+        const pattern = item.trim();
+        rows.push({ ...emptyFeed(), id: slugPattern(pattern), pattern });
+        continue;
+      }
+      if (!item || typeof item !== 'object') continue;
+      const p = item as Partial<IndexPattern> & Record<string, unknown>;
+      if (typeof p.pattern !== 'string' || !p.pattern.trim()) continue; // skip malformed
+      const pattern = p.pattern.trim();
+      const role = coerceRole(p.role);
+      // Legacy split: `auto_correlate` historically drove BOTH correlate + auto-forward.
+      const legacyAuto = p.auto_correlate !== false;
+      const hasCorrelate = typeof p.correlate === 'boolean';
+      const correlate = hasCorrelate ? (p.correlate as boolean) : legacyAuto || role === 'alerts';
+      const autoInvestigate =
+        typeof p.auto_investigate === 'boolean'
+          ? p.auto_investigate
+          : p.auto_investigate === null
+            ? null
+            : // legacy → derive: alerts always, else the legacy auto_correlate flag.
+              role === 'alerts'
+              ? true
+              : legacyAuto
+                ? true
+                : false;
+      rows.push({
+        id: typeof p.id === 'string' && p.id ? p.id : slugPattern(pattern),
+        label: typeof p.label === 'string' ? p.label : '',
+        pattern,
+        role,
+        enabled: p.enabled !== false,
+        query: typeof p.query === 'string' ? p.query : '',
+        severityFloor:
+          typeof p.severity_floor === 'number' && p.severity_floor >= 1 && p.severity_floor <= 6
+            ? p.severity_floor
+            : null,
+        correlate,
+        // For a legacy entry (no explicit correlate/auto_investigate split) leave
+        // auto-investigate as `null` so the UI shows the derived default; only a
+        // rich entry that carried an explicit boolean pins it.
+        autoInvestigate: hasCorrelate || typeof p.auto_investigate === 'boolean' ? autoInvestigate : null,
+        pollInterval:
+          typeof p.poll_interval_seconds === 'number' && p.poll_interval_seconds > 0
+            ? p.poll_interval_seconds
+            : null,
+        fieldMapping:
+          p.field_mapping && typeof p.field_mapping === 'object'
+            ? (p.field_mapping as FieldMappingsExtra)
+            : {},
+        messageField: typeof p.message_field === 'string' ? p.message_field : '',
+      });
+    }
+  }
+  if (rows.length) return rows;
+  const fromSingle = splitPatterns(cfg.data_view_pattern).map((pattern): FeedRow => ({
+    ...emptyFeed(),
+    id: slugPattern(pattern),
+    pattern,
+  }));
+  return fromSingle.length ? fromSingle : [emptyFeed()];
+}
+
+/**
+ * Fold an editor feed row back into the wire `index_patterns` entry. Emits the rich
+ * shape but stays back-compat: a default events feed serialises to essentially the
+ * legacy `{pattern, role, auto_correlate}` plus an `id`. Only non-default fields are
+ * written so the stored config stays lean.
+ */
+function feedToWire(row: FeedRow): IndexPattern {
+  const pattern = row.pattern.trim();
+  const wire: IndexPattern = {
+    pattern,
+    role: row.role,
+    // Keep the legacy key in sync so the CURRENT backend (which only knows
+    // `auto_correlate`) preserves identical auto-forward behaviour: a feed
+    // auto-forwards when its effective auto-investigate is on.
+    auto_correlate: derivedAutoInvestigate(row),
+  };
+  const id = (row.id || slugPattern(pattern)).trim();
+  if (id) wire.id = id;
+  if (row.label.trim()) wire.label = row.label.trim();
+  if (!row.enabled) wire.enabled = false;
+  if (row.query.trim()) wire.query = row.query.trim();
+  if (row.severityFloor != null) wire.severity_floor = row.severityFloor;
+  // The Wave-6 split. `correlate` defaults true; persist only when off.
+  if (!row.correlate) wire.correlate = false;
+  // auto_investigate: persist only an explicit operator override (null = derive).
+  if (row.autoInvestigate !== null) wire.auto_investigate = row.autoInvestigate;
+  if (row.pollInterval != null) wire.poll_interval_seconds = row.pollInterval;
+  if (row.messageField.trim()) wire.message_field = row.messageField.trim();
+  const fm: FieldMappingsExtra = {};
+  for (const def of FIELD_MAPPING_DEFS) {
+    const v = (row.fieldMapping[def.key] || '').trim();
+    if (v) fm[def.key] = v;
+  }
+  if (Object.keys(fm).length) wire.field_mapping = fm;
+  return wire;
 }
 
 /* ------------------------------------------------------------- cert picker - */
@@ -419,94 +629,513 @@ const FieldRow: React.FC<{
   );
 };
 
-/* --------------------------------------------------------- patterns editor - */
+/* ----------------------------------------------------------- feeds editor -- */
 
-const IndexPatternsEditor: React.FC<{
-  rows: IndexPattern[];
-  onChange: (rows: IndexPattern[]) => void;
-}> = ({ rows, onChange }) => {
-  const setRow = (i: number, patch: Partial<IndexPattern>) =>
-    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => onChange([...rows, { pattern: '', role: 'events', auto_correlate: true }]);
-  const removeRow = (i: number) =>
-    onChange(
-      rows.length > 1
-        ? rows.filter((_, idx) => idx !== i)
-        : [{ pattern: '', role: 'events', auto_correlate: true }],
+/** A 3-way role segmented control (events | alerts | ignore) with role colours. */
+const RoleSegmented: React.FC<{
+  value: FeedRole;
+  onChange: (v: FeedRole) => void;
+  idBase: string;
+}> = ({ value, onChange, idBase }) => (
+  <div
+    role="radiogroup"
+    aria-label="Feed role"
+    className="inline-flex rounded-md border border-border bg-surface p-0.5"
+  >
+    {ROLE_DEFS.map((r) => {
+      const active = value === r.value;
+      return (
+        <button
+          key={r.value}
+          type="button"
+          role="radio"
+          aria-checked={active}
+          id={`${idBase}-role-${r.value}`}
+          onClick={() => onChange(r.value)}
+          className={cn(
+            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            active ? cn('border', r.active) : 'border border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {r.label}
+        </button>
+      );
+    })}
+  </div>
+);
+
+/** A small effective-config summary chip describing what a feed will actually do. */
+const FeedPreviewChip: React.FC<{ row: FeedRow }> = ({ row }) => {
+  if (row.role === 'ignore') {
+    return (
+      <Badge variant="secondary" className="font-normal">
+        Dropped at ingest — never investigated
+      </Badge>
     );
+  }
+  const ai = row.autoInvestigate === null ? derivedAutoInvestigate(row) : row.autoInvestigate;
+  const parts: string[] = [];
+  parts.push(row.role === 'alerts' ? 'Auto-triage every detection' : 'Correlate then triage');
+  if (!row.correlate) parts.push('no correlation');
+  parts.push(ai ? 'auto-investigate on' : 'manual triage only');
+  if (row.severityFloor != null) {
+    parts.push(`floor ≥ ${SEVERITY_LABELS[row.severityFloor]} (below: candidate only)`);
+  }
+  return (
+    <Badge variant={row.role === 'alerts' ? 'critical' : 'info'} className="font-normal">
+      {parts.join(' · ')}
+    </Badge>
+  );
+};
+
+/** The per-feed field-mapping override drawer (reuses the shared mapping editor). */
+const FeedMappingDrawer: React.FC<{
+  row: FeedRow;
+  label: string;
+  onChange: (patch: Partial<FeedRow>) => void;
+}> = ({ row, label, onChange }) => {
+  const count =
+    Object.values(row.fieldMapping).filter((v) => (v || '').trim()).length +
+    (row.messageField.trim() ? 1 : 0);
+  const setMap = (key: keyof FieldMappingsExtra, v: string) =>
+    onChange({ fieldMapping: { ...row.fieldMapping, [key]: v } });
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button type="button" variant="outline" size="sm">
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden /> Field mapping
+          {count ? (
+            <Badge variant="info" className="ml-1 px-1.5 py-0 font-normal">
+              {count}
+            </Badge>
+          ) : null}
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle>Feed field mapping</SheetTitle>
+          <SheetDescription>
+            Override how <span className="font-medium text-foreground">{label}</span> maps its
+            native fields. Blank falls back to the source-level mapping, then global Settings.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="mt-4 space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor={`${row.id}-msg`} className="flex items-center gap-1.5">
+              Message field
+              <HelpTip
+                label="About the feed message field"
+                text="The field shown as the human-readable message column for this feed. Overrides the source-level message field."
+              />
+            </Label>
+            <Input
+              id={`${row.id}-msg`}
+              placeholder="e.g. message"
+              value={row.messageField}
+              onChange={(e) => onChange({ messageField: e.target.value })}
+            />
+          </div>
+          {FIELD_MAPPING_DEFS.filter((d) => d.key !== 'message_field').map((def) => {
+            const fid = `${row.id}-fm-${def.key}`;
+            return (
+              <div key={def.key} className="space-y-1.5">
+                <Label htmlFor={fid} className="flex items-center gap-1.5">
+                  {def.label}
+                  <HelpTip label={`About ${def.label}`} text={def.help} />
+                </Label>
+                <Input
+                  id={fid}
+                  placeholder={def.placeholder}
+                  value={row.fieldMapping[def.key] || ''}
+                  onChange={(e) => setMap(def.key, e.target.value)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+};
+
+/** One editable feed card. */
+const FeedCard: React.FC<{
+  row: FeedRow;
+  index: number;
+  count: number;
+  sourceId?: string;
+  onPatch: (patch: Partial<FeedRow>) => void;
+  onRemove: () => void;
+  onMove: (dir: -1 | 1) => void;
+}> = ({ row, index, count, sourceId, onPatch, onRemove, onMove }) => {
+  const idBase = `feed-${index}`;
+  const label = row.label.trim() || row.pattern.trim() || `Feed ${index + 1}`;
+  const ignore = row.role === 'ignore';
+  const derivedAi = derivedAutoInvestigate(row);
+  const aiChecked = row.autoInvestigate === null ? derivedAi : row.autoInvestigate;
+
+  // --- the per-feed "test" affordance against the bounded browse endpoint ----
+  const demoGuard = useDemoGuard();
+  const [testing, setTesting] = React.useState(false);
+  const [testMsg, setTestMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
+  const runTest = async () => {
+    if (!sourceId) {
+      setTestMsg({ ok: false, text: 'Save the source first, then test a feed query.' });
+      return;
+    }
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const res = await api.sourceLogs(sourceId, {
+        limit: 5,
+        query: row.query.trim() || undefined,
+      });
+      const n = res.count ?? res.logs.length;
+      setTestMsg({ ok: true, text: `Matched — sampled ${n} event${n === 1 ? '' : 's'}.` });
+    } catch (e) {
+      setTestMsg({ ok: false, text: errorMessage(e) });
+    } finally {
+      setTesting(false);
+    }
+  };
 
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        The index / data-view patterns this source reads. <strong>Alerts</strong> patterns:
-        every matching event is investigated. <strong>Events</strong> patterns: correlated,
-        then triaged. Add as many as you need.
-      </p>
-      {rows.map((row, i) => (
-        <div
-          key={i}
-          className="space-y-2 rounded-md border border-border bg-surface/50 p-3"
-        >
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-1.5">
-              {i === 0 ? <Label htmlFor={`ip-${i}`}>Index / data-view pattern</Label> : null}
-              <Input
-                id={`ip-${i}`}
-                placeholder="e.g. all-logs-* or wazuh-alerts-*"
-                value={row.pattern}
-                onChange={(e) => setRow(i, { pattern: e.target.value })}
-                aria-label={`Index pattern ${i + 1}`}
-              />
-            </div>
-            <div className="space-y-1.5 sm:w-[16rem]">
-              {i === 0 ? <Label>Role</Label> : null}
-              <Select
-                value={row.role}
-                onValueChange={(v) => setRow(i, { role: v as IndexPattern['role'] })}
-              >
-                <SelectTrigger aria-label={`Role for pattern ${i + 1}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ROLE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.text}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="text-critical"
-              aria-label={`Remove pattern ${i + 1}`}
-              onClick={() => removeRow(i)}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden />
-            </Button>
-          </div>
-          {/* Per-pattern (sub-source) Auto-Correlate toggle (F6). */}
-          <div className="flex items-center gap-2 pt-0.5">
-            <Switch
-              id={`ip-ac-${i}`}
-              checked={row.auto_correlate !== false}
-              onCheckedChange={(c) => setRow(i, { auto_correlate: c })}
-              aria-label={`Auto-Correlate for pattern ${i + 1}`}
-            />
-            <Label htmlFor={`ip-ac-${i}`} className="cursor-pointer text-xs">
-              Auto-Correlate
+    <div
+      className={cn(
+        'space-y-3 rounded-md border bg-surface/50 p-3',
+        ignore ? 'border-dashed border-border opacity-90' : 'border-border',
+      )}
+    >
+      {/* row 1: label + reorder/remove */}
+      <div className="flex items-start gap-2">
+        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1.5">
+            <Label htmlFor={`${idBase}-pattern`} className="flex items-center gap-1.5">
+              Index / data-view pattern
+              {!row.enabled ? (
+                <Badge variant="secondary" className="px-1.5 py-0 font-normal">
+                  disabled
+                </Badge>
+              ) : null}
             </Label>
-            <HelpTip
-              label="About per-pattern Auto-Correlate"
-              text="When on (default), clusters that touch this pattern are auto-forwarded to AI investigation. Turn it off to keep this pattern's clusters in manual triage only — they still correlate into clusters, they just aren't sent to the agent automatically."
+            <Input
+              id={`${idBase}-pattern`}
+              placeholder="e.g. all-logs-* or wazuh-alerts-*"
+              value={row.pattern}
+              onChange={(e) => onPatch({ pattern: e.target.value })}
+              aria-label={`Feed ${index + 1} index pattern`}
+              className={cn('font-mono text-sm', ignore && 'line-through decoration-1')}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              Role
+              <HelpTip
+                label="About feed roles"
+                text={`Alerts: ${ROLE_HELP.alerts}  ·  Events: ${ROLE_HELP.events}  ·  Ignore: ${ROLE_HELP.ignore}`}
+              />
+            </span>
+            <RoleSegmented
+              idBase={idBase}
+              value={row.role}
+              onChange={(v) => onPatch({ role: v })}
             />
           </div>
         </div>
-      ))}
+        <div className="flex shrink-0 items-center gap-0.5 pt-6">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={index === 0}
+            aria-label={`Move feed ${index + 1} up`}
+            onClick={() => onMove(-1)}
+          >
+            <ArrowUp className="h-4 w-4" aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            disabled={index === count - 1}
+            aria-label={`Move feed ${index + 1} down`}
+            onClick={() => onMove(1)}
+          >
+            <ArrowDown className="h-4 w-4" aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-critical"
+            aria-label={`Remove feed ${index + 1}`}
+            onClick={onRemove}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+      </div>
+
+      {/* row 2: label + enabled toggle */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1.5">
+          <Label htmlFor={`${idBase}-label`}>Label (optional)</Label>
+          <Input
+            id={`${idBase}-label`}
+            placeholder={row.pattern.trim() || 'A friendly name for this feed'}
+            value={row.label}
+            onChange={(e) => onPatch({ label: e.target.value })}
+          />
+        </div>
+        <div className="flex items-center gap-2 pb-2">
+          <Switch
+            id={`${idBase}-enabled`}
+            checked={row.enabled}
+            onCheckedChange={(c) => onPatch({ enabled: c })}
+            aria-label={`Feed ${index + 1} enabled`}
+          />
+          <Label htmlFor={`${idBase}-enabled`} className="cursor-pointer text-sm">
+            Enabled
+          </Label>
+        </div>
+      </div>
+
+      {/* the triage knobs only apply when the feed is not ignored */}
+      {!ignore ? (
+        <>
+          {/* row 3: correlate + auto-investigate switches */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${idBase}-correlate`}
+                checked={row.correlate}
+                onCheckedChange={(c) => onPatch({ correlate: c })}
+                aria-label={`Feed ${index + 1} correlate`}
+              />
+              <Label htmlFor={`${idBase}-correlate`} className="cursor-pointer text-sm">
+                Correlate
+              </Label>
+              <HelpTip
+                label="About Correlate"
+                text="When on (default), this feed's events are grouped into clusters before triage. Turn off only for feeds you never want correlated (events still register — they're never dropped)."
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id={`${idBase}-ai`}
+                checked={aiChecked}
+                onCheckedChange={(c) =>
+                  // Toggling pins an explicit override; toggling back to the derived
+                  // default keeps it explicit (operator intent is now recorded).
+                  onPatch({ autoInvestigate: c })
+                }
+                aria-label={`Feed ${index + 1} auto-investigate`}
+              />
+              <Label htmlFor={`${idBase}-ai`} className="cursor-pointer text-sm">
+                Auto-investigate
+              </Label>
+              {row.autoInvestigate === null ? (
+                <Badge variant="secondary" className="px-1.5 py-0 font-normal">
+                  default: {derivedAi ? 'on' : 'off'}
+                </Badge>
+              ) : null}
+              <HelpTip
+                label="About Auto-investigate"
+                text="When on, this feed's clusters are auto-forwarded to AI investigation. Alerts feeds default on; events feeds follow Correlate. Showing 'default' means it's deriving from the role — toggle to pin it."
+              />
+            </div>
+          </div>
+
+          {/* row 4: severity floor slider */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5">
+                Severity floor
+                <HelpTip
+                  label="About the severity floor"
+                  text="Below this OCSF severity, events still register as candidates + live-tail (never dropped, non-negotiable #4) but are NOT auto-forwarded. 'None' = no floor."
+                />
+              </Label>
+              <span className="text-xs font-medium text-muted-foreground">
+                {row.severityFloor == null
+                  ? 'None'
+                  : `${SEVERITY_LABELS[row.severityFloor]} (${row.severityFloor})`}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Slider
+                aria-label={`Feed ${index + 1} severity floor`}
+                min={0}
+                max={6}
+                step={1}
+                value={[row.severityFloor ?? 0]}
+                onValueChange={(v) =>
+                  onPatch({ severityFloor: v[0] === 0 ? null : v[0] })
+                }
+                className="max-w-sm"
+              />
+              {row.severityFloor != null ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => onPatch({ severityFloor: null })}
+                >
+                  Clear
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {/* row 5: connector-native query + test */}
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idBase}-query`} className="flex items-center gap-1.5">
+          Feed query (optional)
+          <HelpTip
+            label="About the feed query"
+            text="A connector-native filter applied to this feed only (e.g. an Elasticsearch query_string). Operator-authored and trusted; it is never fed to the AI as a prompt."
+          />
+        </Label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+          <Input
+            id={`${idBase}-query`}
+            placeholder='e.g. event.outcome:"failure" and not user.name:"svc-*"'
+            value={row.query}
+            onChange={(e) => onPatch({ query: e.target.value })}
+            className="flex-1 font-mono text-xs"
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing || demoGuard.disabled || !sourceId}
+                aria-disabled={demoGuard.disabled || !sourceId || undefined}
+                onClick={() => void runTest()}
+              >
+                {testing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Beaker className="h-3.5 w-3.5" aria-hidden />
+                )}
+                Test
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              {demoGuard.disabled
+                ? demoGuard.reason
+                : !sourceId
+                  ? 'Save the source first, then test a feed query against the live source.'
+                  : 'Runs the feed query against the live source via the bounded, read-only browse endpoint (max 5 sampled rows).'}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+        {testMsg ? (
+          // browse-endpoint message is authoritative → plain text only
+          <p className={cn('text-xs', testMsg.ok ? 'text-success' : 'text-critical')}>
+            {testMsg.text}
+          </p>
+        ) : null}
+      </div>
+
+      {/* row 6: schedule + field-mapping drawer */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor={`${idBase}-sched`} className="flex items-center gap-1.5">
+            Poll schedule
+            <HelpTip
+              label="About the feed schedule"
+              text="How often this feed is polled, in seconds. Leave blank to inherit the source-wide interval. A fast alerts feed and a slow events feed keep independent cursors so neither skips the other."
+            />
+          </Label>
+          <Input
+            id={`${idBase}-sched`}
+            type="number"
+            min={1}
+            placeholder="inherit"
+            value={row.pollInterval == null ? '' : String(row.pollInterval)}
+            onChange={(e) =>
+              onPatch({
+                pollInterval: e.target.value === '' ? null : Math.max(1, Number(e.target.value) || 0) || null,
+              })
+            }
+            className="w-32"
+          />
+        </div>
+        <div className="pb-0.5">
+          <FeedMappingDrawer row={row} label={label} onChange={onPatch} />
+        </div>
+      </div>
+
+      {/* effective-config preview */}
+      <div className="pt-0.5">
+        <FeedPreviewChip row={row} />
+      </div>
+    </div>
+  );
+};
+
+const IndexPatternsEditor: React.FC<{
+  rows: FeedRow[];
+  onChange: (rows: FeedRow[]) => void;
+  sourceId?: string;
+}> = ({ rows, onChange, sourceId }) => {
+  const patchRow = (i: number, patch: Partial<FeedRow>) =>
+    onChange(
+      rows.map((r, idx) => {
+        if (idx !== i) return r;
+        const next = { ...r, ...patch };
+        // Keep an id derived from the pattern when the operator hasn't set one and
+        // the pattern changes — so feeds keep distinct, stable cursor keys.
+        if ('pattern' in patch && (!r.id || r.id === slugPattern(r.pattern))) {
+          next.id = slugPattern(next.pattern);
+        }
+        return next;
+      }),
+    );
+  const addRow = () => onChange([...rows, emptyFeed()]);
+  const removeRow = (i: number) =>
+    onChange(rows.length > 1 ? rows.filter((_, idx) => idx !== i) : [emptyFeed()]);
+  const moveRow = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= rows.length) return;
+    const next = rows.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Each <strong>feed</strong> is an index / data-view pattern this source reads, with a
+        role: <span className="font-medium text-critical">Alerts</span> (every detection is
+        auto-triaged), <span className="font-medium text-info">Events</span> (correlated, then
+        allowlist-gated), or <span className="font-medium">Ignore</span> (dropped at ingest).
+        More specific ignore feeds take precedence over broader feeds.
+      </p>
+      <div className="space-y-3">
+        {rows.map((row, i) => (
+          <FeedCard
+            key={row.id || i}
+            row={row}
+            index={i}
+            count={rows.length}
+            sourceId={sourceId}
+            onPatch={(patch) => patchRow(i, patch)}
+            onRemove={() => removeRow(i)}
+            onMove={(dir) => moveRow(i, dir)}
+          />
+        ))}
+      </div>
       <Button type="button" variant="outline" size="sm" onClick={addRow}>
-        <Plus className="h-4 w-4" aria-hidden /> Add pattern
+        <Plus className="h-4 w-4" aria-hidden /> Add feed
       </Button>
     </div>
   );
@@ -673,7 +1302,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const [isPrimary, setIsPrimary] = React.useState(existing?.is_primary ?? defaultPrimary ?? false);
   const [showValidation, setShowValidation] = React.useState(false);
 
-  const [patterns, setPatterns] = React.useState<IndexPattern[]>(() =>
+  const [patterns, setPatterns] = React.useState<FeedRow[]>(() =>
     deriveIndexPatterns((existing?.config as Record<string, unknown>) || {}),
   );
   const [entityStrategy, setEntityStrategy] = React.useState<string>(
@@ -804,21 +1433,25 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
 
   /** Fold the advanced-config editors back into the form's `config` before save. */
   const buildConfig = (): Record<string, unknown> => {
-    const cleanPatterns: IndexPattern[] = patterns
-      .map((p) => ({
-        pattern: p.pattern.trim(),
-        role: p.role === 'alerts' ? 'alerts' : ('events' as IndexPattern['role']),
-        auto_correlate: p.auto_correlate !== false,
-      }))
-      .filter((p) => p.pattern);
-    const eventsPatterns = cleanPatterns.filter((p) => p.role === 'events').map((p) => p.pattern);
-    const firstPattern = (eventsPatterns[0] || cleanPatterns[0]?.pattern || '').trim();
+    // Drop blank-pattern rows, then serialise each feed to its wire entry.
+    const cleanFeeds: IndexPattern[] = patterns
+      .filter((p) => p.pattern.trim())
+      .map((p) => feedToWire(p));
+
+    // The legacy `data_view_pattern` fallback is the comma-join of NON-ignore
+    // patterns (IGNORE feeds are dropped at ingest → never part of the read view).
+    const readablePatterns = cleanFeeds
+      .filter((p) => p.role !== 'ignore')
+      .map((p) => p.pattern);
+    const firstPattern = (readablePatterns[0] || cleanFeeds[0]?.pattern || '').trim();
 
     const cfg: Record<string, unknown> = { ...value.config };
 
-    if (cleanPatterns.length) {
-      cfg.index_patterns = cleanPatterns;
-      cfg.data_view_pattern = (eventsPatterns.length ? eventsPatterns : [firstPattern]).join(',');
+    if (cleanFeeds.length) {
+      cfg.index_patterns = cleanFeeds;
+      cfg.data_view_pattern = (readablePatterns.length ? readablePatterns : [firstPattern]).join(
+        ',',
+      );
     } else {
       delete cfg.index_patterns;
     }
@@ -994,8 +1627,8 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
 
       {/* advanced triage config */}
       <div className="space-y-3">
-        <SectionTitle>Index patterns</SectionTitle>
-        <IndexPatternsEditor rows={patterns} onChange={setPatterns} />
+        <SectionTitle>Feeds</SectionTitle>
+        <IndexPatternsEditor rows={patterns} onChange={setPatterns} sourceId={existing?.id} />
       </div>
 
       <div className="space-y-3">

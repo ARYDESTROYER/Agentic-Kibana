@@ -69,6 +69,14 @@ class RawEvent(BaseModel):
     index_role: str = "events"
     source_id: str | None = None
     source_name: str | None = None
+    # Per-FEED provenance (Wave 6 — multi-feed sources). ``feed_id`` is the id of the
+    # configured feed this event was read from (blank for legacy/un-fed sources).
+    # ``auto_investigate_eligible`` is FALSE when the event is below its feed's
+    # ``severity_floor``: such an event is STILL correlated + live-tailed (NEVER
+    # dropped, #4) but its cluster is NOT auto-forwarded. Defaults preserve today's
+    # behaviour byte-for-byte (every event eligible, no feed).
+    feed_id: str = ""
+    auto_investigate_eligible: bool = True
 
     @classmethod
     def from_hit(cls, hit: dict[str, Any], prefs: Preferences) -> "RawEvent":
@@ -257,6 +265,14 @@ class Cluster(BaseModel):
     # clusters are SIEM-generated detections and are auto-forwarded to investigation
     # regardless of the auto-forward allowlist (see engine/ingest.handle_clusters).
     is_alert: bool = False
+    # Per-feed severity_floor gate (Wave 6, #4). FALSE only when EVERY member event is
+    # below its feed's ``severity_floor`` — the cluster is then registered as a
+    # candidate + live-tailed but NOT auto-forwarded (never dropped). TRUE (the
+    # default) when ANY member is at/above its floor (or no floor is set), preserving
+    # today's behaviour byte-for-byte. ``feed_ids`` records the distinct feeds that
+    # contributed members (multi-feed provenance; usually 0/1).
+    auto_investigate_eligible: bool = True
+    feed_ids: list[str] = Field(default_factory=list)
     # Cross-source provenance (Wave 5 / F6 — multi-source telemetry). ``source_ids``
     # is the DISTINCT set of source ids whose member events contributed to this
     # cluster (today a cluster is single-source, so usually a 0/1-length list);

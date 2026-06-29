@@ -459,13 +459,60 @@ export interface ConnectionTest {
  */
 export interface IndexPattern {
   pattern: string;
-  role: 'events' | 'alerts' | string;
   /**
-   * Per-pattern (sub-source) Auto-Correlate toggle (F6). Defaults TRUE so today's
-   * behaviour is byte-identical. When false, clusters touching only this pattern are
-   * NOT auto-forwarded to AI investigation (they still correlate into clusters).
+   * The kind of records this feed carries. `alerts` = pre-triaged detections, every
+   * one auto-investigated; `events` = raw logs, correlated then allowlist-gated;
+   * `ignore` (Wave 6) = the feed is dropped (skipped at ingest entirely).
+   */
+  role: 'events' | 'alerts' | 'ignore' | string;
+  /**
+   * Per-pattern (sub-source) Auto-Correlate toggle (F6, legacy). Defaults TRUE so
+   * today's behaviour is byte-identical. Historically drove BOTH correlation and
+   * auto-forward; Wave 6 splits it into `correlate` + `auto_investigate` but keeps
+   * this key in sync so the current backend preserves identical behaviour.
    */
   auto_correlate?: boolean;
+
+  // --- Wave 6 per-feed customization (all optional; back-compat preserved) --- //
+  /**
+   * Whether this feed's events are correlated into clusters. Defaults TRUE; the
+   * Wave-6 split of the overloaded `auto_correlate`.
+   */
+  correlate?: boolean;
+  /**
+   * Stable feed id. Absent on legacy/bare-string entries → the backend derives
+   * `slug(pattern)`. Lets two feeds share a base pattern but keep distinct cursors.
+   */
+  id?: string;
+  /** Operator-facing label for the feed (cosmetic; falls back to the pattern). */
+  label?: string;
+  /** Whether the feed is polled at all. Defaults TRUE. */
+  enabled?: boolean;
+  /**
+   * A connector-native filter (e.g. an ES query_string) applied to this feed only.
+   * Operator-authored + TRUSTED — never interpolated into an LLM prompt.
+   */
+  query?: string | null;
+  /**
+   * Per-feed field-mapping override. Merged over the source-level mapping
+   * (`{...source.field_mappings_extra, ...feed.field_mapping}`).
+   */
+  field_mapping?: FieldMappingsExtra;
+  /** Per-feed message-field override; falls back to the source-level message field. */
+  message_field?: string | null;
+  /**
+   * OCSF severity_id floor (1-6). Events below it still register as a candidate +
+   * live-tail (#4 — never dropped) but do NOT auto-forward. `null`/absent = no floor.
+   */
+  severity_floor?: number | null;
+  /**
+   * Split out of the overloaded `auto_correlate`: whether clusters from this feed
+   * are auto-forwarded to AI investigation. `null`/absent → the role-derived default
+   * (`true` for alerts, `auto_correlate` for events).
+   */
+  auto_investigate?: boolean | null;
+  /** Per-feed poll interval override (seconds). `null`/absent = inherit the source. */
+  poll_interval_seconds?: number | null;
 }
 
 /**
@@ -497,7 +544,11 @@ export type EntityStrategy = 'auto' | 'ip' | 'host' | 'user' | 'rule';
  * (e.g. `cfg as SourceConfigExtras`) when a surface reads them.
  */
 export interface SourceConfigExtras {
-  /** Per-source index/data-view patterns + their role (events vs alerts). */
+  /**
+   * Per-source feeds: index/data-view patterns + their role (events / alerts /
+   * ignore) and per-feed Wave-6 customization. Kept under the legacy wire key
+   * `index_patterns` so old configs round-trip unchanged.
+   */
   index_patterns?: IndexPattern[];
   /** How this source picks the cluster's primary entity. */
   entity_strategy?: EntityStrategy | string;

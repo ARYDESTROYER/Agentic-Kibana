@@ -146,10 +146,29 @@ class ConfigRepository(ABC):
 
 
 class CursorRepository(ABC):
-    """Durable polling cursor contract (Section 6.1)."""
+    """Durable polling cursor contract (Section 6.1).
+
+    ``load``/``save`` operate on the PRIMARY cursor (the legacy single source).
+    ``load_keyed``/``save_keyed`` (Wave 6) persist an INDEPENDENT cursor per key —
+    e.g. ``f'{source.id}:{feed.id}'`` — so a fast alerts feed and a slow events feed
+    never share/skip a cursor (#4). A concrete store overrides the keyed variants for
+    true isolation; the default here routes the primary key to ``load``/``save`` and
+    raises for any other key (so a store that hasn't opted in fails loudly rather than
+    silently sharing one cursor)."""
 
     @abstractmethod
     async def load(self) -> Cursor: ...
 
     @abstractmethod
     async def save(self, cursor: Cursor) -> None: ...
+
+    async def load_keyed(self, key: str) -> Cursor:
+        if key in ("", "primary"):
+            return await self.load()
+        raise NotImplementedError("keyed cursors not supported by this store")
+
+    async def save_keyed(self, key: str, cursor: Cursor) -> None:
+        if key in ("", "primary"):
+            await self.save(cursor)
+            return
+        raise NotImplementedError("keyed cursors not supported by this store")

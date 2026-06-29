@@ -266,13 +266,17 @@ class EntityStrategy(str, Enum):
     RULE = "rule"
 
 
-# Role a configured index pattern plays for a source (multi-pattern sources).
+# Role a configured index pattern / feed plays for a source (multi-feed sources).
 # ``events`` patterns keep the correlate→auto-forward-allowlist behaviour;
 # ``alerts`` patterns are SIEM-generated detections every one of which the operator
 # wants triaged, so alerts-role clusters are AUTO-FORWARDED (bypass the allowlist).
+# ``ignore`` patterns are dropped entirely at ingest (a per-feed mute) — they are the
+# ONLY role that skips ingest; a below-severity_floor event on an events/alerts feed is
+# never dropped (it still registers a candidate + live-tail, just not auto-forwarded).
 class IndexRole(str, Enum):
     EVENTS = "events"
     ALERTS = "alerts"
+    IGNORE = "ignore"
 
 
 class UsageOutcome(str, Enum):

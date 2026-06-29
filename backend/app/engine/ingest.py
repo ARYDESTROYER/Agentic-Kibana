@@ -15,7 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..config import Preferences
-from ..constants import OPEN_CASE_STATUSES, ActionType, SourceSurface
+from ..constants import OPEN_CASE_STATUSES, ActionType, IndexRole, SourceSurface
 from ..engine.cost_gate import passes_suppression
 from ..models import Cluster, RawEvent
 from ..utils import iso_now
@@ -29,22 +29,26 @@ logger = logging.getLogger("tlsoc.engine.ingest")
 
 
 def _push_source_role(src) -> str:
-    """The role a PUSH source declares for its events ("alerts" or "events").
+    """The role a PUSH source declares for its events ("alerts"/"events"/"ignore").
 
     A push source has no per-document index, so it is declared wholesale: either
-    ``config["role"] = "alerts"`` or an ``index_patterns`` list whose entries are
-    ALL alerts-role. Anything else (incl. no source) is treated as ``events`` —
-    full back-compat with today's correlate→allowlist behaviour."""
+    ``config["role"] = "alerts"|"ignore"`` or an ``index_patterns`` list whose entries
+    are ALL one role. Anything else (incl. no source) is treated as ``events`` — full
+    back-compat with today's correlate→allowlist behaviour. ``ignore`` mutes the source
+    entirely (its events are dropped at ingest)."""
     if src is None:
         return "events"
     cfg = getattr(src, "config", None) or {}
-    if str(cfg.get("role") or "").lower() == "alerts":
-        return "alerts"
+    declared = str(cfg.get("role") or "").lower()
+    if declared in ("alerts", "ignore"):
+        return declared
     try:
-        patterns = src.index_patterns()
+        feeds = src.feeds()
     except Exception:  # noqa: BLE001
-        patterns = []
-    if patterns and all(p.role.value == "alerts" for p in patterns):
+        feeds = []
+    if feeds and all(f.role.value == "ignore" for f in feeds):
+        return "ignore"
+    if feeds and all(f.role.value == "alerts" for f in feeds):
         return "alerts"
     return "events"
 
@@ -59,23 +63,26 @@ def dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
 
 
 def _auto_correlate_allowed(cluster: Cluster, prefs: Preferences) -> bool:
-    """The per-source + per-sub-source "Auto-Correlate" gate (Wave 5 / F6).
+    """The per-source + per-FEED "Auto-Correlate" gate (Wave 5 / F6 + Wave 6).
 
-    A cluster may auto-forward to investigation ONLY when BOTH its SOURCE and the
-    matched SUB-SOURCE (index pattern) allow it. Both toggles default TRUE so, out of
-    the box, this returns True for every cluster and the auto-forward decision is
-    byte-identical to before.
+    A cluster may auto-forward to investigation ONLY when BOTH its SOURCE and EVERY
+    matched FEED allow it. All toggles default TRUE so, out of the box, this returns
+    True for every cluster and the auto-forward decision is byte-identical to before.
 
     Resolution:
       * Source level — ``SourceInstance.auto_correlate()`` (config["auto_correlate"]).
-      * Sub-source level — every configured index pattern that ANY member event's
-        ``_index`` matches must have ``auto_correlate=True``; a cluster touching a
-        pattern whose toggle is OFF is not auto-forwarded. When the source declares no
-        index patterns (legacy / push sources without patterns), the sub-source check
-        is a no-op (True), so back-compat holds.
+      * Feed level — for each configured feed an in-scope member event belongs to, the
+        feed's ``effective_auto_investigate()`` must be True. That derives from the
+        feed's role + ``correlate`` + the explicit ``auto_investigate`` override
+        (None → ``role=='alerts' or legacy auto_correlate``), so a legacy
+        ``{pattern, role, auto_correlate}`` config yields the SAME decision and a feed
+        with ``auto_investigate=False`` is routed to a candidate (manual triage).
+        Matched by ``feed_id`` (the connector tags it) with a fallback to a
+        longest-pattern ``_index`` match for un-tagged events.
 
-    A cluster with no resolvable source (the legacy implicit single source) always
-    returns True — nothing changes for the default deployment."""
+    When the source declares no feeds (legacy / push sources without patterns) the
+    feed check is a no-op (True). A cluster with no resolvable source (the legacy
+    implicit single source) always returns True — nothing changes by default."""
     source_id = cluster.source_id
     if not source_id:
         return True
@@ -84,20 +91,66 @@ def _auto_correlate_allowed(cluster: Cluster, prefs: Preferences) -> bool:
         return True
     if not src.auto_correlate():
         return False
-    patterns = src.index_patterns()
-    if not patterns:
+    feeds = src.feeds()
+    if not feeds:
         return True
     import fnmatch
 
-    # Disabled-sub-source patterns this cluster's events touch ⇒ block auto-forward.
-    disabled = [p.pattern for p in patterns if not p.auto_correlate]
-    if not disabled:
-        return True
+    by_id = {f.id: f for f in feeds}
     for ev in cluster.member_events:
-        idx = ev.index or ""
-        for pat in disabled:
-            if idx and fnmatch.fnmatch(idx, pat):
-                return False
+        feed = by_id.get(ev.feed_id) if ev.feed_id else None
+        if feed is None:
+            # Un-tagged event (e.g. push/legacy): longest-pattern ``_index`` match.
+            idx = ev.index or ""
+            best = None
+            best_len = -1
+            for f in feeds:
+                if f.pattern and idx and fnmatch.fnmatch(idx, f.pattern) and len(f.pattern) > best_len:
+                    best, best_len = f, len(f.pattern)
+            feed = best
+        if feed is not None and not feed.effective_auto_investigate():
+            return False
+    return True
+
+
+def _is_ignored_cluster(cluster: Cluster, prefs: Preferences) -> bool:
+    """True when EVERY in-scope member event belongs to an IGNORE feed (Wave 6).
+
+    An IGNORE feed is a per-feed MUTE: its events are dropped entirely at ingest (the
+    PULL connector never reads them; this is the defence-in-depth drop for any event
+    that still arrives — e.g. via a PUSH source declaring an ignore feed). It is the
+    ONLY role that drops; a below-``severity_floor`` event on an events/alerts feed is
+    NEVER dropped here (it registers a candidate + live-tail, #4). Returns False when
+    the source has no IGNORE feed (the default) so behaviour is byte-identical."""
+    source_id = cluster.source_id
+    if not source_id:
+        return False
+    src = next((s for s in prefs.sources if s.id == source_id), None)
+    if src is None:
+        return False
+    feeds = src.feeds()
+    ignore_feeds = [f for f in feeds if f.role == IndexRole.IGNORE]
+    if not ignore_feeds:
+        return False
+    import fnmatch
+
+    by_id = {f.id: f for f in feeds}
+    members = cluster.member_events or []
+    if not members:
+        return False
+    for ev in members:
+        feed = by_id.get(ev.feed_id) if ev.feed_id else None
+        if feed is None:
+            idx = ev.index or ""
+            best = None
+            best_len = -1
+            for f in feeds:
+                if f.pattern and idx and fnmatch.fnmatch(idx, f.pattern) and len(f.pattern) > best_len:
+                    best, best_len = f, len(f.pattern)
+            feed = best
+        # Any non-ignore member means the cluster is NOT fully muted (never dropped).
+        if feed is None or feed.role != IndexRole.IGNORE:
+            return False
     return True
 
 
@@ -132,10 +185,16 @@ async def handle_clusters(
 ) -> dict[str, int]:
     """Attach / investigate / register each cluster. Returns count stats."""
     stats = {"clusters": len(clusters), "investigated": 0, "candidates": 0,
-             "attached": 0, "suppressed": 0}
+             "attached": 0, "suppressed": 0, "ignored": 0}
     allow = set(prefs.auto_forward_allowlist)
     wildcard = "*" in allow
     for cluster in clusters:
+        # IGNORE feed (Wave 6): the only role that DROPS. A cluster every member of
+        # which belongs to an ignore feed is muted entirely — skip ingest (no case,
+        # no candidate). A below-severity_floor event is NOT dropped here (#4).
+        if _is_ignored_cluster(cluster, prefs):
+            stats["ignored"] += 1
+            continue
         # Defence-in-depth suppression (cost-gate layer 2): an entirely-suppressed
         # cluster is the intended drop mechanism.
         if not passes_suppression(cluster, prefs):
@@ -152,13 +211,19 @@ async def handle_clusters(
         # background_scan_enabled, the global automated-investigation switch).
         # Events-role clusters keep the existing correlate→allowlist behaviour.
         #
-        # The per-source + per-sub-source "Auto-Correlate" toggle (Wave 5 / F6) is an
+        # The per-source + per-feed "Auto-Correlate" toggle (Wave 5 / F6 + Wave 6) is an
         # ADDITIONAL gate on top of all of the above: a cluster auto-forwards only when
-        # its source AND the matched sub-source pattern allow it. Both default TRUE so
-        # this is byte-identical out of the box; a disabled toggle routes the cluster to
-        # a candidate (manual triage) instead — it is still correlated + never dropped.
+        # its source AND every matched feed allow it. All toggles default TRUE so this
+        # is byte-identical out of the box; a disabled toggle routes the cluster to a
+        # candidate (manual triage) instead — it is still correlated + never dropped.
+        #
+        # The per-feed ``severity_floor`` (Wave 6, #4) is the final gate:
+        # ``cluster.auto_investigate_eligible`` is False only when EVERY member is below
+        # its feed floor — such a cluster is registered as a CANDIDATE (+ live-tail),
+        # never dropped, never auto-forwarded.
         forwarded = (
             prefs.background_scan_enabled
+            and cluster.auto_investigate_eligible
             and _auto_correlate_allowed(cluster, prefs)
             and (cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values))
         )
@@ -339,7 +404,7 @@ class IngestService:
     ) -> dict[str, int]:
         prefs = prefs or self._get_prefs()
         base = {"received": 0, "clusters": 0, "investigated": 0,
-                "candidates": 0, "attached": 0, "suppressed": 0}
+                "candidates": 0, "attached": 0, "suppressed": 0, "ignored": 0}
         if not events:
             return base
         from ..engine.correlation import correlate  # local import avoids a cycle
@@ -349,8 +414,9 @@ class IngestService:
             # Tag PUSH events with source provenance + role (the ElasticConnector
             # does this for PULL). A push source can be declared an ALL-alerts source
             # via config (``role: alerts`` / ``index_patterns`` all-alerts) so every
-            # one of its clusters auto-forwards. Never overwrites a role/source the
-            # event already carries (e.g. set by a connector).
+            # one of its clusters auto-forwards, or an ALL-ignore source (``role:
+            # ignore``) which is MUTED — its events drop at ingest. Never overwrites a
+            # role/source the event already carries (e.g. set by a connector).
             src = next((s for s in prefs.sources if s.id == source_id), None)
             push_role = _push_source_role(src)
             name = (src.display_name or source_id) if src else source_id
@@ -366,6 +432,12 @@ class IngestService:
                 buf = collections.deque(maxlen=self._recent_max)
                 self._recent[source_id] = buf
             buf.extend(events)
+            # IGNORE feed (Wave 6): a wholesale-ignore PUSH source is muted — its
+            # events are still BUFFERED for browse/live-tail but skip ingest entirely
+            # (no correlate, no case). This is the ONLY drop; a below-floor event is
+            # never dropped (#4).
+            if push_role == "ignore":
+                return {**base, "received": len(events), "ignored": len(events)}
         try:
             # Honour the originating source's per-source entity strategy (entity-
             # agnostic correlation; default auto preserves today's behaviour).

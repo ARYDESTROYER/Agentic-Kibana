@@ -201,6 +201,12 @@ def _build_cluster(
     # Distinct source ids that contributed members (Wave 5 multi-source provenance;
     # today a cluster is single-source, so this is usually 0/1 ids).
     source_ids = sorted({ev.source_id for ev in members_sorted if ev.source_id})
+    # Per-feed severity_floor gate (Wave 6, #4): the cluster is auto-investigate-
+    # eligible when ANY member is at/above its feed floor (or has no floor). Only an
+    # ALL-below-floor cluster is blocked from auto-forward — and it is STILL a
+    # candidate (never dropped). ``feed_ids`` records the contributing feeds.
+    auto_investigate_eligible = any(ev.auto_investigate_eligible for ev in members_sorted)
+    feed_ids = sorted({ev.feed_id for ev in members_sorted if ev.feed_id})
     return Cluster(
         signature=cluster_signature(entity_type, value),
         entity=Entity(type=entity_type, value=display_value),
@@ -216,6 +222,8 @@ def _build_cluster(
         source_name=source_name,
         is_alert=is_alert,
         source_ids=source_ids,
+        auto_investigate_eligible=auto_investigate_eligible,
+        feed_ids=feed_ids,
     )
 
 

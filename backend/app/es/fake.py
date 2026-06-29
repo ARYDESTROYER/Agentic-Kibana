@@ -10,6 +10,7 @@ it is a faithful stand-in for the structures this codebase actually issues.
 from __future__ import annotations
 
 import fnmatch
+import re
 from typing import Any
 
 from .base import BaseESClient
@@ -224,6 +225,25 @@ def _matches(query: dict[str, Any], doc_id: str, src: dict[str, Any]) -> bool:
             for f in mm.get("fields", [])
             if dotted_get(src, f) is not None
         )
+    if "query_string" in query:
+        # Minimal offline support for the operator-authored per-feed query (Wave 6):
+        # space/AND-separated ``field:value`` clauses (ALL must match). Enough to
+        # exercise a feed-scoping filter without a real Lucene parser. A clause with
+        # no ``:`` is treated as a free-text substring over the ``message`` field.
+        qs = str(query["query_string"].get("query", "")).strip()
+        if not qs:
+            return True
+        clauses = [c for c in re.split(r"\s+(?:and|AND)\s+|\s+", qs) if c]
+        for clause in clauses:
+            if ":" in clause:
+                field, _, value = clause.partition(":")
+                if not _term_match(src, field.strip(), value.strip()):
+                    return False
+            else:
+                msg = dotted_get(src, "message")
+                if msg is None or clause.lower() not in str(msg).lower():
+                    return False
+        return True
     return False
 
 
