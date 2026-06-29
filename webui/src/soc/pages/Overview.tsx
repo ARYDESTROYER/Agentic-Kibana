@@ -1,11 +1,12 @@
 /**
  * Overview — the Security Posture Dashboard (default landing surface).
  *
- * A "command center" view of triage posture: a gradient hero with a window
- * toggle (24h / 7d / 30d) + refresh, an Active Risk Index gauge, an accent-topped
- * KPI tile row (each drill-through to the cases list), MTTD/MTTA/MTTR timing
- * StatCards, and three ranked BarList cards (product/category signals, severity
- * pressure, case workload state).
+ * A calm, OpenSearch/AdSense-clean view of triage posture: a subtle hero with a
+ * window toggle (24h / 7d / 30d) + refresh, an Active Risk Index gauge, an
+ * AdSense-style KPI tile row (each drill-through to the cases list), MTTD/MTTA/MTTR
+ * timing StatCards, and three ranked signal cards (source signals, severity
+ * pressure, case workload state). Generous whitespace, hairline borders, accent
+ * color reserved for severity/status — no decorative glow.
  *
  * Data: api.getMetrics, listCases, usageSummary, ragStats — fetched with
  * allSettled so a single failing call degrades one widget, never the page.
@@ -429,22 +430,22 @@ export default function Overview({ onNavigate }: OverviewProps) {
   // ----- States ----------------------------------------------------------- //
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         <Skeleton className="h-32 w-full rounded-lg" />
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-5 lg:grid-cols-3">
           <Skeleton className="h-72 rounded-lg lg:col-span-1" />
-          <div className="grid grid-cols-2 gap-4 lg:col-span-2 xl:grid-cols-3">
+          <div className="grid grid-cols-2 gap-5 lg:col-span-2 xl:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-28 rounded-lg" />
             ))}
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-5 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-80 rounded-lg" />
           ))}
@@ -485,7 +486,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const empty = !loading && !error && cases.length === 0 && !metrics?.total_cases;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <HeroPanel
         eyebrow="Security Command Center"
         icon={Radar}
@@ -543,23 +544,23 @@ export default function Overview({ onNavigate }: OverviewProps) {
       ) : (
         <>
           {/* ---- Risk index + KPI tile row ---- */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-5 lg:grid-cols-3">
             {/* Active Risk Index */}
             <Card className="lg:col-span-1">
-              <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Gauge className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Active Risk Index
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col items-center gap-4">
-                <div className="flex w-full flex-col items-center gap-1">
-                  <RiskGauge score={riskIndex} size={200} />
-                  <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <CardContent className="flex flex-col items-center gap-6 pb-6">
+                <div className="flex w-full flex-col items-center gap-2 py-2">
+                  <RiskGauge score={riskIndex} size={208} />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Weighted pressure / 100
                   </span>
                 </div>
-                <dl className="w-full space-y-2">
+                <dl className="w-full divide-y divide-border rounded-md border border-border">
                   {[
                     { k: 'Open cases', v: derived.open },
                     { k: 'Critical cases', v: derived.critical },
@@ -567,7 +568,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                   ].map((row) => (
                     <div
                       key={row.k}
-                      className="flex items-center justify-between rounded-md border border-border bg-surface/60 px-3 py-2"
+                      className="flex items-center justify-between px-3.5 py-2.5"
                     >
                       <dt className="text-sm text-muted-foreground">{row.k}</dt>
                       <dd className="font-mono text-sm font-semibold tabular-nums text-foreground">
@@ -581,7 +582,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
             {/* KPI tiles */}
             <div className="lg:col-span-2">
-              <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <Stagger className="grid h-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
                 {kpis.map((kpi) => (
                   <KpiTile
                     key={kpi.label}
@@ -598,7 +599,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </div>
 
           {/* ---- Timing StatCards ---- */}
-          <div className="grid gap-4 md:grid-cols-3">
+          <section className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Response timing
+            </h2>
+            <div className="grid gap-5 md:grid-cols-3">
             {(
               [
                 {
@@ -630,14 +635,19 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 sub={`${fmtNumber(s.n)} valid sample${s.n === 1 ? '' : 's'}`}
               />
             ))}
-          </div>
+            </div>
+          </section>
 
           {/* ---- BarList cards ---- */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          <section className="space-y-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Signal breakdown
+            </h2>
+            <div className="grid gap-5 lg:grid-cols-3">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Boxes className="h-4 w-4 text-primary" aria-hidden />
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Boxes className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Source Signals
                 </CardTitle>
               </CardHeader>
@@ -657,8 +667,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Gauge className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Severity Pressure
                 </CardTitle>
               </CardHeader>
@@ -684,7 +694,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                             {fmtNumber(item.value)}
                           </span>
                         </div>
-                        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted/60">
+                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                           <div
                             className={cn('h-full rounded-full', SEV_BAR[sev])}
                             style={{ width: `${Math.min(100, pct)}%` }}
@@ -707,8 +717,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Workflow className="h-4 w-4 text-primary" aria-hidden />
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Workflow className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Case Workload State
                 </CardTitle>
               </CardHeader>
@@ -750,7 +760,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                                 {fmtNumber(item.value)}
                               </span>
                             </div>
-                            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted/60">
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                               <div
                                 className={cn('h-full rounded-full', item.color)}
                                 style={{ width: `${Math.min(100, pct)}%` }}
@@ -779,7 +789,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 )}
               </CardContent>
             </Card>
-          </div>
+            </div>
+          </section>
         </>
       )}
     </div>

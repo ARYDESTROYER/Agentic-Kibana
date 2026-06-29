@@ -1128,3 +1128,11 @@
 - Tests: `npx tsc --noEmit` clean; `vite build` GREEN — bundle 2.84MB→1.20MB (EUI fully gone), CSS 52KB Tailwind, 2530 modules; `vitest` 1/1 (new smoke test); backend `pytest` 395 (untouched). Deps now: Radix + lucide + recharts + framer-motion + cmdk + sonner + tailwind utils (no EUI/emotion/moment).
 - Status: DONE — full professional UI overhaul (dark+light command-center) committed + pushed to Testing. Inspired-by the Agentic SOC Platform look; no brand/asset clone; TLSOC branding system preserved.
 - Next: optional follow-ups — wire a real branding→token bridge for custom accents in light mode edge cases; add per-page vitest render tests; revisit any deferred backlog items.
+
+### 2026-06-29 — orchestrator (Opus) — UI polish pass: OpenSearch/AdSense/Wazuh clean + bug fixes
+- Context: User feedback — the rebuilt UI still needed brush-ups; make it prettier + much cleaner (heavy inspiration: OpenSearch Dashboards/OUI, Google AdSense, Wazuh). Specific bugs: broken RiskGauge (needle/value overlap + dark blob, per screenshot) and the missing case hover-preview.
+- Did (orchestrator fixes): rebuilt RiskGauge.tsx clean (muted track + single severity-coloured arc + centred value; no needle/hub). Added @radix-ui/react-hover-card + src/ui/hover-card.tsx + src/soc/components/CaseHoverCard.tsx (UNTRUSTED-safe case summary popover).
+- Did (24-agent polish workflow): Foundation (5) — calmer dual-theme tokens (light = clean white/very-light-gray + confident blue; dark = refined low-chroma slate, de-glowed), border-first quiet elevation, OpenSearch-crisp tables, cleaner primitives + domain widgets + DataTable. Pages (16) — airier AdSense spacing, calm cards, consistent PageHeaders across every surface; Cases + Scans now wrap case refs in CaseHoverCard (hover preview restored + working). Verify (3) — review+fix across cleanliness/a11y/UNTRUSTED/light+dark; all PASS.
+- Tests: tsc --noEmit clean; vite build green (2533 modules); vitest 1/1 (app smoke); no new deps beyond react-hover-card; backend untouched.
+- Status: done — committed + pushed to Testing. (theme.css/tailwind.config intentionally retuned for the calmer look.)
+- Next: optional — gather fresh screenshots for another fidelity pass; add per-page render tests.

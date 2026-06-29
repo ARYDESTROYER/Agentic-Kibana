@@ -122,7 +122,7 @@ export const CodeBlock = React.forwardRef<HTMLDivElement, CodeBlockProps>(
         {...props}
       >
         {showHeader && (
-          <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
+          <div className="flex items-center justify-between border-b border-border bg-surface px-3 py-1.5">
             <span className="truncate font-mono text-xs text-muted-foreground">{caption}</span>
             {copyable && (
               <button

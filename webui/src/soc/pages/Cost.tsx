@@ -195,7 +195,7 @@ function toLedger(rows: UsageRow[], totalCost: number): LedgerRow[] {
 // --------------------------------------------------------------------------- //
 // Small UI helpers
 // --------------------------------------------------------------------------- //
-/** Segmented pill toggle (matches the Overview window toggle look). */
+/** Segmented pill toggle (calm OpenSearch-style filter control). */
 function SegmentedToggle<T extends string>({
   value,
   options,
@@ -211,7 +211,7 @@ function SegmentedToggle<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex items-center rounded-md border border-border bg-card/70 p-0.5"
+      className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
     >
       {options.map((o) => {
         const active = o.id === value;
@@ -222,10 +222,10 @@ function SegmentedToggle<T extends string>({
             onClick={() => onChange(o.id)}
             aria-pressed={active}
             className={cn(
-              'rounded-[5px] px-3 py-1 text-xs font-semibold transition-colors',
+              'rounded-[5px] px-3 py-1 text-xs font-medium transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               active
-                ? 'bg-primary text-primary-foreground shadow-elev1'
+                ? 'bg-card text-foreground shadow-elev1'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -237,14 +237,38 @@ function SegmentedToggle<T extends string>({
   );
 }
 
+/**
+ * A quiet, consistent card section title — muted lucide icon + plain label,
+ * with an optional right-aligned meta slot. Calmer than a colored icon per card.
+ */
+function SectionTitle({
+  icon: Icon,
+  children,
+  meta,
+}: {
+  icon: typeof Coins;
+  children: React.ReactNode;
+  meta?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+        <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+        {children}
+      </CardTitle>
+      {meta ? <span className="text-xs text-muted-foreground">{meta}</span> : null}
+    </div>
+  );
+}
+
 /** A tiny inline "% of total" bar used inside the ledger table cell. */
 function ShareBar({ share, colorIndex }: { share: number; colorIndex: number }) {
   const pct = Math.max(0, Math.min(100, share * 100));
   return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 min-w-[36px] flex-1 overflow-hidden rounded-full bg-muted/60">
+    <div className="flex items-center gap-2.5">
+      <div className="h-1.5 min-w-[36px] flex-1 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full"
+          className="h-full rounded-full opacity-80"
           style={{ width: `${Math.max(pct > 0 ? 2 : 0, pct)}%`, background: categorical(colorIndex) }}
         />
       </div>
@@ -608,7 +632,7 @@ export default function Cost(_props: CostProps) {
   // ----- States ---------------------------------------------------------- //
   if (loading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         {header}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -627,7 +651,7 @@ export default function Cost(_props: CostProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {header}
 
       {error ? (
@@ -675,20 +699,15 @@ export default function Cost(_props: CostProps) {
 
           {/* Spend over time */}
           <Card>
-            <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                {spendDelta != null && spendDelta > 0 ? (
-                  <TrendingUp className="h-4 w-4 text-critical" aria-hidden />
-                ) : (
-                  <TrendingDown className="h-4 w-4 text-success" aria-hidden />
-                )}
+            <CardHeader className="pb-3">
+              <SectionTitle
+                icon={spendDelta != null && spendDelta > 0 ? TrendingUp : TrendingDown}
+                meta={`${series.length} bucket${series.length === 1 ? '' : 's'} · last ${windowLabel}`}
+              >
                 Spend over time
-              </CardTitle>
-              <span className="text-xs text-muted-foreground">
-                {series.length} bucket{series.length === 1 ? '' : 's'} · last {windowLabel}
-              </span>
+              </SectionTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-5">
               {series.length > 1 ? (
                 <>
                   <TrendArea
@@ -699,15 +718,17 @@ export default function Cost(_props: CostProps) {
                     showXAxis={false}
                     ariaLabel={`Spend over time — ${series.length} buckets over the last ${windowLabel}`}
                   />
-                  <div className="flex flex-wrap gap-6">
+                  <div className="grid grid-cols-3 gap-4 border-t border-border pt-4">
                     {[
                       { k: 'Window total', v: fmtMoney(spend.total, currency) },
                       { k: 'Avg / bucket', v: fmtMoney(spend.avg, currency) },
                       { k: 'Peak bucket', v: fmtMoney(spend.peak, currency) },
                     ].map((s) => (
                       <div key={s.k}>
-                        <div className="text-xs text-muted-foreground">{s.k}</div>
-                        <div className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          {s.k}
+                        </div>
+                        <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
                           {s.v}
                         </div>
                       </div>
@@ -736,10 +757,7 @@ export default function Cost(_props: CostProps) {
           <div className="grid gap-4 lg:grid-cols-3">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Cpu className="h-4 w-4 text-primary" aria-hidden />
-                  By model
-                </CardTitle>
+                <SectionTitle icon={Cpu}>By model</SectionTitle>
               </CardHeader>
               <CardContent>
                 {byModel.length ? (
@@ -752,10 +770,7 @@ export default function Cost(_props: CostProps) {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Users className="h-4 w-4 text-primary" aria-hidden />
-                  By role
-                </CardTitle>
+                <SectionTitle icon={Users}>By role</SectionTitle>
               </CardHeader>
               <CardContent>
                 {byRole.length ? (
@@ -768,10 +783,7 @@ export default function Cost(_props: CostProps) {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <LayoutGrid className="h-4 w-4 text-primary" aria-hidden />
-                  By surface
-                </CardTitle>
+                <SectionTitle icon={LayoutGrid}>By surface</SectionTitle>
               </CardHeader>
               <CardContent>
                 {bySurface.length ? (
@@ -787,8 +799,8 @@ export default function Cost(_props: CostProps) {
           <div className="grid gap-4 lg:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardHeader className="flex-col items-stretch gap-3 space-y-0 pb-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Coins className="h-4 w-4 text-primary" aria-hidden />
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Coins className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Detailed cost ledger
                 </CardTitle>
                 <SegmentedToggle
@@ -821,10 +833,7 @@ export default function Cost(_props: CostProps) {
 
             <Card className="lg:col-span-1">
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Gauge className="h-4 w-4 text-primary" aria-hidden />
-                  Cost composition
-                </CardTitle>
+                <SectionTitle icon={Gauge}>Cost composition</SectionTitle>
               </CardHeader>
               <CardContent>
                 {compositionSegments.length ? (
@@ -843,7 +852,7 @@ export default function Cost(_props: CostProps) {
                         </div>
                       }
                     />
-                    <ul className="mt-4 space-y-2">
+                    <ul className="mt-5 space-y-2.5 border-t border-border pt-4">
                       {compositionSegments.map((s, i) => (
                         <li key={`${s.label}-${i}`} className="flex items-center gap-2 text-sm">
                           <span
@@ -878,17 +887,16 @@ export default function Cost(_props: CostProps) {
           {topDrivers.length ? (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <TrendingUp className="h-4 w-4 text-critical" aria-hidden />
-                  Top drivers · by {metric}
-                </CardTitle>
+                <SectionTitle icon={TrendingUp} meta={`by ${metric}`}>
+                  Top cost drivers
+                </SectionTitle>
               </CardHeader>
               <CardContent>
                 <ul className="flex flex-col divide-y divide-border">
                   {topDrivers.map((d, i) => (
                     <li
                       key={`${d.key}-${i}`}
-                      className="flex flex-wrap items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+                      className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0"
                     >
                       <span
                         className="size-2 shrink-0 rounded-sm"

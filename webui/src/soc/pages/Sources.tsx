@@ -199,7 +199,7 @@ export default function Sources(_props: SourcesProps) {
       ) : null}
 
       {loading ? (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-28 w-full rounded-lg" />
           ))}
@@ -216,7 +216,7 @@ export default function Sources(_props: SourcesProps) {
           }
         />
       ) : (
-        <Stagger className="space-y-3">
+        <Stagger className="space-y-4">
           {sources.map((s) => {
             const meta = connectors.find((c) => c.source_type === s.source_type);
             const canBrowse = !!meta?.capabilities?.includes('browse');
@@ -230,11 +230,11 @@ export default function Sources(_props: SourcesProps) {
             const busy = busyId === s.id;
 
             return (
-              <Card key={s.id} className="p-4">
-                <div className="flex flex-wrap items-start gap-3">
+              <Card key={s.id} className="p-5">
+                <div className="flex flex-wrap items-start gap-4">
                   <span
                     className={cn(
-                      'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-card',
+                      'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border bg-surface',
                       s.is_primary ? 'border-primary text-primary' : cn('border-border', cat.tone),
                     )}
                   >
@@ -243,7 +243,7 @@ export default function Sources(_props: SourcesProps) {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate font-semibold text-foreground">
+                      <span className="truncate text-[0.95rem] font-semibold text-foreground">
                         {s.display_name || meta?.display_name || s.source_type}
                       </span>
                       {s.is_primary ? <Badge variant="default">Primary</Badge> : null}
@@ -253,13 +253,13 @@ export default function Sources(_props: SourcesProps) {
                         <Badge variant="outline">Disabled</Badge>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {humanizeToken(s.source_type)} · {humanizeToken(s.ingest_mode)}
                       {secretCount ? ` · ${secretCount} secret${secretCount === 1 ? '' : 's'}` : ''}
                     </p>
 
                     {patterns.length || strategy !== 'auto' || messageField ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
                         {patterns.slice(0, 4).map((p, i) => (
                           <Badge
                             key={`${p.pattern}-${i}`}
@@ -293,7 +293,7 @@ export default function Sources(_props: SourcesProps) {
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
                     {canBrowse ? (
                       <Button variant="ghost" size="sm" onClick={() => setLogsSource(s)}>
                         <Telescope className="h-4 w-4" aria-hidden /> Logs

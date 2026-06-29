@@ -172,7 +172,7 @@ function Heading({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="space-y-0.5">
       <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+      {sub ? <p className="text-xs leading-relaxed text-muted-foreground">{sub}</p> : null}
     </div>
   );
 }
@@ -505,32 +505,38 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
   return (
     <div className="space-y-6">
-      <Heading
-        title="Branding"
-        sub="White-label the console: wordmark, logo, accent colours, default theme, and login copy."
-      />
+      <div className="space-y-1 border-b border-border pb-4">
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">Branding</h2>
+        <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          White-label the console: wordmark, logo, accent colours, default theme, and login copy.
+        </p>
+      </div>
 
       {/* Live preview of the shell header */}
-      <div className="overflow-hidden rounded-lg border border-border">
-        <div className="h-1" style={{ background: gradient }} />
-        <div className="flex items-center gap-3 px-4 py-4" style={{ background: gradient }}>
-          <span
-            className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-md"
-            style={{ background: 'rgba(255,255,255,0.18)' }}
-          >
-            {draft.logo_data_url ? (
-              <img src={draft.logo_data_url} alt="" className="h-11 w-11 object-contain" />
-            ) : (
-              <ShieldCheck className="h-6 w-6 text-white" aria-hidden />
-            )}
-          </span>
-          <div className="leading-tight text-white">
-            <div className="text-lg font-bold">{wordmark}</div>
-            <div className="text-xs opacity-90">{tagline}</div>
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Live preview
+        </p>
+        <div className="overflow-hidden rounded-lg border border-border shadow-elev1">
+          <div className="h-1" style={{ background: gradient }} />
+          <div className="flex items-center gap-3 px-5 py-4" style={{ background: gradient }}>
+            <span
+              className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-md"
+              style={{ background: 'rgba(255,255,255,0.18)' }}
+            >
+              {draft.logo_data_url ? (
+                <img src={draft.logo_data_url} alt="" className="h-11 w-11 object-contain" />
+              ) : (
+                <ShieldCheck className="h-6 w-6 text-white" aria-hidden />
+              )}
+            </span>
+            <div className="leading-tight text-white">
+              <div className="text-lg font-bold">{wordmark}</div>
+              <div className="text-xs opacity-90">{tagline}</div>
+            </div>
           </div>
         </div>
       </div>
-      <p className="-mt-3 text-xs text-muted-foreground">Live preview of the console header.</p>
 
       {/* Wordmark */}
       <div className="grid gap-4 sm:grid-cols-2">

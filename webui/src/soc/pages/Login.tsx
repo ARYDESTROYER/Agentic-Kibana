@@ -77,14 +77,17 @@ export default function Login({ onAuthenticated }: LoginProps) {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-6">
-      {/* Ambient command-center glow backdrop. */}
-      <div className="pointer-events-none absolute inset-0 bg-hero-glow" aria-hidden />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+      {/* Whisper-soft top wash — calm, border-first; not the old command-center glow. */}
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow"
+        aria-hidden
+      />
 
       <div className="relative z-10 w-full max-w-sm animate-rise-in">
         {/* Brand mark */}
-        <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card shadow-glow">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-card shadow-elev1">
             {logoUrl ? (
               <img
                 src={logoUrl}
@@ -95,15 +98,15 @@ export default function Login({ onAuthenticated }: LoginProps) {
               <Shield className="h-7 w-7 text-primary" aria-hidden />
             )}
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
             {wordmark}
           </h1>
-          <p className="mt-0.5 text-xs uppercase tracking-widest text-muted-foreground">
+          <p className="mt-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
             {tagline}
           </p>
         </div>
 
-        <Card className="shadow-elev2">
+        <Card className="shadow-elev1">
           <CardHeader>
             <CardTitle>Sign in</CardTitle>
             <CardDescription>
@@ -171,12 +174,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
           </CardContent>
         </Card>
 
-        <p className="mt-5 text-center text-xs text-muted-foreground">
+        <p className="mt-6 text-center text-xs text-muted-foreground">
           Audited, cost-metered agentic triage.
         </p>
 
         {supportUrl ? (
-          <div className="mt-2 flex justify-center">
+          <div className="mt-3 flex justify-center">
             <a
               href={supportUrl}
               target="_blank"

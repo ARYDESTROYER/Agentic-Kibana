@@ -187,7 +187,7 @@ const SourceLogsBody: React.FC<{ source: SourceInstance }> = ({ source }) => {
     <>
       <SheetHeader className="space-y-4">
         <div className="flex items-center gap-3">
-          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
             <Telescope className="h-5 w-5" aria-hidden />
           </span>
           <div className="min-w-0">
@@ -200,7 +200,7 @@ const SourceLogsBody: React.FC<{ source: SourceInstance }> = ({ source }) => {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <div className="relative min-w-[14rem] flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -278,8 +278,9 @@ const SourceLogsBody: React.FC<{ source: SourceInstance }> = ({ source }) => {
         ) : (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">
-                mode: {mode || DASH} · {count} shown
+              <span className="text-xs font-medium text-muted-foreground">
+                <span className="uppercase tracking-wide">{mode || DASH}</span> ·{' '}
+                <span className="tabular-nums">{count}</span> shown
               </span>
               {liveTail ? (
                 <Badge variant="success" className="gap-1">

@@ -38,6 +38,8 @@ import {
   X,
 } from 'lucide-react';
 
+import type { LucideIcon } from 'lucide-react';
+
 import type { Navigate } from '@/soc/router';
 import { api, ApiError } from '@/lib/api';
 import type {
@@ -177,6 +179,13 @@ function errMessage(e: unknown, fallback: string): string {
   return fallback;
 }
 
+/** A soft tinted icon chip for card headers (matches PageHeader/KpiTile calm look). */
+const CardIcon: React.FC<{ icon: LucideIcon }> = ({ icon: Icon }) => (
+  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+    <Icon className="size-4" aria-hidden />
+  </span>
+);
+
 /* ------------------------------------------------------------- badges --------- */
 
 /** A corpus source badge (UNTRUSTED label → humanized plain text). */
@@ -227,8 +236,8 @@ const ChunkBlock: React.FC<{ chunk: RagChunk; index: number; rank?: number }> = 
 }) => {
   const chunkIdx = typeof chunk.chunk_index === 'number' ? chunk.chunk_index : index;
   return (
-    <div className="rounded-md border border-border bg-card/60 p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
+    <div className="rounded-md border border-border bg-surface p-3.5">
+      <div className="mb-2.5 flex flex-wrap items-center gap-2">
         {typeof rank === 'number' ? (
           <Badge variant="default">#{rank}</Badge>
         ) : null}
@@ -536,11 +545,11 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Upload className="size-4 text-primary" aria-hidden />
+        <div className="flex items-center gap-3">
+          <CardIcon icon={Upload} />
           <CardTitle>Import knowledge</CardTitle>
         </div>
-        <CardDescription>
+        <CardDescription className="pt-1">
           Index documents into the retrieval corpus. Paste text, or upload one or more
           .txt / .md / .json / .csv files (each becomes its own document); the
           investigator can then retrieve them during triage.
@@ -609,8 +618,8 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
         </div>
 
         {batching ? (
-          <div className="rounded-md border border-border bg-card/60 p-3">
-            <p className="mb-2 text-xs font-semibold text-foreground">
+          <div className="rounded-md border border-border bg-surface p-3.5">
+            <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {fmtNumber(queue.length)} file{queue.length === 1 ? '' : 's'} queued
             </p>
             <ul className="flex flex-col gap-1.5">
@@ -733,11 +742,11 @@ const SearchCard: React.FC = () => {
   return (
     <Card className="flex h-full flex-col">
       <CardHeader>
-        <div className="flex items-center gap-2">
-          <Search className="size-4 text-primary" aria-hidden />
+        <div className="flex items-center gap-3">
+          <CardIcon icon={Search} />
           <CardTitle>Try a retrieval</CardTitle>
         </div>
-        <CardDescription>
+        <CardDescription className="pt-1">
           See exactly what RAG would return for a query — the same chunks the
           investigator gets, ranked by relevance.
         </CardDescription>
@@ -1059,19 +1068,25 @@ const DocumentsSection: React.FC<{
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <FileText className="size-4 text-primary" aria-hidden />
-          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            Indexed documents
-          </h2>
-          <span className="text-sm text-muted-foreground">
-            {loading
-              ? 'Loading…'
-              : `${fmtNumber(filteredSorted.length)} of ${fmtNumber(documents.length)} shown`}
-          </span>
+        <div className="flex items-center gap-3">
+          <CardIcon icon={FileText} />
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Indexed documents
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {loading
+                ? 'Loading…'
+                : `${fmtNumber(filteredSorted.length)} of ${fmtNumber(documents.length)} shown`}
+            </p>
+          </div>
         </div>
         {/* density toggle */}
-        <div className="inline-flex rounded-md border border-border p-0.5">
+        <div
+          role="group"
+          aria-label="Table density"
+          className="inline-flex shrink-0 rounded-md border border-border bg-surface p-0.5"
+        >
           {(['normal', 'compact'] as Density[]).map((d) => (
             <button
               key={d}
@@ -1079,10 +1094,10 @@ const DocumentsSection: React.FC<{
               onClick={() => changeDensity(d)}
               aria-pressed={density === d}
               className={cn(
-                'rounded px-3 py-1 text-xs font-medium transition-colors',
+                'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 density === d
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-card text-foreground shadow-elev1'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -1329,7 +1344,7 @@ export default function Knowledge(_props: KnowledgeProps) {
   const showHealthSkeleton = loading && !stats;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         icon={Boxes}
         eyebrow="Knowledge"
@@ -1398,10 +1413,15 @@ export default function Knowledge(_props: KnowledgeProps) {
       {/* ---- corpus by source ---- */}
       {bySourceItems.length ? (
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <div className="flex items-center gap-2">
-              <BarChart3 className="size-4 text-primary" aria-hidden />
-              <CardTitle>Corpus by source</CardTitle>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div className="flex items-center gap-3">
+              <CardIcon icon={BarChart3} />
+              <div>
+                <CardTitle>Corpus by source</CardTitle>
+                <CardDescription className="mt-0.5">
+                  How retrievable knowledge is distributed across corpus sources.
+                </CardDescription>
+              </div>
             </div>
             <Badge variant="outline">
               {fmtNumber(corpusTotalChunks)} total chunk
@@ -1409,9 +1429,6 @@ export default function Knowledge(_props: KnowledgeProps) {
             </Badge>
           </CardHeader>
           <CardContent>
-            <p className="mb-4 text-xs text-muted-foreground">
-              How retrievable knowledge is distributed across corpus sources.
-            </p>
             <BarList
               items={bySourceItems}
               showPercent
@@ -1436,10 +1453,13 @@ export default function Knowledge(_props: KnowledgeProps) {
       />
 
       <Separator />
-      <p className="text-xs text-muted-foreground">
-        Retrieved text is treated as untrusted evidence — it is fenced when shown to the
-        investigator and never executed as instructions.
-      </p>
+      <div className="flex items-start gap-2 text-xs text-muted-foreground">
+        <Lock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+        <p>
+          Retrieved text is treated as untrusted evidence — it is fenced when shown to the
+          investigator and never executed as instructions.
+        </p>
+      </div>
 
       <DocumentSheet documentId={selectedDoc} onClose={() => setSelectedDoc(null)} />
       <DeleteDialog

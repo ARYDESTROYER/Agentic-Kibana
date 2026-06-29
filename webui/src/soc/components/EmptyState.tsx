@@ -51,9 +51,11 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
       >
         <div
           className={cn(
-            'flex items-center justify-center rounded-full',
-            compact ? 'h-10 w-10' : 'h-14 w-14',
-            isError ? 'bg-critical/10 text-critical' : 'bg-muted text-muted-foreground',
+            'flex items-center justify-center rounded-full border',
+            compact ? 'h-11 w-11' : 'h-16 w-16',
+            isError
+              ? 'border-critical/20 bg-critical/10 text-critical'
+              : 'border-border bg-surface text-muted-foreground',
           )}
         >
           <Icon className={cn(compact ? 'h-5 w-5' : 'h-7 w-7')} aria-hidden />

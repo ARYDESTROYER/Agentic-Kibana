@@ -2,7 +2,7 @@
  * Standup — the daily shift digest (new "command center" surface).
  *
  * Fetches `GET /api/standup` (which always returns HTTP 200) and renders the
- * model-generated prose summary in a gradient hero, followed by defensively-parsed
+ * model-generated prose summary in a calm hero panel, followed by defensively-parsed
  * aggregate KPIs (events / unique IPs / cases opened+closed), a case-outcomes
  * donut, an event-activity sparkline, and ranked top-N BarList cards
  * (rules / source IPs / users / hosts / severity). A window toggle (24h / 7d) +
@@ -433,9 +433,9 @@ export default function Standup(_props: StandupProps) {
   );
 
   const heroMeta = (
-    <div className="flex flex-col items-start gap-1 sm:items-end">
-      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/60 px-2 py-0.5 text-primary">
-        <Clock3 className="h-3.5 w-3.5" aria-hidden />
+    <div className="flex flex-col items-start gap-1.5 sm:items-end">
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-0.5 text-muted-foreground">
+        <Clock3 className="h-3.5 w-3.5 text-primary" aria-hidden />
         {windowLabel} window
       </span>
       {data?.generated_at ? <span>generated {humanizeAge(data.generated_at)}</span> : null}
@@ -445,7 +445,7 @@ export default function Standup(_props: StandupProps) {
 
   // ------------------------------------------------------------------ body -- //
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-fade-in space-y-8">
       <HeroPanel
         eyebrow="Daily digest"
         title="Standup"
@@ -508,9 +508,9 @@ export default function Standup(_props: StandupProps) {
 
       {/* Loading skeleton tiles. */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-[108px]" />
+            <Skeleton key={i} className="h-[108px] rounded-lg" />
           ))}
         </div>
       ) : null}
@@ -520,7 +520,7 @@ export default function Standup(_props: StandupProps) {
         <>
           {/* Headline KPI tiles. */}
           {hasAggregate ? (
-            <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Stagger className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
               <KpiTile
                 label="Events"
                 value={totalEvents !== undefined ? fmtNumber(totalEvents) : '—'}
@@ -551,17 +551,16 @@ export default function Standup(_props: StandupProps) {
 
           {/* Case outcomes donut + event activity sparkline. */}
           {outcomes.length || series.length > 1 ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
               {outcomes.length ? (
                 <Card className="lg:col-span-1">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <PieIcon className="h-4 w-4 text-primary" aria-hidden />
-                      Case outcomes
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Verdict mix of the {fmtNumber(outcomesTotal)} cases opened this window
-                    </p>
+                    <SectionTitle
+                      icon={PieIcon}
+                      accent="text-primary"
+                      title="Case outcomes"
+                      sub={`Verdict mix of ${fmtNumber(outcomesTotal)} cases opened`}
+                    />
                   </CardHeader>
                   <CardContent>
                     <DonutChart
@@ -570,27 +569,36 @@ export default function Standup(_props: StandupProps) {
                       ariaLabel="Case outcomes by verdict"
                       center={
                         <>
-                          <span className="text-2xl font-bold tabular-nums text-foreground">
+                          <span className="text-2xl font-semibold tabular-nums text-foreground">
                             {fmtNumber(outcomesTotal)}
                           </span>
                           <span className="text-xs text-muted-foreground">cases</span>
                         </>
                       }
                     />
-                    <ul className="mt-3 flex flex-col gap-1.5">
-                      {outcomes.map((o, i) => (
-                        <li key={`${o.label}-${i}`} className="flex items-center gap-2 text-sm">
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: o.color }}
-                            aria-hidden
-                          />
-                          <span className="truncate text-foreground">{o.label}</span>
-                          <span className="ml-auto font-mono tabular-nums text-muted-foreground">
-                            {fmtNumber(o.value)}
-                          </span>
-                        </li>
-                      ))}
+                    <ul className="mt-5 flex flex-col divide-y divide-border border-t border-border">
+                      {outcomes.map((o, i) => {
+                        const pct = outcomesTotal > 0 ? Math.round((o.value / outcomesTotal) * 100) : 0;
+                        return (
+                          <li
+                            key={`${o.label}-${i}`}
+                            className="flex items-center gap-2.5 py-2 text-sm"
+                          >
+                            <span
+                              className="h-2.5 w-2.5 shrink-0 rounded-full"
+                              style={{ background: o.color }}
+                              aria-hidden
+                            />
+                            <span className="truncate text-foreground">{o.label}</span>
+                            <span className="ml-auto font-mono tabular-nums text-foreground">
+                              {fmtNumber(o.value)}
+                            </span>
+                            <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                              {pct}%
+                            </span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   </CardContent>
                 </Card>
@@ -599,13 +607,12 @@ export default function Standup(_props: StandupProps) {
               {series.length > 1 ? (
                 <Card className={cn(outcomes.length ? 'lg:col-span-2' : 'lg:col-span-3')}>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4 text-primary" aria-hidden />
-                      Event activity
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Events over the {windowLabel} window
-                    </p>
+                    <SectionTitle
+                      icon={TrendingUp}
+                      accent="text-primary"
+                      title="Event activity"
+                      sub={`Events over the ${windowLabel} window`}
+                    />
                   </CardHeader>
                   <CardContent>
                     <Sparkline
@@ -622,7 +629,11 @@ export default function Standup(_props: StandupProps) {
 
           {/* Ranked top-N breakdowns. */}
           {hasAggregate ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            <section className="space-y-4">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Top activity
+              </h2>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
               {byRule.length ? (
                 <BarCard icon={Hash} accent="text-high" title="Top rules" items={byRule.slice(0, 8)} />
               ) : null}
@@ -647,7 +658,8 @@ export default function Standup(_props: StandupProps) {
                   }))}
                 />
               ) : null}
-            </div>
+              </div>
+            </section>
           ) : (
             <Card>
               <CardContent className="p-0">
@@ -691,6 +703,42 @@ function severityBar(label: string): string | undefined {
   }
 }
 
+interface SectionTitleProps {
+  icon: typeof Hash;
+  /** Text color token class for the icon (e.g. 'text-primary'). */
+  accent: string;
+  title: string;
+  /** Optional muted sub-line under the title (plain text). */
+  sub?: string;
+}
+
+/**
+ * A consistent card heading: a soft tinted icon chip + title (+ optional sub),
+ * mirroring the KpiTile/HeroPanel accent-chip pattern so every card reads the same.
+ */
+function SectionTitle({ icon: Icon, accent, title, sub }: SectionTitleProps) {
+  // Derive the matching soft-tint background from the text token (e.g.
+  // 'text-primary' → 'bg-primary/10') so the chip stays calm and on-token.
+  const chipBg = accent.replace(/^text-/, 'bg-') + '/10';
+  return (
+    <div className="flex items-center gap-2.5">
+      <span
+        className={cn(
+          'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+          chipBg,
+          accent,
+        )}
+      >
+        <Icon className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <CardTitle className="text-sm">{title}</CardTitle>
+        {sub ? <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 interface BarCardProps {
   icon: typeof Hash;
   accent: string;
@@ -703,10 +751,7 @@ function BarCard({ icon: Icon, accent, title, items }: BarCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Icon className={cn('h-4 w-4', accent)} aria-hidden />
-          {title}
-        </CardTitle>
+        <SectionTitle icon={Icon} accent={accent} title={title} />
       </CardHeader>
       <CardContent>
         <BarList items={items} format={fmtNumber} showPercent />

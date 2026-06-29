@@ -56,6 +56,7 @@ import { KpiTile } from '@/soc/components/KpiTile';
 import { DataTable, type DataTableColumn, type SortState } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { InlineCode } from '@/soc/components/CodeBlock';
+import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
 import {
   StatusBadge,
   VerdictBadge,
@@ -479,16 +480,18 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       sortable: true,
       width: '9.5rem',
       cell: (c) => (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setOpenCaseId(c.case_id);
-          }}
-          className="font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {c.case_id}
-        </button>
+        <CaseHoverCard case={c}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenCaseId(c.case_id);
+            }}
+            className="rounded-sm font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {c.case_id}
+          </button>
+        </CaseHoverCard>
       ),
     },
     {
@@ -496,9 +499,11 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       header: 'Title',
       sortable: true,
       cell: (c) => (
-        <span className="block max-w-[26rem] truncate font-medium text-foreground">
-          {c.title || c.case_id}
-        </span>
+        <CaseHoverCard case={c}>
+          <span className="block max-w-[26rem] cursor-pointer truncate font-medium text-foreground">
+            {c.title || c.case_id}
+          </span>
+        </CaseHoverCard>
       ),
     },
     {
@@ -709,7 +714,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       </div>
 
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
         <div className="relative min-w-[16rem] flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -953,7 +958,7 @@ const BulkActionBar: React.FC<{
       aria-label="Bulk actions"
       className="fixed bottom-5 left-1/2 z-50 max-w-[94vw] -translate-x-1/2 animate-rise-in"
     >
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 shadow-elev2 ring-1 ring-primary/20">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 shadow-elev2">
         <span className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
           {count} selected
         </span>

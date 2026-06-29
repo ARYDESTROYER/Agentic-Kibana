@@ -198,32 +198,30 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
           }
         />
 
-        {/* stepper */}
-        <nav aria-label="Setup steps" className="mt-6">
-          <ol className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
+        {/* stepper — calm, connected; no heavy pill borders */}
+        <nav aria-label="Setup steps" className="mt-8">
+          <ol className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
             {STEPS.map((s, i) => {
               const state =
                 i < step ? 'complete' : i === step ? 'current' : 'incomplete';
               const Icon = s.icon;
               return (
-                <li key={s.key} className="flex flex-1 items-center gap-1">
+                <li key={s.key} className="flex flex-1 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setStep(i)}
                     aria-current={state === 'current' ? 'step' : undefined}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       state === 'current'
-                        ? 'border-primary bg-primary/10 text-foreground'
-                        : state === 'complete'
-                          ? 'border-border bg-card text-foreground hover:bg-muted'
-                          : 'border-border bg-card text-muted-foreground hover:bg-muted',
+                        ? 'bg-muted text-foreground'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                     )}
                   >
                     <span
                       className={cn(
-                        'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                        'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors',
                         state === 'complete'
                           ? 'bg-success/15 text-success'
                           : state === 'current'
@@ -239,6 +237,12 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                     </span>
                     <span className="truncate font-medium">{s.title}</span>
                   </button>
+                  {i < STEPS.length - 1 ? (
+                    <span
+                      className="hidden h-px w-4 shrink-0 bg-border sm:block"
+                      aria-hidden
+                    />
+                  ) : null}
                 </li>
               );
             })}
@@ -246,8 +250,8 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
         </nav>
 
         {/* body */}
-        <Card className="mt-6">
-          <CardContent className="p-6">
+        <Card className="mt-6 shadow-elev1">
+          <CardContent className="p-6 sm:p-8">
             {loading ? (
               <WizardSkeleton />
             ) : bootError && !status ? (
@@ -366,9 +370,11 @@ const FEATURES: Array<{ icon: LucideIcon; title: string; body: string; tone: str
 
 function StepHeading({ title, description }: { title: string; description: string }) {
   return (
-    <div className="mb-5">
-      <h2 className="text-xl font-bold tracking-tight text-foreground">{title}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+    <div className="mb-6">
+      <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+      <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+        {description}
+      </p>
     </div>
   );
 }
@@ -391,29 +397,29 @@ function WelcomeStep({
         description="This console turns raw alert volume into audited, cost-metered, human-reviewable cases. Let's get it connected to your data and models."
       />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-3">
         {FEATURES.map((f) => {
           const Icon = f.icon;
           return (
             <Card key={f.title} className="h-full">
-              <CardContent className="space-y-2 p-4">
+              <CardContent className="space-y-2.5 p-5">
                 <span
                   className={cn(
-                    'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card',
+                    'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface',
                     f.tone,
                   )}
                 >
                   <Icon className="h-5 w-5" aria-hidden />
                 </span>
                 <div className="text-sm font-semibold text-foreground">{f.title}</div>
-                <p className="text-xs text-muted-foreground">{f.body}</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">{f.body}</p>
               </CardContent>
             </Card>
           );
         })}
       </div>
 
-      <div className="mt-6 space-y-1.5">
+      <div className="mt-8 space-y-1.5">
         <Label htmlFor="wz-deployment">Deployment name</Label>
         <Input
           id="wz-deployment"
@@ -426,9 +432,9 @@ function WelcomeStep({
         </p>
       </div>
 
-      <Card className="mt-5 bg-muted/40">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start">
-          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-info">
+      <Card className="mt-6 bg-muted/40">
+        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-info">
             <Beaker className="h-5 w-5" aria-hidden />
           </span>
           <div className="flex-1 space-y-1">
@@ -554,8 +560,8 @@ function SourcesStep({
             const secretCount = s.configured_secrets?.length || 0;
             return (
               <Card key={s.id}>
-                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary">
+                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:p-5">
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
                     <Database className="h-5 w-5" aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1">
@@ -875,7 +881,7 @@ function ReviewStep({
       />
 
       <Card>
-        <CardContent className="divide-y divide-border p-4">
+        <CardContent className="divide-y divide-border p-5">
           <ReviewRow
             label="Deployment"
             ok={Boolean(deploymentName.trim())}

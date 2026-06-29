@@ -62,14 +62,16 @@ export const BarList = React.forwardRef<HTMLDivElement, BarListProps>(
     return (
       <div ref={ref} className={cn('flex flex-col', className)}>
         {title ? (
-          <div className="mb-3 text-sm font-semibold text-foreground">{title}</div>
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {title}
+          </div>
         ) : null}
         {items.length === 0 ? (
           <div className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
             {emptyLabel}
           </div>
         ) : (
-          <ul className="flex flex-col gap-4">
+          <ul className="flex flex-col gap-3.5">
             {items.map((it, i) => {
               const value = it.value || 0;
               const pct = Math.max(0, Math.min(100, (value / max) * 100));
@@ -89,7 +91,7 @@ export const BarList = React.forwardRef<HTMLDivElement, BarListProps>(
                         {format(value)}
                       </span>
                     </div>
-                    <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-muted/60">
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
                         className={cn(
                           'h-full rounded-full',

@@ -143,6 +143,14 @@ function riskFactors(c: Case): BarListItem[] {
 
 /* ------------------------------------------------------------ result view -- */
 
+/** Muted small-caps section label (OpenSearch-style). UNTRUSTED-safe: children
+ *  are static literals only. */
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    {children}
+  </h4>
+);
+
 const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
   c,
   onOpen,
@@ -156,27 +164,27 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
   const ruleIds: string[] = Array.isArray(c.rule_ids) ? c.rule_ids : [];
 
   return (
-    <Card className="overflow-hidden">
-      {/* Accent top bar tinted to the risk band */}
-      <div className="h-1 w-full bg-accent-bar" aria-hidden />
-      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <CardTitle className="text-lg">
+    <Card>
+      <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <CardTitle className="text-lg leading-snug">
             {c.title || `Investigation: ${entityLabel}`}
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
             {c.entity ? (
-              <>
-                <span className="font-medium text-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="font-medium uppercase tracking-wide text-muted-foreground">
                   {humanizeToken(c.entity.type)}
-                </span>{' '}
+                </span>
                 <InlineCode value={c.entity.value} />
-              </>
+              </span>
             ) : (
-              DASH
+              <span>{DASH}</span>
             )}
-            <span className="mx-2 text-muted-foreground/50">·</span>
-            updated {humanizeAge(c.updated_at || c.created_at)}
+            <span className="text-border" aria-hidden>
+              ·
+            </span>
+            <span>updated {humanizeAge(c.updated_at || c.created_at)}</span>
           </p>
         </div>
         {onOpen && c.case_id ? (
@@ -187,7 +195,7 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
         ) : null}
       </CardHeader>
 
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-6">
         {/* Badge row */}
         <div className="flex flex-wrap items-center gap-2">
           <VerdictBadge verdict={c.verdict} />
@@ -216,20 +224,22 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
 
         {/* Evidence */}
         {evidence.length ? (
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground">Evidence</h4>
+          <section className="space-y-2.5">
+            <SectionLabel>Evidence</SectionLabel>
             <ul className="space-y-2">
               {evidence.map((ev, i) => (
                 <li
                   key={i}
-                  className="flex items-start gap-3 rounded-md border border-border bg-muted/30 px-3 py-2"
+                  className="flex items-start gap-3 rounded-md border border-border bg-muted/20 px-3.5 py-3"
                 >
                   <span
-                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary"
+                    className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
                     aria-hidden
                   />
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm text-foreground">{ev.summary}</p>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <p className="text-sm leading-relaxed text-foreground">
+                      {ev.summary}
+                    </p>
                     {ev.event_ids && ev.event_ids.length ? (
                       <p className="text-xs text-muted-foreground">
                         {ev.event_ids.length} event
@@ -248,15 +258,13 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
 
         {/* MITRE */}
         {mitre.length ? (
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground">
-              MITRE ATT&amp;CK
-            </h4>
+          <section className="space-y-2.5">
+            <SectionLabel>MITRE ATT&amp;CK</SectionLabel>
             <div className="flex flex-wrap gap-1.5">
               {mitre.map((m) => (
                 <span
                   key={m}
-                  className="inline-flex items-center gap-1 rounded border border-border bg-muted px-2 py-0.5 font-mono text-xs text-foreground"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs text-foreground"
                 >
                   <GitBranch className="h-3 w-3 text-muted-foreground" aria-hidden />
                   {m}
@@ -268,22 +276,22 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
 
         {/* Risk breakdown */}
         {factors.length ? (
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground">Risk breakdown</h4>
+          <section className="space-y-2.5">
+            <SectionLabel>Risk breakdown</SectionLabel>
             <BarList items={factors} format={(n) => String(roundFactor(n))} />
           </section>
         ) : null}
 
         {/* Reproduce query */}
         {c.reproduce_query ? (
-          <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-foreground">Reproduce query</h4>
+          <section className="space-y-2.5">
+            <SectionLabel>Reproduce query</SectionLabel>
             <CodeBlock value={c.reproduce_query} caption="reproduce" wrap />
           </section>
         ) : null}
 
         {/* Facts grid */}
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 border-t border-border pt-4 text-sm sm:grid-cols-2">
+        <dl className="grid grid-cols-1 gap-x-8 gap-y-2.5 border-t border-border pt-5 text-sm sm:grid-cols-2">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-muted-foreground">Case ID</dt>
             <dd className="min-w-0 truncate text-right">
@@ -318,8 +326,8 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
           </div>
         </dl>
 
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Save className="h-3.5 w-3.5" aria-hidden />
+        <p className="flex items-center gap-1.5 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          <Save className="h-3.5 w-3.5 shrink-0" aria-hidden />
           Saved to the case queue — review it on the Cases tab.
         </p>
       </CardContent>
@@ -465,7 +473,7 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
     error instanceof Error ? error.message : 'Something went wrong.';
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-fade-in space-y-7">
       <PageHeader
         icon={Telescope}
         eyebrow="Ad-hoc triage"
@@ -482,15 +490,15 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
 
       {/* Form */}
       <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-12 md:items-end">
+        <CardContent className="p-6">
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-12 md:items-end">
             {/* Entity type */}
             <div className="space-y-1.5 md:col-span-4">
               <Label>Entity type</Label>
               <div
                 role="radiogroup"
                 aria-label="Entity type"
-                className="inline-flex w-full rounded-md border border-border p-0.5"
+                className="inline-flex w-full rounded-md border border-border bg-muted/40 p-1"
               >
                 {ENTITY_OPTIONS.map((o) => {
                   const Icon = o.icon;
@@ -503,11 +511,11 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
                       aria-checked={active}
                       onClick={() => setEntityType(o.id)}
                       className={cn(
-                        'inline-flex flex-1 items-center justify-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium transition-colors',
+                        'inline-flex flex-1 items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                         active
-                          ? 'bg-primary text-primary-foreground shadow-elev1'
-                          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                          ? 'bg-card text-foreground shadow-elev1'
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
                       <Icon className="h-4 w-4" aria-hidden />
@@ -576,7 +584,7 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
       {/* Loading */}
       {loading ? (
         <Card>
-          <CardContent className="space-y-4 pt-6">
+          <CardContent className="space-y-4 p-6">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Search className="h-4 w-4 animate-pulse" aria-hidden />
               Investigating{' '}
@@ -648,7 +656,7 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-muted-foreground" aria-hidden />
-            <h3 className="text-sm font-semibold text-foreground">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Recent investigations (this session)
             </h3>
           </div>
@@ -668,11 +676,11 @@ export default function Investigate({ onNavigate }: InvestigateProps = {}) {
                       }
                     }}
                     className={cn(
-                      'flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-3 py-2.5 shadow-elev1 transition-colors',
-                      'hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      'flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3 transition-colors',
+                      'hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     )}
                   >
-                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-primary">
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-primary">
                       <Icon className="h-4 w-4" aria-hidden />
                     </span>
                     <div className="min-w-0 flex-1">

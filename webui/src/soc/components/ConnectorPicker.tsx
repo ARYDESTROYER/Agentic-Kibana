@@ -108,7 +108,7 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
           aria-hidden
         />
         <Input
-          className="pl-9"
+          className="pl-9 pr-20"
           placeholder="Search connectors…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -129,10 +129,10 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
         />
       ) : null}
 
-      <div className="mt-4 space-y-6">
+      <div className="mt-6 space-y-7">
         {grouped.map(({ cat, meta, items }) => (
           <div key={cat}>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               {meta.label}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -154,8 +154,8 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                       }
                     }}
                     className={cn(
-                      'cursor-pointer p-4 transition-colors outline-none',
-                      'hover:border-primary/50 hover:bg-accent/40',
+                      'cursor-pointer p-4 shadow-none outline-none transition-colors',
+                      'hover:border-primary/60 hover:bg-accent/40',
                       'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                       isSel && 'border-primary ring-1 ring-primary',
                     )}
@@ -163,7 +163,7 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                     <div className="flex items-start justify-between">
                       <span
                         className={cn(
-                          'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card',
+                          'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface',
                           meta.tone,
                         )}
                       >
@@ -173,14 +173,17 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                         <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden />
                       ) : null}
                     </div>
-                    <div className="mt-3 truncate font-semibold text-foreground" title={c.display_name}>
+                    <div
+                      className="mt-3.5 truncate text-sm font-semibold text-foreground"
+                      title={c.display_name}
+                    >
                       {c.display_name}
                     </div>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                       {c.description || c.source_type}
                     </p>
                     {(c.ingest_modes || []).length ? (
-                      <div className="mt-2 flex flex-wrap gap-1">
+                      <div className="mt-2.5 flex flex-wrap gap-1">
                         {(c.ingest_modes || []).slice(0, 3).map((m) => (
                           <Badge key={m} variant="outline" className="text-[0.7rem]">
                             {m}

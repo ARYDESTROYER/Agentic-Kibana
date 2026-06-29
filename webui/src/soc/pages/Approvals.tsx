@@ -202,14 +202,14 @@ function ProposalCard({
   return (
     <Card
       className={cn(
-        'relative overflow-hidden p-4',
-        'before:absolute before:inset-y-0 before:left-0 before:w-1 before:content-[""]',
+        'relative overflow-hidden p-5 transition-shadow hover:shadow-elev2',
+        'before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[""]',
         accentClass,
         selected && 'ring-1 ring-primary',
       )}
     >
       {/* header row */}
-      <div className="flex flex-wrap items-center gap-2 pl-2">
+      <div className="flex flex-wrap items-center gap-2 pl-3">
         <Checkbox
           checked={selected}
           onCheckedChange={() => onToggleSelect(proposal.id)}
@@ -241,19 +241,19 @@ function ProposalCard({
       </div>
 
       {/* the candidate rule / fact (UNTRUSTED → InlineCode / plain text) */}
-      <div className="mt-4 pl-2">
+      <div className="mt-5 pl-3">
         {band === 'suppression' ? (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Candidate suppression rule
             </div>
-            <div className="mt-1">
+            <div className="mt-1.5">
               <InlineCode>
                 {asText(sup.field) || '(field)'} == {asText(sup.value) || '(value)'}
               </InlineCode>
             </div>
             {sup.reason ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">
+              <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                 <span className="text-muted-foreground">Reason: </span>
                 {asText(sup.reason)}
               </p>
@@ -261,12 +261,14 @@ function ProposalCard({
           </div>
         ) : band === 'memory' ? (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Candidate memory
             </div>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{asText(mem.text)}</p>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+              {asText(mem.text)}
+            </p>
             {mem.category ? (
-              <Badge variant="outline" className="mt-2">
+              <Badge variant="outline" className="mt-2.5">
                 <FolderClosed className="h-3 w-3" aria-hidden />
                 {humanizeToken(asText(mem.category))}
               </Badge>
@@ -275,17 +277,19 @@ function ProposalCard({
         ) : (
           // Unknown kind: render the payload defensively as plain text so we never
           // drop a proposal (and never inject markup).
-          <p className="whitespace-pre-wrap text-sm text-foreground">{asText(proposal.payload)}</p>
+          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {asText(proposal.payload)}
+          </p>
         )}
       </div>
 
       {/* rationale (UNTRUSTED → plain text) */}
       {proposal.rationale ? (
-        <div className="mt-4 pl-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mt-5 pl-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Why the agent drafted this
           </div>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
             {asText(proposal.rationale)}
           </p>
         </div>
@@ -293,7 +297,7 @@ function ProposalCard({
 
       {/* linked source case(s) */}
       {cases.length ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 pl-2">
+        <div className="mt-5 flex flex-wrap items-center gap-2 pl-3">
           <span className="text-xs text-muted-foreground">
             Source {cases.length === 1 ? 'case' : 'cases'}:
           </span>
@@ -321,10 +325,10 @@ function ProposalCard({
         </div>
       ) : null}
 
-      <Separator className="my-4" />
+      <Separator className="my-5" />
 
       {/* actions */}
-      <div className="flex flex-wrap items-center justify-end gap-2 pl-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 pl-3">
         <Tooltip>
           <TooltipTrigger asChild>
             <span
@@ -556,7 +560,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
           <TooltipContent>Pending proposals awaiting a decision</TooltipContent>
         </Tooltip>
       ) : null}
-      <div className="inline-flex overflow-hidden rounded-md border border-border" role="group" aria-label="Filter by status">
+      <div className="inline-flex overflow-hidden rounded-md border border-border bg-muted p-0.5" role="group" aria-label="Filter by status">
         {(['pending', 'all'] as StatusFilter[]).map((id) => (
           <button
             key={id}
@@ -564,10 +568,10 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
             onClick={() => setStatusFilter(id)}
             aria-pressed={statusFilter === id}
             className={cn(
-              'px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset',
+              'rounded-[5px] px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               statusFilter === id
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                ? 'bg-card text-foreground shadow-elev1'
+                : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {id === 'pending' ? 'Pending' : 'All'}
@@ -593,9 +597,9 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
     );
   } else if (loading && proposals.length === 0) {
     body = (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {[0, 1, 2].map((i) => (
-          <Card key={i} className="space-y-3 p-4">
+          <Card key={i} className="flex flex-col gap-3 p-5">
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-4 w-2/3" />
@@ -618,29 +622,29 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
     );
   } else if (groups) {
     body = (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         {groups.map(([label, rows]) => (
           <div key={label}>
-            <div className="mb-2 flex items-center gap-2">
+            <div className="mb-3 flex items-center gap-2">
               <Badge variant="info">
                 <Layers className="h-3 w-3" aria-hidden />
                 {label}
               </Badge>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs tabular-nums text-muted-foreground">
                 {fmtNumber(rows.length)} proposal{rows.length === 1 ? '' : 's'}
               </span>
             </div>
-            <div className="flex flex-col gap-3">{rows.map(renderCard)}</div>
+            <div className="flex flex-col gap-4">{rows.map(renderCard)}</div>
           </div>
         ))}
       </div>
     );
   } else {
-    body = <div className="flex flex-col gap-3">{proposals.map(renderCard)}</div>;
+    body = <div className="flex flex-col gap-4">{proposals.map(renderCard)}</div>;
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-fade-in space-y-8">
       <PageHeader
         icon={Flag}
         eyebrow="Automation"
@@ -653,7 +657,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         <Info aria-hidden />
         <AlertTitle>Nothing here is applied automatically</AlertTitle>
         <AlertDescription>
-          <p>
+          <p className="leading-relaxed">
             These are <strong>AI-drafted recommendations</strong>. Approving is the only thing that
             makes a rule live or saves a memory — nothing here is applied automatically. The agent
             recommends; you decide. Approving is a <strong>privileged action</strong> (the server
@@ -664,13 +668,12 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       </Alert>
 
       {/* section header + group toggle */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Flag className="h-4 w-4 text-primary" aria-hidden />
-          <h2 className="text-base font-semibold text-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+        <div className="flex items-baseline gap-2.5">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
             {statusFilter === 'pending' ? 'Pending proposals' : 'All proposals'}
           </h2>
-          <span className="text-sm text-muted-foreground">
+          <span className="text-sm tabular-nums text-muted-foreground">
             {loading ? 'Loading…' : `${fmtNumber(proposals.length)} shown`}
           </span>
         </div>
@@ -685,8 +688,10 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       {/* sticky bulk-action bar */}
       {selected.size > 0 ? (
         <div className="sticky top-2 z-10">
-          <Card className="flex flex-wrap items-center gap-2 p-3 shadow-elev2">
-            <Badge variant="default">{fmtNumber(selected.size)} selected</Badge>
+          <Card className="flex flex-wrap items-center gap-2 border-primary/30 bg-surface p-3 shadow-elev2">
+            <span className="text-sm font-medium text-foreground">
+              <span className="tabular-nums">{fmtNumber(selected.size)}</span> selected
+            </span>
             <div className="flex-1" />
             <Button variant="ghost" size="sm" onClick={clearSelection} disabled={bulkBusy}>
               Clear
@@ -720,7 +725,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       {body}
 
       <Separator />
-      <p className="text-xs text-muted-foreground">
+      <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
         A suppression rule only suppresses future matching alerts once approved; a memory is only
         saved once approved. Rejected proposals are discarded. Proposal fields, values and rationale
         derive from log events and are rendered as plain text. {DASH}

@@ -123,18 +123,18 @@ function recordItems(
 // Loading skeleton
 // --------------------------------------------------------------------------- //
 const MetricsSkeleton: React.FC = () => (
-  <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+  <div className="space-y-6">
+    <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[104px] w-full rounded-lg" />
+        <Skeleton key={i} className="h-[112px] w-full rounded-lg" />
       ))}
     </div>
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
       {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-[260px] w-full rounded-lg" />
       ))}
     </div>
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
       {Array.from({ length: 2 }).map((_, i) => (
         <Skeleton key={i} className="h-[240px] w-full rounded-lg" />
       ))}
@@ -162,9 +162,11 @@ function ChartCard({
 }: ChartCardProps) {
   return (
     <Card className={cn('flex flex-col', className)}>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Icon className={cn('h-4 w-4', accentClass)} aria-hidden />
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2.5 text-[0.8125rem] font-semibold">
+          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
+            <Icon className={cn('h-3.5 w-3.5', accentClass)} aria-hidden />
+          </span>
           {title}
         </CardTitle>
       </CardHeader>
@@ -336,7 +338,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
         <>
           {/* Time window toggle */}
           <div
-            className="inline-flex rounded-md border border-border bg-card p-0.5 shadow-elev1"
+            className="inline-flex rounded-md border border-border bg-surface p-1"
             role="group"
             aria-label="Time window"
           >
@@ -347,10 +349,10 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
                 onClick={() => setWindowId(w.id)}
                 aria-pressed={windowId === w.id}
                 className={cn(
-                  'rounded px-3 py-1 text-xs font-medium transition-colors',
+                  'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   windowId === w.id
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-card text-foreground shadow-elev1'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -361,7 +363,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
 
           {/* Rank sort toggle */}
           <div
-            className="inline-flex rounded-md border border-border bg-card p-0.5 shadow-elev1"
+            className="inline-flex rounded-md border border-border bg-surface p-1"
             role="group"
             aria-label="Sort ranked breakdowns"
           >
@@ -377,10 +379,10 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
                 onClick={() => setRankSort(o.id)}
                 aria-pressed={rankSort === o.id}
                 className={cn(
-                  'rounded px-3 py-1 text-xs font-medium transition-colors',
+                  'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   rankSort === o.id
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-card text-foreground shadow-elev1'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
@@ -408,24 +410,24 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
 
   // ---- knowledge base & memory section ----------------------------------- //
   const knowledgeSection = hasKnowledge ? (
-    <section className="space-y-4">
+    <section className="space-y-5 pt-2">
       <Separator />
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-accent shadow-elev1">
-          <Database className="h-4 w-4" aria-hidden />
+      <div className="flex items-start gap-3.5">
+        <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-accent">
+          <Database className="h-5 w-5" aria-hidden />
         </span>
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight text-foreground">
             Knowledge base &amp; memory
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="mt-0.5 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             RAG corpus and durable operator memory the agents draw on — current,
             independent of the time window above.
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
         <KpiTile
           label="RAG documents"
           value={fmtNumber(rag?.document_count)}
@@ -472,7 +474,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard title="Corpus by source" icon={Database}>
           {corpusItems.length ? (
             <BarList
@@ -587,7 +589,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
     : [];
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <div className="animate-fade-in space-y-8">
       {header}
 
       {error ? (
@@ -604,9 +606,9 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
       {loading ? (
         <MetricsSkeleton />
       ) : !hasAny ? (
-        <div className="space-y-6">
+        <div className="space-y-8">
           <Card>
-            <CardContent className="py-2">
+            <CardContent className="py-4">
               <EmptyState
                 icon={BarChart3}
                 title="No cases yet"
@@ -620,7 +622,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
         <>
           {/* KPI row */}
           <Stagger
-            className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
+            className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6"
             step={40}
           >
             {kpis.map((k) => (
@@ -637,7 +639,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
           </Stagger>
 
           {/* Charts grid */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
             <ChartCard title="Verdict mix" icon={BarChart3}>
               {verdictSegments.length ? (
                 <div className="space-y-3">
@@ -656,14 +658,14 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
                       </>
                     }
                   />
-                  <ul className="flex flex-col gap-1.5">
+                  <ul className="flex flex-col divide-y divide-border border-t border-border">
                     {verdictSegments.map((s) => {
                       const status = verdictStatus(s.label);
                       const drillable = Boolean(status && onNavigate);
                       return (
                         <li
                           key={s.label}
-                          className="flex items-center gap-2 text-xs"
+                          className="flex items-center gap-2 py-1.5 text-xs"
                         >
                           <span
                             className="h-2.5 w-2.5 shrink-0 rounded-full"
@@ -751,7 +753,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
           </div>
 
           {/* Feedback quality + LLM cost */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <ChartCard
               title="Analyst feedback quality"
               icon={ThumbsUp}
@@ -821,7 +823,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
               accentClass="text-medium"
             >
               <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-4">
                   <StatCard
                     label="Total cost"
                     value={fmtMoney(

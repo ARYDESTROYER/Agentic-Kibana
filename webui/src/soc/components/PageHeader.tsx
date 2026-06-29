@@ -35,9 +35,9 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 items-start gap-3.5">
         {Icon ? (
-          <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary shadow-elev1">
+          <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
             <Icon className="h-5 w-5" aria-hidden />
           </span>
         ) : null}
@@ -47,11 +47,11 @@ export function PageHeader({
               {eyebrow}
             </div>
           ) : null}
-          <h1 className="truncate text-2xl font-bold tracking-tight text-foreground">
+          <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">
             {title}
           </h1>
           {description ? (
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               {description}
             </p>
           ) : null}

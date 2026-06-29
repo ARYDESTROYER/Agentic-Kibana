@@ -36,29 +36,22 @@ export interface KpiTileProps {
   className?: string;
 }
 
-const ACCENT_BAR: Record<KpiAccent, string> = {
-  primary: 'bg-primary',
-  critical: 'bg-critical',
-  high: 'bg-high',
-  medium: 'bg-medium',
-  low: 'bg-low',
-  info: 'bg-info',
-  success: 'bg-success',
-};
-
-const ACCENT_TEXT: Record<KpiAccent, string> = {
-  primary: 'text-primary',
-  critical: 'text-critical',
-  high: 'text-high',
-  medium: 'text-medium',
-  low: 'text-low',
-  info: 'text-info',
-  success: 'text-success',
+/** Soft tinted chip behind the icon — the only place accent color appears. */
+const ACCENT_CHIP: Record<KpiAccent, string> = {
+  primary: 'bg-primary/10 text-primary',
+  critical: 'bg-critical/10 text-critical',
+  high: 'bg-high/10 text-high',
+  medium: 'bg-medium/10 text-medium',
+  low: 'bg-low/10 text-low',
+  info: 'bg-info/10 text-info',
+  success: 'bg-success/10 text-success',
 };
 
 /**
- * Accent-topped KPI tile. Renders as a static card, or — when `onClick` is set —
- * a keyboard-accessible button with focus ring + hover affordance. Token-themed.
+ * AdSense-clean KPI tile: muted small-caps label, a big tabular value, and a soft
+ * tinted icon chip carrying the only accent color. Border-first (hairline border,
+ * no resting shadow); a static card, or — when `onClick` is set — a
+ * keyboard-accessible button with focus ring + calm hover. Token-themed.
  */
 export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
   ({ label, value, sub, icon: Icon, accent = 'primary', delta, onClick, className }, ref) => {
@@ -66,27 +59,29 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
 
     const inner = (
       <>
-        {/* Top accent bar */}
-        <span
-          className={cn('absolute inset-x-0 top-0 h-1', ACCENT_BAR[accent])}
-          aria-hidden
-        />
-        <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-medium text-muted-foreground">{label}</span>
+        <div className="flex items-start justify-between gap-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </span>
           {Icon ? (
-            <span className={cn('shrink-0', ACCENT_TEXT[accent])}>
+            <span
+              className={cn(
+                'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+                ACCENT_CHIP[accent],
+              )}
+            >
               <Icon className="h-4 w-4" aria-hidden />
             </span>
           ) : null}
         </div>
         <div className="mt-3 flex items-end gap-2">
-          <span className="text-3xl font-bold leading-none tracking-tight text-foreground">
+          <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
             {value}
           </span>
           {delta ? (
             <span
               className={cn(
-                'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold',
+                'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
                 delta.value >= 0 ? 'text-success' : 'text-critical',
               )}
             >
@@ -104,7 +99,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     );
 
     const base =
-      'relative overflow-hidden rounded-lg border border-border bg-card p-4 pt-5 text-left shadow-elev1';
+      'relative overflow-hidden rounded-lg border border-border bg-card p-5 text-left';
 
     if (clickable) {
       return (
@@ -114,7 +109,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           onClick={onClick}
           className={cn(
             base,
-            'block w-full transition-colors hover:bg-accent/40 hover:border-primary/40',
+            'block w-full transition-colors hover:border-primary/40 hover:bg-accent/30',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             className,
           )}

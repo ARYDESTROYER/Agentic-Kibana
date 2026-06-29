@@ -181,12 +181,12 @@ function AddMemoryCard({
 
   return (
     <Card>
-      <CardContent className="space-y-4 p-5">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-primary">
+      <CardContent className="space-y-5 p-6">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted/40 text-primary">
             <Plus className="h-4 w-4" aria-hidden />
           </span>
-          <div>
+          <div className="space-y-0.5">
             <p className="text-sm font-semibold text-foreground">Add a memory</p>
             <p className="text-xs text-muted-foreground">
               A durable fact the agents should always know.
@@ -339,8 +339,8 @@ function MemoryRow({
 
   if (editing) {
     return (
-      <Card>
-        <CardContent className="space-y-3 p-4">
+      <Card className="border-primary/30 ring-1 ring-primary/10">
+        <CardContent className="space-y-4 p-5">
           <Textarea
             rows={2}
             value={text}
@@ -400,14 +400,14 @@ function MemoryRow({
   }
 
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
+    <Card className="transition-colors hover:border-border/80">
+      <CardContent className="p-5">
+        <div className="flex items-start gap-4">
           {/* active accent rail */}
           <span
             className={cn(
-              'mt-0.5 w-1 shrink-0 self-stretch rounded-full',
-              entry.active ? 'bg-success' : 'bg-muted-foreground/40',
+              'mt-0.5 w-0.5 shrink-0 self-stretch rounded-full',
+              entry.active ? 'bg-success/70' : 'bg-border',
             )}
             aria-hidden
           />
@@ -415,13 +415,13 @@ function MemoryRow({
             {/* UNTRUSTED fact text — plain, never markup */}
             <p
               className={cn(
-                'whitespace-pre-wrap break-words text-sm text-foreground',
+                'whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground',
                 !entry.active && 'opacity-55',
               )}
             >
               {entry.text}
             </p>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
               <SourceBadge source={entry.source} author={entry.author} />
               {entry.category ? (
                 <Badge variant="outline" className="gap-1">
@@ -698,7 +698,7 @@ export default function Memory(_props: MemoryPageProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         icon={Brain}
         eyebrow="Platform"
@@ -763,11 +763,10 @@ export default function Memory(_props: MemoryPageProps) {
       <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />
 
       {/* saved memories header + controls */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-primary" aria-hidden />
+      <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-baseline gap-2.5">
           <h2 className="text-base font-semibold text-foreground">Saved memories</h2>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs tabular-nums text-muted-foreground">
             {loading
               ? 'Loading…'
               : `${fmtNumber(filteredSorted.length)} of ${fmtNumber(stats.total)} shown · ${fmtNumber(
@@ -890,24 +889,24 @@ export default function Memory(_props: MemoryPageProps) {
           }
         />
       ) : groups ? (
-        <div className="space-y-6">
+        <div className="space-y-8">
           {groups.map(([label, rows]) => (
-            <div key={label} className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Badge variant={label === UNCATEGORISED ? 'outline' : 'info'} className="gap-1">
-                  <Folder className="h-3 w-3" aria-hidden />
+            <div key={label} className="space-y-3">
+              <div className="flex items-center gap-2 border-b border-border pb-2">
+                <Folder className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {label}
-                </Badge>
-                <span className="text-xs text-muted-foreground">
+                </h3>
+                <span className="text-xs tabular-nums text-muted-foreground/70">
                   {fmtNumber(rows.length)} fact{rows.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="space-y-2">{rows.map(renderRow)}</div>
+              <div className="space-y-3">{rows.map(renderRow)}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="space-y-2">{filteredSorted.map(renderRow)}</div>
+        <div className="space-y-3">{filteredSorted.map(renderRow)}</div>
       )}
 
       {/* footer note */}

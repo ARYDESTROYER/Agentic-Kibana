@@ -313,11 +313,20 @@ const TONE_TEXT: Record<ScoreTone, string> = {
   info: 'text-info',
 };
 const TONE_BORDER: Record<ScoreTone, string> = {
-  critical: 'border-critical/40 bg-critical/5',
-  high: 'border-high/40 bg-high/5',
-  medium: 'border-medium/40 bg-medium/5',
-  low: 'border-low/40 bg-low/5',
-  info: 'border-info/40 bg-info/5',
+  critical: 'border-critical/30 bg-critical/5',
+  high: 'border-high/30 bg-high/5',
+  medium: 'border-medium/30 bg-medium/5',
+  low: 'border-low/30 bg-low/5',
+  info: 'border-info/30 bg-info/5',
+};
+
+/** A quiet top-accent bar tone for the calmer headline panels. */
+const TONE_ACCENT: Record<ScoreTone, string> = {
+  critical: 'bg-critical',
+  high: 'bg-high',
+  medium: 'bg-medium',
+  low: 'bg-low',
+  info: 'bg-info',
 };
 
 /** Headline label for a verdict (Suspicious / Malicious / Benign / …). */
@@ -365,18 +374,34 @@ const HeadlinePanel: React.FC<{
   value: string;
   tone: ScoreTone;
 }> = ({ label, value, tone }) => (
-  <div
-    className={cn(
-      'flex flex-col items-center justify-center rounded-lg border px-4 py-3 text-center',
-      TONE_BORDER[tone],
-    )}
-  >
+  <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-lg border border-border bg-card px-4 py-3.5 text-center">
+    <span
+      aria-hidden="true"
+      className={cn('absolute inset-x-0 top-0 h-0.5', TONE_ACCENT[tone])}
+    />
     <span className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
       {label}
     </span>
-    <span className={cn('mt-1 text-lg font-bold tracking-tight', TONE_TEXT[tone])}>
+    <span
+      className={cn(
+        'mt-1.5 text-base font-semibold tracking-tight tabular-nums',
+        TONE_TEXT[tone],
+      )}
+    >
       {value}
     </span>
+  </div>
+);
+
+/* ------------------------------------------------------------- meta item --- */
+
+/** One quiet label/value pair for the run-meta strip. `value` is UNTRUSTED. */
+const MetaItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="flex flex-col gap-0.5">
+    <span className="text-[0.625rem] font-semibold uppercase tracking-widest text-muted-foreground">
+      {label}
+    </span>
+    <span className="font-mono text-xs text-foreground">{value}</span>
   </div>
 );
 
@@ -387,11 +412,14 @@ const SectionHeading: React.FC<{
   children: React.ReactNode;
   tone?: ScoreTone;
   actions?: React.ReactNode;
-}> = ({ icon: Icon, children, tone = 'info', actions }) => (
-  <div className="mb-3 flex items-center justify-between gap-3">
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+}> = ({ icon: Icon, children, tone: _tone = 'info', actions }) => (
+  <div className="mb-4 flex items-center justify-between gap-3">
     <div className="flex items-center gap-2">
-      <Icon className={cn('h-4 w-4', TONE_TEXT[tone])} />
-      <h3 className="text-sm font-semibold text-foreground">{children}</h3>
+      <Icon className="h-4 w-4 text-muted-foreground" />
+      <h3 className="text-[0.8125rem] font-semibold tracking-tight text-foreground">
+        {children}
+      </h3>
     </div>
     {actions}
   </div>
@@ -1277,27 +1305,13 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-7 p-6">
       {/* ----------------------------------------------- run-meta strip */}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <Play className="h-3.5 w-3.5 text-success" />
-          Started: <span className="font-mono text-foreground">{startedAt ? formatTimestamp(startedAt) : DASH}</span>
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-          Completed: <span className="font-mono text-foreground">{completedAt ? formatTimestamp(completedAt) : DASH}</span>
-        </span>
-        {ruleIds.length ? (
-          <span className="inline-flex items-center gap-1.5">
-            Trigger: <span className="font-mono text-foreground">{ruleIds[0]}</span>
-          </span>
-        ) : null}
-        {profile ? (
-          <span className="inline-flex items-center gap-1.5">
-            Profile: <span className="font-mono text-foreground">{profile}</span>
-          </span>
-        ) : null}
+      <div className="flex flex-wrap items-center gap-x-10 gap-y-3 rounded-lg border border-border bg-muted/30 px-5 py-3.5">
+        <MetaItem label="Started" value={startedAt ? formatTimestamp(startedAt) : DASH} />
+        <MetaItem label="Completed" value={completedAt ? formatTimestamp(completedAt) : DASH} />
+        {ruleIds.length ? <MetaItem label="Trigger" value={ruleIds[0]} /> : null}
+        {profile ? <MetaItem label="Profile" value={profile} /> : null}
       </div>
 
       {/* ----------------------------------------------- headline panels */}
@@ -1335,7 +1349,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
 
       {/* ----------------------------------------------- incident digest */}
       {c.summary || triggerSentence ? (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={FileText} tone="info">
             Incident Digest
           </SectionHeading>
@@ -1364,33 +1378,33 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
 
       {/* ------------------------------- affected assets + IOC indicators */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Crosshair} tone="info">
             Affected Assets
           </SectionHeading>
           {assetRows.length ? (
-            <div className="space-y-2">
+            <dl className="divide-y divide-border">
               {assetRows.map((row, i) => (
                 <div
                   key={`${row.k}-${i}`}
-                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2"
+                  className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
                 >
-                  <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {row.k}
-                  </span>
+                  </dt>
                   {/* UNTRUSTED value — plain text node, mono. */}
-                  <span className="truncate text-right font-mono text-sm text-foreground">
+                  <dd className="truncate text-right font-mono text-sm text-foreground">
                     {row.v}
-                  </span>
+                  </dd>
                 </div>
               ))}
-            </div>
+            </dl>
           ) : (
             <p className="text-sm text-muted-foreground">No assets recorded.</p>
           )}
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Target} tone="critical">
             IOC Indicators
           </SectionHeading>
@@ -1400,7 +1414,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
                 .filter((e) => e.query)
                 .map((e, i) => (
                   <div key={i} className="space-y-1.5">
-                    <Badge variant="critical" className="font-mono">
+                    <Badge variant="outline" className="font-mono">
                       Command Line
                     </Badge>
                     {/* UNTRUSTED query — inside CodeBlock fence. */}
@@ -1449,7 +1463,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
         ) : (
           <div className="space-y-3">
             {evidence.map((ev, i) => (
-              <div key={i} className="rounded-lg border border-border bg-card p-5">
+              <div key={i} className="rounded-lg border border-border bg-card p-6">
                 <div className="mb-3 flex items-start justify-between gap-3">
                   {/* UNTRUSTED summary as the finding subject — plain text. */}
                   <h4 className="text-sm font-semibold text-foreground">
@@ -1499,7 +1513,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
 
       {/* ------------------------------------------- ruled out / clean */}
       {ruledOut.length ? (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={CheckCircle2} tone="low">
             Ruled out / Checked &amp; clean
           </SectionHeading>
@@ -1522,7 +1536,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
 
       {/* ------------------------------- recommended action + risk breakdown */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Activity} tone="info">
             Recommended action
           </SectionHeading>
@@ -1531,7 +1545,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
             {c.recommended_action || DASH}
           </p>
         </div>
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Gauge} tone="critical">
             Risk breakdown
           </SectionHeading>
@@ -1554,7 +1568,7 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
 
       {/* ------------------------------------------- MITRE */}
       {mitre.length ? (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Shield} tone="medium">
             MITRE ATT&amp;CK techniques
           </SectionHeading>
@@ -1654,9 +1668,9 @@ const WhyTab: React.FC<{
   const playbook = r.playbook || null;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-7 p-6">
       {/* ------------------------------------------- decision summary */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={Brain} tone="info">
           Decision
         </SectionHeading>
@@ -1690,7 +1704,7 @@ const WhyTab: React.FC<{
       </div>
 
       {/* ------------------------------------------- agent reasoning */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={Activity} tone="info">
           Agent reasoning
         </SectionHeading>
@@ -1705,7 +1719,7 @@ const WhyTab: React.FC<{
       </div>
 
       {/* ------------------------------------------- knowledge used */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={BookOpen} tone="low">
           Knowledge used
         </SectionHeading>
@@ -1738,7 +1752,7 @@ const WhyTab: React.FC<{
       </div>
 
       {/* ------------------------------------------- commands the agent ran */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={Terminal} tone="info">
           Commands the agent ran
         </SectionHeading>
@@ -1777,7 +1791,7 @@ const WhyTab: React.FC<{
 
       {/* ------------------------------------------- operator memory */}
       {memory.length ? (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Brain} tone="medium">
             Operator memory applied
           </SectionHeading>
@@ -1802,7 +1816,7 @@ const WhyTab: React.FC<{
       {enr || (playbook && playbook.id) ? (
         <div className="grid gap-6 lg:grid-cols-2">
           {enr ? (
-            <div className="rounded-lg border border-border bg-card p-5">
+            <div className="rounded-lg border border-border bg-card p-6">
               <SectionHeading icon={Globe} tone="critical">
                 Enrichment
               </SectionHeading>
@@ -1839,7 +1853,7 @@ const WhyTab: React.FC<{
             </div>
           ) : null}
           {playbook && playbook.id ? (
-            <div className="rounded-lg border border-border bg-card p-5">
+            <div className="rounded-lg border border-border bg-card p-6">
               <SectionHeading icon={BookOpen} tone="low">
                 Playbook
               </SectionHeading>
@@ -1859,7 +1873,7 @@ const WhyTab: React.FC<{
 
       {/* ------------------------------------------- MITRE */}
       {mitre.length ? (
-        <div className="rounded-lg border border-border bg-card p-5">
+        <div className="rounded-lg border border-border bg-card p-6">
           <SectionHeading icon={Shield} tone="medium">
             MITRE ATT&amp;CK techniques
           </SectionHeading>
@@ -1945,9 +1959,9 @@ const TraceTab: React.FC<{
   const decided = c.decision_by ? humanizeToken(c.decision_by) : null;
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-7 p-6">
       {/* ------------------------------------------- decision-path summary */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={GitBranch} tone="info">
           Decision path
         </SectionHeading>
@@ -2273,9 +2287,9 @@ const CollaborationTab: React.FC<{
     !!fbComment.trim();
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-7 p-6">
       {/* ------------------------------------------- ownership */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading icon={Users} tone="info">
           Ownership
         </SectionHeading>
@@ -2327,7 +2341,7 @@ const CollaborationTab: React.FC<{
       </div>
 
       {/* ------------------------------------------- AI-decision feedback */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading
           icon={Brain}
           tone="medium"
@@ -2501,7 +2515,7 @@ const CollaborationTab: React.FC<{
       </div>
 
       {/* ------------------------------------------- comment thread */}
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading
           icon={MessageSquare}
           tone="info"

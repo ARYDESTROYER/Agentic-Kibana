@@ -40,7 +40,6 @@ import type { LucideIcon } from 'lucide-react';
 import type { AgentPersona, Playbook, PlaybookMatch } from '@/lib/types';
 import { api } from '@/lib/api';
 import { humanizeToken } from '@/lib/format';
-import { cn } from '@/lib/cn';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -118,10 +117,12 @@ const BadgeRow: React.FC<{
   const overflow = items.slice(cap);
 
   return (
-    <div className="mt-3">
-      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+    <div className="mt-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
       {items.length ? (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {shown.map((v, i) => (
             <Badge key={`${v}-${i}`} variant={variant} className="max-w-full">
               {Icon ? <Icon className="h-3 w-3 shrink-0" aria-hidden /> : null}
@@ -142,7 +143,7 @@ const BadgeRow: React.FC<{
           ) : null}
         </div>
       ) : (
-        <p className="mt-1 text-xs text-muted-foreground">{empty}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{empty}</p>
       )}
     </div>
   );
@@ -151,7 +152,7 @@ const BadgeRow: React.FC<{
 /* ----------------------------------------------------------- shared states --- */
 
 const GridSkeleton: React.FC = () => (
-  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
     {Array.from({ length: 4 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="gap-3">
@@ -191,9 +192,9 @@ const LoadError: React.FC<{ error: unknown; title: string; onRetry: () => void }
   </Alert>
 );
 
-/** Small italic note above each catalog grid. */
+/** Calm explanatory note above each catalog grid. */
 const CatalogNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="mb-4 max-w-3xl text-xs text-muted-foreground">{children}</p>
+  <p className="mb-5 max-w-3xl text-sm leading-relaxed text-muted-foreground">{children}</p>
 );
 
 /* ---------------------------------------------------------------- personas --- */
@@ -201,11 +202,11 @@ const CatalogNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 const PersonaCard: React.FC<{ persona: AgentPersona }> = ({ persona }) => {
   const Icon = personaIcon(persona.id);
   return (
-    <Card className="flex h-full flex-col transition-shadow hover:shadow-elev2">
+    <Card className="flex h-full flex-col transition-colors hover:border-primary/40">
       <CardHeader className="gap-3 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary shadow-elev1">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
               <Icon className="h-5 w-5" aria-hidden />
             </span>
             <div className="min-w-0">
@@ -220,7 +221,7 @@ const PersonaCard: React.FC<{ persona: AgentPersona }> = ({ persona }) => {
         </div>
       </CardHeader>
       <CardContent className="flex-1 pt-0">
-        <p className="text-sm text-foreground/90">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           {persona.specialization || 'General-purpose specialist.'}
         </p>
         <BadgeRow
@@ -293,7 +294,7 @@ const PersonasCatalog: React.FC = () => {
         The router deterministically selects one specialist per cluster; it specialises the single
         investigator with the persona&apos;s focus and tool emphasis.
       </CatalogNote>
-      <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Stagger className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {personas.map((p) => (
           <PersonaCard key={p.id} persona={p} />
         ))}
@@ -322,10 +323,12 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
     typeof m.min_event_count === 'number';
 
   return (
-    <div className="mt-3">
-      <div className="text-xs font-semibold text-muted-foreground">Match criteria</div>
+    <div className="mt-4">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Match criteria
+      </div>
       {hasAny ? (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {(m.rule_ids ?? []).map((r, i) => (
             <Badge key={`rule-${i}`} variant="info" className="max-w-full">
               <Hash className="h-3 w-3 shrink-0" aria-hidden />
@@ -357,7 +360,9 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
           ) : null}
         </div>
       ) : (
-        <p className="mt-1 text-xs text-muted-foreground">Matches any cluster (catch-all).</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          Matches any cluster (catch-all).
+        </p>
       )}
     </div>
   );
@@ -366,11 +371,11 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
 const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
   const ragQueries = playbook.rag_queries ?? [];
   return (
-    <Card className="flex h-full flex-col transition-shadow hover:shadow-elev2">
+    <Card className="flex h-full flex-col transition-colors hover:border-primary/40">
       <CardHeader className="gap-3 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-card text-primary shadow-elev1">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
               <FileText className="h-5 w-5" aria-hidden />
             </span>
             <div className="min-w-0">
@@ -393,7 +398,7 @@ const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
       </CardHeader>
       <CardContent className="flex-1 pt-0">
         {playbook.description ? (
-          <p className="text-sm text-foreground/90">{playbook.description}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{playbook.description}</p>
         ) : null}
 
         <MatchCriteria match={playbook.match} />
@@ -406,8 +411,10 @@ const PlaybookCard: React.FC<{ playbook: Playbook }> = ({ playbook }) => {
         />
 
         {ragQueries.length ? (
-          <div className="mt-3">
-            <div className="mb-1.5 text-xs font-semibold text-muted-foreground">RAG queries</div>
+          <div className="mt-4">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              RAG queries
+            </div>
             <CodeBlock
               value={ragQueries.join('\n')}
               copyable={false}
@@ -472,7 +479,7 @@ const PlaybooksCatalog: React.FC = () => {
         Plain-text runbooks selected by match criteria and injected as TRUSTED guidance into the
         investigator (and indexed into RAG). Higher priority wins ties.
       </CatalogNote>
-      <Stagger className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Stagger className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {playbooks.map((p) => (
           <PlaybookCard key={p.id} playbook={p} />
         ))}
@@ -490,7 +497,7 @@ export interface CatalogProps {
 
 export default function Catalog(_props: CatalogProps) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
         icon={Library}
         eyebrow="Knowledge"
@@ -510,10 +517,10 @@ export default function Catalog(_props: CatalogProps) {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="personas" className={cn('mt-6')}>
+        <TabsContent value="personas" className="mt-6">
           <PersonasCatalog />
         </TabsContent>
-        <TabsContent value="playbooks" className={cn('mt-6')}>
+        <TabsContent value="playbooks" className="mt-6">
           <PlaybooksCatalog />
         </TabsContent>
       </Tabs>

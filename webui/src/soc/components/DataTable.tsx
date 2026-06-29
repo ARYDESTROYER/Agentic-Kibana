@@ -109,14 +109,14 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
   if (!active)
     return (
       <ChevronsUpDown
-        className="ml-1 inline-block size-3.5 text-muted-foreground/50"
+        className="ml-1.5 inline-block size-3 text-muted-foreground/40 transition-colors"
         aria-hidden
       />
     );
   return dir === 'asc' ? (
-    <ChevronUp className="ml-1 inline-block size-3.5 text-foreground" aria-hidden />
+    <ChevronUp className="ml-1.5 inline-block size-3 text-foreground" aria-hidden />
   ) : (
-    <ChevronDown className="ml-1 inline-block size-3.5 text-foreground" aria-hidden />
+    <ChevronDown className="ml-1.5 inline-block size-3 text-foreground" aria-hidden />
   );
 }
 
@@ -158,7 +158,9 @@ export function DataTable<T>({
   const someSelected =
     selectable && rowIds.some((id) => selectedSet.has(id)) && !allSelected;
 
-  const cellPad = density === 'compact' ? 'px-3 py-1.5' : 'px-3 py-2.5';
+  // OpenSearch-style comfortable rows: roomy horizontal padding, breathable
+  // vertical rhythm in normal density, tighter (but still legible) when compact.
+  const cellPad = density === 'compact' ? 'px-4 py-2' : 'px-4 py-3';
 
   const handleHeaderSort = (col: DataTableColumn<T>) => {
     if (!col.sortable || !onSortChange) return;
@@ -202,7 +204,9 @@ export function DataTable<T>({
   return (
     <div
       className={cn(
-        'rounded-lg border border-border bg-card shadow-elev1',
+        // Clean OpenSearch card: hairline border, soft elevation, clipped so the
+        // header row + rounded corners stay crisp. Borders over heavy shadow.
+        'overflow-hidden rounded-lg border border-border bg-card shadow-elev1',
         className,
       )}
     >
@@ -210,7 +214,7 @@ export function DataTable<T>({
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             {selectable && (
-              <TableHead className="w-10 px-3">
+              <TableHead className="w-10 px-4">
                 <Checkbox
                   checked={
                     allSelected ? true : someSelected ? 'indeterminate' : false
@@ -228,7 +232,9 @@ export function DataTable<T>({
                   key={col.id}
                   style={col.width ? { width: col.width } : undefined}
                   className={cn(
-                    'whitespace-nowrap uppercase tracking-wide',
+                    // Header typography (uppercase/tracking/weight/colour) comes
+                    // from the TableHead primitive; just keep labels on one line.
+                    'whitespace-nowrap',
                     alignClass(col.align),
                     col.headerClassName,
                   )}
@@ -247,7 +253,8 @@ export function DataTable<T>({
                       type="button"
                       onClick={() => handleHeaderSort(col)}
                       className={cn(
-                        'inline-flex items-center gap-0 rounded-sm font-medium text-muted-foreground',
+                        'group -mx-1 inline-flex items-center rounded-sm px-1 py-0.5 ' +
+                          'font-semibold uppercase tracking-wide text-muted-foreground',
                         'transition-colors hover:text-foreground',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0',
                         isActive && 'text-foreground',
@@ -257,7 +264,7 @@ export function DataTable<T>({
                       <SortIcon active={isActive} dir={sort?.dir} />
                     </button>
                   ) : (
-                    <span className="font-medium">{col.header}</span>
+                    <span>{col.header}</span>
                   )}
                 </TableHead>
               );
@@ -283,11 +290,11 @@ export function DataTable<T>({
             ))
           ) : rows.length === 0 ? (
             <TableRow className="hover:bg-transparent">
-              <TableCell colSpan={colCount} className="h-40 p-0">
-                <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-muted-foreground">
+              <TableCell colSpan={colCount} className="h-48 p-0">
+                <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-muted-foreground">
                   {empty ?? (
                     <>
-                      <Inbox className="size-7 opacity-50" aria-hidden />
+                      <Inbox className="size-8 opacity-40" aria-hidden />
                       <span className="text-sm">No results</span>
                     </>
                   )}
@@ -303,7 +310,11 @@ export function DataTable<T>({
                 <TableRow
                   key={id}
                   data-state={isSelected ? 'selected' : undefined}
-                  className={cn(clickable && 'cursor-pointer')}
+                  className={cn(
+                    clickable &&
+                      'cursor-pointer focus-visible:outline-none focus-visible:ring-2 ' +
+                        'focus-visible:ring-inset focus-visible:ring-ring',
+                  )}
                   onClick={
                     clickable ? () => onRowClick?.(row, rowIndex) : undefined
                   }
@@ -349,19 +360,19 @@ export function DataTable<T>({
       </Table>
 
       {showPager && (
-        <div className="flex flex-col gap-3 border-t border-border px-3 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-border bg-surface/40 px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <span>
+            <span className="tabular-nums">
               {effTotal.toLocaleString()} row{effTotal === 1 ? '' : 's'}
             </span>
             {selectable && (selected?.length ?? 0) > 0 && (
-              <span className="text-foreground">
+              <span className="font-medium tabular-nums text-foreground">
                 {selected!.length} selected
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-5">
             {onPageSizeChange && pageSize != null && (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline">Rows per page</span>
@@ -383,7 +394,7 @@ export function DataTable<T>({
               </div>
             )}
 
-            <span className="whitespace-nowrap">
+            <span className="whitespace-nowrap tabular-nums">
               Page {curPage} of {pageCount}
             </span>
 

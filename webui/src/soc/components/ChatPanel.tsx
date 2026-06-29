@@ -273,7 +273,7 @@ const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
 
   if (!visibleCols.length) {
     return (
-      <div className="mt-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      <div className="mt-3 rounded-md border border-border bg-surface px-3 py-2 text-xs text-muted-foreground">
         {table.rows.length} {table.rows.length === 1 ? 'row' : 'rows'} returned, but no field values
         to display.
       </div>
@@ -281,15 +281,15 @@ const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
   }
 
   return (
-    <div className="mt-2 max-w-full overflow-hidden rounded-md border border-border bg-card">
+    <div className="mt-3 max-w-full overflow-hidden rounded-md border border-border bg-card">
       <div className="max-w-full overflow-x-auto">
         <table className="w-full min-w-full border-collapse text-xs">
           <thead>
-            <tr className="border-b border-border bg-muted/40">
+            <tr className="border-b border-border bg-surface">
               {visibleCols.map((ci) => (
                 <th
                   key={ci}
-                  className="whitespace-nowrap px-3 py-2 text-left font-semibold text-muted-foreground"
+                  className="whitespace-nowrap px-3 py-2 text-left text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground"
                 >
                   {/* column name is source/agent-derived → plain text node. */}
                   {table.columns[ci]}
@@ -299,11 +299,14 @@ const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
           </thead>
           <tbody>
             {cappedRows.map((row, ri) => (
-              <tr key={ri} className="border-b border-border/60 last:border-0">
+              <tr
+                key={ri}
+                className="border-b border-border/60 transition-colors last:border-0 hover:bg-surface/60"
+              >
                 {visibleCols.map((ci) => (
-                  <td key={ci} className="whitespace-nowrap px-3 py-1.5 font-mono text-foreground">
+                  <td key={ci} className="whitespace-nowrap px-3 py-2 font-mono text-foreground">
                     {/* cell value is UNTRUSTED → plain text node. */}
-                    {isBlankCell(row[ci]) ? '—' : String(row[ci])}
+                    {isBlankCell(row[ci]) ? <span className="text-muted-foreground">—</span> : String(row[ci])}
                   </td>
                 ))}
               </tr>
@@ -312,7 +315,7 @@ const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
         </table>
       </div>
       {hiddenRowCount > 0 || table.truncated ? (
-        <div className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
+        <div className="border-t border-border bg-surface px-3 py-1.5 text-xs text-muted-foreground">
           {hiddenRowCount > 0
             ? `Showing first ${cappedRows.length} of ${table.rows.length} rows · +${hiddenRowCount} more`
             : 'Results truncated.'}
@@ -358,26 +361,28 @@ const AnswerMeta: React.FC<{ resp: ChatResponse; model?: string }> = ({ resp, mo
   const hasModel = typeof model === 'string' && model.trim().length > 0;
   if (!hasQuery && !hasCost && !hasModel) return null;
   return (
-    <div className="mt-2 space-y-1">
+    <div className="mt-3 space-y-2">
       {hasQuery ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">Query used</span>
+          <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            Query
+          </span>
           {/* query is UNTRUSTED → InlineCode (plain text node). */}
           <InlineCode className="max-w-full">{resp.query as string}</InlineCode>
           <CopyButton text={(resp.query as string) ?? ''} label="Copy query" />
         </div>
       ) : null}
       {hasCost || hasModel ? (
-        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {hasCost ? (
-            <span className="inline-flex items-center gap-1">
-              <Gauge className="h-3.5 w-3.5" aria-hidden />
-              {fmtMoney(resp.cost)} this message
+            <span className="inline-flex items-center gap-1.5">
+              <Gauge className="h-3.5 w-3.5 opacity-70" aria-hidden />
+              <span className="tabular-nums">{fmtMoney(resp.cost)}</span> this message
             </span>
           ) : null}
           {hasModel ? (
-            <span className="inline-flex items-center gap-1">
-              <Cpu className="h-3.5 w-3.5" aria-hidden />
+            <span className="inline-flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5 opacity-70" aria-hidden />
               {/* model id is operator-configured → mono plain text. */}
               <span className="font-mono">{model}</span>
             </span>
@@ -411,12 +416,14 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
               How the agent got this
             </span>
           </AccordionTrigger>
-          <AccordionContent className="space-y-3 pb-2">
+          <AccordionContent className="space-y-4 pb-2">
             {tools.length ? (
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-muted-foreground">Tools run</div>
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Tools run
+                </div>
                 {tools.map((t, i) => (
-                  <div key={i} className="space-y-1">
+                  <div key={i} className="space-y-1.5">
                     <div className="text-xs text-foreground">
                       {/* tool name is engine-derived → plain text. */}
                       <span className="font-semibold">{String(t.tool ?? 'tool')}</span>
@@ -432,9 +439,11 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
 
             {knowledge.length ? (
               <div className="space-y-2">
-                <div className="text-xs font-semibold text-muted-foreground">Knowledge consulted</div>
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Knowledge consulted
+                </div>
                 {knowledge.map((k, i) => (
-                  <div key={i} className="space-y-1">
+                  <div key={i} className="space-y-1.5">
                     {/* source label is corpus-derived → mono plain text. */}
                     <div className="font-mono text-xs text-muted-foreground">{String(k.source ?? '')}</div>
                     {k.snippet ? <CodeBlock value={k.snippet} copyable={false} wrap /> : null}
@@ -444,8 +453,10 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
             ) : null}
 
             {citations.length ? (
-              <div className="space-y-1">
-                <div className="text-xs font-semibold text-muted-foreground">Citations</div>
+              <div className="space-y-1.5">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Citations
+                </div>
                 {citations.map((c, i) => (
                   <div key={i} className="text-xs text-foreground">
                     <span className="font-semibold">{`[${c.n}] `}</span>
@@ -460,8 +471,10 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
             ) : null}
 
             {reasoning ? (
-              <div className="space-y-1">
-                <div className="text-xs font-semibold text-muted-foreground">Reasoning</div>
+              <div className="space-y-1.5">
+                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Reasoning
+                </div>
                 {/* reasoning excerpt model-derived → CodeBlock (plain text). */}
                 <CodeBlock value={reasoning} copyable={false} wrap />
               </div>
@@ -559,7 +572,7 @@ const MemoryActionEcho: React.FC<{ action: ChatMemoryAction }> = ({ action }) =>
   if (!isDelete && !hasText) return null;
   const label = isDelete ? 'Forgot this fact' : op === 'update' ? 'Memory updated' : 'Remembered';
   return (
-    <div className="mt-2 rounded-md border border-success/40 bg-success/5 px-3 py-2">
+    <div className="mt-3 rounded-md border border-success/30 bg-success/[0.06] px-3 py-2.5">
       <div className="flex items-start gap-2 text-xs">
         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden />
         <div>
@@ -601,11 +614,13 @@ const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = (
   const saved = state === 'saved';
 
   return (
-    <div className="mt-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+    <div className="mt-3 rounded-md border border-primary/30 bg-primary/[0.06] px-3 py-2.5">
       <div className="flex items-start gap-2">
         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="text-xs text-muted-foreground">Save this to memory?</div>
+          <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            Save this to memory?
+          </div>
           {/* suggested text is UNTRUSTED → plain text node. */}
           <div className="mt-0.5 text-sm text-foreground">{text}</div>
           {suggestion.reason && suggestion.reason.trim() ? (
@@ -648,17 +663,17 @@ const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = (
 const MetaLine: React.FC<{ who: string; at: number; align: 'start' | 'end' }> = ({ who, at, align }) => (
   <div
     className={cn(
-      'mt-1 text-xs text-muted-foreground',
+      'mt-1.5 text-[0.6875rem] text-muted-foreground',
       align === 'end' ? 'self-end' : 'self-start',
     )}
   >
-    <span className="font-semibold">{who}</span>
-    <span className="opacity-70">{` · ${clockTime(at)}`}</span>
+    <span className="font-medium">{who}</span>
+    <span className="opacity-60">{` · ${clockTime(at)}`}</span>
   </div>
 );
 
 const AgentAvatar: React.FC = () => (
-  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-primary/10 text-primary">
+  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
     <Bot className="h-4 w-4" aria-hidden />
   </span>
 );
@@ -672,10 +687,10 @@ const Bubble: React.FC<{
 }> = ({ item, grouped = false, showMeta = true, canRegenerate = false, onRegenerate }) => {
   if (item.role === 'user') {
     return (
-      <div className={cn('flex justify-end', grouped && '-mt-1.5')}>
+      <div className={cn('flex justify-end', grouped && '-mt-1')}>
         <div className="flex max-w-[min(80%,720px)] flex-col">
           {/* user content is UNTRUSTED → plain text node (whitespace preserved). */}
-          <div className="whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground">
+          <div className="whitespace-pre-wrap break-words rounded-xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
             {item.content}
           </div>
           {showMeta ? <MetaLine who="You" at={item.at} align="end" /> : null}
@@ -686,7 +701,7 @@ const Bubble: React.FC<{
 
   // Assistant (answer or error).
   return (
-    <div className={cn('flex items-start gap-2.5', grouped && '-mt-1.5')}>
+    <div className={cn('flex items-start gap-3', grouped && '-mt-1')}>
       <div className="shrink-0" aria-hidden>
         {grouped ? <span className="block w-8" /> : <AgentAvatar />}
       </div>
@@ -699,7 +714,7 @@ const Bubble: React.FC<{
             <AlertDescription>{item.content}</AlertDescription>
           </Alert>
         ) : (
-          <div className="rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-2.5 text-foreground">
+          <div className="rounded-xl rounded-tl-md border border-border bg-card px-4 py-3 text-foreground">
             <Markdown text={item.content} />
           </div>
         )}
@@ -726,12 +741,12 @@ const Bubble: React.FC<{
 
 /** Animated "agent is thinking" indicator shown while a reply is in flight. */
 const TypingIndicator: React.FC = () => (
-  <div className="flex items-start gap-2.5" aria-label="Agent is responding">
+  <div className="flex items-start gap-3" aria-label="Agent is responding">
     <AgentAvatar />
-    <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-border bg-card px-4 py-3">
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
-      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-primary" />
+    <div className="flex items-center gap-1.5 rounded-xl rounded-tl-md border border-border bg-card px-4 py-3.5">
+      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+      <span className="socTypingDot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
     </div>
   </div>
 );
@@ -753,27 +768,27 @@ const EmptyState: React.FC<{
   loading: boolean;
   onPick: (p: string) => void;
 }> = ({ compact, scoped, starters, loading, onPick }) => (
-  <div className="mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-6 text-center">
+  <div className="mx-auto flex max-w-2xl flex-col items-center justify-center px-4 py-8 text-center">
     <span
       className={cn(
-        'flex items-center justify-center rounded-2xl bg-primary/10 text-primary',
+        'flex items-center justify-center rounded-xl border border-border bg-surface text-primary',
         compact ? 'h-12 w-12' : 'h-16 w-16',
       )}
     >
-      <MessageSquare className={compact ? 'h-6 w-6' : 'h-8 w-8'} aria-hidden />
+      <MessageSquare className={compact ? 'h-6 w-6' : 'h-7 w-7'} aria-hidden />
     </span>
-    <h3 className="mt-4 text-lg font-semibold text-foreground">
+    <h3 className="mt-5 text-lg font-semibold tracking-tight text-foreground">
       {scoped ? 'Ask about this case' : 'Ask the SOC agent anything'}
     </h3>
     {!compact ? (
-      <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
+      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
         {scoped
           ? 'Dig into the evidence, pull related activity, or ask why the agent reached its verdict.'
           : "Investigate an IP, summarize today's findings, or hunt for suspicious activity. Try one of these to get started:"}
       </p>
     ) : null}
     {starters.length ? (
-      <div className="mt-4 flex flex-wrap justify-center gap-2">
+      <div className="mt-6 flex flex-wrap justify-center gap-2">
         {starters.map((p) => (
           <Button
             key={p}
@@ -963,9 +978,9 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
 
         {/* Scope chip — only when scoped to a case. */}
         {caseId ? (
-          <div className={cn('shrink-0 text-xs text-muted-foreground', compact ? 'mb-1.5' : 'mb-2.5')}>
-            <span className="inline-flex items-center gap-1">
-              <Link2 className="h-3.5 w-3.5" aria-hidden />
+          <div className={cn('shrink-0 text-xs text-muted-foreground', compact ? 'mb-2' : 'mb-3')}>
+            <span className="inline-flex items-center gap-1.5">
+              <Link2 className="h-3.5 w-3.5 opacity-70" aria-hidden />
               Scoped to case <InlineCode>{caseId}</InlineCode>
             </span>
           </div>
@@ -976,7 +991,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           ref={scrollRef}
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden',
-            compact ? 'gap-2.5 px-1 py-1' : 'gap-3.5 px-1 py-2',
+            compact ? 'gap-3 px-1 py-1' : 'gap-5 px-1 py-2',
             isEmpty && 'justify-center',
           )}
           role="log"
@@ -1018,8 +1033,8 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         {/* Composer — pinned bottom card. */}
         <div
           className={cn(
-            'shrink-0 rounded-xl border border-border bg-card shadow-elev1',
-            compact ? 'mt-2 p-2.5' : 'mt-3 p-3',
+            'shrink-0 rounded-lg border border-border bg-card',
+            compact ? 'mt-3 p-3' : 'mt-4 p-3.5',
           )}
         >
           <div className="flex items-end gap-2">
@@ -1049,7 +1064,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             </Tooltip>
           </div>
 
-          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <span className="text-xs text-muted-foreground">
               Enter to send · Shift+Enter for a new line
             </span>
@@ -1114,7 +1129,7 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           </div>
 
           {hasSources && sourceId === ALL_SOURCES ? (
-            <div className="mt-1.5 text-xs text-muted-foreground">
+            <div className="mt-2 text-xs text-muted-foreground">
               “All sources” currently queries the primary source.
             </div>
           ) : null}

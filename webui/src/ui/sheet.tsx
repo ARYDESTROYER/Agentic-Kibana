@@ -16,7 +16,7 @@ const SheetOverlay = React.forwardRef<
   <SheetPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/60 backdrop-blur-sm',
+      'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
       'data-[state=open]:animate-in data-[state=open]:fade-in-0',
       'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
       className,
@@ -99,8 +99,9 @@ const SheetContent = React.forwardRef<
       {children}
       <SheetPrimitive.Close
         className={cn(
-          'absolute right-4 top-4 rounded-sm opacity-70 transition-opacity',
-          'hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0',
+          'absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-md',
+          'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           'disabled:pointer-events-none',
         )}
       >

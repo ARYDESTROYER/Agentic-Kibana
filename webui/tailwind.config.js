@@ -42,14 +42,17 @@ export default {
         mono: ['"JetBrains Mono"', 'SFMono-Regular', 'Consolas', 'Menlo', 'monospace'],
       },
       boxShadow: {
-        glow: '0 0 0 1px hsl(var(--primary) / 0.25), 0 8px 30px -8px hsl(var(--primary) / 0.35)',
-        elev1: '0 1px 2px hsl(222 47% 4% / 0.18), 0 2px 8px hsl(222 47% 4% / 0.14)',
-        elev2: '0 12px 40px -12px hsl(222 47% 4% / 0.45)',
+        /* Quiet, border-first elevation. Light mode leans on hairline borders;
+           shadows are barely-there. A subtle ring replaces the old neon glow. */
+        glow: '0 0 0 1px hsl(var(--primary) / 0.18), 0 4px 16px -8px hsl(var(--primary) / 0.22)',
+        elev1: '0 1px 2px hsl(222 30% 12% / 0.06), 0 1px 3px hsl(222 30% 12% / 0.08)',
+        elev2: '0 4px 12px -4px hsl(222 30% 12% / 0.12), 0 8px 24px -10px hsl(222 30% 12% / 0.14)',
       },
       backgroundImage: {
+        /* Whisper-soft hero wash — calm, not the old command-center glow. */
         'hero-glow':
-          'radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.18) 0%, transparent 55%), radial-gradient(120% 140% at 100% 0%, hsl(var(--accent) / 0.14) 0%, transparent 55%)',
-        'accent-bar': 'linear-gradient(90deg, hsl(var(--accent)) 0%, hsl(var(--primary)) 100%)',
+          'radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.07) 0%, transparent 60%), radial-gradient(120% 140% at 100% 0%, hsl(var(--accent) / 0.05) 0%, transparent 60%)',
+        'accent-bar': 'linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)',
       },
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },

@@ -14,78 +14,88 @@
 
 @layer base {
   :root {
-    /* ---- Light theme ------------------------------------------------------ */
-    --canvas: 210 40% 98%;
-    --surface: 210 40% 96%;
+    /* ---- Light theme — clean white/very-light-gray (OpenSearch/AdSense) --- */
+    /* Canvas is a barely-tinted neutral gray; cards are pure white and float
+       on hairline borders rather than heavy shadows. */
+    --canvas: 220 20% 97%;
+    --surface: 220 20% 99%;
     --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --foreground: 222 39% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222 39% 14%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 222 39% 14%;
 
-    --primary: 217 91% 53%;
+    --primary: 217 88% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 94%;
-    --secondary-foreground: 222 47% 18%;
-    --muted: 210 40% 95%;
-    --muted-foreground: 215 16% 42%;
-    --accent: 199 89% 45%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 78% 51%;
+    --secondary: 220 18% 95%;
+    --secondary-foreground: 222 33% 22%;
+    --muted: 220 18% 96%;
+    --muted-foreground: 218 14% 40%;
+    /* `accent` is the calm neutral HOVER/SELECTED surface (shadcn convention) —
+       NOT a brand colour. Consumers pair it with `text-foreground` / use washes
+       (`bg-accent/30`), so it must stay a quiet neutral that reads in both themes.
+       Brand/severity hues live in their own tokens (primary / info / critical…). */
+    --accent: 220 18% 93%;
+    --accent-foreground: 222 33% 22%;
+    --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 32% 88%;
-    --input: 214 32% 86%;
-    --ring: 217 91% 53%;
+    --border: 220 18% 90%;
+    --input: 220 16% 87%;
+    --ring: 217 88% 50%;
 
-    /* Semantic SOC scale (severity / status / verdict). */
-    --critical: 0 78% 51%;
-    --high: 22 92% 48%;
-    --medium: 38 92% 42%;
-    --low: 142 64% 38%;
-    --info: 199 89% 45%;
-    --success: 160 78% 35%;
-    --warning: 38 92% 45%;
+    /* Semantic SOC scale (severity / status / verdict) — AA on white. */
+    --critical: 0 72% 49%;
+    --high: 24 86% 45%;
+    --medium: 36 88% 40%;
+    --low: 150 58% 35%;
+    --info: 199 85% 40%;
+    --success: 158 70% 33%;
+    --warning: 36 88% 42%;
 
-    --radius: 0.75rem;
+    --radius: 0.625rem;
   }
 
   .dark {
-    /* ---- Dark "command center" theme ------------------------------------- */
-    --canvas: 222 47% 6%;
-    --surface: 222 38% 9%;
-    --background: 222 44% 7%;
-    --foreground: 210 40% 96%;
+    /* ---- Dark theme — calm, refined slate (not glowy) -------------------- */
+    /* Lower chroma than the old "command center" navy; surfaces step up in
+       lightness, not saturation, so the UI reads premium and quiet. */
+    --canvas: 222 24% 8%;
+    --surface: 222 20% 11%;
+    --background: 222 23% 9%;
+    --foreground: 213 28% 93%;
 
-    --card: 222 38% 11%;
-    --card-foreground: 210 40% 96%;
-    --popover: 222 42% 9%;
-    --popover-foreground: 210 40% 96%;
+    --card: 222 20% 12%;
+    --card-foreground: 213 28% 93%;
+    --popover: 222 22% 11%;
+    --popover-foreground: 213 28% 93%;
 
-    --primary: 217 91% 60%;
+    --primary: 217 84% 62%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 222 30% 17%;
-    --secondary-foreground: 210 40% 92%;
-    --muted: 222 25% 16%;
-    --muted-foreground: 215 22% 66%;
-    --accent: 188 95% 48%;
-    --accent-foreground: 222 47% 8%;
-    --destructive: 0 84% 62%;
+    --secondary: 222 16% 18%;
+    --secondary-foreground: 213 24% 90%;
+    --muted: 222 15% 17%;
+    --muted-foreground: 217 16% 66%;
+    /* Calm neutral hover/selected surface (see light-theme note). One notch above
+       `muted` so a selected row reads against the card without any brand tint. */
+    --accent: 222 16% 22%;
+    --accent-foreground: 213 24% 90%;
+    --destructive: 0 74% 58%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 217 24% 20%;
-    --input: 217 24% 22%;
-    --ring: 217 91% 60%;
+    --border: 218 16% 21%;
+    --input: 218 16% 23%;
+    --ring: 217 84% 62%;
 
-    --critical: 0 84% 62%;
-    --high: 25 95% 56%;
-    --medium: 45 93% 52%;
-    --low: 142 71% 48%;
-    --info: 199 92% 56%;
-    --success: 160 84% 42%;
-    --warning: 38 92% 52%;
+    --critical: 0 78% 62%;
+    --high: 26 90% 58%;
+    --medium: 42 88% 56%;
+    --low: 150 60% 50%;
+    --info: 199 84% 58%;
+    --success: 158 70% 46%;
+    --warning: 40 90% 56%;
   }
 
   * {

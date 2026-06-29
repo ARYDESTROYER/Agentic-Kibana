@@ -36,6 +36,7 @@ import {
   Timer,
   Wand2,
   Workflow,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -122,9 +123,9 @@ type SecProps = { prefs: Preferences; update: (p: Partial<Preferences>) => void 
 
 function SectionTitle({ title, sub }: { title: string; sub?: string }) {
   return (
-    <div className="space-y-0.5">
-      <h2 className="text-base font-semibold text-foreground">{title}</h2>
-      {sub ? <p className="text-sm text-muted-foreground">{sub}</p> : null}
+    <div className="space-y-1 border-b border-border pb-4">
+      <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
+      {sub ? <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{sub}</p> : null}
     </div>
   );
 }
@@ -209,10 +210,10 @@ function SwitchPref({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-card/40 px-3 py-2.5">
-      <div className="min-w-0">
+    <div className="flex items-start justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3 transition-colors hover:border-border/80">
+      <div className="min-w-0 space-y-0.5">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
+        {help ? <p className="text-xs leading-relaxed text-muted-foreground">{help}</p> : null}
       </div>
       <Switch
         checked={checked}
@@ -340,7 +341,7 @@ function SecretInput({
 
 function DataSection({ prefs, update }: SecProps) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Data scope" sub="Index pattern and the fields the agent maps entities from." />
       <div className="grid gap-4 sm:grid-cols-2">
         <TextPref label="Log index pattern" value={prefs.data_view_pattern} onChange={(v) => update({ data_view_pattern: v })} />
@@ -365,7 +366,7 @@ function DataSection({ prefs, update }: SecProps) {
 
 function PollingSection({ prefs, update }: SecProps) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Polling" sub="How the durable poller pulls new events." />
       <SwitchPref
         label="Polling enabled"
@@ -383,7 +384,7 @@ function PollingSection({ prefs, update }: SecProps) {
 
 function ModelsSection({ prefs, update, models }: SecProps & { models: ModelsResponse | null }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Per-role models" sub="The model used for each task." />
       {!models ? (
         <Alert variant="warning">
@@ -437,7 +438,7 @@ function KeysSection({
   const set = (k: string, v: string) => setDraft({ ...draft, [k]: v });
   const pending = Object.values(draft).some((v) => v && v.trim().length > 0);
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle
         title="Secret keys"
         sub="Write-only. The console only ever sees whether a key is configured."
@@ -474,14 +475,17 @@ function CorrelationSection({ prefs, update }: SecProps) {
   const corr = prefs.default_correlation || {};
   const weights = prefs.risk_weights || {};
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Correlation & risk" sub="Clustering thresholds and the deterministic risk weights." />
       <div className="grid gap-4 sm:grid-cols-2">
         <NumPref label="Threshold (N)" value={corr.n} onChange={(v) => update({ default_correlation: { ...corr, n: v } })} />
         <NumPref label="Window (seconds)" value={corr.window_seconds} onChange={(v) => update({ default_correlation: { ...corr, window_seconds: v } })} />
       </div>
       <Separator />
-      <p className="text-sm text-muted-foreground">Risk weights (auto-normalised to 0–100):</p>
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Risk weights
+        <span className="ml-2 font-normal normal-case tracking-normal">auto-normalised to 0–100</span>
+      </p>
       <div className="grid gap-4 sm:grid-cols-3">
         {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
           <NumPref
@@ -506,7 +510,7 @@ function EnrichmentSection({ prefs, update }: SecProps) {
   const e = prefs.enrichment || {};
   const set = (patch: Partial<typeof e>) => update({ enrichment: { ...e, ...patch } });
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Enrichment" sub="Threat-intel lookups (cached in Redis)." />
       <div className="space-y-2">
         <SwitchPref label="Enrichment enabled" checked={e.enabled ?? true} onChange={(v) => set({ enabled: v })} />
@@ -523,7 +527,7 @@ function RagSection({ prefs, update }: SecProps) {
   const r = prefs.rag || {};
   const set = (patch: Partial<typeof r>) => update({ rag: { ...r, ...patch } });
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="RAG" sub="Retrieval-augmented context for investigations." />
       <SwitchPref label="RAG enabled" checked={r.enabled ?? true} onChange={(v) => set({ enabled: v })} />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -543,7 +547,7 @@ function StandupSection({ prefs, update }: SecProps) {
   const s = prefs.standup || {};
   const set = (patch: Partial<typeof s>) => update({ standup: { ...s, ...patch } });
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Standup" sub="Daily aggregate summary." />
       <SwitchPref label="Standup enabled" checked={s.enabled ?? true} onChange={(v) => set({ enabled: v })} />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -559,7 +563,7 @@ function AutonomySection({ prefs, update }: SecProps) {
   const set = (patch: Partial<typeof fp>) => update({ fp_auto_close: { ...fp, ...patch } });
   const minConfPct = toPercentValue(fp.min_confidence ?? 0.8);
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle
         title="Autonomy"
         sub="When the agent may auto-close a FALSE POSITIVE. The close/escalate decision is always made by deterministic code against this policy — never by raw model output."
@@ -584,7 +588,12 @@ function AutonomySection({ prefs, update }: SecProps) {
         onChange={(v) => set({ enabled: v })}
       />
 
-      <div className="space-y-2">
+      <div
+        className={cn(
+          'space-y-3 rounded-md border border-border bg-surface px-4 py-4 transition-opacity',
+          !fp.enabled && 'opacity-60',
+        )}
+      >
         <div className="flex items-center justify-between">
           <Label>Minimum confidence to auto-close</Label>
           <span className="text-sm font-semibold tabular-nums text-foreground">{minConfPct}%</span>
@@ -598,7 +607,7 @@ function AutonomySection({ prefs, update }: SecProps) {
           onValueChange={(vals) => set({ min_confidence: (vals[0] ?? 0) / 100 })}
           aria-label="Minimum confidence to auto-close"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs leading-relaxed text-muted-foreground">
           The agent's verdict confidence must be at or above this bar.
         </p>
       </div>
@@ -641,7 +650,7 @@ function SafetySection({ prefs, update }: SecProps) {
     setTagInput('');
   };
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <SectionTitle title="Automation & safety" sub="Caps, the auto-forward allowlist, and the kill switch." />
       <SwitchPref
         label="Background automated scans"
@@ -665,20 +674,20 @@ function SafetySection({ prefs, update }: SecProps) {
         />
         <p className="text-xs text-muted-foreground">Rule values that auto-forward to investigation.</p>
         {allowlist.length ? (
-          <div className="flex flex-wrap gap-1 pt-1">
+          <div className="flex flex-wrap gap-1.5 pt-1.5">
             {allowlist.map((r) => (
-              <Badge key={r} variant="outline" className="gap-1">
+              <Badge key={r} variant="outline" className="gap-1 pr-1">
                 {/* UNTRUSTED-ish rule value — plain text only */}
-                {r}
+                <span className="truncate">{r}</span>
                 <button
                   type="button"
                   aria-label={`Remove ${r}`}
-                  className="ml-0.5 rounded-sm hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() =>
                     update({ auto_forward_allowlist: allowlist.filter((x) => x !== r) })
                   }
                 >
-                  ×
+                  <X className="h-3 w-3" aria-hidden />
                 </button>
               </Badge>
             ))}
@@ -694,8 +703,8 @@ function SafetySection({ prefs, update }: SecProps) {
 
       <div
         className={cn(
-          'rounded-md border px-3 py-2.5',
-          caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-card/40',
+          'rounded-md border px-4 py-3 transition-colors',
+          caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-surface',
         )}
       >
         <div className="flex items-start justify-between gap-4">
@@ -831,9 +840,13 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
     return (
       <div className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
-        <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <Skeleton className="h-80 w-full" />
-          <Skeleton className="h-80 w-full" />
+        <div className="grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
+          <div className="space-y-1.5">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
+          <Skeleton className="h-96 w-full rounded-lg" />
         </div>
       </div>
     );
@@ -905,7 +918,7 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
         {/* Section nav */}
         <nav aria-label="Settings sections" className="lg:sticky lg:top-4 lg:self-start">
           <div className="flex flex-wrap gap-1 lg:flex-col">
@@ -919,14 +932,20 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
                   onClick={() => setSection(s.id)}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     active
-                      ? 'bg-primary text-primary-foreground shadow-elev1'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                  <Icon
+                    className={cn(
+                      'h-4 w-4 shrink-0 transition-colors',
+                      active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                    )}
+                    aria-hidden
+                  />
                   <span className="truncate">{s.name}</span>
                 </button>
               );
@@ -936,7 +955,7 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
 
         {/* Section body */}
         <Card>
-          <CardContent className="p-6">
+          <CardContent className="p-6 sm:p-7">
             {section === 'data' ? (
               <DataSection {...secProps} />
             ) : section === 'polling' ? (
@@ -971,7 +990,7 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
         </Card>
       </div>
 
-      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+      <p className="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
         Changes to preferences take effect after Save. Secret keys are stored write-only — the
         console only ever knows whether a key is configured.
       </p>

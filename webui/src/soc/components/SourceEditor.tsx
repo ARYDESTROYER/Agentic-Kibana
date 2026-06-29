@@ -696,8 +696,8 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   // --- connector picker step (add flow, before a connector is chosen) --- //
   if (!manifest) {
     return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
+      <div className="space-y-5">
+        <p className="text-sm leading-relaxed text-muted-foreground">
           Choose the system you want the agent to read security events from.
         </p>
         <ConnectorPicker connectors={connectors} onSelect={pickConnector} />
@@ -711,7 +711,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* header */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
@@ -737,14 +737,14 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
         <p className="text-xs text-muted-foreground">A friendly name shown across the console.</p>
       </div>
 
-      <div className="flex flex-wrap gap-6">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap gap-x-8 gap-y-3 rounded-md border border-border bg-surface px-4 py-3">
+        <div className="flex items-center gap-2.5">
           <Switch id="se-enabled" checked={enabled} onCheckedChange={setEnabled} />
           <Label htmlFor="se-enabled" className="cursor-pointer">
             Enabled
           </Label>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Switch id="se-primary" checked={isPrimary} onCheckedChange={setIsPrimary} />
           <Label htmlFor="se-primary" className="cursor-pointer">
             Primary (the agent reads from this)
@@ -838,7 +838,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
       ) : null}
 
       {/* actions */}
-      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
         {onCancel ? (
           <Button variant="ghost" onClick={onCancel}>
             Cancel

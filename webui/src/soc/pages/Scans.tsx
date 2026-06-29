@@ -58,6 +58,7 @@ import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { Stagger } from '@/soc/components/Stagger';
 import { InlineCode } from '@/soc/components/CodeBlock';
+import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
 import {
   VerdictBadge,
   StatusBadge,
@@ -365,7 +366,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
   /* ------------------------------------------------------------- render --- */
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-8 animate-fade-in">
       <PageHeader
         eyebrow="AUTOMATION"
         icon={ScanSearch}
@@ -413,7 +414,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
       ) : null}
 
       {/* ---------------------------------------------------------- KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[7.5rem] w-full rounded-lg" />
@@ -453,117 +454,124 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
         )}
       </div>
 
-      {/* ---------------------------------------------------- filter bar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[14rem] flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-8"
-            placeholder="Search title, entity, IP, rule, tags…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search scan cases"
-          />
-        </div>
-
-        <Select value={verdict} onValueChange={setVerdict}>
-          <SelectTrigger className="h-9 w-[11rem]" aria-label="Filter by verdict">
-            <SelectValue placeholder="Verdict" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY}>Any verdict</SelectItem>
-            {verdictFacets.map((v) => (
-              <SelectItem key={v} value={v}>
-                {humanizeToken(v)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {sourceFacets.keys.length > 1 ? (
-          <Select value={source} onValueChange={setSource}>
-            <SelectTrigger className="h-9 w-[12rem]" aria-label="Filter by source">
-              <SelectValue placeholder="Source" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY}>Any source</SelectItem>
-              {sourceFacets.keys.map((k) => (
-                <SelectItem key={k} value={k}>
-                  {sourceFacets.labels[k] ||
-                    (k === UNKNOWN_SOURCE ? UNKNOWN_SOURCE_LABEL : k)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={clearFilters}
-          disabled={!anyFilterActive}
+      {/* ----------------------------------------------- controls toolbar */}
+      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+        {/* status tab pills + result count */}
+        <div
+          className="flex flex-wrap items-center gap-2"
+          role="tablist"
+          aria-label="Status filter"
         >
-          <X className="h-4 w-4" /> Clear
-        </Button>
-
-        <div className="ml-auto flex items-center gap-2">
-          <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-            <SelectTrigger className="h-9 w-[12rem]" aria-label="Sort scan cases">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.text}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* --------------------------------------------- status tab pills */}
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Status filter">
-        {STATUS_TABS.map((t) => {
-          const active = statusTab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setStatusTab(t.key)}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                active
-                  ? 'border-primary bg-primary text-primary-foreground shadow-elev1'
-                  : 'border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-            >
-              {t.label}
-              <span
+          {STATUS_TABS.map((t) => {
+            const active = statusTab === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setStatusTab(t.key)}
                 className={cn(
-                  'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-xs font-semibold',
+                  'inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                   active
-                    ? 'bg-primary-foreground/20 text-primary-foreground'
-                    : 'bg-muted text-muted-foreground',
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-surface text-muted-foreground hover:bg-accent hover:text-foreground',
                 )}
               >
-                {tabCounts[t.key]}
-              </span>
-            </button>
-          );
-        })}
-        <span className="ml-auto text-xs text-muted-foreground">
-          Showing <span className="font-semibold text-foreground">{visible.length}</span> of{' '}
-          {cases.length}
-        </span>
+                {t.label}
+                <span
+                  className={cn(
+                    'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums',
+                    active
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {tabCounts[t.key]}
+                </span>
+              </button>
+            );
+          })}
+          <span className="ml-auto text-xs text-muted-foreground">
+            Showing <span className="font-semibold tabular-nums text-foreground">{visible.length}</span> of{' '}
+            <span className="tabular-nums">{cases.length}</span>
+          </span>
+        </div>
+
+        {/* search + facet selects + sort */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
+          <div className="relative min-w-[14rem] flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Search title, entity, IP, rule, tags…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search scan cases"
+            />
+          </div>
+
+          <Select value={verdict} onValueChange={setVerdict}>
+            <SelectTrigger className="h-9 w-[11rem]" aria-label="Filter by verdict">
+              <SelectValue placeholder="Verdict" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>Any verdict</SelectItem>
+              {verdictFacets.map((v) => (
+                <SelectItem key={v} value={v}>
+                  {humanizeToken(v)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {sourceFacets.keys.length > 1 ? (
+            <Select value={source} onValueChange={setSource}>
+              <SelectTrigger className="h-9 w-[12rem]" aria-label="Filter by source">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>Any source</SelectItem>
+                {sourceFacets.keys.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {sourceFacets.labels[k] ||
+                      (k === UNKNOWN_SOURCE ? UNKNOWN_SOURCE_LABEL : k)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearFilters}
+            disabled={!anyFilterActive}
+          >
+            <X className="h-4 w-4" /> Clear
+          </Button>
+
+          <div className="ml-auto">
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="h-9 w-[12rem]" aria-label="Sort scan cases">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.text}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
       </div>
 
       {/* --------------------------------------------------- card grid */}
       {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-44 w-full rounded-lg" />
           ))}
@@ -586,7 +594,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           }
         />
       ) : (
-        <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Stagger className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((c) => (
             <ScanCard
               key={c.case_id}
@@ -650,36 +658,49 @@ const ScanCard: React.FC<{
   const hasSource = caseSourceKey(c) !== UNKNOWN_SOURCE;
   const sourceLabel = caseSourceLabel(c);
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpen();
+    }
+  };
+
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={onKeyDown}
       aria-label={`Open case ${c.title || c.case_id}`}
       className={cn(
-        'group relative flex w-full flex-col gap-3 rounded-lg border border-l-4 border-border bg-card p-4 text-left shadow-elev1 transition-colors',
+        'group relative flex w-full cursor-pointer flex-col gap-3 rounded-lg border border-l-4 border-border bg-card p-5 text-left transition-colors',
         'hover:border-primary/40 hover:bg-accent/30',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         ACCENT_BORDER[accent],
       )}
     >
-      {/* entity + age */}
-      <div className="flex items-baseline justify-between gap-2">
-        {/* UNTRUSTED entity — inside InlineCode. */}
-        <InlineCode className="max-w-[70%] truncate text-xs">{entity}</InlineCode>
-        <div className="flex shrink-0 items-center gap-2">
-          {isNew ? (
-            <Badge variant="info" className="gap-1">
-              New
-            </Badge>
-          ) : null}
-          <span className="text-xs text-muted-foreground">{humanizeAge(c.created_at)}</span>
-        </div>
-      </div>
+      {/* header (entity · age · new) + title — wrapped in the hover preview */}
+      <CaseHoverCard case={c}>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-baseline justify-between gap-2">
+            {/* UNTRUSTED entity — inside InlineCode. */}
+            <InlineCode className="max-w-[70%] truncate text-xs">{entity}</InlineCode>
+            <div className="flex shrink-0 items-center gap-2">
+              {isNew ? (
+                <Badge variant="info" className="gap-1">
+                  New
+                </Badge>
+              ) : null}
+              <span className="text-xs text-muted-foreground">{humanizeAge(c.created_at)}</span>
+            </div>
+          </div>
 
-      {/* title — UNTRUSTED plain text */}
-      <h3 className="line-clamp-2 break-words text-sm font-semibold text-foreground">
-        {c.title || c.case_id}
-      </h3>
+          {/* title — UNTRUSTED plain text */}
+          <h3 className="line-clamp-2 break-words text-sm font-semibold leading-snug text-foreground">
+            {c.title || c.case_id}
+          </h3>
+        </div>
+      </CaseHoverCard>
 
       {/* verdict / status / risk / confidence */}
       <div className="flex flex-wrap items-center gap-1.5">
@@ -725,6 +746,6 @@ const ScanCard: React.FC<{
           ) : null}
         </div>
       ) : null}
-    </button>
+    </div>
   );
 };
