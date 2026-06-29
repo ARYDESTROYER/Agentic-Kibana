@@ -99,7 +99,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     );
 
     const base =
-      'relative overflow-hidden rounded-lg border border-border bg-card p-5 text-left';
+      'relative h-full overflow-hidden rounded-lg border border-border bg-card p-5 text-left';
 
     if (clickable) {
       return (

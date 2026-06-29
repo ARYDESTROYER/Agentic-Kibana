@@ -23,7 +23,6 @@ import {
   Check,
   Database,
   FileText,
-  Gauge,
   Globe,
   Hash,
   Info,
@@ -33,12 +32,14 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Settings as SettingsIcon,
   ShieldAlert,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
-  Timer,
   Trash2,
+  Users as UsersIcon,
   Wand2,
   Workflow,
   X,
@@ -71,7 +72,6 @@ import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 import { Card, CardContent } from '@/ui/card';
-import { Separator } from '@/ui/separator';
 import {
   Select,
   SelectContent,
@@ -84,45 +84,175 @@ import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { BrandingEditor } from '@/soc/components/BrandingEditor';
 import { NotificationsEditor } from '@/soc/components/NotificationsEditor';
-import { Can } from '@/soc/components/Can';
+import { Can, useCan } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
+import { useNavigate } from '@/soc/router';
+import { useAuth } from '@/soc/auth';
 
 /* --------------------------------------------------------------- sections --- */
 
 type SectionId =
-  | 'data'
-  | 'polling'
+  | 'general'
   | 'models'
   | 'keys'
-  | 'correlation'
-  | 'enrichment'
-  | 'rag'
-  | 'standup'
-  | 'autonomy'
-  | 'safety'
+  | 'detection'
+  | 'cases'
   | 'automation'
-  | 'threatcontext'
+  | 'standup'
   | 'notifications'
-  | 'caseid'
-  | 'branding';
+  | 'security'
+  | 'knowledge'
+  | 'enrichment'
+  | 'appearance'
+  | 'advanced';
 
-const SECTIONS: Array<{ id: SectionId; name: string; icon: LucideIcon }> = [
-  { id: 'data', name: 'Data scope', icon: Database },
-  { id: 'polling', name: 'Polling', icon: Timer },
-  { id: 'models', name: 'Models', icon: Sparkles },
-  { id: 'keys', name: 'Secret keys', icon: KeyRound },
-  { id: 'correlation', name: 'Correlation & risk', icon: Workflow },
-  { id: 'enrichment', name: 'Enrichment', icon: Globe },
-  { id: 'rag', name: 'RAG', icon: Library },
-  { id: 'standup', name: 'Standup', icon: FileText },
-  { id: 'autonomy', name: 'Autonomy', icon: Gauge },
-  { id: 'safety', name: 'Automation & safety', icon: Lock },
-  { id: 'automation', name: 'Threshold automation', icon: Zap },
-  { id: 'threatcontext', name: 'Threat context', icon: ShieldAlert },
-  { id: 'notifications', name: 'Alerting & notifications', icon: Bell },
-  { id: 'caseid', name: 'Case-ID format', icon: Hash },
-  { id: 'branding', name: 'Branding', icon: Brush },
+interface SectionMeta {
+  id: SectionId;
+  name: string;
+  /** Short one-liner shown in search + as a subtitle. */
+  blurb: string;
+  icon: LucideIcon;
+  /** When set, the section is gated by this `resource:action` grant. */
+  perm?: { resource: string; action: string };
+  /** Extra keywords so search finds a section by the settings it contains. */
+  keywords?: string[];
+}
+
+interface SectionGroup {
+  id: string;
+  label: string;
+  sections: SectionMeta[];
+}
+
+const SECTION_GROUPS: SectionGroup[] = [
+  {
+    id: 'configuration',
+    label: 'Configuration',
+    sections: [
+      {
+        id: 'general',
+        name: 'General & data scope',
+        blurb: 'Index pattern, entity fields, severity threshold, and polling.',
+        icon: Database,
+        keywords: ['data view', 'index', 'fields', 'polling', 'poll', 'lookback', 'timestamp', 'severity'],
+      },
+      {
+        id: 'models',
+        name: 'Models & LLM',
+        blurb: 'The model used for each agent role.',
+        icon: Sparkles,
+        keywords: ['llm', 'model', 'router', 'investigator', 'formatter', 'chat', 'embedding', 'anthropic', 'openai'],
+      },
+      {
+        id: 'keys',
+        name: 'Secret keys',
+        blurb: 'Write-only API keys for Elasticsearch, LLMs, and enrichment.',
+        icon: KeyRound,
+        keywords: ['api key', 'secret', 'credentials', 'anthropic', 'openai', 'abuseipdb', 'virustotal'],
+      },
+    ],
+  },
+  {
+    id: 'triage',
+    label: 'Triage logic',
+    sections: [
+      {
+        id: 'detection',
+        name: 'Detection & correlation',
+        blurb: 'Clustering, risk weights, escalation, auto-close, and cross-source correlation.',
+        icon: Workflow,
+        keywords: ['correlation', 'risk', 'weights', 'escalation', 'auto-close', 'autonomy', 'false positive', 'cross-source', 'entity'],
+      },
+      {
+        id: 'cases',
+        name: 'Cases',
+        blurb: 'Human-facing case-ID nomenclature and live preview.',
+        icon: Hash,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['case id', 'case number', 'nomenclature', 'sequence', 'prefix', 'template'],
+      },
+      {
+        id: 'automation',
+        name: 'Automation',
+        blurb: 'Threshold rules that react to a case after the deterministic decision.',
+        icon: Zap,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['automation', 'rules', 'threshold', 'tag', 'notify', 'playbook', 'proposal'],
+      },
+      {
+        id: 'standup',
+        name: 'Standup',
+        blurb: 'The daily aggregate summary window and cadence.',
+        icon: FileText,
+        keywords: ['standup', 'summary', 'digest', 'aggregate', 'report'],
+      },
+    ],
+  },
+  {
+    id: 'integrations',
+    label: 'Integrations & context',
+    sections: [
+      {
+        id: 'notifications',
+        name: 'Alerting & notifications',
+        blurb: 'Outbound channels, triggers, dedup, and digests.',
+        icon: Bell,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['alerting', 'notifications', 'email', 'slack', 'teams', 'webhook', 'pagerduty', 'telegram', 'channels'],
+      },
+      {
+        id: 'enrichment',
+        name: 'Enrichment',
+        blurb: 'Threat-intel lookups (AbuseIPDB / VirusTotal / GeoIP), cached in Redis.',
+        icon: Globe,
+        keywords: ['enrichment', 'abuseipdb', 'virustotal', 'geoip', 'reputation', 'cache', 'ttl'],
+      },
+      {
+        id: 'knowledge',
+        name: 'Knowledge & threat context',
+        blurb: 'RAG retrieval, the threat-context panel, MITRE, and runbooks/playbooks.',
+        icon: ShieldAlert,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['rag', 'retrieval', 'knowledge', 'threat context', 'mitre', 'runbook', 'playbook', 'ioc', 'resolved cases'],
+      },
+    ],
+  },
+  {
+    id: 'administration',
+    label: 'Administration',
+    sections: [
+      {
+        id: 'security',
+        name: 'Security & access',
+        blurb: 'RBAC, MFA, single sign-on, users, and platform hardening.',
+        icon: ShieldCheck,
+        keywords: ['security', 'rbac', 'roles', 'mfa', 'sso', 'oidc', 'users', 'access', 'csrf', 'rate limit', 'headers'],
+      },
+      {
+        id: 'appearance',
+        name: 'Appearance & branding',
+        blurb: 'Org wordmark, logo, accent colours, and default theme.',
+        icon: Brush,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['branding', 'appearance', 'theme', 'logo', 'favicon', 'colour', 'color', 'white-label', 'accent'],
+      },
+      {
+        id: 'advanced',
+        name: 'Advanced',
+        blurb: 'Caps, kill switch, suppression rules, rule catalog, and the settings lock.',
+        icon: SlidersHorizontal,
+        perm: { resource: 'settings', action: 'manage' },
+        keywords: ['advanced', 'caps', 'kill switch', 'suppression', 'rule catalog', 'read-only', 'lock', 'budget', 'allowlist'],
+      },
+    ],
+  },
 ];
+
+const ALL_SECTIONS: SectionMeta[] = SECTION_GROUPS.flatMap((g) => g.sections);
+
+function isSectionId(v: string): v is SectionId {
+  return ALL_SECTIONS.some((s) => s.id === v);
+}
 
 const ROLE_PREF_KEY: Record<string, keyof Preferences> = {
   router: 'router_model',
@@ -147,6 +277,16 @@ function SectionTitle({ title, sub }: { title: string; sub?: string }) {
     <div className="space-y-1 border-b border-border pb-4">
       <h2 className="text-lg font-semibold tracking-tight text-foreground">{title}</h2>
       {sub ? <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{sub}</p> : null}
+    </div>
+  );
+}
+
+/** A subsection heading used to group related controls inside one Settings section. */
+function SubHeader({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+      {children}
     </div>
   );
 }
@@ -360,44 +500,65 @@ function SecretInput({
 
 /* ------------------------------------------------------------- sub-sections - */
 
-function DataSection({ prefs, update }: SecProps) {
+function GeneralSection({ prefs, update, onNavigate }: SecProps & { onNavigate?: (p: any) => void }) {
   return (
-    <div className="space-y-6">
-      <SectionTitle title="Data scope" sub="Index pattern and the fields the agent maps entities from." />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <TextPref label="Log index pattern" value={prefs.data_view_pattern} onChange={(v) => update({ data_view_pattern: v })} />
-        <TextPref label="Timestamp field" value={prefs.time_field} onChange={(v) => update({ time_field: v })} />
-        <TextPref label="Source IP field" value={prefs.source_ip_field} onChange={(v) => update({ source_ip_field: v })} />
-        <TextPref label="User field" value={prefs.user_field} onChange={(v) => update({ user_field: v })} />
-        <TextPref label="Host field" value={prefs.host_field} onChange={(v) => update({ host_field: v })} />
-        <TextPref label="Rule / module field" value={prefs.rule_field} onChange={(v) => update({ rule_field: v })} />
-        <TextPref label="Rule name field" value={prefs.rule_name_field} onChange={(v) => update({ rule_name_field: v })} />
-        <TextPref label="Severity field" value={prefs.severity_field} onChange={(v) => update({ severity_field: v })} />
-        <NumPref label="Severity threshold" value={prefs.severity_threshold} step={0.5} onChange={(v) => update({ severity_threshold: v })} />
-        <TextPref
-          label="Investigate lookback"
-          value={prefs.investigate_lookback}
-          help='Starting window for manual entity investigation, e.g. "now-24h".'
-          onChange={(v) => update({ investigate_lookback: v })}
-        />
-      </div>
-    </div>
-  );
-}
+    <div className="space-y-8">
+      <SectionTitle title="General & data scope" sub="The index pattern, the fields the agent maps entities from, and how the durable poller pulls new events." />
 
-function PollingSection({ prefs, update }: SecProps) {
-  return (
-    <div className="space-y-6">
-      <SectionTitle title="Polling" sub="How the durable poller pulls new events." />
-      <SwitchPref
-        label="Polling enabled"
-        checked={Boolean(prefs.polling_enabled)}
-        onChange={(v) => update({ polling_enabled: v })}
-      />
-      <div className="grid gap-4 sm:grid-cols-3">
-        <NumPref label="Poll interval (seconds)" value={prefs.poll_interval_seconds} onChange={(v) => update({ poll_interval_seconds: v })} />
-        <NumPref label="Poll batch size" value={prefs.poll_batch_size} onChange={(v) => update({ poll_batch_size: v })} />
-        <NumPref label="Cold-start lookback (minutes)" value={prefs.cold_start_lookback_minutes} onChange={(v) => update({ cold_start_lookback_minutes: v })} />
+      <div className="space-y-4">
+        <SubHeader title="Data sources">
+          <HelpTip text="Connect and manage SIEM/EDR/queue sources (Elasticsearch, OpenSearch, Wazuh, push receivers) on the dedicated Sources page." />
+        </SubHeader>
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Add, edit, and test-connect log sources, and browse a source&apos;s logs.
+          </p>
+          {onNavigate ? (
+            <Button variant="outline" size="sm" onClick={() => onNavigate('sources')}>
+              <Database className="h-4 w-4" aria-hidden />
+              Open Sources
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Default log scope & field mapping">
+          <HelpTip text="The fallback index pattern and field mapping used when a source does not override them." />
+        </SubHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <TextPref label="Log index pattern" value={prefs.data_view_pattern} onChange={(v) => update({ data_view_pattern: v })} />
+          <TextPref label="Timestamp field" value={prefs.time_field} onChange={(v) => update({ time_field: v })} />
+          <TextPref label="Source IP field" value={prefs.source_ip_field} onChange={(v) => update({ source_ip_field: v })} />
+          <TextPref label="User field" value={prefs.user_field} onChange={(v) => update({ user_field: v })} />
+          <TextPref label="Host field" value={prefs.host_field} onChange={(v) => update({ host_field: v })} />
+          <TextPref label="Rule / module field" value={prefs.rule_field} onChange={(v) => update({ rule_field: v })} />
+          <TextPref label="Rule name field" value={prefs.rule_name_field} onChange={(v) => update({ rule_name_field: v })} />
+          <TextPref label="Severity field" value={prefs.severity_field} onChange={(v) => update({ severity_field: v })} />
+          <NumPref label="Severity threshold" value={prefs.severity_threshold} step={0.5} onChange={(v) => update({ severity_threshold: v })} />
+          <TextPref
+            label="Investigate lookback"
+            value={prefs.investigate_lookback}
+            help='Starting window for manual entity investigation, e.g. "now-24h".'
+            onChange={(v) => update({ investigate_lookback: v })}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Polling">
+          <HelpTip text="The background poller pulls new events on a durable cursor (no skip, no dup). Off by default in some deployments." />
+        </SubHeader>
+        <SwitchPref
+          label="Polling enabled"
+          checked={Boolean(prefs.polling_enabled)}
+          onChange={(v) => update({ polling_enabled: v })}
+        />
+        <div className="grid gap-4 sm:grid-cols-3">
+          <NumPref label="Poll interval (seconds)" value={prefs.poll_interval_seconds} onChange={(v) => update({ poll_interval_seconds: v })} />
+          <NumPref label="Poll batch size" value={prefs.poll_batch_size} onChange={(v) => update({ poll_batch_size: v })} />
+          <NumPref label="Cold-start lookback (minutes)" value={prefs.cold_start_lookback_minutes} onChange={(v) => update({ cold_start_lookback_minutes: v })} />
+        </div>
       </div>
     </div>
   );
@@ -492,39 +653,66 @@ function KeysSection({
   );
 }
 
-function CorrelationSection({ prefs, update }: SecProps) {
+function DetectionSection({ prefs, update }: SecProps) {
   const corr = prefs.default_correlation || {};
   const weights = prefs.risk_weights || {};
   return (
-    <div className="space-y-6">
-      <SectionTitle title="Correlation & risk" sub="Clustering thresholds and the deterministic risk weights." />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <NumPref label="Threshold (N)" value={corr.n} onChange={(v) => update({ default_correlation: { ...corr, n: v } })} />
-        <NumPref label="Window (seconds)" value={corr.window_seconds} onChange={(v) => update({ default_correlation: { ...corr, window_seconds: v } })} />
+    <div className="space-y-8">
+      <SectionTitle
+        title="Detection & correlation"
+        sub="How alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
+      />
+
+      <div className="space-y-4">
+        <SubHeader title="Correlation">
+          <HelpTip text="Alerts that share an entity within the window cluster into one case. The cluster signature keeps cases idempotent (no dups)." />
+        </SubHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <NumPref label="Threshold (N)" value={corr.n} onChange={(v) => update({ default_correlation: { ...corr, n: v } })} />
+          <NumPref label="Window (seconds)" value={corr.window_seconds} onChange={(v) => update({ default_correlation: { ...corr, window_seconds: v } })} />
+        </div>
       </div>
-      <Separator />
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Risk weights
-        <span className="ml-2 font-normal normal-case tracking-normal">auto-normalised to 0–100</span>
-      </p>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
-          <NumPref
-            key={k}
-            label={humanizeToken(k)}
-            value={weights[k]}
-            step={0.05}
-            onChange={(v) => update({ risk_weights: { ...weights, [k]: v } })}
-          />
-        ))}
+
+      <div className="space-y-4">
+        <SubHeader title="Risk weights">
+          <HelpTip text="The deterministic risk model's weights. Values are auto-normalised to a 0–100 score; the model never sees raw logs." />
+        </SubHeader>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
+            <NumPref
+              key={k}
+              label={humanizeToken(k)}
+              value={weights[k]}
+              step={0.05}
+              onChange={(v) => update({ risk_weights: { ...weights, [k]: v } })}
+            />
+          ))}
+        </div>
       </div>
-      <Separator />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <NumPref label="Escalation confidence" value={prefs.escalation_confidence} step={0.05} onChange={(v) => update({ escalation_confidence: v })} />
-        <NumPref label="Critical severity" value={prefs.critical_severity} step={0.5} onChange={(v) => update({ critical_severity: v })} />
+
+      <div className="space-y-4">
+        <SubHeader title="Escalation">
+          <HelpTip text="The confidence below which a case is escalated for a human, and the severity considered critical." />
+        </SubHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <NumPref label="Escalation confidence" value={prefs.escalation_confidence} step={0.05} onChange={(v) => update({ escalation_confidence: v })} />
+          <NumPref label="Critical severity" value={prefs.critical_severity} step={0.5} onChange={(v) => update({ critical_severity: v })} />
+        </div>
       </div>
-      <Separator />
-      <CrossSourceSubsection prefs={prefs} update={update} />
+
+      <div className="space-y-4">
+        <SubHeader title="Auto-close policy">
+          <HelpTip text="The close/escalate decision is always made by deterministic code against this policy — never by raw model output. NEEDS_HUMAN never auto-closes." />
+        </SubHeader>
+        <AutonomyControls prefs={prefs} update={update} />
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Cross-source correlation">
+          <HelpTip text="An opt-in second pass that links related open cases across sources sharing an entity. Surfaces RELATED cases — never force-merges." />
+        </SubHeader>
+        <CrossSourceSubsection prefs={prefs} update={update} />
+      </div>
     </div>
   );
 }
@@ -602,22 +790,21 @@ function EnrichmentSection({ prefs, update }: SecProps) {
   );
 }
 
-function RagSection({ prefs, update }: SecProps) {
+function RagControls({ prefs, update }: SecProps) {
   const r = prefs.rag || {};
   const set = (patch: Partial<typeof r>) => update({ rag: { ...r, ...patch } });
   return (
-    <div className="space-y-6">
-      <SectionTitle title="RAG" sub="Retrieval-augmented context for investigations." />
+    <div className="space-y-4">
       <SwitchPref label="RAG enabled" checked={r.enabled ?? true} onChange={(v) => set({ enabled: v })} />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <NumPref label="Top K" value={r.top_k} onChange={(v) => set({ top_k: v })} />
-        <NumPref label="Minimum score" value={r.min_score} step={0.05} onChange={(v) => set({ min_score: v })} />
+      <div className={cn('grid gap-4 sm:grid-cols-2', !(r.enabled ?? true) && 'opacity-60')}>
+        <NumPref label="Top K" value={r.top_k} disabled={!(r.enabled ?? true)} onChange={(v) => set({ top_k: v })} />
+        <NumPref label="Minimum score" value={r.min_score} step={0.05} disabled={!(r.enabled ?? true)} onChange={(v) => set({ min_score: v })} />
       </div>
-      <div className="space-y-2">
-        <SwitchPref label="Use runbooks" checked={r.use_runbooks ?? true} onChange={(v) => set({ use_runbooks: v })} />
-        <SwitchPref label="Use MITRE" checked={r.use_mitre ?? true} onChange={(v) => set({ use_mitre: v })} />
-        <SwitchPref label="Use resolved cases" checked={r.use_resolved_cases ?? true} onChange={(v) => set({ use_resolved_cases: v })} />
-        <SwitchPref label="Use threat intel" checked={r.use_threat_context ?? true} onChange={(v) => set({ use_threat_context: v })} />
+      <div className={cn('space-y-2', !(r.enabled ?? true) && 'opacity-60')}>
+        <SwitchPref label="Use runbooks" checked={r.use_runbooks ?? true} disabled={!(r.enabled ?? true)} onChange={(v) => set({ use_runbooks: v })} />
+        <SwitchPref label="Use MITRE" checked={r.use_mitre ?? true} disabled={!(r.enabled ?? true)} onChange={(v) => set({ use_mitre: v })} />
+        <SwitchPref label="Use resolved cases" checked={r.use_resolved_cases ?? true} disabled={!(r.enabled ?? true)} onChange={(v) => set({ use_resolved_cases: v })} />
+        <SwitchPref label="Use threat intel" checked={r.use_threat_context ?? true} disabled={!(r.enabled ?? true)} onChange={(v) => set({ use_threat_context: v })} />
       </div>
     </div>
   );
@@ -638,16 +825,12 @@ function StandupSection({ prefs, update }: SecProps) {
   );
 }
 
-function AutonomySection({ prefs, update }: SecProps) {
+function AutonomyControls({ prefs, update }: SecProps) {
   const fp = prefs.fp_auto_close || {};
   const set = (patch: Partial<typeof fp>) => update({ fp_auto_close: { ...fp, ...patch } });
   const minConfPct = toPercentValue(fp.min_confidence ?? 0.8);
   return (
     <div className="space-y-6">
-      <SectionTitle
-        title="Autonomy"
-        sub="When the agent may auto-close a FALSE POSITIVE. The close/escalate decision is always made by deterministic code against this policy — never by raw model output."
-      />
       <Alert>
         <Info className="h-4 w-4" aria-hidden />
         <AlertTitle>NEEDS_HUMAN never auto-closes</AlertTitle>
@@ -715,9 +898,15 @@ function AutonomySection({ prefs, update }: SecProps) {
   );
 }
 
-function SafetySection({ prefs, update }: SecProps) {
+function AdvancedSection({
+  prefs,
+  update,
+  onNavigate,
+}: SecProps & { onNavigate?: (p: any) => void }) {
   const caps = prefs.caps || {};
   const setCaps = (patch: Partial<typeof caps>) => update({ caps: { ...caps, ...patch } });
+  const rag = prefs.rag || {};
+  const setRag = (patch: Partial<typeof rag>) => update({ rag: { ...rag, ...patch } });
   const [tagInput, setTagInput] = React.useState('');
   const allowlist = prefs.auto_forward_allowlist || [];
   const addTag = () => {
@@ -730,78 +919,229 @@ function SafetySection({ prefs, update }: SecProps) {
     setTagInput('');
   };
   return (
-    <div className="space-y-6">
-      <SectionTitle title="Automation & safety" sub="Caps, the auto-forward allowlist, and the kill switch." />
-      <SwitchPref
-        label="Background automated scans"
-        checked={Boolean(prefs.background_scan_enabled)}
-        onChange={(v) => update({ background_scan_enabled: v })}
+    <div className="space-y-8">
+      <SectionTitle
+        title="Advanced"
+        sub="Power-user controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-rule retrieval, the rule catalog, and the settings lock."
       />
 
-      <div className="space-y-1.5">
-        <Label htmlFor="allowlist-input">Auto-forward allowlist</Label>
-        <Input
-          id="allowlist-input"
-          placeholder="Type a rule value and press Enter"
-          value={tagInput}
-          onChange={(e) => setTagInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              addTag();
-            }
-          }}
-        />
-        <p className="text-xs text-muted-foreground">Rule values that auto-forward to investigation.</p>
-        {allowlist.length ? (
-          <div className="flex flex-wrap gap-1.5 pt-1.5">
-            {allowlist.map((r) => (
-              <Badge key={r} variant="outline" className="gap-1 pr-1">
-                {/* UNTRUSTED-ish rule value — plain text only */}
-                <span className="truncate">{r}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${r}`}
-                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() =>
-                    update({ auto_forward_allowlist: allowlist.filter((x) => x !== r) })
-                  }
-                >
-                  <X className="h-3 w-3" aria-hidden />
-                </button>
-              </Badge>
-            ))}
+      <div className="space-y-4">
+        <SubHeader title="Per-case caps">
+          <HelpTip text="Hard limits per investigation. A case that hits a cap is routed to NEEDS_HUMAN rather than running unbounded." />
+        </SubHeader>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <NumPref label="Max tool calls / case" value={caps.max_tool_calls} onChange={(v) => setCaps({ max_tool_calls: v })} />
+          <NumPref label="Max tokens / case" value={caps.max_tokens} onChange={(v) => setCaps({ max_tokens: v })} />
+          <NumPref label="Timeout (seconds)" value={caps.timeout_seconds} onChange={(v) => setCaps({ timeout_seconds: v })} />
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Kill switch">
+          <HelpTip text="An emergency stop. When on, the agent immediately halts ALL automated investigation; manual investigation still works." />
+        </SubHeader>
+        <div
+          className={cn(
+            'rounded-md border px-4 py-3 transition-colors',
+            caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-surface',
+          )}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className={cn('text-sm font-medium', caps.kill_switch ? 'text-critical' : 'text-foreground')}>
+                Kill switch (stop all investigations)
+              </p>
+              <p className="text-xs text-muted-foreground">
+                When on, the agent halts all automated investigation immediately.
+              </p>
+            </div>
+            <Switch
+              checked={Boolean(caps.kill_switch)}
+              onCheckedChange={(v) => setCaps({ kill_switch: v })}
+              aria-label="Kill switch"
+            />
           </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Auto-forward allowlist">
+          <HelpTip text="Rule values whose alerts auto-forward straight to investigation (bypassing the cheap router). Operator-entered values render as plain text." />
+        </SubHeader>
+        <SwitchPref
+          label="Background automated scans"
+          help="Run scheduled background scans that triage new cases automatically."
+          checked={Boolean(prefs.background_scan_enabled)}
+          onChange={(v) => update({ background_scan_enabled: v })}
+        />
+        <div className="space-y-1.5">
+          <Label htmlFor="allowlist-input">Allowlisted rule values</Label>
+          <Input
+            id="allowlist-input"
+            placeholder="Type a rule value and press Enter"
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addTag();
+              }
+            }}
+          />
+          {allowlist.length ? (
+            <div className="flex flex-wrap gap-1.5 pt-1.5">
+              {allowlist.map((r) => (
+                <Badge key={r} variant="outline" className="gap-1 pr-1">
+                  {/* UNTRUSTED-ish rule value — plain text only */}
+                  <span className="truncate">{r}</span>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${r}`}
+                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() =>
+                      update({ auto_forward_allowlist: allowlist.filter((x) => x !== r) })
+                    }
+                  >
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Suppression & rule catalog">
+          <HelpTip text="Inject approved suppression rules as TRUSTED retrieval context, and review/manage the detection rule catalog on the Playbooks & agents page." />
+        </SubHeader>
+        <SwitchPref
+          label="Inject suppression rules"
+          help="Retrieve approved suppression rules (source: suppression) and inject them into investigations as a TRUSTED fenced block. Suppression rules only go live via the approval queue — never automatically."
+          checked={rag.use_suppression_rules ?? true}
+          onChange={(v) => setRag({ use_suppression_rules: v })}
+        />
+        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+          <span className="text-sm text-muted-foreground">Detection rule catalog &amp; playbooks</span>
+          {onNavigate ? (
+            <Button variant="outline" size="sm" onClick={() => onNavigate('catalog')}>
+              <FileText className="h-4 w-4" aria-hidden />
+              Open catalog
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <SubHeader title="Settings lock">
+          <HelpTip text="When on, the console marks settings read-only. A safety guard against accidental edits in shared/production deployments. (Server-side read-only mode still wins.)" />
+        </SubHeader>
+        <SwitchPref
+          label="Read-only settings mode"
+          help="Surface settings as read-only in the console. Save is disabled while this is on."
+          checked={Boolean(prefs.read_only_settings_mode)}
+          onChange={(v) => update({ read_only_settings_mode: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Security & access — the admin/self-service security hub (links + posture). */
+function SecuritySection({
+  prefs,
+  onNavigate,
+}: {
+  prefs: Preferences;
+  onNavigate?: (p: any) => void;
+}) {
+  const { authEnabled, rbacEnabled, role } = useAuth();
+  const canManageUsers = useCan('users', 'manage');
+  const sso = (prefs.sso as { enabled?: boolean; providers?: unknown[] } | undefined) ?? {};
+  const providerCount = Array.isArray(sso.providers) ? sso.providers.length : 0;
+
+  return (
+    <div className="space-y-8">
+      <SectionTitle
+        title="Security & access"
+        sub="Authentication posture, role-based access control, multi-factor auth, single sign-on, and user administration."
+      />
+
+      <div className="space-y-4">
+        <SubHeader title="Posture">
+          <HelpTip text="A read-only summary of the live auth/RBAC posture, reported by the backend." />
+        </SubHeader>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <PostureTile label="Authentication" on={authEnabled} onText="Enforced" offText="Disabled" />
+          <PostureTile label="RBAC" on={rbacEnabled} onText="Enforced" offText="Allow-all" />
+          <PostureTile label="Single sign-on" on={Boolean(sso.enabled)} onText={`${providerCount} provider${providerCount === 1 ? '' : 's'}`} offText="Off" />
+        </div>
+        {role ? (
+          <p className="text-xs text-muted-foreground">
+            You are signed in as <span className="font-medium text-foreground">{String(role)}</span>.
+          </p>
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <NumPref label="Max tool calls / case" value={caps.max_tool_calls} onChange={(v) => setCaps({ max_tool_calls: v })} />
-        <NumPref label="Max tokens / case" value={caps.max_tokens} onChange={(v) => setCaps({ max_tokens: v })} />
-        <NumPref label="Timeout (seconds)" value={caps.timeout_seconds} onChange={(v) => setCaps({ timeout_seconds: v })} />
+      <div className="space-y-4">
+        <SubHeader title="Multi-factor & single sign-on">
+          <HelpTip text="Enroll your own TOTP MFA (self-service) and — for admins — configure OIDC single sign-on providers, on the Security page." />
+        </SubHeader>
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+          <p className="text-sm text-muted-foreground">
+            Manage two-factor authentication and SSO/OIDC providers.
+          </p>
+          {onNavigate ? (
+            <Button variant="outline" size="sm" onClick={() => onNavigate('security')}>
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+              Open Security
+            </Button>
+          ) : null}
+        </div>
       </div>
 
-      <div
-        className={cn(
-          'rounded-md border px-4 py-3 transition-colors',
-          caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-surface',
-        )}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className={cn('text-sm font-medium', caps.kill_switch ? 'text-critical' : 'text-foreground')}>
-              Kill switch (stop all investigations)
+      <Can resource="users" action="manage">
+        <div className="space-y-4">
+          <SubHeader title="Users & roles">
+            <HelpTip text="Add accounts, assign roles, reset passwords, and enable/disable users. The permission matrix per role is defined by RBAC." />
+          </SubHeader>
+          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+            <p className="text-sm text-muted-foreground">
+              Administer accounts and their roles, and review the RBAC permission matrix.
             </p>
-            <p className="text-xs text-muted-foreground">
-              When on, the agent halts all automated investigation immediately.
-            </p>
+            {onNavigate ? (
+              <Button variant="outline" size="sm" onClick={() => onNavigate('users')} disabled={!canManageUsers}>
+                <UsersIcon className="h-4 w-4" aria-hidden />
+                Open Users &amp; roles
+              </Button>
+            ) : null}
           </div>
-          <Switch
-            checked={Boolean(caps.kill_switch)}
-            onCheckedChange={(v) => setCaps({ kill_switch: v })}
-            aria-label="Kill switch"
-          />
         </div>
+      </Can>
+    </div>
+  );
+}
+
+function PostureTile({
+  label,
+  on,
+  onText,
+  offText,
+}: {
+  label: string;
+  on: boolean;
+  onText: string;
+  offText: string;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-surface px-4 py-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="mt-1.5 flex items-center gap-2">
+        <span
+          className={cn('inline-block h-2 w-2 rounded-full', on ? 'bg-success' : 'bg-muted-foreground/40')}
+          aria-hidden
+        />
+        <span className="text-sm font-semibold text-foreground">{on ? onText : offText}</span>
       </div>
     </div>
   );
@@ -1280,71 +1620,93 @@ function AutomationSection({ prefs, update }: SecProps) {
   );
 }
 
-function ThreatContextSection({ prefs, update }: SecProps) {
+function KnowledgeSection({
+  prefs,
+  update,
+  onNavigate,
+}: SecProps & { onNavigate?: (p: any) => void }) {
   const cfg: ThreatContextConfig = prefs.threat_context || {};
   const set = (patch: Partial<ThreatContextConfig>) =>
     update({ threat_context: { ...cfg, ...patch } });
-  const rag = prefs.rag || {};
-  const setRag = (patch: Partial<typeof rag>) => update({ rag: { ...rag, ...patch } });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <SectionTitle
-        title="Threat context"
-        sub="The per-case threat-context panel (IOC reputation, MITRE techniques, related cases, asset) and the reusable-knowledge loop."
+        title="Knowledge & threat context"
+        sub="Retrieval-augmented context for investigations, the per-case threat-context panel (IOC reputation, MITRE, related cases), and the reusable-knowledge loop."
       />
 
-      <SwitchPref
-        label="Threat-context panel enabled"
-        help="Assemble and show the Threat context tab on each case. Sections fail open — a missing enrichment or MITRE lookup degrades to empty, never an error."
-        checked={cfg.enabled ?? true}
-        onChange={(v) => set({ enabled: v })}
-      />
-      <SwitchPref
-        label="MITRE ATT&CK technique lookup"
-        help="Resolve technique ids against the bundled curated MITRE corpus (name, tactics, link)."
-        checked={cfg.mitre_enabled ?? true}
-        onChange={(v) => set({ mitre_enabled: v })}
-      />
-      <SwitchPref
-        label="Reuse resolved cases"
-        help="Auto-index closed/resolved cases into the corpus so future triage can retrieve 'we've seen this before'."
-        checked={cfg.reuse_resolved_cases ?? true}
-        onChange={(v) => set({ reuse_resolved_cases: v })}
-      />
+      <div className="space-y-4">
+        <SubHeader title="Retrieval (RAG)">
+          <HelpTip text="Hybrid BM25 + vector retrieval injects relevant knowledge into investigations as a clearly-labelled TRUSTED block." />
+        </SubHeader>
+        <RagControls prefs={prefs} update={update} />
+      </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <Label>IOC malicious threshold</Label>
-            <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
+      <div className="space-y-4">
+        <SubHeader title="Threat-context panel">
+          <HelpTip text="The Threat context tab on each case. Sections fail open — a missing enrichment or MITRE lookup degrades to empty, never an error." />
+        </SubHeader>
+        <SwitchPref
+          label="Threat-context panel enabled"
+          help="Assemble and show the Threat context tab on each case."
+          checked={cfg.enabled ?? true}
+          onChange={(v) => set({ enabled: v })}
+        />
+        <SwitchPref
+          label="MITRE ATT&CK technique lookup"
+          help="Resolve technique ids against the bundled curated MITRE corpus (name, tactics, link)."
+          checked={cfg.mitre_enabled ?? true}
+          onChange={(v) => set({ mitre_enabled: v })}
+        />
+        <SwitchPref
+          label="Reuse resolved cases"
+          help="Auto-index closed/resolved cases into the corpus so future triage can retrieve 'we've seen this before'."
+          checked={cfg.reuse_resolved_cases ?? true}
+          onChange={(v) => set({ reuse_resolved_cases: v })}
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Label>IOC malicious threshold</Label>
+              <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
+            </div>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={cfg.ioc_malicious_threshold ?? 50}
+              onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
+            />
           </div>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={cfg.ioc_malicious_threshold ?? 50}
-            onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
-          />
         </div>
       </div>
 
-      <Separator />
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Retrieval
-      </p>
-      <SwitchPref
-        label="Inject threat-intel corpus"
-        help="Retrieve imported threat-intel (source: threat_context) and inject it into investigations as a clearly-labelled TRUSTED fenced block."
-        checked={rag.use_threat_context ?? true}
-        onChange={(v) => setRag({ use_threat_context: v })}
-      />
-      <SwitchPref
-        label="Inject resolved cases"
-        help="Retrieve prior resolved cases (source: resolved_case) as TRUSTED context."
-        checked={rag.use_resolved_cases ?? true}
-        onChange={(v) => setRag({ use_resolved_cases: v })}
-      />
+      <div className="space-y-4">
+        <SubHeader title="Corpus & procedures">
+          <HelpTip text="Manage the RAG knowledge corpus (runbooks, MITRE, imported threat-intel) and the per-cluster playbooks on their dedicated pages." />
+        </SubHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+            <span className="text-sm text-muted-foreground">Knowledge corpus (RAG)</span>
+            {onNavigate ? (
+              <Button variant="outline" size="sm" onClick={() => onNavigate('knowledge')}>
+                <Library className="h-4 w-4" aria-hidden />
+                Open
+              </Button>
+            ) : null}
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+            <span className="text-sm text-muted-foreground">Playbooks & agents</span>
+            {onNavigate ? (
+              <Button variant="outline" size="sm" onClick={() => onNavigate('catalog')}>
+                <FileText className="h-4 w-4" aria-hidden />
+                Open
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1537,7 +1899,22 @@ export interface SettingsPageProps {
   onNavigate?: (page: any, opts?: any) => void;
 }
 
-export default function Settings({ onRerunWizard }: SettingsPageProps) {
+/** Read the active section from the hash query (`#/settings?s=<id>`). */
+function sectionFromHash(): SectionId | null {
+  try {
+    const m = (window.location.hash || '').match(/[?&]s=([a-z]+)/i);
+    const id = m?.[1];
+    return id && isSectionId(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: SettingsPageProps) {
+  const navigate = useNavigate();
+  const onNavigate = onNavigateProp ?? navigate;
+  const { hasPermission } = useAuth();
+
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [prefs, setPrefs] = React.useState<Preferences | null>(null);
@@ -1545,8 +1922,32 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
   const [configured, setConfigured] = React.useState<ConfiguredStatus>({});
   const [readOnly, setReadOnly] = React.useState(false);
   const [models, setModels] = React.useState<ModelsResponse | null>(null);
-  const [section, setSection] = React.useState<SectionId>('data');
+  const [section, setSectionState] = React.useState<SectionId>(() => sectionFromHash() ?? 'general');
+  const [query, setQuery] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+
+  // Persist the active section in the hash query (`#/settings?s=<id>`) WITHOUT
+  // disturbing the router (which keys on the bare page id before `?`).
+  const setSection = React.useCallback((id: SectionId) => {
+    setSectionState(id);
+    try {
+      const base = (window.location.hash || '#/settings').split('?')[0] || '#/settings';
+      const next = `${base}?s=${id}`;
+      if (window.location.hash !== next) window.location.hash = next;
+    } catch {
+      /* hash is best-effort */
+    }
+  }, []);
+
+  // Keep the active section in sync with back/forward navigation.
+  React.useEffect(() => {
+    const onHash = () => {
+      const id = sectionFromHash();
+      if (id) setSectionState(id);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   // buffered secret entries (write-only)
   const [secretDraft, setSecretDraft] = React.useState<Record<string, string>>({});
@@ -1681,6 +2082,103 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
 
   const secProps: SecProps = { prefs, update };
 
+  // Filtered, RBAC-aware grouped section list for the rail. A section with a `perm`
+  // is hidden from users without the grant; the search matches name/blurb/keywords.
+  const q = query.trim().toLowerCase();
+  const visibleGroups = React.useMemo(() => {
+    return SECTION_GROUPS.map((g) => ({
+      ...g,
+      sections: g.sections.filter((s) => {
+        if (s.perm && !hasPermission(s.perm.resource, s.perm.action)) return false;
+        if (!q) return true;
+        const hay = [s.name, s.blurb, ...(s.keywords ?? [])].join(' ').toLowerCase();
+        return hay.includes(q);
+      }),
+    })).filter((g) => g.sections.length > 0);
+  }, [q, hasPermission]);
+
+  const flatVisible = React.useMemo(
+    () => visibleGroups.flatMap((g) => g.sections),
+    [visibleGroups],
+  );
+
+  // If a search/RBAC change hides the active section, jump to the first visible one.
+  React.useEffect(() => {
+    if (flatVisible.length && !flatVisible.some((s) => s.id === section)) {
+      setSectionState(flatVisible[0].id);
+    }
+  }, [flatVisible, section]);
+
+  const restricted = (icon: LucideIcon, what: string) => (
+    <EmptyState icon={icon} title="Restricted" description={`${what} is managed by administrators.`} />
+  );
+
+  const renderSection = () => {
+    switch (section) {
+      case 'general':
+        return <GeneralSection {...secProps} onNavigate={onNavigate} />;
+      case 'models':
+        return <ModelsSection {...secProps} models={models} />;
+      case 'keys':
+        return (
+          <KeysSection
+            configured={configured}
+            draft={secretDraft}
+            setDraft={setSecretDraft}
+            onSave={() => void saveSecrets()}
+            saving={savingSecrets}
+            readOnly={readOnly}
+          />
+        );
+      case 'detection':
+        return <DetectionSection {...secProps} />;
+      case 'cases':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(Hash, 'Case-ID nomenclature')}>
+            <CaseIdSection {...secProps} />
+          </Can>
+        );
+      case 'automation':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(Zap, 'Threshold automation')}>
+            <AutomationSection {...secProps} />
+          </Can>
+        );
+      case 'standup':
+        return <StandupSection {...secProps} />;
+      case 'notifications':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(Bell, 'Alerting & notifications')}>
+            <NotificationsEditor {...secProps} />
+          </Can>
+        );
+      case 'security':
+        return <SecuritySection prefs={prefs} onNavigate={onNavigate} />;
+      case 'knowledge':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(ShieldAlert, 'Knowledge & threat context')}>
+            <KnowledgeSection {...secProps} onNavigate={onNavigate} />
+          </Can>
+        );
+      case 'enrichment':
+        return <EnrichmentSection {...secProps} />;
+      case 'appearance':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(Brush, 'Branding')}>
+            <BrandingEditor readOnly={readOnly} />
+          </Can>
+        );
+      case 'advanced':
+        return (
+          <Can resource="settings" action="manage" fallback={restricted(SlidersHorizontal, 'Advanced settings')}>
+            <AdvancedSection {...secProps} onNavigate={onNavigate} />
+          </Can>
+        );
+      default:
+        return <GeneralSection {...secProps} onNavigate={onNavigate} />;
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1720,131 +2218,76 @@ export default function Settings({ onRerunWizard }: SettingsPageProps) {
         </Alert>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
-        {/* Section nav */}
+      <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
+        {/* Section nav: searchable, grouped, RBAC-aware. */}
         <nav aria-label="Settings sections" className="lg:sticky lg:top-4 lg:self-start">
-          <div className="flex flex-wrap gap-1 lg:flex-col">
-            {SECTIONS.map((s) => {
-              const Icon = s.icon;
-              const active = section === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setSection(s.id)}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    active
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      'h-4 w-4 shrink-0 transition-colors',
-                      active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
-                    )}
-                    aria-hidden
-                  />
-                  <span className="truncate">{s.name}</span>
-                </button>
-              );
-            })}
+          <div className="space-y-3">
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search settings…"
+                aria-label="Search settings sections"
+                className="h-9 pl-8"
+              />
+            </div>
+
+            {flatVisible.length === 0 ? (
+              <p className="px-1 py-3 text-xs text-muted-foreground">No sections match “{query}”.</p>
+            ) : (
+              <div className="space-y-4">
+                {visibleGroups.map((g) => (
+                  <div key={g.id} className="space-y-1">
+                    <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                      {g.label}
+                    </p>
+                    <div className="flex flex-col gap-0.5">
+                      {g.sections.map((s) => {
+                        const Icon = s.icon;
+                        const active = section === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setSection(s.id)}
+                            aria-current={active ? 'page' : undefined}
+                            title={s.blurb}
+                            className={cn(
+                              'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              active
+                                ? 'bg-accent text-foreground'
+                                : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                            )}
+                          >
+                            <Icon
+                              className={cn(
+                                'h-4 w-4 shrink-0 transition-colors',
+                                active
+                                  ? 'text-primary'
+                                  : 'text-muted-foreground group-hover:text-foreground',
+                              )}
+                              aria-hidden
+                            />
+                            <span className="truncate">{s.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </nav>
 
         {/* Section body */}
         <Card>
-          <CardContent className="p-6 sm:p-7">
-            {section === 'data' ? (
-              <DataSection {...secProps} />
-            ) : section === 'polling' ? (
-              <PollingSection {...secProps} />
-            ) : section === 'models' ? (
-              <ModelsSection {...secProps} models={models} />
-            ) : section === 'keys' ? (
-              <KeysSection
-                configured={configured}
-                draft={secretDraft}
-                setDraft={setSecretDraft}
-                onSave={() => void saveSecrets()}
-                saving={savingSecrets}
-                readOnly={readOnly}
-              />
-            ) : section === 'correlation' ? (
-              <CorrelationSection {...secProps} />
-            ) : section === 'enrichment' ? (
-              <EnrichmentSection {...secProps} />
-            ) : section === 'rag' ? (
-              <RagSection {...secProps} />
-            ) : section === 'standup' ? (
-              <StandupSection {...secProps} />
-            ) : section === 'autonomy' ? (
-              <AutonomySection {...secProps} />
-            ) : section === 'safety' ? (
-              <SafetySection {...secProps} />
-            ) : section === 'automation' ? (
-              <Can
-                resource="settings"
-                action="manage"
-                fallback={
-                  <EmptyState
-                    icon={Zap}
-                    title="Restricted"
-                    description="Threshold automation is managed by administrators."
-                  />
-                }
-              >
-                <AutomationSection {...secProps} />
-              </Can>
-            ) : section === 'threatcontext' ? (
-              <Can
-                resource="settings"
-                action="manage"
-                fallback={
-                  <EmptyState
-                    icon={ShieldAlert}
-                    title="Restricted"
-                    description="Threat-context settings are managed by administrators."
-                  />
-                }
-              >
-                <ThreatContextSection {...secProps} />
-              </Can>
-            ) : section === 'notifications' ? (
-              <Can
-                resource="settings"
-                action="manage"
-                fallback={
-                  <EmptyState
-                    icon={Bell}
-                    title="Restricted"
-                    description="Alerting & notifications are managed by administrators."
-                  />
-                }
-              >
-                <NotificationsEditor {...secProps} />
-              </Can>
-            ) : section === 'caseid' ? (
-              <Can
-                resource="settings"
-                action="manage"
-                fallback={
-                  <EmptyState
-                    icon={Hash}
-                    title="Restricted"
-                    description="Case-ID nomenclature is managed by administrators."
-                  />
-                }
-              >
-                <CaseIdSection {...secProps} />
-              </Can>
-            ) : (
-              <BrandingEditor readOnly={readOnly} />
-            )}
-          </CardContent>
+          <CardContent className="p-6 sm:p-7">{renderSection()}</CardContent>
         </Card>
       </div>
 

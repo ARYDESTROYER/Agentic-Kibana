@@ -19,6 +19,8 @@ export interface StaggerProps extends React.HTMLAttributes<HTMLDivElement> {
   as?: 'div' | 'ul' | 'ol' | 'section';
   /** Wrapper element for each item. Defaults to 'div'. */
   itemAs?: 'div' | 'li';
+  /** Extra classes on each item wrapper (e.g. `h-full` for equal-height grids). */
+  itemClassName?: string;
   children?: React.ReactNode;
 }
 
@@ -26,11 +28,12 @@ export const Stagger = React.forwardRef<HTMLDivElement, StaggerProps>(
   (
     {
       className,
-      step = 40,
+      step = 60,
       initialDelay = 0,
       maxDelay = 600,
       as: As = 'div',
       itemAs: ItemAs = 'div',
+      itemClassName,
       children,
       ...props
     },
@@ -44,7 +47,7 @@ export const Stagger = React.forwardRef<HTMLDivElement, StaggerProps>(
         ItemAs,
         {
           key,
-          className: cn('animate-rise-in'),
+          className: cn('animate-rise-in', itemClassName),
           style: { animationDelay: `${delay}ms` },
         },
         child,

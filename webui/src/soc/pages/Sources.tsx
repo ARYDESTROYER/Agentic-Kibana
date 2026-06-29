@@ -52,7 +52,7 @@ import { HelpTip } from '@/soc/components/HelpTip';
 import { Button } from '@/ui/button';
 import { Card } from '@/ui/card';
 import { Badge } from '@/ui/badge';
-import { Skeleton } from '@/ui/skeleton';
+import { SkeletonCard } from '@/ui/skeleton';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import {
   Dialog,
@@ -205,9 +205,9 @@ export default function Sources(_props: SourcesProps) {
       ) : null}
 
       {loading ? (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy="true" aria-label="Loading sources">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 w-full rounded-lg" />
+            <SkeletonCard key={i} lines={2} />
           ))}
         </div>
       ) : sources.length === 0 ? (

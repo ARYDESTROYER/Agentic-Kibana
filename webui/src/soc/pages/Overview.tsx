@@ -63,7 +63,7 @@ import {
   CardTitle,
 } from '@/ui/card';
 import { Button } from '@/ui/button';
-import { Skeleton } from '@/ui/skeleton';
+import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 
 // --------------------------------------------------------------------------- //
@@ -429,25 +429,26 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   // ----- States ----------------------------------------------------------- //
   if (loading) {
+    // Skeleton mirrors the real layout so nothing shifts when data lands.
     return (
-      <div className="space-y-8">
+      <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
         <Skeleton className="h-32 w-full rounded-lg" />
         <div className="grid gap-5 lg:grid-cols-3">
           <Skeleton className="h-72 rounded-lg lg:col-span-1" />
-          <div className="grid grid-cols-2 gap-5 lg:col-span-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-lg" />
+              <SkeletonCard key={i} lines={2} />
             ))}
           </div>
         </div>
         <div className="grid gap-5 md:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
+            <SkeletonCard key={i} lines={1} withIcon={false} />
           ))}
         </div>
         <div className="grid gap-5 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-80 rounded-lg" />
+            <SkeletonCard key={i} lines={5} />
           ))}
         </div>
       </div>
@@ -486,7 +487,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const empty = !loading && !error && cases.length === 0 && !metrics?.total_cases;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <HeroPanel
         eyebrow="Security Command Center"
         icon={Radar}
@@ -542,7 +543,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </CardContent>
         </Card>
       ) : (
-        <>
+        <div className="animate-fade-in space-y-6">
           {/* ---- Risk index + KPI tile row ---- */}
           <div className="grid gap-5 lg:grid-cols-3">
             {/* Active Risk Index */}
@@ -554,10 +555,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col items-center gap-6 pb-6">
-                <div className="flex w-full flex-col items-center gap-2 py-2">
+                <div className="flex w-full flex-col items-center gap-1 py-2">
                   <RiskGauge score={riskIndex} size={208} />
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Weighted pressure / 100
+                    Weighted risk pressure
                   </span>
                 </div>
                 <dl className="w-full divide-y divide-border rounded-md border border-border">
@@ -582,7 +583,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
             {/* KPI tiles */}
             <div className="lg:col-span-2">
-              <Stagger className="grid h-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+              <Stagger
+                className="grid h-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3"
+                itemClassName="h-full"
+              >
                 {kpis.map((kpi) => (
                   <KpiTile
                     key={kpi.label}
@@ -791,7 +795,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </Card>
             </div>
           </section>
-        </>
+        </div>
       )}
     </div>
   );

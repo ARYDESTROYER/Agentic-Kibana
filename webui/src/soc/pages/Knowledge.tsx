@@ -1592,7 +1592,10 @@ export default function Knowledge(_props: KnowledgeProps) {
           ))}
         </div>
       ) : (
-        <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Stagger
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          itemClassName="h-full"
+        >
           <KpiTile
             label="Total chunks"
             value={fmtNumber(totalChunks)}

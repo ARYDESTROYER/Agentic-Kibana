@@ -53,7 +53,7 @@ import { InlineCode } from '@/soc/components/CodeBlock';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
-import { Skeleton } from '@/ui/skeleton';
+import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 
 // --------------------------------------------------------------------------- //
@@ -632,17 +632,17 @@ export default function Cost(_props: CostProps) {
   // ----- States ---------------------------------------------------------- //
   if (loading) {
     return (
-      <div className="space-y-8">
+      <div className="space-y-6" aria-busy="true" aria-label="Loading cost data">
         {header}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-28 rounded-lg" />
+            <SkeletonCard key={i} lines={1} />
           ))}
         </div>
         <Skeleton className="h-64 w-full rounded-lg" />
         <div className="grid gap-4 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 rounded-lg" />
+            <SkeletonCard key={i} lines={5} />
           ))}
         </div>
         <Skeleton className="h-80 w-full rounded-lg" />
@@ -651,7 +651,7 @@ export default function Cost(_props: CostProps) {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {header}
 
       {error ? (
@@ -683,7 +683,10 @@ export default function Cost(_props: CostProps) {
       ) : (
         <>
           {/* KPI tiles */}
-          <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Stagger
+            className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            itemClassName="h-full"
+          >
             {kpis.map((k) => (
               <KpiTile
                 key={k.label}

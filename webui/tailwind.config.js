@@ -66,7 +66,7 @@ export default {
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
-        shimmer: 'shimmer 1.25s ease-in-out infinite',
+        shimmer: 'shimmer 1.8s ease-in-out infinite',
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'bar-indeterminate': 'bar-indeterminate 1.1s ease-in-out infinite',

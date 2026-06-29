@@ -45,7 +45,7 @@ import { cn } from '@/lib/cn';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
-import { Skeleton } from '@/ui/skeleton';
+import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 
 import { PageHeader } from '@/soc/components/PageHeader';
@@ -123,10 +123,10 @@ function recordItems(
 // Loading skeleton
 // --------------------------------------------------------------------------- //
 const MetricsSkeleton: React.FC = () => (
-  <div className="space-y-6">
+  <div className="space-y-6" aria-busy="true" aria-label="Loading analytics">
     <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[112px] w-full rounded-lg" />
+        <SkeletonCard key={i} lines={1} />
       ))}
     </div>
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
@@ -640,6 +640,7 @@ export default function MetricsPage({ onNavigate }: MetricsProps) {
           <Stagger
             className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6"
             step={40}
+            itemClassName="h-full"
           >
             {kpis.map((k) => (
               <KpiTile

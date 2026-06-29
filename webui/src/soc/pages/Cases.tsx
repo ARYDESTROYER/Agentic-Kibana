@@ -54,6 +54,7 @@ import {
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile } from '@/soc/components/KpiTile';
+import { Stagger } from '@/soc/components/Stagger';
 import { DataTable, type DataTableColumn, type SortState } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { InlineCode } from '@/soc/components/CodeBlock';
@@ -728,7 +729,10 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       />
 
       {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <Stagger
+        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
+        itemClassName="h-full"
+      >
         <KpiTile
           label="Total cases"
           value={total.toLocaleString()}
@@ -756,7 +760,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
           icon={Sparkles}
           accent="critical"
         />
-      </div>
+      </Stagger>
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">

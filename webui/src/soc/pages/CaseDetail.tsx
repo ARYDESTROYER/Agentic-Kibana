@@ -126,7 +126,7 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/ui/tooltip';
-import { Skeleton } from '@/ui/skeleton';
+import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Slider } from '@/ui/slider';
 import { Separator } from '@/ui/separator';
 import { Avatar, AvatarFallback } from '@/ui/avatar';
@@ -1326,10 +1326,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
               ) : null}
 
               {loading || !c ? (
-                <div className="space-y-4 p-6">
-                  <Skeleton className="h-20 w-full" />
-                  <Skeleton className="h-28 w-full" />
-                  <Skeleton className="h-40 w-full" />
+                <div className="space-y-6 p-6" aria-busy="true" aria-label="Loading case">
+                  {/* Headline panel row */}
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Skeleton key={i} className="h-[72px] rounded-lg" />
+                    ))}
+                  </div>
+                  {/* Digest + assets + evidence */}
+                  <SkeletonCard lines={3} />
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <SkeletonCard lines={4} />
+                    <SkeletonCard lines={4} />
+                  </div>
+                  <SkeletonCard lines={5} />
                 </div>
               ) : (
                 <Tabs

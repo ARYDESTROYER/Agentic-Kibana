@@ -135,7 +135,8 @@
     background: hsl(var(--muted-foreground) / 0.5);
     background-clip: padding-box;
   }
-  /* Skeleton shimmer sweep used by the Skeleton primitive. */
+  /* Skeleton shimmer sweep used by the Skeleton primitive. A slow, restrained
+     sweep (~1.8s) that reads as "loading" without drawing attention to itself. */
   .shimmer::after {
     content: '';
     position: absolute;
@@ -144,10 +145,10 @@
     background: linear-gradient(
       90deg,
       transparent 0%,
-      hsl(var(--muted-foreground) / 0.12) 50%,
+      hsl(var(--muted-foreground) / 0.1) 50%,
       transparent 100%
     );
-    animation: shimmer 1.25s ease-in-out infinite;
+    animation: shimmer 1.8s ease-in-out infinite;
   }
 }
 

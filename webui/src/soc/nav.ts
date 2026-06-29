@@ -102,7 +102,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'memory', label: 'Memory', icon: Brain, group: 'platform' },
       { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
       { id: 'cost', label: 'Cost & usage', icon: DollarSign, group: 'platform' },
-      { id: 'security', label: 'Security', icon: ShieldCheck, group: 'platform' },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
     ],
   },
@@ -116,6 +115,15 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Users,
         group: 'admin',
         perm: { resource: 'users', action: 'manage' },
+      },
+      {
+        id: 'security',
+        label: 'Security & SSO',
+        icon: ShieldCheck,
+        group: 'admin',
+        // No perm gate: self-service MFA enrollment lives here for EVERY signed-in
+        // user. The admin-only SSO/RBAC editors inside are gated by
+        // `<Can resource="settings" action="manage">`.
       },
     ],
   },

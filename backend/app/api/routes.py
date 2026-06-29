@@ -493,6 +493,18 @@ async def get_settings(state: AppState = Depends(get_state)) -> dict[str, Any]:
     }
 
 
+@router.get("/settings/schema")
+async def get_settings_schema(
+    _=Depends(require_permission("settings", "read")),
+) -> dict[str, Any]:
+    """A best-effort JSON description of the settings sections + field types, derived
+    from the Pydantic ``Preferences`` model (used by the UI to render/group forms).
+    Purely descriptive — carries no values beyond defaults, NO secrets. settings:read."""
+    from .settings_schema import settings_schema
+
+    return settings_schema()
+
+
 @router.put("/settings")
 async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state)) -> dict[str, Any]:
     if state.prefs.read_only_settings_mode and body.get("read_only_settings_mode") is not False:
@@ -528,6 +540,23 @@ async def case_id_preview(
     return preview_samples(
         body.template, prefix=body.prefix or "CASE", seq_start=int(body.seq_start), count=5
     )
+
+
+@router.get("/settings/{section}")
+async def get_settings_section(
+    section: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "read")),
+) -> dict[str, Any]:
+    """Return a single Preferences subtree by key (e.g. ``rag``, ``notifications``),
+    JSON-encoded. 404 for an unknown key. No secrets ever appear (Preferences carry
+    only the non-secret tier). settings:read."""
+    from .settings_schema import section_keys
+
+    if section not in section_keys():
+        raise HTTPException(status_code=404, detail=f"Unknown settings section: {section}")
+    dumped = state.prefs.model_dump(mode="json")
+    return {"section": section, "value": dumped.get(section)}
 
 
 # --------------------------------------------------------------------------- #
