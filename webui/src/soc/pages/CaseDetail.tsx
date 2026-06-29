@@ -42,6 +42,7 @@ import {
   Globe,
   History,
   Info,
+  Link2,
   Lock,
   MessageSquare,
   PauseCircle,
@@ -1188,7 +1189,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
 
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     <TabsContent value="overview" className="mt-0 animate-fade-in">
-                      <OverviewTab c={c} fpPolicy={fpPolicy} riskScore={riskScore} />
+                      <OverviewTab
+                        c={c}
+                        fpPolicy={fpPolicy}
+                        riskScore={riskScore}
+                        onNavigate={onNavigate}
+                      />
                     </TabsContent>
                     <TabsContent value="why" className="mt-0 animate-fade-in">
                       <WhyTab
@@ -1595,11 +1601,143 @@ const StatusTimeline: React.FC<{
   );
 };
 
-const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> = ({
-  c,
-  fpPolicy,
-  riskScore,
-}) => {
+/* ----------------------------------------- related cases + source breakdown */
+
+/**
+ * Cross-source linkage panel (F6). Renders RELATED cases (never merged) + a source
+ * breakdown when present. Related-case titles are fetched best-effort for nicer
+ * labels; all case-derived text is UNTRUSTED → plain text. Renders nothing when no
+ * cross-source data is present, so it is fully additive to the overview.
+ */
+const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, onNavigate }) => {
+  const relatedIds = React.useMemo(
+    () =>
+      (Array.isArray(c.related_case_ids) ? c.related_case_ids : []).filter(
+        (rid): rid is string => typeof rid === 'string' && !!rid && rid !== c.case_id,
+      ),
+    [c.related_case_ids, c.case_id],
+  );
+  const breakdown = React.useMemo(() => {
+    const b = c.source_breakdown;
+    if (!b || typeof b !== 'object') return [] as Array<[string, number]>;
+    return Object.entries(b)
+      .filter(([, v]) => typeof v === 'number')
+      .sort((a, bb) => bb[1] - a[1]);
+  }, [c.source_breakdown]);
+
+  // Best-effort titles for the related case ids (fetch the recent list, map by id).
+  const [titles, setTitles] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    if (!relatedIds.length) return;
+    let cancelled = false;
+    void api
+      .listCases({ limit: 200 })
+      .then((res) => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        for (const rc of res.cases) {
+          if (relatedIds.includes(rc.case_id)) {
+            map[rc.case_id] = rc.title || rc.case_number || rc.case_id;
+          }
+        }
+        setTitles(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [relatedIds]);
+
+  if (!relatedIds.length && !breakdown.length && !c.cross_source_cluster_id) return null;
+
+  const openRelated = (rid: string) => {
+    if (onNavigate) onNavigate('cases', { caseId: rid });
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={GitBranch} tone="info">
+          Related cases
+        </SectionHeading>
+        {relatedIds.length ? (
+          <>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Grouped by a shared entity across sources within the cross-source window. These are
+              RELATED — they are never merged into this case.
+            </p>
+            <ul className="space-y-2">
+              {relatedIds.map((rid) => (
+                <li key={rid} className="flex items-center gap-2">
+                  <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => openRelated(rid)}
+                    disabled={!onNavigate}
+                    className={cn(
+                      'truncate rounded-sm text-left text-sm',
+                      onNavigate
+                        ? 'text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                        : 'cursor-default text-foreground',
+                    )}
+                    title={titles[rid] || rid}
+                  >
+                    {/* UNTRUSTED title / id — plain text. */}
+                    {titles[rid] || rid}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">No related cases.</p>
+        )}
+        {c.cross_source_cluster_id ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            Cross-source group{' '}
+            {/* UNTRUSTED id — plain text, mono. */}
+            <span className="font-mono text-foreground/80">{c.cross_source_cluster_id}</span>
+          </p>
+        ) : null}
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-6">
+        <SectionHeading icon={Globe} tone="info">
+          Source breakdown
+        </SectionHeading>
+        {breakdown.length ? (
+          <dl className="divide-y divide-border">
+            {breakdown.map(([sid, count]) => (
+              <div
+                key={sid}
+                className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+              >
+                {/* UNTRUSTED source id — plain text, truncated. */}
+                <dt className="truncate font-mono text-xs text-foreground" title={sid}>
+                  {sid}
+                </dt>
+                <dd className="shrink-0">
+                  <Badge variant="outline" className="tabular-nums">
+                    {count}
+                  </Badge>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="text-sm text-muted-foreground">Single source.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const OverviewTab: React.FC<{
+  c: Case;
+  fpPolicy: FpPolicy;
+  riskScore: number;
+  onNavigate?: Navigate;
+}> = ({ c, fpPolicy, riskScore, onNavigate }) => {
   const trigger = c.trigger_reason as { sentence?: string } | undefined;
   const triggerSentence = trigger?.sentence;
   const allEvidence = c.evidence || [];
@@ -1980,6 +2118,9 @@ const OverviewTab: React.FC<{ c: Case; fpPolicy: FpPolicy; riskScore: number }> 
           </div>
         </div>
       ) : null}
+
+      {/* --------------------------- related cases + source breakdown (F6) */}
+      <RelatedCrossSource c={c} onNavigate={onNavigate} />
 
       {/* ------------------------------------------- status timeline */}
       <StatusTimeline history={c.status_history} statusReason={c.status_reason} />

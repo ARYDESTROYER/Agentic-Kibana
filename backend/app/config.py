@@ -660,16 +660,45 @@ class AssetNetwork(BaseModel):
     criticality: float = Field(default=0.0, ge=0.0, le=100.0)
 
 
+class CrossSourceCorrelationConfig(BaseModel):
+    """Optional, GLOBAL cross-source correlation (Wave 5 / F6).
+
+    Default ``enabled=False`` so today's single-source path is byte-identical out of
+    the box. When enabled, a SECOND, opt-in pass groups OPEN cases/clusters that share
+    an entity (ip/host/user/file_hash/domain) within ``time_window_seconds`` ACROSS
+    ``min_sources`` or more DISTINCT sources. It NEVER force-merges: the per-cluster
+    1:1 signature stays intact (#4) — it only ADDS ``related_case_ids`` +
+    ``cross_source_cluster_id`` to the cases, surfacing them as RELATED.
+
+    ``entity_keys`` lists the cross-source entity types considered (a superset of the
+    per-rule ladder; ``file_hash``/``domain`` are extra keys read from the raw event).
+    """
+
+    enabled: bool = False
+    time_window_seconds: int = Field(default=300, ge=1)
+    min_sources: int = Field(default=2, ge=2)
+    entity_keys: list[str] = Field(
+        default_factory=lambda: ["ip", "host", "user", "file_hash", "domain"]
+    )
+
+
 class IndexPattern(BaseModel):
     """One index pattern a source reads, with the ROLE it plays.
 
     ``events`` (default) — ordinary logs: correlate → auto-forward only when the
     rule is on ``auto_forward_allowlist``. ``alerts`` — SIEM-generated detections
     the operator wants every one of triaged: any cluster touching an alerts-role
-    pattern is AUTO-FORWARDED to investigation, bypassing the allowlist."""
+    pattern is AUTO-FORWARDED to investigation, bypassing the allowlist.
+
+    ``auto_correlate`` (the per-SUB-SOURCE "Auto-Correlate" toggle, Wave 5 / F6) —
+    defaults TRUE so today's behaviour is byte-identical. When FALSE, clusters that
+    touch ONLY this pattern are correlated into clusters as usual but are NOT
+    auto-forwarded to investigation (manual triage only); they still register as
+    candidate cases so nothing is ever dropped (#4)."""
 
     pattern: str
     role: IndexRole = IndexRole.EVENTS
+    auto_correlate: bool = True
 
 
 class SourceInstance(BaseModel):
@@ -738,6 +767,32 @@ class SourceInstance(BaseModel):
             return EntityStrategy(str(val))
         except ValueError:
             return None
+
+    def auto_correlate(self) -> bool:
+        """The per-SOURCE "Auto-Correlate" toggle (Wave 5 / F6). Defaults TRUE so a
+        source's clusters auto-forward to investigation exactly as today. When the
+        operator sets ``config["auto_correlate"] = False``, this source's clusters
+        are correlated into clusters but NOT auto-forwarded (manual triage only) —
+        they still register as candidate cases (nothing is dropped, #4). A missing /
+        non-bool value reads as TRUE (back-compat)."""
+        val = self.config.get("auto_correlate")
+        if val is None:
+            return True
+        if isinstance(val, bool):
+            return val
+        return str(val).strip().lower() not in ("false", "0", "no", "off")
+
+    def pattern_auto_correlate(self, pattern: str | None) -> bool:
+        """The per-SUB-SOURCE (index pattern) "Auto-Correlate" toggle. Returns the
+        ``auto_correlate`` flag of the configured :class:`IndexPattern` whose
+        ``pattern`` equals ``pattern``; TRUE when there is no matching configured
+        pattern (back-compat — an unconfigured/legacy sub-source auto-forwards)."""
+        if not pattern:
+            return True
+        for ip in self.index_patterns():
+            if ip.pattern == pattern:
+                return ip.auto_correlate
+        return True
 
 
 class RBACConfig(BaseModel):
@@ -1003,6 +1058,12 @@ class Preferences(BaseModel):
     # --- Correlation (Section 6.2) ---
     default_correlation: CorrelationRule = Field(default_factory=CorrelationRule)
     correlation_rules: dict[str, CorrelationRule] = Field(default_factory=dict)
+    # Optional, GLOBAL cross-source correlation (Wave 5 / F6). Default OFF →
+    # single-source behaviour is byte-identical. When enabled, an additive pass links
+    # open cases sharing an entity across >= min_sources sources (RELATED, never merged).
+    cross_source_correlation: CrossSourceCorrelationConfig = Field(
+        default_factory=CrossSourceCorrelationConfig
+    )
     risk_weights: RiskWeights = Field(default_factory=RiskWeights)
     asset_criticality: dict[str, float] = Field(default_factory=dict)  # entity value -> 0..100
     # CIDR-based internal-asset criticality (an IP inside a CIDR inherits its

@@ -24,6 +24,8 @@ import {
   KeyRound,
   AlertTriangle,
   Loader2,
+  Plug,
+  Link2,
 } from 'lucide-react';
 import type { Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
@@ -44,6 +46,8 @@ import { Stagger } from '@/soc/components/Stagger';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { SourceLogsSheet } from '@/soc/components/SourceLogsSheet';
 import { categoryMeta } from '@/soc/components/ConnectorPicker';
+import { Can } from '@/soc/components/Can';
+import { HelpTip } from '@/soc/components/HelpTip';
 
 import { Button } from '@/ui/button';
 import { Card } from '@/ui/card';
@@ -184,9 +188,11 @@ export default function Sources(_props: SourcesProps) {
         title="Sources"
         description={description}
         actions={
-          <Button onClick={() => setEditor({ mode: 'add' })}>
-            <Plus className="h-4 w-4" aria-hidden /> Add source
-          </Button>
+          <Can resource="sources" action="manage">
+            <Button onClick={() => setEditor({ mode: 'add' })}>
+              <Plus className="h-4 w-4" aria-hidden /> Add source
+            </Button>
+          </Can>
         }
       />
 
@@ -206,13 +212,30 @@ export default function Sources(_props: SourcesProps) {
         </div>
       ) : sources.length === 0 ? (
         <EmptyState
-          icon={Database}
-          title="No sources configured"
-          description="Add a source so the agent has events to triage."
+          icon={Plug}
+          title="Connect your first data source"
+          description="The agent triages security events from the systems you connect — a SIEM/log store (Elasticsearch, OpenSearch, Wazuh) or a push receiver (webhook, syslog, a queue, an object store). Pick a connector and we'll walk you through it, with a (?) guide on every step."
           action={
-            <Button onClick={() => setEditor({ mode: 'add' })}>
-              <Plus className="h-4 w-4" aria-hidden /> Add a source
-            </Button>
+            <Can
+              resource="sources"
+              action="manage"
+              fallback={
+                <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Link2 className="h-3.5 w-3.5" aria-hidden />
+                  Ask a SOC administrator to connect a source.
+                </p>
+              }
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Button onClick={() => setEditor({ mode: 'add' })}>
+                  <Plus className="h-4 w-4" aria-hidden /> Connect a source
+                </Button>
+                <HelpTip
+                  label="How adding a source works"
+                  text="Choose a connector (e.g. Elasticsearch), fill its form — each field has a (?) with setup help — set the index patterns the agent reads and how clusters auto-correlate, then test and save. For Elasticsearch, create a READ-ONLY scoped API key (never the elastic superuser or kibana_system)."
+                />
+              </span>
+            </Can>
           }
         />
       ) : (
@@ -299,37 +322,39 @@ export default function Sources(_props: SourcesProps) {
                         <Telescope className="h-4 w-4" aria-hidden /> Logs
                       </Button>
                     ) : null}
-                    {!s.is_primary ? (
+                    <Can resource="sources" action="manage">
+                      {!s.is_primary ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPendingPrimary(s)}
+                          disabled={busy}
+                        >
+                          <Star className="h-4 w-4" aria-hidden /> Make primary
+                        </Button>
+                      ) : null}
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setPendingPrimary(s)}
+                        onClick={() => setEditor({ mode: 'edit', source: s })}
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden /> Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-critical hover:text-critical"
+                        onClick={() => setPendingDelete(s)}
                         disabled={busy}
                       >
-                        <Star className="h-4 w-4" aria-hidden /> Make primary
+                        {busy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        )}
+                        Remove
                       </Button>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditor({ mode: 'edit', source: s })}
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden /> Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-critical hover:text-critical"
-                      onClick={() => setPendingDelete(s)}
-                      disabled={busy}
-                    >
-                      {busy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      ) : (
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      )}
-                      Remove
-                    </Button>
+                    </Can>
                   </div>
                 </div>
               </Card>

@@ -63,9 +63,24 @@ class KafkaReceiver(PayloadReceiver):
             description="Consume security events from a Kafka topic with durable consumer-group offsets.",
             ingest_modes=[IngestMode.QUEUE],
             capabilities=["subscribe", "test"],
+            docs_url="https://kafka.apache.org/documentation/#security",
+            setup_help=(
+                "## Connect Apache Kafka / Redpanda\n"
+                "1. **Bootstrap servers** — comma-separated `host:port` brokers.\n"
+                "2. **Security** — pick the protocol (`SASL_SSL` for most managed "
+                "clusters) and SASL mechanism; set the SASL username/password (the "
+                "password goes in the secret tier).\n"
+                "3. **Topic + consumer group** — the topic to consume and a stable "
+                "group id (durable offsets; restart-safe, no skip/dup).\n"
+                "4. **Offset reset** — `latest` (only new events) or `earliest` "
+                "(backfill the topic) on first connect.\n"
+                "_Requires the `confluent-kafka` client to be installed on the backend._"
+            ),
             auth_fields=[
                 AuthField(key="bootstrap_servers", label="Bootstrap servers", type="string",
-                          required=True, placeholder="broker1:9092,broker2:9092"),
+                          required=True, placeholder="broker1:9092,broker2:9092",
+                          help="Comma-separated Kafka broker host:port list.",
+                          help_link="https://kafka.apache.org/documentation/#producerconfigs_bootstrap.servers"),
                 AuthField(key="security_protocol", label="Security protocol", type="select",
                           options=["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"],
                           default="PLAINTEXT"),

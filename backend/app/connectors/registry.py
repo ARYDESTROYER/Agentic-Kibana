@@ -53,13 +53,46 @@ class ConnectorRegistry:
         """Ensure a push receiver advertises the ``browse`` capability (it gets a
         live-tail buffer), without editing ~16 manifests. Pull connectors declare
         ``browse`` in their own manifest, so this only augments receivers. Defensive:
-        a missing/odd capabilities list never raises."""
+        a missing/odd capabilities list never raises.
+
+        Also guarantees every manifest exposes a non-empty ``setup_help`` (Wave 5 /
+        F9): connectors that ship a curated guide keep it; any that don't get a concise
+        generic one synthesised from their field schema, so the wizard's contextual-help
+        affordance is present for ALL ~19 connectors with zero per-connector boilerplate."""
         try:
             if issubclass(cls, PushReceiver) and "browse" not in (m.capabilities or []):
                 m.capabilities = list(m.capabilities or []) + ["browse"]
         except Exception:  # noqa: BLE001 — augmentation must never break listing
             pass
+        try:
+            if not (m.setup_help or "").strip():
+                m.setup_help = ConnectorRegistry._default_setup_help(m)
+        except Exception:  # noqa: BLE001 — augmentation must never break listing
+            pass
         return m
+
+    @staticmethod
+    def _default_setup_help(m: ConnectorManifest) -> str:
+        """Synthesise a concise, generic setup guide from a manifest's field schema.
+
+        Lists the required connection fields and notes which credentials are secret
+        (stored in the secret tier, never echoed — #10). Used only when a connector
+        ships no curated ``setup_help``."""
+        required = [f.label for f in (m.auth_fields + m.config_fields) if f.required]
+        secret = [f.label for f in m.auth_fields if f.secret]
+        lines = [f"## Connect {m.display_name}"]
+        if m.description:
+            lines.append(m.description)
+        if required:
+            lines.append("**Required:** " + ", ".join(required) + ".")
+        if secret:
+            lines.append(
+                "Credential field(s) (" + ", ".join(secret) + ") are stored in the "
+                "secret tier and shown only as configured — never echoed back (#10)."
+            )
+        lines.append("Use a READ-ONLY, least-privilege credential — never an admin / "
+                     "superuser. Then 'Test connection' and save.")
+        return "\n".join(lines)
 
     def manifest(self, source_type: SourceType) -> ConnectorManifest | None:
         cls = self._classes.get(source_type)

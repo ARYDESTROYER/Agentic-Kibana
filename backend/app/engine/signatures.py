@@ -17,3 +17,29 @@ from ..utils import stable_signature
 
 def cluster_signature(entity_type: EntityType, entity_value: str) -> str:
     return stable_signature("cluster", entity_type.value, entity_value)
+
+
+def cross_source_signature(
+    entity_type: EntityType | str,
+    value: str,
+    ts: int,
+    window_seconds: int,
+) -> str:
+    """The SOURCE-AGNOSTIC, time-bucketed cross-source group key (Wave 5 / F6).
+
+    Cross-source correlation (the opt-in second pass) groups OPEN cases that share an
+    entity within a window across distinct sources. Its group id must be:
+
+    * **source-agnostic** — it deliberately does NOT include any source id, so the
+      SAME entity seen from different sources lands in the SAME group.
+    * **idempotent** — recomputing it for the same ``(entity_type, value, bucket)``
+      yields the same id, so re-running the pass never spawns a new group.
+
+    ``ts`` (epoch millis) is floored to a ``window_seconds`` bucket so events within
+    the same window share a bucket; distant activity falls into a different bucket
+    (no over-clustering across time). Distinct from :func:`cluster_signature` (which
+    is the per-cluster 1:1 idempotency key) — this NEVER replaces that signature."""
+    et = getattr(entity_type, "value", entity_type)
+    window_ms = max(1, int(window_seconds)) * 1000
+    bucket = int(ts) // window_ms if ts else 0
+    return stable_signature("xsrc", str(et), value, bucket)

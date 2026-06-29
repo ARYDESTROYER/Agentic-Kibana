@@ -27,6 +27,7 @@ import { Card } from '@/ui/card';
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { HelpTip } from '@/soc/components/HelpTip';
 
 /** Stable category display order. */
 const CATEGORY_ORDER = ['siem', 'edr_xdr', 'transport', 'queue', 'object_store', 'file'];
@@ -169,9 +170,24 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                       >
                         <Icon className="h-5 w-5" aria-hidden />
                       </span>
-                      {isSel ? (
-                        <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden />
-                      ) : null}
+                      <span className="flex items-center gap-1.5">
+                        {c.setup_help ? (
+                          // The (?) opens a popover; stop the card's click/keydown so it
+                          // doesn't also select the connector.
+                          <span
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <HelpTip
+                              label={`How to add ${c.display_name}`}
+                              text={c.setup_help}
+                            />
+                          </span>
+                        ) : null}
+                        {isSel ? (
+                          <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden />
+                        ) : null}
+                      </span>
                     </div>
                     <div
                       className="mt-3.5 truncate text-sm font-semibold text-foreground"

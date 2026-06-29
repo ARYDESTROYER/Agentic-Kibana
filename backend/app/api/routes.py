@@ -236,7 +236,11 @@ async def list_sources(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 @router.post("/sources")
-async def upsert_source(body: SourceUpsert, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def upsert_source(
+    body: SourceUpsert,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
+) -> dict[str, Any]:
     reg = get_registry()
     try:
         st = SourceType(body.source_type)
@@ -275,7 +279,11 @@ async def upsert_source(body: SourceUpsert, state: AppState = Depends(get_state)
 
 
 @router.delete("/sources/{source_id}")
-async def delete_source(source_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def delete_source(
+    source_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
+) -> dict[str, Any]:
     remaining = [s for s in state.prefs.sources if s.id != source_id]
     if len(remaining) == len(state.prefs.sources):
         raise HTTPException(status_code=404, detail="Source not found")
@@ -287,7 +295,10 @@ async def delete_source(source_id: str, state: AppState = Depends(get_state)) ->
 
 @router.post("/sources/{source_id}/secrets")
 async def set_source_secrets(
-    source_id: str, body: dict[str, str | None], state: AppState = Depends(get_state)
+    source_id: str,
+    body: dict[str, str | None],
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
 ) -> dict[str, Any]:
     """Set/clear a source's secret fields (e.g. a webhook token, a Splunk key).
 
@@ -303,6 +314,41 @@ async def set_source_secrets(
     others = [s for s in state.prefs.sources if s.id != source_id]
     await state.update_prefs(state.prefs.model_copy(update={"sources": others + [updated]}))
     return {"ok": True, "configured_secrets": configured}
+
+
+class AnalyzeSampleRequest(BaseModel):
+    """A pasted sample log/alert record for field-mapping suggestion (F9).
+
+    The ``sample`` is UNTRUSTED, attacker-influenceable log data (#9): it is flattened
+    to dotted paths and used ONLY to SUGGEST field mappings — never evaluated, never
+    persisted to the config doc. Only the operator-confirmed mapping NAMES are saved
+    later (via PUT /settings or POST /sources)."""
+
+    sample: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/sources/{source_id}/analyze-sample")
+async def analyze_source_sample(
+    source_id: str,
+    body: AnalyzeSampleRequest,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
+) -> dict[str, Any]:
+    """Suggest field mappings from a pasted SAMPLE record (F9; gated by sources:manage).
+
+    Returns ``{suggested_mappings, fields}`` — the suggested field-name overrides
+    (``source_ip_field``/``user_field``/``host_field``/``message_field``/
+    ``severity_field``/``rule_field``/...) and the flattened path inventory the UI
+    renders. Pure heuristic (no LLM/network). The sample is SANITIZED (flattened to
+    paths only) and is NEVER persisted to the config doc / secret tier (#9)."""
+    from ..engine.sample_analysis import analyze_sample
+
+    if not body.sample:
+        raise HTTPException(status_code=400, detail="No sample record provided")
+    # ``source_id`` is accepted for routing/UI context only; the analysis is pure +
+    # stateless and does not require the source to exist (the wizard may analyse a
+    # sample before saving the source).
+    return analyze_sample(body.sample)
 
 
 @router.post("/ingest/{source_id}")

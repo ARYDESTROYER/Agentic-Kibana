@@ -76,19 +76,40 @@ class WebhookReceiver(PayloadReceiver):
             ),
             ingest_modes=[IngestMode.PUSH_HTTP],
             capabilities=["subscribe", "test"],
+            setup_help=(
+                "## Connect a Webhook (HTTP push)\n"
+                "1. **Save the source** — it gets a stable endpoint: `POST "
+                "/api/ingest/<source-id>` on this backend's base URL.\n"
+                "2. **Authentication** — pick `bearer` (the sender sends "
+                "`Authorization: Bearer <token>`) or `hmac` (the sender signs the body "
+                "with a shared secret); use `none` ONLY behind a trusted proxy.\n"
+                "3. **Set the secret** — after saving, set the bearer token / HMAC secret "
+                "via the source's secrets (stored in the secret tier, never echoed).\n"
+                "4. **Point your SIEM/EDR/SOAR/cloud service** at the endpoint, sending "
+                "JSON / NDJSON / CEF / LEEF / GELF / key=value bodies (auto-detected).\n"
+                "_Splunk-HEC senders should use the HEC connector instead._"
+            ),
             auth_fields=[
                 AuthField(
                     key="auth_mode", label="Authentication", type="select",
                     options=["none", "bearer", "hmac"], default="none",
-                    help="How inbound requests are authenticated.",
+                    help=("How inbound requests are authenticated. Use 'bearer' or "
+                          "'hmac' in production; 'none' only behind a trusted proxy."),
                 ),
                 AuthField(
                     key="token", label="Bearer token", type="password", secret=True,
                     help="Required when auth=bearer. Sent as 'Authorization: Bearer <token>'.",
+                    help_code="Authorization: Bearer <your-token>",
+                    help_code_language="bash",
                 ),
                 AuthField(
                     key="shared_secret", label="HMAC shared secret", type="password", secret=True,
                     help="Required when auth=hmac. Used to sign the request body (HMAC-SHA256).",
+                    help_code=(
+                        "# hex HMAC-SHA256 of the exact request body, in the signature header:\n"
+                        "X-Signature: sha256=$(printf '%s' \"$BODY\" | openssl dgst -sha256 -hmac \"$SECRET\" | awk '{print $2}')"
+                    ),
+                    help_code_language="bash",
                 ),
                 AuthField(
                     key="signature_header", label="Signature header", type="string",

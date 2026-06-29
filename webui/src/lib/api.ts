@@ -86,6 +86,25 @@ export interface CaseExport {
   content: string;
 }
 
+/**
+ * Result of POST /api/sources/{id}/analyze-sample (F9). The backend sanitizes a
+ * pasted sample record and returns suggested field mappings + the discovered field
+ * paths. The sample is NEVER persisted. All values are UNTRUSTED (source-derived) —
+ * render the suggested field paths as plain text.
+ */
+export interface AnalyzeSampleResult {
+  suggested_mappings: Partial<{
+    source_ip_field: string;
+    user_field: string;
+    host_field: string;
+    message_field: string;
+    severity_field: string;
+    rule_field: string;
+  }> &
+    Record<string, string>;
+  fields: string[];
+}
+
 /** Payload for POST /api/rag/import (index a document into the RAG corpus). */
 export interface RagImportInput {
   title: string;
@@ -367,6 +386,17 @@ export const api = {
     request<SourceLogsResponse>('GET', `sources/${encodeURIComponent(sourceId)}/logs`, {
       query: params as Record<string, unknown> | undefined,
     }),
+  // Source-scoped helpers (F9). `analyzeSample` posts a pasted sample record and
+  // gets back suggested field mappings + discovered field paths. The sample is
+  // sanitized server-side and NEVER persisted to the source config.
+  sources: {
+    analyzeSample: (sourceId: string, sample: unknown) =>
+      request<AnalyzeSampleResult>(
+        'POST',
+        `sources/${encodeURIComponent(sourceId)}/analyze-sample`,
+        { body: { sample } },
+      ),
+  },
 
   // ---- Branding (PUBLIC; white-label) ---------------------------------- //
   getBranding: () => request<Branding>('GET', 'branding'),

@@ -28,6 +28,7 @@ import {
   Clock,
   Sparkles,
   AlertTriangle,
+  Link2,
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
@@ -148,6 +149,8 @@ interface CaseFilters {
   severity: string; // ANY | 'critical'|'high'|'medium'|'low'|'info'
   assignee: string; // ANY | UNASSIGNED | a name
   timeRange: TimeRange;
+  /** Show only cases linked across sources (F6 — related_case_ids / cross-source group). */
+  relatedOnly: boolean;
 }
 
 const EMPTY_FILTERS: CaseFilters = {
@@ -157,7 +160,14 @@ const EMPTY_FILTERS: CaseFilters = {
   severity: ANY,
   assignee: ANY,
   timeRange: 'all',
+  relatedOnly: false,
 };
+
+/** Whether a case participates in a cross-source group (F6). */
+function isCrossSourceLinked(c: Case): boolean {
+  const ids = c.related_case_ids;
+  return (Array.isArray(ids) && ids.length > 0) || !!c.cross_source_cluster_id;
+}
 
 interface Facets {
   statuses: string[];
@@ -233,6 +243,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
   return cases.filter((c) => {
     if (f.status !== ANY && (c.status || '') !== f.status) return false;
     if (f.disposition !== ANY && (c.disposition || '') !== f.disposition) return false;
+    if (f.relatedOnly && !isCrossSourceLinked(c)) return false;
 
     if (f.severity !== ANY) {
       if (severityBandKey(caseSeverity(c)) !== f.severity) return false;
@@ -281,7 +292,8 @@ function countActiveFilters(f: CaseFilters): number {
     (f.disposition !== ANY ? 1 : 0) +
     (f.severity !== ANY ? 1 : 0) +
     (f.assignee !== ANY ? 1 : 0) +
-    (f.timeRange !== 'all' ? 1 : 0)
+    (f.timeRange !== 'all' ? 1 : 0) +
+    (f.relatedOnly ? 1 : 0)
   );
 }
 
@@ -399,6 +411,13 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
   React.useEffect(() => {
     if (initialStatus) setFilters((f) => ({ ...f, status: initialStatus }));
   }, [initialStatus]);
+
+  // A drill-through (e.g. a "Related case" link in CaseDetail) can pass a caseId;
+  // open that case's detail sheet. Additive — no-op when absent.
+  const routeCaseId = route.opts?.caseId;
+  React.useEffect(() => {
+    if (routeCaseId) setOpenCaseId(routeCaseId);
+  }, [routeCaseId]);
 
   const facets = React.useMemo(() => buildFacets(cases), [cases]);
 
@@ -858,6 +877,17 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
             </div>
           </PopoverContent>
         </Popover>
+
+        <Button
+          variant={filters.relatedOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setFilter('relatedOnly', !filters.relatedOnly)}
+          aria-pressed={filters.relatedOnly}
+          title="Show only cases linked across sources"
+        >
+          <Link2 className="mr-1.5 size-4" aria-hidden />
+          Cross-source
+        </Button>
 
         <Button
           variant="ghost"

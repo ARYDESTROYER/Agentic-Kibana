@@ -15,7 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..config import Preferences
-from ..constants import ActionType, SourceSurface
+from ..constants import OPEN_CASE_STATUSES, ActionType, SourceSurface
 from ..engine.cost_gate import passes_suppression
 from ..models import Cluster, RawEvent
 from ..utils import iso_now
@@ -56,6 +56,49 @@ def dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
         if ev.id not in seen:
             seen[ev.id] = ev
     return list(seen.values())
+
+
+def _auto_correlate_allowed(cluster: Cluster, prefs: Preferences) -> bool:
+    """The per-source + per-sub-source "Auto-Correlate" gate (Wave 5 / F6).
+
+    A cluster may auto-forward to investigation ONLY when BOTH its SOURCE and the
+    matched SUB-SOURCE (index pattern) allow it. Both toggles default TRUE so, out of
+    the box, this returns True for every cluster and the auto-forward decision is
+    byte-identical to before.
+
+    Resolution:
+      * Source level — ``SourceInstance.auto_correlate()`` (config["auto_correlate"]).
+      * Sub-source level — every configured index pattern that ANY member event's
+        ``_index`` matches must have ``auto_correlate=True``; a cluster touching a
+        pattern whose toggle is OFF is not auto-forwarded. When the source declares no
+        index patterns (legacy / push sources without patterns), the sub-source check
+        is a no-op (True), so back-compat holds.
+
+    A cluster with no resolvable source (the legacy implicit single source) always
+    returns True — nothing changes for the default deployment."""
+    source_id = cluster.source_id
+    if not source_id:
+        return True
+    src = next((s for s in prefs.sources if s.id == source_id), None)
+    if src is None:
+        return True
+    if not src.auto_correlate():
+        return False
+    patterns = src.index_patterns()
+    if not patterns:
+        return True
+    import fnmatch
+
+    # Disabled-sub-source patterns this cluster's events touch ⇒ block auto-forward.
+    disabled = [p.pattern for p in patterns if not p.auto_correlate]
+    if not disabled:
+        return True
+    for ev in cluster.member_events:
+        idx = ev.index or ""
+        for pat in disabled:
+            if idx and fnmatch.fnmatch(idx, pat):
+                return False
+    return True
 
 
 async def attach_cluster(cases: "CaseStore", existing, cluster: Cluster) -> bool:
@@ -108,8 +151,16 @@ async def handle_clusters(
         # investigation regardless of the auto-forward allowlist (still gated by
         # background_scan_enabled, the global automated-investigation switch).
         # Events-role clusters keep the existing correlate→allowlist behaviour.
-        forwarded = prefs.background_scan_enabled and (
-            cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values)
+        #
+        # The per-source + per-sub-source "Auto-Correlate" toggle (Wave 5 / F6) is an
+        # ADDITIONAL gate on top of all of the above: a cluster auto-forwards only when
+        # its source AND the matched sub-source pattern allow it. Both default TRUE so
+        # this is byte-identical out of the box; a disabled toggle routes the cluster to
+        # a candidate (manual triage) instead — it is still correlated + never dropped.
+        forwarded = (
+            prefs.background_scan_enabled
+            and _auto_correlate_allowed(cluster, prefs)
+            and (cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values))
         )
         if forwarded:
             await pipeline.investigate_cluster(cluster, source_surface, prefs)
@@ -118,6 +169,140 @@ async def handle_clusters(
             await pipeline.register_candidate(cluster, source_surface, prefs)
             stats["candidates"] += 1
     return stats
+
+
+async def link_cross_source(
+    clusters: list[Cluster],
+    prefs: Preferences,
+    *,
+    cases: "CaseStore",
+) -> int:
+    """Run the OPT-IN cross-source correlation pass and apply RELATED links.
+
+    This runs AFTER per-source correlation + handling, and ONLY when
+    ``prefs.cross_source_correlation.enabled``. It NEVER force-merges: the per-cluster
+    1:1 signature is untouched (#4). For each cross-source group it sets, on every
+    member case, ``cross_source_cluster_id`` (the stable group id) +
+    ``related_case_ids`` (the OTHER members) + ``source_breakdown`` (source_id→count),
+    then re-saves the cases. Best-effort: any error is swallowed (it must never break
+    ingestion). Returns the number of cases linked.
+
+    The cross-source candidate pool is: the OPEN cases behind THIS batch's clusters
+    (rich entity sets from member events) PLUS the recent OPEN cases in the store
+    (contributing their primary entity), so a cluster from one source links to an
+    already-open case from another source."""
+    from .correlation import (
+        CrossSourceItem,
+        _entity_keys,
+        cluster_cross_source_entities,
+        cross_source_correlate,
+    )
+
+    cfg = prefs.cross_source_correlation
+    if not cfg.enabled or not clusters:
+        return 0
+    entity_keys = _entity_keys(prefs)
+    if not entity_keys:
+        return 0
+
+    items: list[CrossSourceItem] = []
+    case_by_id: dict[str, object] = {}
+    seen_ids: set[str] = set()
+    # 1) Items from THIS batch's clusters (full cross-source entity sets from members).
+    for cluster in clusters:
+        existing = await cases.find_open_by_signature(cluster.signature)
+        if existing is None:
+            continue
+        ents = cluster_cross_source_entities(cluster, entity_keys)
+        if not ents:
+            continue
+        case_by_id[existing.case_id] = existing
+        seen_ids.add(existing.case_id)
+        items.append(CrossSourceItem(
+            id=existing.case_id,
+            source_id=existing.source_id or (cluster.source_id or ""),
+            ts=cluster.last_seen_millis or cluster.first_seen_millis or 0,
+            entities=ents,
+        ))
+    if not items:
+        return 0
+
+    # 2) Recent non-terminal cases in the store (their PRIMARY entity) as cross-source
+    #    candidates from OTHER sources. Bounded; best-effort. We pull a recent page and
+    #    keep the still-open (non-terminal) ones so an investigated case can still link.
+    try:
+        recent_cases, _ = await cases.list(limit=200, sort_field="updated_at")
+    except Exception:  # noqa: BLE001 — candidate pooling is best-effort
+        recent_cases = []
+    open_statuses = set(OPEN_CASE_STATUSES)
+    for oc in recent_cases:
+        if oc.case_id in seen_ids:
+            continue
+        status_val = getattr(oc.status, "value", oc.status)
+        if str(status_val) not in open_statuses:
+            continue
+        try:
+            et = oc.entity.type
+        except Exception:  # noqa: BLE001
+            continue
+        if et not in entity_keys or not oc.entity.value:
+            continue
+        case_by_id[oc.case_id] = oc
+        seen_ids.add(oc.case_id)
+        ts = _case_millis(oc)
+        items.append(CrossSourceItem(
+            id=oc.case_id, source_id=oc.source_id or "",
+            ts=ts, entities=frozenset({(et, oc.entity.value)}),
+        ))
+
+    groups = cross_source_correlate(items, prefs)
+    if not groups:
+        return 0
+
+    linked = 0
+    for grp in groups:
+        member_ids = grp["members"]
+        for cid in member_ids:
+            case = case_by_id.get(cid)
+            if case is None:
+                continue
+            related = sorted(set(member_ids) - {cid})
+            breakdown: dict[str, int] = {}
+            for other_id in member_ids:
+                other = case_by_id.get(other_id)
+                if other is not None and other.source_id:
+                    breakdown[other.source_id] = breakdown.get(other.source_id, 0) + 1
+            changed = False
+            if case.cross_source_cluster_id != grp["cross_source_cluster_id"]:
+                case.cross_source_cluster_id = grp["cross_source_cluster_id"]
+                changed = True
+            if set(case.related_case_ids) != set(related):
+                case.related_case_ids = related
+                changed = True
+            if case.source_breakdown != breakdown:
+                case.source_breakdown = breakdown
+                changed = True
+            if changed:
+                case.updated_at = iso_now()
+                try:
+                    await cases.save(case)
+                    linked += 1
+                except Exception:  # noqa: BLE001 — never break ingestion
+                    pass
+    return linked
+
+
+def _case_millis(case) -> int:
+    """Best-effort epoch-millis for a case's time (updated_at, else created_at)."""
+    from ..utils import parse_es_timestamp, to_millis
+
+    for attr in ("updated_at", "created_at"):
+        ts = getattr(case, attr, None)
+        if ts:
+            parsed = parse_es_timestamp(ts)
+            if parsed:
+                return to_millis(parsed)
+    return 0
 
 
 class IngestService:
@@ -191,6 +376,16 @@ class IngestService:
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=source_surface,
             )
+            # Opt-in cross-source correlation (Wave 5 / F6): AFTER per-source handling,
+            # link open cases sharing an entity across sources as RELATED (never merged).
+            # No-op (returns 0) when disabled — the default — so single-source is unchanged.
+            if prefs.cross_source_correlation.enabled:
+                try:
+                    stats["cross_source_linked"] = await link_cross_source(
+                        clusters, prefs, cases=self._cases
+                    )
+                except Exception as exc:  # noqa: BLE001 — never break ingestion
+                    logger.warning("cross-source correlation failed: %s", exc)
         except Exception as exc:  # noqa: BLE001 — a bad batch must not crash a receiver
             logger.exception("ingest failed for a %d-event batch: %s", len(events), exc)
             await self._audit.record(

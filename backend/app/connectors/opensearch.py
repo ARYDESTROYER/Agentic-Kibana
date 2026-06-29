@@ -48,6 +48,18 @@ class OpenSearchConnector(ElasticConnector):
             ingest_modes=[IngestMode.PULL],
             query_language="lucene",
             capabilities=["poll", "search", "fetch_by_ids", "test", "browse"],
+            docs_url="https://opensearch.org/docs/latest/security/access-control/api/",
+            setup_help=(
+                "## Connect OpenSearch\n"
+                "1. **URL** — the OpenSearch HTTP API base URL (for Amazon OpenSearch "
+                "Service use the domain endpoint).\n"
+                "2. **Read-only credential** — create a role/user scoped to READ on your "
+                "log index pattern (never an admin). OpenSearch supports HTTP basic auth "
+                "(`user:password`); on AWS, SigV4 request signing.\n"
+                "3. **Index pattern** — set the data view the agent reads (read-only).\n"
+                "4. **CA cert** — paste the PEM (or a mounted path) for a private CA.\n"
+                "_The search API is ES-7.10 compatible with the DSL this suite emits._"
+            ),
             auth_fields=[
                 AuthField(
                     key="es_url",
@@ -59,6 +71,7 @@ class OpenSearchConnector(ElasticConnector):
                         "Base URL of the OpenSearch HTTP API. For Amazon OpenSearch "
                         "Service use the domain endpoint."
                     ),
+                    help_link="https://opensearch.org/docs/latest/api-reference/index/",
                     group="Connection",
                 ),
                 AuthField(

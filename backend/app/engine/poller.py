@@ -137,6 +137,17 @@ class Poller:
                 source_surface=SourceSurface.AUTOMATED_SCAN,
             )
             stats.update(cluster_stats)
+            # Opt-in cross-source correlation (Wave 5 / F6): link open cases sharing an
+            # entity across sources as RELATED (never merged). No-op when disabled.
+            if prefs.cross_source_correlation.enabled:
+                from ..engine.ingest import link_cross_source
+
+                try:
+                    stats["cross_source_linked"] = await link_cross_source(
+                        clusters, prefs, cases=self._cases
+                    )
+                except Exception as exc:  # noqa: BLE001 — never break the poll loop
+                    logger.warning("cross-source correlation failed: %s", exc)
 
         # Advance cursor over ALL fetched events (even boundary dupes) so we never
         # re-scan the same window, then persist durably.

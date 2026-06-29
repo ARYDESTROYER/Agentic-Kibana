@@ -131,18 +131,60 @@ class RawEvent(BaseModel):
         For IP/USER/HOST this is the extracted field. For RULE (the entity-agnostic
         fallback) it is ``"<rule>|<time-bucket>"`` so events of the same rule within
         the same coarse window cluster together, but distant bursts do not merge —
-        guaranteeing a case forms even when every standard entity field is null."""
+        guaranteeing a case forms even when every standard entity field is null.
+
+        FILE_HASH/DOMAIN (Wave 5 cross-source keys) are NOT used by per-rule grouping,
+        so they are resolved from the raw ``source`` document by
+        :meth:`cross_source_value` (used only by the opt-in cross-source pass)."""
         if group_by == EntityType.RULE:
             rule = self.rule or self.rule_name
             if not rule:
                 return None
             bucket = self.timestamp_millis // (self.RULE_BUCKET_SECONDS * 1000)
             return f"{rule}|{bucket}"
+        if group_by in (EntityType.FILE_HASH, EntityType.DOMAIN):
+            return self.cross_source_value(group_by)
         return {
             EntityType.IP: self.ip,
             EntityType.USER: self.user,
             EntityType.HOST: self.host,
         }[group_by]
+
+    # Common dotted paths a file hash / domain is found under across sources (ECS +
+    # OCSF + a few SIEM-native shapes). The cross-source pass reads the FIRST present.
+    _FILE_HASH_FIELDS: ClassVar[tuple[str, ...]] = (
+        "file.hash.sha256", "file.hash.sha1", "file.hash.md5",
+        "process.hash.sha256", "hash.sha256", "sha256", "data.sha256",
+    )
+    _DOMAIN_FIELDS: ClassVar[tuple[str, ...]] = (
+        "url.domain", "destination.domain", "dns.question.name",
+        "domain", "data.domain", "host.domain",
+    )
+
+    def cross_source_value(self, entity_type: EntityType) -> str | None:
+        """Resolve one cross-source entity key (IP/HOST/USER/FILE_HASH/DOMAIN) for
+        this event — the SOURCE-AGNOSTIC value the cross-source pass groups on.
+
+        IP/HOST/USER reuse the already-extracted projections; FILE_HASH/DOMAIN are
+        pulled from the raw ``source`` document via a small list of common dotted
+        paths (ECS/OCSF/SIEM). Returns ``None`` when absent — a missing key simply
+        does not participate in cross-source grouping (never raises)."""
+        if entity_type == EntityType.IP:
+            return self.ip
+        if entity_type == EntityType.HOST:
+            return self.host
+        if entity_type == EntityType.USER:
+            return self.user
+        fields = (
+            self._FILE_HASH_FIELDS if entity_type == EntityType.FILE_HASH
+            else self._DOMAIN_FIELDS if entity_type == EntityType.DOMAIN
+            else ()
+        )
+        for f in fields:
+            val = _as_str(dotted_get(self.source or {}, f))
+            if val:
+                return val.lower() if entity_type == EntityType.FILE_HASH else val
+        return None
 
 
 def _as_str(value: Any) -> str | None:
@@ -212,6 +254,15 @@ class Cluster(BaseModel):
     # clusters are SIEM-generated detections and are auto-forwarded to investigation
     # regardless of the auto-forward allowlist (see engine/ingest.handle_clusters).
     is_alert: bool = False
+    # Cross-source provenance (Wave 5 / F6 — multi-source telemetry). ``source_ids``
+    # is the DISTINCT set of source ids whose member events contributed to this
+    # cluster (today a cluster is single-source, so usually a 0/1-length list);
+    # ``cross_source_cluster_id`` is set ONLY by the opt-in cross-source correlation
+    # pass when this cluster shares an entity with clusters from OTHER sources inside
+    # the configured window. Both are ADDITIVE/defaulted — when cross-source is OFF
+    # (the default) they stay empty and per-source behaviour is byte-identical.
+    source_ids: list[str] = Field(default_factory=list)
+    cross_source_cluster_id: str = ""
 
     @property
     def window_seconds(self) -> float:
@@ -495,6 +546,16 @@ class Case(BaseModel):
     # entry is ``{ts, trigger, channel_id, channel_type, ok, detail}`` — the detail
     # is redacted (never a secret). Additive + defaulted so old cases load unchanged.
     notifications_sent: list[dict[str, Any]] = Field(default_factory=list)
+    # Cross-source correlation (Wave 5 / F6). ALL additive/defaulted — the per-cluster
+    # 1:1 signature stays intact; cross-source linking only ADDS these RELATED markers
+    # and NEVER force-merges or changes the existing cluster signature. ``related_case_ids``
+    # are OTHER open cases (from other sources) that share an entity within the window;
+    # ``cross_source_cluster_id`` is the stable id of that cross-source group (the SAME
+    # value on every member case); ``source_breakdown`` maps source_id -> contributing
+    # event count for the multi-source UI. Empty/zero out of the box (cross-source OFF).
+    related_case_ids: list[str] = Field(default_factory=list)
+    cross_source_cluster_id: str = ""
+    source_breakdown: dict[str, int] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

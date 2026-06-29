@@ -510,6 +510,64 @@ function CorrelationSection({ prefs, update }: SecProps) {
         <NumPref label="Escalation confidence" value={prefs.escalation_confidence} step={0.05} onChange={(v) => update({ escalation_confidence: v })} />
         <NumPref label="Critical severity" value={prefs.critical_severity} step={0.5} onChange={(v) => update({ critical_severity: v })} />
       </div>
+      <Separator />
+      <CrossSourceSubsection prefs={prefs} update={update} />
+    </div>
+  );
+}
+
+function CrossSourceSubsection({ prefs, update }: SecProps) {
+  const x = prefs.cross_source_correlation || {};
+  const set = (patch: Partial<typeof x>) =>
+    update({ cross_source_correlation: { ...x, ...patch } });
+  const entityKeys = Array.isArray(x.entity_keys)
+    ? x.entity_keys
+    : ['ip', 'host', 'user', 'file_hash', 'domain'];
+  const enabled = x.enabled ?? false;
+  return (
+    <div className="space-y-4">
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Cross-source correlation
+        <span className="ml-2 font-normal normal-case tracking-normal">
+          opt-in; links related cases across sources, never merges them
+        </span>
+      </p>
+      <SwitchPref
+        label="Enable cross-source correlation"
+        help="A second, source-agnostic pass groups open cases that share an entity (IP, host, user, file hash, domain) within the time window across multiple sources. Matches are surfaced as RELATED cases — the per-cluster 1:1 case mapping is never changed and nothing is force-merged. Off by default."
+        checked={enabled}
+        onChange={(v) => set({ enabled: v })}
+      />
+      <div className={cn('grid gap-4 sm:grid-cols-2', !enabled && 'opacity-60')}>
+        <NumPref
+          label="Time window (seconds)"
+          value={x.time_window_seconds ?? 300}
+          min={1}
+          disabled={!enabled}
+          onChange={(v) => set({ time_window_seconds: v })}
+        />
+        <NumPref
+          label="Minimum distinct sources"
+          value={x.min_sources ?? 2}
+          min={2}
+          disabled={!enabled}
+          onChange={(v) => set({ min_sources: v })}
+        />
+      </div>
+      <TextPref
+        label="Entity keys"
+        help="Comma-separated entity keys to correlate on across sources (e.g. ip, host, user, file_hash, domain)."
+        value={entityKeys.join(', ')}
+        placeholder="ip, host, user, file_hash, domain"
+        onChange={(v) =>
+          set({
+            entity_keys: v
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean),
+          })
+        }
+      />
     </div>
   );
 }

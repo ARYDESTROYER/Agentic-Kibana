@@ -118,9 +118,26 @@ class S3Receiver(_BaseObjectReceiver):
             ),
             ingest_modes=[IngestMode.OBJECT_STORE],
             capabilities=["subscribe", "test"],
+            docs_url="https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-iam.html",
+            setup_help=(
+                "## Connect AWS S3 / Security Lake\n"
+                "1. **Region + bucket/prefix** — where the log objects land.\n"
+                "2. **Credentials** — prefer the host's IAM role (leave keys blank); "
+                "otherwise set an access key scoped READ-ONLY to the bucket/prefix "
+                "(`s3:GetObject`/`s3:ListBucket`). The secret key goes in the secret tier.\n"
+                "3. **Discovery mode** — `list` polls by last-key marker (durable cursor); "
+                "`sqs-notification` reads an S3 `ObjectCreated` event queue (set the SQS "
+                "URL).\n"
+                "4. `.gz` is decompressed; JSON/NDJSON/CEF/LEEF parsed (OCSF Parquet is a "
+                "declared follow-up).\n"
+                "_Requires `boto3` on the backend._"
+            ),
             auth_fields=[
-                AuthField(key="region", label="AWS region", type="string", required=True),
-                AuthField(key="access_key_id", label="Access key id", type="string"),
+                AuthField(key="region", label="AWS region", type="string", required=True,
+                          help="AWS region of the bucket (e.g. us-east-1)."),
+                AuthField(key="access_key_id", label="Access key id", type="string",
+                          help="Leave blank to use the host's IAM role / instance profile.",
+                          help_link="https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html"),
                 AuthField(key="secret_access_key", label="Secret access key", type="password", secret=True),
                 AuthField(key="session_token", label="Session token", type="password", secret=True),
             ],

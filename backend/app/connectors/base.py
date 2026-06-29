@@ -40,6 +40,13 @@ class AuthField(BaseModel):
 
     ``secret`` fields are written to the secret store and surfaced in the UI as
     ``configured ✓`` only (never echoed back) — non-negotiable #10.
+
+    CONTEXTUAL HELP (Wave 5 / F9; all additive/optional): besides the short ``help``
+    tooltip text, a field may ship a ``help_link`` (a doc URL the wizard renders as a
+    "Learn more" affordance), a ``help_code`` snippet (a copy-pasteable example —
+    e.g. the exact ``POST /_security/api_key`` body to mint a scoped read-only key)
+    and the ``help_code_language`` for that snippet. The frontend auto-chooses a
+    popover over a tooltip when ``help`` is long OR a link/code is present.
     """
 
     key: str
@@ -50,6 +57,9 @@ class AuthField(BaseModel):
     default: Any = None
     options: list[str] | None = None
     help: str = ""
+    help_link: str = ""           # doc URL ("Learn more"), or ""
+    help_code: str = ""           # copy-pasteable example snippet, or ""
+    help_code_language: str = "yaml"  # language hint for help_code (yaml|json|bash|...)
     placeholder: str = ""
     group: str = "Connection"     # wizard section grouping
 
@@ -69,6 +79,11 @@ class ConnectorManifest(BaseModel):
     config_fields: list[AuthField] = Field(default_factory=list)
     docs_url: str | None = None
     requires_pip: list[str] = Field(default_factory=list)   # optional deps for this connector
+    # A concise Markdown "how to add this source" guide (Wave 5 / F9), rendered in the
+    # wizard alongside the field form. Step list: where to find the URL/credential,
+    # how to scope a READ-ONLY key (never kibana_system / the elastic superuser, #1),
+    # which index/topic/endpoint to point at. Additive/optional — empty by default.
+    setup_help: str = ""
 
 
 class ConnectionTest(BaseModel):

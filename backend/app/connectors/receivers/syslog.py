@@ -59,12 +59,25 @@ class SyslogReceiver(PayloadReceiver):
             ),
             ingest_modes=[IngestMode.PUSH_SYSLOG, IngestMode.PUSH_SOCKET],
             capabilities=["subscribe"],
+            docs_url="https://datatracker.ietf.org/doc/html/rfc5424",
+            setup_help=(
+                "## Connect Syslog\n"
+                "1. **Bind address + port** — the interface/port this backend listens on "
+                "(default `0.0.0.0:514`). Privileged ports (<1024) need "
+                "`CAP_NET_BIND_SERVICE`; a high port like `5514` avoids that.\n"
+                "2. **Protocol** — `udp` (lossy, simplest), `tcp` (reliable, framed), or "
+                "`tls` (TLS termination is a documented follow-up).\n"
+                "3. **Point your devices/hosts/appliances** at `host:port` for syslog; "
+                "RFC 5424 (structured-data aware) and RFC 3164 (BSD) are both parsed.\n"
+                "Syslog has no inbound auth — restrict reachability at the network layer."
+            ),
             auth_fields=[],
             config_fields=[
                 AuthField(key="bind_host", label="Bind address", type="string",
                           default="0.0.0.0", help="Interface to listen on."),
                 AuthField(key="port", label="Port", type="number", default=514,
-                          help="UDP/TCP port (privileged <1024 needs CAP_NET_BIND_SERVICE)."),
+                          help="UDP/TCP port (privileged <1024 needs CAP_NET_BIND_SERVICE).",
+                          placeholder="514"),
                 AuthField(key="protocol", label="Protocol", type="select",
                           options=["udp", "tcp", "tls"], default="udp"),
                 AuthField(key="framing", label="TCP framing", type="select",

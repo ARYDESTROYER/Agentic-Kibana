@@ -227,6 +227,13 @@ class EntityType(str, Enum):
     IP = "ip"
     USER = "user"
     HOST = "host"
+    # Richer cross-source correlation keys (Wave 5 / F6). These are ADDITIVE: the
+    # per-source auto/IP/HOST/USER/RULE fallback ladder is unchanged (RULE is still
+    # the always-resolvable terminal fallback). FILE_HASH/DOMAIN are NOT part of the
+    # per-rule grouping ladder — they are extra entity keys the OPT-IN cross-source
+    # pass may group on (engine/correlation.cross_source_correlate).
+    FILE_HASH = "file_hash"
+    DOMAIN = "domain"
     # Fallback grouping key when an event carries no IP/USER/HOST (entity-agnostic
     # correlation). A RULE-grouped cluster keys on the rule name + a coarse time
     # bucket so an in-scope event is NEVER silently dropped just because every

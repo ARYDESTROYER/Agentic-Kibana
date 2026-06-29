@@ -23,11 +23,15 @@ import {
   AlertTriangle,
   FileUp,
   Loader2,
+  BookOpen,
+  Sparkles,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type {
   AuthField,
   ConnectorManifest,
   EntityStrategy,
+  FieldMappingsExtra,
   IndexPattern,
   SourceConfigExtras,
   SourceInstance,
@@ -55,9 +59,16 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/ui/tooltip';
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from '@/ui/accordion';
 
 import { ConnectorPicker } from '@/soc/components/ConnectorPicker';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { HelpTip, ConnectorFieldHelp } from '@/soc/components/HelpTip';
 
 /** Best-effort human message from an unknown thrown value. */
 function errorMessage(e: unknown): string {
@@ -149,12 +160,17 @@ function deriveIndexPatterns(cfg: Record<string, unknown>): IndexPattern[] {
   if (Array.isArray(existing) && existing.length) {
     return existing
       .filter((p): p is IndexPattern => !!p && typeof (p as IndexPattern).pattern === 'string')
-      .map((p) => ({ pattern: String(p.pattern), role: p.role === 'alerts' ? 'alerts' : 'events' }));
+      .map((p) => ({
+        pattern: String(p.pattern),
+        role: p.role === 'alerts' ? 'alerts' : 'events',
+        // Per-pattern Auto-Correlate (F6); absent → TRUE (back-compat).
+        auto_correlate: p.auto_correlate !== false,
+      }));
   }
   const fromSingle = splitPatterns(cfg.data_view_pattern).map(
-    (pattern): IndexPattern => ({ pattern, role: 'events' }),
+    (pattern): IndexPattern => ({ pattern, role: 'events', auto_correlate: true }),
   );
-  return fromSingle.length ? fromSingle : [{ pattern: '', role: 'events' }];
+  return fromSingle.length ? fromSingle : [{ pattern: '', role: 'events', auto_correlate: true }];
 }
 
 /* ------------------------------------------------------------- cert picker - */
@@ -246,6 +262,7 @@ const FieldRow: React.FC<{
             {f.label}
             {f.required ? <RequiredMark /> : null}
           </Label>
+          <ConnectorFieldHelp field={f} />
         </div>
         {help}
       </div>
@@ -381,6 +398,7 @@ const FieldRow: React.FC<{
           {f.label}
           {f.required ? <RequiredMark /> : null}
         </span>
+        <ConnectorFieldHelp field={f} />
         {f.secret && configuredSecrets.includes(f.key) ? (
           <span className="inline-flex items-center gap-1 text-xs text-success">
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> configured
@@ -408,9 +426,13 @@ const IndexPatternsEditor: React.FC<{
 }> = ({ rows, onChange }) => {
   const setRow = (i: number, patch: Partial<IndexPattern>) =>
     onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRow = () => onChange([...rows, { pattern: '', role: 'events' }]);
+  const addRow = () => onChange([...rows, { pattern: '', role: 'events', auto_correlate: true }]);
   const removeRow = (i: number) =>
-    onChange(rows.length > 1 ? rows.filter((_, idx) => idx !== i) : [{ pattern: '', role: 'events' }]);
+    onChange(
+      rows.length > 1
+        ? rows.filter((_, idx) => idx !== i)
+        : [{ pattern: '', role: 'events', auto_correlate: true }],
+    );
 
   return (
     <div className="space-y-3">
@@ -420,45 +442,66 @@ const IndexPatternsEditor: React.FC<{
         then triaged. Add as many as you need.
       </p>
       {rows.map((row, i) => (
-        <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <div className="flex-1 space-y-1.5">
-            {i === 0 ? <Label htmlFor={`ip-${i}`}>Index / data-view pattern</Label> : null}
-            <Input
-              id={`ip-${i}`}
-              placeholder="e.g. all-logs-* or wazuh-alerts-*"
-              value={row.pattern}
-              onChange={(e) => setRow(i, { pattern: e.target.value })}
-              aria-label={`Index pattern ${i + 1}`}
+        <div
+          key={i}
+          className="space-y-2 rounded-md border border-border bg-surface/50 p-3"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1 space-y-1.5">
+              {i === 0 ? <Label htmlFor={`ip-${i}`}>Index / data-view pattern</Label> : null}
+              <Input
+                id={`ip-${i}`}
+                placeholder="e.g. all-logs-* or wazuh-alerts-*"
+                value={row.pattern}
+                onChange={(e) => setRow(i, { pattern: e.target.value })}
+                aria-label={`Index pattern ${i + 1}`}
+              />
+            </div>
+            <div className="space-y-1.5 sm:w-[16rem]">
+              {i === 0 ? <Label>Role</Label> : null}
+              <Select
+                value={row.role}
+                onValueChange={(v) => setRow(i, { role: v as IndexPattern['role'] })}
+              >
+                <SelectTrigger aria-label={`Role for pattern ${i + 1}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.text}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-critical"
+              aria-label={`Remove pattern ${i + 1}`}
+              onClick={() => removeRow(i)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </Button>
+          </div>
+          {/* Per-pattern (sub-source) Auto-Correlate toggle (F6). */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <Switch
+              id={`ip-ac-${i}`}
+              checked={row.auto_correlate !== false}
+              onCheckedChange={(c) => setRow(i, { auto_correlate: c })}
+              aria-label={`Auto-Correlate for pattern ${i + 1}`}
+            />
+            <Label htmlFor={`ip-ac-${i}`} className="cursor-pointer text-xs">
+              Auto-Correlate
+            </Label>
+            <HelpTip
+              label="About per-pattern Auto-Correlate"
+              text="When on (default), clusters that touch this pattern are auto-forwarded to AI investigation. Turn it off to keep this pattern's clusters in manual triage only — they still correlate into clusters, they just aren't sent to the agent automatically."
             />
           </div>
-          <div className="space-y-1.5 sm:w-[16rem]">
-            {i === 0 ? <Label>Role</Label> : null}
-            <Select
-              value={row.role}
-              onValueChange={(v) => setRow(i, { role: v as IndexPattern['role'] })}
-            >
-              <SelectTrigger aria-label={`Role for pattern ${i + 1}`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ROLE_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.text}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="text-critical"
-            aria-label={`Remove pattern ${i + 1}`}
-            onClick={() => removeRow(i)}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden />
-          </Button>
         </div>
       ))}
       <Button type="button" variant="outline" size="sm" onClick={addRow}>
@@ -467,6 +510,79 @@ const IndexPatternsEditor: React.FC<{
     </div>
   );
 };
+
+/* ------------------------------------------------------------ setup help --- */
+
+/** Renders a connector's `setup_help` guide as plain text (trusted; never markup). */
+const SetupHelpGuide: React.FC<{ help: string; connectorName: string }> = ({
+  help,
+  connectorName,
+}) => (
+  <Accordion type="single" collapsible className="rounded-md border border-border bg-surface/60 px-4">
+    <AccordionItem value="setup-help" className="border-b-0">
+      <AccordionTrigger className="py-3">
+        <span className="flex items-center gap-2">
+          <BookOpen className="h-4 w-4 text-primary" aria-hidden />
+          How to add {connectorName}
+        </span>
+      </AccordionTrigger>
+      <AccordionContent>
+        {/* `setup_help` is author-controlled (trusted) but rendered as plain,
+            pre-wrapped text — never as live markup. */}
+        <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+          {help}
+        </p>
+      </AccordionContent>
+    </AccordionItem>
+  </Accordion>
+);
+
+/* ----------------------------------------------------- field-mapping editor */
+
+/** The canonical mapping keys + per-field help (F9). */
+const FIELD_MAPPING_DEFS: Array<{
+  key: keyof FieldMappingsExtra;
+  label: string;
+  placeholder: string;
+  help: string;
+}> = [
+  {
+    key: 'source_ip_field',
+    label: 'Source IP field',
+    placeholder: 'e.g. source.ip',
+    help: 'The source-native field holding the source IP. Used as the primary correlation entity by default.',
+  },
+  {
+    key: 'user_field',
+    label: 'User field',
+    placeholder: 'e.g. user.name',
+    help: 'The field holding the acting user / account name.',
+  },
+  {
+    key: 'host_field',
+    label: 'Host field',
+    placeholder: 'e.g. host.name',
+    help: 'The field holding the hostname / asset the event concerns.',
+  },
+  {
+    key: 'message_field',
+    label: 'Message field',
+    placeholder: 'e.g. message',
+    help: 'The field shown as the human-readable message column when browsing logs and in chat.',
+  },
+  {
+    key: 'severity_field',
+    label: 'Severity field',
+    placeholder: 'e.g. event.severity',
+    help: 'The field holding the source severity. Drives the in-scope severity threshold.',
+  },
+  {
+    key: 'rule_field',
+    label: 'Rule field',
+    placeholder: 'e.g. rule.id',
+    help: 'The field holding the detection rule id / name that fired.',
+  },
+];
 
 /* ---------------------------------------------------------- test callout --- */
 
@@ -565,6 +681,21 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const [messageField, setMessageField] = React.useState<string>(
     ((existing?.config as Partial<SourceConfigExtras>)?.message_field as string) || '',
   );
+  // Per-source Auto-Correlate (F6) — defaults TRUE so today's behaviour is identical.
+  const [autoCorrelate, setAutoCorrelate] = React.useState<boolean>(
+    (existing?.config as Partial<SourceConfigExtras>)?.auto_correlate !== false,
+  );
+  // Per-source field-mapping overrides (F9).
+  const [fieldMappings, setFieldMappings] = React.useState<FieldMappingsExtra>(
+    () =>
+      ((existing?.config as Partial<SourceConfigExtras>)?.field_mappings_extra as FieldMappingsExtra) ||
+      {},
+  );
+  // "Paste a sample record" → analyze-sample (F9). The sample is never persisted.
+  const [sampleText, setSampleText] = React.useState('');
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [analyzeError, setAnalyzeError] = React.useState<string | null>(null);
+  const [analyzedFields, setAnalyzedFields] = React.useState<string[]>([]);
 
   const [testing, setTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<TestResult | null>(null);
@@ -599,8 +730,52 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     setPatterns(deriveIndexPatterns({}));
     setEntityStrategy('auto');
     setMessageField('');
+    setAutoCorrelate(true);
+    setFieldMappings({});
+    setSampleText('');
+    setAnalyzedFields([]);
+    setAnalyzeError(null);
     setTestResult(null);
     setError(null);
+  };
+
+  const setMapping = (key: keyof FieldMappingsExtra, v: string) =>
+    setFieldMappings((prev) => ({ ...prev, [key]: v }));
+
+  const runAnalyzeSample = async () => {
+    if (!existing?.id) {
+      setAnalyzeError('Save the source first, then paste a sample to get suggestions.');
+      return;
+    }
+    const raw = sampleText.trim();
+    if (!raw) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      setAnalyzeError('That is not valid JSON. Paste a single record as a JSON object.');
+      return;
+    }
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    try {
+      const res = await api.sources.analyzeSample(existing.id, parsed);
+      setAnalyzedFields(Array.isArray(res.fields) ? res.fields : []);
+      const sugg = res.suggested_mappings || {};
+      setFieldMappings((prev) => {
+        const next: FieldMappingsExtra = { ...prev };
+        for (const def of FIELD_MAPPING_DEFS) {
+          const v = sugg[def.key];
+          // Only pre-fill fields the operator hasn't already set.
+          if (typeof v === 'string' && v && !next[def.key]) next[def.key] = v;
+        }
+        return next;
+      });
+    } catch (e) {
+      setAnalyzeError(e instanceof Error ? e.message : 'Could not analyze the sample.');
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const onTest = async () => {
@@ -627,7 +802,11 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   /** Fold the advanced-config editors back into the form's `config` before save. */
   const buildConfig = (): Record<string, unknown> => {
     const cleanPatterns: IndexPattern[] = patterns
-      .map((p) => ({ pattern: p.pattern.trim(), role: p.role === 'alerts' ? 'alerts' : 'events' }))
+      .map((p) => ({
+        pattern: p.pattern.trim(),
+        role: p.role === 'alerts' ? 'alerts' : ('events' as IndexPattern['role']),
+        auto_correlate: p.auto_correlate !== false,
+      }))
       .filter((p) => p.pattern);
     const eventsPatterns = cleanPatterns.filter((p) => p.role === 'events').map((p) => p.pattern);
     const firstPattern = (eventsPatterns[0] || cleanPatterns[0]?.pattern || '').trim();
@@ -648,6 +827,20 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     const mf = messageField.trim();
     if (mf) cfg.message_field = mf;
     else if (!manifestHasMessageField) delete cfg.message_field;
+
+    // Per-source Auto-Correlate (F6). Store only when OFF (default TRUE) so the
+    // out-of-the-box config doc is byte-identical to today's.
+    if (autoCorrelate) delete cfg.auto_correlate;
+    else cfg.auto_correlate = false;
+
+    // Per-source field-mapping overrides (F9): keep only non-empty entries.
+    const fm: Record<string, string> = {};
+    for (const def of FIELD_MAPPING_DEFS) {
+      const v = (fieldMappings[def.key] || '').trim();
+      if (v) fm[def.key] = v;
+    }
+    if (Object.keys(fm).length) cfg.field_mappings_extra = fm;
+    else delete cfg.field_mappings_extra;
 
     return cfg;
   };
@@ -725,6 +918,11 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
         ) : null}
       </div>
 
+      {/* connector-level "how to add this source" guide (F9) */}
+      {manifest.setup_help ? (
+        <SetupHelpGuide help={manifest.setup_help} connectorName={manifest.display_name} />
+      ) : null}
+
       {/* identity */}
       <div className="space-y-1.5">
         <Label htmlFor="se-display">Display name</Label>
@@ -749,6 +947,20 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
           <Label htmlFor="se-primary" className="cursor-pointer">
             Primary (the agent reads from this)
           </Label>
+        </div>
+        <div className="flex items-center gap-2.5">
+          <Switch
+            id="se-autocorrelate"
+            checked={autoCorrelate}
+            onCheckedChange={setAutoCorrelate}
+          />
+          <Label htmlFor="se-autocorrelate" className="cursor-pointer">
+            Auto-Correlate
+          </Label>
+          <HelpTip
+            label="About Auto-Correlate"
+            text="When on (default), this source's correlated clusters are automatically forwarded to AI investigation. Turn it off to keep this source in manual triage only — events still correlate into clusters, but the agent won't investigate them automatically. You can also toggle this per index pattern below."
+          />
         </div>
       </div>
 
@@ -826,6 +1038,95 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
           </div>
         </div>
       ) : null}
+
+      {/* advanced — per-source field mapping (F9) */}
+      <Accordion type="single" collapsible className="rounded-md border border-border">
+        <AccordionItem value="field-mapping" className="border-b-0 px-4">
+          <AccordionTrigger className="py-3">
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal className="h-4 w-4 text-muted-foreground" aria-hidden />
+              Advanced — field mapping
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="space-y-4">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Override how this source&apos;s native fields map onto the canonical entity /
+              message / severity / rule columns. Leave a field blank to fall back to the global
+              mapping in Settings.
+            </p>
+
+            {/* paste a sample record → suggested mappings */}
+            <div className="space-y-2 rounded-md border border-border bg-surface/50 p-3">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="se-sample" className="text-xs">
+                  Paste a sample record (optional)
+                </Label>
+                <HelpTip
+                  label="About sample analysis"
+                  text="Paste a single raw JSON record from this source. We analyze it on the server to suggest field mappings and never persist the sample. Available after the source is saved."
+                />
+              </div>
+              <Textarea
+                id="se-sample"
+                placeholder='{"source": {"ip": "1.2.3.4"}, "user": {"name": "alice"}, "message": "…"}'
+                value={sampleText}
+                onChange={(e) => setSampleText(e.target.value)}
+                className="min-h-[6rem] font-mono text-xs"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runAnalyzeSample()}
+                  disabled={analyzing || !sampleText.trim()}
+                >
+                  {analyzing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="h-4 w-4" aria-hidden />
+                  )}
+                  Suggest mappings
+                </Button>
+                {!existing?.id ? (
+                  <span className="text-xs text-muted-foreground">
+                    Save the source first to enable sample analysis.
+                  </span>
+                ) : null}
+              </div>
+              {analyzeError ? <p className="text-xs text-critical">{analyzeError}</p> : null}
+              {analyzedFields.length ? (
+                <p className="text-xs text-muted-foreground">
+                  {/* field paths are UNTRUSTED — rendered as plain text. */}
+                  Detected {analyzedFields.length} field
+                  {analyzedFields.length === 1 ? '' : 's'}; suggestions pre-filled below where
+                  empty.
+                </p>
+              ) : null}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {FIELD_MAPPING_DEFS.map((def) => {
+                const fid = `se-fm-${def.key}`;
+                return (
+                  <div key={def.key} className="space-y-1.5">
+                    <Label htmlFor={fid} className="flex items-center gap-1.5">
+                      {def.label}
+                      <HelpTip label={`About ${def.label}`} text={def.help} />
+                    </Label>
+                    <Input
+                      id={fid}
+                      placeholder={def.placeholder}
+                      value={fieldMappings[def.key] || ''}
+                      onChange={(e) => setMapping(def.key, e.target.value)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {testResult ? <TestResultCallout result={testResult} /> : null}
 

@@ -17,7 +17,7 @@ from typing import NamedTuple
 from ..config import CorrelationRule, Preferences
 from ..constants import CorrelationMode, EntityStrategy, EntityType
 from ..models import Cluster, Entity, RawEvent, TriggerReason
-from .signatures import cluster_signature
+from .signatures import cluster_signature, cross_source_signature
 
 
 class _WindowDetail(NamedTuple):
@@ -198,6 +198,9 @@ def _build_cluster(
     source_id = next((ev.source_id for ev in members_sorted if ev.source_id), None)
     source_name = next((ev.source_name for ev in members_sorted if ev.source_name), None)
     is_alert = any(ev.index_role == "alerts" for ev in members_sorted)
+    # Distinct source ids that contributed members (Wave 5 multi-source provenance;
+    # today a cluster is single-source, so this is usually 0/1 ids).
+    source_ids = sorted({ev.source_id for ev in members_sorted if ev.source_id})
     return Cluster(
         signature=cluster_signature(entity_type, value),
         entity=Entity(type=entity_type, value=display_value),
@@ -212,6 +215,7 @@ def _build_cluster(
         source_id=source_id,
         source_name=source_name,
         is_alert=is_alert,
+        source_ids=source_ids,
     )
 
 
@@ -257,3 +261,111 @@ def _build_trigger_reason(
         severity_max=smax,
         sentence=sentence,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Cross-source correlation (Wave 5 / F6) — OPT-IN second pass, NEVER merges.
+#
+# The per-source pass above keeps the 1:1 cluster→case signature intact (#4). This
+# pass takes the OPEN cases/clusters that share an entity within a time window and,
+# when at least ``min_sources`` DISTINCT sources are involved, returns a stable,
+# source-agnostic group id + its members — purely as RELATED metadata. It writes
+# nothing: ``engine/ingest`` is the single place that applies the links onto cases.
+# --------------------------------------------------------------------------- #
+class CrossSourceItem(NamedTuple):
+    """A normalised view of an open case/cluster the cross-source pass groups on.
+
+    ``id`` is the case id (the link target); ``source_id`` is the originating source
+    (distinct sources are what the ``min_sources`` floor counts); ``ts`` is a
+    representative epoch-millis time (used for the window bucket); ``entities`` is the
+    set of ``(EntityType, value)`` cross-source keys this item exposes."""
+
+    id: str
+    source_id: str
+    ts: int
+    entities: frozenset[tuple[EntityType, str]]
+
+
+def _entity_keys(prefs: Preferences) -> list[EntityType]:
+    """The configured cross-source entity types (lenient: unknown names dropped)."""
+    out: list[EntityType] = []
+    for key in prefs.cross_source_correlation.entity_keys:
+        try:
+            out.append(EntityType(str(key)))
+        except ValueError:
+            continue
+    return out
+
+
+def cluster_cross_source_entities(
+    cluster: Cluster, entity_keys: list[EntityType]
+) -> frozenset[tuple[EntityType, str]]:
+    """The set of ``(entity_type, value)`` cross-source keys a cluster exposes.
+
+    The cluster's PRIMARY entity is always included (when it is a cross-source key);
+    additionally, every member event is scanned for the configured keys so a cluster
+    grouped by IP still contributes its file_hash/domain to the cross-source pass."""
+    found: set[tuple[EntityType, str]] = set()
+    if cluster.entity.type in entity_keys and cluster.entity.value:
+        found.add((cluster.entity.type, cluster.entity.value))
+    for ev in cluster.member_events:
+        for et in entity_keys:
+            val = ev.cross_source_value(et)
+            if val:
+                found.add((et, val))
+    return frozenset(found)
+
+
+def cross_source_correlate(
+    items: list[CrossSourceItem], prefs: Preferences
+) -> list[dict]:
+    """Group open cases/clusters that share an entity across >= ``min_sources``
+    DISTINCT sources within the configured window. Returns a list of groups
+    ``{cross_source_cluster_id, entity_type, entity_value, members}`` and MERGES
+    NOTHING — the caller applies the links as RELATED metadata.
+
+    Behaviour:
+      * Disabled (the default) → returns ``[]`` (no-op; single-source path unchanged).
+      * Items are grouped by ``(entity_type, value, time-bucket)``; the bucket is the
+        SAME source-agnostic floor used by :func:`cross_source_signature`, so the
+        group id is stable + idempotent.
+      * A group is emitted ONLY when its members span ``>= min_sources`` distinct
+        ``source_id`` values (so a single source's own clusters never self-link).
+    """
+    cfg = prefs.cross_source_correlation
+    if not cfg.enabled or not items:
+        return []
+    window = max(1, int(cfg.time_window_seconds))
+    min_sources = max(2, int(cfg.min_sources))
+
+    # Bucket key -> {member case ids} and the distinct sources behind them.
+    buckets: dict[tuple[str, str, int], dict[str, object]] = {}
+    window_ms = window * 1000
+    for item in items:
+        bucket = (int(item.ts) // window_ms) if item.ts else 0
+        for (et, value) in item.entities:
+            if not value:
+                continue
+            key = (et.value, value, bucket)
+            slot = buckets.setdefault(
+                key, {"ids": [], "sources": set(), "entity_type": et, "value": value}
+            )
+            if item.id not in slot["ids"]:  # type: ignore[operator]
+                slot["ids"].append(item.id)  # type: ignore[union-attr]
+            slot["sources"].add(item.source_id)  # type: ignore[union-attr]
+
+    groups: list[dict] = []
+    for (_et_value, value, _bucket), slot in sorted(buckets.items()):
+        sources = slot["sources"]  # type: ignore[index]
+        if len(sources) < min_sources:
+            continue
+        et: EntityType = slot["entity_type"]  # type: ignore[assignment]
+        ts_for_sig = _bucket * window_ms
+        xid = cross_source_signature(et, value, ts_for_sig, window)
+        groups.append({
+            "cross_source_cluster_id": xid,
+            "entity_type": et.value,
+            "entity_value": value,
+            "members": sorted(slot["ids"]),  # type: ignore[arg-type]
+        })
+    return groups

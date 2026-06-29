@@ -205,6 +205,14 @@ export interface AuthField {
   help?: string;
   placeholder?: string;
   group?: string;
+  /**
+   * Contextual help (F9). All operator/author-controlled (trusted) but rendered as
+   * plain text / inside a code block, never as markup. `help_link` is a "learn more"
+   * URL; `help_code` is an example snippet shown in `help_code_language`.
+   */
+  help_link?: string;
+  help_code?: string;
+  help_code_language?: string;
 }
 
 export type ConnectorCategory =
@@ -230,6 +238,11 @@ export interface ConnectorManifest {
   config_fields?: AuthField[];
   docs_url?: string | null;
   requires_pip?: string[];
+  /**
+   * A concise "how to add this source" guide (F9), authored per connector. Markdown-
+   * ish plain text (trusted) — rendered as plain text, never as live markup.
+   */
+  setup_help?: string;
 }
 
 export interface ConnectorsResponse {
@@ -264,6 +277,26 @@ export interface ConnectionTest {
 export interface IndexPattern {
   pattern: string;
   role: 'events' | 'alerts' | string;
+  /**
+   * Per-pattern (sub-source) Auto-Correlate toggle (F6). Defaults TRUE so today's
+   * behaviour is byte-identical. When false, clusters touching only this pattern are
+   * NOT auto-forwarded to AI investigation (they still correlate into clusters).
+   */
+  auto_correlate?: boolean;
+}
+
+/**
+ * Per-source field-mapping overrides (F9). Each is the source-native field whose
+ * value maps onto the canonical entity / message / severity / rule column. Blank
+ * falls back to the global `Preferences` mapping.
+ */
+export interface FieldMappingsExtra {
+  source_ip_field?: string;
+  user_field?: string;
+  host_field?: string;
+  message_field?: string;
+  severity_field?: string;
+  rule_field?: string;
 }
 
 /**
@@ -287,6 +320,14 @@ export interface SourceConfigExtras {
   entity_strategy?: EntityStrategy | string;
   /** The field whose value is shown as the human-readable message column. */
   message_field?: string;
+  /**
+   * Per-source Auto-Correlate toggle (F6). Defaults TRUE. When false, this source's
+   * clusters are NOT auto-forwarded to AI investigation (manual triage only) — they
+   * still correlate into clusters.
+   */
+  auto_correlate?: boolean;
+  /** Per-source field-mapping overrides (F9); falls back to global Preferences. */
+  field_mappings_extra?: FieldMappingsExtra;
   [key: string]: unknown;
 }
 
@@ -485,6 +526,19 @@ export interface StandupConfig {
   interval_seconds?: number;
 }
 
+/**
+ * Cross-source correlation (F6) — a GLOBAL, opt-in second pass that groups open
+ * cases/clusters sharing an entity within a window across >= `min_sources` distinct
+ * sources, surfaced as RELATED (never force-merged). Defaults disabled so the
+ * 1:1 cluster→case signature is byte-identical out of the box.
+ */
+export interface CrossSourceCorrelationConfig {
+  enabled?: boolean;
+  time_window_seconds?: number;
+  min_sources?: number;
+  entity_keys?: string[];
+}
+
 export interface FpAutoCloseConfig {
   enabled?: boolean;
   min_confidence?: number;
@@ -532,6 +586,8 @@ export interface Preferences {
   critical_severity?: number;
 
   default_correlation?: CorrelationRule;
+  /** Global, opt-in cross-source correlation (F6; default disabled). */
+  cross_source_correlation?: CrossSourceCorrelationConfig;
   risk_weights?: RiskWeights;
 
   caps?: CapsConfig;
@@ -790,6 +846,15 @@ export interface Case {
   assignee?: string;
   /** Outbound notification send records (F5; additive, optional). */
   notifications_sent?: NotificationSendRecord[];
+  /**
+   * Cross-source linkage (F6). `related_case_ids` are cases grouped with this one by
+   * a shared entity within the cross-source window (RELATED, never merged);
+   * `cross_source_cluster_id` is the stable id of that cross-source group;
+   * `source_breakdown` maps source_id → contributing event/case count. All additive.
+   */
+  related_case_ids?: string[];
+  cross_source_cluster_id?: string;
+  source_breakdown?: Record<string, number>;
   [key: string]: unknown;
 }
 

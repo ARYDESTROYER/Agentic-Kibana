@@ -12,6 +12,7 @@ import * as React from 'react';
 import { HelpCircle } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
+import type { AuthField } from '@/lib/types';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/ui/tooltip';
 import { Popover, PopoverTrigger, PopoverContent } from '@/ui/popover';
 
@@ -89,6 +90,31 @@ export function HelpTip({ text, link, code, label = 'More information', classNam
         ) : null}
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * ConnectorFieldHelp — a (?) affordance for one connector auth/config field,
+ * sourced from the manifest's `help` / `help_link` / `help_code` (F9). Renders
+ * nothing when the field carries no help at all.
+ */
+export function ConnectorFieldHelp({
+  field,
+  className,
+}: {
+  field: Pick<AuthField, 'label' | 'help' | 'help_link' | 'help_code'>;
+  className?: string;
+}) {
+  const text = field.help || '';
+  if (!text && !field.help_link && !field.help_code) return null;
+  return (
+    <HelpTip
+      text={text || `More about ${field.label}.`}
+      link={field.help_link || undefined}
+      code={field.help_code || undefined}
+      label={`Help for ${field.label}`}
+      className={className}
+    />
   );
 }
 

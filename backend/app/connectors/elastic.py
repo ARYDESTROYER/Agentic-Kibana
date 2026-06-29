@@ -92,6 +92,17 @@ class ElasticConnector(PullConnector):
         "message_field", "entity_strategy",
     )
 
+    # Per-source field-mapping override keys (Wave 5 / F9). Operators can pin a
+    # source's schema explicitly under ``config["field_mappings_extra"]`` (a focused,
+    # discoverable subset of the overlay keys — typically suggested by analyze-sample).
+    # These take precedence over the top-level config keys above; both fall back to
+    # the global Preferences when unset.
+    _FIELD_MAPPING_EXTRA_KEYS = (
+        "source_ip_field", "user_field", "host_field",
+        "message_field", "severity_field", "rule_field", "rule_name_field",
+        "time_field",
+    )
+
     def _effective_prefs(self, prefs: Preferences) -> Preferences:
         """Overlay this source's ``config`` field-mapping/scope keys onto ``prefs``.
 
@@ -99,6 +110,9 @@ class ElasticConnector(PullConnector):
         ``prefs`` unchanged — behaviour is byte-identical to before. With a Wazuh /
         non-ECS source it yields a prefs whose field mapping + index pattern match
         that source, so poll/search/normalisation extract the right fields.
+
+        Precedence (highest first): ``config["field_mappings_extra"][k]`` (F9 explicit
+        per-source override) → ``config[k]`` (top-level overlay) → global ``prefs``.
 
         When the source configures multiple ``index_patterns`` (events/alerts roles)
         the effective ``data_view_pattern`` becomes the comma-joined union of ALL
@@ -108,6 +122,13 @@ class ElasticConnector(PullConnector):
             k: self.config[k] for k in self._OVERLAY_KEYS
             if k in self.config and self.config[k] is not None
         }
+        # F9: explicit per-source field-mapping overrides win over the top-level keys.
+        extra = self.config.get("field_mappings_extra")
+        if isinstance(extra, dict):
+            for k in self._FIELD_MAPPING_EXTRA_KEYS:
+                v = extra.get(k)
+                if v is not None and v != "":
+                    overrides[k] = v
         patterns = self._index_patterns()
         if patterns:
             joined = ",".join(p["pattern"] for p in patterns)
@@ -188,6 +209,23 @@ class ElasticConnector(PullConnector):
             ingest_modes=[IngestMode.PULL],
             query_language="kuery",
             capabilities=["poll", "search", "fetch_by_ids", "test", "browse"],
+            docs_url="https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-api-key.html",
+            setup_help=(
+                "## Connect Elasticsearch (read-only)\n"
+                "1. **URL** — the Elasticsearch HTTP API base URL (e.g. "
+                "`https://elasticsearch:9200`). On the deploy network use the container "
+                "name.\n"
+                "2. **Create a READ-ONLY, scoped API key** — never use `kibana_system` "
+                "or the `elastic` superuser (non-negotiable #1). In Kibana Dev Tools run "
+                "the snippet on the API-key field: it grants ONLY `read` on your log "
+                "index pattern.\n"
+                "3. **Index pattern** — set the data view the agent reads (e.g. "
+                "`all-logs-*`). Comma-separated patterns are allowed.\n"
+                "4. **CA cert** — paste the PEM (or a mounted path) if your cluster uses "
+                "a private CA; leave blank for a public CA.\n"
+                "5. **Test connection** — a correctly-scoped read-only key verifies via a "
+                "cheap scoped read (it cannot do cluster monitor — that's expected)."
+            ),
             auth_fields=[
                 AuthField(
                     key="es_url",
@@ -200,6 +238,7 @@ class ElasticConnector(PullConnector):
                         "container name on the deploy network (e.g. "
                         "https://elasticsearch:9200)."
                     ),
+                    help_link="https://www.elastic.co/guide/en/elasticsearch/reference/current/rest-apis.html",
                     group="Connection",
                 ),
                 AuthField(
@@ -212,6 +251,22 @@ class ElasticConnector(PullConnector):
                         "(never kibana_system or the elastic superuser). Stored in "
                         "the secret store; shown only as configured."
                     ),
+                    help_link="https://www.elastic.co/guide/en/elasticsearch/reference/current/security-api-create-api-key.html",
+                    help_code=(
+                        "POST /_security/api_key\n"
+                        "{\n"
+                        '  "name": "tlsoc-readonly",\n'
+                        '  "role_descriptors": {\n'
+                        '    "tlsoc_ro": {\n'
+                        '      "cluster": [],\n'
+                        '      "indices": [\n'
+                        '        { "names": ["all-logs-*"], "privileges": ["read", "view_index_metadata"] }\n'
+                        "      ]\n"
+                        "    }\n"
+                        "  }\n"
+                        "}"
+                    ),
+                    help_code_language="json",
                     group="Connection",
                 ),
                 AuthField(
@@ -250,6 +305,7 @@ class ElasticConnector(PullConnector):
                         "Comma-separated patterns are allowed (e.g. "
                         "'fosstlsoc-logs-*,all-logs-*')."
                     ),
+                    help_link="https://www.elastic.co/guide/en/kibana/current/data-views.html",
                     group="Field mapping",
                 ),
                 AuthField(

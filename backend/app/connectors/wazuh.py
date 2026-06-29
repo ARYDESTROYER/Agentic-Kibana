@@ -43,11 +43,26 @@ class WazuhConnector(ElasticConnector):
             ingest_modes=[IngestMode.PULL],
             query_language="lucene",
             capabilities=["poll", "search", "fetch_by_ids", "test", "browse"],
+            docs_url="https://documentation.wazuh.com/current/user-manual/wazuh-indexer/index.html",
+            setup_help=(
+                "## Connect Wazuh\n"
+                "1. **Indexer URL** — the Wazuh indexer (OpenSearch) HTTP API, e.g. "
+                "`https://wazuh.indexer:9200` (NOT the Wazuh dashboard URL).\n"
+                "2. **Read-only credential** — create an OpenSearch role/user scoped to "
+                "READ on `wazuh-alerts-*` (never an admin/superuser); enter it as the "
+                "API key / token. Wazuh's pipeline is never modified.\n"
+                "3. **Alert index pattern** — defaults to `wazuh-alerts-*`.\n"
+                "4. **CA cert** — Wazuh ships a self-signed CA: paste its PEM (or a "
+                "mounted path) so TLS verification passes.\n"
+                "5. The field mapping below is pre-filled for Wazuh's alert schema "
+                "(`data.srcip`, `agent.name`, `rule.id`, `rule.level`, …)."
+            ),
             auth_fields=[
                 AuthField(
                     key="es_url", label="Wazuh indexer URL", type="string", required=True,
                     placeholder="https://wazuh.indexer:9200",
                     help="Base URL of the Wazuh indexer (OpenSearch) HTTP API.",
+                    help_link="https://documentation.wazuh.com/current/user-manual/wazuh-indexer/index.html",
                     group="Connection",
                 ),
                 AuthField(
@@ -55,6 +70,7 @@ class WazuhConnector(ElasticConnector):
                     secret=True,
                     help=("A read-only credential scoped to wazuh-alerts-*. Stored in "
                           "the secret store; shown only as configured."),
+                    help_link="https://documentation.wazuh.com/current/user-manual/user-administration/index.html",
                     group="Connection",
                 ),
                 AuthField(
