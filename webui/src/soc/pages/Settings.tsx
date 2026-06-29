@@ -2037,6 +2037,39 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     }
   }, [secretDraft]);
 
+  // Filtered, RBAC-aware grouped section list for the rail. A section with a `perm`
+  // is hidden from users without the grant; the search matches name/blurb/keywords.
+  // RULES OF HOOKS: these three hooks MUST run unconditionally — i.e. ABOVE the
+  // `if (loading)` / `if (!prefs)` early returns below. If they sit after a return,
+  // the hook count changes once `loading` flips false on the first data load and React
+  // throws #310 ("Rendered more hooks than during the previous render"). They read only
+  // query/hasPermission/section state (never `prefs`), so hoisting is safe. Do NOT move
+  // them back down, and do not add early returns between hooks.
+  const q = query.trim().toLowerCase();
+  const visibleGroups = React.useMemo(() => {
+    return SECTION_GROUPS.map((g) => ({
+      ...g,
+      sections: g.sections.filter((s) => {
+        if (s.perm && !hasPermission(s.perm.resource, s.perm.action)) return false;
+        if (!q) return true;
+        const hay = [s.name, s.blurb, ...(s.keywords ?? [])].join(' ').toLowerCase();
+        return hay.includes(q);
+      }),
+    })).filter((g) => g.sections.length > 0);
+  }, [q, hasPermission]);
+
+  const flatVisible = React.useMemo(
+    () => visibleGroups.flatMap((g) => g.sections),
+    [visibleGroups],
+  );
+
+  // If a search/RBAC change hides the active section, jump to the first visible one.
+  React.useEffect(() => {
+    if (flatVisible.length && !flatVisible.some((s) => s.id === section)) {
+      setSectionState(flatVisible[0].id);
+    }
+  }, [flatVisible, section]);
+
   /* ------------------------------------------------------------- states ---- */
 
   if (loading) {
@@ -2081,33 +2114,6 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   }
 
   const secProps: SecProps = { prefs, update };
-
-  // Filtered, RBAC-aware grouped section list for the rail. A section with a `perm`
-  // is hidden from users without the grant; the search matches name/blurb/keywords.
-  const q = query.trim().toLowerCase();
-  const visibleGroups = React.useMemo(() => {
-    return SECTION_GROUPS.map((g) => ({
-      ...g,
-      sections: g.sections.filter((s) => {
-        if (s.perm && !hasPermission(s.perm.resource, s.perm.action)) return false;
-        if (!q) return true;
-        const hay = [s.name, s.blurb, ...(s.keywords ?? [])].join(' ').toLowerCase();
-        return hay.includes(q);
-      }),
-    })).filter((g) => g.sections.length > 0);
-  }, [q, hasPermission]);
-
-  const flatVisible = React.useMemo(
-    () => visibleGroups.flatMap((g) => g.sections),
-    [visibleGroups],
-  );
-
-  // If a search/RBAC change hides the active section, jump to the first visible one.
-  React.useEffect(() => {
-    if (flatVisible.length && !flatVisible.some((s) => s.id === section)) {
-      setSectionState(flatVisible[0].id);
-    }
-  }, [flatVisible, section]);
 
   const restricted = (icon: LucideIcon, what: string) => (
     <EmptyState icon={icon} title="Restricted" description={`${what} is managed by administrators.`} />
