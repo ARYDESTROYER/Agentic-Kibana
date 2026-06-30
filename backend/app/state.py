@@ -164,6 +164,15 @@ class AppState:
         # MEMORY store — keyed by user_id, 'default' bucket when auth is off, no new
         # index/table/migration. Merged ORG ← USER by the cascade resolver.
         self.user_prefs = self._build_user_prefs()
+        # Round-3 Wave-1 collaboration / notification / RBAC / pricing / shift-handoff
+        # stores. Each mirrors the user_prefs/memory/sessions template EXACTLY:
+        # backend-agnostic over the SAME shared KV (no new index/table/migration),
+        # read-modify-write, never raises (degrades to a safe default). They hold ONLY
+        # collaboration/notification/observability/pricing data — NONE feeds the
+        # deterministic case_manager.decide() (#3); every free-text field they persist
+        # is PLAIN data the UI render-escapes (#9). Built here (after user_prefs) so a
+        # live handle survives every _wire() rebuild, just like sessions/user_prefs.
+        self._build_wave1_stores()
         # Case-number sequence store (F7) over the SAME shared KV — no new index/table.
         self.case_seq = self._build_case_seq()
         self.rag = self._build_rag()
@@ -350,6 +359,63 @@ class AppState:
         from .stores.user_prefs import UserPrefsStore
 
         return UserPrefsStore(self._kv)
+
+    def _build_wave1_stores(self) -> None:
+        """Construct the 8 Round-3 Wave-1 KV-backed stores over the active backend's KV
+        (the SAME shared ``self._kv`` the MEMORY/USER/USER-PREFS stores use — works on
+        ES + SQL, no new index/table/migration). Each takes only ``self._kv`` so it
+        survives every ``_wire()`` rebuild. Called from ``_wire()`` after user_prefs.
+
+        Keying contract for the route layer:
+          * case_threads / case_activity / case_tasks — keyed by ``case.case_id``.
+          * inbox / notif_prefs — keyed by user_id (None → the shared 'default'
+            bucket via the bundled ``normalize_user_id`` when auth is off).
+          * custom_roles / price_overlay — ORG-scoped (single 'default' bucket).
+        None of these influences the close/escalate decision (#3); every free-text
+        field they persist is PLAIN data the UI render-escapes (#9)."""
+        from .stores.case_activity import CaseActivityStore
+        from .stores.case_tasks import CaseTaskStore
+        from .stores.case_thread import CaseThreadStore
+        from .stores.custom_roles import CustomRoleStore
+        from .stores.inbox import InboxStore
+        from .stores.notif_prefs import NotificationPrefsStore
+        from .stores.price_overlay import PriceOverlayStore
+        from .stores.shift_handoff import ShiftHandoffStore
+
+        kv = self._kv
+        # Collaboration (#4 collaboration surface beside the authoritative audit trail).
+        self.case_threads = CaseThreadStore(kv)
+        self.case_activity = CaseActivityStore(kv)
+        self.case_tasks = CaseTaskStore(kv)
+        # In-app notification fan-out + per-user delivery prefs (#8).
+        self.inbox = InboxStore(kv)
+        self.notif_prefs = NotificationPrefsStore(kv)
+        # Operator-defined RBAC roles (org-scoped); folded into effective_matrix().
+        self.custom_roles = CustomRoleStore(kv)
+        # Advisory price overlay for the LLM cost LEDGER (#6) — never alters routing.
+        self.price_overlay = PriceOverlayStore(kv)
+        # Shift-handoff action items + acknowledgements (org-scoped).
+        self.shift_handoff = ShiftHandoffStore(kv)
+
+    @property
+    def enrichment_registry(self):
+        """The process-wide :class:`app.enrichment.registry.ProviderRegistry`
+        singleton (lazy; static manifests, per-request instances). Exposed read-only
+        for symmetry so routes can reach it via ``state.enrichment_registry`` without
+        constructing or holding anything — it needs no secrets at construction."""
+        from .enrichment import get_provider_registry
+
+        return get_provider_registry()
+
+    @property
+    def event_bus(self):
+        """The process-wide :class:`app.realtime.EventBus` singleton (in-process SSE
+        transport). Survives ``_wire()`` rebuilds (module-global). Safe to publish to
+        even when ``Preferences.realtime.enabled`` is False / there are no subscribers
+        — the route gates serving with 204. Pure transport: #3 untouched, #6 N/A."""
+        from .realtime import get_event_bus
+
+        return get_event_bus()
 
     def _build_users(self):
         """Construct the multi-USER store over the active backend's KV (the same KV
@@ -635,6 +701,16 @@ class AppState:
         # Reload playbooks now that prefs (incl. any dir override) are available.
         self.playbooks = self._build_playbooks()
         self._real_pipeline._playbooks = self.playbooks
+        # Round-3 Wave-1: apply the operator's realtime heartbeat cadence onto the
+        # process-wide EventBus singleton (idempotent, tolerates None). The bus is a
+        # default-OFF transport — publishing is always safe; the /api/events endpoint
+        # gates serving on Preferences.realtime.enabled. Never blocks startup.
+        try:
+            from .realtime import configure_event_bus
+
+            configure_event_bus(getattr(self.prefs, "realtime", None))
+        except Exception as exc:  # noqa: BLE001 — realtime config is best-effort
+            logger.warning("Realtime bus configuration failed (%s); continuing", exc)
         # Demo Mode (Wave 5): if a demo run was persisted as active, rebuild the
         # throwaway stack + re-seed so the read endpoints have a demo store to serve
         # (demo data is in-memory; the FLAG persists across restarts — re-seeding
@@ -741,6 +817,14 @@ class AppState:
             self.auth.set_mfa_enforce_roles(
                 list(getattr(getattr(prefs, "mfa", None), "enforce_for_roles", []) or [])
             )
+        except Exception:  # noqa: BLE001
+            pass
+        # Keep the realtime EventBus heartbeat cadence live after a settings change
+        # (Round-3 Wave-1). Idempotent + best-effort; never blocks a prefs write.
+        try:
+            from .realtime import configure_event_bus
+
+            configure_event_bus(getattr(prefs, "realtime", None))
         except Exception:  # noqa: BLE001
             pass
         return prefs

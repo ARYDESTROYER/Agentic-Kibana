@@ -1,13 +1,26 @@
-"""IP enrichment tool (Section 6.5 / Non-negotiable #8).
+"""IP / indicator enrichment tool (Section 6.5 / Non-negotiable #8).
 
-Resolves an IP's reputation against external threat-intel providers (AbuseIPDB,
-VirusTotal) with a Redis-backed cache in front to protect both cost and tight
-free-tier API limits. Enrichment NEVER breaks an investigation: every provider
-or network failure is caught, logged and turned into a best-effort, neutral
-result, so a flaky third party can degrade the signal but never crash the engine.
+Resolves an indicator's reputation against external threat-intel providers with a
+Redis-backed cache in front to protect both cost and tight free-tier API limits.
+Enrichment NEVER breaks an investigation: every provider or network failure is
+caught, logged and turned into a best-effort, neutral result, so a flaky third party
+can degrade the signal but never crash the engine.
 
-The reusable core is ``enrich_ip`` — the deterministic risk scorer calls it
-directly; ``run`` is the thin MCP-shaped wrapper around it.
+Round 3 — multi-provider SPI. The actual provider calls now go through the
+:mod:`app.enrichment` SPI (registry → dispatch → providers), so adding a provider is
+a drop-in under ``app/enrichment/providers/`` with NO change here. This tool stays a
+THIN compatibility facade:
+
+  * :meth:`EnrichTool.enrich_ip` returns the SAME :class:`app.models.EnrichmentResult`
+    shape the deterministic risk scorer + the threat-context panel already consume
+    (``sources`` dict, ``reputation_score`` = legacy ``max(score)``, the ``enrich:<ip>``
+    cache key) — byte-compatible, so ``engine/risk.py`` + ``engine/threat_context.py``
+    + the existing tests are UNCHANGED.
+  * :meth:`EnrichTool.enrich_indicator` is the new multi-indicator entry returning the
+    raw :class:`app.models.ProviderResult` list (Wave 2 wires it into threat_context
+    for non-IP indicators).
+
+``run`` is the thin MCP-shaped wrapper around ``enrich_ip``.
 """
 
 from __future__ import annotations
@@ -16,18 +29,15 @@ import ipaddress
 import logging
 from typing import Any
 
-import httpx
-
 from ..cache import Cache
 from ..config import Preferences, Secrets
-from ..models import EnrichmentResult
+from ..constants import IndicatorKind
+from ..enrichment import enrich_indicator as _dispatch_enrich
+from ..enrichment.aggregate import fuse
+from ..models import EnrichmentResult, ProviderResult
 from .base import Tool, ToolResult
 
 logger = logging.getLogger("tlsoc.tools.enrich")
-
-_TIMEOUT = 8.0
-_ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
-_VIRUSTOTAL_URL = "https://www.virustotal.com/api/v3/ip_addresses"
 
 
 class EnrichTool(Tool):
@@ -54,7 +64,10 @@ class EnrichTool(Tool):
 
     # ----- reusable core (the risk scorer calls this directly) -----
     async def enrich_ip(self, ip: str) -> EnrichmentResult:
-        """Resolve reputation for ``ip``. Never raises — always returns a result."""
+        """Resolve reputation for ``ip``. Never raises — always returns a result.
+
+        Delegates provider calls to the enrichment SPI but keeps the LEGACY
+        ``EnrichmentResult`` shape + ``enrich:<ip>`` cache so callers are unchanged."""
         cfg = self._prefs.enrichment
 
         # 1) Validate / skip private, loopback, reserved or invalid addresses.
@@ -75,7 +88,7 @@ class EnrichTool(Tool):
                 sources={"note": "disabled"},
             )
 
-        # 3) Cache hit returns the stored result flagged as cached.
+        # 3) Cache hit returns the stored result flagged as cached (LEGACY key).
         cache_key = f"enrich:{ip}"
         try:
             cached = await self._cache.get_json(cache_key)
@@ -87,35 +100,62 @@ class EnrichTool(Tool):
             result.cached = True
             return result
 
-        # 4) Query the enabled providers; best-effort, never raises.
+        # 4) Query the enabled IP providers via the SPI; best-effort, never raises.
+        #    NOTE: we pass cache=None to the dispatcher so the per-provider v2 cache
+        #    does not double-cache; the legacy result-level cache below is authoritative
+        #    for enrich_ip's exact prior behaviour (test_second_call_is_cached).
+        provider_results = await _dispatch_enrich(
+            ip, IndicatorKind.IP, cfg, self._secrets, cache=None
+        )
+        result = self._to_enrichment_result(ip, provider_results, cfg)
+
+        # 5) Cache only successful (non-error) results (LEGACY behaviour).
+        if result.error is None:
+            try:
+                await self._cache.set_json(
+                    cache_key, result.model_dump(mode="json"), cfg.cache_ttl_seconds
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("enrich cache write failed for %s: %s", ip, exc)
+
+        return result
+
+    # ----- new multi-indicator entry (Wave 2 wires it into threat_context) -----
+    async def enrich_indicator(self, value: str, kind: IndicatorKind) -> list[ProviderResult]:
+        """Enrich ANY indicator kind, returning the raw per-provider results.
+
+        Uses the shared Redis cache (the per-provider v2 cache). Never raises."""
+        return await _dispatch_enrich(
+            value, kind, self._prefs.enrichment, self._secrets, cache=self._cache
+        )
+
+    # ----- legacy-shape assembly (max(score), sources dict, country) -----
+    def _to_enrichment_result(
+        self, ip: str, results: list[ProviderResult], cfg: Any
+    ) -> EnrichmentResult:
+        """Collapse provider results into the LEGACY ``EnrichmentResult`` shape.
+
+        ``reputation_score`` uses :func:`app.enrichment.aggregate.fuse` whose default
+        is byte-identical ``max(score)`` (#3); the ``sources`` dict + per-provider
+        error keys + the ``use_geoip``-gated country reproduce the legacy field names
+        exactly so ``risk.py``/``threat_context.py``/the tests are unchanged."""
         sources: dict[str, Any] = {}
         country: str | None = None
-        scores: list[float] = []
         error: str | None = None
+        for r in results:
+            if r.score is not None:
+                sources[r.provider] = r.score
+            if r.error:
+                sources[f"{r.provider}_error"] = r.error
+                error = r.error
+            if cfg.use_geoip and country is None:
+                c = (r.raw or {}).get("country") or (r.raw or {}).get("countryCode")
+                if c:
+                    country = str(c)
 
-        abuse_score, abuse_country, abuse_err = await self._query_abuseipdb(ip, cfg)
-        if abuse_score is not None:
-            sources["abuseipdb"] = abuse_score
-            scores.append(abuse_score)
-        if abuse_country and cfg.use_geoip:
-            country = abuse_country
-        if abuse_err:
-            sources["abuseipdb_error"] = abuse_err
-            error = abuse_err
-
-        vt_score, vt_country, vt_err = await self._query_virustotal(ip, cfg)
-        if vt_score is not None:
-            sources["virustotal"] = vt_score
-            scores.append(vt_score)
-        if vt_country and cfg.use_geoip and country is None:
-            country = vt_country
-        if vt_err:
-            sources["virustotal_error"] = vt_err
-            error = vt_err
-
-        reputation_score = max(scores) if scores else 0.0
-        reputation_score = max(0.0, min(100.0, reputation_score))
-        result = EnrichmentResult(
+        fused = fuse(results, cfg)
+        reputation_score = max(0.0, min(100.0, float(fused.reputation_score)))
+        return EnrichmentResult(
             ip=ip,
             reputation_score=reputation_score,
             is_malicious=reputation_score >= 50,
@@ -123,15 +163,6 @@ class EnrichTool(Tool):
             sources=sources,
             error=error,
         )
-
-        # 5) Cache only successful (non-error) results.
-        if error is None:
-            try:
-                await self._cache.set_json(cache_key, result.model_dump(mode="json"), cfg.cache_ttl_seconds)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("enrich cache write failed for %s: %s", ip, exc)
-
-        return result
 
     # ----- MCP-shaped wrapper -----
     async def run(self, ip: str = "", **kwargs: Any) -> ToolResult:
@@ -149,53 +180,6 @@ class EnrichTool(Tool):
             error=result.error,
             meta={"ip": result.ip, "cached": result.cached},
         )
-
-    # ----- providers (each fully isolated; returns (score, country, error)) -----
-    async def _query_abuseipdb(
-        self, ip: str, cfg: Any
-    ) -> tuple[float | None, str | None, str | None]:
-        key = self._secrets.abuseipdb_api_key
-        if not (cfg.use_abuseipdb and key):
-            return None, None, None
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(
-                    _ABUSEIPDB_URL,
-                    params={"ipAddress": ip, "maxAgeInDays": 90},
-                    headers={"Key": key, "Accept": "application/json"},
-                )
-                resp.raise_for_status()
-                data = resp.json().get("data", {}) or {}
-            confidence = float(data.get("abuseConfidenceScore", 0) or 0)
-            country = data.get("countryCode") or None
-            return confidence, country, None
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("AbuseIPDB lookup failed for %s: %s", ip, exc)
-            return None, None, f"abuseipdb: {exc}"
-
-    async def _query_virustotal(
-        self, ip: str, cfg: Any
-    ) -> tuple[float | None, str | None, str | None]:
-        key = self._secrets.virustotal_api_key
-        if not (cfg.use_virustotal and key):
-            return None, None, None
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await client.get(
-                    f"{_VIRUSTOTAL_URL}/{ip}",
-                    headers={"x-apikey": key, "Accept": "application/json"},
-                )
-                resp.raise_for_status()
-                attributes = (resp.json().get("data", {}) or {}).get("attributes", {}) or {}
-            stats = attributes.get("last_analysis_stats", {}) or {}
-            malicious = float(stats.get("malicious", 0) or 0)
-            total = float(sum(float(v or 0) for v in stats.values())) if stats else 0.0
-            ratio = (malicious / total * 100.0) if total > 0 else 0.0
-            country = attributes.get("country") or None
-            return ratio, country, None
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("VirusTotal lookup failed for %s: %s", ip, exc)
-            return None, None, f"virustotal: {exc}"
 
 
 def _is_public_ip(ip: str) -> bool:

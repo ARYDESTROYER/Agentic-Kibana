@@ -250,6 +250,52 @@ def _rbac_enabled(state: AppState) -> bool:
     return bool(getattr(rbac, "enabled", False))
 
 
+async def _rbac_config_with_custom_roles(state: AppState):
+    """Build the RBAC config handed to ``rbac.policy.can()`` for THIS request, folding
+    the admin-managed out-of-band custom roles from the :class:`CustomRoleStore`
+    (Round-3 Wave-1) INTO the live ``Preferences.rbac`` so a stored custom role is
+    actually resolved into the effective matrix.
+
+    The store-held roles are UNIONed with any ``Preferences.rbac.custom_roles`` already
+    on the config, de-duplicated by (lowercased) name with the PREFS copy winning a
+    collision. ``effective_matrix`` itself drops any custom role whose name shadows a
+    built-in role, so the merge stays lockout-proof. Best-effort: a store glitch (or a
+    missing store) degrades to the plain ``Preferences.rbac`` — RBAC keeps working off
+    the built-in matrix + prefs overrides, never hard-failing the request."""
+    rbac = getattr(state.prefs, "rbac", None)
+    store = getattr(state, "custom_roles", None)
+    if rbac is None or store is None:
+        return rbac
+    try:
+        stored = await store.list()
+    except Exception as exc:  # noqa: BLE001 — a store glitch must not break authz
+        import logging
+
+        logging.getLogger("tlsoc.api.deps").warning("custom-role load soft-failed: %s", exc)
+        return rbac
+    if not stored:
+        return rbac
+    try:
+        existing = list(getattr(rbac, "custom_roles", []) or [])
+        seen = {
+            str((r.get("name") if isinstance(r, dict) else getattr(r, "name", "")) or "").strip().lower()
+            for r in existing
+        }
+        merged = list(existing)
+        for cr in stored:
+            row = cr.model_dump(mode="json") if hasattr(cr, "model_dump") else dict(cr)
+            name_key = str(row.get("name", "") or "").strip().lower()
+            if name_key and name_key not in seen:
+                merged.append(row)
+                seen.add(name_key)
+        return rbac.model_copy(update={"custom_roles": merged})
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("tlsoc.api.deps").warning("custom-role merge soft-failed: %s", exc)
+        return rbac
+
+
 async def _enforce(request: Request, resource: str, action: str):
     """Shared RBAC enforcement core. Three modes (see rbac/policy.py):
 
@@ -269,7 +315,8 @@ async def _enforce(request: Request, resource: str, action: str):
     from ..rbac.policy import can
 
     role = getattr(user, "role", "") or ""
-    if can(role, resource, action, getattr(state.prefs, "rbac", None)):
+    rbac_config = await _rbac_config_with_custom_roles(state)
+    if can(role, resource, action, rbac_config):
         return user
     # Append-only audit of the denial (#2) — best-effort, never blocks the 403.
     try:

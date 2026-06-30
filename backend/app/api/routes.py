@@ -82,6 +82,76 @@ async def health(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
+# Realtime — multiplexed in-process Server-Sent-Events stream (Round-3 Wave-1).
+# A SINGLE long-lived GET that the webui subscribes to for push updates (case
+# activity, in-app notifications, agent steps) instead of polling. Default-OFF: when
+# Preferences.realtime.enabled is False the endpoint returns 204 so clients fall back
+# to polling. Pure transport — it never feeds case_manager.decide() (#3); payloads are
+# encoded verbatim by the bus (the PRODUCER fences/escapes #9 at its own boundary).
+# --------------------------------------------------------------------------- #
+# Topics the UI may subscribe to. A single case-detail view may also request
+# 'cases:{case_id}' (exact-match topic) — allowed via the prefix below.
+_REALTIME_TOPICS = frozenset({"notifications", "cases", "agent"})
+
+
+@router.get("/events")
+async def realtime_events(
+    request: Request,
+    topics: str = "notifications,cases,agent",
+    lastEventId: str | None = None,
+    state: AppState = Depends(get_state),
+):
+    """Subscribe to the in-process EventBus over SSE (``text/event-stream``).
+
+    Cookie-authenticated (auto-gated by the router-level ``require_auth`` — an
+    ``EventSource`` cannot send an Authorization header, so cookie auth is the only
+    option). The authenticated principal scopes per-user audience filtering so a
+    subscriber never sees another user's targeted events; an anonymous request (auth
+    off) sees broadcasts only. ``Last-Event-ID`` (set automatically by EventSource on
+    reconnect, or the ``?lastEventId=`` query param) replays missed frames from the
+    bounded per-topic history.
+
+    Default-OFF: returns ``204`` when ``Preferences.realtime.enabled`` is False so the
+    client transparently falls back to polling. Disconnect/cancel is handled by the
+    bus generator's ``finally`` (it unregisters the subscriber)."""
+    from fastapi.responses import StreamingResponse
+
+    from ..realtime import get_event_bus
+
+    realtime = getattr(state.prefs, "realtime", None)
+    if not bool(getattr(realtime, "enabled", False)):
+        # Realtime is disabled — tell the client to fall back to polling.
+        return Response(status_code=204)
+
+    # Restrict to the allowlisted topics (plus an exact single-case topic
+    # 'cases:{case_id}' for a case-detail view). An unknown topic is dropped.
+    requested = [t.strip() for t in (topics or "").split(",") if t.strip()]
+    allowed = [
+        t for t in requested
+        if t in _REALTIME_TOPICS or (t.startswith("cases:") and len(t) > len("cases:"))
+    ]
+    if not allowed:
+        allowed = list(_REALTIME_TOPICS)
+
+    user = current_user(request)
+    username = getattr(user, "username", None) if user is not None else None
+    # EventSource auto-sets Last-Event-ID on reconnect; honor the query param too.
+    last_id = request.headers.get("last-event-id") or lastEventId
+
+    bus = get_event_bus()
+    stream = bus.subscribe(allowed, username, last_event_id=last_id)
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Setup wizard
 # --------------------------------------------------------------------------- #
 class SecretsUpdate(BaseModel):
@@ -2667,14 +2737,19 @@ async def set_sso_provider_secret(
 @router.get("/roles")
 async def list_roles(state: AppState = Depends(get_state)) -> dict[str, Any]:
     """The role -> resource -> [actions] matrix (default merged with any operator
-    override) for the webui's permission checks + the RBAC settings view."""
+    override + the admin-managed custom roles) for the webui's permission checks + the
+    RBAC settings view. Folds the out-of-band :class:`CustomRoleStore` roles into the
+    surfaced matrix so a stored custom role appears alongside the built-ins."""
     from ..rbac.policy import resolve_matrix
 
-    rbac = getattr(state.prefs, "rbac", None)
+    from .deps import _rbac_config_with_custom_roles
+
+    rbac = await _rbac_config_with_custom_roles(state)
+    base = getattr(state.prefs, "rbac", None)
     return {
         "roles": [r.value for r in UserRole],
-        "default_role": getattr(rbac, "default_role", UserRole.ANALYST_TIER1.value),
-        "rbac_enabled": bool(getattr(rbac, "enabled", False)),
+        "default_role": getattr(base, "default_role", UserRole.ANALYST_TIER1.value),
+        "rbac_enabled": bool(getattr(base, "enabled", False)),
         "matrix": resolve_matrix(rbac),
     }
 
@@ -4280,10 +4355,10 @@ def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
 # --------------------------------------------------------------------------- #
 @router.get("/notifications/providers")
 async def notification_providers(
-    _=Depends(require_permission("settings", "read")),
+    _=Depends(require_permission("notifications", "read")),
 ) -> dict[str, Any]:
     """The email provider presets + the available channel types + the built-in
-    template ids (for the Settings notification editor). No secrets; settings:read.
+    template ids (for the Settings notification editor). No secrets; notifications:read.
     ``resend`` + ``ses`` (SMTP preset) both appear in the surfaced lists."""
     from ..notifications.channel import channel_types, ensure_registered
     from ..notifications.email import preset_list
@@ -4309,10 +4384,10 @@ async def notification_preview(
     trigger: str = "case_created",
     body: NotificationPreviewBody | None = None,
     state: AppState = Depends(get_state),
-    _=Depends(require_permission("settings", "manage")),
+    _=Depends(require_permission("notifications", "manage")),
 ) -> dict[str, Any]:
     """Server-side render of a SAMPLE case for ``trigger`` → ``{subject, html, text}``
-    (settings:manage). The escaping/fencing is AUTHORITATIVE here — the UI shows
+    (notifications:manage). The escaping/fencing is AUTHORITATIVE here — the UI shows
     exactly what would ship. An optional unsaved per-trigger override in the body is
     layered on top of the live operator templates so the editor can preview edits.
     No real case data, no real send, never leaks a secret."""
@@ -4355,9 +4430,9 @@ class NotificationTestBody(BaseModel):
 async def notification_test(
     body: NotificationTestBody,
     state: AppState = Depends(get_state),
-    _=Depends(require_permission("settings", "manage")),
+    _=Depends(require_permission("notifications", "manage")),
 ) -> dict[str, Any]:
-    """Send a SAMPLE notification to one configured channel (settings:manage). The
+    """Send a SAMPLE notification to one configured channel (notifications:manage). The
     returned detail never leaks a secret."""
     # Demo Mode (Wave 5): a real outbound send is refused while demo is engaged — the
     # showcase must never deliver a real notification. (Demo cases already carry
@@ -4379,9 +4454,9 @@ async def set_notification_channel_secret(
     body: NotificationChannelSecretBody,
     request: Request,
     state: AppState = Depends(get_state),
-    _=Depends(require_permission("settings", "manage")),
+    _=Depends(require_permission("notifications", "manage")),
 ) -> dict[str, Any]:
-    """Set/clear one notification channel's secret field (settings:manage). The value
+    """Set/clear one notification channel's secret field (notifications:manage). The value
     goes to the SECRET tier (in memory), NEVER to Preferences; only a configured-
     boolean is returned. Also stamps the channel's ``configured_secrets`` (names only)."""
     state.secrets.set_notification_secret(channel_id, body.field or "secret", body.value)
