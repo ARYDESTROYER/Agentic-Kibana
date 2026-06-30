@@ -526,7 +526,42 @@ TLSOC_MFA_OBFUSCATION_KEY=$(openssl rand -hex 32)
 > `SECURITY.md`). Treat the obfuscation key (or the JWT secret it derives from) as
 > sensitive.
 
-### 9.3 SSO (OIDC — Google / Microsoft / generic)
+### 9.4 Session & token policy (revocation, idle / absolute lifetime, step-up)
+
+With auth enabled, the stdlib HS256 JWT is the short-lived **access token**; every
+login also registers a **session** (a `sid` + per-user `token_version` claim) in a
+backend-agnostic `SessionStore` (persisted in the state backend, so sessions survive
+a backend restart **as long as `TLSOC_AUTH_JWT_SECRET` is stable**). This is what
+makes a session **revocable** — a valid-looking JWT is rejected once its `sid` is
+revoked or the user's `token_version` is bumped. See `SECURITY.md` for the model.
+
+The lifetimes are a UI-editable tuning block (**Settings → Organization → Security &
+SSO → token policy**), also settable on Preferences. Defaults are **deliberately
+generous** so an existing auth-on deployment never expires mid-session:
+
+| Knob (Preferences `session_policy.*`) | Default | Meaning |
+|---|---|---|
+| `access_ttl` | `3600` (1h) | Access-token lifetime; a refresh rotates within this window. |
+| `idle_timeout` | `43200` (12h) | Reject a session idle longer than this (`now > last_active + idle_timeout`). |
+| `absolute_lifetime` | `2592000` (30d) | Reject a session older than this regardless of activity. |
+| `refresh_ttl` | `2592000` (30d) | Refresh-token lifetime. |
+| `sudo_reauth_window` | `600` (10m) | How recently the user must have re-authenticated for a step-up-gated action (`require_fresh_auth`). |
+| `notify_on_new_device` / `notify_on_terminate` | `false` | Best-effort operator notification on a first-seen device / a termination. |
+
+These are tuned in the UI, not `.env` (they carry no secret). Endpoints:
+`POST /api/auth/refresh` (rotate + **reuse detection** — see `SECURITY.md`),
+`POST /api/auth/reauth` (step-up), `GET /api/sessions` + `POST
+/api/sessions/{sid}/revoke` + `POST /api/sessions/revoke-others` (own devices), and
+the admin console `GET /api/admin/sessions` + `POST /api/admin/sessions/{sid}/revoke`
++ `POST /api/admin/users/{username}/revoke-all`. Users manage their own signed-in
+devices in **Settings → Account → Security / Sessions**.
+
+> **Keep `TLSOC_AUTH_JWT_SECRET` stable.** It signs the access token AND is the
+> default derivation source for the MFA obfuscation key. If it is unset/ephemeral,
+> every restart invalidates all tokens (the persisted session rows still load, but
+> their JWTs no longer verify).
+
+### 9.5 SSO (OIDC — Google / Microsoft / generic)
 
 Configure providers in **Settings → Security → SSO** (issuer, client id, the
 group→role mapping). The **client secret** stays in the SECRET tier — set it via
@@ -572,11 +607,37 @@ Notifications are **default OFF** and configured per-channel in **Settings →
 Notifications**. Channels fire **fire-and-forget after** a case is saved, with
 **per-condition triggers** and **dedup / rate-limit / digest** controls.
 
-- **Email** is stdlib **SMTP** with **13 provider presets** (Gmail/Workspace,
-  Microsoft 365/Outlook, SES, SendGrid, Mailgun, Postmark, …). Pick a preset, set
+- **Email (SMTP)** is stdlib SMTP with provider presets (Gmail/Workspace,
+  Microsoft 365/Outlook, **SES**, SendGrid, Mailgun, Postmark, …). Pick a preset, set
   the from/to addresses, and put the **SMTP password** in the SECRET tier.
+- **Amazon SES** — pick the `ses` preset and set `config.region` (host is
+  `email-smtp.{region}.amazonaws.com:587`, STARTTLS). Supply **either** a pre-made
+  SES SMTP username (secret = the SMTP password) **or** `config.aws_access_key_id`
+  as the username with the IAM **secret** access key as the channel secret — the
+  suite derives the SES SMTP password from the IAM key via a stdlib HMAC ladder (no
+  boto3, no console step).
+- **Email (Resend)** is a separate channel `type: resend` over Resend's HTTPS API
+  (`POST https://api.resend.com/emails`). The channel secret is the **Resend API
+  key** (`Authorization: Bearer`); a deterministic `Idempotency-Key`
+  (`case-notify/{case_id}/{trigger}`) de-dupes retries. Set the from/to addresses in
+  config and the API key in the SECRET tier. (Resend retries only on 429/5xx, never
+  on a 4xx config/quota error.)
 - **Slack / Teams / webhook** use an incoming-webhook URL; **PagerDuty** uses a
   routing/integration key; **Telegram** a bot token + chat id.
+
+**Email templates.** The 5 built-in templates (`case.new`, `case.escalation`,
+`case.resolved`, `digest.daily`, `test`) are operator-overridable (**Settings →
+Notifications → template editor**). They render through a tiny stdlib
+mustache-subset engine with **mandatory HTML-escaping** of every interpolated
+variable and **header-injection-safe** Subject/headers — see `SECURITY.md`.
+Preview a rendered template server-side (escaping is authoritative) with
+`POST /api/notifications/preview?trigger=<trigger>` before wiring it.
+
+> **Verify the sending domain first.** For both SES and Resend, the From domain must
+> be DNS-verified at the provider (SPF/DKIM, and DMARC if you enforce it) before
+> mail will deliver. New SES accounts are also **sandboxed** (recipients must be
+> verified, low send quota) until you request production access. Use the channel's
+> **Send test** to confirm the domain is live before enabling triggers.
 
 The channel **secret** (SMTP password / webhook URL / API token) lives in the
 SECRET tier — never the config store. Set it via the UI, or:
@@ -603,6 +664,22 @@ For a presenter-ready, copy-pasteable walkthrough that brings the suite up
 ./scripts/run-demo.sh        # backend :8088 (auth on) + web UI :5173
 # then open http://localhost:5173 and log in as  Admin / Admin@123
 ```
+
+### 11.1 In-app Demo Mode (synthetic data, reversible, isolated)
+
+Separate from the local demo *script* above, any running deployment has an in-app
+**Demo Mode** — a reversible tenant state (`off` | `seeded` | `live`) that fills the
+console with realistic synthetic cases (a benign baseline + MITRE ATT&CK
+storylines) so you can show every surface without touching a real source. It is
+**admin-gated** and **fully isolated**: synthetic events flow through the real
+pipeline but all writes land in a **separate throwaway in-memory store** under a
+`run_id`, the LLM is a deterministic `$0` mock (cost tiles show "(simulated)"), and
+a write-guard prevents demo data from ever reaching the real state store. Enable /
+reset / disable it from **Settings → Experimental** or via `POST /api/demo/enable`,
+`POST /api/demo/reset`, `POST /api/demo/disable` (hard-deletes all demo data by
+`run_id`), `GET /api/demo/status`. The real durable polling cursor (#4) is untouched
+throughout, and disabling Demo Mode is a single reversible flip. See `SECURITY.md`
+for the isolation guarantees.
 
 ---
 

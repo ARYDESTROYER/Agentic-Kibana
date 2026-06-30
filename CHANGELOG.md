@@ -7,6 +7,126 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-30 — Round 2: account/sessions, Settings IA, Demo Mode, per-feed sources, email + customization
+
+A second multi-wave round focused on operator experience: a redesigned login + account
+self-service, real sessions with an access policy, a Settings-centric information
+architecture, a reversible/isolated Demo Mode, per-feed source configuration, Resend +
+SES email channels with customizable templates, pervasive per-user customization, and a
+command palette + global search + bulk actions + audit viewer. Every wave was
+**additive** with **zero new runtime dependencies** (sessions/JWT, the template renderer,
+the SES SMTP-credential derivation, and the per-user prefs store are all Python standard
+library; the webui composes the existing vendored shadcn + Tailwind). The backend offline
+suite grew **649 → 772 tests green**; the webui `tsc + vite build` is GREEN with the
+dev-only Vitest harness expanded to **86 tests**. The non-negotiables hold throughout —
+in particular **`case_manager.decide()` is byte-identical** (CI-verified): Demo Mode runs
+FP through the real `decide()` against a *sandboxed* policy copy (live policy untouched)
+and keeps NEEDS_HUMAN open; bulk actions run the analyst human-action path, never an
+auto-close; templates/terminology only ever RECOMMEND/relabel and all untrusted text stays
+fenced (#9). Developed on the `Testing` branch (commits `6adf195`…`5869f13`).
+
+### Added — Wave 1: critical bug fixes
+- Webui/presentational fixes (RiskGauge, MFA QR + copy, a duplicate close `X`, chat
+  framing, store-degraded UX) plus an optional additive `/api/health.persistent` signal.
+  No data-model changes.
+
+### Added — Wave 2: login redesign + account self-service
+- **Two-column login** (brand hero + form) restyling the existing 4-mode `Login.tsx`
+  with no change to any submit handler or the mode state machine; per-provider SSO brand
+  icons, a segmented MFA OTP, and a client-only password-strength meter (no new dep).
+- **Self-service profile** — additive defaulted `User` fields (`display_name` / `alias` /
+  `avatar` / `alt_email` / `timezone` / `locale` / `prefs`; old KV docs load unchanged,
+  no migration) projected through `User.public()` (secrets stay excluded). Routes:
+  `GET/PUT /api/account/me` (env-managed single-admin is read-only → 400) and
+  `PUT /api/me/avatar`. The avatar validator allows only small `data:image/(png|webp|jpeg)`
+  (rejects SVG/oversize/malformed), magic-byte sniffed and capped.
+
+### Added — Wave 3: sessions & access policy
+- **SessionStore** (`stores/sessions.py`, over the existing KV layer; EsKVStore /
+  SqlKVStore adapters; persisted so it survives `_wire()` rebuilds and an ephemeral JWT
+  secret). Access tokens now carry a `sid` (128-bit) + `tv` (token_version) claim, minted
+  at all session-create sites (login / mfa-verify / sso-callback).
+- **Enforcement in `require_auth`** (async — not in the sync hot-path `verify()`): reject
+  missing / revoked / `tv`-mismatch / past-absolute / past-idle, lazily bumping
+  `last_active`; failures return `401 {code: session_invalid|session_expired|reauth_required}`.
+  `require_fresh_auth(window)` is a step-up gate. The no-auth no-op path is preserved.
+- **Refresh rotation + reuse detection** — a replay of the previous refresh hash is treated
+  as theft (revoke + bump `tv` + audit + notify). Routes: `POST /api/auth/refresh`,
+  `POST /api/auth/reauth`; own-session `GET /api/sessions`,
+  `POST /api/sessions/{sid}/revoke`, `POST /api/sessions/revoke-others`; admin
+  `GET /api/admin/sessions`, `POST /api/admin/sessions/{sid}/revoke`. A UI-editable token
+  policy (access TTL / idle / absolute / refresh TTL / sudo window + notify toggles) on
+  Preferences. Every create/revoke is audited (#2).
+
+### Added / Changed — Wave 4: Settings-centric IA consolidation
+- **Two-scope Settings** (Personal Account / Organization) in one left rail with grouped
+  headers; Users / Security / SSO and the W2 profile / W3 sessions pages move into Settings
+  sub-sections, with RBAC hiding sections the role can't see (allow-all when auth/rbac off).
+  No new endpoints — Settings round-trips via the existing `/api/settings`, `/api/branding`,
+  `/api/roles` + the W2/W3 routes.
+- **Page consolidation** — near-duplicate top-level pages folded into tabbed surfaces and
+  the rail grouped into a handful of areas (Overview / Triage / Intelligence / Analytics /
+  Admin), honouring the ONE-chat-engine rule. Settings hook ordering kept above the early
+  returns (guards against React #310).
+
+### Added — Wave 5: Demo Mode + Experimental Settings
+- **Reversible, isolated, $0 Demo Mode** — a first-class tenant `demo.mode`
+  (`off` / `seeded` / `live`) on Preferences. A `DemoPullConnector` + `demo_generator`
+  (a fixed fictional org, a diurnal-Poisson benign baseline, and seeded MITRE ATT&CK
+  storylines) feed synthetic OCSF events through the REAL pipeline, but all writes land in
+  a SEPARATE in-memory store with a deterministic mock LLM (`pricing_source='zero'`, a
+  plausible synthetic `$`). The real poll path is gated so the durable cursor (#4) is
+  untouched; demo rows are run-id-namespaced + `demo`-tagged. FP runs through the real
+  `decide()` against a *sandboxed* AutoClosePolicy copy; NEEDS_HUMAN stays open. Routes
+  (admin-gated): `POST /api/demo/{enable,reset,disable}`, `GET /api/demo/status`. A demo
+  banner + `(simulated)` labels + a write-guard keep demo and prod distinct.
+
+### Added — Wave 6: per-feed source configuration
+- **`IndexPattern` → richer per-feed `Feed`** (same wire key `config['index_patterns']`,
+  back-compat: legacy `{pattern, role, auto_correlate}` and bare-string entries still
+  validate). Adds an **`ignore`** `IndexRole`; splits the overloaded `auto_correlate` into
+  `correlate` + `auto_investigate` with a behaviour-preserving migration; and adds per-feed
+  `query` (connector-native, operator-TRUSTED), field-mapping override, `message_field`,
+  `severity_floor`, and an optional schedule. `engine/poller.py` keys a **durable cursor
+  per `{source.id}:{feed.id}`** so a fast alerts feed and a slow events feed never skip
+  (#4); a severity floor demotes auto-forwarding but registers a candidate and **never
+  drops events** (#4); `IGNORE` feeds skip ingest and are excluded from the derived
+  `data_view_pattern`. `/api/sources` round-trips the config verbatim (no new endpoint).
+
+### Added / Changed — Wave 7: email (Resend + SES + templates) + pervasive customization
+- **Resend channel** (`notifications/resend.py`, type `resend`) — an HTTPS-API channel over
+  the `_HttpChannel` base (Bearer key, optional idempotency key, client-side rate limit,
+  retry only on 429/5xx). **Amazon SES** ships as an email SMTP preset
+  (`email-smtp.{region}.amazonaws.com`) that can derive the SMTP password from a raw IAM
+  key pair via a stdlib HMAC chain — no new dep, SMTP as the simple default.
+- **Customizable email templates** (`notifications/templates.py`) — a ~80-LOC stdlib
+  mustache-subset renderer (`{{var}}` auto-escaped via `html.escape`, `{{{var}}}` raw only
+  for trusted header HTML, sections, dotted lookup, no eval/getattr) with `header_safe()`
+  (CRLF/header-injection guard) and `text_safe()`. 5 preloaded, operator-overridable
+  templates (`case.new` / `case.escalation` / `case.resolved` / `digest.daily` / `test`);
+  server-side render via `POST /api/notifications/preview`. Deterministic threading headers
+  (`Message-Id` / `In-Reply-To` / `References` / `X-TLSOC-*`).
+- **Per-user customization** — a `UserPrefsStore` (`stores/user_prefs.py`, over the KV
+  layer, keyed by user, `'default'` when auth off; no new index) plus org-level Preferences
+  hold **saved views**, per-table column state, **terminology** overrides, and a personal
+  light/dark/system theme, resolved through a merged cascade. Routes:
+  `GET /api/prefs/effective`, `GET/PUT /api/prefs/{user,org}` (org PUT admin),
+  `GET/POST/PUT/DELETE /api/views` (+ `POST /api/views/{id}/clone`),
+  `PUT /api/prefs/user/tables/{table_id}`, `GET/PUT /api/terminology` (PUT admin).
+- **Command palette, global search, bulk actions, audit viewer** — a Cmd/Ctrl-K palette;
+  a cross-entity **global search** (`GET /api/search`); **bulk case actions**
+  (`POST /api/cases/bulk`, max 500 ids) that run each id through the EXACT single-case human
+  action path (`_perform_case_action`) — RBAC enforced up front, each case audited
+  individually, partial-failure tolerant, NEVER `case_manager.decide()`; and an **audit
+  viewer** (`GET /api/audit`) over the append-only trail.
+
+### Notes
+- Auth remains **DEFAULT OFF**; sessions/account/customization gates no-op when auth is off
+  (`'default'` user prefs, allow-all RBAC), preserving the zero-auth back-compat behaviour
+  and the offline suite.
+
+---
+
 ## [Unreleased] — 2026-06-29 — Agentic SOC overhaul (Waves 1–7)
 
 A seven-wave SOC overhaul: multi-user identity + RBAC, MFA + SSO, a two-axis case

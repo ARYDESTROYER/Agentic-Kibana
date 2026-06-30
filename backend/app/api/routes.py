@@ -578,7 +578,11 @@ async def get_settings_schema(
 
 
 @router.put("/settings")
-async def put_settings(body: dict[str, Any], state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def put_settings(
+    body: dict[str, Any],
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
     if state.prefs.read_only_settings_mode and body.get("read_only_settings_mode") is not False:
         raise HTTPException(status_code=403, detail="Settings are in read-only mode")
     merged = _deep_update(state.prefs.model_dump(mode="json"), body)
@@ -831,7 +835,11 @@ async def rag_document(document_id: str, state: AppState = Depends(get_state)) -
 
 
 @router.post("/rag/import")
-async def rag_import(body: RagImportRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def rag_import(
+    body: RagImportRequest,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "manage")),
+) -> dict[str, Any]:
     """Import a free-text document into the RAG corpus. Chunked + embedded; takes
     effect immediately for retrieval. 400 on empty/oversized text."""
     title = (body.title or "").strip()
@@ -853,6 +861,7 @@ async def rag_delete_document(
     document_id: str,
     force: bool = False,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("rag", "manage")),
 ) -> dict[str, Any]:
     """Delete an imported document. 404 if missing; 400 if a guarded seed source
     (runbook/mitre/suppression/resolved_case) unless ``?force=true``."""
@@ -920,7 +929,11 @@ async def list_memory(
 
 
 @router.post("/memory")
-async def add_memory(body: MemoryCreate, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def add_memory(
+    body: MemoryCreate,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("memory", "manage")),
+) -> dict[str, Any]:
     """Add an operator fact (source='human'). Auto-injected into future
     investigations + chat as TRUSTED context."""
     text = (body.text or "").strip()
@@ -934,7 +947,10 @@ async def add_memory(body: MemoryCreate, state: AppState = Depends(get_state)) -
 
 @router.put("/memory/{entry_id}")
 async def update_memory(
-    entry_id: str, body: MemoryUpdate, state: AppState = Depends(get_state)
+    entry_id: str,
+    body: MemoryUpdate,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("memory", "manage")),
 ) -> dict[str, Any]:
     """Edit a memory entry (text/category/tags) or toggle ``active``."""
     updated = await state.memory.update(entry_id, **body.model_dump(exclude_none=True))
@@ -944,7 +960,11 @@ async def update_memory(
 
 
 @router.delete("/memory/{entry_id}")
-async def delete_memory(entry_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def delete_memory(
+    entry_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("memory", "manage")),
+) -> dict[str, Any]:
     """Permanently delete a memory entry. 404 if missing."""
     ok = await state.memory.delete(entry_id)
     if not ok:
@@ -1086,7 +1106,10 @@ async def playbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 @router.post("/playbooks/reload")
-async def playbooks_reload(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def playbooks_reload(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
     """Hot-reload playbooks from disk (atomic; a broken file never replaces a good
     live set). Returns the load summary."""
     return state.reload_playbooks()
@@ -1201,7 +1224,11 @@ async def branding_get(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 @router.put("/branding")
-async def branding_put(body: BrandingConfig, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def branding_put(
+    body: BrandingConfig,
+    state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),  # ADMIN-ONLY: org-wide branding is an admin surface
+) -> dict[str, Any]:
     if state.prefs.read_only_settings_mode:
         raise HTTPException(status_code=403, detail="settings are read-only")
     prefs = state.prefs.model_copy(deep=True)
@@ -3358,8 +3385,17 @@ async def case_feedback(
 
 @router.post("/cases/{case_id}/comment")
 async def case_comment(
-    case_id: str, body: CommentBody, state: AppState = Depends(get_state)
+    case_id: str,
+    body: CommentBody,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    # RBAC: commenting needs cases:comment. No-op when auth off; ``request`` is None
+    # only for direct in-process test calls, where RBAC would be a no-op anyway.
+    if request is not None:
+        from .deps import _enforce
+
+        await _enforce(request, "cases", "comment")
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -3377,8 +3413,17 @@ async def case_comment(
 
 @router.post("/cases/{case_id}/tags")
 async def case_tags(
-    case_id: str, body: TagsBody, state: AppState = Depends(get_state)
+    case_id: str,
+    body: TagsBody,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    # RBAC: editing tags needs cases:write. No-op when auth off; ``request`` is None
+    # only for direct in-process test calls, where RBAC would be a no-op anyway.
+    if request is not None:
+        from .deps import _enforce
+
+        await _enforce(request, "cases", "write")
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -3400,8 +3445,17 @@ async def case_tags(
 
 @router.post("/cases/{case_id}/assign")
 async def case_assign(
-    case_id: str, body: AssignBody, state: AppState = Depends(get_state)
+    case_id: str,
+    body: AssignBody,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    # RBAC: reassigning needs cases:assign. No-op when auth off; ``request`` is None
+    # only for direct in-process test calls, where RBAC would be a no-op anyway.
+    if request is not None:
+        from .deps import _enforce
+
+        await _enforce(request, "cases", "assign")
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")

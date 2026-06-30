@@ -5,12 +5,97 @@ work. Target: **Kibana / Elasticsearch 8.19.12**. Every item ends with: rebuild
 the 8.19.12 zip, `pytest -q` green, plugin build verified, docs + Journal updated,
 commit + push.
 
+## Next — best-of-best backlog (post-Round-2)
+
+Round 2 already shipped the whole Tier-1 productivity tier EXCEPT API keys: **saved
+views** (W7b), **bulk case actions** (W7c), **Cmd-K command palette** (W7c), **global
+search** `GET /api/search` (W7c), and the **audit-log viewer** `GET /api/audit` (W7c).
+The remaining best-of-best work, in recommended order
+(`docs/research/2026-06-round2/ROUND2_BEST_OF_BEST.md`):
+
+- ☐ **API keys / tokens management UI** (Tier-1 #5) — scoped, revocable keys on the
+  existing JWT/PBKDF2 auth (prefix + last-used); the vendor-agnostic open-API
+  requirement. Builds cleanly on the W3 SessionStore + token model.
+- ☐ **SLA timers** (Tier-2 #8) — per-severity `sla_due_at`/`sla_state`, at-risk badge +
+  filter (display + filter only, NO enforcement of `decide()`); pairs with saved views.
+- ☐ **Watchlists** (Tier-2 #10) — VIP users / crown-jewel assets / known-good IPs as
+  TRUSTED operator context boosters in correlation/risk + a triage chip; matched log
+  values stay UNTRUSTED (#9). Extends the HITL suppression/asset proposals.
+- ☐ **Dashboards builder** (Tier-3 #11) — user-composed shareable widget grid over
+  `/api/metrics` + the cost ledger; org publishes a default, users clone into
+  `UserPrefsStore` (W7b). `react-grid-layout` is a NEW dep — vet against no-new-deps.
+- ☐ **Scheduled reports** (Tier-3 #12) — cron MD/PDF digests via the standup
+  aggregator → existing notification channels (reuses aggregate-then-summarise, #7).
+- ☐ **Hunting / saved-query builder** (Tier-3 #13) — named reusable read-only queries
+  over sources (Stellar Query-Library parity); builds on the `es_query` tool +
+  per-source browse.
+
+Each ends with: `pytest -q` green (keep the count current), webui tsc+vite + Vitest
+clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps where
+possible, docs + Journal updated, commit + push.
+
 ## Shipped (Phase 1)
 - ☑ Backend spine + 5 surfaces + tests (49 green); both plugin zips; full docs.
 - ☑ 8.19.12 plugin build (legacy `kibana.json`, Node 22.22.0, import-alias port).
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 2 — 7 waves (W1–W7c)** (branch `Testing`; **772 backend tests green**
+  (649→772) + webui tsc/vite clean + **86 Vitest** green; **additive, zero new runtime
+  deps, #3 `decide()` byte-identical** — Demo Mode uses a sandboxed policy copy — and
+  #9 untrusted-fencing held on every new user/source-influenceable field). Design:
+  `docs/research/2026-06-round2/`.
+  - ☑ **W1 Bug fixes** — RiskGauge Active-Risk-Index glitch, MFA-QR copy, duplicate
+    close X, chat framing, store-degraded UX; presentational + optional additive
+    `/api/health.persistent`. No data-model change.
+  - ☑ **W2 Login redesign + account self-service** — 2-column split login (the
+    existing 4-mode form + handlers verbatim) + self-service profile
+    (`display_name`/`alias`/`avatar`/`alt_email`/`timezone`/`locale`/`prefs`) on the
+    `User` model (all defaulted → no migration; `User.public()` still hides secrets).
+    Avatar validator (png/webp/jpeg data-url, magic-byte sniff, ≤64 KB). Endpoints
+    `GET/PUT /api/account/me`, `PUT /api/me/avatar` (env-managed → 400).
+  - ☑ **W3 Sessions + access policy** — ACCESS token gains `sid`+`tv`; a KV-backed
+    `SessionStore` (`stores/sessions.py`, survives `_wire()`) enforces idle/absolute/
+    revocation in the async `require_auth` (NOT the sync `verify()`); refresh rotation
+    + replay/theft detection; token policy on Preferences; `require_fresh_auth(window)`
+    step-up. Endpoints `POST /api/auth/{refresh,reauth}`, `GET /api/sessions`,
+    `POST /api/sessions/{sid}/revoke`, `POST /api/sessions/revoke-others`, admin
+    `GET /api/admin/sessions`, `POST /api/admin/sessions/{sid}/revoke`,
+    `POST /api/admin/users/{username}/revoke-all`; logout revokes current sid; session
+    created at all 3 cookie-set sites (login/mfa/sso).
+  - ☑ **W4 Settings IA consolidation** — two-scope (Personal Account / Organization)
+    Settings tree; Users/Security/SSO + Profile/Account/Preferences/Sessions moved INTO
+    Settings (RBAC-aware); standalone admin rail group dropped; near-duplicate pages
+    folded into tabs (Investigate→Chat segmented control [ONE chat engine]; Cost→Metrics;
+    Standup→Overview) under ≤5 nav groups. Pure IA; no new endpoints.
+  - ☑ **W5 Demo Mode + Experimental Settings** — reversible tenant state
+    (`off|seeded|live`) on `Preferences.demo`; `DemoPullConnector` (`connectors/demo.py`)
+    feeds seeded OCSF (`engine/demo_generator.py`) through the REAL pipeline but writes
+    to a SEPARATE in-memory store + a deterministic mock LLM (`engine/demo_runtime.py`)
+    — **$0, isolated, one-flip reversible**; FP runs the REAL `decide()` against a
+    SANDBOXED policy copy, NEEDS_HUMAN stays open. Endpoints `POST /api/demo/{enable,
+    reset,disable}`, `GET /api/demo/status` (admin); DemoBanner + `SAMPLE` badges +
+    "(simulated)" cost.
+  - ☑ **W6 Source multi-feed** — `IndexPattern`→richer per-feed model (wire key kept) +
+    new `ignore` role + per-feed query/field-mapping/`message_field`/`severity_floor`/
+    schedule; overloaded `auto_correlate` split into `correlate`+`auto_investigate`
+    (behavior-preserving migration); per-feed durable cursor (`{source.id}:{feed.id}`,
+    fast vs slow never skip, #4); `severity_floor` blocks auto-forward but NEVER drops
+    a candidate (#4). Loose JSON, no migration; `/api/sources` round-trips it.
+  - ☑ **W7a Email — Resend + SES + templates** — `ResendChannel`
+    (`notifications/resend.py`, HTTPS API, idempotency, retry-only-429/5xx) + an SES
+    SMTP preset with an IAM-key→SMTP-password HMAC ladder in `notifications/email.py`;
+    stdlib mustache-subset renderer (`notifications/templates.py`, auto-escape +
+    `header_safe`/`text_safe`) + 5 preloaded overridable templates;
+    `POST /api/notifications/preview?trigger=`.
+  - ☑ **W7b Per-user customization** — org Preferences + per-user `UserPrefsStore`
+    (`stores/user_prefs.py` over KV; `'default'` when auth off); saved views, table
+    column state, terminology overrides, theme. Endpoints `GET /api/prefs/effective`,
+    `GET/PUT /api/prefs/user`, `GET/PUT /api/prefs/org` (admin), `GET/POST /api/views`,
+    `PUT /api/prefs/user/tables/{table_id}`, `GET/PUT /api/terminology` (PUT admin).
+  - ☑ **W7c UX — command palette + global search + bulk actions + audit viewer** —
+    Cmd-K palette + global search (`GET /api/search`), multi-select bulk case actions,
+    audit-log viewer (`GET /api/audit`).
 - ☑ **SOC overhaul — 7 waves (W1–W7)** (branch `Testing`; **649 backend tests green**
   (395→481→527→554→571→600→638→649) + webui tsc/vite clean + **27 Vitest** green;
   **additive, zero new deps, non-negotiable #3 `decide()` byte-identical, auth DEFAULT OFF**):

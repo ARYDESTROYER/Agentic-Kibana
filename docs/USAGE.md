@@ -38,21 +38,28 @@ console exposes these surfaces:
 
 | Surface | What it does |
 |---|---|
-| **Sources** | Add / edit / test / delete log sources (pull + push); mark one primary |
-| **Cases** | Browse cases; open case detail + lifecycle (Preview in the standalone UI) |
-| **Chat** | Ask read-only questions; get a two-turn analysis + result table (Preview) |
-| **Investigate** | Investigate an IP/user/host into a verdict card (Preview) |
-| **Scans** | The auto-investigation queue (Preview) |
-| **Standup** | Aggregate-then-summarise daily report (Preview) |
-| **Cost** | Today's spend, tokens, call count, top cost drivers (Preview) |
-| **Settings** | Full Preferences + per-role models + secret status; re-run the wizard |
+| **Sources** | Add / edit / test / delete log sources (pull + push); per-feed config; mark one primary |
+| **Cases** | Browse cases; open case detail + lifecycle; bulk actions; saved views |
+| **Chat** | Ask read-only questions; get a two-turn analysis + result table |
+| **Investigate** | Investigate an IP/user/host into a verdict card (a tab alongside Chat) |
+| **Scans** | The auto-investigation queue |
+| **Standup** | Aggregate-then-summarise daily report (a panel on Overview) |
+| **Cost** | Today's spend, tokens, call count, top cost drivers (a tab under Analytics) |
+| **Settings** | Two-scope IA (Personal Account / Organization): profile, sessions, prefs, sources, models, security, notifications, branding, demo, admin |
 
-> **Preview note.** The wizard, Sources manager, and Settings are fully built in
-> the standalone UI. The analytics surfaces (Cases / Chat / Investigate / Scans /
-> Standup / Cost) currently call their endpoints and render **basic results** —
-> they are marked **Preview** and will be fully ported later (`webui/README.md`).
-> Their backend endpoints are complete and fully usable via `curl` today
-> (Section 9).
+> **Top-level nav (Wave 4 consolidation).** The left rail is grouped into ≤5
+> areas (Overview / Triage / Intelligence / Analytics / Admin). Investigate is a
+> segmented control on the Chat scaffold (one chat engine), Cost is a tab under
+> Metrics, and Standup is a panel on Overview. The analytics surfaces call their
+> endpoints directly; every backend endpoint is also usable via `curl` (Section 9).
+
+> **Round 2 features.** This release adds account self-service + a redesigned
+> login (§12), session management + a token policy (§13), the consolidated
+> Settings IA (§14), **Demo Mode** (§15), per-source **feeds** (§16), Resend/SES
+> email + customizable templates (§17), per-user customization — saved views,
+> table columns, terminology, theme (§18), and the **Cmd-K command palette +
+> global search + bulk case actions + the audit viewer** (§19). Auth must be
+> enabled (§8h) for the account/session features to be reachable.
 
 ---
 
@@ -1122,3 +1129,415 @@ These are enforced in **code**, not prompts (see `SECURITY.md`):
 - **Inbound push payloads are untrusted.** Push receivers verify auth and fence the
   normalised data as UNTRUSTED in prompts. Raw logs are never sent to a model in
   standup.
+
+---
+
+## 12. Your account — profile, avatar, login (Round 2)
+
+> Account self-service is reachable **only when auth is enabled** (§8h). With auth
+> off the suite has no concept of a per-user identity, so these surfaces are hidden
+> and `GET /api/account/me` reports `auth_enabled:false`.
+
+The redesigned login is a two-column split (brand hero + form). It still drives the
+same four modes — normal sign-in, the forced **OOBE change-password** on the seeded
+admin's first login, the **MFA** code step (a 6-cell segmented OTP entry; §8h), and
+SSO buttons — and adds a client-only password-strength meter on the OOBE/change
+screens. The hero consumes your branding (`org_name`, `logo_data_url`, accent +
+secondary accent), so it looks like *your* SOC.
+
+### Edit your profile + avatar
+
+Open **Settings → Personal Account → Profile**. It reads `GET /api/account/me` and
+writes `PUT /api/account/me`. Every field is optional and only the fields you change
+are written; clearing a field is an explicit empty string (never null):
+
+| Field | Body key | Notes |
+|---|---|---|
+| Display name | `display_name` | shown in the top bar / audit attribution |
+| Short alias | `alias` | a compact handle |
+| Alternate email | `alt_email` | a contact address (not the login id) |
+| Timezone / locale | `timezone` / `locale` | personal formatting |
+| Avatar | `avatar` | a small data-URL image (see below) |
+| Personal prefs blob | `prefs` | a small JSON object (bounded) |
+
+**Avatar.** The browser resizes/crops your image to **256×256 WebP** before upload,
+so the backend only ever validates a tiny data-URL string. Allowed:
+`data:image/png|webp|jpeg;base64,…` (**SVG is rejected**; the body is magic-byte
+sniffed and capped). Use the dedicated thin endpoint `PUT /api/me/avatar` to just
+set or clear the avatar (an **empty string clears it**).
+
+```bash
+# View your own account (auth-on)
+curl -s -b cookies.txt localhost:8088/api/account/me
+
+# Patch your profile (only the provided fields change)
+curl -s -b cookies.txt -X PUT localhost:8088/api/account/me \
+  -H 'content-type: application/json' \
+  -d '{"display_name":"Alice Ng","timezone":"Europe/London","alt_email":"alice@corp.example"}'
+
+# Set / clear just the avatar
+curl -s -b cookies.txt -X PUT localhost:8088/api/me/avatar \
+  -H 'content-type: application/json' -d '{"avatar":"data:image/webp;base64,UklGR..."}'
+curl -s -b cookies.txt -X PUT localhost:8088/api/me/avatar \
+  -H 'content-type: application/json' -d '{"avatar":""}'    # clear
+```
+
+**The env single-admin can't self-edit.** If auth runs as the legacy
+environment-seeded single admin (no persisted user record), `account/me` returns
+`env_managed:true` and a `PUT` is refused with `400` ("managed via environment
+configuration") — exactly like the change-password seam. Create real users (§8h) to
+get editable profiles. Secrets never leak: `public()` excludes `password_hash`,
+`mfa_secret`, and the recovery-code hashes. Every profile/avatar change is audited.
+
+Your recent account activity is available at `GET /api/account/activity?limit=50`
+(your own audit rows, newest first) — it powers the "recent activity" list on the
+account page.
+
+---
+
+## 13. Sessions & token policy (Round 2)
+
+When auth is enabled, the stdlib HS256 JWT is now a short-lived **access token**
+carrying a session id (`sid`) + token-version (`tv`) claim, backed by a durable
+`SessionStore` (in your `STATE_BACKEND`, so sessions survive a restart). Every login
+path (password, MFA-verify, SSO callback) registers a session row with its device /
+browser / OS / IP (+ city/country when resolvable) — all rendered as **plain data**.
+
+### See and revoke your own sessions
+
+**Settings → Personal Account → Security → Sessions** lists your session cards. The
+current one is pinned with a **"This device"** badge; each other row has a
+destructive **Revoke**, and a top-right **"Sign out all other sessions"**.
+
+| Action | Endpoint |
+|---|---|
+| List my sessions (current flagged) | `GET /api/sessions` |
+| Revoke one of my sessions | `POST /api/sessions/{sid}/revoke` |
+| Sign out my **other** sessions (keep this one) | `POST /api/sessions/revoke-others` (`{"notify":true?}`) |
+
+Revoking your other sessions bumps your `token_version`, so any still-valid JWT for
+the other sessions is rejected on its next request (the kept `sid` is preserved).
+
+### Admin: terminate anyone's sessions
+
+Admins (`users:manage`) get **Settings → Administration → Sessions** — every session
+across all users, force-terminable. These admin writes are **step-up gated**: if your
+last password re-auth is older than the sudo window you get `401 {code:"reauth_required"}`
+and the UI pops a re-auth modal (`POST /api/auth/reauth` with your password stamps a
+fresh `last_authn_at`).
+
+| Action | Endpoint |
+|---|---|
+| List ALL sessions | `GET /api/admin/sessions` |
+| Force-terminate one session | `POST /api/admin/sessions/{sid}/revoke` (step-up) |
+| Global sign-out for one user | `POST /api/admin/users/{username}/revoke-all` (step-up) |
+
+### Token policy (idle / absolute / refresh / sudo)
+
+**Settings → Organization → Security → Token policy** edits the `session_policy`
+Preferences sub-model: `access_ttl` (default 900s), `idle_timeout` (1800s),
+`absolute_lifetime` (43200s), `refresh_ttl` (604800s), `sudo_reauth_window` (600s),
+plus notify-on-new-device / notify-on-terminate toggles. Idle + absolute expiry and
+revocation are enforced in `require_auth` (the async gate), not in the hot-path sync
+`verify()`. A session whose idle/absolute window has lapsed gets `401
+{code:"session_expired"}`.
+
+**Refresh rotation + theft detection.** `POST /api/auth/refresh` rotates the refresh
+token (old hash slides to a previous-hash slot) and mints a fresh access token. If a
+caller replays an **already-rotated** refresh token, that is treated as theft: the
+session is revoked, the user's `token_version` is bumped (global sign-out), the event
+is audited + best-effort notified, and a `401 {code:"session_invalid"}` is returned.
+`POST /api/auth/logout` revokes the current `sid`.
+
+```bash
+curl -s -b cookies.txt localhost:8088/api/sessions
+curl -s -b cookies.txt -X POST localhost:8088/api/sessions/revoke-others -d '{}'
+curl -s -b cookies.txt -X POST localhost:8088/api/auth/reauth \
+  -H 'content-type: application/json' -d '{"password":"<my-password>"}'
+curl -s -b cookies.txt -X POST localhost:8088/api/auth/refresh \
+  -H 'content-type: application/json' -d '{"refresh_token":"<token>"}'
+```
+
+---
+
+## 14. Settings, reorganised — the two-scope IA (Round 2)
+
+Settings is now one left rail split into two scopes:
+
+- **Personal Account** (every signed-in user): Profile (§12), Account, Preferences
+  (§18), Notifications view, Security → MFA + Sessions (§13).
+- **Organization** (perm-gated): Data Sources & Connectors (incl. per-source feeds,
+  §16), Models & LLM, Correlation & Cases, Automation, Notifications (channels +
+  templates, §17), Security & SSO + Token policy (§13), Knowledge & Threat Context,
+  Enrichment, Appearance / Terminology (§18), Experimental (Demo Mode, §15), and the
+  admin-only **Administration** group (Users, Sessions, Audit viewer §19).
+
+RBAC hides sections a role can't use (and auto-jumps off a hidden active section);
+with auth/RBAC **off** the default profile still shows everything. The whole tree
+still round-trips through the existing `/api/settings`, `/api/branding`,
+`/api/roles`, and the per-feature routes — see §9 for the full Preferences reference,
+which is unchanged by the IA move.
+
+Several pages were also consolidated: Investigate is a segmented control on the Chat
+scaffold, Cost is a tab under Metrics, Standup is a panel on Overview, and
+Knowledge / Memory / Catalog live under one **Intelligence** area as distinct tabs.
+
+---
+
+## 15. Demo Mode — a safe, reversible showcase (Round 2)
+
+Demo Mode is a first-class, **reversible, fully isolated** tenant state (not a
+fork). Synthetic OCSF events flow through the **real** correlate → risk → decide
+pipeline, but every write lands in a **separate in-memory store** with a
+**deterministic mock LLM**, so the demo is **$0**, leaves your real data untouched,
+and is removed with one flip. Enable it from **Settings → Organization → Experimental**
+(admin-only). All demo cases are tagged `demo` and id-prefixed `demo-…`.
+
+| Action | Endpoint | What it does |
+|---|---|---|
+| Status | `GET /api/demo/status` | `{mode, run_id, history_days, tick_seconds, …}` |
+| Enable | `POST /api/demo/enable` | seed synthetic data; start the simulator (admin) |
+| Reset | `POST /api/demo/reset` | delete this run + re-seed from the same seed (admin) |
+| Disable / clear | `POST /api/demo/disable` | stop the tick + **hard-delete** by `run_id` (admin) |
+
+`mode` is `off` | `seeded` | `live`:
+
+- **`seeded`** pre-generates a trailing **history window** (`history_days`, default
+  14) of backdated "old" cases over a fixed fictional org (employees / hosts / a DC /
+  VIP / a corp range), a benign baseline, plus 4–6 MITRE ATT&CK storylines
+  (phishing → cred-access → lateral → exfil, RDP brute force, SQLi → webshell,
+  impossible-travel, ransomware beacon, insider staging).
+- **`live`** additionally runs a jittered background **simulator** (`tick_seconds` ≈
+  10, `tick_jitter`, `incident_rate`) that streams new benign batches and
+  occasionally ignites a storyline, so cases appear in real time.
+
+```bash
+curl -s localhost:8088/api/demo/status
+curl -s -b cookies.txt -X POST localhost:8088/api/demo/enable \
+  -H 'content-type: application/json' \
+  -d '{"mode":"live","seed":1337,"history_days":14,"tick_seconds":10,"incident_rate":0.05}'
+curl -s -b cookies.txt -X POST localhost:8088/api/demo/reset      # re-seed, same seed
+curl -s -b cookies.txt -X POST localhost:8088/api/demo/disable    # exit + hard-delete
+```
+
+**While demo is engaged** the app shell shows an amber **Demo banner** with *Reset*
+and *Exit & clear*; demo rows carry a `SAMPLE` badge; cost tiles read "(simulated)";
+and a guard disables real-write actions (real connector runs, **real notifications**,
+live-policy changes). The deterministic Case Manager is never touched — FALSE_POSITIVE
+still runs through the **real** `decide()` (against a sandboxed policy copy, proving
+the gate) and `NEEDS_HUMAN` stays open as the HITL showcase. The real polling cursor
+is left untouched, and `POST /api/demo/disable` flips the state back to `off` and
+hard-deletes every demo case / audit / usage / event by `run_id`.
+
+---
+
+## 16. Source feeds — alerts / events / ignore (Round 2)
+
+A pull source's index patterns are now richer **feeds**. The model keeps its wire key
+(`config.index_patterns`) and class name (`IndexPattern`) for back-compat, but each
+entry can now carry a per-feed **role**, query, mapping, severity floor, and
+correlation behaviour. Edit them in the **per-source editor** (Settings → Data Sources
+& Connectors → a source → Feeds); the source round-trips through the existing
+`POST /api/sources` (additive `config`, no migration).
+
+**Role** (`role`): `alerts` (auto-investigate by default, bypasses the allowlist),
+`events` (correlate → auto-forward only when on the allowlist), or the new
+**`ignore`** (skip ingest entirely — excluded from the union read, useful to carve a
+noisy sub-index out of a broad `events` pattern; longest-pattern-wins precedence).
+
+**Per-feed knobs:**
+
+| Field | Meaning |
+|---|---|
+| `pattern` | the index pattern (e.g. `wazuh-alerts-*`) |
+| `role` | `alerts` \| `events` \| `ignore` |
+| `enabled` | turn a feed off without deleting it |
+| `query` | a connector-native filter applied to just this feed (operator-**TRUSTED**) |
+| `field_mapping` / `message_field` | per-feed overrides (fall back to the source-level mapping) |
+| `severity_floor` | OCSF `severity_id` 1–6; below it an event is **not auto-forwarded** but is **still correlated + live-tailed** (never dropped, #4) |
+| `correlate` | the per-feed "Auto-Correlate" toggle (legacy `auto_correlate` maps onto this); `false` → candidate-only (manual triage), still correlated |
+| `auto_investigate` | `null` → derived from role/legacy (`alerts` or legacy `auto_correlate`); set `true`/`false` to pin it |
+
+**Back-compat is exact.** A stored `{pattern, role, auto_correlate}` dict — or a bare
+`"all-logs-*"` string — still validates and yields identical effective behaviour
+(`auto_correlate` → `correlate`; `auto_investigate` derived as `role=='alerts' or
+legacy auto_correlate`). Each feed gets its **own durable poll cursor**
+(`{source.id}:{feed.id}`), so a fast `alerts` feed and a slow `events` feed never
+share or skip a cursor (#4). The legacy `config.data_view_pattern` stays synced
+(comma-join of the non-`ignore` patterns) for the fallback read path.
+
+```bash
+curl -s -X POST localhost:8088/api/sources \
+  -H 'content-type: application/json' \
+  -d '{
+        "id": "prod-es", "source_type": "elasticsearch", "is_primary": true,
+        "config": {
+          "es_url": "https://elasticsearch:9200",
+          "index_patterns": [
+            { "pattern": "wazuh-alerts-*", "role": "alerts" },
+            { "pattern": "all-logs-*", "role": "events", "severity_floor": 3,
+              "query": "event.outcome: failure", "correlate": true },
+            { "pattern": "all-logs-debug-*", "role": "ignore" }
+          ]
+        }
+      }'
+```
+
+---
+
+## 17. Email — Resend + SES + customizable templates (Round 2)
+
+Two new email channels join the pluggable `NotificationChannel` SPI (§8i), and the
+suite now ships **operator-overridable email templates**. Configure both in
+**Settings → Organization → Notifications**.
+
+- **Resend** (`type:"resend"`) — an HTTPS-API channel. Its secret is the Resend API
+  key (`POST /api/notifications/channels/{id}/secret`); the channel POSTs to
+  `https://api.resend.com/emails` with an idempotency key per case/trigger and a
+  client-side rate limit. It self-registers, so it appears in
+  `GET /api/notifications/providers` → `channel_types`.
+- **SES** — shipped as an **SMTP provider preset** (`ses`, host
+  `email-smtp.{region}.amazonaws.com:587`, STARTTLS). Supply either ready-made SES
+  SMTP credentials **or** a raw IAM access-key pair — the backend derives the SMTP
+  password via the stdlib AWS4-HMAC SES chain. No new dependency.
+
+### Customizable templates + live preview
+
+There are **5 preloaded templates** keyed by trigger — `case.new` (`case_created`),
+`case.escalation` (`escalated`), `case.resolved` (`closed`), `digest.daily`
+(`digest_daily`), and `test`. They render through a tiny **stdlib mustache-subset**
+renderer: `{{var}}` is auto HTML-escaped, `{{{var}}}` is raw **only** for trusted
+header HTML, with `{{#section}}`/`{{^section}}` and dotted lookup (no `eval`/`getattr`).
+Subjects are CRLF-stripped/capped (header-injection safe) and untrusted text in the
+`.txt` part is newline-stripped (#9). You override the per-trigger `{subject, html,
+text}` in the Notifications template editor (stored under
+`notifications.templates.overrides`); anything you don't override falls back to the
+built-in default.
+
+**Preview before you save.** `POST /api/notifications/preview?trigger=case_created`
+renders a **sample** case server-side and returns the exact `{subject, html, text,
+headers}` that would ship — the escaping is authoritative, so the preview pane shows
+precisely the wire output. Pass an unsaved `{subject?, html?, text?}` body to preview
+edits you haven't persisted yet. No real case data, no real send, no secret leak.
+
+```bash
+curl -s localhost:8088/api/notifications/providers      # presets + channel_types + template_ids
+curl -s -b cookies.txt -X POST "localhost:8088/api/notifications/preview?trigger=escalated" \
+  -H 'content-type: application/json' \
+  -d '{"subject":"[{{org_name}}] ESCALATED {{case.case_number}}"}'   # preview an unsaved edit
+curl -s -b cookies.txt -X POST localhost:8088/api/notifications/channels/resend-1/secret \
+  -H 'content-type: application/json' -d '{"field":"api_key","value":"re_..."}'
+```
+
+---
+
+## 18. Personal customization — saved views, table columns, terminology, theme (Round 2)
+
+Customization is a **two-store cascade**: **ORG defaults** on
+`Preferences.customization` (admin-only) ← **personal** overrides in a per-user
+`UserPrefsStore` (keyed by username when auth is on, a shared `default` bucket when
+auth is off — so even the no-auth profile gets real, persisted personal prefs). The
+webui hydrates `GET /api/prefs/effective` once on mount and merges the two.
+
+### Saved views
+
+A **saved view** is a named filter/sort/column preset for a scope (e.g. `cases`). The
+**Saved-views bar** above a list lets you create from the current filters, switch,
+clone, pin, and delete. Org-shared views (`shared:true`, curated by an admin under
+`prefs/org`) show up alongside your personal ones; cloning copies any view into your
+own set as a fresh, owned, non-shared `… (copy)`.
+
+| Action | Endpoint |
+|---|---|
+| List my views (personal + org-shared) | `GET /api/views` |
+| Create a personal view | `POST /api/views` (`{name, scope, filters, sort, columns?, shared?}`) |
+| Edit a personal view (partial) | `PUT /api/views/{view_id}` |
+| Delete a personal view | `DELETE /api/views/{view_id}` |
+| Clone any view into my set | `POST /api/views/{view_id}/clone` |
+
+### Table columns
+
+Each table persists its own **column state** (order / hidden / widths) per user via
+`PUT /api/prefs/user/tables/{table_id}` with `{order, hidden, widths}`. Send an
+**all-empty body** to clear the override and revert to that table's default columns.
+Theme mode, pinned view ids, and last-list-state live on your personal bucket via
+`GET/PUT /api/prefs/user` (a partial patch — only the fields you send change):
+`theme_mode` is `light` | `dark` | `system` and overrides the org `default_theme`.
+
+### Terminology
+
+Admins can rename suite nouns org-wide via `GET/PUT /api/terminology` (the map, e.g.
+`{"case":"incident","cases":"incidents"}`) or the broader
+`GET /api/prefs/org` / `PUT /api/prefs/org` (`CustomizationConfig`: `terminology`,
+`default_saved_views`, `default_theme`). The UI renders every label through a
+`t(key)` helper; all terminology and view text is **plain data**, never markup and
+never an LLM-prompt input (#9). Writes to `prefs/org` + `terminology` are admin-gated
+and audited; reads are open to any signed-in user (the cascade needs them).
+
+```bash
+curl -s -b cookies.txt localhost:8088/api/prefs/effective       # merged ORG ← USER
+curl -s -b cookies.txt -X PUT localhost:8088/api/prefs/user \
+  -H 'content-type: application/json' -d '{"theme_mode":"dark"}'
+curl -s -b cookies.txt -X POST localhost:8088/api/views \
+  -H 'content-type: application/json' \
+  -d '{"name":"My escalations","scope":"cases","filters":{"status":"escalated"},"sort":"-created_at"}'
+curl -s -b cookies.txt -X PUT localhost:8088/api/prefs/user/tables/cases \
+  -H 'content-type: application/json' \
+  -d '{"order":["entity","risk","status","created_at"],"hidden":["source_name"],"widths":{}}'
+curl -s -b cookies.txt -X PUT localhost:8088/api/terminology \
+  -H 'content-type: application/json' -d '{"terminology":{"case":"incident","cases":"incidents"}}'
+```
+
+---
+
+## 19. Command palette, global search, bulk actions & the audit viewer (Round 2)
+
+### Cmd-K palette + global search
+
+Press **⌘K / Ctrl-K** anywhere to open the command palette. It calls
+`GET /api/search?q=&limit=20` and returns typed hits so you can jump anywhere:
+
+- **cases** — matched on `case_id` / `case_number` / `title` / entity value / `tags`
+  / `source_name` (works in Demo Mode too — it reads the active case store).
+- **sources** — matched on name / type / id.
+- **nav** — static page + settings-section targets, so the palette can navigate the
+  whole app.
+
+The endpoint is bounded (`limit` hard-capped) and degrades gracefully (a case-listing
+failure just yields no case hits). All matched text is operator/log data rendered as
+**plain** (#9).
+
+```bash
+curl -s "localhost:8088/api/search?q=10.10.1.152&limit=20"
+# -> { "query":"...", "cases":[...], "sources":[...], "nav":[...] }
+```
+
+### Bulk case actions
+
+Select multiple rows in the Cases table and apply **one** lifecycle action to all of
+them via `POST /api/cases/bulk` with `{ "ids": [...], "action": "...", ...the same
+optional CaseAction fields }`. Each id runs through the **exact** single-case human
+action path (`_perform_case_action`) — it is **#3-safe** (the analyst layer, never
+`decide()` / auto-close), RBAC is enforced once up front (`cases:close` for
+close-class moves, else `cases:write`), and each case is **applied + audited
+individually**. It is partial-failure tolerant (max 500 ids; a bad id or illegal
+transition fails only that row):
+
+```bash
+curl -s -b cookies.txt -X POST localhost:8088/api/cases/bulk \
+  -H 'content-type: application/json' \
+  -d '{"ids":["case-a","case-b","case-c"],"action":"escalate","level":2,"analyst":"alice"}'
+# -> { "results":[ {"id":"case-a","ok":true}, {"id":"case-b","ok":false,"error":"..."}, ... ] }
+```
+
+### Audit viewer
+
+Admins/auditors get **Settings → Administration → Audit** — a bounded, read-only view
+of the append-only audit log (#2). It is gated on `audit:view` (the auditor/admin
+grant) and filterable; rows are **newest-first**, hard-capped (≤500), and all text is
+rendered as plain (#9 — audit rows carry fenced UNTRUSTED log excerpts).
+
+```bash
+curl -s -b cookies.txt "localhost:8088/api/audit?limit=100&actor=alice&action=DECISION&from=now-24h"
+# filters: actor, action, surface, case_id, from (alias), to, limit
+```

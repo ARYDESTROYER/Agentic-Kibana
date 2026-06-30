@@ -119,8 +119,9 @@ backend/app/
                      ecs (ECS→OCSF mapping) · generic_to_ocsf
   connectors/        base (Connector/PullConnector/PushReceiver SPI) · registry
                      (built-ins + tlsoc.connectors entry points) · elastic ·
-                     opensearch · wazuh · receivers/ (webhook · syslog · queues ·
-                     objectstore · formats · common) — 16 push receivers
+                     opensearch · wazuh · demo (DemoPullConnector — seeded OCSF;
+                     registered only when demo.mode != off) · receivers/ (webhook ·
+                     syslog · queues · objectstore · formats · common) — 16 push receivers
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
@@ -135,7 +136,9 @@ backend/app/
                      case-XXXX nomenclature; KV sequence + template) ·
                      threshold_automation (#3-safe rule actions → HITL proposal) ·
                      threat_context (IOC reputation + MITRE + related cases, fail-open) ·
-                     mitre (bundled ATT&CK technique lookup)
+                     mitre (bundled ATT&CK technique lookup) ·
+                     demo_generator (seeded OCSF org+baseline+MITRE storylines) ·
+                     demo_runtime (deterministic mock LLM + sandboxed policy — Demo Mode)
   threat/            mitre_techniques.json (bundled ATT&CK, 697 techniques) +
                      refresh_mitre.py + SOURCE.md (data corpus, not live fetch)
   runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
@@ -145,22 +148,33 @@ backend/app/
                      (multi-user + 6-role RBAC + permission matrix + require_permission) ·
                      mfa (stdlib RFC-6238 TOTP + recovery codes) · oidc (Google/
                      Microsoft/generic SSO via code-exchange + userinfo)
-  notifications/     channel (NotificationChannel SPI) · email (stdlib SMTP, 13 presets) ·
-                     webhook (Slack/Teams/generic/PagerDuty/Telegram) · dispatch
-                     (per-condition triggers + dedup/rate-limit/digest) · templates
+  notifications/     channel (NotificationChannel SPI) · email (stdlib SMTP, now incl.
+                     an SES preset + IAM-key→SMTP-password HMAC ladder) · webhook
+                     (Slack/Teams/generic/PagerDuty/Telegram) · resend (Resend HTTPS
+                     API channel) ·
+                     dispatch (per-condition triggers + dedup/rate-limit/digest) ·
+                     templates (stdlib mustache-subset renderer + 5 preloaded,
+                     overridable templates; header_safe/text_safe)
   middleware/        security_headers · csrf · rate_limit (Starlette middleware)
   agents/            prompts · router · investigator · formatter · chat · standup ·
                      graph (LangGraph) · pipeline · common · personas (multi-agent roster)
   stores/            base (abstract repositories — backend-agnostic StateStore) ·
                      cases · usage · config_store · cursor_store · users (UserStore
-                     over KV — multi-user, no new index/table) · memory
+                     over KV — multi-user, no new index/table) · sessions
+                     (SessionStore over KV — sid registry, idle/absolute/revocation,
+                     refresh rotation) · user_prefs (UserPrefsStore over KV — personal
+                     saved views/columns/terminology/theme, keyed by user) · memory
                      (MemoryStore over the KVStore — durable operator facts;
                      EsKVStore/SqlKVStore adapters, no new index) · audit/audit_log
                      (ES-backed) · sql/ (engine · models · repositories ·
                      vectorstore — SQLite/Postgres+pgvector)
   api/               routes (UI contract; incl. /sources, /auth+/users+/auth/mfa+
-                     /auth/sso, /notifications, /proposals, /settings/schema) ·
-                     deps (require_auth + require_permission) · state.py (DI hub) · main.py
+                     /auth/sso, /auth/refresh+/auth/reauth, /sessions+/admin/sessions,
+                     /account/me+/me/avatar, /demo/*, /prefs/{user,org,effective}+
+                     /views+/terminology, /notifications+/notifications/preview,
+                     /proposals, /settings/schema, /search, /audit) · deps (require_auth
+                     + require_permission + require_fresh_auth + session check) ·
+                     state.py (DI hub) · main.py
 backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
                      dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
@@ -257,7 +271,7 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 649 tests
+# Backend tests (offline; MUST stay green) — currently 772 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
 python -m pytest -q
 
@@ -323,12 +337,89 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) all shipped — **649 backend tests
-green** (was 395); the standalone **webui builds clean** (tsc+vite) + **27 Vitest
-specs green**. The whole SOC overhaul was additive, zero new deps, with
-non-negotiable #3 intact (`case_manager.decide()` byte-identical). The legacy Kibana
-plugin is **archived** (`archive/`). Active branch: **`Testing`**. See
-`docs/VIGIL_STUDY.md` for the study + multi-wave plan and `ROADMAP.md` for live status.
+(Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2** (account self-service,
+sessions + token policy, Settings-centric IA, Demo Mode, source multi-feed, Resend/SES
++ email templates, per-user customization, command palette / global search / bulk
+actions / audit viewer) all shipped — **772 backend tests green** (was 395); the
+standalone **webui builds clean** (tsc+vite) + **86 Vitest specs green**. Every round
+has been additive, **zero new runtime deps**, with non-negotiable #3 intact
+(`case_manager.decide()` byte-identical — Demo Mode uses a sandboxed policy copy). The
+legacy Kibana plugin is **archived** (`archive/`). Active branch: **`Testing`**. See
+`docs/VIGIL_STUDY.md` for the study + multi-wave plan, `docs/research/2026-06-round2/`
+for the Round 2 design, and `ROADMAP.md` for live status.
+
+**Done — Round 2 (commits since `ccc7a46`; W1–W7c; additive, zero new deps, #3
+byte-identical, #9 untrusted fencing upheld on every new user/source-influenceable
+field):**
+- **W1 bug fixes** — RiskGauge Active-Risk-Index glitch, MFA-QR copy, duplicate close
+  X, chat framing, store-degraded UX; presentational + an optional additive
+  `/api/health.persistent`.
+- **W2 Login redesign + account self-service** — 2-column split login (brand hero +
+  the existing 4-mode form, handlers untouched) + a self-service profile
+  (`display_name`/`alias`/`avatar`/`alt_email`/`timezone`/`locale`/`prefs`) on the
+  `User` model (all defaulted → no migration; secrets stay out of `User.public()`).
+  Tight avatar validator (data-url png/webp/jpeg only, magic-byte sniff, ≤64 KB,
+  browser pre-resizes to 256² WebP). Endpoints `GET/PUT /api/account/me`,
+  `PUT /api/me/avatar` (env-managed admins rejected 400).
+- **W3 Sessions + access policy** — short-lived HS256 ACCESS token now carries `sid`
+  (128-bit) + `tv` (token_version); a backend-agnostic **`SessionStore`**
+  (`stores/sessions.py` over the KVStore — survives `_wire()` rebuilds) enforces
+  idle/absolute/revocation in the async `require_auth` (NOT the sync `verify()` hot
+  path). Refresh-token rotation + replay/theft detection. Token policy on Preferences
+  (`access_ttl`/`idle_timeout`/`absolute_lifetime`/`refresh_ttl`/`sudo_reauth_window`
+  + notify toggles). `require_fresh_auth(window)` step-up gate. Endpoints
+  `POST /api/auth/{refresh,reauth}`, `GET /api/sessions`,
+  `POST /api/sessions/{sid}/revoke`, `POST /api/sessions/revoke-others`, admin
+  `GET /api/admin/sessions`, `POST /api/admin/sessions/{sid}/revoke`,
+  `POST /api/admin/users/{username}/revoke-all`; `/api/auth/logout` revokes the
+  current sid; session created at all three cookie-set sites (login / mfa-verify /
+  sso-callback).
+- **W4 Settings IA consolidation** — a two-scope (Personal Account / Organization)
+  Settings tree in one left rail; Users/Security/SSO + the new Profile/Account/
+  Preferences/Sessions pages moved INTO Settings sub-sections (RBAC-aware filtering);
+  the standalone admin rail group dropped; near-duplicate pages consolidated into
+  tabbed surfaces (Investigate folded into Chat as a segmented control — ONE chat
+  engine; Cost into Metrics; Standup into Overview) under ≤5 top-level nav groups.
+  Pure IA — no new endpoints.
+- **W5 Demo Mode + Experimental Settings** — a first-class **reversible tenant state**
+  (`off|seeded|live`) on `Preferences.demo`, NOT a fork. A `DemoPullConnector`
+  (`connectors/demo.py`) feeds seeded OCSF events (`engine/demo_generator.py` — fixed
+  fictional org + diurnal-Poisson benign baseline + MITRE storylines) through the REAL
+  pipeline, but all writes land in a SEPARATE in-memory store and a deterministic mock
+  LLM (`engine/demo_runtime.py`) so demo is **$0, isolated, one-flip reversible**. FP
+  runs through the REAL `decide()` against a **sandboxed** AutoClosePolicy copy (live
+  policy untouched); NEEDS_HUMAN stays open (HITL showcase). Endpoints
+  `POST /api/demo/{enable,reset,disable}`, `GET /api/demo/status` (admin-gated);
+  amber `DemoBanner` + `SAMPLE` row badges + "(simulated)" cost tiles.
+- **W6 Source multi-feed** — `IndexPattern` promoted to a richer per-feed model (wire
+  key `config['index_patterns']` kept) with the new **`ignore`** role + per-feed
+  `query` / field-mapping / `message_field` / `severity_floor` / schedule, and the
+  overloaded `auto_correlate` split into `correlate` + `auto_investigate` with a
+  behavior-preserving migration. Per-feed durable cursor key (`{source.id}:{feed.id}`)
+  so a fast alerts feed and a slow events feed never skip (#4); `severity_floor` blocks
+  auto-forward but NEVER drops the candidate (#4); IGNORE excludes a sub-index from a
+  broad events pattern. Loose JSON, no migration; `/api/sources` round-trips it
+  verbatim.
+- **W7a Email — Resend + SES + templates** — `ResendChannel` (`notifications/resend.py`,
+  HTTPS API, idempotency key, retry-only-on-429/5xx) + an **SES** SMTP preset
+  (`email-smtp.{region}.amazonaws.com`, with a stdlib HMAC ladder deriving the SMTP
+  password from a raw IAM key pair) on the existing `NotificationChannel` SPI. A
+  stdlib **mustache-subset** template renderer (`notifications/templates.py`:
+  `{{var}}` auto-`html.escape`d, `{{{raw}}}` for trusted header HTML only,
+  `header_safe`/`text_safe` strip CRLF/newlines) with 5 preloaded operator-overridable
+  templates (`case.new`/`case.escalation`/`case.resolved`/`digest.daily`/`test`);
+  `POST /api/notifications/preview?trigger=` server-side renders a sample case
+  (escaping authoritative). Deterministic email threading headers.
+- **W7b Per-user customization** — a two-store cascade: org `Preferences` +
+  per-user **`UserPrefsStore`** (`stores/user_prefs.py` over the KVStore, keyed by
+  user, `'default'` when auth off; no new index). Personal **saved views**, per-table
+  **column state**, **terminology** overrides, and light/dark/system **theme**.
+  Endpoints `GET /api/prefs/effective` (merged cascade), `GET/PUT /api/prefs/user`,
+  `GET/PUT /api/prefs/org` (admin), `GET/POST /api/views`, `PUT /api/prefs/user/tables/
+  {table_id}`, `GET/PUT /api/terminology` (PUT admin).
+- **W7c UX — command palette + global search + bulk actions + audit viewer** — a
+  Cmd-K command palette + a global search surface (`GET /api/search`), multi-select
+  bulk case actions, and an audit-log viewer (`GET /api/audit`).
 
 **Done — the 7-wave SOC overhaul (W1–W7; commits since `91f8616`):**
 - **W1 Identity** — persisted **multi-user** (`stores/users.py` over the KV doc store,

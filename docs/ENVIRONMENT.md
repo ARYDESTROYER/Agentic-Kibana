@@ -8,8 +8,10 @@ pain, so they are documented separately.
 > removed in the UI overhaul) are the primary artifacts; the Kibana plugin is
 > **archived** (`archive/kibana-plugin/`). The suite's own state runs on a
 > **selectable backend** (Elasticsearch, PostgreSQL, or SQLite). Optional auth
-> (RBAC/MFA/SSO) is **DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on. See
-> `COMPATIBILITY.md` for the full matrix.
+> (RBAC/MFA/SSO + **server-enforced sessions** with idle/absolute/revocation and
+> refresh rotation) is **DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on.
+> A reversible, $0 **Demo Mode** populates the product with synthetic data without
+> any source wiring (see `DEMO.md`). See `COMPATIBILITY.md` for the full matrix.
 
 ---
 
@@ -54,7 +56,7 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **649 tests**
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. **772 tests**
   green is the primary correctness gate (auth DEFAULT OFF, so the suite runs
   unauthenticated). The **SQL state backend is tested offline
   on SQLite** (`sqlalchemy`+`aiosqlite`); `asyncpg`/`pgvector` are imported lazily,
@@ -64,7 +66,10 @@ plugin zips are built.
   cd webui && npm install && npm run build   # = tsc --noEmit && vite build
   ```
   The clean `tsc + vite` build (a `dist/` bundle) **is the check** here — there is
-  no browser to render it in this sandbox.
+  no browser to render it in this sandbox. A dev-only **Vitest** harness
+  (`npm run test`, **86 tests**) covers render/regression of key surfaces (Settings,
+  Demo Mode, command palette, customization) and runs in the CI gate. **Zero new
+  runtime deps** were added in Round 2.
 - **Plugin (legacy):** builds fully. Verify **statically**: `tsc --noEmit` clean,
   `unzip -l` shows `target/public/tlsocAgenticTriage.plugin.js`, manifest
   `kibanaVersion` correct, `grep -c tlsoc-backend` in the browser bundle = 0.
@@ -154,20 +159,37 @@ unprefixed backend vars, so the suite's `.env` cannot clash with the host stack'
 | `TLSOC_REDIS_URL` | `REDIS_URL` | enrichment cache (degrades to in-memory) |
 | `TLSOC_LOG_LEVEL` | `LOG_LEVEL` | backend log level |
 | `TLSOC_AUTH_ENABLED` | `AUTH_ENABLED` | **DEFAULT OFF.** `true` turns on login + 6-role RBAC + MFA/SSO and (on first run, no users) seeds **Admin / Admin@123** (super_admin). Leaving it unset preserves the no-auth "old version" + the offline test path. |
-| `TLSOC_AUTH_JWT_SECRET` | `AUTH_JWT_SECRET` | HS256 signing secret for session JWTs (auto-generated per process if unset → tokens invalidated on restart; set it in prod for stable sessions). |
-| `TLSOC_AUTH_TOKEN_TTL` | `AUTH_TOKEN_TTL` | session token lifetime (seconds); optional. |
-| `TLSOC_OIDC_GOOGLE_CLIENT_ID` / `TLSOC_OIDC_GOOGLE_CLIENT_SECRET` | `OIDC_GOOGLE_CLIENT_ID` / `OIDC_GOOGLE_CLIENT_SECRET` | Google SSO (OIDC) — server-side code-exchange creds. |
-| `TLSOC_OIDC_MICROSOFT_CLIENT_ID` / `TLSOC_OIDC_MICROSOFT_CLIENT_SECRET` | `OIDC_MICROSOFT_CLIENT_ID` / `OIDC_MICROSOFT_CLIENT_SECRET` | Microsoft/Entra SSO (OIDC). |
-| `TLSOC_OIDC_GENERIC_*` | `OIDC_GENERIC_*` | generic OIDC provider (issuer/client-id/secret); group→role provisioning. |
-| `TLSOC_SMTP_HOST` / `TLSOC_SMTP_PORT` / `TLSOC_SMTP_USER` / `TLSOC_SMTP_PASSWORD` | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` | email-notification SMTP creds (stdlib SMTP; 13 provider presets in the UI). |
-| `TLSOC_SMTP_FROM` / `TLSOC_SMTP_TLS` | `SMTP_FROM` / `SMTP_TLS` | sender + STARTTLS/SSL toggle for email notifications. |
+| `TLSOC_AUTH_JWT_SECRET` | `AUTH_JWT_SECRET` | HS256 signing secret for the session/access JWTs (auto-generated per process if unset → **all sessions invalidated on restart**; set a stable 32+ byte value in prod, e.g. `openssl rand -hex 32`, so sessions survive restarts). |
+| `TLSOC_AUTH_TOKEN_HOURS` | `AUTH_TOKEN_HOURS` | session-cookie / access-token lifetime in **hours** (default `12`). NOTE: the *richer* session policy below (idle / absolute / refresh / step-up) is **UI-editable Preferences**, not env. |
+| `TLSOC_AUTH_COOKIE_SECURE` | `AUTH_COOKIE_SECURE` | set `true` behind TLS so the session cookie is HTTPS-only (default `false`). |
+| `TLSOC_AUTH_ADMIN_USERNAME` / `TLSOC_AUTH_ADMIN_PASSWORD` | `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_PASSWORD` | optional env single-admin (hashed in memory at boot, never stored; granted super_admin) — separate from the auto-seeded `Admin/Admin@123`. |
+| `TLSOC_MFA_OBFUSCATION_KEY` | `MFA_OBFUSCATION_KEY` | obfuscation key for per-user TOTP secrets at rest (blank → derived from `AUTH_JWT_SECRET`; stdlib, not a KMS). |
+| `TLSOC_SSO_CLIENT_SECRETS` | `SSO_CLIENT_SECRETS` | JSON map `provider_id → client_secret` for OIDC SSO (Google / Microsoft / generic); the rest of each provider (issuer / client-id / redirect / group→role) is configured in **Settings**. May also be pushed at runtime via `POST /api/auth/sso/providers/{id}/secret`. Redirect/callback URI to register with the IdP: `<base-url>/api/auth/sso/callback`. |
+| `TLSOC_NOTIFICATION_SECRETS` | `NOTIFICATION_SECRETS` | JSON map `channel_id → {field: value}` seeding the per-channel **secret tier** at boot — covers the **SMTP password**, the **Resend API key**, the **SES IAM secret**, and Slack/Teams/webhook URLs + PagerDuty/Telegram tokens. The rest of each channel (provider/host/port/region/from/recipients) is **non-secret config set in Settings**. May also be pushed at runtime via `POST /api/notifications/channels/{id}/secret`. |
 
-> **Most auth/MFA/SSO/notification settings are configured in the UI**, not env.
+> **Most auth/MFA/SSO/notification/session settings are configured in the UI**, not
+> env. In particular, the **session & access policy** (idle timeout, absolute
+> lifetime, refresh TTL, step-up "sudo" re-auth window, new-device/terminate
+> notify toggles) lives in **UI-editable Preferences** (`session_policy`), enforced
+> by the async session check in `require_auth` — there are **no env vars** for those
+> values; only `AUTH_JWT_SECRET` + `AUTH_TOKEN_HOURS` above bootstrap them.
 > Channel + SSO **secrets** can also be pushed via the API into the in-memory secret
 > tier (`POST /api/notifications/channels/{id}/secret`,
-> `POST /api/auth/sso/providers/{id}/secret`) — durable only when set via env. The
-> env vars above are the durable/bootstrap path; the only one usually needed to turn
-> the platform "on" is `TLSOC_AUTH_ENABLED=true`.
+> `POST /api/auth/sso/providers/{id}/secret`) — durable only when set via env
+> (`TLSOC_NOTIFICATION_SECRETS` / `TLSOC_SSO_CLIENT_SECRETS`). The env vars above are
+> the durable/bootstrap path; the only one usually needed to turn the platform "on"
+> is `TLSOC_AUTH_ENABLED=true`.
+
+> **Email channels (Round 2):** alongside the stdlib **`email`** SMTP channel
+> (13 provider presets), the suite now ships a **`resend`** channel (Resend HTTPS
+> API — secret = the Resend API key) and an **SES** SMTP preset
+> (`email-smtp.{region}.amazonaws.com`; the channel's `region` + optional AWS
+> access-key-id are non-secret config, the SES SMTP/IAM secret is the channel
+> secret). All three put their credential in the **secret tier**
+> (`TLSOC_NOTIFICATION_SECRETS` at boot, or the runtime push above) — never in the
+> config store, never in the UI bundle. Email bodies use 5 preloaded,
+> operator-overridable **templates** rendered server-side with HTML-escaping of
+> every interpolated variable (#9).
 
 ### 2.4 Secrets model (read this)
 - **Global secrets** live in the deploy `.env` (`TLSOC_*`) / container environment —

@@ -130,9 +130,22 @@ class Poller:
         feed_state: list[tuple[str, Cursor, list[RawEvent]]] = []
         if feeds:
             for feed in feeds:
-                key = self._cursor_key(prefs, feed.id)
-                fcursor = await self._cursor_store.load_keyed(key)
-                fbatch = await self._source.poll_feed(prefs, feed, fcursor, cold_from)
+                # Per-feed exception isolation (#4): a single feed whose operator
+                # query_string / read fails must NOT abort the whole poll cycle and
+                # freeze every other feed's cursor. On failure we log + skip THIS feed
+                # only — it gets no feed_state entry, so its cursor is left untouched
+                # while healthy feeds proceed and advance their own cursors. Mirrors the
+                # whole-loop shield around poll_once in the run loop below.
+                try:
+                    key = self._cursor_key(prefs, feed.id)
+                    fcursor = await self._cursor_store.load_keyed(key)
+                    fbatch = await self._source.poll_feed(prefs, feed, fcursor, cold_from)
+                except Exception:  # noqa: BLE001 — isolate one feed's failure
+                    logger.exception(
+                        "poll_feed failed for feed %s; skipping it this tick (cursor untouched)",
+                        getattr(feed, "id", "?"),
+                    )
+                    continue
                 feed_state.append((key, fcursor, fbatch))
                 fetched.extend(fbatch)
                 new_events.extend(e for e in fbatch if not fcursor.should_skip(e))

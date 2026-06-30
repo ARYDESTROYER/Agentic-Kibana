@@ -124,12 +124,50 @@ the deterministic close/escalate decision and never alter it. See
   **OIDC SSO** for Google / Microsoft / generic providers via server-side code
   exchange + `userinfo` (no `id_token`-verify dependency), with group→role
   auto-provisioning.
+- **Account self-service + a redesigned login.** A two-column (brand hero + form)
+  login, and a self-service profile (display name, avatar, alternate email, timezone,
+  locale, personal prefs) on the user model via `GET/PUT /api/account/me` (env-managed
+  single-admin is read-only). Secrets stay excluded from the public projection.
+- **Sessions & access policy.** Short-lived access tokens carry a session id (`sid`)
+  + token version (`tv`); a backend-agnostic `SessionStore` (over the existing KV
+  layer, survives restarts) enforces idle / absolute / revocation in `require_auth`,
+  with refresh rotation + reuse-detection. Users see + revoke their own sessions
+  (`GET /api/sessions`, `POST /api/sessions/{sid}/revoke`,
+  `POST /api/sessions/revoke-others`); admins can force-terminate any
+  (`GET /api/admin/sessions`, `POST /api/admin/sessions/{sid}/revoke`). Sensitive
+  routes can demand a fresh step-up (`POST /api/auth/reauth`); the token policy
+  (TTL / idle / absolute / sudo window) is UI-editable.
+- **Demo Mode (reversible, isolated, $0).** A first-class tenant state
+  (`off` / `seeded` / `live`): synthetic OCSF events from a `DemoPullConnector` flow
+  through the REAL pipeline, but all writes land in a SEPARATE in-memory store with a
+  deterministic mock LLM, so the demo is free, isolated, and one-flip reversible.
+  Seeded scenarios backfill "old" cases plus a live simulator; FP still runs through
+  the real (but sandboxed-policy) `decide()`, NEEDS_HUMAN still stays open.
+  `POST /api/demo/{enable,reset,disable}`, `GET /api/demo/status` (admin-gated); demo
+  rows are namespaced + tagged so disable hard-deletes by run id.
 - **Notifications.** A pluggable `NotificationChannel` abstraction with **email**
-  (stdlib SMTP, 13 provider presets), plus **Slack / Microsoft Teams / webhook /
-  PagerDuty / Telegram** channels. Per-condition triggers (create / verdict-change /
-  escalate / close) with dedup, rate-limiting, and digest batching; sends are
-  fire-and-forget *after* the deterministic decision + save (never inside it), and
-  channel secrets live in the secret tier.
+  (stdlib SMTP, 13 provider presets, plus an **Amazon SES** preset that can derive
+  SMTP creds from a raw IAM key pair, and a **Resend** HTTPS-API channel), plus
+  **Slack / Microsoft Teams / webhook / PagerDuty / Telegram** channels.
+  Operator-overridable **email templates** (5 preloaded — `case.new` / `case.escalation`
+  / `case.resolved` / `digest.daily` / `test`) rendered by a tiny stdlib
+  mustache-subset renderer with hard UNTRUSTED-escaping + header-injection guards;
+  server-side preview via `POST /api/notifications/preview`. Per-condition triggers
+  (create / verdict-change / escalate / close) with dedup, rate-limiting, and digest
+  batching; sends are fire-and-forget *after* the deterministic decision + save (never
+  inside it), and channel secrets live in the secret tier.
+- **Per-user customization.** A two-store model — org **Preferences** + a per-user
+  `UserPrefsStore` (over the existing KV layer, no new index) — backs **saved views**,
+  per-table column state, **terminology** overrides (relabel "case" → "incident", etc.),
+  and a personal light / dark / system **theme**, resolved through a merged cascade
+  (`GET /api/prefs/effective`). Routes: `GET/PUT /api/prefs/{user,org}`,
+  `GET/POST/PUT/DELETE /api/views` (+ `/clone`), `GET/PUT /api/terminology` (PUT admin).
+- **Command palette, global search, bulk actions, audit viewer.** A Cmd/Ctrl-K
+  command palette; a cross-entity **global search** (`GET /api/search`) over cases /
+  sources / pages; **bulk case actions** (`POST /api/cases/bulk`) that run each id
+  through the EXACT single-case human action path (`_perform_case_action`) — never
+  `decide()` — audited per id and partial-failure tolerant; and an **audit viewer**
+  (`GET /api/audit`) over the append-only trail.
 - **Two-axis case taxonomy + custom case IDs.** Lifecycle **status**
   (`new` / `investigating` / `escalated` / `on_hold` / `resolved`, plus the retained
   `open` / `needs_human` / `closed`) and analyst **disposition**
@@ -138,11 +176,16 @@ the deterministic close/escalate decision and never alter it. See
   `case_manager.decide()` is **byte-identical** — the taxonomy is an additive layer.
   A configurable `case_id_format` template (e.g. `CASE-2026-000123`) with a KV
   sequence and a live preview gives human-facing case numbers.
-- **Multi-source correlation + Auto-Correlate toggles.** An **Auto-Correlate**
-  switch per source *and* per sub-source (index pattern); an opt-in **cross-source
+- **Multi-source correlation + per-feed source config.** An opt-in **cross-source
   correlation** pass links RELATED cases that share an entity (IP / host / user /
-  file hash / domain) without forcing a merge (1:1 cluster→case preserved).
-  Per-source field-mapping overrides and per-connector contextual setup help.
+  file hash / domain) without forcing a merge (1:1 cluster→case preserved). Each
+  pull source can declare multiple **feeds** (index patterns) with a role —
+  `events` (correlate then triage), `alerts` (auto-investigate), or `ignore` (skip) —
+  plus per-feed `correlate` / `auto_investigate` switches, a connector-native query
+  filter, a field-mapping override, a severity floor, and an **independent durable
+  cursor** so a fast alerts feed and a slow events feed never skip each other (#4).
+  A severity floor demotes auto-forwarding but **never drops events** (#4). Plus
+  per-connector contextual setup help.
 - **Playbook automation + threat context.** A **run-a-playbook** action
   re-investigates a case with a chosen playbook injected as context (recommend-only,
   #3-safe); **threshold automation** matches cases after the decision and may tag /
@@ -150,9 +193,15 @@ the deterministic close/escalate decision and never alter it. See
   sets status directly**. A **threat-context** panel assembles IOC reputation, a
   bundled MITRE ATT&CK corpus (697 techniques), and related cases (fail-open); a
   resolved-case → RAG knowledge loop lets future investigations learn from closures.
-- **Consolidated Settings.** A single Settings surface organised into 13 sections
-  across 4 nav groups (`GET /api/settings/schema`) covering every Preferences
-  subtree and the admin areas (Users, RBAC, MFA, SSO, notifications, automation).
+- **Settings-centric information architecture.** A single Settings surface
+  (`GET /api/settings/schema`) is the home for nearly all configuration, organised
+  into two scopes — **Personal Account** (profile, account security, sessions,
+  preferences, notifications) and **Organization** (data sources, models, correlation
+  & cases, automation, notifications, security & SSO, knowledge, enrichment,
+  appearance/terminology, advanced) plus the admin areas (Users, RBAC, MFA, SSO).
+  Near-duplicate top-level pages were consolidated into tabbed surfaces and the rail
+  grouped into a handful of areas, with RBAC hiding sections the signed-in role can't
+  see. Everything rides `GET/PUT /api/settings` (deep-merge + validate).
 
 ## Quick start (deploy)
 
@@ -245,12 +294,14 @@ values.
 
 ## Status & verification
 
-Verified offline this cycle: **649 backend tests green** (fake/in-memory backends
+Verified offline this cycle: **772 backend tests green** (fake/in-memory backends
 + mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite) with
-a dev-only Vitest harness (27 tests). The seven-wave SOC overhaul (identity / RBAC /
-MFA / SSO, notifications, taxonomy + case-ID, multi-source correlation, playbook
-automation + threat context, consolidated Settings + UI) was **additive with zero
-new runtime dependencies** and left `case_manager.decide()` byte-identical.
+a dev-only Vitest harness (86 tests). Round 2 (login redesign + account self-service,
+sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources,
+Resend/SES + email templates, per-user customization + saved views + terminology +
+theme, and the command palette + global search + bulk actions + audit viewer) — like
+the seven-wave overhaul before it — was **additive with zero new runtime
+dependencies** and left `case_manager.decide()` byte-identical.
 Live-stack validation against a real SIEM is a deploy step. See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
 status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.

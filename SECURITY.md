@@ -352,7 +352,7 @@ the **client secret stays in the SECRET tier** (`Secrets.sso_client_secrets`, en
 never the config store). Login uses **server-side authorization-code exchange +
 the userinfo endpoint**, with `state`/`nonce` for CSRF/replay defence; IdP groups
 are provisioned onto the 6 roles. Register the redirect URI
-`<base-url>/api/auth/sso/callback` with the IdP (`DEPLOY.md` §9.3).
+`<base-url>/api/auth/sso/callback` with the IdP (`DEPLOY.md` §9.5).
 
 > **Hardening TODO — id_token signature verification.** To avoid adding a
 > JWKS/JWT-verify dependency, the current flow trusts the **server-side
@@ -360,6 +360,99 @@ are provisioned onto the 6 roles. Register the redirect URI
 > the `id_token`'s signature. This is safe given the confidential-client,
 > back-channel exchange, but a JWKS-based `id_token` signature + `aud`/`iss`/`nonce`
 > verification is a planned hardening step.
+
+### Sessions, revocation & the token-version model
+
+A valid JWT signature is necessary but **no longer sufficient** when auth is on. On
+login the suite mints a short-lived **access token** carrying a 128-bit `sid` and a
+per-user `token_version` (`tv`) claim, and registers a row in a backend-agnostic
+**`SessionStore`** (`stores/sessions.py`, a KV doc in the chosen state backend — no
+new index/table). `require_auth` (`api/deps.py`) does an **async** session check
+**after** the sync, I/O-free `verify()`: it loads the session by `sid` and rejects
+the request when the session is **missing, revoked, `tv`-stale, idle-expired**
+(`now > last_active + idle_timeout`), or **absolute-expired** (`now > created_at +
+absolute_lifetime`), bumping `last_active` lazily. The lifetimes are the
+operator-tunable `session_policy` block (`DEPLOY.md` §9.4); they only **add**
+revocation/expiry semantics on top of the JWT signature, never weaken it.
+
+- **Revocation is real and immediate.** Revoking a single `sid`
+  (`POST /api/sessions/{sid}/revoke`, or admin `POST
+  /api/admin/sessions/{sid}/revoke`) marks the row revoked with `revoked_by` /
+  `revoke_reason`; the next request on that token 401s. **Revoke-all** for a user
+  (`POST /api/admin/users/{username}/revoke-all`, and the
+  `/api/sessions/revoke-others` self-service) **bumps the user's `token_version`**,
+  so *every* still-valid JWT carrying the old `tv` is rejected at once — a global
+  sign-out with no need to wait for the access token's `exp`. Logout revokes the
+  current `sid`. Every session create / revoke is **audited** (non-negotiable #2).
+- **Step-up (`require_fresh_auth`).** Sensitive operations can require a recent
+  authentication; a request whose `last_authn` is older than `sudo_reauth_window`
+  401s with `{code:'reauth_required'}`, prompting a re-auth (`POST /api/auth/reauth`,
+  which re-stamps `last_authn`).
+- **Survives restart, dies on secret loss.** Sessions are persisted, so they outlive
+  a backend restart and the internal `_wire()` rebuild — **provided
+  `TLSOC_AUTH_JWT_SECRET` is stable**. An ephemeral JWT secret still invalidates
+  every token on restart (the session rows load, but their JWTs no longer verify);
+  set a stable secret in `.env`.
+- **No-auth is unchanged.** When auth is OFF the whole session/step-up path is a
+  strict no-op (every principal is treated as `super_admin`, as before).
+
+### Refresh-token rotation & reuse (theft) detection
+
+`POST /api/auth/refresh` rotates the refresh token on every use: the presented token
+is matched against the session's stored **hash** (refresh tokens are stored
+**hashed**, never plaintext), a new token is minted, and the old hash is demoted to
+`refresh_prev_hash`. If a token is presented that matches an **already-rotated
+`refresh_prev_hash`**, that is treated as **theft** (a replay of a token that should
+have been discarded): the suite immediately **revokes every session for the user and
+bumps their `token_version`** (`revoke_all(..., reason="refresh_reuse_detected")`),
+audits a `refresh_reuse` event, best-effort notifies, and 401s. This bounds the
+damage of a leaked refresh token to a single use before the whole account's sessions
+are nuked.
+
+### Demo Mode isolation guarantees
+
+Demo Mode (`DEPLOY.md` §11.1) is **admin-gated** and engineered so synthetic data
+can **never** contaminate, cost, or alter a real deployment:
+
+- **Separate store.** Demo events flow through the *real* pipeline for fidelity, but
+  every demo write lands in a **throwaway in-memory store** built per-enable and
+  GC'd on disable, tagged with a unique `run_id`. A **write-guard** (`state.py`
+  `_write_guard`) asserts that a demo-tagged row only ever reaches the demo store and
+  a real row only ever reaches the real store — a mismatch raises, so the two can
+  never cross.
+- **Zero cost, deterministic.** While demo is active the LLM gateway uses a
+  deterministic **mock provider**; usage rows are `pricing_source='zero'` (the cost
+  page shows "(simulated)"), so a demo never spends a real token or hits a provider.
+- **The deterministic gate still rules (#3).** FP cases still run through the real
+  `engine/case_manager.decide()` against a **sandboxed `AutoClosePolicy` copy** — the
+  live policy is untouched and #3 is byte-identical; NEEDS_HUMAN stays open as an
+  HITL showcase.
+- **Real source untouched, fully reversible.** Demo gating happens **before** the
+  real `source.poll`, so the durable polling cursor (#4) is never advanced or
+  corrupted. `POST /api/demo/disable` **hard-deletes** all demo data by `run_id`
+  (cases/audit/usage/events) and flips the tenant back to `off` in one reversible
+  step.
+
+### Email-notification rendering: escaping & header-safety
+
+The 5 built-in (operator-overridable) email templates render through a tiny stdlib
+mustache-subset engine (`notifications/templates.py`) designed so a case field an
+attacker can influence (rule name, entity, message) can never break out of the
+email — the rendered body is still attacker-influenceable **data**:
+
+- **Auto-escaped by default.** `{{var}}` interpolations pass through `html.escape`,
+  so injected markup renders as inert text. The unescaped `{{{var}}}` form exists
+  **only** for trusted, operator-authored header HTML, never for case-derived values.
+- **Header-injection safe.** The Subject and every email header value go through
+  `header_safe()` (strips CR/LF + control chars, length-capped), closing the classic
+  CRLF header-injection vector; the synthetic `Message-Id` / threading headers are
+  deterministic and case-derived. Untrusted vars in the plain-text part go through
+  `text_safe()` (newlines stripped).
+- **Channel isolation (#3).** A channel's `send()` never raises and never blocks or
+  alters triage — delivery is fire-and-forget **after** the case is saved, so a
+  failing email cannot change a case's status. The channel **secret** (SMTP password
+  / SES IAM secret / Resend API key) stays in the SECRET tier and never appears in
+  the audited `SendResult.detail`.
 
 ### Hardening notes (middleware)
 
@@ -380,11 +473,24 @@ are provisioned onto the 6 roles. Register the redirect URI
   `trust_forwarded_for=True` (behind a known proxy); otherwise it keys on the
   socket peer to prevent header-spoofed bucket rotation.
 
+> **Hardening TODO — session-store cardinality.** `SessionStore` keeps sessions as a
+> single JSON list in the KV doc (read-modify-write); this is correct and durable but
+> O(n) per check at high session counts. Prune revoked/expired rows (or move to
+> per-`sid` keys / a Redis hot path) for a large, long-lived multi-user deployment.
+
+> **Hardening TODO — encrypted secret store.** Wizard / per-source / runtime-pushed
+> secrets (including session refresh material is *not* affected — refresh tokens are
+> stored hashed) remain in the **in-memory** secret tier and must be re-set after a
+> restart unless supplied via `.env`. An optional persisted **envelope-encrypted**
+> secret store is planned; until then `.env` is the durable path. (Also see the MFA
+> obfuscation and `id_token`-verification TODOs above.)
+
 ### Notification-channel secrets
 
-Notification delivery (email/Slack/Teams/webhook/PagerDuty/Telegram) keeps each
-channel's credential (SMTP password / webhook URL / API token) in the **SECRET
-tier** (`Secrets.notification_secrets`, env `TLSOC_NOTIFICATION_SECRETS` or runtime
+Notification delivery (email via SMTP / SES / Resend, Slack/Teams/webhook/
+PagerDuty/Telegram) keeps each channel's credential (SMTP password, SES IAM secret,
+Resend API key, webhook URL, or API token) in the **SECRET tier**
+(`Secrets.notification_secrets`, env `TLSOC_NOTIFICATION_SECRETS` or runtime
 `POST /api/notifications/channels/{id}/secret`) — never the config store; the UI
 shows `configured ✓` only. Channels fire **fire-and-forget after** a case is
 saved, so a failing/slow channel never blocks or alters triage, and a

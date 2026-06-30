@@ -11,11 +11,15 @@ export interface RiskGaugeProps {
   className?: string;
 }
 
-/** Severity band for a clamped 0-100 score (matches RiskBadge / Overview bands). */
+/**
+ * Severity band for a clamped 0-100 score (matches RiskBadge / Overview bands).
+ * The gauge is 4-band by design: it intentionally collapses the canonical info
+ * (<15) band into low, so its single non-canonical boundary is medium >= 35.
+ */
 function bandOf(score: number): 'critical' | 'high' | 'medium' | 'low' {
   if (score >= 80) return 'critical';
   if (score >= 60) return 'high';
-  if (score >= 33) return 'medium';
+  if (score >= 35) return 'medium';
   return 'low';
 }
 
