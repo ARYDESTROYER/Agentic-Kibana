@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -475,6 +475,57 @@ class CaseIdFormatConfig(BaseModel):
         if v < 0:
             raise ValueError("seq_start must be >= 0")
         return v
+
+
+class CustomizationConfig(BaseModel):
+    """ORG-level pervasive-customization defaults (Wave 7, admin-edited).
+
+    This is the ORG side of the two-store customization model: the defaults every
+    user inherits unless they override them in their PERSONAL UserPrefs bucket. The
+    cascade resolver merges ORG ← USER (a user override always wins). Admin-only via
+    the dedicated ``/api/prefs/org`` + ``/api/terminology`` routes (and the settings
+    PUT). All free-text is PLAIN DATA rendered by the UI — a terminology label or a
+    saved-view name is NEVER interpolated unfenced into an LLM prompt (#9).
+
+    * ``terminology`` — label overrides, e.g. ``{"case": "incident", "cases":
+      "incidents"}``. The UI ``t(key)`` helper falls back to the built-in default
+      string for any key not present here. Bounded per-key + total size (below).
+    * ``default_saved_views`` — org-shared saved views (the operator's curated list
+      configurations); a user may clone one into their personal set.
+    * ``default_theme`` — the org default colour mode for a user who has not chosen
+      their own (a user's ``UserPrefs.theme_mode`` overrides this).
+    * ``default_pinned_view_ids`` — org-default pinned (quick-access) saved-view ids.
+    """
+
+    model_config = {"protected_namespaces": ()}
+
+    terminology: dict[str, str] = Field(default_factory=dict)
+    default_saved_views: list[dict[str, Any]] = Field(default_factory=list)
+    default_theme: Literal["light", "dark", "system"] = "system"
+    default_pinned_view_ids: list[str] = Field(default_factory=list)
+
+    # Caps so the config doc stays small + a terminology label can't smuggle a huge
+    # blob (it is plain data, but still bounded — #9/#10 discipline).
+    _MAX_TERM_KEYS: ClassVar[int] = 200
+    _MAX_TERM_LEN: ClassVar[int] = 120
+
+    @field_validator("terminology")
+    @classmethod
+    def _check_terminology(cls, v: dict[str, str]) -> dict[str, str]:
+        if not v:
+            return {}
+        if len(v) > 200:
+            raise ValueError("too many terminology overrides (max 200)")
+        out: dict[str, str] = {}
+        for key, val in v.items():
+            k = str(key).strip()
+            sval = str(val)
+            if not k:
+                continue
+            if len(k) > 120 or len(sval) > 120:
+                raise ValueError("terminology key/value too long (max 120 characters)")
+            out[k] = sval
+        return out
 
 
 class BrandingConfig(BaseModel):
@@ -1418,6 +1469,12 @@ class Preferences(BaseModel):
     )
     # Operator-customisable branding/appearance (org logo + name + accent + theme).
     branding: BrandingConfig = Field(default_factory=BrandingConfig)
+    # ORG-level pervasive-customization defaults (Wave 7): terminology label
+    # overrides, org-shared saved views, org default theme. The ORG side of the
+    # two-store customization model — merged ORG ← USER by the cascade resolver.
+    # Admin-edited (settings PUT + the dedicated /api/prefs/org + /api/terminology
+    # routes). All free-text is plain data, never an LLM prompt input (#9).
+    customization: CustomizationConfig = Field(default_factory=CustomizationConfig)
     # Customisable human-facing case-ID nomenclature (F7). Default OFF → the UI
     # shows ``case_id`` exactly as before; enabling renders ``Case.case_number``.
     case_id_format: CaseIdFormatConfig = Field(default_factory=CaseIdFormatConfig)

@@ -32,6 +32,7 @@ import {
   Lock,
   MonitorSmartphone,
   Network,
+  Palette,
   Plus,
   RefreshCw,
   Save,
@@ -87,6 +88,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { BrandingEditor } from '@/soc/components/BrandingEditor';
+import { CustomizationSection } from '@/soc/components/CustomizationSection';
 import { NotificationsEditor } from '@/soc/components/NotificationsEditor';
 import { Can } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
@@ -112,6 +114,7 @@ type SectionId =
   | 'profile'
   | 'account_security'
   | 'sessions'
+  | 'customization'
   // Configuration / triage / integrations / administration
   | 'general'
   | 'models'
@@ -178,6 +181,16 @@ const SECTION_GROUPS: SectionGroup[] = [
         blurb: 'Where you are signed in, and your recent account activity.',
         icon: MonitorSmartphone,
         keywords: ['sessions', 'devices', 'activity', 'sign out', 'revoke', 'login history'],
+      },
+      {
+        // No perm → every signed-in user sets their OWN theme + manages their own
+        // saved views. The org-default (terminology + org views) editors INSIDE this
+        // section self-gate to admins via <Can>.
+        id: 'customization',
+        name: 'Appearance & customization',
+        blurb: 'Your theme, saved views, and (admin) terminology + org defaults.',
+        icon: Palette,
+        keywords: ['theme', 'dark mode', 'light mode', 'appearance', 'saved views', 'views', 'terminology', 'labels', 'rename', 'customize', 'customization', 'columns'],
       },
     ],
   },
@@ -2275,6 +2288,10 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
             <BrandingEditor readOnly={readOnly} />
           </Can>
         );
+      case 'customization':
+        // No section-level <Can> — every signed-in user manages their own theme +
+        // saved views; the admin-only org editors self-gate inside the component.
+        return <CustomizationSection />;
       case 'advanced':
         return (
           <Can resource="settings" action="manage" fallback={restricted(SlidersHorizontal, 'Advanced settings')}>

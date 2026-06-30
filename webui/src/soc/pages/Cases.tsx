@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 
 import { api } from '@/lib/api';
-import type { Case, CaseActionInput } from '@/lib/types';
+import type { Case, CaseActionInput, SavedView } from '@/lib/types';
 import { humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -55,7 +55,16 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile } from '@/soc/components/KpiTile';
 import { Stagger } from '@/soc/components/Stagger';
-import { DataTable, type DataTableColumn, type SortState } from '@/soc/components/DataTable';
+import {
+  DataTable,
+  type DataTableColumn,
+  type SortState,
+  type SortDir,
+  type ColumnState,
+} from '@/soc/components/DataTable';
+import { ColumnsMenu, type ColumnMenuItem } from '@/soc/components/ColumnsMenu';
+import { SavedViewsBar } from '@/soc/components/SavedViewsBar';
+import { usePrefs } from '@/soc/prefs';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
@@ -78,6 +87,11 @@ import { CaseDetail } from '@/soc/pages/CaseDetail';
 /* --------------------------------------------------------------- helpers --- */
 
 const LIST_LIMIT = 200;
+
+/** Stable id for the Cases table's per-user column state (Wave 7). */
+const CASES_TABLE_ID = 'cases';
+/** The surface scope saved views on this page belong to. */
+const CASES_VIEW_SCOPE = 'cases';
 
 /** Sentinel for "any" in the single-select filters (Radix Select forbids ""). */
 const ANY = '__any__';
@@ -299,6 +313,51 @@ function countActiveFilters(f: CaseFilters): number {
   );
 }
 
+/* --------------------------------------------------- saved-view (de)serialize */
+
+/** Serialize the current filters into a saved-view `filters` bag (Wave 7). */
+function filtersToView(f: CaseFilters): Record<string, unknown> {
+  return {
+    search: f.search,
+    status: f.status,
+    disposition: f.disposition,
+    severity: f.severity,
+    assignee: f.assignee,
+    timeRange: f.timeRange,
+    relatedOnly: f.relatedOnly,
+  };
+}
+
+/** Hydrate filters from a saved-view `filters` bag, tolerating missing/extra keys. */
+function viewToFilters(raw: Record<string, unknown> | undefined): CaseFilters {
+  const r = raw ?? {};
+  const str = (v: unknown, fallback: string) =>
+    typeof v === 'string' && v ? v : fallback;
+  const tr = str(r.timeRange, 'all');
+  return {
+    search: typeof r.search === 'string' ? r.search : '',
+    status: str(r.status, ANY),
+    disposition: str(r.disposition, ANY),
+    severity: str(r.severity, ANY),
+    assignee: str(r.assignee, ANY),
+    timeRange: (['all', '24h', '7d', '30d'].includes(tr) ? tr : 'all') as TimeRange,
+    relatedOnly: r.relatedOnly === true,
+  };
+}
+
+/** Serialize a SortState into a saved-view `sort` token (e.g. '-updated_at'). */
+function sortToToken(s: SortState): string {
+  return `${s.dir === 'desc' ? '-' : ''}${s.id}`;
+}
+
+/** Parse a saved-view `sort` token back into a SortState (defaults sensibly). */
+function tokenToSort(token: string | undefined): SortState {
+  const t = (token || '').trim();
+  if (!t) return { id: 'updated_at', dir: 'desc' };
+  const dir: SortDir = t.startsWith('-') ? 'desc' : 'asc';
+  return { id: t.replace(/^-/, ''), dir };
+}
+
 /* ------------------------------------------------------------------- sort -- */
 
 type SortId =
@@ -372,6 +431,12 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
   const route = useRoute();
   const navigate = onNavigate ?? route.navigate;
   const initialStatus = initialStatusProp ?? route.opts?.status;
+
+  // Pervasive customization (Wave 7): terminology labels + saved views + per-table
+  // column state, all keyed to the caller (the 'default' bucket when auth is off).
+  const { t, tableColumns, updateTableColumns } = usePrefs();
+  const columnState = tableColumns(CASES_TABLE_ID) ?? {};
+  const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
 
   const [cases, setCases] = React.useState<Case[]>([]);
   const [total, setTotal] = React.useState(0);
@@ -512,6 +577,43 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
 
   const anyActive = countActiveFilters(filters) > 0;
 
+  /* ------------------------------------------------- saved views (Wave 7) -- */
+  // Apply a saved view's stored filter/sort onto the page (null → defaults).
+  const applySavedView = React.useCallback(
+    (view: SavedView | null) => {
+      if (!view) {
+        setFilters(EMPTY_FILTERS);
+        setSort({ id: 'updated_at', dir: 'desc' });
+        setActiveViewId(null);
+        return;
+      }
+      setFilters(viewToFilters(view.filters));
+      setSort(tokenToSort(view.sort));
+      setActiveViewId(view.id);
+    },
+    [],
+  );
+
+  // Capture the page's CURRENT config for the "Save view" affordance.
+  const captureCurrent = React.useCallback(
+    () => ({ filters: filtersToView(filters), sort: sortToToken(sort), columns: null }),
+    [filters, sort],
+  );
+
+  // Clear all filters AND any applied saved view (the "Clear" affordances).
+  const clearAll = React.useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    setActiveViewId(null);
+  }, []);
+
+  // Persist a new column state (the table re-applies it via `columnState`).
+  const handleColumnState = React.useCallback(
+    (next: ColumnState) => {
+      void updateTableColumns(CASES_TABLE_ID, next);
+    },
+    [updateTableColumns],
+  );
+
   /* ----------------------------------------------------------- columns ---- */
   const columns: DataTableColumn<Case>[] = [
     {
@@ -519,6 +621,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       header: 'Case ID',
       sortable: true,
       width: '9.5rem',
+      lockVisible: true,
       cell: (c) => (
         <div className="flex items-center gap-1.5">
           <CaseHoverCard case={c}>
@@ -704,12 +807,21 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     },
   ];
 
+  // Column-menu descriptors (plain-text labels; the actions column is hideable but
+  // the locked case_id column always shows). Derived from the columns above so the
+  // menu and the table never drift.
+  const columnMenuItems: ColumnMenuItem[] = columns.map((c) => ({
+    id: c.id,
+    label: typeof c.header === 'string' ? c.header : c.id,
+    lockVisible: c.lockVisible,
+  }));
+
   /* ------------------------------------------------------------- render ---- */
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Triage"
-        title="Cases"
+        title={t('cases', 'Cases')}
         description="Audited, human-reviewable triage cases."
         icon={Briefcase}
         actions={
@@ -738,7 +850,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         itemClassName="h-full"
       >
         <KpiTile
-          label="Total cases"
+          label={`Total ${t('cases', 'Cases')}`}
           value={total.toLocaleString()}
           icon={Briefcase}
           accent="primary"
@@ -765,6 +877,21 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
           accent="critical"
         />
       </Stagger>
+
+      {/* Saved views + column customization (Wave 7) */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SavedViewsBar
+          scope={CASES_VIEW_SCOPE}
+          activeViewId={activeViewId}
+          onApply={applySavedView}
+          getCurrent={captureCurrent}
+        />
+        <ColumnsMenu
+          columns={columnMenuItems}
+          state={columnState}
+          onChange={handleColumnState}
+        />
+      </div>
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
@@ -900,7 +1027,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setFilters(EMPTY_FILTERS)}
+          onClick={clearAll}
           disabled={!anyActive}
         >
           <X className="mr-1.5 size-4" aria-hidden />
@@ -951,6 +1078,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       <DataTable<Case>
         ariaLabel="Cases"
         columns={columns}
+        columnState={columnState}
         rows={pageRows}
         getRowId={(c) => c.case_id}
         sort={sort}
@@ -980,7 +1108,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
             }
             action={
               cases.length > 0 ? (
-                <Button variant="outline" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
+                <Button variant="outline" size="sm" onClick={clearAll}>
                   <X className="mr-1.5 size-4" aria-hidden />
                   Clear filters
                 </Button>

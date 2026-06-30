@@ -22,11 +22,13 @@ import type {
   CasesResponse,
   ChatResponse,
   ChatTurn,
+  ColumnState,
   ConnectionTest,
   ConnectorManifest,
   ConnectorsResponse,
   DemoConfig,
   DemoStatus,
+  EffectivePrefs,
   FeedbackStats,
   HealthResponse,
   LoginResult,
@@ -42,9 +44,11 @@ import type {
   NotificationTemplate,
   NotificationTestResult,
   NotifyCaseResult,
+  OrgCustomization,
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
+  SavedView,
   Proposal,
   ProposalsResponse,
   RagDocument,
@@ -65,9 +69,11 @@ import type {
   SourcesResponse,
   SourceUpsert,
   StandupResponse,
+  Terminology,
   ThreatContextPanel,
   UsageSummary,
   User,
+  UserPrefs,
   UsersResponse,
 } from './types';
 
@@ -565,6 +571,67 @@ export const api = {
   // ---- Branding (PUBLIC; white-label) ---------------------------------- //
   getBranding: () => request<Branding>('GET', 'branding'),
   putBranding: (branding: Branding) => request<Branding>('PUT', 'branding', { body: branding }),
+
+  // ---- Pervasive customization (Round-2 Wave 7) ------------------------ //
+  // Two-store model: ORG defaults on Preferences.customization (admin-only PUT) +
+  // PERSONAL prefs in the per-user UserPrefsStore (the 'default' bucket when auth
+  // is off). The cascade resolver merges ORG ← USER. The PrefsContext hydrates once
+  // from `prefs.effective` on mount. Every terminology/view value is plain data (#9).
+  prefs: {
+    // The merged ORG←USER cascade for the caller (hydrated once by PrefsContext).
+    effective: () => request<EffectivePrefs>('GET', 'prefs/effective'),
+    // The caller's raw PERSONAL bucket / a partial patch of it (theme/pins/…). NOT
+    // admin-gated — each user edits only their own bucket.
+    getUser: () => request<UserPrefs>('GET', 'prefs/user'),
+    putUser: (patch: Partial<UserPrefs>) =>
+      request<UserPrefs>('PUT', 'prefs/user', { body: patch }),
+    // The ORG defaults — readable by any signed-in user (the cascade needs them),
+    // writable ADMIN-ONLY (server-gated; may 403).
+    getOrg: () => request<OrgCustomization>('GET', 'prefs/org'),
+    putOrg: (org: OrgCustomization) =>
+      request<OrgCustomization>('PUT', 'prefs/org', { body: org }),
+    // Persist ONE table's column state (show/hide/reorder/width). An all-empty body
+    // clears the override (reverts to the table's built-in default columns).
+    tables: {
+      put: (tableId: string, state: ColumnState) =>
+        request<{ table_id: string; state: ColumnState }>(
+          'PUT',
+          `prefs/user/tables/${encodeURIComponent(tableId)}`,
+          { body: state },
+        ),
+    },
+  },
+
+  // ---- Saved views (personal + org-shared) ----------------------------- //
+  // `list` returns the caller's PERSONAL views UNION the ORG-shared ones (the
+  // latter carry `shared:true`). create/update/remove act on PERSONAL views only;
+  // `clone` copies any view (org or personal) into the caller's personal set.
+  views: {
+    list: () => request<{ views: SavedView[]; count: number }>('GET', 'views'),
+    create: (view: {
+      name: string;
+      scope?: string;
+      shared?: boolean;
+      filters?: Record<string, unknown>;
+      sort?: string;
+      columns?: string[] | null;
+    }) => request<SavedView>('POST', 'views', { body: view }),
+    update: (id: string, patch: Partial<Omit<SavedView, 'id'>>) =>
+      request<SavedView>('PUT', `views/${encodeURIComponent(id)}`, { body: patch }),
+    remove: (id: string) =>
+      request<{ ok: boolean; id: string }>('DELETE', `views/${encodeURIComponent(id)}`),
+    clone: (id: string) =>
+      request<SavedView>('POST', `views/${encodeURIComponent(id)}/clone`),
+  },
+
+  // ---- Terminology (ORG label overrides) ------------------------------- //
+  // Readable by any signed-in user (the UI `t(key)` helper needs it); PUT is
+  // ADMIN-ONLY (server-gated; may 403). All labels are plain data (#9).
+  terminology: {
+    get: () => request<{ terminology: Terminology }>('GET', 'terminology'),
+    put: (terminology: Terminology) =>
+      request<{ terminology: Terminology }>('PUT', 'terminology', { body: { terminology } }),
+  },
 
   // ---- Metrics + feedback analytics ------------------------------------ //
   getMetrics: (windowHours = 24) =>

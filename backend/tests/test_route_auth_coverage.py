@@ -15,6 +15,7 @@ from app.api.deps import (
     _PUBLIC_INGEST_RE,
     PUBLIC_API_PATHS,
     PUBLIC_GET_PATHS,
+    require_admin,
     require_auth,
 )
 from app.main import app
@@ -142,6 +143,49 @@ def test_wave7_notification_routes_registered_and_not_public() -> None:
     ):
         assert expected in paths, f"missing Wave-7 notification route {expected}"
         assert expected not in PUBLIC_API_PATHS, f"{expected} must NOT be public"
+
+
+def test_wave7_customization_routes_registered_and_not_public() -> None:
+    # The Wave-7 pervasive-customization routes exist on the real app (so the coverage
+    # walk guards them) and none is public (deny-by-default; auth on requires a
+    # session for all of them).
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    for expected in (
+        "/api/prefs/effective",
+        "/api/prefs/user",
+        "/api/prefs/org",
+        "/api/prefs/user/tables/{table_id}",
+        "/api/views",
+        "/api/views/{view_id}",
+        "/api/views/{view_id}/clone",
+        "/api/terminology",
+    ):
+        assert expected in paths, f"missing Wave-7 customization route {expected}"
+        assert expected not in PUBLIC_API_PATHS, f"{expected} must NOT be public"
+
+
+def test_wave7_org_routes_are_admin_gated() -> None:
+    # The ORG-default writers (PUT /api/prefs/org + PUT /api/terminology) must carry
+    # the require_admin dependency — org defaults + terminology are an admin surface.
+    # The PERSONAL prefs writers must NOT (any signed-in user edits their own bucket).
+    routes = {
+        (frozenset(r.methods), r.path): r
+        for r in app.routes
+        if isinstance(r, APIRoute) and r.path.startswith("/api")
+    }
+
+    def _calls(path: str, method: str) -> set:
+        for (methods, p), r in routes.items():
+            if p == path and method in methods:
+                return _dependant_calls(r.dependant)
+        raise AssertionError(f"route {method} {path} not found")
+
+    assert require_admin in _calls("/api/prefs/org", "PUT")
+    assert require_admin in _calls("/api/terminology", "PUT")
+    # Personal prefs are NOT admin-gated (each user edits only their own bucket).
+    assert require_admin not in _calls("/api/prefs/user", "PUT")
+    assert require_admin not in _calls("/api/views", "POST")
+    assert require_admin not in _calls("/api/prefs/user/tables/{table_id}", "PUT")
 
 
 def test_wave5_demo_routes_registered_and_not_public() -> None:

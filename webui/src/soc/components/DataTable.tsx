@@ -31,6 +31,18 @@ import {
 
 export type SortDir = 'asc' | 'desc';
 
+/**
+ * Per-table column customization state (Wave 7). `order` is the ordered list of
+ * column ids the user arranged; `hidden` are the column ids they hid; `widths` is
+ * an optional column id → px width map. An empty/absent state renders the table's
+ * built-in default columns unchanged.
+ */
+export interface ColumnState {
+  order?: string[];
+  hidden?: string[];
+  widths?: Record<string, number>;
+}
+
 export interface SortState {
   /** Column id currently sorted by. */
   id: string;
@@ -54,6 +66,16 @@ export interface DataTableColumn<T> {
   align?: 'left' | 'center' | 'right';
   /** Fixed/min width hint (e.g. '12rem'). Applied as style.width on th/td. */
   width?: string | number;
+  /**
+   * When true (Wave 7 column customization), this column can never be hidden via
+   * the "Columns" menu (e.g. the primary id column). Defaults false.
+   */
+  lockVisible?: boolean;
+  /**
+   * A short, plain-text label for the "Columns" menu checklist (used when `header`
+   * is a non-string node). Falls back to a string `header`, else the column id.
+   */
+  menuLabel?: string;
 }
 
 export interface DataTableProps<T> {
@@ -96,6 +118,17 @@ export interface DataTableProps<T> {
   className?: string;
   /** Caption / aria-label for the table (a11y). */
   ariaLabel?: string;
+
+  // ---- Column customization (Wave 7; optional + back-compatible) --------- //
+  /**
+   * Controlled per-table column state (show/hide/reorder). When provided, the table
+   * applies `hidden` (drops those columns) and `order` (reorders them). Columns with
+   * `lockVisible` can never be hidden. Omitting this keeps the table's built-in
+   * default column order/visibility, unchanged. The user-facing control lives in the
+   * sibling `<ColumnsMenu>` (mounted in the page toolbar) which the page wires to
+   * PrefsContext + feeds back here.
+   */
+  columnState?: ColumnState;
 }
 
 const alignClass = (align?: 'left' | 'center' | 'right') =>
@@ -120,6 +153,35 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
   );
 }
 
+/**
+ * Resolve the DISPLAYED columns from the full column set + the user's column state:
+ * hidden ids dropped, then ordered by `order` (any column missing from `order`
+ * keeps its original relative position AFTER the ordered ones). Locked columns are
+ * never dropped even if `hidden` lists them.
+ */
+function resolveColumns<T>(
+  columns: DataTableColumn<T>[],
+  state?: ColumnState,
+): DataTableColumn<T>[] {
+  if (!state) return columns;
+  const hidden = new Set(state.hidden ?? []);
+  const order = state.order ?? [];
+  const visible = columns.filter((c) => c.lockVisible || !hidden.has(c.id));
+  if (!order.length) return visible;
+  const byId = new Map(visible.map((c) => [c.id, c] as const));
+  const out: DataTableColumn<T>[] = [];
+  for (const id of order) {
+    const c = byId.get(id);
+    if (c) {
+      out.push(c);
+      byId.delete(id);
+    }
+  }
+  // Any visible columns not named in `order` keep their original order, appended.
+  for (const c of visible) if (byId.has(c.id)) out.push(c);
+  return out;
+}
+
 export function DataTable<T>({
   columns,
   rows,
@@ -142,7 +204,14 @@ export function DataTable<T>({
   density = 'normal',
   className,
   ariaLabel,
+  columnState,
 }: DataTableProps<T>) {
+  // Resolve the displayed columns from the user's stored column state (Wave 7).
+  const displayColumns = React.useMemo(
+    () => resolveColumns(columns, columnState),
+    [columns, columnState],
+  );
+
   const selectedSet = React.useMemo(
     () => new Set(selected ?? []),
     [selected],
@@ -189,7 +258,7 @@ export function DataTable<T>({
     onSelectedChange(Array.from(next));
   };
 
-  const colCount = columns.length + (selectable ? 1 : 0);
+  const colCount = displayColumns.length + (selectable ? 1 : 0);
 
   // Pagination math.
   const showPager =
@@ -225,7 +294,7 @@ export function DataTable<T>({
                 />
               </TableHead>
             )}
-            {columns.map((col) => {
+            {displayColumns.map((col) => {
               const isActive = sort?.id === col.id;
               return (
                 <TableHead
@@ -281,7 +350,7 @@ export function DataTable<T>({
                     <Skeleton className="size-4 rounded" />
                   </TableCell>
                 )}
-                {columns.map((col) => (
+                {displayColumns.map((col) => (
                   <TableCell key={col.id} className={cn(cellPad, alignClass(col.align))}>
                     <Skeleton className="h-4 w-full max-w-[12rem]" />
                   </TableCell>
@@ -343,7 +412,7 @@ export function DataTable<T>({
                       />
                     </TableCell>
                   )}
-                  {columns.map((col) => (
+                  {displayColumns.map((col) => (
                     <TableCell
                       key={col.id}
                       style={col.width ? { width: col.width } : undefined}

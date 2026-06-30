@@ -74,6 +74,20 @@ SESSIONS_NS = "sessions"
 SESSIONS_KEY = "entries"
 SESSIONS_DOC_ID = "sessions"   # ES doc id within CONFIG_INDEX
 
+# Per-USER personal preferences (Wave 7: pervasive customization — saved views,
+# table column state, theme mode, last-used list state, pinned default views, a
+# misc prefs bag). Stored exactly like the operator MEMORY / agent PROPOSAL /
+# multi-USER / SESSION sets — ONE KV document (a single JSON object keyed by
+# user_id) under this namespace/key — so it needs NO new ES index / SQL table /
+# migration. The ES backend stores it as a doc in the existing CONFIG_INDEX; the
+# SQL backend uses the shared KV table. The ``default`` bucket is used as the
+# user_id when auth is OFF, so the no-auth profile still has personal prefs.
+USER_PREFS_NS = "user_prefs"
+USER_PREFS_KEY = "buckets"
+USER_PREFS_DOC_ID = "user_prefs"   # ES doc id within CONFIG_INDEX
+# The bucket key used when there is no authenticated principal (auth OFF).
+USER_PREFS_DEFAULT_BUCKET = "default"
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""

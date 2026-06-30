@@ -33,6 +33,9 @@ from ..constants import (
     SESSIONS_DOC_ID,
     SESSIONS_KEY,
     SESSIONS_NS,
+    USER_PREFS_DOC_ID,
+    USER_PREFS_KEY,
+    USER_PREFS_NS,
     USERS_DOC_ID,
     USERS_KEY,
     USERS_NS,
@@ -69,6 +72,8 @@ class EsKVStore(KVStore):
             return USERS_DOC_ID
         if namespace == SESSIONS_NS and key == SESSIONS_KEY:
             return SESSIONS_DOC_ID
+        if namespace == USER_PREFS_NS and key == USER_PREFS_KEY:
+            return USER_PREFS_DOC_ID
         return f"{namespace}:{key}"
 
     async def get(self, namespace: str, key: str) -> dict[str, Any] | None:

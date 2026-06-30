@@ -151,6 +151,11 @@ class AppState:
         # Agent-DRAFTED proposals awaiting human approval (HITL). Backed by the SAME
         # KV as the MEMORY store — no new index/table/migration.
         self.proposals = self._build_proposals()
+        # Per-USER personal preferences (Wave 7: pervasive customization — saved
+        # views, per-table column state, theme mode). Backed by the SAME KV as the
+        # MEMORY store — keyed by user_id, 'default' bucket when auth is off, no new
+        # index/table/migration. Merged ORG ← USER by the cascade resolver.
+        self.user_prefs = self._build_user_prefs()
         # Case-number sequence store (F7) over the SAME shared KV — no new index/table.
         self.case_seq = self._build_case_seq()
         self.rag = self._build_rag()
@@ -329,6 +334,14 @@ class AppState:
         from .stores.proposals import ProposalStore
 
         return ProposalStore(self._kv)
+
+    def _build_user_prefs(self):
+        """Construct the per-USER personal-preferences store (Wave 7) over the active
+        backend's KV (the same KV the MEMORY/USER stores use — works on ES + SQL, no
+        new index/table). Holds saved views, per-table column state, theme mode."""
+        from .stores.user_prefs import UserPrefsStore
+
+        return UserPrefsStore(self._kv)
 
     def _build_users(self):
         """Construct the multi-USER store over the active backend's KV (the same KV

@@ -588,6 +588,70 @@ class User(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Pervasive customization (Wave 7) — saved views, per-table column state, and a
+# per-user personal-preferences bag. ALL of this is operator/user-INFLUENCEABLE
+# config rendered as PLAIN data by the UI (#9): a SavedView name / filter, a
+# column id, a terminology label — none of it is ever interpolated unfenced into
+# an LLM prompt. Persisted backend-agnostically as ONE KV document keyed by
+# user_id (the same JSON-in-KV pattern as MemoryEntry/User) — no new index/table.
+# --------------------------------------------------------------------------- #
+class SavedView(BaseModel):
+    """A named, reusable list configuration (filters + sort + optional columns) for
+    a UI surface (``cases``/``sources``/…). ``owner`` records who created it;
+    ``shared`` marks an org-shared view (org defaults live on Preferences, but a
+    user may clone one into their personal set). ``filters`` is a small free-form
+    dict the frontend interprets; ``sort`` is e.g. ``"-created_at"``; ``columns``
+    optionally pins the visible/ordered column ids for the view. All free-text is
+    plain data (#9)."""
+
+    id: str = Field(default_factory=lambda: new_id("view-"))
+    name: str = ""
+    scope: str = "cases"                       # cases | sources | ... (UI surface)
+    owner: str = ""                            # username that created it ("" = system/org)
+    shared: bool = False                       # an org-shared view
+    filters: dict[str, Any] = Field(default_factory=dict)
+    sort: str = ""
+    columns: list[str] | None = None           # None → the surface default columns
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+
+
+class ColumnState(BaseModel):
+    """Per-table column layout the user customised: the ordered column ids, the
+    hidden column ids, and a ``widths`` map (column id → pixel width). A table that
+    has no stored ColumnState renders its built-in default — this only ever ADDS an
+    override, never removes a column from existence."""
+
+    order: list[str] = Field(default_factory=list)        # ordered visible-or-not column ids
+    hidden: list[str] = Field(default_factory=list)       # column ids the user hid
+    widths: dict[str, int] = Field(default_factory=dict)  # column id → px width
+
+
+class UserPrefs(BaseModel):
+    """One user's PERSONAL preferences bucket (Wave 7). Every field is additive +
+    defaulted so an empty/legacy bucket loads unchanged. Distinct from the ORG
+    defaults (which live on Preferences and are admin-edited): the cascade resolver
+    merges ORG ← USER so a user override always wins.
+
+    * ``saved_views`` — the user's personal saved views (+ clones of org/shared ones).
+    * ``tables`` — per-table column state, keyed by a stable ``table_id``.
+    * ``theme_mode`` — the user's light/dark/system preference (overrides the org default).
+    * ``last_list_state`` — last-used filter/sort per surface (so a page reopens where
+      the user left it), keyed by surface id; small free-form dicts.
+    * ``pinned_view_ids`` — saved-view ids the user pinned as quick-access defaults.
+    * ``misc`` — a small catch-all UI-prefs bag (density, etc.).
+    """
+
+    saved_views: list[SavedView] = Field(default_factory=list)
+    tables: dict[str, ColumnState] = Field(default_factory=dict)
+    theme_mode: Literal["light", "dark", "system"] = "system"
+    last_list_state: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    pinned_view_ids: list[str] = Field(default_factory=list)
+    misc: dict[str, Any] = Field(default_factory=dict)
+    updated_at: str = Field(default_factory=iso_now)
+
+
+# --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
 class Case(BaseModel):

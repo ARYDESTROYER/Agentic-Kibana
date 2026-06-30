@@ -21,6 +21,27 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
   });
 }
 
+// Radix UI primitives (DropdownMenu/Select/…) call Pointer Capture + scrollIntoView
+// on open; jsdom implements neither, so the menus never open in a test. Stub them as
+// no-ops so Radix-driven menus render their content under test. Additive + harmless
+// (real browsers provide these).
+if (typeof Element !== 'undefined') {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  if (!(Element.prototype as any).hasPointerCapture) {
+    (Element.prototype as any).hasPointerCapture = () => false;
+  }
+  if (!(Element.prototype as any).setPointerCapture) {
+    (Element.prototype as any).setPointerCapture = () => {};
+  }
+  if (!(Element.prototype as any).releasePointerCapture) {
+    (Element.prototype as any).releasePointerCapture = () => {};
+  }
+  if (!(Element.prototype as any).scrollIntoView) {
+    (Element.prototype as any).scrollIntoView = () => {};
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
 // Some EUI components observe element resize; jsdom lacks ResizeObserver.
 if (typeof window !== 'undefined' && !(window as any).ResizeObserver) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

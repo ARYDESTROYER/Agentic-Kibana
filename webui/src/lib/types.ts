@@ -1147,6 +1147,98 @@ export interface DemoStatus {
 }
 
 // --------------------------------------------------------------------------- //
+// Pervasive customization (Round-2 Wave 7) — /api/prefs/*, /api/views/*,
+// /api/terminology. Two-store model: ORG defaults on Preferences.customization
+// (admin-only PUT) + PERSONAL prefs in the per-user UserPrefsStore (the 'default'
+// bucket when auth is off). The cascade resolver merges ORG ← USER.
+//
+// EVERY terminology label / saved-view name / filter value here is user/operator-
+// INFLUENCEABLE config → render as PLAIN text (#9), never markup, never an LLM
+// prompt input.
+// --------------------------------------------------------------------------- //
+/** The user's colour-mode preference. 'system' follows the OS. */
+export type ThemeMode = 'light' | 'dark' | 'system';
+
+/**
+ * A named, reusable list configuration (filters + sort + optional columns) for a
+ * UI surface (e.g. 'cases'). `shared:true` marks an org-shared view (a user may
+ * clone one into their personal set). All free-text is plain data (#9).
+ */
+export interface SavedView {
+  id: string;
+  name: string;
+  /** The UI surface this view targets (e.g. 'cases'). */
+  scope: string;
+  /** Who created it ("" for a system/org view). */
+  owner?: string;
+  /** An org-shared view (surfaced to every user). */
+  shared?: boolean;
+  /** Free-form filter bag the frontend interprets. */
+  filters?: Record<string, unknown>;
+  /** Sort token, e.g. '-updated_at' (descending) / 'title'. */
+  sort?: string;
+  /** Pinned visible/ordered column ids, or null/undefined → surface default. */
+  columns?: string[] | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Per-table column layout: ordered ids, hidden ids, and a px-width map. */
+export interface ColumnState {
+  /** Ordered column ids (visible-or-not). */
+  order?: string[];
+  /** Column ids the user hid. */
+  hidden?: string[];
+  /** column id → pixel width. */
+  widths?: Record<string, number>;
+}
+
+/** Terminology label-override map (e.g. `{ case: 'incident' }`). Plain data (#9). */
+export type Terminology = Record<string, string>;
+
+/** The caller's raw PERSONAL prefs bucket (GET /api/prefs/user). */
+export interface UserPrefs {
+  saved_views?: SavedView[];
+  tables?: Record<string, ColumnState>;
+  theme_mode?: ThemeMode;
+  last_list_state?: Record<string, Record<string, unknown>>;
+  pinned_view_ids?: string[];
+  misc?: Record<string, unknown>;
+  updated_at?: string;
+}
+
+/** The ORG customization defaults (GET/PUT /api/prefs/org; PUT admin-only). */
+export interface OrgCustomization {
+  terminology?: Terminology;
+  default_saved_views?: SavedView[];
+  default_theme?: ThemeMode;
+  default_pinned_view_ids?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * The MERGED customization cascade (GET /api/prefs/effective) hydrated once by the
+ * PrefsContext on mount. `org` echoes the org defaults so the UI can offer
+ * "reset to org default" affordances. All plain data (#9).
+ */
+export interface EffectivePrefs {
+  terminology: Terminology;
+  theme_mode: ThemeMode;
+  saved_views: SavedView[];
+  pinned_view_ids: string[];
+  tables: Record<string, ColumnState>;
+  last_list_state: Record<string, Record<string, unknown>>;
+  misc: Record<string, unknown>;
+  org: {
+    terminology: Terminology;
+    default_theme: ThemeMode;
+    default_saved_views: SavedView[];
+    default_pinned_view_ids: string[];
+  };
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
 // Cases / analytics surfaces.
 // --------------------------------------------------------------------------- //
 export interface Entity {

@@ -29,6 +29,8 @@ import {
   UserCircle2,
   ShieldCheck,
   MonitorSmartphone,
+  Monitor,
+  Palette,
   ChevronDown,
   Command as CommandIcon,
   type LucideIcon,
@@ -46,6 +48,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from '@/ui/dropdown-menu';
 import {
   Command,
@@ -61,6 +68,7 @@ import { initialsFrom } from '@/lib/avatar';
 import { humanizeToken } from '@/lib/format';
 import type { AccountProfile, HealthResponse } from '@/lib/types';
 import { useTheme } from './theme';
+import { usePrefs } from './prefs';
 import { useAuth } from './auth';
 import { useDemo } from './demo';
 import { DemoBanner } from './components/DemoBanner';
@@ -337,6 +345,7 @@ const UserMenu: React.FC<{
 }> = ({ username, profile, onNavigate, onLogout }) => {
   const display = (profile?.display_name || username).trim();
   const role = profile?.role ? humanizeToken(String(profile.role)) : '';
+  const { themeMode, setThemeMode } = usePrefs();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -376,6 +385,33 @@ const UserMenu: React.FC<{
           <MonitorSmartphone aria-hidden />
           Sessions &amp; activity
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/* Per-user theme (Wave 7): persisted to the user's prefs; 'system' follows the OS. */}
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Palette aria-hidden />
+            Appearance
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuRadioGroup
+              value={themeMode}
+              onValueChange={(v) => setThemeMode(v as 'light' | 'dark' | 'system')}
+            >
+              <DropdownMenuRadioItem value="light">
+                <Sun className="mr-2 size-4" aria-hidden />
+                Light
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="dark">
+                <Moon className="mr-2 size-4" aria-hidden />
+                Dark
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="system">
+                <Monitor className="mr-2 size-4" aria-hidden />
+                System
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {onLogout ? (
           <>
             <DropdownMenuSeparator />
@@ -400,8 +436,15 @@ export const AppShell: React.FC<AppShellProps> = ({
   onLogout,
   children,
 }) => {
-  const { isDark, toggle, branding } = useTheme();
+  const { isDark, branding } = useTheme();
+  const { setThemeMode } = usePrefs();
   const { hasPermission } = useAuth();
+  // The header toggle flips light↔dark AND persists the choice to the user's prefs
+  // (Wave 7), so it survives a reload + follows the user across devices.
+  const toggleTheme = React.useCallback(
+    () => setThemeMode(isDark ? 'light' : 'dark'),
+    [isDark, setThemeMode],
+  );
   const { health, err } = useHealth();
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
@@ -537,7 +580,7 @@ export const AppShell: React.FC<AppShellProps> = ({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={toggle}
+                  onClick={toggleTheme}
                   aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
                   {isDark ? (
