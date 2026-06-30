@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import binascii
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -652,6 +653,199 @@ class UserPrefs(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Round 3 scaffolding — observables / enrichment / collaboration / notifications /
+# custom RBAC / shift-handoff / trace. ALL of these are NEW additive contracts with
+# sane defaults; later waves add the BEHAVIOUR (pipeline wiring, stores, routes).
+# They are NOT wired into the pipeline here and NONE of them is read by
+# ``engine/case_manager.decide()`` (#3). Every free-text field that can carry
+# user/source-influenceable text (a message ``body``, a tag, an observable ``value``,
+# a provider ``raw`` blob) is PLAIN DATA: the UI render-escapes it and it is never
+# interpolated UNFENCED into an LLM prompt (#9).
+# --------------------------------------------------------------------------- #
+class Observable(BaseModel):
+    """One OCSF-style observable extracted from a case/event — the unit enrichment
+    operates on (an ip / domain / url / file_hash / email / host). ``type`` is an
+    :class:`app.constants.IndicatorKind` value (kept as a str so legacy/unknown kinds
+    round-trip). ``value`` is the indicator itself (UNTRUSTED, source-derived — plain
+    data, never a prompt instruction, #9). ``extra`` carries any side metadata."""
+
+    type: str = ""
+    value: str = ""
+    name: str | None = None
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderResult(BaseModel):
+    """One enrichment provider's verdict on one indicator (Round 3 multi-provider
+    threat-intel). FAIL-OPEN: ``ok=False`` + ``error`` records a provider miss
+    without erroring the whole enrichment. ``score`` is a 0..100 maliciousness score
+    (provider-normalised); ``malicious``/``confidence`` are the provider's own call.
+    ``raw`` is the provider's response excerpt — UNTRUSTED data, rendered as a code
+    block, never trusted as instructions (#9). Advisory only — never feeds #3."""
+
+    provider: str = ""
+    indicator: str = ""
+    indicator_kind: str = ""              # IndicatorKind value
+    score: int | None = None             # 0..100 maliciousness (provider-normalised)
+    malicious: bool | None = None
+    confidence: float | None = None
+    tags: list[str] = Field(default_factory=list)
+    raw: dict[str, Any] = Field(default_factory=dict)
+    ok: bool = True
+    error: str | None = None
+    ts: datetime | None = None
+
+
+class CaseMessage(BaseModel):
+    """One message in a case's threaded discussion (Round 3 collaboration). Supports
+    human + AI + system authors, threaded replies (``parent_id``), @mentions,
+    emoji reactions, edit/delete tombstones, and an ``ai_meta`` bag for AI-authored
+    messages (model / cost / token provenance). ``author_type`` is an
+    :class:`app.constants.AuthorType` value. ``body``/``mentions`` are user input —
+    render-escaped by the UI, never trusted as prompt instructions (#9)."""
+
+    id: str = Field(default_factory=lambda: new_id("msg-"))
+    case_id: str = ""
+    parent_id: str | None = None
+    author_type: str = "human"            # human | ai | system (AuthorType)
+    author: str = ""
+    body: str = ""
+    mentions: list[str] = Field(default_factory=list)
+    reactions: list[dict[str, Any]] = Field(default_factory=list)  # [{emoji, user}]
+    kind: str = "comment"
+    created_at: str = Field(default_factory=iso_now)
+    edited_at: str | None = None
+    deleted_at: str | None = None
+    ai_meta: dict[str, Any] | None = None
+
+
+class CaseActivity(BaseModel):
+    """One entry on a case's human-facing activity timeline (Round 3 collaboration) —
+    an append-only, render-escaped record of who did what (assigned / commented /
+    reacted / status-changed) for the case overview. ``summary``/``ref`` are plain
+    data. Distinct from the authoritative ``AuditDoc`` trail (which stays the source
+    of truth); this is the friendly UI feed."""
+
+    id: str = Field(default_factory=lambda: new_id("act-"))
+    case_id: str = ""
+    kind: str = ""
+    actor: str = ""
+    ts: str = Field(default_factory=iso_now)
+    summary: str = ""
+    ref: dict[str, Any] = Field(default_factory=dict)
+
+
+class CaseTask(BaseModel):
+    """One checklist item / task on a case (Round 3 collaboration). ``status`` tracks
+    open→done; ``order`` keeps a stable manual ordering; ``logs`` is an append-only
+    note trail ``[{ts, by, note}]``. ``title``/``logs`` are plain data (#9)."""
+
+    id: str = Field(default_factory=lambda: new_id("task-"))
+    case_id: str = ""
+    title: str = ""
+    assignee: str | None = None
+    status: str = "open"                  # open | in_progress | done | blocked
+    order: int = 0
+    created_at: str = Field(default_factory=iso_now)
+    logs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class InAppNotification(BaseModel):
+    """One item in a user's in-app notification inbox (Round 3). ``category`` is a
+    :class:`app.constants.NotificationCategory` value; ``state`` tracks the read
+    lifecycle. ``title``/``body`` are render-escaped plain text (#9). Advisory — never
+    feeds #3. Persisted per-recipient in the INBOX KV namespace."""
+
+    id: str = Field(default_factory=lambda: new_id("ntf-"))
+    recipient: str = ""
+    category: str = "system"              # NotificationCategory value
+    title: str = ""
+    body: str = ""
+    severity: str | None = None
+    case_id: str | None = None
+    url: str | None = None
+    state: str = "unseen"                 # unseen | seen | read | archived
+    created_at: str = Field(default_factory=iso_now)
+    read_at: str | None = None
+    ref: dict[str, Any] = Field(default_factory=dict)
+
+
+class NotificationPref(BaseModel):
+    """One user's in-app + channel notification preferences (Round 3 inbox). Keyed by
+    ``user``. ``categories`` maps a :class:`app.constants.NotificationCategory` value →
+    ``{channels:[...], enabled:bool}`` so a user routes/mutes per category.
+    ``quiet_hours``/``digest`` are optional batching controls. Persisted in the
+    NOTIF_PREFS KV namespace; ``default`` bucket when auth is OFF."""
+
+    user: str = ""
+    categories: dict[str, Any] = Field(default_factory=dict)  # category -> {channels:[], enabled:bool}
+    quiet_hours: dict[str, Any] | None = None                 # {start, end, tz}
+    digest: str | None = None                                 # off | hourly | daily
+
+
+class CustomRole(BaseModel):
+    """An operator-defined RBAC role (Round 3). ADDITIVE on top of the six built-in
+    :class:`app.constants.UserRole` roles: ``inherits`` lists base roles whose grants
+    it starts from, ``grants`` ADDS ``resource -> [action]`` permissions, and
+    ``denies`` REMOVES them (deny wins). Wave 1 of Round 3 implements the effective-
+    matrix resolution; here this only CARRIES the data (defaulted empty). Lives on
+    ``Preferences.rbac.custom_roles`` (config tier) and/or the CUSTOM_ROLES KV ns."""
+
+    name: str = ""
+    description: str = ""
+    inherits: list[str] = Field(default_factory=list)           # base role names
+    grants: dict[str, list[str]] = Field(default_factory=dict)  # resource -> [action]
+    denies: dict[str, list[str]] = Field(default_factory=dict)  # resource -> [action]
+
+
+class ActionItem(BaseModel):
+    """One follow-up action item carried across a shift handoff / standup (Round 3
+    attention queue). ``title``/``note`` are plain data; ``status`` tracks open→done.
+    Persisted in the SHIFT_HANDOFF KV namespace alongside :class:`ShiftAck`."""
+
+    id: str = Field(default_factory=lambda: new_id("ai-"))
+    title: str = ""
+    owner: str | None = None
+    status: str = "open"                  # open | in_progress | done
+    created_at: str = Field(default_factory=iso_now)
+    note: str = ""
+
+
+class ShiftAck(BaseModel):
+    """One analyst's acknowledgement of a shift handoff window (Round 3 standup). A
+    user confirms they have read the handoff for a given ``window``. ``note`` is plain
+    data. Persisted in the SHIFT_HANDOFF KV namespace."""
+
+    user: str = ""
+    window: str = ""                      # e.g. "2026-06-30/day"
+    at: str = Field(default_factory=iso_now)
+    note: str = ""
+
+
+class TraceSpan(BaseModel):
+    """One span in an agent-pipeline execution trace (Round 3 observability). A richer,
+    structured sibling of :class:`TraceStep` (which projects an AuditDoc): a TraceSpan
+    records ONE step of the LangGraph pipeline with timing + cost + token + trust
+    metadata so the UI can render a waterfall. ``trusted`` is False when the span's
+    ``summary``/payload carries fenced UNTRUSTED log data (the UI renders those as code
+    blocks, #9). ``payload_ref`` POINTS at the heavy payload (e.g. an audit doc id)
+    rather than inlining it. Advisory/observability only — never feeds #3."""
+
+    id: str = Field(default_factory=lambda: new_id("span-"))
+    case_id: str = ""
+    step_index: int = 0
+    kind: str = ""                        # invoke_agent | chat | execute_tool | decision
+    name: str = ""
+    ts: str = Field(default_factory=iso_now)
+    latency_ms: int | None = None
+    cost: float | None = None
+    tokens: int | None = None
+    trusted: bool = True
+    summary: str = ""
+    payload_ref: dict[str, Any] = Field(default_factory=dict)
+
+
+# --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
 class Case(BaseModel):
@@ -716,6 +910,28 @@ class Case(BaseModel):
     risk_breakdown: RiskBreakdown = Field(default_factory=RiskBreakdown)
     token_cost: float = 0.0
     error: str | None = None
+    # --- Round 3 ADVISORY triage axes (severity / impact / urgency / priority + SLA
+    # lifecycle timestamps). ALL optional + defaulted None so old stored cases load
+    # unchanged. ⚠ NON-NEGOTIABLE #3: these are PRESENTATION/REPORTING ONLY — they
+    # are NEVER read by ``engine/case_manager.decide()`` and MUST NOT be (the close/
+    # escalate decision stays a pure fn of verdict/confidence/risk_score/policy).
+    # ``severity_band`` is the human label (e.g. "critical"/"high"/...) a later wave
+    # derives or copies from the source; ``severity_source`` records whether it was
+    # asserted by the source ("source_asserted") or derived by us ("derived").
+    # ``impact_band``/``urgency_band`` feed the ITIL ``priority_level`` ("P1".."P4")
+    # via the PriorityMatrix; none of them ever changes the deterministic verdict.
+    severity_band: str | None = None
+    severity_source: str | None = None       # "source_asserted" | "derived"
+    impact_band: str | None = None
+    urgency_band: str | None = None
+    priority_level: str | None = None         # "P1" | "P2" | "P3" | "P4"
+    # Lifecycle interval anchors for SLA / MTTR derivation (additive). ``created_at``
+    # already exists (string ISO); these add the optional detection / acknowledgement /
+    # first-response instants so response-time intervals derive cleanly. Defaulted None
+    # → no SLA interval is asserted until a later wave populates them.
+    detected_at: datetime | None = None
+    acknowledged_at: datetime | None = None
+    first_response_at: datetime | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
     # Append-only verdict trail: {ts, verdict, confidence, risk_score} on each
     # investigation. Lets the UI show how a case's verdict evolved (P1).

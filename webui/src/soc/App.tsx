@@ -19,30 +19,40 @@ import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
 import type { PageId } from './nav';
 
-import Home from './pages/Home';
-import Cases from './pages/Cases';
-import Workspace from './pages/Workspace';
-import Investigate from './pages/Investigate';
-import Scans from './pages/Scans';
-import Standup from './pages/Standup';
-import Analytics from './pages/Analytics';
-import Cost from './pages/Cost';
-import Intelligence from './pages/Intelligence';
-import Knowledge from './pages/Knowledge';
-import Memory from './pages/Memory';
-import Sources from './pages/Sources';
-import Catalog from './pages/Catalog';
-import Settings from './pages/Settings';
-import Security from './pages/Security';
-import Approvals from './pages/Approvals';
-import Users from './pages/Users';
-import Audit from './pages/Audit';
-import Account from './pages/Account';
-import SessionsPage from './pages/Sessions';
-import AdminSessions from './pages/AdminSessions';
+// Login + the first-run Wizard stay EAGER — they own first paint (the login gate
+// and the OOBE flow), so we don't want a chunk fetch in front of them.
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
 import { ReauthDialog } from './components/ReauthDialog';
+import { PageSkeleton } from './components/PageSkeleton';
+
+// Every other page is code-split: a route renders only when navigated to, so the
+// entry bundle no longer ships all ~25 pages (foundation #6). Lazy loading is
+// transparent — the <Suspense> below covers the brief chunk fetch, and the
+// surrounding ErrorBoundary catches a failed chunk load instead of white-screening.
+// All target pages are DEFAULT exports (verified), so the bare import() resolves
+// directly to a `{ default }` module that React.lazy expects.
+const Home = React.lazy(() => import('./pages/Home'));
+const Cases = React.lazy(() => import('./pages/Cases'));
+const Workspace = React.lazy(() => import('./pages/Workspace'));
+const Investigate = React.lazy(() => import('./pages/Investigate'));
+const Scans = React.lazy(() => import('./pages/Scans'));
+const Standup = React.lazy(() => import('./pages/Standup'));
+const Analytics = React.lazy(() => import('./pages/Analytics'));
+const Cost = React.lazy(() => import('./pages/Cost'));
+const Intelligence = React.lazy(() => import('./pages/Intelligence'));
+const Knowledge = React.lazy(() => import('./pages/Knowledge'));
+const Memory = React.lazy(() => import('./pages/Memory'));
+const Sources = React.lazy(() => import('./pages/Sources'));
+const Catalog = React.lazy(() => import('./pages/Catalog'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const Security = React.lazy(() => import('./pages/Security'));
+const Approvals = React.lazy(() => import('./pages/Approvals'));
+const Users = React.lazy(() => import('./pages/Users'));
+const Audit = React.lazy(() => import('./pages/Audit'));
+const Account = React.lazy(() => import('./pages/Account'));
+const SessionsPage = React.lazy(() => import('./pages/Sessions'));
+const AdminSessions = React.lazy(() => import('./pages/AdminSessions'));
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -189,7 +199,12 @@ const Boot: React.FC = () => {
         onLogout={showUser ? onLogout : undefined}
       >
         <ErrorBoundary resetKey={page}>
-          {renderPage(page, opts, navigate, () => setForceWizard(true))}
+          {/* Single Suspense boundary covers every lazily-loaded page chunk; the
+              fallback mirrors the page chrome so navigation never white-screens.
+              Keyed by `page` so each route shows its own fresh fallback. */}
+          <React.Suspense key={page} fallback={<PageSkeleton />}>
+            {renderPage(page, opts, navigate, () => setForceWizard(true))}
+          </React.Suspense>
         </ErrorBoundary>
       </AppShell>
       {/* Step-up re-auth modal: only armed when auth is enabled (back-compat). */}

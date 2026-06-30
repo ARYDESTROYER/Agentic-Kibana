@@ -88,6 +88,61 @@ USER_PREFS_DOC_ID = "user_prefs"   # ES doc id within CONFIG_INDEX
 # The bucket key used when there is no authenticated principal (auth OFF).
 USER_PREFS_DEFAULT_BUCKET = "default"
 
+# --------------------------------------------------------------------------- #
+# Round 3 KV-store namespaces (collaboration / notifications / RBAC / pricing /
+# shift-handoff). Every one follows the SAME single-KV-document pattern as the
+# Wave-1..7 namespaces above (MEMORY / PROPOSALS / USERS / SESSIONS / USER_PREFS):
+# one JSON document under ``<NS>/<KEY>`` so each needs NO new ES index / SQL table /
+# migration. The ES backend stores each as a doc in the existing CONFIG_INDEX; the
+# SQL backend uses the shared KV table. Later waves OWN the store classes over these.
+# --------------------------------------------------------------------------- #
+# Per-case threaded discussion (CaseMessage list). Keyed per case so a hot case
+# thread doesn't bloat one global doc — the store keys by case_id within the NS.
+CASE_THREAD_NS = "case_thread"
+CASE_THREAD_KEY = "threads"
+CASE_THREAD_DOC_ID = "case_thread"      # ES doc id within CONFIG_INDEX
+
+# Per-case activity timeline (CaseActivity list) — append-only audit of human/ai
+# collaboration events surfaced beside the thread.
+CASE_ACTIVITY_NS = "case_activity"
+CASE_ACTIVITY_KEY = "activity"
+CASE_ACTIVITY_DOC_ID = "case_activity"  # ES doc id within CONFIG_INDEX
+
+# Per-case checklist / tasks (CaseTask list).
+CASE_TASKS_NS = "case_tasks"
+CASE_TASKS_KEY = "tasks"
+CASE_TASKS_DOC_ID = "case_tasks"        # ES doc id within CONFIG_INDEX
+
+# Per-user in-app notification inbox (InAppNotification list), keyed by recipient.
+INBOX_NS = "inbox"
+INBOX_KEY = "items"
+INBOX_DOC_ID = "inbox"                  # ES doc id within CONFIG_INDEX
+
+# Per-user notification preferences (NotificationPref), keyed by user.
+NOTIF_PREFS_NS = "notif_prefs"
+NOTIF_PREFS_KEY = "prefs"
+NOTIF_PREFS_DOC_ID = "notif_prefs"      # ES doc id within CONFIG_INDEX
+
+# Operator-defined custom RBAC roles (CustomRole list). NOTE: custom roles ALSO
+# ride on ``Preferences.rbac.custom_roles`` (config tier); this KV namespace is
+# reserved for any out-of-band/admin-managed role set a later wave may want to keep
+# off the Preferences doc. Wave 1 of Round 3 resolves the effective matrix.
+CUSTOM_ROLES_NS = "custom_roles"
+CUSTOM_ROLES_KEY = "roles"
+CUSTOM_ROLES_DOC_ID = "custom_roles"    # ES doc id within CONFIG_INDEX
+
+# Operator price overrides for the LLM cost ledger (model -> per-token override),
+# layered ON TOP OF the built-in pricing catalog (PRICE OVERLAY).
+PRICE_OVERLAY_NS = "price_overlay"
+PRICE_OVERLAY_KEY = "overlay"
+PRICE_OVERLAY_DOC_ID = "price_overlay"  # ES doc id within CONFIG_INDEX
+
+# Shift handoff / standup attention-queue acknowledgements (ShiftAck +
+# ActionItem lists) — the running standup handoff log.
+SHIFT_HANDOFF_NS = "shift_handoff"
+SHIFT_HANDOFF_KEY = "handoff"
+SHIFT_HANDOFF_DOC_ID = "shift_handoff"  # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""
@@ -200,6 +255,12 @@ class ActionType(str, Enum):
     USER_MGMT = "user_mgmt"        # user-management action (create/update/delete/role/password reset)
     AUTH_EVENT = "auth"            # login success/failure, logout, password change (auth events)
     ACCESS_DENIED = "access_denied"  # an authenticated caller was denied by the RBAC policy
+    # --- Round 3 collaboration / notifications (additive; all ADVISORY audit rows —
+    # none of these ever feeds the deterministic case decision, #3). ---
+    THREAD_POST = "thread_post"    # a human/ai message posted to a case thread (collaboration)
+    REACTION = "reaction"          # a reaction added/removed on a case message
+    TASK_UPDATE = "task_update"    # a case task created / reassigned / status-changed
+    INAPP_NOTIFY = "inapp_notify"  # an in-app notification delivered to a user inbox
 
 
 class UserRole(str, Enum):
@@ -266,6 +327,51 @@ class EntityType(str, Enum):
     # bucket so an in-scope event is NEVER silently dropped just because every
     # standard entity field is null (see engine/correlation.resolve_entity).
     RULE = "rule"
+
+
+# Indicator kind for ENRICHMENT (Round 3 multi-provider threat-intel). Distinct
+# from :class:`EntityType` (correlation grouping keys): EntityType drives how events
+# CLUSTER; IndicatorKind classifies a single observable so the right enrichment
+# providers are queried (an IP → GreyNoise/Shodan/AbuseIPDB; a file hash →
+# VirusTotal/MalwareBazaar/ThreatFox; a domain → URLhaus/RDAP; …). The overlapping
+# members (IP/DOMAIN/FILE_HASH/HOST) intentionally MIRROR EntityType so a correlation
+# entity maps cleanly onto an enrichment indicator; URL + EMAIL are enrichment-only.
+class IndicatorKind(str, Enum):
+    IP = "ip"
+    DOMAIN = "domain"
+    URL = "url"
+    FILE_HASH = "file_hash"
+    EMAIL = "email"
+    HOST = "host"
+
+
+# Author of a collaboration message / activity event (Round 3 case threads). Keeps
+# the human vs AI vs system distinction the UI badges and the audit trail records.
+class AuthorType(str, Enum):
+    HUMAN = "human"
+    AI = "ai"
+    SYSTEM = "system"
+
+
+# In-app notification category (Round 3 inbox). Each notification is filed under one
+# category so the inbox + per-user NotificationPref can filter/route per category.
+class NotificationCategory(str, Enum):
+    CASE_NEW = "case_new"
+    CASE_ESCALATED = "case_escalated"
+    CASE_RESOLVED = "case_resolved"
+    MENTION = "mention"
+    ASSIGNMENT = "assignment"
+    APPROVAL = "approval"
+    SYSTEM = "system"
+    DIGEST = "digest"
+
+
+# Visual "material" / density mode for the themed UI shell (Round 3 theming). The
+# branding default theme + per-user theme select between a calm ``quiet`` surface and
+# a high-contrast ``command`` (command-center) surface. Carried as plain config data.
+class Material(str, Enum):
+    QUIET = "quiet"
+    COMMAND = "command"
 
 
 # Per-source entity-resolution strategy for correlation (Preferences.entity_strategy

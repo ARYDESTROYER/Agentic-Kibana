@@ -75,6 +75,25 @@ class Secrets(BaseSettings):
     # --- Enrichment keys ---
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
+    # --- Round 3 multi-provider threat-intel keys (ALL optional + defaulted None,
+    # SECRET tier — env / in-memory only, NEVER persisted, NEVER returned; the UI sees
+    # only a configured-boolean via ``configured_status()``). A provider is only
+    # queried when BOTH its ``EnrichmentConfig.use_*`` toggle is on AND (for key-gated
+    # providers) its key is set. The keyless providers (shodan internetdb / ipinfo
+    # lite / urlhaus / threatfox / malwarebazaar / rdap) need no key here. ---
+    greynoise_api_key: str | None = None
+    shodan_api_key: str | None = None
+    censys_api_id: str | None = None
+    censys_api_secret: str | None = None
+    binaryedge_api_key: str | None = None
+    ipinfo_token: str | None = None
+    otx_api_key: str | None = None
+    pulsedive_api_key: str | None = None
+    spur_api_key: str | None = None
+    xforce_api_key: str | None = None
+    xforce_api_password: str | None = None
+    urlscan_api_key: str | None = None
+    hibp_api_key: str | None = None
 
     # --- Embeddings (defaults to the OpenAI key when blank) ---
     embedding_api_key: str | None = None
@@ -260,6 +279,20 @@ class Secrets(BaseSettings):
             "anthropic_api_key": bool(self.anthropic_api_key),
             "abuseipdb_api_key": bool(self.abuseipdb_api_key),
             "virustotal_api_key": bool(self.virustotal_api_key),
+            # Round 3 multi-provider threat-intel keys (configured-booleans only).
+            "greynoise_api_key": bool(self.greynoise_api_key),
+            "shodan_api_key": bool(self.shodan_api_key),
+            "censys_api_id": bool(self.censys_api_id),
+            "censys_api_secret": bool(self.censys_api_secret),
+            "binaryedge_api_key": bool(self.binaryedge_api_key),
+            "ipinfo_token": bool(self.ipinfo_token),
+            "otx_api_key": bool(self.otx_api_key),
+            "pulsedive_api_key": bool(self.pulsedive_api_key),
+            "spur_api_key": bool(self.spur_api_key),
+            "xforce_api_key": bool(self.xforce_api_key),
+            "xforce_api_password": bool(self.xforce_api_password),
+            "urlscan_api_key": bool(self.urlscan_api_key),
+            "hibp_api_key": bool(self.hibp_api_key),
             "embedding_api_key": bool(self.embedding_key()),
             # Wave 2: configured-booleans only (never the values).
             "mfa_obfuscation_key": bool(self.mfa_obfuscation_key),
@@ -550,11 +583,59 @@ class BrandingConfig(BaseModel):
     footer_text: str = ""             # footer / classification banner line, or ""
     support_url: str = ""             # "Docs & help" / support link target (http/https), or ""
     dark_mode_default: bool = False   # default colour mode for new sessions (no stored pref)
+    # --- Round 3 theming (all ADDITIVE + defaulted → older docs load unchanged). ---
+    # ``material`` selects the shell density/contrast surface (quiet | command). It is
+    # a :class:`app.constants.Material` value carried as a plain str.
+    material: Literal["quiet", "command"] = "quiet"
+    # ``default_theme`` SUPERSEDES/aliases the legacy ``theme`` + ``dark_mode_default``
+    # for new code: it is the org default colour mode a user inherits (a user's
+    # ``UserPrefs.theme_mode`` overrides it). The legacy fields are KEPT working — see
+    # ``effective_theme()`` / ``effective_dark_default()`` below for the reconciliation.
+    default_theme: Literal["dark", "light", "system"] = "dark"
+    # ``theme_tokens`` is a small, BOUNDED design-token override map (css-var name →
+    # value, e.g. {"--accent": "#3b82f6"}) a later wave applies as runtime CSS vars.
+    # Plain data; bounded by the validator below (#9/#10 discipline).
+    theme_tokens: dict[str, str] = Field(default_factory=dict)
+    # ``presets`` is an operator-curated list of named theme presets the UI offers
+    # (each ``{name, material?, default_theme?, theme_tokens?, ...}``), plain data.
+    presets: list[dict[str, Any]] = Field(default_factory=list)
     # Max accepted logo/favicon data-URL length (~1MB image). Keeps the config doc small.
     _MAX_LOGO_LEN: int = 1_400_000
     # Caps for the free-text branding strings (rendered as plain text; bound prefs size).
     _MAX_TEXT_LEN: int = 400
     _MAX_URL_LEN: int = 2_000
+    # Caps for the theme-token override map (plain data, but bounded — #9/#10).
+    _MAX_THEME_TOKENS: ClassVar[int] = 200
+    _MAX_THEME_TOKEN_LEN: ClassVar[int] = 200
+
+    def effective_theme(self) -> str:
+        """The org default colour mode, reconciling new + legacy fields. Prefers the
+        explicit ``default_theme`` when set to a non-default value, else honours the
+        legacy ``dark_mode_default`` / ``theme``. Pure read-only helper (no mutation),
+        so adding it can never change a stored value."""
+        # ``default_theme`` defaults to "dark"; only treat it as authoritative when the
+        # legacy signals don't disagree. Legacy ``dark_mode_default=True`` forces dark.
+        if self.dark_mode_default:
+            return "dark"
+        return self.default_theme or self.theme
+
+    @field_validator("theme_tokens")
+    @classmethod
+    def _check_theme_tokens(cls, v: dict[str, str]) -> dict[str, str]:
+        if not v:
+            return {}
+        if len(v) > 200:
+            raise ValueError("too many theme tokens (max 200)")
+        out: dict[str, str] = {}
+        for key, val in v.items():
+            k = str(key).strip()
+            sval = str(val)
+            if not k:
+                continue
+            if len(k) > 200 or len(sval) > 200:
+                raise ValueError("theme token key/value too long (max 200 characters)")
+            out[k] = sval
+        return out
 
     @field_validator("logo_data_url", "favicon_data_url")
     @classmethod
@@ -634,6 +715,32 @@ class EnrichmentConfig(BaseModel):
     use_virustotal: bool = True
     use_geoip: bool = True
     cache_ttl_seconds: int = 21600  # 6h — protects tight free-tier limits
+    # --- Round 3 multi-provider threat-intel (ALL additive + defaulted). Each toggle
+    # enables one enrichment provider; the per-provider API keys live in the SECRET
+    # tier (``Secrets``). Defaults are chosen so the suite is USABLE WITH NO NEW KEYS:
+    # the KEYLESS providers (shodan_internetdb / ipinfo lite / urlhaus / threatfox /
+    # malwarebazaar / rdap) default ON; every key-gated provider defaults OFF (the
+    # operator opts in after configuring its key). A later wave wires the actual
+    # provider clients + the fusion scorer; here these only CARRY the policy. ---
+    use_greynoise: bool = False
+    use_shodan_internetdb: bool = True     # keyless (InternetDB)
+    use_shodan: bool = False
+    use_censys: bool = False
+    use_binaryedge: bool = False
+    use_ipinfo: bool = True                # keyless lite
+    use_otx: bool = False
+    use_pulsedive: bool = False
+    use_spur: bool = False
+    use_xforce: bool = False
+    use_urlhaus: bool = True               # keyless
+    use_threatfox: bool = True             # keyless
+    use_malwarebazaar: bool = True         # keyless
+    use_urlscan: bool = False
+    use_hibp: bool = False
+    use_rdap: bool = True                  # keyless
+    # When True, a later wave FUSES the per-provider results into one normalised
+    # reputation score (instead of using each provider in isolation). Default OFF.
+    fusion_enabled: bool = False
 
 
 class RagConfig(BaseModel):
@@ -746,10 +853,102 @@ class TraceConfig(BaseModel):
     include_prompts: bool = True
 
 
+# --------------------------------------------------------------------------- #
+# Round 3 — SLA / priority / budget / realtime config blocks. ALL additive +
+# defaulted so an existing stored config loads unchanged. ⚠ NON-NEGOTIABLE #3:
+# NONE of these feeds ``engine/case_manager.decide()`` — they drive PRESENTATION,
+# REPORTING, COST-GOVERNANCE and live-update plumbing only; the deterministic close/
+# escalate decision stays a pure fn of verdict/confidence/risk_score/policy.
+# --------------------------------------------------------------------------- #
+class SlaTarget(BaseModel):
+    """One SLA tier's response + resolution time targets (minutes). Advisory only —
+    used to surface "at risk / breached" badges + MTTR reporting, never to gate the
+    deterministic decision (#3)."""
+
+    response_minutes: int = Field(default=60, ge=0)
+    resolve_minutes: int = Field(default=1440, ge=0)
+
+
+class SlaPolicy(BaseModel):
+    """Per-priority SLA response/resolution targets (Round 3). Default OFF so today's
+    behaviour is unchanged. Keyed by priority level (P1..P4) with sane, descending
+    urgency defaults. ADVISORY: SLA timers/badges are presentation; they never touch
+    ``decide()`` (#3). A later wave derives the at-risk/breached state from a case's
+    lifecycle timestamps (``detected_at``/``acknowledged_at``/``first_response_at``)
+    against these targets."""
+
+    enabled: bool = False
+    targets: dict[str, SlaTarget] = Field(
+        default_factory=lambda: {
+            "P1": SlaTarget(response_minutes=15, resolve_minutes=240),
+            "P2": SlaTarget(response_minutes=30, resolve_minutes=480),
+            "P3": SlaTarget(response_minutes=120, resolve_minutes=1440),
+            "P4": SlaTarget(response_minutes=480, resolve_minutes=4320),
+        }
+    )
+    # Optional business-hours window for SLA clocks (a later wave may honour it). When
+    # ``business_hours_only`` is False the clock runs 24x7 (the default).
+    business_hours_only: bool = False
+    timezone: str = "UTC"
+
+
+class PriorityMatrix(BaseModel):
+    """Impact × Urgency → Priority (P1..P4) mapping (Round 3, ITIL-style). Default is
+    the standard ITIL 3×3 grid. ADVISORY: a later wave derives ``Case.priority_level``
+    from ``impact_band`` × ``urgency_band`` via this matrix; it NEVER changes the
+    verdict or the deterministic decision (#3). ``levels`` lists the band labels (high
+    → low) so the UI can render the grid; ``matrix`` maps ``"{impact}/{urgency}"`` →
+    a P-level, with ``default_priority`` as the fallback for any unmapped pair."""
+
+    enabled: bool = False
+    levels: list[str] = Field(default_factory=lambda: ["high", "medium", "low"])
+    default_priority: str = "P3"
+    matrix: dict[str, str] = Field(
+        default_factory=lambda: {
+            "high/high": "P1", "high/medium": "P2", "high/low": "P3",
+            "medium/high": "P2", "medium/medium": "P3", "medium/low": "P4",
+            "low/high": "P3", "low/medium": "P4", "low/low": "P4",
+        }
+    )
+
+
+class BudgetConfig(BaseModel):
+    """LLM cost-budget ceiling (Round 3 cost governance). Default OFF so today's
+    behaviour is byte-identical. When ``enabled`` a later wave compares the rolling
+    spend (from the existing usage/cost ledger) against ``daily_usd``/``monthly_usd``;
+    at ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether
+    crossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block
+    affects whether an investigation RUNS — it never alters the close/escalate decision
+    of a case that DID run (#3)."""
+
+    enabled: bool = False
+    daily_usd: float | None = None
+    monthly_usd: float | None = None
+    soft_warn_pct: float = Field(default=0.8, ge=0.0, le=1.0)
+    on_exceed: Literal["warn", "block"] = "warn"
+
+
+class RealtimeConfig(BaseModel):
+    """Live-update (SSE/websocket) plumbing config (Round 3). Default OFF so nothing
+    changes out of the box. ``heartbeat_seconds`` is the keep-alive cadence for a live
+    stream. Pure transport plumbing — no decision impact (#3)."""
+
+    enabled: bool = False
+    heartbeat_seconds: int = Field(default=15, ge=1)
+
+
 class StandupConfig(BaseModel):
     enabled: bool = True
     window_hours: int = 24
     interval_seconds: int = 86400  # run cadence for the in-process scheduler
+    # --- Round 3 attention-queue / shift-handoff toggles (ALL additive + defaulted).
+    # ``attention_queue`` surfaces a prioritised "needs-you-now" list in the standup;
+    # ``shift_handoff`` enables the handoff acknowledgement log (ShiftAck/ActionItem,
+    # SHIFT_HANDOFF KV ns); ``include_action_items`` rolls open ActionItems into the
+    # standup. A later wave wires these; here they only carry the policy. ---
+    attention_queue: bool = False
+    shift_handoff: bool = False
+    include_action_items: bool = True
 
 
 class SuppressionRule(BaseModel):
@@ -1141,6 +1340,17 @@ class RBACConfig(BaseModel):
     default_role: str = "analyst_tier1"
     # role -> resource -> [actions]; an empty dict means "use the built-in matrix".
     roles: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    # --- Round 3 CUSTOM ROLES (ALL additive + defaulted empty → ``effective_matrix()``
+    # is byte-identical until an operator adds one). ``custom_roles`` carries
+    # :class:`app.models.CustomRole`-shaped dicts (name/inherits/grants/denies); kept
+    # as loose dicts here to avoid a config↔models import cycle (Wave 1 of Round 3
+    # validates + resolves them into the effective matrix). ``resources`` is an
+    # OVERRIDE map (role -> resource -> [actions]) layered like ``roles`` but for the
+    # custom-role resolution path, and ``denies`` (role -> resource -> [actions])
+    # REMOVES permissions (deny wins). All empty out of the box. ---
+    custom_roles: list[dict[str, Any]] = Field(default_factory=list)
+    resources: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
+    denies: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
 
 class SessionPolicyConfig(BaseModel):
@@ -1532,6 +1742,15 @@ class Preferences(BaseModel):
     # production behaviour is byte-identical. When active, READ endpoints serve a
     # SEPARATE in-memory demo store (real cases hidden) and writes are $0 / mocked.
     demo: DemoConfig = Field(default_factory=DemoConfig)
+
+    # --- Round 3 (ALL additive, defaulted OFF/sane → today's behaviour byte-identical;
+    # NONE feeds case_manager.decide(), #3). SLA timers + ITIL priority matrix
+    # (presentation/reporting), the LLM cost-budget ceiling (cost governance — gates
+    # whether work RUNS, never alters a decision), and live-update transport. ---
+    sla: SlaPolicy = Field(default_factory=SlaPolicy)
+    priority_matrix: PriorityMatrix = Field(default_factory=PriorityMatrix)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
+    realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
 
     # --- Misc ---
     setup_complete: bool = False

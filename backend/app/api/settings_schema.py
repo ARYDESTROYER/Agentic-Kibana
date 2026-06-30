@@ -64,6 +64,12 @@ _SECTION_TITLES: dict[str, str] = {
     "trace": "Trace",
     "risk_weights": "Risk Weights",
     "default_correlation": "Default Correlation",
+    # Round 3 additions.
+    "sla": "SLA Policy",
+    "priority_matrix": "Priority Matrix",
+    "budget": "Cost Budget",
+    "realtime": "Realtime Updates",
+    "customization": "Customization",
 }
 
 
