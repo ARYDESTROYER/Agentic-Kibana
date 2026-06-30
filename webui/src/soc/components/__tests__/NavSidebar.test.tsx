@@ -171,6 +171,26 @@ describe('NavSidebar — collapsed icon rail', () => {
     expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /expand overview/i })).toBeNull();
   });
+
+  // #8 — WCAG 2.1.1: the collapsed fly-out must be KEYBOARD-reachable. The previous
+  // Radix HoverCard portaled the child links out of the tab order (they only mounted
+  // on pointer hover), so a keyboard user could never reach them. The fly-out is now
+  // rendered INLINE (revealed via CSS group-hover/focus-within), so the child link
+  // buttons are always in the DOM + tab order — real focusable elements.
+  it('renders the collapsed child links inline as focusable buttons (keyboard-reachable)', () => {
+    renderExpanded({ collapsed: true, page: 'standup' });
+    // The Overview host's children (Dashboard, Standup) are present as real buttons
+    // WITHOUT any hover interaction — so Tab from the rail button reaches them.
+    const dashboard = screen.getByRole('button', { name: 'Dashboard' });
+    const standup = screen.getByRole('button', { name: 'Standup' });
+    expect(dashboard).toBeInTheDocument();
+    expect(standup).toBeInTheDocument();
+    // A <button> is natively focusable (not disabled, no tabindex=-1).
+    expect(dashboard).not.toHaveAttribute('disabled');
+    expect(dashboard).not.toHaveAttribute('tabindex', '-1');
+    // The active leaf still carries aria-current=page inside the fly-out.
+    expect(standup).toHaveAttribute('aria-current', 'page');
+  });
 });
 
 /* ---- useNavPrefs persistence ---------------------------------------------- */

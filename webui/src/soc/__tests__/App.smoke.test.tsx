@@ -97,4 +97,24 @@ describe('SOC console — app smoke', () => {
     // The top-level ErrorBoundary fallback must NOT be showing.
     expect(screen.queryByText(/Something went wrong/i)).toBeNull();
   });
+
+  it('exposes a focusable skip-to-main link that targets #socMain (WCAG 2.4.1)', async () => {
+    render(<App />);
+    await waitFor(
+      () => expect(screen.getByText('Security Posture Dashboard')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    // The skip link is a real anchor (in the tab order) pointing at the main region.
+    const skip = screen.getByRole('link', { name: /skip to main content/i });
+    expect(skip).toHaveAttribute('href', '#socMain');
+    // It is sr-only until focused (no aria-hidden — it must be reachable by a SR/AT).
+    expect(skip).not.toHaveAttribute('aria-hidden');
+    expect(skip).toHaveClass('sr-only');
+    expect(skip).toHaveClass('focus:not-sr-only');
+    // Its target exists and is programmatically focusable (tabIndex=-1).
+    const main = document.getElementById('socMain');
+    expect(main).not.toBeNull();
+    expect(main?.tagName).toBe('MAIN');
+    expect(main).toHaveAttribute('tabindex', '-1');
+  });
 });

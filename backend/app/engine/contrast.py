@@ -109,9 +109,11 @@ def _round2(x: float) -> float:
 # Accent → derived foreground tokens. We name the derived css-vars so the webui's
 # auto_corrected map keys line up with the design-token system (``--primary`` ↔
 # ``--primary-foreground``). The accent fill in BOTH light + dark carries the same
-# foreground colour (we pick by the accent's own luminance, theme-independent — a
-# light accent wants black text in either theme), so one correction covers both
-# themes; we still REPORT both themes so the editor can show the per-theme ratio.
+# foreground colour: we pick by the accent's own luminance, theme-independent — a
+# light accent wants black text in either theme — so one correction covers both
+# themes. The contrast we evaluate is foreground-on-accent (the legibility of text
+# ON the accent fill), not accent-on-theme-background, so no theme background is
+# needed here.
 # --------------------------------------------------------------------------- #
 
 # (config field name, derived-foreground css-var token) for the operator accents.
@@ -129,11 +131,6 @@ _TOKEN_FOREGROUNDS: dict[str, str] = {
     "--accent2": "--accent2-foreground",
     "--ring": "--primary-foreground",
 }
-
-# The two theme surface backgrounds we report ratios against (kept in sync with
-# theme.css: light --background is white, dark --background ~#11151f). Used only for
-# the per-theme *reporting*; the foreground choice is accent-luminance driven.
-_THEME_BG = {"light": "#ffffff", "dark": "#11151f"}
 
 
 def _accent_candidates(branding: dict[str, Any]) -> list[tuple[str, str, str]]:

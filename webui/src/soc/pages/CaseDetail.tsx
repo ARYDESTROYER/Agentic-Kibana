@@ -1978,20 +1978,30 @@ const TagInput: React.FC<{
     onDraftChange('');
   };
   return (
-    <div className="rounded-md border border-border bg-background p-1.5">
+    <div
+      className={cn(
+        // The inner Input has no border/ring of its own, so the WRAPPER carries the
+        // visible focus indicator (#3 — WCAG 2.4.7) via focus-within. The ring shows
+        // whenever the input (or a tag-remove button) holds focus.
+        'rounded-md border border-border bg-background p-1.5',
+        'focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1 focus-within:ring-offset-background',
+      )}
+    >
       {tags.length ? (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {tags.map((t) => (
-            <Badge key={t} variant="secondary" className="gap-1">
+            <Badge key={t} variant="secondary" className="gap-1 pr-0.5">
               {/* UNTRUSTED tag — plain text node. */}
               <span className="max-w-[10rem] truncate">{t}</span>
               <button
                 type="button"
                 aria-label={`Remove tag ${t}`}
-                className="rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+                // min 24x24 hit area (#4 — WCAG 2.5.8); the glyph stays 12px but the
+                // padded box is ≥24px so it's an easy keyboard/pointer target.
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm opacity-70 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => onTagsChange(tags.filter((x) => x !== t))}
               >
-                <X className="h-3 w-3" />
+                <X className="h-3 w-3" aria-hidden />
               </button>
             </Badge>
           ))}
@@ -3644,7 +3654,9 @@ const StarRating: React.FC<{
           key={n}
           type="button"
           aria-label={`${label}: ${n} of 5`}
-          className="rounded p-0.5 focus:outline-none focus:ring-2 focus:ring-ring"
+          // ≥24x24 hit area (#4 — WCAG 2.5.8); the star glyph stays 16px, the button
+          // box is 24px so each rating step is an easy pointer/keyboard target.
+          className="inline-flex h-6 w-6 items-center justify-center rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => onChange(n === value ? 0 : n)}
         >
           <Star
@@ -3652,6 +3664,7 @@ const StarRating: React.FC<{
               'h-4 w-4',
               n <= value ? 'fill-warning text-warning' : 'text-muted-foreground',
             )}
+            aria-hidden
           />
         </button>
       ))}

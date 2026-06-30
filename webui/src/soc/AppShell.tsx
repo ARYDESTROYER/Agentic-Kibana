@@ -455,6 +455,20 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="flex min-h-screen bg-canvas text-foreground">
+      {/* Skip-to-main link (#1 — WCAG 2.4.1). Visually hidden until it receives
+          keyboard focus, then it pins to the top-left so a keyboard/SR user can jump
+          straight past the nav to the routed content (#socMain). */}
+      <a
+        href="#socMain"
+        className={cn(
+          'sr-only z-[100] rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-elev2',
+          'focus:not-sr-only focus:fixed focus:left-3 focus:top-3',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+        )}
+      >
+        Skip to main content
+      </a>
+
       {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) -- */}
       <NavSidebar
         page={page}
@@ -580,8 +594,10 @@ export const AppShell: React.FC<AppShellProps> = ({
           </div>
         </GlassSurface>
 
-        {/* Content slot — re-keyed so the fade-in replays on each route change. */}
-        <main id="socMain" role="main" className="flex-1">
+        {/* Content slot — re-keyed so the fade-in replays on each route change.
+            tabIndex={-1} lets the skip-link (#1) move focus here without making it a
+            tab stop in the normal order. */}
+        <main id="socMain" role="main" tabIndex={-1} className="flex-1 outline-none">
           <div key={page} className="mx-auto w-full max-w-[1400px] px-4 py-6 animate-fade-in sm:px-6">
             {/* Demo-mode banner — renders only when the demo tenant is active. */}
             <DemoBanner />

@@ -161,11 +161,18 @@ export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
                 return (
                   <div
                     key={`${c.tactic}-${row}`}
-                    className="flex h-9 items-center justify-center rounded-sm border border-border/40 text-[10px] font-medium text-foreground"
+                    className="flex h-9 items-center justify-center rounded-sm border border-border/40 text-[10px] font-medium"
                     style={{ backgroundColor: a > 0 ? token(base, a) : 'hsl(var(--muted) / 0.2)' }}
                     title={`${cell.technique}${cell.name ? ` · ${cell.name}` : ''}: ${cell.value}`}
                   >
-                    <span className="truncate px-1">{cell.technique}</span>
+                    {/* Contrast scrim (#5 — WCAG 1.4.3): the 10px label sits in a
+                        near-opaque surface chip so `text-foreground` always meets AA
+                        (≥4.5:1) regardless of how saturated the underlying ramp band
+                        is. Without the chip, white/foreground text over the critical/
+                        high fill measured ~3.0:1. */}
+                    <span className="max-w-[calc(100%-0.25rem)] truncate rounded-sm bg-background/85 px-1 py-0.5 text-foreground supports-[backdrop-filter]:bg-background/70 supports-[backdrop-filter]:backdrop-blur-[1px]">
+                      {cell.technique}
+                    </span>
                   </div>
                 );
               }),
@@ -183,24 +190,36 @@ export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
           <span className="ml-auto">max {dataMax.toLocaleString()}</span>
         </div>
 
-        {/* Accessible data-table fallback (visually hidden, screen-reader source). */}
+        {/* Accessible data-table fallback (visually hidden, screen-reader source).
+            One ROW PER TACTIC; each cell is the `technique: value` pair under that
+            tactic. This keeps every value bound to its OWN technique + tactic — the
+            grid is jagged (each tactic has its own technique list), so a single
+            positional matrix would MISATTRIBUTE a value to the wrong technique. The
+            column headers index the technique SLOT within a tactic (1..N). */}
         <table className="sr-only">
           <caption>{label}</caption>
           <thead>
             <tr>
-              <th scope="col">Technique</th>
-              {cols.map((c) => (
-                <th key={c.tactic} scope="col">{c.label}</th>
+              <th scope="col">Tactic</th>
+              {Array.from({ length: maxRows }).map((_, i) => (
+                <th key={i} scope="col">{`Technique ${i + 1}`}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {Array.from({ length: maxRows }).map((_, row) => (
-              <tr key={row}>
-                <th scope="row">{cols.find((c) => c.cells[row])?.cells[row]?.technique ?? ''}</th>
-                {cols.map((c) => (
-                  <td key={c.tactic}>{c.cells[row] ? c.cells[row].value : ''}</td>
-                ))}
+            {cols.map((c) => (
+              <tr key={c.tactic}>
+                <th scope="row">{c.label}</th>
+                {Array.from({ length: maxRows }).map((_, slot) => {
+                  const cell = c.cells[slot];
+                  return (
+                    <td key={slot}>
+                      {cell
+                        ? `${cell.technique}${cell.name ? ` (${cell.name})` : ''}: ${cell.value}`
+                        : ''}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

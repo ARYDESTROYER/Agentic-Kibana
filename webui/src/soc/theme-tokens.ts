@@ -176,14 +176,20 @@ export function clearTokens(names: Iterable<string>, target?: HTMLElement | null
 /* ------------------------------------------------------------------------- */
 
 /**
- * Material-pack token deltas. The 'quiet' pack is the IDENTITY (its values equal
- * the theme.css defaults), so selecting it renders byte-for-byte like today. The
- * 'command' pack raises the glass/glow/grid chrome vars for a denser command feel
- * WITHOUT touching the colour system (text colours/contrast unchanged).
+ * Material-pack token deltas. The 'quiet' pack is the IDENTITY, so selecting it
+ * renders byte-for-byte like the pre-wave UI. Crucially, 'quiet' DOES NOT set
+ * `--glass-opacity`: that token has DIFFERENT per-theme defaults in theme.css
+ * (0.82 light / 0.78 dark), so force-writing one value inline would override the
+ * dark stylesheet's 0.78 and subtly darken the chrome. By omitting it, 'quiet'
+ * lets the stylesheet's per-theme value win (see `applyMaterial`, which actively
+ * removes any stale inline override). `--glow-strength`/`--grid-opacity` ARE
+ * theme-agnostic (both 0 in either theme), so writing them inline is harmless.
+ * The 'command' pack raises the glass/glow/grid chrome vars for a denser
+ * command feel WITHOUT touching the colour system (text colours/contrast unchanged).
  */
 export const MATERIAL_PACKS: Record<Material, Record<string, string>> = {
   quiet: {
-    '--glass-opacity': '0.82',
+    // NOTE: no '--glass-opacity' here on purpose — see the doc comment above.
     '--glow-strength': '0',
     '--grid-opacity': '0',
   },
@@ -200,8 +206,14 @@ export function resolveMaterial(material?: string | null): Material {
   return material === 'command' ? 'command' : 'quiet';
 }
 
-/** Apply a material pack's chrome tokens (allow-listed via applyTokens). */
+/**
+ * Apply a material pack's chrome tokens (allow-listed via applyTokens). The 'quiet'
+ * pack first REMOVES any inline `--glass-opacity` so the stylesheet's per-theme
+ * default (0.82 light / 0.78 dark) applies — 'quiet' is then byte-identical to the
+ * pre-wave look in BOTH themes. Only 'command' writes an explicit glass opacity.
+ */
 export function applyMaterial(material: Material, target?: HTMLElement | null): void {
+  if (material === 'quiet') clearTokens(['--glass-opacity'], target);
   applyTokens(MATERIAL_PACKS[material], target);
 }
 

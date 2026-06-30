@@ -10,10 +10,13 @@
  *     AND opens the group; the chevron is a separate toggle so the destination is
  *     never hidden behind the disclosure. An item WITHOUT children is a direct link.
  *   - COLLAPSED (64px): an icon rail. A childless item is a tooltip'd icon button; an
- *     item WITH children opens a Radix HoverCard fly-out listing the children so the
- *     destinations are never hidden. The active trail is marked on the collapsed
- *     parent (a primary side-bar + tint), and `aria-current="page"` rides the active
- *     leaf both in the rail and inside the fly-out.
+ *     item WITH children opens an INLINE fly-out (shown on pointer hover OR keyboard
+ *     focus-within, via CSS group state) listing the children so the destinations are
+ *     never hidden AND stay keyboard-reachable (Tab moves from the rail button into the
+ *     in-flow child links — a portaled HoverCard would drop them from the tab order).
+ *     The active trail is marked on the collapsed parent (a primary side-bar + tint),
+ *     and `aria-current="page"` rides the active leaf both in the rail and inside the
+ *     fly-out.
  *
  * We deliberately use the DISCLOSURE pattern (button + aria-expanded), NOT
  * role="tree": these are page links, not a hierarchical data tree, so disclosure is
@@ -33,7 +36,6 @@
  */
 import * as React from 'react';
 import { ChevronRight, Shield, type LucideIcon } from 'lucide-react';
-import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/ui/hover-card';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { Separator } from '@/ui/separator';
 import { cn } from '@/lib/cn';
@@ -430,15 +432,29 @@ const CollapsedItem: React.FC<{
     );
   }
 
-  // Item with children → a HoverCard fly-out so the destinations stay reachable.
+  // Item with children → a fly-out listing the destinations. We render the fly-out
+  // INLINE (not in a portal) inside a `group` so it appears on pointer HOVER *and*
+  // on keyboard FOCUS-WITHIN (#8 — WCAG 2.1.1): the child links are real, in-flow
+  // buttons, so Tab from the rail button moves straight into them — the previous
+  // Radix HoverCard portaled the content out of the tab order, leaving the
+  // destinations keyboard-unreachable in the collapsed rail. A HoverCard is no
+  // longer used here; visibility is driven purely by CSS group state.
+  const panelId = `nav-fly-${item.id}`;
   return (
-    <HoverCard openDelay={80} closeDelay={120}>
-      <HoverCardTrigger asChild>{railButton}</HoverCardTrigger>
-      <HoverCardContent
-        side="right"
-        align="start"
-        sideOffset={10}
-        className="w-52 p-1.5"
+    <div className="group relative">
+      {railButton}
+      <div
+        id={panelId}
+        // Hidden by default; revealed on hover OR when any descendant has focus.
+        // `pointer-events-none` + `opacity-0` keep it out of the way until shown, but
+        // it stays in the DOM/tab order so focus can enter it (focus-within then makes
+        // it interactive). `motion-reduce` drops the fade for reduced-motion users.
+        className={cn(
+          'absolute left-full top-0 z-50 ml-2.5 w-52 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-elev2',
+          'pointer-events-none opacity-0 transition-opacity duration-100 motion-reduce:transition-none',
+          'group-hover:pointer-events-auto group-hover:opacity-100',
+          'group-focus-within:pointer-events-auto group-focus-within:opacity-100',
+        )}
       >
         <p className="px-2 py-1 text-xs font-semibold text-muted-foreground">{item.label}</p>
         <Separator className="my-1" />
@@ -467,8 +483,8 @@ const CollapsedItem: React.FC<{
             );
           })}
         </ul>
-      </HoverCardContent>
-    </HoverCard>
+      </div>
+    </div>
   );
 };
 

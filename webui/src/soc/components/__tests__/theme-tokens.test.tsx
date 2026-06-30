@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 import {
   applyTokens,
+  applyMaterial,
   sanitizeTokenValue,
   applyBranding,
   resolveDark,
@@ -110,11 +111,33 @@ describe('applyBranding — accent + material + token overrides', () => {
     expect(root.style.getPropertyValue('--glow-strength')).toBe('0');
   });
 
-  it('command material raises the chrome vars', () => {
+  it('quiet branding does NOT pin --glass-opacity (lets the per-theme stylesheet value win)', () => {
+    // Regression for the a11y/branding re-audit: 'quiet' must be byte-identical to
+    // the pre-wave look in BOTH themes. The dark stylesheet's --glass-opacity is 0.78
+    // while light's is 0.82, so force-writing 0.82 inline would darken the dark chrome.
+    // 'quiet' therefore leaves --glass-opacity UNSET inline so the stylesheet decides.
+    const mat = applyBranding({ material: 'quiet' }, root);
+    expect(mat).toBe('quiet');
+    expect(root.style.getPropertyValue('--glass-opacity')).toBe('');
+    expect(MATERIAL_PACKS.quiet['--glass-opacity']).toBeUndefined();
+  });
+
+  it('command material raises the chrome vars (incl. an explicit --glass-opacity)', () => {
     const mat = applyBranding({ material: 'command' }, root);
     expect(mat).toBe('command');
     expect(root.style.getPropertyValue('--grid-opacity')).toBe(MATERIAL_PACKS.command['--grid-opacity']);
     expect(Number(root.style.getPropertyValue('--glow-strength'))).toBeGreaterThan(0);
+    // Command DOES set an explicit, more-translucent glass opacity.
+    expect(root.style.getPropertyValue('--glass-opacity')).toBe(MATERIAL_PACKS.command['--glass-opacity']);
+  });
+
+  it('switching command → quiet clears the inline --glass-opacity (no stale override)', () => {
+    applyMaterial('command', root);
+    expect(root.style.getPropertyValue('--glass-opacity')).toBe(MATERIAL_PACKS.command['--glass-opacity']);
+    applyMaterial('quiet', root);
+    // The quiet applier actively removes the stale inline value so the stylesheet's
+    // per-theme default (0.82 light / 0.78 dark) governs again.
+    expect(root.style.getPropertyValue('--glass-opacity')).toBe('');
   });
 
   it('accent_color drives --primary/--ring; accent_color2 drives --accent2', () => {

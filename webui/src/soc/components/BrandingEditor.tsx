@@ -44,6 +44,7 @@ import { useTheme } from '@/soc/theme';
 import {
   ACCENT_PRESETS,
   ALLOWED_TOKENS,
+  applyMaterial,
   applyTokens,
   clearTokens,
   hexToHslTriplet,
@@ -221,12 +222,11 @@ function applyThemeTokensPreview(tokens: Record<string, string>): void {
 function applyMaterialPreview(material: Material): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  applyTokens(
-    material === 'command'
-      ? { '--glass-opacity': '0.64', '--glow-strength': '0.45', '--grid-opacity': '0.05' }
-      : { '--glass-opacity': '0.82', '--glow-strength': '0', '--grid-opacity': '0' },
-    root,
-  );
+  // Delegate to the ONE allow-listed material applier so the preview matches the
+  // saved appearance exactly — notably, 'quiet' CLEARS `--glass-opacity` (it has
+  // per-theme stylesheet defaults 0.82/0.78) instead of force-writing 0.82, so the
+  // dark chrome is never overridden. Only 'command' raises the glass.
+  applyMaterial(material, root);
   root.classList.toggle('command-grid', material === 'command');
   root.dataset.material = material;
 }
@@ -296,9 +296,13 @@ function ColorField({
   onChange: (v: string) => void;
 }) {
   const swatch = value && isValidHex(value) ? value : placeholder;
+  // Associate the visible Label with the hex Input so the field has an accessible
+  // name (#6 — WCAG 1.3.1/4.1.2). A stable per-instance id keeps multiple ColorFields
+  // distinct on the page.
+  const hexId = React.useId();
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label htmlFor={hexId}>{label}</Label>
       <div className="flex items-center gap-2">
         <input
           type="color"
@@ -310,6 +314,7 @@ function ColorField({
           style={{ backgroundColor: swatch }}
         />
         <Input
+          id={hexId}
           value={value}
           placeholder={placeholder}
           disabled={disabled}

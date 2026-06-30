@@ -206,7 +206,13 @@ export function SettingsTOC({ items, active, onSelect, className }: SettingsTOCP
       onSelect?.(anchor);
       if (typeof document === 'undefined') return;
       const el = document.getElementById(anchor);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Honour prefers-reduced-motion (#7): smooth-scroll only when the user has NOT
+      // requested reduced motion; otherwise jump instantly with 'auto'.
+      const reduceMotion =
+        typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
     },
     [onSelect],
   );
