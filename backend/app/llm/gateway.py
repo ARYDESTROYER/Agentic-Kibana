@@ -10,18 +10,18 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from ..config import ModelConfig, Provider, Secrets
 from ..constants import Role, UsageOutcome
 from ..models import UsageDoc
 from ..stores.usage import UsageStore
-from .pricing import cost_for, pricing_source
+from .pricing import base_url_for, cost_for, pricing_source, resolve_price
 from .providers import (
-    AnthropicProvider,
+    PROVIDER_REGISTRY,
     BaseProvider,
     CompletionResult,
     MockProvider,
-    OpenAIProvider,
 )
 
 logger = logging.getLogger("tlsoc.gateway")
@@ -50,6 +50,8 @@ class LLMGateway:
         provider_overrides: dict[str, BaseProvider] | None = None,
         *,
         demo: bool = False,
+        price_overlay: Any = None,
+        budget_gate: Any = None,
     ) -> None:
         self._secrets = secrets
         self._usage = usage_store
@@ -60,26 +62,75 @@ class LLMGateway:
         # page has believable numbers. The provider itself is the deterministic
         # DemoMockProvider, injected via provider_overrides by the demo state stack.
         self._demo = bool(demo)
+        # Feature 9 (optional, defaulted None so the 3-arg constructor is unchanged):
+        # an operator PriceOverlayStore (per-model negotiated rates layered on top of
+        # the built-in table) and a BudgetGate (pure pre-flight ceiling check that
+        # RAISES GatewayError on block → caller fails to NEEDS_HUMAN, never closes #3).
+        self._overlay = price_overlay
+        self._budget = budget_gate
 
     # ----- provider resolution -----
-    def _provider(self, name: Provider, *, for_embedding: bool = False) -> BaseProvider:
+    def _provider(
+        self, name: Provider | str, *, for_embedding: bool = False, model: str = "",
+    ) -> BaseProvider:
+        # An explicit override (tests / demo) keyed by provider NAME wins, byte-identical
+        # to the historical behaviour (mock/anthropic/openai injected by the test/demo
+        # stack). The model-keyed cache below only applies to gateway-constructed clients.
         if name in self._providers:
             return self._providers[name]
+        # Per-(provider, base_url) cache key so a registry base_url (vLLM/Ollama/...)
+        # for a specific model gets its own client without colliding with the default.
+        base_url = base_url_for(model) if model else None
+        cache_key = f"{name}@{base_url}" if base_url else str(name)
+        cached = self._providers.get(cache_key)
+        if cached is not None:
+            return cached
+        factory = PROVIDER_REGISTRY.get(str(name))
+        if factory is None:
+            raise GatewayError(f"Unknown provider: {name}")
+        kwargs = self._provider_kwargs(str(name), for_embedding=for_embedding, base_url=base_url)
+        provider = factory(**kwargs)
+        self._providers[cache_key] = provider
+        return provider
+
+    def _provider_kwargs(self, name: str, *, for_embedding: bool, base_url: str | None) -> dict[str, Any]:
+        """Resolve the credential/endpoint kwargs a provider factory needs from
+        ``Secrets`` (the anthropic/openai/mock paths are byte-identical to before;
+        the new providers read best-effort secret attrs that may be unset → the
+        factory still constructs, and the call fails cleanly on a missing key)."""
         if name == "mock":
-            provider: BaseProvider = MockProvider()
-        elif name == "anthropic":
+            return {}
+        if name == "anthropic":
             if not self._secrets.anthropic_api_key:
                 raise GatewayError("Anthropic API key not configured")
-            provider = AnthropicProvider(self._secrets.anthropic_api_key)
-        elif name == "openai":
+            return {"api_key": self._secrets.anthropic_api_key, "base_url": base_url}
+        if name in ("openai", "openai_compatible"):
             key = self._secrets.embedding_key() if for_embedding else self._secrets.openai_api_key
-            if not key:
+            # An OpenAI-compatible self-hosted endpoint (base_url set) may need no key.
+            if not key and not base_url:
                 raise GatewayError("OpenAI API key not configured")
-            provider = OpenAIProvider(key)
-        else:
-            raise GatewayError(f"Unknown provider: {name}")
-        self._providers[name] = provider
-        return provider
+            return {"api_key": key or "", "base_url": base_url}
+        if name == "azure":
+            key = getattr(self._secrets, "azure_openai_api_key", None) or self._secrets.openai_api_key
+            return {"api_key": key or "",
+                    "base_url": base_url or getattr(self._secrets, "azure_openai_endpoint", "") or ""}
+        if name == "bedrock":
+            return {
+                "access_key_id": getattr(self._secrets, "aws_access_key_id", "") or "",
+                "secret_access_key": getattr(self._secrets, "aws_secret_access_key", "") or "",
+                "region": getattr(self._secrets, "aws_region", "") or "us-east-1",
+                "session_token": getattr(self._secrets, "aws_session_token", None),
+                "base_url": base_url,
+            }
+        if name == "vertex":
+            return {
+                "access_token": getattr(self._secrets, "vertex_access_token", "") or "",
+                "project": getattr(self._secrets, "vertex_project", "") or "",
+                "location": getattr(self._secrets, "vertex_location", "") or "us-central1",
+                "base_url": base_url,
+            }
+        # Unknown-but-registered name: pass base_url only (OpenAI-flavoured fallback).
+        return {"api_key": self._secrets.openai_api_key or "", "base_url": base_url}
 
     # ----- completions -----
     async def complete(
@@ -92,9 +143,13 @@ class LLMGateway:
         case_id: str | None = None,
     ) -> CompletionResult:
         role_str = role.value if isinstance(role, Role) else role
+        # Budget pre-flight (Feature 9, Track B): a PURE ceiling check that RAISES on
+        # block BEFORE the provider call + BEFORE any ledger write, so a blocked call
+        # fails to NEEDS_HUMAN and NEVER closes a case (#3). Demo/mock ($0) bypasses.
+        await self._budget_preflight(role_str, messages, model_cfg)
         started = time.perf_counter()
         try:
-            provider = self._provider(model_cfg.provider)
+            provider = self._provider(model_cfg.provider, model=model_cfg.model)
             result = await provider.complete(
                 role_str, messages, model_cfg.model, model_cfg.temperature, model_cfg.max_tokens
             )
@@ -111,7 +166,8 @@ class LLMGateway:
             # $0 mock run, but stamp a small PLAUSIBLE synthetic cost for the cost page.
             cost = _demo_synthetic_cost(result.prompt_tokens, result.completion_tokens)
         else:
-            cost = cost_for(model_used, result.prompt_tokens, result.completion_tokens)
+            cost = cost_for(model_used, result.prompt_tokens, result.completion_tokens,
+                            await self._overlay_tuple(model_used))
         result.cost = cost  # let callers roll up per-case cost (Case.token_cost)
         await self._record(
             role_str, surface, case_id, model_used,
@@ -130,7 +186,7 @@ class LLMGateway:
     ) -> list[list[float]]:
         started = time.perf_counter()
         try:
-            provider = self._provider(model_cfg.provider, for_embedding=True)
+            provider = self._provider(model_cfg.provider, for_embedding=True, model=model_cfg.model)
             result = await provider.embed(texts, model_cfg.model)
             model_used = model_cfg.model
         except Exception as exc:  # noqa: BLE001
@@ -144,10 +200,49 @@ class LLMGateway:
             result = await self._mock_fallback.embed(texts, "mock-embed")
             model_used = "mock-embed"
         latency = int((time.perf_counter() - started) * 1000)
-        cost = cost_for(model_used, result.tokens, 0)
+        cost = cost_for(model_used, result.tokens, 0, await self._overlay_tuple(model_used))
         await self._record(Role.EMBEDDING.value, surface, case_id, model_used,
                            result.tokens, 0, latency, UsageOutcome.OK, cost)
         return result.vectors
+
+    # ----- pricing overlay + budget pre-flight helpers (Feature 9) -----
+    async def _overlay_tuple(self, model: str) -> tuple[float, float] | None:
+        """The operator PriceOverlayStore override for ``model`` as a price tuple, or
+        None (→ cost_for falls back to the built-in table / registry). Best-effort:
+        a store glitch degrades to None so the ledger never loses a price source."""
+        if self._overlay is None:
+            return None
+        try:
+            return await self._overlay.as_price_tuple(model)
+        except Exception as exc:  # noqa: BLE001 — overlay is advisory to the ledger
+            logger.warning("price overlay lookup failed (%s); using built-in rate", exc)
+            return None
+
+    async def _budget_preflight(self, role: str, messages: list[dict[str, str]],
+                                model_cfg: ModelConfig) -> None:
+        """Run the optional BudgetGate BEFORE a billable call. On a ``block`` decision
+        it RAISES GatewayError (caller fails to NEEDS_HUMAN — never closes #3). Demo/
+        mock / $0 models bypass the gate. Best-effort: a gate evaluation glitch never
+        hard-blocks a call (logged) — the budget is governance, not a safety stop."""
+        if self._budget is None or self._demo:
+            return
+        if str(model_cfg.provider) == "mock" or model_cfg.model.startswith("mock"):
+            return
+        try:
+            prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            decision = await self._budget.check(
+                prompt_chars=prompt_chars, max_tokens=model_cfg.max_tokens, model=model_cfg.model,
+                overlay=await self._overlay_tuple(model_cfg.model),
+            )
+        except GatewayError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a gate glitch must not drop the alert
+            logger.warning("budget pre-flight soft-failed (%s); allowing the call", exc)
+            return
+        if decision is not None and decision.get("action") == "block":
+            reason = str(decision.get("reason", "budget ceiling exceeded"))
+            logger.warning("budget BLOCK (role=%s model=%s): %s", role, model_cfg.model, reason)
+            raise GatewayError(f"budget ceiling exceeded: {reason}")
 
     # ----- ledger write (the ONE place) -----
     async def _record(
@@ -165,11 +260,20 @@ class LLMGateway:
         total = prompt_tokens + completion_tokens
         # Demo Mode: a $0 mock run — pricing_source is ALWAYS 'zero' (the cost is
         # synthetic, not a verified rate), so the cost page can badge it "simulated".
-        price_src = "zero" if self._demo else pricing_source(model)
+        # When an operator price overlay sets a rate, the provenance is 'exact' (a
+        # verified, operator-supplied contract price) — it overrides the table source.
+        if self._demo:
+            price_src = "zero"
+        elif await self._overlay_tuple(model) is not None:
+            price_src = "exact"
+        else:
+            price_src = pricing_source(model)
         if cost is None:
             cost = (
                 _demo_synthetic_cost(prompt_tokens, completion_tokens)
-                if self._demo else cost_for(model, prompt_tokens, completion_tokens)
+                if self._demo
+                else cost_for(model, prompt_tokens, completion_tokens,
+                              await self._overlay_tuple(model))
             )
         doc = UsageDoc(
             surface=surface,

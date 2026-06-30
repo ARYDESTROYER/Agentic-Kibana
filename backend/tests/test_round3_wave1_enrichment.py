@@ -271,7 +271,14 @@ async def test_enrich_ip_no_keys_neutral_unchanged() -> None:
 
 
 async def test_enrich_indicator_entry_returns_provider_list() -> None:
-    # No keys configured for builtins -> neutral empty list (no capable provider).
-    tool = EnrichTool(_keyless_secrets(), Preferences(), Cache())
+    # Round-3 Wave-2: the KEYLESS providers (shodan_internetdb / ipinfo / threatfox)
+    # are default-ON per the (frozen) Wave-0 EnrichmentConfig, so with no keys the
+    # multi-indicator entry now fires those keyless providers instead of returning [].
+    # To keep this test OFFLINE + deterministic we disable enrichment, which exercises
+    # the entry's empty-path (no capable provider) without any network call.
+    from app.config import EnrichmentConfig, Preferences as _Prefs
+
+    prefs = _Prefs(enrichment=EnrichmentConfig(enabled=False))
+    tool = EnrichTool(_keyless_secrets(), prefs, Cache())
     out = await tool.enrich_indicator("8.8.8.8", IndicatorKind.IP)
     assert out == []

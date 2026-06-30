@@ -10,6 +10,7 @@ extends it to domain/url/file_hash endpoints.
 
 from __future__ import annotations
 
+import base64
 import logging
 from typing import Any
 
@@ -24,6 +25,7 @@ logger = logging.getLogger("tlsoc.enrichment.virustotal")
 
 _TIMEOUT = 8.0
 _VIRUSTOTAL_IP_URL = "https://www.virustotal.com/api/v3/ip_addresses"
+_VT_BASE = "https://www.virustotal.com/api/v3"
 
 
 class VirusTotalProvider(EnrichmentProvider):
@@ -38,8 +40,11 @@ class VirusTotalProvider(EnrichmentProvider):
                 "Aggregated AV/scanner verdicts. Score is the malicious-vendor ratio "
                 "(0..100). Free public API: ~4 lookups/min, 500/day."
             ),
-            # Wave 1: IP only (legacy parity). Wave 2 adds DOMAIN/URL/FILE_HASH.
-            indicator_kinds=[IndicatorKind.IP],
+            # Wave 1 shipped IP (legacy parity); Wave 2 adds DOMAIN/URL/FILE_HASH via
+            # the matching VT v3 endpoints. The IP scoring path is byte-identical.
+            indicator_kinds=[
+                IndicatorKind.IP, IndicatorKind.DOMAIN, IndicatorKind.URL, IndicatorKind.FILE_HASH,
+            ],
             config_key="use_virustotal",
             secret_fields=[
                 ProviderSecretField(
@@ -56,6 +61,21 @@ class VirusTotalProvider(EnrichmentProvider):
             default_enabled=True,
         )
 
+    def _endpoint(self, value: str, kind: IndicatorKind) -> str:
+        """The VT v3 endpoint for ``(value, kind)``. The IP path is byte-identical to
+        Wave 1 (``ip_addresses/{value}``); Wave 2 maps the other kinds onto their VT
+        v3 objects (URLs use the base64url id VT requires)."""
+        if kind == IndicatorKind.IP:
+            return f"{_VIRUSTOTAL_IP_URL}/{value}"
+        if kind == IndicatorKind.DOMAIN:
+            return f"{_VT_BASE}/domains/{value}"
+        if kind == IndicatorKind.FILE_HASH:
+            return f"{_VT_BASE}/files/{value}"
+        if kind == IndicatorKind.URL:
+            url_id = base64.urlsafe_b64encode(value.encode()).decode().strip("=")
+            return f"{_VT_BASE}/urls/{url_id}"
+        raise ValueError(f"virustotal: unsupported kind {kind.value}")
+
     async def _lookup(self, value: str, kind: IndicatorKind) -> ProviderResult:
         key = self._secret("virustotal_api_key")
         if not key:
@@ -66,9 +86,10 @@ class VirusTotalProvider(EnrichmentProvider):
                 ok=False,
                 error="virustotal: no api key",
             )
+        endpoint = self._endpoint(value, kind)
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.get(
-                f"{_VIRUSTOTAL_IP_URL}/{value}",
+                endpoint,
                 headers={"x-apikey": key, "Accept": "application/json"},
             )
             resp.raise_for_status()

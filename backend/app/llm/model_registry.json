@@ -1,0 +1,173 @@
+{
+  "_comment": "Bundled model registry (data corpus, NOT a live fetch). One row per model id describing its provider, context window, max output, modalities, capabilities, and approximate public USD/1M-token costs (input/output/cache-write/cache-read). It LAYERS the richer catalog metadata on top of llm/pricing.py's PRICES table: pricing.cost_for / provider_for / pricing_source still fall back to the in-code PRICES + tier heuristic, so this file is purely additive and editable without a code change. The optional base_url lets an OpenAI-compatible self-hosted/aggregator endpoint (vLLM/Ollama/OpenRouter/Together/Groq) be addressed by model id when the per-role ModelConfig cannot carry one. Costs are approximate list prices in USD per 1,000,000 tokens; edit to match your contract or layer a PriceOverlayStore override on top.",
+  "_schema": {
+    "provider": "anthropic|openai|azure|bedrock|vertex|openai_compatible|mock",
+    "context_window": "max input+history tokens",
+    "max_output": "max completion tokens",
+    "modalities": ["text", "vision", "audio", "embedding"],
+    "capabilities": ["chat", "tools", "json", "reasoning", "embedding", "vision", "cache"],
+    "input_per_million": "USD / 1M input tokens",
+    "output_per_million": "USD / 1M output tokens",
+    "cache_write_per_million": "USD / 1M cache-write tokens (optional)",
+    "cache_read_per_million": "USD / 1M cache-read tokens (optional)",
+    "base_url": "optional OpenAI-compatible endpoint base (vLLM/Ollama/OpenRouter/...)"
+  },
+  "models": {
+    "claude-opus-4-8": {
+      "provider": "anthropic",
+      "label": "Claude Opus 4.8",
+      "context_window": 200000,
+      "max_output": 32000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "reasoning", "vision", "cache"],
+      "input_per_million": 15.0,
+      "output_per_million": 75.0,
+      "cache_write_per_million": 18.75,
+      "cache_read_per_million": 1.5
+    },
+    "claude-sonnet-4-6": {
+      "provider": "anthropic",
+      "label": "Claude Sonnet 4.6",
+      "context_window": 200000,
+      "max_output": 64000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "reasoning", "vision", "cache"],
+      "input_per_million": 3.0,
+      "output_per_million": 15.0,
+      "cache_write_per_million": 3.75,
+      "cache_read_per_million": 0.3
+    },
+    "claude-haiku-4-5-20251001": {
+      "provider": "anthropic",
+      "label": "Claude Haiku 4.5",
+      "context_window": 200000,
+      "max_output": 32000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision", "cache"],
+      "input_per_million": 1.0,
+      "output_per_million": 5.0,
+      "cache_write_per_million": 1.25,
+      "cache_read_per_million": 0.1
+    },
+    "gpt-4o": {
+      "provider": "openai",
+      "label": "GPT-4o",
+      "context_window": 128000,
+      "max_output": 16384,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 2.5,
+      "output_per_million": 10.0
+    },
+    "gpt-4o-mini": {
+      "provider": "openai",
+      "label": "GPT-4o mini",
+      "context_window": 128000,
+      "max_output": 16384,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 0.15,
+      "output_per_million": 0.6
+    },
+    "gpt-4.1": {
+      "provider": "openai",
+      "label": "GPT-4.1",
+      "context_window": 1047576,
+      "max_output": 32768,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 2.0,
+      "output_per_million": 8.0
+    },
+    "gpt-4.1-mini": {
+      "provider": "openai",
+      "label": "GPT-4.1 mini",
+      "context_window": 1047576,
+      "max_output": 32768,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 0.4,
+      "output_per_million": 1.6
+    },
+    "gpt-4-turbo": {
+      "provider": "openai",
+      "label": "GPT-4 Turbo",
+      "context_window": 128000,
+      "max_output": 4096,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 10.0,
+      "output_per_million": 30.0
+    },
+    "gpt-4": {
+      "provider": "openai",
+      "label": "GPT-4",
+      "context_window": 8192,
+      "max_output": 8192,
+      "modalities": ["text"],
+      "capabilities": ["chat", "tools", "json"],
+      "input_per_million": 30.0,
+      "output_per_million": 60.0
+    },
+    "o4-mini": {
+      "provider": "openai",
+      "label": "o4-mini",
+      "context_window": 200000,
+      "max_output": 100000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "reasoning", "vision"],
+      "input_per_million": 1.1,
+      "output_per_million": 4.4
+    },
+    "gpt-5": {
+      "provider": "openai",
+      "label": "GPT-5",
+      "context_window": 400000,
+      "max_output": 128000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "reasoning", "vision"],
+      "input_per_million": 1.25,
+      "output_per_million": 10.0
+    },
+    "gpt-5-mini": {
+      "provider": "openai",
+      "label": "GPT-5 mini",
+      "context_window": 400000,
+      "max_output": 128000,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "reasoning", "vision"],
+      "input_per_million": 0.25,
+      "output_per_million": 2.0
+    },
+    "text-embedding-3-small": {
+      "provider": "openai",
+      "label": "Embedding 3 Small",
+      "context_window": 8191,
+      "max_output": 0,
+      "modalities": ["embedding"],
+      "capabilities": ["embedding"],
+      "input_per_million": 0.02,
+      "output_per_million": 0.0
+    },
+    "text-embedding-3-large": {
+      "provider": "openai",
+      "label": "Embedding 3 Large",
+      "context_window": 8191,
+      "max_output": 0,
+      "modalities": ["embedding"],
+      "capabilities": ["embedding"],
+      "input_per_million": 0.13,
+      "output_per_million": 0.0
+    },
+    "mock": {
+      "provider": "mock",
+      "label": "Mock (offline)",
+      "context_window": 32000,
+      "max_output": 4096,
+      "modalities": ["text", "embedding"],
+      "capabilities": ["chat", "json", "embedding"],
+      "input_per_million": 0.0,
+      "output_per_million": 0.0
+    }
+  }
+}

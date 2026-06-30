@@ -20,11 +20,20 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ..config import Preferences
-from ..constants import CaseStatus, EntityType
+from ..constants import CaseStatus, EntityType, IndicatorKind
 from ..models import Case, ThreatContextPanel
 from ..utils import iso_now, truncate
 from . import mitre as mitre_module
 from .risk import _asset_criticality
+
+# Round-3 Wave-2: map a correlation EntityType onto an enrichment IndicatorKind so a
+# non-IP case entity (a domain, a file hash) gets enriched by the multi-provider
+# dispatch. IP is handled by the byte-identical legacy path below; HOST/USER/RULE have
+# no reputation indicator and are intentionally absent.
+_ENTITY_TO_INDICATOR: dict[EntityType, IndicatorKind] = {
+    EntityType.DOMAIN: IndicatorKind.DOMAIN,
+    EntityType.FILE_HASH: IndicatorKind.FILE_HASH,
+}
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..stores.cases import CaseStore
@@ -35,26 +44,60 @@ logger = logging.getLogger("tlsoc.engine.threat_context")
 
 
 async def _ioc_section(case: Case, prefs: Preferences, enrich: "EnrichTool | None") -> list[dict[str, Any]]:
-    """IOC reputation for the case entity (today: IP enrichment). FAIL-OPEN → []."""
+    """IOC reputation for the case entity. FAIL-OPEN → [].
+
+    The IP path is BYTE-IDENTICAL to Wave 1 (``enrich.enrich_ip`` → legacy
+    ``EnrichmentResult``). Round-3 Wave-2 ADDS a non-IP branch: a domain / file-hash
+    entity is enriched through the multi-provider dispatch
+    (``enrich.enrich_indicator``) and fused with the same default ``max()`` so the
+    panel's ``score``/``is_malicious`` contract is unchanged. Advisory only — this never
+    feeds the deterministic decision (#3)."""
     cfg = prefs.threat_context
     threshold = int(getattr(cfg, "ioc_malicious_threshold", 50))
     try:
-        if case.entity.type != EntityType.IP or enrich is None:
+        if enrich is None:
             return []
-        result = await enrich.enrich_ip(case.entity.value)
-        score = float(result.reputation_score)
+        # --- IP: the legacy path, untouched. ---
+        if case.entity.type == EntityType.IP:
+            result = await enrich.enrich_ip(case.entity.value)
+            score = float(result.reputation_score)
+            return [
+                {
+                    "indicator": case.entity.value,
+                    "type": "ip",
+                    "score": score,
+                    # The panel's own threshold maps reputation → is_malicious (the
+                    # enrichment tool's own 50-cut is independent; the panel is the
+                    # operator-tunable display surface).
+                    "is_malicious": score >= threshold,
+                    "country": result.country,
+                    "cached": result.cached,
+                    "sources": result.sources,
+                }
+            ]
+        # --- Non-IP (domain / file hash): the Wave-2 multi-provider path. ---
+        kind = _ENTITY_TO_INDICATOR.get(case.entity.type)
+        if kind is None:
+            return []
+        results = await enrich.enrich_indicator(case.entity.value, kind)
+        if not results:
+            return []
+        # Default fusion is byte-identical max(score); fence every provider string (#9).
+        from ..enrichment.aggregate import fence_provider_result, fuse
+
+        fused = fuse(results, prefs.enrichment)
+        score = float(fused.reputation_score)
         return [
             {
                 "indicator": case.entity.value,
-                "type": "ip",
+                "type": kind.value,
                 "score": score,
-                # The panel's own threshold maps reputation → is_malicious (the
-                # enrichment tool's own 50-cut is independent; the panel is the
-                # operator-tunable display surface).
                 "is_malicious": score >= threshold,
-                "country": result.country,
-                "cached": result.cached,
-                "sources": result.sources,
+                "country": fused.country,
+                "cached": any((r.raw or {}).get("_cached") for r in results),
+                "sources": fused.per_provider,
+                # Per-provider detail with ALL untrusted strings fenced for the UI (#9).
+                "providers": [fence_provider_result(r) for r in results],
             }
         ]
     except Exception as exc:  # noqa: BLE001 — fail-open per section

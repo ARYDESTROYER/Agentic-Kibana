@@ -17,10 +17,18 @@ from ..audit.audit_log import AuditLogger
 from ..config import Preferences
 from ..connectors.base import PullConnector
 from ..connectors.elastic import ElasticConnector
-from ..constants import ActionType, Role
+from ..constants import ActionType, AuthorType, Role
 from ..es.base import BaseESClient
 from ..llm.gateway import GatewayError, LLMGateway
-from ..models import ChatContext, ChatResponse, ChatTurn, DiscoverLink, MemorySuggestion
+from ..models import (
+    CaseMessage,
+    ChatContext,
+    ChatResponse,
+    ChatTurn,
+    DiscoverLink,
+    MemorySuggestion,
+)
+from ..stores.case_thread import CaseThreadStore
 from ..stores.cases import CaseStore
 from ..stores.memory import MemoryStore
 from ..tools.es_query import EsQueryTool
@@ -49,6 +57,7 @@ class ChatEngine:
         rag: RagService | None = None,
         source: PullConnector | None = None,
         memory: MemoryStore | None = None,
+        threads: CaseThreadStore | None = None,
     ) -> None:
         self._es = es
         # Read-only log surface; defaults to wrapping ``es`` (back-compat).
@@ -60,6 +69,13 @@ class ChatEngine:
         # Operator MEMORY store (durable trusted facts). None → memory disabled in
         # chat (no injection, no add/forget) — preserves today's behaviour.
         self._memory = memory
+        # Per-case THREAD store (Round 3 / F4): when a chat turn is scoped to a case
+        # (``case_id`` set), the human prompt + the AI reply are persisted onto the
+        # SAME case thread the collaboration UI shows, so the investigation reasoning
+        # stops being ephemeral. None (the default) → no persistence; chat behaves
+        # EXACTLY as before (preserves the offline suite). This NEVER touches the
+        # case decision (#3) — it only records the conversation as advisory messages.
+        self._threads = threads
 
     async def chat(
         self,
@@ -177,6 +193,15 @@ class ChatEngine:
         # even when a query also ran and replaced the turn-1 prose.
         if mem_note:
             answer = f"{answer}\n\n{mem_note}".strip() if answer else mem_note
+
+        # Persist this per-case turn onto the case thread (F4): a HUMAN message for
+        # the prompt + an AI message for the reply, on the SAME thread the
+        # collaboration UI renders. Best-effort + advisory only — it NEVER reads or
+        # mutates the case decision (#3); a persistence failure never affects the
+        # chat response (never drop a response).
+        await self._persist_case_turn(
+            case_id, message, answer, prefs, author=author, cost=cost,
+        )
 
         return ChatResponse(
             answer=answer, table=table, query=query_str, discover=discover,
@@ -348,6 +373,56 @@ class ChatEngine:
             logger.warning("Chat memory action failed (%s); continuing", exc)
             return None, suggestion, ""
         return echo, suggestion, note
+
+    async def _persist_case_turn(
+        self,
+        case_id: str | None,
+        prompt: str,
+        answer: str,
+        prefs: Preferences,
+        *,
+        author: str,
+        cost: float,
+    ) -> None:
+        """Persist a per-case chat turn onto the case thread (F4): the human prompt as
+        a ``human`` message and the AI reply as an ``ai`` message (author_type=ai), so
+        in-case investigation conversation is durable beside the collaboration thread.
+
+        Best-effort + isolated:
+        * No-op unless a thread store is wired AND this turn is scoped to a case.
+        * The AI message carries an ``ai_meta`` provenance bag (model + cost) but is
+          STILL just an advisory message — per #3 it can recommend, never decide. This
+          method NEVER reads or writes the case's status/verdict/disposition.
+        * A store failure is swallowed (logged) so chat never hard-fails."""
+        if self._threads is None:
+            return
+        cid = (case_id or "").strip()
+        if not cid:
+            return
+        try:
+            prompt_text = (prompt or "").strip()
+            if prompt_text:
+                await self._threads.append(CaseMessage(
+                    case_id=cid,
+                    author_type=AuthorType.HUMAN.value,
+                    author=author or "",
+                    body=prompt_text[:8000],
+                    kind="chat",
+                    ai_meta={"channel": "chat"},
+                ))
+            reply_text = (answer or "").strip()
+            if reply_text:
+                model = getattr(getattr(prefs, "chat_model", None), "model", "") or ""
+                await self._threads.append(CaseMessage(
+                    case_id=cid,
+                    author_type=AuthorType.AI.value,
+                    author=model or "assistant",
+                    body=reply_text[:8000],
+                    kind="chat",
+                    ai_meta={"channel": "chat", "model": model, "cost": cost},
+                ))
+        except Exception as exc:  # noqa: BLE001 — thread persistence must never break chat
+            logger.warning("Persisting case chat turn failed (%s); continuing", exc)
 
 
 def _render_context(context: ChatContext | None) -> str:

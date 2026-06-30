@@ -31,6 +31,11 @@ from .channel import NotificationEvent, build_channel, ensure_registered
 
 logger = logging.getLogger("tlsoc.notifications.dispatch")
 
+# In-app category mapping + helpers (Feature 8). Importing the module also triggers
+# @register_channel for InAppChannel so the providers catalog lists ``in_app`` without
+# editing channel.py's builtin loader.
+from .inapp import InAppChannel, category_for_trigger  # noqa: E402
+
 # Trigger ids (mirrors templates._TRIGGER_LABEL keys the channels surface).
 TRIGGER_CREATED = "case_created"
 TRIGGER_ESCALATED = "escalated"
@@ -51,6 +56,54 @@ def _enum_value(v: Any) -> str:
     return str(getattr(v, "value", v) or "")
 
 
+def _mentions_of(case: Any) -> list[str]:
+    """Every @mentioned user across a case's comments + threaded messages (plain
+    user-id strings, #9). Reads defensively from a Case (or dict) so a partial case
+    never errors; returns [] on anything unexpected."""
+    out: list[str] = []
+    try:
+        comments = _val(case, "comments", []) or []
+        for c in comments:
+            for m in (_val(c, "mentions", []) or []):
+                if str(m).strip():
+                    out.append(str(m).strip())
+    except Exception:  # noqa: BLE001 — mentions are advisory; never break delivery
+        pass
+    return out
+
+
+def _in_quiet_hours(quiet: Any) -> bool:
+    """Whether NOW (UTC) falls in a user's ``quiet_hours`` window ``{start, end}``
+    (``HH:MM`` 24h strings). A window that wraps midnight (start > end) is handled.
+    Missing/malformed config → False (no quiet hours). Never raises."""
+    if not isinstance(quiet, dict):
+        return False
+    start = _parse_hhmm(quiet.get("start"))
+    end = _parse_hhmm(quiet.get("end"))
+    if start is None or end is None or start == end:
+        return False
+    now = time.gmtime()
+    minute = now.tm_hour * 60 + now.tm_min
+    if start < end:
+        return start <= minute < end
+    # Wraps midnight (e.g. 22:00 → 06:00).
+    return minute >= start or minute < end
+
+
+def _parse_hhmm(value: Any) -> int | None:
+    """Parse an ``HH:MM`` string to minutes-since-midnight, or None when invalid."""
+    if not isinstance(value, str) or ":" not in value:
+        return None
+    try:
+        h, m = value.split(":", 1)
+        hh, mm = int(h), int(m)
+    except (ValueError, TypeError):
+        return None
+    if 0 <= hh < 24 and 0 <= mm < 60:
+        return hh * 60 + mm
+    return None
+
+
 class NotificationService:
     """Fire-and-forget notification dispatcher.
 
@@ -60,7 +113,8 @@ class NotificationService:
     ``Preferences`` (so config edits take effect without rebuilding the service).
     ``secrets`` is the SECRET tier (per-channel secrets resolved at send time)."""
 
-    def __init__(self, *, get_prefs, secrets, cache=None, audit=None) -> None:
+    def __init__(self, *, get_prefs, secrets, cache=None, audit=None,
+                 inbox=None, notif_prefs=None, users=None, event_bus=None) -> None:
         self._get_prefs = get_prefs
         self._secrets = secrets
         self._cache = cache
@@ -68,6 +122,14 @@ class NotificationService:
         # In-memory fallbacks (single-node) when no cache is wired.
         self._dedup_mem: dict[str, float] = {}
         self._rate_mem: dict[str, list[float]] = {}
+        # In-app inbox fan-in (Feature 8). All OPTIONAL + defaulted None so existing
+        # callers / the offline test suite construct the service unchanged. When
+        # ``inbox`` is wired the dispatcher ALSO fans an in-app copy out per recipient
+        # AFTER the network sends — fire-and-forget, never before decide() (#3).
+        self._inbox = inbox
+        self._notif_prefs = notif_prefs
+        self._users = users
+        self._event_bus = event_bus
         ensure_registered()
 
     # -- trigger evaluation -------------------------------------------------- #
@@ -182,6 +244,141 @@ class NotificationService:
         result = await channel.send(event)
         return {"channel_id": ch_cfg.id, "type": ch_cfg.type, "ok": result.ok, "detail": result.detail}
 
+    # -- in-app inbox fan-in (Feature 8) ------------------------------------- #
+    async def _fan_in_app(self, case: Any, trigger: str, event: NotificationEvent
+                          ) -> dict[str, Any] | None:
+        """Fan ONE in-app copy of ``event`` out into every resolved recipient's inbox.
+
+        Resolves recipients (case assignee + @mentions ALWAYS; RBAC-role members
+        filtered by each user's per-category :class:`NotificationPref`), then delivers
+        through the directly-wired :class:`InAppChannel` (no network). Returns a
+        compact per-channel record (``type="in_app"``) for ``notifications_sent`` /
+        audit, or None when no inbox is wired. NEVER raises."""
+        if self._inbox is None:
+            return None
+        try:
+            channel = InAppChannel(
+                inbox=self._inbox,
+                resolve_recipients=lambda ev: self._resolve_inapp_recipients(ev),
+                publish=self._inapp_publish,
+            )
+            result = await channel.send(event)
+            return {"channel_id": "in_app", "type": "in_app",
+                    "ok": result.ok, "detail": result.detail}
+        except Exception as exc:  # noqa: BLE001 — one channel can't break the rest / the flow
+            logger.debug("in-app fan-in failed: %s", exc)
+            return {"channel_id": "in_app", "type": "in_app", "ok": False,
+                    "detail": f"in-app error: {type(exc).__name__}"}
+
+    async def _resolve_inapp_recipients(self, event: NotificationEvent) -> list[str]:
+        """The users who should see this event in their inbox.
+
+        Two tiers, UNIONed:
+
+        * ALWAYS (regardless of channel/category prefs — the inbox is the canonical
+          surface): the case ASSIGNEE + every @MENTION on the case. A direct mention or
+          assignment is a personal address, so it always fans in.
+        * ROLE members (the active users whose role should see this category) — but
+          ONLY when that user's per-category :class:`NotificationPref` enables in-app
+          for the trigger's category (and they aren't in quiet-hours/digest).
+
+        Every value is a plain user-id string (#9 — render-escaped by the UI)."""
+        case = event.case
+        category = category_for_trigger(event.trigger)
+
+        always: list[str] = []
+        assignee = _val(case, "assignee")
+        if assignee:
+            always.append(str(assignee))
+        for m in _mentions_of(case):
+            always.append(m)
+
+        role_members = await self._role_recipients(event.trigger)
+        routed: list[str] = []
+        for user in role_members:
+            if await self._inapp_allows(user, category):
+                routed.append(user)
+
+        # De-dup preserving order; ALWAYS recipients first (they win the prefs filter).
+        seen: set[str] = set()
+        out: list[str] = []
+        for u in always + routed:
+            key = (u or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(u)
+        return out
+
+    async def _role_recipients(self, trigger: str) -> list[str]:
+        """Active usernames whose role should be notified of ``trigger``'s category.
+
+        When no users store is wired (auth off / standalone), there are no role
+        recipients — only the assignee/mention tier applies. Best-effort; never
+        raises. (A SOC where every analyst should see escalations relies on each
+        user's pref defaulting in-app ON, so this casts a WIDE net — every active user
+        — and the per-user pref + quiet-hours filter narrows it.)"""
+        if self._users is None:
+            return []
+        try:
+            users = await self._users.list()
+        except Exception as exc:  # noqa: BLE001 — a store glitch must not break delivery
+            logger.debug("in-app role recipient load failed: %s", exc)
+            return []
+        out: list[str] = []
+        for u in users or []:
+            active = getattr(u, "active", True)
+            username = getattr(u, "username", "") or ""
+            if active and username:
+                out.append(username)
+        return out
+
+    async def _inapp_allows(self, user: str, category: str) -> bool:
+        """Whether ``user``'s :class:`NotificationPref` routes ``category`` to the
+        in-app inbox right now (category enabled + ``in_app`` channel listed + not in
+        quiet-hours + not deferred to a digest). DEFAULT-ON: a user with nothing
+        stored (or an absent category entry) receives in-app notifications, so a fresh
+        SOC works out of the box. Never raises → defaults to True on any glitch."""
+        if self._notif_prefs is None:
+            return True
+        try:
+            pref = await self._notif_prefs.get(user)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("notif pref load failed for %s: %s", user, exc)
+            return True
+        try:
+            cats = getattr(pref, "categories", {}) or {}
+            entry = cats.get(category)
+            if isinstance(entry, dict):
+                if entry.get("enabled") is False:
+                    return False
+                channels = entry.get("channels")
+                # An explicit channel list that EXCLUDES in-app mutes the inbox for
+                # this category; an absent/empty list means "default" → in-app on.
+                if isinstance(channels, list) and channels and "in_app" not in channels:
+                    return False
+            # Quiet-hours: defer (drop) routed (non-personal) items during the window.
+            if _in_quiet_hours(getattr(pref, "quiet_hours", None)):
+                return False
+            # Digest batching: a user on a digest cadence doesn't get per-event items.
+            if str(getattr(pref, "digest", "") or "off").lower() not in ("", "off"):
+                return False
+        except Exception as exc:  # noqa: BLE001 — a malformed pref never blocks delivery
+            logger.debug("notif pref eval failed for %s: %s", user, exc)
+            return True
+        return True
+
+    def _inapp_publish(self, username: str, payload: dict[str, Any]) -> None:
+        """Publish an ``inapp`` live-badge event to ONE user on the EventBus (Wave-4).
+        Fire-and-forget — never raises into the caller."""
+        bus = self._event_bus
+        if bus is None:
+            return
+        try:
+            bus.publish("notifications", "inapp", payload, audience=[username])
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("in-app event publish failed: %s", exc)
+
     async def _audit_send(self, case_id: str, rec: dict[str, Any], trigger: str) -> None:
         if self._audit is None:
             return
@@ -236,7 +433,12 @@ class NotificationService:
             if channel_ids is not None:
                 wanted = set(channel_ids)
                 channels = [c for c in channels if c.id in wanted]
-            if not channels:
+            # NOTE: do NOT early-return on an empty network-channel list — the in-app
+            # inbox fan-in below must still run (the inbox is the canonical surface and
+            # is independent of whether any email/webhook channel is configured). When
+            # the caller TARGETED a channel subset (channel_ids != None) and none match,
+            # they explicitly want only those — skip the in-app fan-in too.
+            if not channels and channel_ids is not None:
                 return sent
 
             body = templates.render(
@@ -266,6 +468,15 @@ class NotificationService:
                 rec["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                 sent.append(rec)
                 await self._audit_send(case_id, rec, trigger)
+            # IN-APP fan-in (Feature 8): a copy lands in each recipient's inbox AFTER
+            # the network channels. Fire-and-forget, fully isolated — never blocks /
+            # raises, never participates in decide() (#3).
+            inapp_rec = await self._fan_in_app(case, trigger, event)
+            if inapp_rec is not None:
+                inapp_rec["trigger"] = trigger
+                inapp_rec["ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                sent.append(inapp_rec)
+                await self._audit_send(case_id, inapp_rec, trigger)
         except Exception as exc:  # noqa: BLE001 — fire-and-forget; never raise into the caller
             logger.warning("notification dispatch failed: %s", exc)
         return sent

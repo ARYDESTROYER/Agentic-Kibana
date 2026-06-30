@@ -127,7 +127,24 @@ class AppState:
         # in Elasticsearch (default) or a SQL database (sqlite/postgres). The
         # agent's read-only LOG surface always stays on the connector layer below.
         self._build_state_backend()
-        self.gateway = LLMGateway(self.secrets, self._real_usage_store, self._provider_overrides)
+        # Round-3 Wave-2 (F9): construct the wave-1 KV stores BEFORE the gateway so the
+        # operator PriceOverlayStore + a pre-flight BudgetGate are LIVE on every LLM
+        # call. These stores depend only on self._kv (set in _build_state_backend just
+        # above), so building them here is safe and they are NOT rebuilt later — the
+        # later _build_wave1_stores() call below is removed in favour of this one.
+        self._build_wave1_stores()
+        from .engine.budget import BudgetGate
+
+        # Read-only pre-flight ceiling: reads the live BudgetConfig + usage ledger. A
+        # block raises GatewayError → fail-to-human (never closes a case, #3). Demo/$0
+        # calls bypass it inside the gateway. Fail-open on a ledger glitch.
+        self.budget_gate = BudgetGate(
+            get_budget=lambda: self.prefs.budget, usage_store=self._real_usage_store
+        )
+        self.gateway = LLMGateway(
+            self.secrets, self._real_usage_store, self._provider_overrides,
+            price_overlay=self.price_overlay, budget_gate=self.budget_gate,
+        )
         # Auth service (Wave 2). Disabled unless secrets.auth_enabled — the no-auth
         # "old version" is the default. Building it is cheap and re-runs on rewire.
         from .auth.service import AuthService
@@ -172,7 +189,10 @@ class AppState:
         # deterministic case_manager.decide() (#3); every free-text field they persist
         # is PLAIN data the UI render-escapes (#9). Built here (after user_prefs) so a
         # live handle survives every _wire() rebuild, just like sessions/user_prefs.
-        self._build_wave1_stores()
+        # NOTE (Round-3 Wave-2): _build_wave1_stores() is now called EARLY (just before
+        # the LLM gateway, above) so the PriceOverlayStore + BudgetGate are live on every
+        # LLM call. It is NOT re-called here — re-calling would mint a fresh PriceOverlay
+        # handle the already-built gateway would not see.
         # Case-number sequence store (F7) over the SAME shared KV — no new index/table.
         self.case_seq = self._build_case_seq()
         self.rag = self._build_rag()
@@ -188,9 +208,12 @@ class AppState:
         )
         self._real_chat_engine = ChatEngine(
             es, self.gateway, self._real_audit, self._real_cases, self.rag,
-            source=self.log_source, memory=self.memory,
+            source=self.log_source, memory=self.memory, threads=self.case_threads,
         )
-        self._real_standup_service = StandupService(es, self.gateway, self._real_audit)
+        self._real_standup_service = StandupService(
+            es, self.gateway, self._real_audit,
+            cases=self._real_cases, shift_handoff=self.shift_handoff,
+        )
         self._real_overview_service = OverviewService(self.gateway, self.secrets, self.cache, self._real_audit)
         self.poller = Poller(
             es, self._real_cases, self.cursor_store, self._real_audit, self._real_pipeline, self.get_prefs,
@@ -208,6 +231,7 @@ class AppState:
 
         self.notifications = NotificationService(
             get_prefs=self.get_prefs, secrets=self.secrets, cache=self.cache, audit=self._real_audit,
+            inbox=self.inbox, notif_prefs=self.notif_prefs, users=self.users, event_bus=self.event_bus,
         )
         # Let the pipeline reach the dispatcher (post-save, fire-and-forget hook).
         self._real_pipeline.notifier = self.notifications

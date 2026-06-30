@@ -7,14 +7,83 @@ text + token counts. This keeps the swap-in seam (LiteLLM/vLLM) trivial.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger("tlsoc.llm.providers")
+
+
+# --------------------------------------------------------------------------- #
+# Error classification + retry/backoff (Feature 9). A provider call can fail for
+# reasons that are RETRYABLE (a 429 rate-limit, a 5xx, a timeout, a transient
+# transport error) or PERMANENT (a 4xx auth/validation error). We classify the
+# httpx error and retry only the transient class with capped exponential backoff +
+# jitter, so the gateway sees a clean exception either way (it still writes the ONE
+# error usage row + raises GatewayError on final failure — #6 is untouched).
+# --------------------------------------------------------------------------- #
+class ProviderError(RuntimeError):
+    """A provider-call failure carrying whether it is retryable + an HTTP status."""
+
+    def __init__(self, message: str, *, retryable: bool, status: int | None = None) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.status = status
+
+
+def classify_http_error(exc: Exception) -> ProviderError:
+    """Map an httpx exception to a :class:`ProviderError` with a retryable flag.
+
+    Retryable: connect/read timeouts, transport errors, HTTP 408/409/429 and any 5xx.
+    Permanent: every other 4xx (auth/validation) — retrying would just waste budget."""
+    if isinstance(exc, httpx.TimeoutException):
+        return ProviderError(f"timeout: {exc}", retryable=True)
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        retryable = status in (408, 409, 429) or status >= 500
+        # Surface a SHORT body excerpt for the operator's test view (plain text;
+        # the gateway/route fences it before any prompt and the UI renders escaped).
+        body = ""
+        try:
+            body = exc.response.text[:300]
+        except Exception:  # noqa: BLE001
+            body = ""
+        return ProviderError(f"HTTP {status}: {body}".strip(), retryable=retryable, status=status)
+    if isinstance(exc, httpx.TransportError):
+        return ProviderError(f"transport error: {exc}", retryable=True)
+    return ProviderError(str(exc), retryable=False)
+
+
+async def with_retry(coro_factory, *, attempts: int = 3, base_delay: float = 0.5,
+                     max_delay: float = 8.0):
+    """Await ``coro_factory()`` with capped exponential backoff + jitter, retrying
+    ONLY the retryable error class (see :func:`classify_http_error`). Re-raises the
+    last :class:`ProviderError` on exhaustion. ``coro_factory`` is a 0-arg callable
+    returning a fresh coroutine each attempt (so the request can be re-issued)."""
+    last: ProviderError | None = None
+    for attempt in range(max(1, attempts)):
+        try:
+            return await coro_factory()
+        except ProviderError as pe:
+            last = pe
+            if not pe.retryable or attempt == attempts - 1:
+                raise
+        except Exception as exc:  # noqa: BLE001 — normalise any httpx error
+            pe = classify_http_error(exc)
+            last = pe
+            if not pe.retryable or attempt == attempts - 1:
+                raise pe from exc
+        delay = min(max_delay, base_delay * (2 ** attempt)) * (0.5 + random.random())
+        logger.info("provider call retry %d/%d in %.2fs (%s)", attempt + 1, attempts, delay, last)
+        await asyncio.sleep(delay)
+    if last is not None:  # pragma: no cover - loop always returns or raises
+        raise last
+    raise ProviderError("retry exhausted", retryable=False)  # pragma: no cover
 
 
 @dataclass
@@ -315,6 +384,270 @@ class DemoMockProvider(MockProvider):
         if role == "chat":
             return json.dumps({"answer": "Demo chat response (synthetic).", "needs_query": False, "query": None})
         return json.dumps(payload)
+
+
+# --------------------------------------------------------------------------- #
+# Azure OpenAI — same wire shape as OpenAI but a deployment-scoped URL + api-key
+# header + api-version query param. Reuses OpenAIProvider's payload-shaping by
+# subclassing and overriding the request seam. Best-effort: importable with no new
+# dep; needs an endpoint + deployment + api-version supplied via the credential.
+# --------------------------------------------------------------------------- #
+class AzureOpenAIProvider(OpenAIProvider):
+    """Azure OpenAI deployment. ``base_url`` is the resource endpoint
+    (``https://<resource>.openai.azure.com``); the model id is the DEPLOYMENT name.
+    Auth is the ``api-key`` header (not a Bearer token) + an ``api-version`` query."""
+
+    def __init__(self, api_key: str, base_url: str,
+                 api_version: str = "2024-10-21") -> None:
+        super().__init__(api_key, base_url=base_url or "https://example.openai.azure.com")
+        self._api_version = api_version
+
+    async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
+        payload: dict[str, Any] = {"messages": messages}
+        if _is_reasoning_or_gpt5(model):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["temperature"] = temperature
+            payload["max_tokens"] = max_tokens
+        resp = await self._client.post(
+            f"/openai/deployments/{model}/chat/completions",
+            params={"api-version": self._api_version},
+            headers={"api-key": self._key, "content-type": "application/json"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"] or ""
+        usage = data.get("usage", {})
+        return CompletionResult(
+            text=text,
+            prompt_tokens=int(usage.get("prompt_tokens", _estimate_tokens(str(messages)))),
+            completion_tokens=int(usage.get("completion_tokens", _estimate_tokens(text))),
+            model=model,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# AWS Bedrock — SigV4-signed POST to the Anthropic-on-Bedrock messages API. The
+# signing ladder is the same HMAC chain the SES SMTP-password derivation uses
+# (notifications/email.py), generalised to full SigV4. Pure stdlib (hmac/hashlib);
+# no boto3 dependency. Credentials: access key id + secret + region.
+# --------------------------------------------------------------------------- #
+def _sigv4_sign(secret_key: str, date_stamp: str, region: str, service: str) -> bytes:
+    """The AWS SigV4 signing-key HMAC ladder (the same chain SES uses for SMTP):
+    ``HMAC('AWS4'+secret, date) → region → service → 'aws4_request'``. Pure stdlib."""
+    import hashlib
+    import hmac
+
+    def _h(key: bytes, msg: str) -> bytes:
+        return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+    k = _h(("AWS4" + (secret_key or "")).encode("utf-8"), date_stamp)
+    k = _h(k, region)
+    k = _h(k, service)
+    return _h(k, "aws4_request")
+
+
+class BedrockProvider(BaseProvider):
+    """AWS Bedrock (Anthropic Claude on Bedrock). Signs each request with SigV4 using
+    stdlib HMAC (no boto3). ``base_url`` defaults to the regional Bedrock runtime
+    endpoint; the model id is the Bedrock model identifier
+    (e.g. ``anthropic.claude-3-5-sonnet-20241022-v2:0``)."""
+
+    def __init__(self, access_key_id: str, secret_access_key: str, region: str = "us-east-1",
+                 base_url: str | None = None, session_token: str | None = None) -> None:
+        self._akid = access_key_id
+        self._secret = secret_access_key
+        self._region = (region or "us-east-1").strip() or "us-east-1"
+        self._token = session_token
+        self._service = "bedrock"
+        self._host = (base_url or f"bedrock-runtime.{self._region}.amazonaws.com").replace("https://", "").replace("http://", "").strip("/")
+        self._client = httpx.AsyncClient(base_url=f"https://{self._host}", timeout=60.0)
+
+    def _signed_headers(self, path: str, body: bytes) -> dict[str, str]:
+        import datetime as _dt
+        import hashlib
+        import hmac
+
+        now = _dt.datetime.now(_dt.timezone.utc)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        payload_hash = hashlib.sha256(body).hexdigest()
+        canonical_headers = (
+            f"content-type:application/json\nhost:{self._host}\n"
+            f"x-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
+        )
+        signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date"
+        canonical_request = (
+            f"POST\n{path}\n\n{canonical_headers}\n{signed_headers}\n{payload_hash}"
+        )
+        scope = f"{date_stamp}/{self._region}/{self._service}/aws4_request"
+        string_to_sign = (
+            "AWS4-HMAC-SHA256\n"
+            f"{amz_date}\n{scope}\n"
+            f"{hashlib.sha256(canonical_request.encode()).hexdigest()}"
+        )
+        signing_key = _sigv4_sign(self._secret, date_stamp, self._region, self._service)
+        signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        auth = (
+            f"AWS4-HMAC-SHA256 Credential={self._akid}/{scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        )
+        headers = {
+            "content-type": "application/json",
+            "x-amz-date": amz_date,
+            "x-amz-content-sha256": payload_hash,
+            "authorization": auth,
+        }
+        if self._token:
+            headers["x-amz-security-token"] = self._token
+        return headers
+
+    async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        convo = [
+            {"role": ("assistant" if m["role"] == "assistant" else "user"), "content": m["content"]}
+            for m in messages if m.get("role") in ("user", "assistant")
+        ]
+        if not convo:
+            convo = [{"role": "user", "content": "\n".join(system_parts) or ""}]
+        payload: dict[str, Any] = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": convo,
+        }
+        if system_parts:
+            payload["system"] = "\n\n".join(system_parts)
+        body = json.dumps(payload).encode("utf-8")
+        path = f"/model/{model}/invoke"
+        resp = await self._client.post(path, headers=self._signed_headers(path, body), content=body)
+        resp.raise_for_status()
+        data = resp.json()
+        text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+        usage = data.get("usage", {})
+        return CompletionResult(
+            text=text,
+            prompt_tokens=int(usage.get("input_tokens", _estimate_tokens(str(messages)))),
+            completion_tokens=int(usage.get("output_tokens", _estimate_tokens(text))),
+            model=model,
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+# --------------------------------------------------------------------------- #
+# Google Vertex AI — Gemini generateContent. Auth is a Bearer OAuth access token
+# (the caller supplies a short-lived token; we do not mint one — no google-auth
+# dep). ``base_url`` + project/location come from the credential. Best-effort.
+# --------------------------------------------------------------------------- #
+class VertexProvider(BaseProvider):
+    """Google Vertex AI (Gemini). The credential is a short-lived OAuth access token
+    (Bearer); we do NOT mint one (no google-auth dep). ``base_url`` is the regional
+    endpoint (``https://<location>-aiplatform.googleapis.com``) and the path carries
+    the project + location + model (publisher ``google``)."""
+
+    def __init__(self, access_token: str, project: str, location: str = "us-central1",
+                 base_url: str | None = None) -> None:
+        self._token = access_token
+        self._project = project
+        self._location = (location or "us-central1").strip() or "us-central1"
+        host = base_url or f"https://{self._location}-aiplatform.googleapis.com"
+        self._client = httpx.AsyncClient(base_url=host, timeout=60.0)
+
+    async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        contents = [
+            {"role": ("model" if m["role"] == "assistant" else "user"),
+             "parts": [{"text": m["content"]}]}
+            for m in messages if m.get("role") in ("user", "assistant")
+        ]
+        if not contents:
+            contents = [{"role": "user", "parts": [{"text": "\n".join(system_parts) or ""}]}]
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
+        }
+        if system_parts:
+            payload["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_parts)}]}
+        path = (
+            f"/v1/projects/{self._project}/locations/{self._location}"
+            f"/publishers/google/models/{model}:generateContent"
+        )
+        resp = await self._client.post(
+            path,
+            headers={"Authorization": f"Bearer {self._token}", "content-type": "application/json"},
+            json=payload,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        cands = data.get("candidates", [])
+        text = ""
+        if cands:
+            text = "".join(p.get("text", "") for p in cands[0].get("content", {}).get("parts", []))
+        meta = data.get("usageMetadata", {})
+        return CompletionResult(
+            text=text,
+            prompt_tokens=int(meta.get("promptTokenCount", _estimate_tokens(str(messages)))),
+            completion_tokens=int(meta.get("candidatesTokenCount", _estimate_tokens(text))),
+            model=model,
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+# --------------------------------------------------------------------------- #
+# Provider registry (Feature 9) — a name -> factory dispatch table replacing the
+# gateway's if/elif. A factory takes the gateway-resolved kwargs (api_key/base_url/
+# region/...) and returns a BaseProvider. ``openai_compatible`` is the OpenAI
+# provider pointed at a custom base_url (vLLM/Ollama/OpenRouter/Together/Groq). The
+# gateway keeps the anthropic/openai/mock paths byte-identical by passing the same
+# kwargs they used before; the new providers are best-effort (importable, no new
+# dep) and only constructed when explicitly selected.
+# --------------------------------------------------------------------------- #
+def _make_anthropic(*, api_key: str = "", base_url: str | None = None, **_: Any) -> BaseProvider:
+    return AnthropicProvider(api_key, base_url=base_url or "https://api.anthropic.com")
+
+
+def _make_openai(*, api_key: str = "", base_url: str | None = None, **_: Any) -> BaseProvider:
+    return OpenAIProvider(api_key, base_url=base_url or "https://api.openai.com")
+
+
+def _make_mock(**_: Any) -> BaseProvider:
+    return MockProvider()
+
+
+def _make_azure(*, api_key: str = "", base_url: str | None = None,
+                api_version: str = "2024-10-21", **_: Any) -> BaseProvider:
+    return AzureOpenAIProvider(api_key, base_url or "", api_version=api_version)
+
+
+def _make_bedrock(*, access_key_id: str = "", secret_access_key: str = "",
+                  region: str = "us-east-1", base_url: str | None = None,
+                  session_token: str | None = None, **_: Any) -> BaseProvider:
+    return BedrockProvider(access_key_id, secret_access_key, region=region,
+                           base_url=base_url, session_token=session_token)
+
+
+def _make_vertex(*, access_token: str = "", project: str = "",
+                 location: str = "us-central1", base_url: str | None = None, **_: Any) -> BaseProvider:
+    return VertexProvider(access_token, project, location=location, base_url=base_url)
+
+
+# name -> factory. ``openai_compatible`` aliases the OpenAI factory (a base_url makes
+# it self-hosted/aggregator). The gateway falls back to OpenAI shaping for any
+# unknown-but-OpenAI-flavoured provider name.
+PROVIDER_REGISTRY: dict[str, Any] = {
+    "anthropic": _make_anthropic,
+    "openai": _make_openai,
+    "mock": _make_mock,
+    "azure": _make_azure,
+    "bedrock": _make_bedrock,
+    "vertex": _make_vertex,
+    "openai_compatible": _make_openai,
+}
 
 
 def _hash_embed(text: str, dim: int = 256) -> list[float]:

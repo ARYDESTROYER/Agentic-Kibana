@@ -1,11 +1,28 @@
-"""Token price table (USD per 1,000,000 tokens).
+"""Token price table (USD per 1,000,000 tokens) + the bundled model registry.
 
 Prices are approximate public list prices and are intentionally easy to edit —
 the cost ledger's accuracy depends only on this one table. Unknown models fall
 back to a conservative default so a call's cost is never silently zero.
+
+Round-3 Feature-9 layered the richer ``model_registry.json`` catalog (context
+window, modalities, capabilities, per-million costs, optional OpenAI-compatible
+``base_url``) ON TOP of this table — but every legacy entry point
+(``cost_for``/``provider_for``/``models_by_provider``/``pricing_source``) keeps the
+in-code ``PRICES`` + tier heuristic as the FINAL fallback, so the catalog is purely
+additive and back-compatible. Pricing precedence at call time (applied by the
+gateway): operator PriceOverlayStore override → model_registry.json row →
+``PRICES`` exact → tier heuristic → conservative default.
 """
 
 from __future__ import annotations
+
+import json
+import logging
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("tlsoc.llm.pricing")
 
 # model -> (input_usd_per_million, output_usd_per_million)
 PRICES: dict[str, tuple[float, float]] = {
@@ -62,15 +79,115 @@ def _heuristic_price(model: str) -> tuple[float, float] | None:
     return None
 
 
+# --------------------------------------------------------------------------- #
+# Bundled model registry (Feature 9) — richer catalog metadata layered on top of
+# PRICES. Loaded once from model_registry.json (data corpus, not a live fetch). All
+# accessors degrade to {} on a load/parse failure so the in-code PRICES table always
+# stands (the ledger never silently loses its price source).
+# --------------------------------------------------------------------------- #
+_REGISTRY_PATH = Path(__file__).with_name("model_registry.json")
+
+
+@lru_cache(maxsize=1)
+def load_registry() -> dict[str, dict[str, Any]]:
+    """The ``{model_id: {provider, context_window, ..., input/output_per_million,
+    base_url?}}`` catalog from ``model_registry.json``. Cached. Returns ``{}`` (never
+    raises) on any read/parse error, so callers fall back to the in-code table."""
+    try:
+        raw = json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — registry is best-effort; PRICES stands
+        logger.warning("model_registry.json load failed (%s); using PRICES only", exc)
+        return {}
+    models = raw.get("models", {}) if isinstance(raw, dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for mid, meta in (models or {}).items():
+        if isinstance(meta, dict):
+            out[str(mid)] = dict(meta)
+    return out
+
+
+def registry_entry(model: str) -> dict[str, Any] | None:
+    """The registry row for ``model`` (exact id match), or None."""
+    return load_registry().get((model or "").strip()) or None
+
+
+def registry_price(model: str) -> tuple[float, float] | None:
+    """``(input_per_million, output_per_million)`` from the registry row, or None when
+    the model is unknown to the registry (→ caller falls back to PRICES / heuristic)."""
+    entry = registry_entry(model)
+    if not entry:
+        return None
+    try:
+        return (float(entry.get("input_per_million", 0.0) or 0.0),
+                float(entry.get("output_per_million", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return None
+
+
+def base_url_for(model: str) -> str | None:
+    """The optional OpenAI-compatible ``base_url`` for ``model`` from the registry —
+    lets a self-hosted/aggregator endpoint (vLLM/Ollama/OpenRouter/Together/Groq) be
+    addressed by model id when the per-role ModelConfig cannot carry one. None when
+    unset (→ the provider's default endpoint)."""
+    entry = registry_entry(model)
+    if not entry:
+        return None
+    url = str(entry.get("base_url", "") or "").strip()
+    return url or None
+
+
+def model_catalog() -> list[dict[str, Any]]:
+    """The full registry as a sorted list of rows, each enriched with its resolved
+    provider + ``pricing_source`` provenance, for the ``GET /api/llm/models`` surface.
+    A model present in PRICES but absent from the registry is synthesised from its
+    price tuple so the catalog never drops a priced model."""
+    reg = load_registry()
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for mid, meta in reg.items():
+        in_p, out_p = registry_price(mid) or PRICES.get(mid) or _DEFAULT_PRICE
+        rows.append({
+            "id": mid,
+            "label": meta.get("label", mid),
+            "provider": str(meta.get("provider") or provider_for(mid)),
+            "context_window": int(meta.get("context_window", 0) or 0),
+            "max_output": int(meta.get("max_output", 0) or 0),
+            "modalities": list(meta.get("modalities", []) or []),
+            "capabilities": list(meta.get("capabilities", []) or []),
+            "input_per_million": in_p,
+            "output_per_million": out_p,
+            "cache_write_per_million": meta.get("cache_write_per_million"),
+            "cache_read_per_million": meta.get("cache_read_per_million"),
+            "base_url": base_url_for(mid),
+            "pricing_source": pricing_source(mid),
+        })
+        seen.add(mid)
+    for mid in PRICES:
+        if mid in seen:
+            continue
+        in_p, out_p = PRICES[mid]
+        rows.append({
+            "id": mid, "label": mid, "provider": provider_for(mid),
+            "context_window": 0, "max_output": 0, "modalities": [], "capabilities": [],
+            "input_per_million": in_p, "output_per_million": out_p,
+            "cache_write_per_million": None, "cache_read_per_million": None,
+            "base_url": None, "pricing_source": pricing_source(mid),
+        })
+    rows.sort(key=lambda r: (r["provider"], r["id"]))
+    return rows
+
+
 def pricing_source(model: str) -> str:
     """Provenance of the rate used to price ``model`` (ported from Vigil): one of
-    ``exact`` (a verified row in PRICES), ``heuristic`` (priced from a family
-    prefix), ``zero`` (the free mock provider), or ``default`` (the conservative
-    fallback). Threaded onto every ``UsageDoc`` so the cost surface can badge an
-    approximate cost vs a verified one, and a real $0 vs a missing rate."""
+    ``exact`` (a verified row in PRICES OR the bundled registry), ``heuristic``
+    (priced from a family prefix), ``zero`` (the free mock provider), or ``default``
+    (the conservative fallback). Threaded onto every ``UsageDoc`` so the cost surface
+    can badge an approximate cost vs a verified one, and a real $0 vs a missing rate."""
     if model.startswith("mock"):
         return "zero"
     if model in PRICES:
+        return "exact"
+    if registry_price(model) is not None:
         return "exact"
     if _heuristic_price(model) is not None:
         return "heuristic"
@@ -82,7 +199,12 @@ def provider_for(model: str) -> str:
 
     ``claude-*`` -> anthropic; ``gpt-*`` / ``o1``/``o3``/``o4``-series /
     ``text-embedding-*`` -> openai; ``mock`` -> mock. Anything unrecognised is
-    bucketed under ``other`` so a new model never disappears from the catalog."""
+    bucketed under ``other`` so a new model never disappears from the catalog.
+
+    A model that the bundled registry declares an explicit ``provider`` for wins over
+    the prefix heuristic — but ONLY when the prefix rules would otherwise return
+    ``other`` (a registry-declared azure/bedrock/vertex/openai_compatible model), so
+    the existing anthropic/openai/mock prefix mapping stays byte-identical."""
     if model.startswith("claude-"):
         return "anthropic"
     if (
@@ -93,21 +215,48 @@ def provider_for(model: str) -> str:
         return "openai"
     if model.startswith("mock"):
         return "mock"
+    entry = registry_entry(model)
+    if entry:
+        declared = str(entry.get("provider", "") or "").strip()
+        if declared:
+            return declared
     return "other"
 
 
 def models_by_provider() -> dict[str, list[str]]:
-    """The price-table models grouped by provider, each list sorted (Feature 4)."""
+    """The known models grouped by provider, each list sorted (Feature 4).
+
+    Unions the in-code ``PRICES`` table with the bundled ``model_registry.json`` so a
+    registry-only model (e.g. an azure/bedrock/vertex/openai_compatible id) still
+    appears in the settings per-role picker. The three legacy buckets (anthropic /
+    openai / mock) are always present so existing callers see no shape change."""
     grouped: dict[str, list[str]] = {"anthropic": [], "openai": [], "mock": []}
-    for model in PRICES:
+    for model in set(PRICES) | set(load_registry()):
         grouped.setdefault(provider_for(model), []).append(model)
-    return {provider: sorted(models) for provider, models in grouped.items()}
+    return {provider: sorted(set(models)) for provider, models in grouped.items()}
 
 
-def cost_for(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+def resolve_price(model: str, overlay: tuple[float, float] | None = None) -> tuple[float, float]:
+    """The effective ``(input_per_million, output_per_million)`` for ``model``, in
+    precedence order: an operator PriceOverlayStore ``overlay`` tuple → the in-code
+    ``PRICES`` exact row → the bundled registry row → the tier heuristic → the
+    conservative default. The mock provider is free.
+
+    ``PRICES`` is checked BEFORE the registry so an operator who edits ``pricing.py``
+    still wins over the bundled catalog (back-compat for the existing edit-the-table
+    workflow); the registry only fills models the table doesn't know."""
+    if model.startswith("mock"):
+        return (0.0, 0.0)
+    if overlay is not None:
+        return overlay
+    return PRICES.get(model) or registry_price(model) or _heuristic_price(model) or _DEFAULT_PRICE
+
+
+def cost_for(model: str, prompt_tokens: int, completion_tokens: int,
+             overlay: tuple[float, float] | None = None) -> float:
     if model.startswith("mock"):
         return 0.0
-    in_price, out_price = PRICES.get(model) or _heuristic_price(model) or _DEFAULT_PRICE
+    in_price, out_price = resolve_price(model, overlay)
     return round(
         (prompt_tokens / 1_000_000.0) * in_price
         + (completion_tokens / 1_000_000.0) * out_price,

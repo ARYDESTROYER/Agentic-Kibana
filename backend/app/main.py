@@ -12,6 +12,14 @@ from fastapi import Depends, FastAPI
 
 from .api.deps import require_auth
 from .api.routes import router
+from .api.routes_cases_collab import router as cases_collab_router
+from .api.routes_enrichment import router as enrichment_router
+from .api.routes_inapp import router as inapp_router
+from .api.routes_metrics import router as metrics_router
+from .api.routes_models import router as models_router
+from .api.routes_roles import router as roles_router
+from .api.routes_standup import router as standup_router
+from .api.routes_triage import router as triage_router
 from .config import Secrets
 from .logging_setup import configure_logging
 from .middleware import CSRFMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
@@ -61,6 +69,22 @@ if _sec.security_headers_enabled:
 # Auth gate on the WHOLE /api router (deny-by-default; a strict no-op when auth is
 # disabled). Every /api route inherits it → a new route is protected automatically.
 app.include_router(router, dependencies=[Depends(require_auth)])
+
+# Round-3 Wave-2 feature routers (each a standalone APIRouter(prefix="/api")). Mounted
+# with the SAME require_auth dependency so every new route inherits the auth gate (GETs
+# are protected; each non-GET declares its own require_permission). Additive — none of
+# these touch the deterministic case_manager.decide() (#3) or the LLM ledger (#6).
+for _feature_router in (
+    metrics_router,       # F5 — richer posture / MITRE coverage metrics
+    standup_router,       # F11 — forward-looking shift handoff + action items
+    enrichment_router,    # F7 — multi-provider enrichment lookup
+    models_router,        # F9 — LLM model catalog / pricing / budget
+    inapp_router,         # F8 — in-app notification inbox + delivery prefs
+    cases_collab_router,  # F4 — per-case threaded collaboration + tasks
+    triage_router,        # F12 — triage chips + ReAct timeline
+    roles_router,         # F6 — RBAC custom-role CRUD + permission UX
+):
+    app.include_router(_feature_router, dependencies=[Depends(require_auth)])
 
 
 @app.get("/")
