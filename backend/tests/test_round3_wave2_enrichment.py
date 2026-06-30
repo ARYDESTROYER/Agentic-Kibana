@@ -69,8 +69,9 @@ def test_all_providers_registered_and_well_formed() -> None:
         "urlhaus", "threatfox", "malwarebazaar", "rdap", "urlscan", "hibp",
     }
     assert expected.issubset(names)
-    # Project Honeypot is implemented but NOT registered (pending Wave-0 config field).
-    assert "projecthoneypot" not in names
+    # Project Honeypot is REGISTERED as of Round 3 Wave 2b (its config gaps —
+    # use_honeypot + honeypot_access_key — are now filled). It is key-gated + default-OFF.
+    assert "projecthoneypot" in names
     # Every manifest is well-formed.
     for cls in BUILTIN_PROVIDERS:
         m = cls.manifest()

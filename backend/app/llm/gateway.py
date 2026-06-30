@@ -72,28 +72,42 @@ class LLMGateway:
     # ----- provider resolution -----
     def _provider(
         self, name: Provider | str, *, for_embedding: bool = False, model: str = "",
+        endpoint: ModelConfig | None = None,
     ) -> BaseProvider:
         # An explicit override (tests / demo) keyed by provider NAME wins, byte-identical
         # to the historical behaviour (mock/anthropic/openai injected by the test/demo
         # stack). The model-keyed cache below only applies to gateway-constructed clients.
         if name in self._providers:
             return self._providers[name]
-        # Per-(provider, base_url) cache key so a registry base_url (vLLM/Ollama/...)
-        # for a specific model gets its own client without colliding with the default.
-        base_url = base_url_for(model) if model else None
-        cache_key = f"{name}@{base_url}" if base_url else str(name)
+        # A per-role ModelConfig.base_url (Wave 2b) pins this role's endpoint and wins
+        # over the bundled registry's base_url_for(model); the registry remains the
+        # fallback so an existing config with no per-role override is byte-identical.
+        cfg_base = (endpoint.base_url or "").strip() if endpoint is not None else ""
+        base_url = cfg_base or (base_url_for(model) if model else None) or None
+        api_version = (endpoint.api_version or None) if endpoint is not None else None
+        region = (endpoint.region or None) if endpoint is not None else None
+        # Per-(provider, base_url, api_version, region) cache key so a registry/cfg
+        # base_url (vLLM/Ollama/Azure/...) for a specific model gets its own client
+        # without colliding with the default.
+        cache_key = str(name)
+        if base_url or api_version or region:
+            cache_key = f"{name}@{base_url}|{api_version}|{region}"
         cached = self._providers.get(cache_key)
         if cached is not None:
             return cached
         factory = PROVIDER_REGISTRY.get(str(name))
         if factory is None:
             raise GatewayError(f"Unknown provider: {name}")
-        kwargs = self._provider_kwargs(str(name), for_embedding=for_embedding, base_url=base_url)
+        kwargs = self._provider_kwargs(
+            str(name), for_embedding=for_embedding, base_url=base_url,
+            api_version=api_version, region=region,
+        )
         provider = factory(**kwargs)
         self._providers[cache_key] = provider
         return provider
 
-    def _provider_kwargs(self, name: str, *, for_embedding: bool, base_url: str | None) -> dict[str, Any]:
+    def _provider_kwargs(self, name: str, *, for_embedding: bool, base_url: str | None,
+                         api_version: str | None = None, region: str | None = None) -> dict[str, Any]:
         """Resolve the credential/endpoint kwargs a provider factory needs from
         ``Secrets`` (the anthropic/openai/mock paths are byte-identical to before;
         the new providers read best-effort secret attrs that may be unset → the
@@ -112,19 +126,31 @@ class LLMGateway:
             return {"api_key": key or "", "base_url": base_url}
         if name == "azure":
             key = getattr(self._secrets, "azure_openai_api_key", None) or self._secrets.openai_api_key
-            return {"api_key": key or "",
-                    "base_url": base_url or getattr(self._secrets, "azure_openai_endpoint", "") or ""}
+            kwargs: dict[str, Any] = {
+                "api_key": key or "",
+                "base_url": base_url or getattr(self._secrets, "azure_openai_endpoint", "") or "",
+            }
+            # Pass the api-version through to the Azure factory: the per-role
+            # ModelConfig.api_version wins, then the operator-configured secret, else the
+            # factory's stable default applies.
+            eff_api_version = api_version or getattr(self._secrets, "azure_openai_api_version", None)
+            if eff_api_version:
+                kwargs["api_version"] = eff_api_version
+            return kwargs
         if name == "bedrock":
             return {
                 "access_key_id": getattr(self._secrets, "aws_access_key_id", "") or "",
                 "secret_access_key": getattr(self._secrets, "aws_secret_access_key", "") or "",
-                "region": getattr(self._secrets, "aws_region", "") or "us-east-1",
+                # Per-role ModelConfig.region wins over the secret default.
+                "region": region or getattr(self._secrets, "aws_region", "") or "us-east-1",
                 "session_token": getattr(self._secrets, "aws_session_token", None),
                 "base_url": base_url,
             }
         if name == "vertex":
             return {
-                "access_token": getattr(self._secrets, "vertex_access_token", "") or "",
+                # The Vertex credential is a short-lived OAuth access token (Bearer),
+                # supplied by the operator as ``vertex_api_key``.
+                "access_token": getattr(self._secrets, "vertex_api_key", "") or "",
                 "project": getattr(self._secrets, "vertex_project", "") or "",
                 "location": getattr(self._secrets, "vertex_location", "") or "us-central1",
                 "base_url": base_url,
@@ -149,7 +175,7 @@ class LLMGateway:
         await self._budget_preflight(role_str, messages, model_cfg)
         started = time.perf_counter()
         try:
-            provider = self._provider(model_cfg.provider, model=model_cfg.model)
+            provider = self._provider(model_cfg.provider, model=model_cfg.model, endpoint=model_cfg)
             result = await provider.complete(
                 role_str, messages, model_cfg.model, model_cfg.temperature, model_cfg.max_tokens
             )
@@ -186,7 +212,8 @@ class LLMGateway:
     ) -> list[list[float]]:
         started = time.perf_counter()
         try:
-            provider = self._provider(model_cfg.provider, for_embedding=True, model=model_cfg.model)
+            provider = self._provider(model_cfg.provider, for_embedding=True,
+                                       model=model_cfg.model, endpoint=model_cfg)
             result = await provider.embed(texts, model_cfg.model)
             model_used = model_cfg.model
         except Exception as exc:  # noqa: BLE001

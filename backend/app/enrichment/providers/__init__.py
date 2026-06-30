@@ -11,10 +11,10 @@ threatfox / malwarebazaar / rdap) default ON; every key-gated provider defaults 
 The registry imports :data:`BUILTIN_PROVIDERS` to discover them; third-party providers
 register out-of-tree via the ``tlsoc.enrichers`` entry-point group.
 
-NOTE: :class:`ProjectHoneypotProvider` is implemented + tested but NOT registered here —
-it needs a Wave-0 config toggle (``use_honeypot``) + a ``Secrets.honeypot_access_key``
-that the frozen config does not yet expose. It registers with a one-line change once
-those land.
+Round 3 Wave 2b lands the config gaps :class:`ProjectHoneypotProvider` waited on — the
+``EnrichmentConfig.use_honeypot`` toggle + the ``Secrets.honeypot_access_key`` field —
+so it is now REGISTERED below. It stays key-gated + default-OFF: it only fires when the
+operator both enables ``use_honeypot`` AND configures the access key.
 """
 
 from __future__ import annotations
@@ -59,7 +59,8 @@ BUILTIN_PROVIDERS: list[type[EnrichmentProvider]] = [
     RDAPProvider,
     URLScanProvider,
     HIBPProvider,
-    # ProjectHoneypotProvider intentionally NOT registered — pending Wave-0 config.
+    # Key-gated, default-OFF (use_honeypot + honeypot_access_key). Registered in Wave 2b.
+    ProjectHoneypotProvider,
 ]
 
 __all__ = [

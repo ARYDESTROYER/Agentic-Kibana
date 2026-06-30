@@ -1,6 +1,19 @@
-"""Shared test fixtures: an in-process AppState with a fake ES and mock LLM."""
+"""Shared test fixtures: an in-process AppState with a fake ES and mock LLM.
+
+This module also installs an **autouse network guard** (see ``_no_outbound_network``)
+so the offline suite can never make a real outbound connection. That matters now that
+several keyless enrichment providers (Shodan InternetDB / IPinfo / abuse.ch / RDAP)
+default ON: a test that constructs a real ``EnrichTool`` against a *public* IP would
+otherwise fan out live HTTP/DNS calls that fail-open only after a multi-second timeout
+— slow and flaky in CI. The guard blocks any connect/resolve to a non-loopback address
+and turns it into an immediate, deterministic error (which the enrichment layer already
+fails open on). A test that genuinely needs the network can opt out with
+``@pytest.mark.allow_network``.
+"""
 
 from __future__ import annotations
+
+import socket
 
 import pytest
 import pytest_asyncio
@@ -10,6 +23,118 @@ from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
 from app.state import AppState
 from app.utils import iso_now, to_millis, now_utc
+
+
+# --------------------------------------------------------------------------- #
+# Offline network guard — deterministic, fast, opt-out-able.
+# --------------------------------------------------------------------------- #
+class _BlockedNetworkError(OSError):
+    """Raised when the offline test suite attempts a real outbound connection.
+
+    Subclasses :class:`OSError` so it is caught by the same fail-open paths that
+    already handle connection refusals/timeouts (httpx, ``socket.gethostbyname``,
+    enrichment dispatch), keeping behaviour deterministic without special-casing."""
+
+
+def _host_of(address: object) -> str | None:
+    """Best-effort extract the host string from a ``connect`` / ``create_connection``
+    address argument. AF_INET/AF_INET6 use ``(host, port[, ...])``; anything else
+    (AF_UNIX path, fd, unknown) returns ``None`` so it is allowed through."""
+    if isinstance(address, (tuple, list)) and address:
+        host = address[0]
+        return host if isinstance(host, str) else None
+    return None
+
+
+def _is_loopback(host: str | None) -> bool:
+    """True for loopback / unspecified / in-process addresses we must never block.
+
+    ``None`` (AF_UNIX / unknown) and empty host are treated as local. We do a cheap
+    string check first (no DNS) and only fall back to ``ipaddress`` for the rest, so
+    the guard itself never triggers a lookup."""
+    if host is None or host == "":
+        return True
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "::"):
+        return True
+    if host.startswith("127."):
+        return True
+    try:
+        import ipaddress
+
+        ip = ipaddress.ip_address(host)
+        return ip.is_loopback or ip.is_unspecified
+    except ValueError:
+        # A hostname (not a literal IP) other than localhost: treat as outbound.
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _no_outbound_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch):
+    """Autouse: block real outbound network for the offline suite.
+
+    Patches the low-level ``socket`` connect + DNS-resolution entry points so any
+    attempt to reach a non-loopback host raises :class:`_BlockedNetworkError`
+    (an ``OSError``) *immediately* — no multi-second timeout, no real packets. The
+    in-process surfaces the suite actually uses stay untouched:
+
+      * FastAPI ``TestClient`` talks to the app over an in-memory ASGI transport
+        (no socket);
+      * the fake ES client + in-memory cache (``redis_url=""``) are pure-Python;
+      * loopback is explicitly allowed.
+
+    Tests that genuinely need the network opt out with ``@pytest.mark.allow_network``.
+    Higher-level enrichment tests that already mock the HTTP/DNS layer never reach
+    these patches at all, so they are unaffected."""
+    if request.node.get_closest_marker("allow_network") is not None:
+        return
+
+    real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_create_connection = socket.create_connection
+    real_getaddrinfo = socket.getaddrinfo
+    real_gethostbyname = socket.gethostbyname
+
+    def _guard_host(host: str | None, what: str) -> None:
+        if not _is_loopback(host):
+            raise _BlockedNetworkError(
+                f"Blocked outbound network in offline test ({what} -> {host!r}). "
+                "Mock the HTTP/DNS layer, or mark the test @pytest.mark.allow_network."
+            )
+
+    def _connect(self, address, *args, **kwargs):
+        _guard_host(_host_of(address), "socket.connect")
+        return real_connect(self, address, *args, **kwargs)
+
+    def _connect_ex(self, address, *args, **kwargs):
+        _guard_host(_host_of(address), "socket.connect_ex")
+        return real_connect_ex(self, address, *args, **kwargs)
+
+    def _create_connection(address, *args, **kwargs):
+        _guard_host(_host_of(address), "socket.create_connection")
+        return real_create_connection(address, *args, **kwargs)
+
+    def _getaddrinfo(host, *args, **kwargs):
+        _guard_host(host if isinstance(host, str) else None, "socket.getaddrinfo")
+        return real_getaddrinfo(host, *args, **kwargs)
+
+    def _gethostbyname(host, *args, **kwargs):
+        _guard_host(host if isinstance(host, str) else None, "socket.gethostbyname")
+        return real_gethostbyname(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", _connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", _connect_ex)
+    monkeypatch.setattr(socket, "create_connection", _create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", _getaddrinfo)
+    monkeypatch.setattr(socket, "gethostbyname", _gethostbyname)
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register the ``allow_network`` opt-out marker (``--strict-markers`` is on)."""
+    config.addinivalue_line(
+        "markers",
+        "allow_network: opt this test out of the autouse offline network guard "
+        "(it may make real outbound connections).",
+    )
 
 
 @pytest.fixture

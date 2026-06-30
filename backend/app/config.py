@@ -26,7 +26,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .constants import CorrelationMode, EntityStrategy, EntityType, IndexRole, IngestMode, SourceType
 from .utils import dotted_get, iso_now, slug
 
-Provider = Literal["anthropic", "openai", "mock"]
+# The provider names the per-role ModelConfig may carry. Widened in Round 3 Wave 2b to
+# make the cloud-hosted providers (azure/bedrock/vertex) + any OpenAI-compatible
+# self-hosted/aggregator endpoint first-class, so a ModelConfig can be constructed
+# directly (no ``model_construct`` bypass) and the gateway's PROVIDER_REGISTRY can
+# authenticate it. The legacy three (anthropic/openai/mock) keep working unchanged.
+Provider = Literal[
+    "anthropic", "openai", "mock", "azure", "bedrock", "vertex", "openai_compatible"
+]
 
 # Bump this when the seeded rule catalog ships new built-in rules. Seeding only
 # fires when the stored catalog is EMPTY or its ``rule_catalog_seed_version`` is
@@ -72,6 +79,30 @@ class Secrets(BaseSettings):
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
 
+    # --- Round 3 Wave 2b cloud-LLM provider credentials (ALL optional + defaulted
+    # None, SECRET tier — env / in-memory only, NEVER persisted, NEVER returned; the UI
+    # sees only a configured-boolean via ``configured_status()``). These let the
+    # gateway authenticate the cloud-hosted providers so a ``ModelConfig(provider=...)``
+    # actually works end-to-end:
+    #
+    #   * Azure OpenAI   — an ``api-key`` + resource ``endpoint`` + api-version. The
+    #                      model id is the Azure DEPLOYMENT name.
+    #   * AWS Bedrock    — an IAM access-key pair + region (SigV4-signed, stdlib HMAC;
+    #                      no boto3). ``aws_session_token`` carries an optional STS token.
+    #   * Google Vertex  — a short-lived OAuth access token (``vertex_api_key``, carried
+    #                      as the Bearer) + project + location. We do NOT mint the token
+    #                      (no google-auth dep); the operator supplies it. ---
+    azure_openai_api_key: str | None = None
+    azure_openai_endpoint: str | None = None       # https://<resource>.openai.azure.com
+    azure_openai_api_version: str | None = None     # e.g. "2024-10-21"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None            # optional STS session token
+    aws_region: str | None = None                   # e.g. "us-east-1"
+    vertex_project: str | None = None
+    vertex_location: str | None = None              # e.g. "us-central1"
+    vertex_api_key: str | None = None               # short-lived OAuth access token (Bearer)
+
     # --- Enrichment keys ---
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
@@ -94,6 +125,12 @@ class Secrets(BaseSettings):
     xforce_api_password: str | None = None
     urlscan_api_key: str | None = None
     hibp_api_key: str | None = None
+    # Project Honeypot http:BL access key (key-gated, enables the ``honeypot`` provider
+    # together with ``EnrichmentConfig.use_honeypot``). abuse.ch optional Auth-Key —
+    # when set, the abuse.ch trio (URLhaus/ThreatFox/MalwareBazaar) sends it as the
+    # ``Auth-Key`` header; unset keeps the keyless public-endpoint behaviour unchanged.
+    honeypot_access_key: str | None = None
+    abusech_auth_key: str | None = None
 
     # --- Embeddings (defaults to the OpenAI key when blank) ---
     embedding_api_key: str | None = None
@@ -250,10 +287,16 @@ class Secrets(BaseSettings):
         return {cid: bool(fields) for cid, fields in self.notification_secrets.items()}
 
     def provider_key(self, provider: Provider) -> str | None:
-        if provider == "openai":
+        if provider in ("openai", "openai_compatible"):
             return self.openai_api_key
         if provider == "anthropic":
             return self.anthropic_api_key
+        if provider == "azure":
+            return self.azure_openai_api_key or self.openai_api_key
+        if provider == "bedrock":
+            return self.aws_access_key_id
+        if provider == "vertex":
+            return self.vertex_api_key
         return "mock"  # the mock provider needs no key
 
     def embedding_key(self) -> str | None:
@@ -277,8 +320,22 @@ class Secrets(BaseSettings):
             "es_mgmt_api_key": bool(self.es_mgmt_api_key),
             "openai_api_key": bool(self.openai_api_key),
             "anthropic_api_key": bool(self.anthropic_api_key),
+            # Round 3 Wave 2b cloud-LLM provider credentials (configured-booleans only).
+            "azure_openai_api_key": bool(self.azure_openai_api_key),
+            "azure_openai_endpoint": bool(self.azure_openai_endpoint),
+            "azure_openai_api_version": bool(self.azure_openai_api_version),
+            "aws_access_key_id": bool(self.aws_access_key_id),
+            "aws_secret_access_key": bool(self.aws_secret_access_key),
+            "aws_session_token": bool(self.aws_session_token),
+            "aws_region": bool(self.aws_region),
+            "vertex_project": bool(self.vertex_project),
+            "vertex_location": bool(self.vertex_location),
+            "vertex_api_key": bool(self.vertex_api_key),
             "abuseipdb_api_key": bool(self.abuseipdb_api_key),
             "virustotal_api_key": bool(self.virustotal_api_key),
+            # Round 3 Wave 2b enrichment keys (configured-booleans only).
+            "honeypot_access_key": bool(self.honeypot_access_key),
+            "abusech_auth_key": bool(self.abusech_auth_key),
             # Round 3 multi-provider threat-intel keys (configured-booleans only).
             "greynoise_api_key": bool(self.greynoise_api_key),
             "shodan_api_key": bool(self.shodan_api_key),
@@ -306,12 +363,28 @@ class Secrets(BaseSettings):
 # Preferences — UI-editable, persisted in tlsoc-agent-config.
 # --------------------------------------------------------------------------- #
 class ModelConfig(BaseModel):
-    """Per-role model selection. Routed through the single gateway."""
+    """Per-role model selection. Routed through the single gateway.
+
+    ``base_url``/``api_version``/``region`` are Round 3 Wave 2b ADDITIVE, optional
+    endpoint overrides (all default None → today's behaviour is byte-identical). They
+    let a per-role assignment pin its own endpoint without depending on the bundled
+    ``model_registry.json``:
+
+    * ``base_url`` — an OpenAI-compatible / Azure-resource / Bedrock-runtime endpoint
+      (vLLM/Ollama/OpenRouter/Together/Groq, or ``https://<resource>.openai.azure.com``).
+      When unset the gateway falls back to ``base_url_for(model)`` from the registry,
+      then the provider's default endpoint — so existing configs are unaffected.
+    * ``api_version`` — the Azure OpenAI ``api-version`` query param for this model.
+    * ``region`` — the cloud region (e.g. Bedrock ``us-east-1``).
+    """
 
     provider: Provider = "anthropic"
     model: str = "claude-sonnet-4-6"
     temperature: float = 0.1
     max_tokens: int = 1500
+    base_url: str | None = None
+    api_version: str | None = None
+    region: str | None = None
 
 
 class CorrelationRule(BaseModel):
@@ -738,6 +811,9 @@ class EnrichmentConfig(BaseModel):
     use_urlscan: bool = False
     use_hibp: bool = False
     use_rdap: bool = True                  # keyless
+    # Project Honeypot http:BL (key-gated; needs ``Secrets.honeypot_access_key``).
+    # Default OFF — the operator opts in after configuring the access key.
+    use_honeypot: bool = False
     # When True, a later wave FUSES the per-provider results into one normalised
     # reputation score (instead of using each provider in isolation). Default OFF.
     fusion_enabled: bool = False

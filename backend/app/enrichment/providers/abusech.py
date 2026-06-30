@@ -1,11 +1,11 @@
 """abuse.ch trio enrichment providers (Round 3 Wave 2) — URLhaus / ThreatFox / MalwareBazaar.
 
-Three providers backed by abuse.ch's free community APIs. Each is KEYLESS in this build
-(the Wave-0 config exposes only the ``use_urlhaus`` / ``use_threatfox`` /
-``use_malwarebazaar`` toggles — no abuse.ch Auth-Key field exists yet; see the build
-report's blockers). The providers send the optional ``Auth-Key`` header only if an
-abuse.ch key is ever wired, and otherwise call the public endpoints, failing open on the
-auth-required path:
+Three providers backed by abuse.ch's free community APIs. Each is KEYLESS by default (the
+``use_urlhaus`` / ``use_threatfox`` / ``use_malwarebazaar`` toggles need no key). As of
+Round 3 Wave 2b, an OPTIONAL ``Secrets.abusech_auth_key`` is wired: when configured, the
+providers send it as the ``Auth-Key`` header (abuse.ch now requires it on some endpoints
+/ for higher rate limits); when unset, they call the public endpoints exactly as before
+(the keyless path is byte-identical), failing open on the auth-required path:
 
   * **URLhaus** — malicious-URL / host database. Handles URL + DOMAIN. A listed
     indicator scores 90 (it is, by definition, in a malware-URL feed).
@@ -32,6 +32,17 @@ _URLHAUS_URL = "https://urlhaus-api.abuse.ch/v1/host/"
 _URLHAUS_URLINFO = "https://urlhaus-api.abuse.ch/v1/url/"
 _THREATFOX_URL = "https://threatfox-api.abuse.ch/api/v1/"
 _BAZAAR_URL = "https://mb-api.abuse.ch/api/v1/"
+
+
+def _auth_headers(provider: EnrichmentProvider) -> dict[str, str] | None:
+    """The optional abuse.ch ``Auth-Key`` header for ``provider`` when
+    ``Secrets.abusech_auth_key`` is set, else ``None`` (keyless public-endpoint path,
+    byte-identical to the prior behaviour). The key is SECRET-tier; only the header is
+    sent — it is never returned to the UI (#10)."""
+    key = provider._secret("abusech_auth_key")
+    if key:
+        return {"Auth-Key": str(key)}
+    return None
 
 
 def _confidence_to_score(level: Any) -> int:
@@ -63,10 +74,13 @@ class URLhausProvider(EnrichmentProvider):
         )
 
     async def _lookup(self, value: str, kind: IndicatorKind) -> ProviderResult:
+        headers = _auth_headers(self)
         if kind == IndicatorKind.URL:
-            data = await http_json(_URLHAUS_URLINFO, method="POST", data={"url": value})
+            data = await http_json(_URLHAUS_URLINFO, method="POST", data={"url": value},
+                                   headers=headers)
         else:  # DOMAIN / host
-            data = await http_json(_URLHAUS_URL, method="POST", data={"host": value})
+            data = await http_json(_URLHAUS_URL, method="POST", data={"host": value},
+                                   headers=headers)
         data = data if isinstance(data, dict) else {}
         status = str(data.get("query_status") or "")
         if status != "ok":
@@ -120,6 +134,7 @@ class ThreatFoxProvider(EnrichmentProvider):
         body = await http_json(
             _THREATFOX_URL, method="POST",
             json_body={"query": "search_ioc", "search_term": value},
+            headers=_auth_headers(self),
         )
         body = body if isinstance(body, dict) else {}
         status = str(body.get("query_status") or "")
@@ -177,6 +192,7 @@ class MalwareBazaarProvider(EnrichmentProvider):
         body = await http_json(
             _BAZAAR_URL, method="POST",
             data={"query": "get_info", "hash": value},
+            headers=_auth_headers(self),
         )
         body = body if isinstance(body, dict) else {}
         status = str(body.get("query_status") or "")

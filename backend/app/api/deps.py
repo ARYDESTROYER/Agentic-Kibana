@@ -296,13 +296,56 @@ async def _rbac_config_with_custom_roles(state: AppState):
         return rbac
 
 
+async def _assigned_custom_roles(state: AppState, username: str) -> list[str]:
+    """The CUSTOM roles assigned to ``username`` (from ``User.prefs['custom_roles']``,
+    where ``routes_roles.assign_user_roles`` persists them because the ``User`` model
+    is frozen this wave). Best-effort + fail-safe: a missing store, an env single-admin
+    with no persisted record, or any store glitch yields ``[]`` (→ the live decision
+    degrades to the user's BASE role, never fail-open and never hard-failing authz).
+    Built-in role names are filtered out here too (a custom assignment may never carry
+    a base-role name); the policy resolver additionally drops unknown/deleted names."""
+    if not username:
+        return []
+    users = getattr(state, "users", None)
+    if users is None:
+        return []
+    try:
+        user = await users.get(username)
+    except Exception as exc:  # noqa: BLE001 — a store glitch must not break authz
+        import logging
+
+        logging.getLogger("tlsoc.api.deps").warning("assigned-role load soft-failed: %s", exc)
+        return []
+    if user is None:
+        return []
+    raw = (getattr(user, "prefs", None) or {}).get("custom_roles")
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for x in raw:
+        nm = str(x).strip()
+        if nm and nm not in out:
+            out.append(nm)
+    return out
+
+
 async def _enforce(request: Request, resource: str, action: str):
     """Shared RBAC enforcement core. Three modes (see rbac/policy.py):
 
     * auth DISABLED        → allow (no-op; the no-auth "old version" default).
     * auth ON, rbac OFF    → authenticated users are treated as super_admin → allow.
-    * auth ON, rbac ON     → consult ``rbac.policy.can(role, resource, action)``;
-                              deny (403) when the role lacks the grant.
+    * auth ON, rbac ON     → consult ``rbac.policy.can_for_roles(base_role,
+                              assigned_custom_roles, resource, action)``; deny (403)
+                              when neither the base role NOR any assigned custom role
+                              grants it.
+
+    The user's ASSIGNED custom roles (persisted in ``User.prefs['custom_roles']`` by
+    ``PUT /api/users/{username}/roles``) are folded INTO the live decision, so
+    assigning a custom role actually grants — or, via that role's own deny, restricts —
+    server-side route access, consistent with what ``GET /api/account/permissions``
+    already reports. ``super_admin`` stays hard-allowed (lockout-proof); an
+    unknown/deleted assigned role fails safe to the base role; and a user with NO
+    assigned custom roles is byte-identical to the prior ``can(base_role, …)`` gate.
 
     Always runs the auth gate first (401s an unauthenticated caller when auth is on)."""
     user = await require_auth(request)
@@ -312,11 +355,17 @@ async def _enforce(request: Request, resource: str, action: str):
         return user  # auth off → everything allowed
     if not _rbac_enabled(state):
         return user  # rbac off → authenticated == super_admin
-    from ..rbac.policy import can
+    from ..rbac.policy import can_for_roles, resolve_matrix
 
     role = getattr(user, "role", "") or ""
     rbac_config = await _rbac_config_with_custom_roles(state)
-    if can(role, resource, action, rbac_config):
+    # Resolve the effective matrix ONCE (folds operator overrides + stored custom-role
+    # definitions), then decide against the base role UNIONed with the user's assigned
+    # custom roles. Resolving the matrix here also lets the assigned-name fail-safe
+    # (drop unknown/deleted roles) key off the SAME matrix the grant union consults.
+    matrix = resolve_matrix(rbac_config)
+    assigned = await _assigned_custom_roles(state, getattr(user, "username", "") or "")
+    if can_for_roles(role, assigned, resource, action, matrix=matrix):
         return user
     # Append-only audit of the denial (#2) — best-effort, never blocks the 403.
     try:

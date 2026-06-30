@@ -166,11 +166,14 @@ async def llm_model_test(
 
         provider = str(entry.get("provider") or provider_for(mid))
     try:
+        # The Provider Literal now includes the cloud providers
+        # (azure/bedrock/vertex/openai_compatible) alongside anthropic/openai/mock, so a
+        # standard, validated construction covers them directly — no model_construct
+        # bypass. A provider name outside the Literal (e.g. ``other`` from the heuristic,
+        # or an out-of-tree registry provider) still validates leniently so the gateway's
+        # PROVIDER_REGISTRY can attempt to dispatch it.
         cfg = ModelConfig(provider=provider, model=mid, max_tokens=16)  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001 — a provider name outside the config Literal
-        # The config Literal only knows anthropic/openai/mock; for a registry provider
-        # (azure/bedrock/vertex/openai_compatible) we still want to test it. Build the
-        # config WITHOUT validation so the gateway's PROVIDER_REGISTRY can dispatch it.
+    except Exception:  # noqa: BLE001 — a provider name outside the widened Literal
         cfg = ModelConfig.model_construct(
             provider=provider, model=mid, temperature=0.1, max_tokens=16,  # type: ignore[arg-type]
         )

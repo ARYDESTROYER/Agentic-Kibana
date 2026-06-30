@@ -168,6 +168,48 @@
       "capabilities": ["chat", "json", "embedding"],
       "input_per_million": 0.0,
       "output_per_million": 0.0
+    },
+    "azure-gpt-4o": {
+      "provider": "azure",
+      "label": "Azure OpenAI GPT-4o (deployment)",
+      "context_window": 128000,
+      "max_output": 16384,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 2.5,
+      "output_per_million": 10.0,
+      "base_url": "https://YOUR-RESOURCE.openai.azure.com"
+    },
+    "anthropic.claude-3-5-sonnet-20241022-v2:0": {
+      "provider": "bedrock",
+      "label": "Claude 3.5 Sonnet (AWS Bedrock)",
+      "context_window": 200000,
+      "max_output": 8192,
+      "modalities": ["text", "vision"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 3.0,
+      "output_per_million": 15.0
+    },
+    "gemini-1.5-pro": {
+      "provider": "vertex",
+      "label": "Gemini 1.5 Pro (Google Vertex AI)",
+      "context_window": 2000000,
+      "max_output": 8192,
+      "modalities": ["text", "vision", "audio"],
+      "capabilities": ["chat", "tools", "json", "vision"],
+      "input_per_million": 1.25,
+      "output_per_million": 5.0
+    },
+    "local-llama-3.1-8b": {
+      "provider": "openai_compatible",
+      "label": "Llama 3.1 8B (self-hosted, OpenAI-compatible)",
+      "context_window": 131072,
+      "max_output": 8192,
+      "modalities": ["text"],
+      "capabilities": ["chat", "json"],
+      "input_per_million": 0.0,
+      "output_per_million": 0.0,
+      "base_url": "http://localhost:8000/v1"
     }
   }
 }

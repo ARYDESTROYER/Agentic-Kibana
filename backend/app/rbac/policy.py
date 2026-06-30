@@ -442,6 +442,62 @@ def can(
     return ALL in actions or action in actions
 
 
+def can_for_roles(
+    base_role: Any,
+    custom_roles: Any,
+    resource: str,
+    action: str,
+    rbac_config: Any = None,
+    *,
+    matrix: dict[str, dict[str, list[str]]] | None = None,
+) -> bool:
+    """Authorise a user holding a BASE role PLUS a set of assigned CUSTOM roles.
+
+    Standard RBAC: a principal gets the UNION of the grants of every role it holds.
+    Each role's row in the effective matrix already has that role's own ``denies``
+    baked in (see :func:`effective_matrix` / :func:`_resolve_custom_role`), so unioning
+    the rows is the correct additive combination — and is byte-for-byte the same
+    resolution :func:`app.api.routes_roles._grants_for_roles` reports through
+    ``GET /api/account/permissions``, keeping the server gate consistent with the UI.
+
+    Resolution + fail-safety rules:
+
+    * ``super_admin`` (as the base role) short-circuits to ALLOW — lockout-proof,
+      mirroring :func:`can`.
+    * An assigned custom-role name that is NOT present in the resolved matrix, or that
+      collides with a built-in role name, contributes NOTHING (fail-safe to the base
+      role — an unknown/deleted role never grants and never errors).
+    * With NO assigned custom roles (``custom_roles`` empty/None), the result is
+      byte-identical to ``can(base_role, resource, action, …)`` — parity preserved.
+
+    The deny-wins precedence within each role is already resolved in the matrix; a
+    custom role can therefore RESTRICT what it grants (via its own ``denies``) but the
+    union across roles is additive (a second role can re-grant what another denied,
+    exactly as RBAC role-union semantics and the permissions endpoint behave)."""
+    base_str = _role_str(base_role)
+    if base_str == UserRole.SUPER_ADMIN.value:
+        return True
+    table = matrix if matrix is not None else resolve_matrix(rbac_config)
+    # Fast path + strict parity: no assigned custom roles → exactly can().
+    names: list[str] = []
+    if isinstance(custom_roles, (list, tuple, set)):
+        for nm in custom_roles:
+            nm_s = str(nm).strip()
+            # Drop blanks, built-in collisions, and unknown/deleted roles (fail-safe).
+            if not nm_s or nm_s in _BASE_ROLE_NAMES or nm_s not in table:
+                continue
+            if nm_s not in names:
+                names.append(nm_s)
+    if not names:
+        return can(base_str, resource, action, matrix=table)
+    # Union the actions granted on ``resource`` across the base + every valid custom role.
+    for role_name in [base_str, *names]:
+        actions = (table.get(role_name) or {}).get(resource)
+        if actions and (ALL in actions or action in actions):
+            return True
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # OPT-IN object / row-level scope hook (Round-3 Wave-1; ships OFF).
 #

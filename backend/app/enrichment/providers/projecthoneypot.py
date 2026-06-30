@@ -48,13 +48,10 @@ def _query_httpbl(key: str, ip: str) -> str | None:
 class ProjectHoneypotProvider(EnrichmentProvider):
     name = "projecthoneypot"
 
-    # NOTE: this provider needs a dedicated EnrichmentConfig toggle
-    # (``use_honeypot``) + a SECRET key (``honeypot_access_key``), neither of which
-    # exists in the Wave-0 (frozen) config this wave. It is therefore IMPLEMENTED here
-    # (DNS-via-threadpool + http:BL decoding, fully tested with a mocked resolver) but
-    # NOT registered in BUILTIN_PROVIDERS yet — it lights up the moment those two
-    # fields are added. ``config_key``/``secret_fields`` reference the intended names so
-    # registration is a one-line change. See the build report's blockers.
+    # Registered in BUILTIN_PROVIDERS as of Round 3 Wave 2b, now that its config gaps are
+    # filled: the ``EnrichmentConfig.use_honeypot`` toggle + the
+    # ``Secrets.honeypot_access_key`` field. It stays key-gated + default-OFF — it only
+    # fires when both the toggle is on AND the access key is configured.
     @classmethod
     def manifest(cls) -> ProviderManifest:
         return ProviderManifest(
