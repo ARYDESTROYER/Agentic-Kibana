@@ -13,8 +13,11 @@ import type {
   AccountProfile,
   AccountProfileBody,
   ActivityResponse,
+  AuditQuery,
+  AuditResponse,
   AuthMe,
   Branding,
+  BulkResult,
   Case,
   CaseActionInput,
   CaseIdPreview,
@@ -60,6 +63,7 @@ import type {
   RolesResponse,
   SessionsResponse,
   ScanNotifications,
+  SearchResult,
   SecretsUpdate,
   SettingsResponse,
   SetupStatus,
@@ -498,6 +502,30 @@ export const api = {
         'GET',
         `cases/${encodeURIComponent(caseId)}/threat-context`,
       ),
+    // BULK case action (W7c) — apply ONE human lifecycle action (the SAME logic as
+    // POST /api/cases/{id}/action) to N selected cases. #3-safe: never an LLM
+    // auto-close, never decide(); each case audited individually. RBAC-gated server-
+    // side (cases:close for close/resolve, cases:write otherwise). Returns per-id
+    // outcomes ({results:[{id, ok, error?}]}) — a partial failure fails only that id.
+    bulk: (ids: string[], input: CaseActionInput) =>
+      request<BulkResult>('POST', 'cases/bulk', { body: { ...input, ids } }),
+  },
+
+  // ---- Global search (W7c) — Cmd-K palette + top-bar jump ---------------- //
+  // Read-only across cases + sources + nav targets, bounded (cap 50). Every
+  // returned label/title is operator-/log-derived → render as PLAIN text (#9).
+  search: (q: string, limit?: number) =>
+    request<SearchResult>('GET', 'search', { query: { q, limit } }),
+
+  // ---- Audit-log viewer (W7c) — read-only over the append-only audit (#2) - //
+  // Gated by audit:view server-side (admin/auditor/soc_manager). Filters are
+  // ANDed; the `action`/`from`/`to` params map to the audit `action_type`/ts
+  // bounds. Every field is rendered PLAIN (#9). No write/update/delete path exists.
+  audit: {
+    list: (params?: AuditQuery) =>
+      request<AuditResponse>('GET', 'audit', {
+        query: params as Record<string, unknown> | undefined,
+      }),
   },
 
   // ---- Threat-intel knowledge import (F11) ----------------------------- //

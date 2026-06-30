@@ -253,6 +253,52 @@ class SqlAuditRepository(AuditRepository):
             logger.warning("Audit read for actor %s failed: %s", actor, exc)
             return []
 
+    async def records(
+        self,
+        *,
+        actor: str | None = None,
+        action_type: str | None = None,
+        surface: str | None = None,
+        case_id: str | None = None,
+        ts_from: str | None = None,
+        ts_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Filtered, bounded listing for the admin audit viewer (W7c), NEWEST first.
+
+        ``action_type`` + ``case_id`` are real columns (pushed into SQL); ``actor`` +
+        ``surface`` live inside the JSON ``doc``, so we bound-scan a recent ts window
+        and filter those in Python (cross-dialect, correct on SQLite + Postgres). The
+        ``ts`` range is applied in SQL on the column. Read-only; never raises."""
+        scan = max(limit * 20, 500)
+        stmt = select(AuditRow)
+        if action_type:
+            stmt = stmt.where(AuditRow.action_type == action_type)
+        if case_id:
+            stmt = stmt.where(AuditRow.case_id == case_id)
+        if ts_from:
+            stmt = stmt.where(AuditRow.ts >= ts_from)
+        if ts_to:
+            stmt = stmt.where(AuditRow.ts <= ts_to)
+        stmt = stmt.order_by(AuditRow.ts.desc(), AuditRow.id.desc()).limit(scan)
+        try:
+            async with self._sm() as session:
+                rows = (await session.execute(stmt)).scalars().all()
+            out: list[dict[str, Any]] = []
+            for r in rows:
+                doc = r.doc or {}
+                if actor and str(doc.get("actor", "")) != actor:
+                    continue
+                if surface and str(doc.get("surface", "")) != surface:
+                    continue
+                out.append(doc)
+                if len(out) >= limit:
+                    break
+            return out
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audit records read failed: %s", exc)
+            return []
+
 
 class SqlUsageRepository(UsageRepository):
     """Cost/token ledger. Summary aggregates in Python (same as the ES store)."""

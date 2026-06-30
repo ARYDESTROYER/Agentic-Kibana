@@ -40,7 +40,6 @@ import { Badge } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,14 +53,6 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from '@/ui/dropdown-menu';
-import {
-  Command,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-} from '@/ui/command';
 import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
 import { initialsFrom } from '@/lib/avatar';
@@ -72,6 +63,7 @@ import { usePrefs } from './prefs';
 import { useAuth } from './auth';
 import { useDemo } from './demo';
 import { DemoBanner } from './components/DemoBanner';
+import { CommandPalette } from './components/CommandPalette';
 import { NAV_GROUPS, navItem, type NavGroup, type PageId } from './nav';
 import type { Navigate } from './router';
 
@@ -258,47 +250,6 @@ const RailItem: React.FC<{
     </TooltipTrigger>
     <TooltipContent side="right">{label}</TooltipContent>
   </Tooltip>
-);
-
-/** The Cmd/Ctrl-K command palette: flat nav list, grouped. */
-const CommandPalette: React.FC<{
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  onNavigate: Navigate;
-  groups: NavGroup[];
-}> = ({ open, onOpenChange, onNavigate, groups }) => (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="overflow-hidden p-0 sm:max-w-lg">
-      <DialogTitle className="sr-only">Command palette</DialogTitle>
-      <DialogDescription className="sr-only">Jump to a page in the console.</DialogDescription>
-      <Command>
-        <CommandInput placeholder="Jump to a page…" />
-        <CommandList>
-          <CommandEmpty>No matching pages.</CommandEmpty>
-          {groups.map((group) => (
-            <CommandGroup key={group.id} heading={group.label}>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <CommandItem
-                    key={item.id}
-                    value={`${item.label} ${item.id}`}
-                    onSelect={() => {
-                      onNavigate(item.id);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
-                    <span>{item.label}</span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          ))}
-        </CommandList>
-      </Command>
-    </DialogContent>
-  </Dialog>
 );
 
 /** Small round avatar (image + initials fallback) used in the shell user chip. */
@@ -660,7 +611,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onNavigate={onNavigate}
-        groups={navGroups}
       />
     </div>
   );

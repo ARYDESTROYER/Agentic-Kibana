@@ -1,0 +1,117 @@
+/**
+ * Command palette (W7c) render + behaviour test.
+ *
+ * Asserts the palette (a) opens and lists RBAC-filtered NAV targets, (b) debounce-
+ * queries GET /api/search and renders the returned case/source hits, and (c) routes
+ * a selected nav target through onNavigate. The api client is mocked so the test is
+ * fully offline; every provider the palette consumes is supplied real (auth/prefs/
+ * theme/demo/router) with mocked load-time api calls.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+
+const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }));
+
+vi.mock('@/lib/api', () => {
+  const ok = (value: unknown) => vi.fn().mockResolvedValue(value);
+  return {
+    setUnauthorizedHandler: vi.fn(),
+    setReauthHandler: vi.fn(),
+    api: {
+      // Provider load-time calls (auth/prefs/theme/demo).
+      auth: { me: ok({ authenticated: false, auth_enabled: false, user: null }) },
+      roles: { get: ok({ roles: [], default_role: '', rbac_enabled: false, matrix: {} }) },
+      getBranding: ok({
+        org_name: '', product_name: '', logo_data_url: '', favicon_data_url: '',
+        accent_color: '', accent_color2: '', theme: '', login_subtitle: '',
+      }),
+      prefs: {
+        effective: ok({
+          terminology: {}, theme_mode: 'dark', saved_views: [], pinned_view_ids: [],
+          tables: {}, last_list_state: {}, misc: {},
+          org: { terminology: {}, default_theme: 'dark', default_saved_views: [], default_pinned_view_ids: [] },
+        }),
+        putUser: ok({}),
+      },
+      demo: { status: ok({ mode: 'off', active: false, run_id: null }), enable: ok({}) },
+      // The search surface under test.
+      search: searchMock,
+    },
+  };
+});
+
+import { ThemeProvider } from '../theme';
+import { PrefsProvider } from '../prefs';
+import { AuthProvider } from '../auth';
+import { DemoProvider } from '../demo';
+import { RouterProvider } from '../router';
+import { TooltipProvider } from '@/ui/tooltip';
+import { CommandPalette } from '../components/CommandPalette';
+
+function renderPalette(onNavigate = vi.fn()) {
+  const utils = render(
+    <ThemeProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <PrefsProvider>
+            <DemoProvider>
+              <RouterProvider>
+                <CommandPalette open onOpenChange={vi.fn()} onNavigate={onNavigate} />
+              </RouterProvider>
+            </DemoProvider>
+          </PrefsProvider>
+        </AuthProvider>
+      </TooltipProvider>
+    </ThemeProvider>,
+  );
+  return { onNavigate, ...utils };
+}
+
+describe('CommandPalette (W7c)', () => {
+  beforeEach(() => {
+    searchMock.mockReset();
+    searchMock.mockResolvedValue({ query: '', cases: [], sources: [], nav: [] });
+    window.localStorage.clear();
+  });
+
+  it('opens and lists nav targets + quick actions', async () => {
+    renderPalette();
+    // The dialog input renders.
+    await waitFor(() =>
+      expect(
+        screen.getByPlaceholderText(/jump to a page, search cases\/sources/i),
+      ).toBeInTheDocument(),
+    );
+    // A rail nav target (Cases) and a quick action (Go to Settings) are present.
+    expect(screen.getByText('Cases')).toBeInTheDocument();
+    expect(screen.getByText('Go to Settings')).toBeInTheDocument();
+    expect(screen.getByText('New chat')).toBeInTheDocument();
+  });
+
+  it('queries GET /api/search and renders the returned case + source hits', async () => {
+    searchMock.mockResolvedValue({
+      query: 'brute',
+      cases: [
+        { type: 'case', id: 'case-001', case_number: 'TLSOC-001', title: 'Brute-force burst' },
+      ],
+      sources: [{ type: 'source', id: 'src-1', label: 'Prod Elastic', source_type: 'elasticsearch' }],
+      nav: [],
+    });
+    renderPalette();
+    const input = await screen.findByPlaceholderText(/jump to a page, search/i);
+    fireEvent.change(input, { target: { value: 'brute' } });
+
+    // Debounced search fires with the term.
+    await waitFor(() => expect(searchMock).toHaveBeenCalledWith('brute', 20), { timeout: 2000 });
+    // The returned (UNTRUSTED) case + source titles render as plain text.
+    await waitFor(() => expect(screen.getByText('Brute-force burst')).toBeInTheDocument());
+    expect(screen.getByText('Prod Elastic')).toBeInTheDocument();
+  });
+
+  it('routes a selected nav target through onNavigate', async () => {
+    const { onNavigate } = renderPalette();
+    const casesItem = await screen.findByText('Cases');
+    fireEvent.click(casesItem);
+    expect(onNavigate).toHaveBeenCalledWith('cases');
+  });
+});

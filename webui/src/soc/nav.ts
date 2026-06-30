@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Library,
   Database,
+  ScrollText,
   Settings,
 } from 'lucide-react';
 
@@ -50,6 +51,7 @@ export type PageId =
   | 'settings'
   | 'security'
   | 'users'
+  | 'audit'
   | 'admin_sessions';
 
 export type NavGroupId =
@@ -127,6 +129,16 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Platform',
     items: [
       { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
+      // Audit-log viewer (W7c): read-only over the append-only audit (#2), gated by
+      // the `audit:view` grant (admin / auditor / soc_manager by default). Hidden for
+      // users without the grant; always visible when auth/RBAC are off (back-compat).
+      {
+        id: 'audit',
+        label: 'Audit log',
+        icon: ScrollText,
+        group: 'platform',
+        perm: { resource: 'audit', action: 'view' },
+      },
       { id: 'settings', label: 'Settings', icon: Settings, group: 'platform' },
     ],
   },

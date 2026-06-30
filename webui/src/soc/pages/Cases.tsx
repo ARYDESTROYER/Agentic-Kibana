@@ -29,10 +29,15 @@ import {
   Sparkles,
   AlertTriangle,
   Link2,
+  Tag as TagIcon,
+  SlidersHorizontal,
+  CircleSlash,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import type { Case, CaseActionInput, SavedView } from '@/lib/types';
+import { Can } from '@/soc/components/Can';
 import { humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -546,28 +551,46 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     return filteredSorted.filter((c) => set.has(c.case_id));
   }, [selected, filteredSorted]);
 
+  // BULK case action — POST /api/cases/bulk applies the SAME human lifecycle action
+  // as the single-case POST /api/cases/{id}/action to every selected case. #3-safe:
+  // this is the analyst layer (never an LLM auto-close / decide()). RBAC is enforced
+  // server-side (cases:close for close/resolve, cases:write otherwise); the client
+  // <Can> gates only hide the affordances. The per-id result drives a summary toast
+  // + the warning alert, and the selection clears after.
   const runBulk = React.useCallback(
     async (input: CaseActionInput) => {
-      if (!selectedCases.length || bulkBusy) return;
+      const ids = selectedCases.map((c) => c.case_id);
+      if (!ids.length || bulkBusy) return;
       setBulkBusy(true);
       setBulkError(null);
-      const targets = selectedCases.slice();
-      let failures = 0;
-      for (const c of targets) {
-        try {
-          await api.caseActionExec(c.case_id, input);
-        } catch {
-          failures += 1;
+      try {
+        const res = await api.cases.bulk(ids, input);
+        const results = res.results ?? [];
+        const okCount = results.filter((r) => r.ok).length;
+        const failures = results.filter((r) => !r.ok);
+        if (failures.length) {
+          // Surface the distinct reasons (capped) so the operator sees WHY.
+          const reasons = Array.from(
+            new Set(failures.map((f) => f.error || 'unknown error')),
+          ).slice(0, 3);
+          setBulkError(
+            `${failures.length} of ${results.length} case${results.length === 1 ? '' : 's'} could not be updated: ${reasons.join('; ')}`,
+          );
+          toast.warning(`${okCount} updated, ${failures.length} failed`);
+        } else {
+          toast.success(
+            `${okCount} case${okCount === 1 ? '' : 's'} updated`,
+          );
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Bulk action failed.';
+        setBulkError(msg);
+        toast.error(msg);
+      } finally {
+        setSelected([]);
+        await load();
+        setBulkBusy(false);
       }
-      if (failures) {
-        setBulkError(
-          `${failures} of ${targets.length} case${targets.length === 1 ? '' : 's'} could not be updated.`,
-        );
-      }
-      setSelected([]);
-      await load();
-      setBulkBusy(false);
     },
     [selectedCases, bulkBusy, load],
   );
@@ -1124,7 +1147,15 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         busy={bulkBusy}
         onAcknowledge={() => void runBulk({ action: 'acknowledge' })}
         onClose={() => void runBulk({ action: 'close', resolution: 'Bulk-closed by analyst' })}
+        onResolve={(reason) =>
+          void runBulk({ action: 'resolve', reason: reason || 'Bulk-resolved by analyst' })
+        }
         onAssign={(assignee) => void runBulk({ action: 'escalate', assignee })}
+        onAddTag={(tag) => void runBulk({ action: 'acknowledge', tags: [tag] })}
+        onSetStatus={(status) => void runBulk({ action: 'set_status', status })}
+        onSetDisposition={(disposition) =>
+          void runBulk({ action: 'set_disposition', disposition })
+        }
         onClear={() => setSelected([])}
       />
 
@@ -1143,21 +1174,58 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
 
 /* ------------------------------------------------------------- bulk bar ---- */
 
+/** Lifecycle statuses an analyst may bulk-set (close goes through the dedicated
+ * close/resolve actions, never set_status — the backend enforces this too). */
+const BULK_STATUSES: Array<{ value: string; label: string }> = [
+  { value: 'open', label: 'Open' },
+  { value: 'investigating', label: 'Investigating' },
+  { value: 'on_hold', label: 'On hold' },
+  { value: 'escalated', label: 'Escalated' },
+];
+
+/** Dispositions an analyst may bulk-set. */
+const BULK_DISPOSITIONS: Array<{ value: string; label: string }> = [
+  { value: 'true_positive', label: 'True positive' },
+  { value: 'false_positive', label: 'False positive' },
+  { value: 'benign', label: 'Benign' },
+  { value: 'suspicious', label: 'Suspicious' },
+  { value: 'duplicate', label: 'Duplicate' },
+];
+
 const BulkActionBar: React.FC<{
   count: number;
   busy: boolean;
   onAcknowledge: () => void;
   onClose: () => void;
+  onResolve: (reason: string) => void;
   onAssign: (assignee: string) => void;
+  onAddTag: (tag: string) => void;
+  onSetStatus: (status: string) => void;
+  onSetDisposition: (disposition: string) => void;
   onClear: () => void;
-}> = ({ count, busy, onAcknowledge, onClose, onAssign, onClear }) => {
+}> = ({
+  count,
+  busy,
+  onAcknowledge,
+  onClose,
+  onResolve,
+  onAssign,
+  onAddTag,
+  onSetStatus,
+  onSetDisposition,
+  onClear,
+}) => {
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [assignee, setAssignee] = React.useState('');
+  const [tagOpen, setTagOpen] = React.useState(false);
+  const [tag, setTag] = React.useState('');
 
   React.useEffect(() => {
     if (count === 0) {
       setAssignOpen(false);
       setAssignee('');
+      setTagOpen(false);
+      setTag('');
     }
   }, [count]);
 
@@ -1173,14 +1241,14 @@ const BulkActionBar: React.FC<{
         <span className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
           {count} selected
         </span>
+
+        {/* cases:write tier */}
         <Button size="sm" variant="secondary" onClick={onAcknowledge} disabled={busy}>
           <Check className="mr-1.5 size-4" aria-hidden />
           Acknowledge
         </Button>
-        <Button size="sm" variant="destructive" onClick={onClose} disabled={busy}>
-          <X className="mr-1.5 size-4" aria-hidden />
-          Close
-        </Button>
+
+        {/* Assign / escalate (cases:write) */}
         <Popover open={assignOpen} onOpenChange={setAssignOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline" disabled={busy}>
@@ -1217,6 +1285,94 @@ const BulkActionBar: React.FC<{
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* Add tag (cases:write) */}
+        <Popover open={tagOpen} onOpenChange={setTagOpen}>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" disabled={busy}>
+              <TagIcon className="mr-1.5 size-4" aria-hidden />
+              Add tag
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-60" side="top">
+            <div className="space-y-2">
+              <label
+                htmlFor="bulk-tag"
+                className="block text-xs font-medium text-muted-foreground"
+              >
+                Tag to add
+              </label>
+              <Input
+                id="bulk-tag"
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+                placeholder="e.g. needs-review"
+                aria-label="Tag to add to selected cases"
+              />
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={!tag.trim() || busy}
+                onClick={() => {
+                  onAddTag(tag.trim());
+                  setTagOpen(false);
+                }}
+              >
+                Tag {count}
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {/* Set status (cases:write) */}
+        <Select value="" onValueChange={(v) => v && onSetStatus(v)} disabled={busy}>
+          <SelectTrigger className="h-8 w-[9.5rem]" aria-label="Set status for selected cases">
+            <span className="inline-flex items-center text-sm">
+              <SlidersHorizontal className="mr-1.5 size-4" aria-hidden />
+              Set status
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            {BULK_STATUSES.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Set disposition (cases:write) */}
+        <Select value="" onValueChange={(v) => v && onSetDisposition(v)} disabled={busy}>
+          <SelectTrigger
+            className="h-8 w-[10.5rem]"
+            aria-label="Set disposition for selected cases"
+          >
+            <span className="inline-flex items-center text-sm">
+              <CircleSlash className="mr-1.5 size-4" aria-hidden />
+              Set disposition
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            {BULK_DISPOSITIONS.map((d) => (
+              <SelectItem key={d.value} value={d.value}>
+                {d.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Close / resolve — cases:close. Hidden unless granted (RBAC-mirrored). */}
+        <Can resource="cases" action="close">
+          <Button size="sm" variant="outline" onClick={() => onResolve('')} disabled={busy}>
+            <Check className="mr-1.5 size-4" aria-hidden />
+            Resolve
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onClose} disabled={busy}>
+            <X className="mr-1.5 size-4" aria-hidden />
+            Close
+          </Button>
+        </Can>
+
         <Button size="sm" variant="ghost" onClick={onClear} disabled={busy}>
           Clear
         </Button>

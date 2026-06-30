@@ -1,0 +1,358 @@
+/**
+ * Global Command Palette (Cmd/Ctrl-K) — the keyboard-first jump + search surface
+ * for the SOC console (Round-2 W7c).
+ *
+ * A single cmdk dialog, mounted ONCE in the shell, that:
+ *   (a) lists nav targets (rail pages + Settings sections), RBAC-filtered, for an
+ *       instant jump;
+ *   (b) debounce-queries GET /api/search?q= for cases + sources and lets the
+ *       operator open one;
+ *   (c) offers quick actions (New chat, Toggle theme, Go to Settings, Enable demo
+ *       mode — admin only);
+ *   (d) remembers recently-jumped targets (localStorage) and surfaces them first.
+ *
+ * SECURITY (#9): every case/source title, entity value and source name returned by
+ * the search API is operator-/log-derived UNTRUSTED data — it is rendered here as
+ * PLAIN text only (cmdk renders children as text), never as markup. cmdk's own
+ * fuzzy filter is DISABLED for the remote results (`shouldFilter={false}`) so the
+ * server's ranking is authoritative; nav/action items are filtered client-side.
+ */
+import * as React from 'react';
+import {
+  ArrowRight,
+  Briefcase,
+  Database,
+  FlaskConical,
+  MessageSquarePlus,
+  Moon,
+  Settings as SettingsIcon,
+  Sun,
+  History,
+  type LucideIcon,
+} from 'lucide-react';
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandSeparator,
+  CommandShortcut,
+} from '@/ui/command';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/ui/dialog';
+import { api } from '@/lib/api';
+import type { SearchResult } from '@/lib/types';
+import { useAuth } from '@/soc/auth';
+import { usePrefs } from '@/soc/prefs';
+import { useTheme } from '@/soc/theme';
+import { useDemo } from '@/soc/demo';
+import { NAV_GROUPS, isPageId, type NavGroup, type PageId } from '@/soc/nav';
+import type { Navigate } from '@/soc/router';
+
+const RECENTS_KEY = 'tlsoc.cmdk.recents';
+const RECENTS_MAX = 6;
+
+/** A recently-jumped palette target persisted in localStorage. */
+interface RecentItem {
+  page: PageId;
+  label: string;
+}
+
+function loadRecents(): RecentItem[] {
+  try {
+    const raw = window.localStorage.getItem(RECENTS_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (r): r is RecentItem =>
+          !!r &&
+          typeof r === 'object' &&
+          typeof (r as RecentItem).page === 'string' &&
+          isPageId((r as RecentItem).page) &&
+          typeof (r as RecentItem).label === 'string',
+      )
+      .slice(0, RECENTS_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function pushRecent(item: RecentItem): void {
+  try {
+    const next = [item, ...loadRecents().filter((r) => r.page !== item.page)].slice(
+      0,
+      RECENTS_MAX,
+    );
+    window.localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    /* best-effort — recents are cosmetic */
+  }
+}
+
+export interface CommandPaletteProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Navigate to a page (rail + Settings-section targets resolve through this). */
+  onNavigate: Navigate;
+}
+
+/**
+ * The mounted-once command palette. Owns its own query state + debounced remote
+ * search; resets when the dialog closes.
+ */
+export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPaletteProps) {
+  const { hasPermission } = useAuth();
+  const { setThemeMode } = usePrefs();
+  const { isDark } = useTheme();
+  const { active: demoActive, refresh: refreshDemo } = useDemo();
+
+  const [query, setQuery] = React.useState('');
+  const [results, setResults] = React.useState<SearchResult | null>(null);
+  const [recents, setRecents] = React.useState<RecentItem[]>([]);
+
+  // Refresh the recents list each time the palette opens; clear the query on close.
+  React.useEffect(() => {
+    if (open) {
+      setRecents(loadRecents());
+    } else {
+      setQuery('');
+      setResults(null);
+    }
+  }, [open]);
+
+  // Debounced remote search (cases + sources). A short/blank query clears results
+  // (the nav/quick-actions still render). Stale responses are dropped via a token.
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const term = query.trim();
+    if (term.length < 2) {
+      setResults(null);
+      return undefined;
+    }
+    let alive = true;
+    const t = window.setTimeout(() => {
+      void api
+        .search(term, 20)
+        .then((res) => {
+          if (alive) setResults(res);
+        })
+        .catch(() => {
+          if (alive) setResults(null);
+        });
+    }, 180);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [query, open]);
+
+  // Navigate + record the jump + close. Settings-section nav ids are valid PageIds.
+  const go = React.useCallback(
+    (page: PageId, label: string) => {
+      pushRecent({ page, label });
+      onNavigate(page);
+      onOpenChange(false);
+    },
+    [onNavigate, onOpenChange],
+  );
+
+  // RBAC-filtered rail nav (mirrors the shell): drop perm-gated items the user lacks.
+  const navGroups = React.useMemo<NavGroup[]>(
+    () =>
+      NAV_GROUPS.map((g) => ({
+        ...g,
+        items: g.items.filter(
+          (it) => !it.perm || hasPermission(it.perm.resource, it.perm.action),
+        ),
+      })).filter((g) => g.items.length > 0),
+    [hasPermission],
+  );
+
+  const canManageSettings = hasPermission('settings', 'manage');
+
+  // We run cmdk with shouldFilter=false so the SERVER ranking of remote (case/source)
+  // hits is authoritative — cmdk's own fuzzy filter would otherwise hide a hit whose
+  // title doesn't literally contain the typed term. The local (nav/action/recent)
+  // items are filtered by this simple substring match instead.
+  const term = query.trim().toLowerCase();
+  const localMatch = React.useCallback(
+    (...parts: string[]): boolean => {
+      if (!term) return true;
+      return parts.join(' ').toLowerCase().includes(term);
+    },
+    [term],
+  );
+  const showRecents = term.length === 0 && recents.length > 0;
+  const res = results;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="overflow-hidden p-0 sm:max-w-xl">
+        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <DialogDescription className="sr-only">
+          Jump to a page, search cases and sources, or run a quick action.
+        </DialogDescription>
+        {/* shouldFilter=false: the SERVER ranks remote case/source hits; the local
+            nav/action/recent items are filtered in render by `localMatch`. */}
+        <Command shouldFilter={false} loop>
+          <CommandInput
+            placeholder="Jump to a page, search cases/sources, run an action…"
+            value={query}
+            onValueChange={setQuery}
+            autoFocus
+          />
+          <CommandList>
+            <CommandEmpty>No results.</CommandEmpty>
+
+            {/* Recently visited (only on an empty query). */}
+            {showRecents ? (
+              <CommandGroup heading="Recent">
+                {recents.map((r) => (
+                  <CommandItem
+                    key={`recent-${r.page}`}
+                    value={`recent ${r.label} ${r.page}`}
+                    onSelect={() => go(r.page, r.label)}
+                  >
+                    <History aria-hidden />
+                    <span>{r.label}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : null}
+
+            {/* Remote: case hits (UNTRUSTED text → plain). */}
+            {res && res.cases.length > 0 ? (
+              <CommandGroup heading="Cases">
+                {res.cases.map((c) => (
+                  <CommandItem
+                    key={`case-${c.id}`}
+                    // Force a match (server already ranked) — include the id so it is unique.
+                    value={`case ${c.id} ${c.case_number ?? ''} ${c.title ?? ''} ${c.entity ?? ''}`}
+                    onSelect={() => {
+                      pushRecent({ page: 'cases', label: c.title || c.id });
+                      onNavigate('cases', { caseId: c.id });
+                      onOpenChange(false);
+                    }}
+                  >
+                    <Briefcase aria-hidden />
+                    <span className="truncate">{c.title || c.id}</span>
+                    <CommandShortcut className="tracking-normal">
+                      {c.case_number || c.id}
+                    </CommandShortcut>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : null}
+
+            {/* Remote: source hits (UNTRUSTED text → plain). */}
+            {res && res.sources.length > 0 ? (
+              <CommandGroup heading="Sources">
+                {res.sources.map((s) => (
+                  <CommandItem
+                    key={`source-${s.id}`}
+                    value={`source ${s.id} ${s.label ?? ''} ${s.source_type ?? ''}`}
+                    onSelect={() => go('sources', s.label || s.id)}
+                  >
+                    <Database aria-hidden />
+                    <span className="truncate">{s.label || s.id}</span>
+                    {s.source_type ? (
+                      <CommandShortcut className="tracking-normal">
+                        {s.source_type}
+                      </CommandShortcut>
+                    ) : null}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : null}
+
+            {(showRecents || (res && (res.cases.length || res.sources.length))) ? (
+              <CommandSeparator />
+            ) : null}
+
+            {/* Quick actions (filtered by the local substring match). */}
+            <CommandGroup heading="Actions">
+              {localMatch('new chat workspace investigate assistant') ? (
+                <CommandItem value="action-new-chat" onSelect={() => go('chat', 'Workspace')}>
+                  <MessageSquarePlus aria-hidden />
+                  <span>New chat</span>
+                </CommandItem>
+              ) : null}
+              {localMatch('toggle theme dark light appearance') ? (
+                <CommandItem
+                  value="action-toggle-theme"
+                  onSelect={() => {
+                    setThemeMode(isDark ? 'light' : 'dark');
+                    onOpenChange(false);
+                  }}
+                >
+                  {isDark ? <Sun aria-hidden /> : <Moon aria-hidden />}
+                  <span>{isDark ? 'Switch to light mode' : 'Switch to dark mode'}</span>
+                </CommandItem>
+              ) : null}
+              {localMatch('go to settings preferences configuration') ? (
+                <CommandItem
+                  value="action-go-settings"
+                  onSelect={() => go('settings', 'Settings')}
+                >
+                  <SettingsIcon aria-hidden />
+                  <span>Go to Settings</span>
+                </CommandItem>
+              ) : null}
+              {canManageSettings &&
+              !demoActive &&
+              localMatch('enable demo mode synthetic sandbox') ? (
+                <CommandItem
+                  value="action-enable-demo"
+                  onSelect={() => {
+                    void api.demo
+                      .enable()
+                      .then(() => refreshDemo())
+                      .catch(() => undefined);
+                    onOpenChange(false);
+                  }}
+                >
+                  <FlaskConical aria-hidden />
+                  <span>Enable demo mode</span>
+                </CommandItem>
+              ) : null}
+            </CommandGroup>
+
+            <CommandSeparator />
+
+            {/* Nav targets (RBAC-filtered rail groups + local substring match). */}
+            {navGroups.map((group) => {
+              const items = group.items.filter((it) => localMatch('page', it.label, it.id));
+              if (!items.length) return null;
+              return (
+                <CommandGroup key={`nav-${group.id}`} heading={group.label}>
+                  {items.map((item) => {
+                    const Icon = item.icon as LucideIcon;
+                    return (
+                      <CommandItem
+                        key={`nav-${item.id}`}
+                        value={`nav-${item.id}`}
+                        onSelect={() => go(item.id, item.label)}
+                      >
+                        <Icon aria-hidden />
+                        <span>{item.label}</span>
+                        <ArrowRight
+                          className="ml-auto opacity-0 group-data-[selected=true]:opacity-60"
+                          aria-hidden
+                        />
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              );
+            })}
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default CommandPalette;

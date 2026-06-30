@@ -2828,6 +2828,154 @@ async def get_case(case_id: str, state: AppState = Depends(get_state)) -> dict[s
     return case.model_dump(mode="json")
 
 
+# --------------------------------------------------------------------------- #
+# Global search (W7c) — the command-palette / top-bar fuzzy jump.
+# --------------------------------------------------------------------------- #
+
+# Static jump targets the command palette can navigate to. ``page`` is the webui
+# route id (#/<page>); ``settings`` rows deep-link into a settings section. Kept in
+# the backend so the palette gets a consistent result set; matched case-insensitively
+# against the query over the searchable text.
+_NAV_TARGETS: list[dict[str, str]] = [
+    {"type": "page", "id": "overview", "label": "Overview", "keywords": "home dashboard posture"},
+    {"type": "page", "id": "cases", "label": "Cases", "keywords": "triage queue alerts incidents"},
+    {"type": "page", "id": "chat", "label": "Workspace", "keywords": "chat investigate assistant"},
+    {"type": "page", "id": "investigate", "label": "Investigate", "keywords": "entity hunt"},
+    {"type": "page", "id": "scans", "label": "Automated scans", "keywords": "auto scan queue"},
+    {"type": "page", "id": "approvals", "label": "Approvals", "keywords": "proposals hitl pending"},
+    {"type": "page", "id": "intelligence", "label": "Intelligence", "keywords": "knowledge memory rag playbooks agents"},
+    {"type": "page", "id": "knowledge", "label": "Knowledge", "keywords": "rag corpus documents runbooks"},
+    {"type": "page", "id": "memory", "label": "Memory", "keywords": "agent memory facts"},
+    {"type": "page", "id": "metrics", "label": "Analytics", "keywords": "metrics dashboard charts"},
+    {"type": "page", "id": "cost", "label": "Cost & usage", "keywords": "cost ledger tokens spend budget"},
+    {"type": "page", "id": "standup", "label": "Standup", "keywords": "daily summary digest"},
+    {"type": "page", "id": "sources", "label": "Sources", "keywords": "connectors siem edr ingest data"},
+    {"type": "page", "id": "catalog", "label": "Integrations", "keywords": "catalog connectors marketplace"},
+    {"type": "page", "id": "settings", "label": "Settings", "keywords": "preferences configuration"},
+    {"type": "settings", "id": "account", "label": "Account", "keywords": "settings profile me"},
+    {"type": "settings", "id": "security", "label": "Security", "keywords": "settings auth mfa password"},
+    {"type": "settings", "id": "sessions", "label": "Sessions", "keywords": "settings devices logout"},
+    {"type": "settings", "id": "users", "label": "Users & roles", "keywords": "settings rbac members"},
+]
+
+
+@router.get("/search")
+async def global_search(
+    q: str = Query("", description="free-text query"),
+    limit: int = 20,
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
+    """Lightweight global search for the command palette / top-bar jump (W7c).
+
+    Returns typed results — ``cases`` (matched on case_id / case_number / title /
+    entity value / tags / source_name), ``sources`` (name/type), and static ``nav``
+    targets (pages + settings sections) — so the palette can jump ANYWHERE.
+
+    Reuses the ACTIVE case store (``state.cases``), so it works in demo mode too.
+    Bounded (``limit`` default ~20, hard-capped). All matched text is operator/log
+    data and is returned verbatim for the UI to render as PLAIN text (#9)."""
+    term = (q or "").strip().lower()
+    cap = max(1, min(int(limit or 20), 50))
+
+    # --- cases: pull a bounded recent window from the ACTIVE store, filter in code.
+    case_hits: list[dict[str, Any]] = []
+    try:
+        cases, _total = await state.cases.list(limit=200, offset=0)
+    except Exception as exc:  # noqa: BLE001 — search must degrade gracefully
+        logger.warning("search: case listing failed: %s", exc)
+        cases = []
+    for c in cases:
+        hay = " ".join(
+            str(x or "").lower()
+            for x in (
+                c.case_id, c.case_number, c.title,
+                getattr(c.entity, "value", ""),
+                c.source_name, c.source_id,
+                " ".join(c.tags or []),
+            )
+        )
+        if not term or term in hay:
+            case_hits.append({
+                "type": "case",
+                "id": c.case_id,
+                "case_number": c.case_number,
+                "title": c.title,
+                "status": c.status.value if c.status else "",
+                "verdict": c.verdict.value if c.verdict else "",
+                "entity": getattr(c.entity, "value", ""),
+                "source_name": c.source_name or "",
+            })
+            if len(case_hits) >= cap:
+                break
+
+    # --- sources: match name / type over the operator-configured source list.
+    source_hits: list[dict[str, Any]] = []
+    for s in state.prefs.sources:
+        st = s.source_type.value if hasattr(s.source_type, "value") else str(s.source_type)
+        hay = f"{s.display_name} {st} {s.id}".lower()
+        if not term or term in hay:
+            source_hits.append({
+                "type": "source", "id": s.id,
+                "label": s.display_name or s.id, "source_type": st,
+            })
+        if len(source_hits) >= cap:
+            break
+
+    # --- nav targets: static pages + settings sections.
+    nav_hits: list[dict[str, Any]] = []
+    for t in _NAV_TARGETS:
+        hay = f"{t['label']} {t['id']} {t.get('keywords', '')}".lower()
+        if not term or term in hay:
+            nav_hits.append({
+                "type": t["type"], "id": t["id"], "label": t["label"],
+            })
+        if len(nav_hits) >= cap:
+            break
+
+    return {
+        "query": q or "",
+        "cases": case_hits,
+        "sources": source_hits,
+        "nav": nav_hits,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Audit viewer (W7c) — bounded, read-only listing of the append-only audit (#2).
+# --------------------------------------------------------------------------- #
+@router.get("/audit")
+async def list_audit(
+    actor: str | None = None,
+    action: str | None = None,
+    surface: str | None = None,
+    case_id: str | None = None,
+    from_: str | None = Query(None, alias="from"),
+    to: str | None = None,
+    limit: int = 100,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("audit", "view")),
+) -> dict[str, Any]:
+    """Bounded, READ-ONLY list of the append-only audit records for the admin audit
+    viewer (W7c). Gated on ``audit:view`` (the auditor/admin grant). Reads the audit
+    repository's ``records(...)`` (#2 — never mutates; the index has no update/delete
+    path). NEWEST first, hard-capped. All text is returned verbatim for the UI to
+    render as PLAIN (#9 — audit rows carry fenced UNTRUSTED log excerpts)."""
+    cap = max(1, min(int(limit or 100), 500))
+    audit = getattr(state, "audit", None)
+    if audit is None:  # pragma: no cover — audit is always wired in real app/startup
+        return {"records": [], "total": 0}
+    rows = await audit.records(
+        actor=actor or None,
+        action_type=action or None,
+        surface=surface or None,
+        case_id=case_id or None,
+        ts_from=from_ or None,
+        ts_to=to or None,
+        limit=cap,
+    )
+    return {"records": rows, "total": len(rows)}
+
+
 class CaseAction(BaseModel):
     # Lifecycle/disposition actions. Original: close | reopen | escalate |
     # confirm_fp | acknowledge. Added (F8): hold | resume | resolve |
@@ -2896,6 +3044,13 @@ def _guard_transition(action: str, current: CaseStatus, target: CaseStatus | Non
         )
 
 
+def _case_action_grant(action: str) -> str:
+    """The ``cases`` action grant required to perform lifecycle ``action`` — close-
+    class moves need ``cases:close``, everything else ``cases:write``. Shared by the
+    single-case endpoint and the bulk endpoint so RBAC is decided in ONE place."""
+    return "close" if action in _CLOSE_ACTIONS else "write"
+
+
 @router.post("/cases/{case_id}/action")
 async def case_action(
     case_id: str,
@@ -2903,9 +3058,6 @@ async def case_action(
     state: AppState = Depends(get_state),
     request: Request = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
-    case = await state.cases.get(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
     if body.action not in _ACTION_STATUS:
         raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
 
@@ -2917,9 +3069,26 @@ async def case_action(
     if request is not None:
         from .deps import _enforce
 
-        need = "close" if body.action in _CLOSE_ACTIONS else "write"
-        user = await _enforce(request, "cases", need)
+        user = await _enforce(request, "cases", _case_action_grant(body.action))
     actor = getattr(user, "username", "") or body.analyst or "analyst"
+    return await _perform_case_action(case_id, body, actor, state)
+
+
+async def _perform_case_action(
+    case_id: str, body: CaseAction, actor: str, state: AppState
+) -> dict[str, Any]:
+    """Apply ONE human lifecycle action to ONE case — the SINGLE source of truth for
+    the analyst-action path (used by the single-case endpoint AND the bulk endpoint).
+
+    #3-safe: this is the HUMAN analyst layer ONLY. It NEVER calls
+    ``case_manager.decide()`` and never runs the deterministic auto-close path; the
+    close-axis truth table is untouched. Caller has already done the RBAC check +
+    resolved ``actor``. Each call audits the transition individually (#2)."""
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if body.action not in _ACTION_STATUS:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
 
     prev_status = case.status
 
@@ -3064,6 +3233,69 @@ async def case_action(
     except Exception as exc:  # noqa: BLE001 — notifications never affect the action
         logger.debug("lifecycle notification scheduling skipped for %s: %s", case_id, exc)
     return case.model_dump(mode="json")
+
+
+class BulkCaseAction(CaseAction):
+    """A :class:`CaseAction` applied to many cases at once. ``ids`` is the set of
+    target case ids; the action/payload fields are inherited verbatim so a bulk move
+    is IDENTICAL to N single-case moves."""
+
+    ids: list[str] = Field(default_factory=list)
+
+
+@router.post("/cases/bulk")
+async def cases_bulk_action(
+    body: BulkCaseAction,
+    state: AppState = Depends(get_state),
+    request: Request = None,  # type: ignore[assignment]
+) -> dict[str, Any]:
+    """Apply ONE human lifecycle action to MANY cases.
+
+    #3-safe: each id is run through the EXACT same code path as the single-case
+    ``POST /api/cases/{id}/action`` (``_perform_case_action``) — the HUMAN analyst
+    layer. It NEVER invokes ``case_manager.decide()`` and never runs the
+    deterministic auto-close path; closing here is the analyst close action, not an
+    LLM auto-close. RBAC is enforced ONCE up front (cases:close for close-class
+    moves, cases:write otherwise — same grant as the single endpoint). Each case is
+    applied + AUDITED individually (#2). Partial-failure tolerant: returns
+    ``{results:[{id, ok, error?}]}`` with a per-id outcome (a bad/missing id or an
+    illegal transition fails only that id, never the batch)."""
+    if body.action not in _ACTION_STATUS:
+        raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
+    ids = [str(i).strip() for i in (body.ids or []) if str(i).strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids must be a non-empty list")
+    if len(ids) > 500:
+        raise HTTPException(status_code=400, detail="too many ids (max 500)")
+
+    # RBAC: decide the grant from the action (the SAME rule as the single endpoint),
+    # enforce ONCE for the whole batch. No-op when auth is disabled.
+    user = None
+    if request is not None:
+        from .deps import _enforce
+
+        user = await _enforce(request, "cases", _case_action_grant(body.action))
+    actor = getattr(user, "username", "") or body.analyst or "analyst"
+
+    # The per-case payload is the bulk body minus ``ids`` — i.e. a plain CaseAction
+    # applied identically to each target.
+    single = CaseAction(**{k: v for k, v in body.model_dump().items() if k != "ids"})
+
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for cid in ids:
+        if cid in seen:
+            continue  # de-dupe so a repeated id isn't applied (and audited) twice
+        seen.add(cid)
+        try:
+            await _perform_case_action(cid, single, actor, state)
+            results.append({"id": cid, "ok": True})
+        except HTTPException as exc:
+            results.append({"id": cid, "ok": False, "error": str(exc.detail)})
+        except Exception as exc:  # noqa: BLE001 — one bad case never breaks the batch
+            logger.warning("bulk action %s failed for %s: %s", body.action, cid, exc)
+            results.append({"id": cid, "ok": False, "error": "internal error"})
+    return {"results": results}
 
 
 class FeedbackBody(BaseModel):

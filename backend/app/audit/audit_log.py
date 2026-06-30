@@ -99,3 +99,50 @@ class AuditLogger(AuditRepository):
         except Exception as exc:  # noqa: BLE001
             logger.warning("Audit read for actor %s failed: %s", actor, exc)
             return []
+
+    async def records(
+        self,
+        *,
+        actor: str | None = None,
+        action_type: str | None = None,
+        surface: str | None = None,
+        case_id: str | None = None,
+        ts_from: str | None = None,
+        ts_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Filtered, bounded listing of the append-only audit for the admin audit
+        viewer (W7c). NEWEST first. A term/range bool query; absent filters are
+        omitted. Read-only on the management-scoped audit index; never raises."""
+        filters: list[dict[str, Any]] = []
+        if actor:
+            filters.append({"term": {"actor": actor}})
+        if action_type:
+            filters.append({"term": {"action_type": action_type}})
+        if surface:
+            filters.append({"term": {"surface": surface}})
+        if case_id:
+            filters.append({"term": {"case_id": case_id}})
+        if ts_from or ts_to:
+            rng: dict[str, str] = {}
+            if ts_from:
+                rng["gte"] = ts_from
+            if ts_to:
+                rng["lte"] = ts_to
+            filters.append({"range": {"ts": rng}})
+        query: dict[str, Any] = (
+            {"bool": {"filter": filters}} if filters else {"match_all": {}}
+        )
+        try:
+            resp = await self._es.search(
+                AUDIT_READ_PATTERN,
+                {
+                    "query": query,
+                    "sort": [{"ts": {"order": "desc"}}],
+                    "size": limit,
+                },
+            )
+            return [h.get("_source", {}) or {} for h in resp.get("hits", {}).get("hits", [])]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audit records read failed: %s", exc)
+            return []

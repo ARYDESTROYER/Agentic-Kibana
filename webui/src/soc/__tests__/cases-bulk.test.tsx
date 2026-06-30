@@ -1,0 +1,112 @@
+/**
+ * Bulk case actions (W7c) test.
+ *
+ * Renders the Cases list with two cases, selects all rows via the header checkbox,
+ * triggers the bulk "Acknowledge" action, and asserts it calls POST /api/cases/bulk
+ * (api.cases.bulk) with BOTH selected ids — the #3-safe human action applied to N
+ * cases. The api client is fully mocked (offline).
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+
+const { bulkMock, listCasesMock } = vi.hoisted(() => ({
+  bulkMock: vi.fn(),
+  listCasesMock: vi.fn(),
+}));
+
+vi.mock('@/lib/api', () => {
+  const ok = (value: unknown) => vi.fn().mockResolvedValue(value);
+  return {
+    setUnauthorizedHandler: vi.fn(),
+    setReauthHandler: vi.fn(),
+    api: {
+      auth: { me: ok({ authenticated: false, auth_enabled: false, user: null }) },
+      roles: { get: ok({ roles: [], default_role: '', rbac_enabled: false, matrix: {} }) },
+      getBranding: ok({
+        org_name: '', product_name: '', logo_data_url: '', favicon_data_url: '',
+        accent_color: '', accent_color2: '', theme: '', login_subtitle: '',
+      }),
+      prefs: {
+        effective: ok({
+          terminology: {}, theme_mode: 'dark', saved_views: [], pinned_view_ids: [],
+          tables: {}, last_list_state: {}, misc: {},
+          org: { terminology: {}, default_theme: 'dark', default_saved_views: [], default_pinned_view_ids: [] },
+        }),
+        putUser: ok({}),
+      },
+      views: { list: ok({ views: [], count: 0 }) },
+      demo: { status: ok({ mode: 'off', active: false, run_id: null }) },
+      listCases: listCasesMock,
+      cases: { bulk: bulkMock },
+    },
+  };
+});
+
+// sonner toast is a side-effect-only call here; stub toast + Toaster so the imports
+// (Cases uses toast; the ui/sonner Toaster may render in the tree) resolve.
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
+  Toaster: () => null,
+}));
+
+import { ThemeProvider } from '../theme';
+import { PrefsProvider } from '../prefs';
+import { AuthProvider } from '../auth';
+import { DemoProvider } from '../demo';
+import { RouterProvider } from '../router';
+import { TooltipProvider } from '@/ui/tooltip';
+import Cases from '../pages/Cases';
+
+const CASES = [
+  { case_id: 'case-001', case_number: 'TLSOC-001', title: 'Alpha', status: 'open', updated_at: '2026-06-29T00:00:00Z', tags: [], comments: [] },
+  { case_id: 'case-002', case_number: 'TLSOC-002', title: 'Bravo', status: 'open', updated_at: '2026-06-29T01:00:00Z', tags: [], comments: [] },
+];
+
+function renderCases() {
+  return render(
+    <ThemeProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <PrefsProvider>
+            <DemoProvider>
+              <RouterProvider>
+                <Cases />
+              </RouterProvider>
+            </DemoProvider>
+          </PrefsProvider>
+        </AuthProvider>
+      </TooltipProvider>
+    </ThemeProvider>,
+  );
+}
+
+describe('Cases bulk actions (W7c)', () => {
+  beforeEach(() => {
+    bulkMock.mockReset();
+    bulkMock.mockResolvedValue({ results: [{ id: 'case-001', ok: true }, { id: 'case-002', ok: true }] });
+    listCasesMock.mockReset();
+    listCasesMock.mockResolvedValue({ cases: CASES, total: CASES.length });
+    window.localStorage.clear();
+  });
+
+  it('selects all rows and calls api.cases.bulk with the selected ids', async () => {
+    renderCases();
+    // Wait for the rows to load.
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+
+    // Select all via the header checkbox.
+    const selectAll = screen.getByLabelText('Select all rows');
+    fireEvent.click(selectAll);
+
+    // The sticky bulk bar appears with the count + the Acknowledge action.
+    const bar = await screen.findByRole('region', { name: /bulk actions/i });
+    expect(within(bar).getByText('2 selected')).toBeInTheDocument();
+
+    fireEvent.click(within(bar).getByRole('button', { name: /acknowledge/i }));
+
+    await waitFor(() => expect(bulkMock).toHaveBeenCalledTimes(1));
+    const [ids, input] = bulkMock.mock.calls[0];
+    expect(new Set(ids)).toEqual(new Set(['case-001', 'case-002']));
+    expect(input).toMatchObject({ action: 'acknowledge' });
+  });
+});

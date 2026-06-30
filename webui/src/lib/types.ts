@@ -1404,6 +1404,114 @@ export interface CasesResponse {
   total: number;
 }
 
+// --------------------------------------------------------------------------- //
+// Global search (W7c) — GET /api/search?q= — powers the Cmd-K palette + top bar.
+//
+// Every title/label/entity value here is operator- or LOG-derived data →
+// render as PLAIN text (#9), never as markup. No secrets are ever returned.
+// --------------------------------------------------------------------------- //
+/** One case hit from GET /api/search. */
+export interface SearchCaseHit {
+  type: 'case';
+  id: string;
+  case_number?: string;
+  title?: string;
+  status?: string;
+  verdict?: string;
+  entity?: string;
+  source_name?: string;
+}
+
+/** One source hit from GET /api/search. */
+export interface SearchSourceHit {
+  type: 'source';
+  id: string;
+  label?: string;
+  source_type?: string;
+}
+
+/**
+ * One static nav target (a page or a Settings section) from GET /api/search.
+ * `id` is a routable PageId; `type` distinguishes a top-level page from a
+ * Settings sub-section (the palette routes both via the same navigate()).
+ */
+export interface SearchNavHit {
+  type: 'page' | 'settings' | string;
+  id: string;
+  label: string;
+}
+
+/** GET /api/search — typed, bounded (cap 50) results for the command palette. */
+export interface SearchResult {
+  query: string;
+  cases: SearchCaseHit[];
+  sources: SearchSourceHit[];
+  nav: SearchNavHit[];
+}
+
+// --------------------------------------------------------------------------- //
+// Bulk case actions (W7c) — POST /api/cases/bulk.
+//
+// The SAME human-initiated lifecycle action as POST /api/cases/{id}/action,
+// applied to N selected cases; each case is applied + AUDITED individually and is
+// #3-safe (never an LLM auto-close, never decide()). RBAC-gated server-side
+// (cases:close for close/resolve, cases:write otherwise). Partial-failure tolerant.
+// --------------------------------------------------------------------------- //
+/** One per-id outcome in a bulk action result. */
+export interface BulkResultItem {
+  id: string;
+  ok: boolean;
+  /** Present only when `ok` is false — the per-id failure reason (plain text). */
+  error?: string;
+}
+
+/** POST /api/cases/bulk — the per-id outcome list. */
+export interface BulkResult {
+  results: BulkResultItem[];
+}
+
+// --------------------------------------------------------------------------- //
+// Audit-log viewer (W7c) — GET /api/audit — read-only over the append-only audit
+// (#2). Gated by audit:view server-side. EVERY field is system/operator/LOG-derived
+// → render as PLAIN text (#9); `prompt_excerpt`/`tool_output_summary` carry fenced
+// UNTRUSTED log data and render only inside a code block. No mutate path exists.
+// --------------------------------------------------------------------------- //
+/** One append-only audit record (mirrors backend `AuditDoc`). */
+export interface AuditRecord {
+  ts?: string;
+  case_id?: string | null;
+  surface?: string;
+  actor?: string;
+  action_type?: string;
+  model?: string | null;
+  prompt_excerpt?: string | null;
+  query_text?: string | null;
+  tool_name?: string | null;
+  tool_input?: unknown;
+  tool_output_summary?: string | null;
+  result_summary?: string | null;
+  [key: string]: unknown;
+}
+
+/** GET /api/audit — bounded, NEWEST-first list + total. */
+export interface AuditResponse {
+  records: AuditRecord[];
+  total: number;
+}
+
+/** Query params for GET /api/audit (all optional; filters are ANDed). */
+export interface AuditQuery {
+  actor?: string;
+  /** The audit `action_type` value (the wire param name is `action`). */
+  action?: string;
+  surface?: string;
+  case_id?: string;
+  /** ISO lower/upper time bounds (wire param names `from`/`to`). */
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
 /**
  * GET /api/scans/notifications — how many automated-scan cases are new since the
  * caller's last-seen timestamp. Drives the "N new" pill on the Scans surface.

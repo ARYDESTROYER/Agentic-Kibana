@@ -104,6 +104,23 @@ class AuditRepository(ABC):
         it. Never raises."""
         return []
 
+    async def records(
+        self,
+        *,
+        actor: str | None = None,
+        action_type: str | None = None,
+        surface: str | None = None,
+        case_id: str | None = None,
+        ts_from: str | None = None,
+        ts_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Filtered, bounded, read-only listing of the append-only audit (the admin
+        audit viewer, W7c). NEWEST first. NON-abstract with a safe default ([]) so a
+        third-party AuditRepository keeps working; the bundled ES/SQL stores override
+        it. Read-only (#2 — never mutates). Never raises."""
+        return []
+
 
 class UsageRepository(ABC):
     """Token & cost ledger (Section 7.3). Written ONLY by the LLM gateway (#6)."""

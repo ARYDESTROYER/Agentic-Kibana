@@ -36,6 +36,7 @@ import Settings from './pages/Settings';
 import Security from './pages/Security';
 import Approvals from './pages/Approvals';
 import Users from './pages/Users';
+import Audit from './pages/Audit';
 import Account from './pages/Account';
 import SessionsPage from './pages/Sessions';
 import AdminSessions from './pages/AdminSessions';
@@ -107,6 +108,8 @@ function renderPage(
       return <Security onNavigate={navigate} />;
     case 'users':
       return <Users onNavigate={navigate} />;
+    case 'audit':
+      return <Audit onNavigate={navigate} />;
     default:
       return <Home onNavigate={navigate} tab={opts?.tab} />;
   }
