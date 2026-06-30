@@ -68,8 +68,13 @@ def test_renderer_escapes_mustache_in_untrusted_var():
 
 
 def test_renderer_raw_marker_is_not_escaped():
-    out = templates.render_template("{{{raw}}}", {"raw": "<b>ok</b>"})
-    assert out == "<b>ok</b>"  # TRUSTED raw HTML passes through
+    # A {{{raw}}} marker passes through ONLY for a whitelisted trusted key
+    # (logo_block / accent_color); see FIX 3. Any other key is escaped.
+    out = templates.render_template("{{{logo_block}}}", {"logo_block": "<b>ok</b>"})
+    assert out == "<b>ok</b>"  # TRUSTED whitelisted raw HTML passes through
+    # A NON-whitelisted triple-mustache key is escaped (no raw HTML leak).
+    esc = templates.render_template("{{{raw}}}", {"raw": "<b>ok</b>"})
+    assert esc == "&lt;b&gt;ok&lt;/b&gt;"
 
 
 def test_renderer_sections_truthy_and_inverted():
@@ -108,6 +113,74 @@ def test_text_safe_strips_newlines_from_untrusted():
     safe = templates.text_safe(val)
     assert "\n" not in safe and "\r" not in safe and "\t" not in safe
     assert "line1" in safe and "line3" in safe
+
+
+# --------------------------------------------------------------------------- #
+# FIX 2 — text_safe is APPLIED on the .txt render path (was dead code): an
+# attacker-controlled var can no longer inject raw newlines into the structured
+# key:value plain-text body (body line-injection — a forged Status:/Bcc: line).
+# --------------------------------------------------------------------------- #
+def test_text_render_mode_strips_untrusted_newlines():
+    # A var carrying newlines must NOT add new lines to the .txt body.
+    out = templates.render_template("Title: {{title}}\nEnd", {"title": "ok\nBcc: evil@x.com"},
+                                    text_mode=True)
+    # The injected newline is gone — only the template's OWN \n (before "End") remains.
+    assert out.count("\n") == 1
+    assert "Bcc: evil@x.com" in out          # text survives, on the SAME line
+    assert "ok Bcc: evil@x.com" in out        # newline collapsed to a space
+    # The HTML/default mode is unaffected (it escapes, but does not strip newlines).
+    html_out = templates.render_template("{{title}}", {"title": "a\nb"})
+    assert "\n" in html_out
+
+
+def test_full_render_text_body_has_no_injected_lines():
+    # The forged "Status:" line in an UNTRUSTED title must not appear as a NEW line in
+    # the rendered .txt body — render() now drives the text part in text_mode.
+    case = _case(title="pwn\nStatus: CLEARED BY ATTACKER\nExtra: 1")
+    body = templates.render(case, "case_created", org_name="Acme")
+    text = body["text"]
+    # No standalone forged "Status: CLEARED..." line (it would start a line).
+    assert "\nStatus: CLEARED BY ATTACKER" not in text
+    # The genuine, template-emitted "Status:" line is still present.
+    assert "\nStatus:" in text
+    # The injected payload text survives, but folded onto the title line (no newline).
+    assert "Status: CLEARED BY ATTACKER" in text.replace("\n", " ")
+
+
+# --------------------------------------------------------------------------- #
+# FIX 3 — {{{var}}} raw HTML is restricted to a WHITELIST of module-built trusted
+# presentation fragments; an operator template (or any non-whitelisted key) using
+# triple-mustache on an UNTRUSTED var is ESCAPED, never emitted as raw HTML.
+# --------------------------------------------------------------------------- #
+def test_triple_mustache_escapes_untrusted_var():
+    out = templates.render_template("{{{title}}}", {"title": "<img src=x onerror=alert(1)>"})
+    assert "<img" not in out
+    assert "&lt;img src=x onerror=alert(1)&gt;" in out
+
+
+def test_triple_mustache_passes_trusted_whitelisted_keys_raw():
+    # The module's own presentation fragments (accent_color / logo_block) still pass
+    # through raw — they are validated/pre-escaped by THIS module.
+    raw = templates.render_template("{{{accent_color}}}|{{{logo_block}}}",
+                                    {"accent_color": "#abcdef",
+                                     "logo_block": "<img src='data:image/png;base64,AAAA'>"})
+    assert raw == "#abcdef|<img src='data:image/png;base64,AAAA'>"
+
+
+def test_operator_triple_mustache_override_cannot_emit_raw_case_html():
+    # An operator override that (mistakenly or maliciously) uses {{{title}}} cannot
+    # inject raw case HTML — the renderer escapes every non-whitelisted triple var.
+    tpls = NotificationTemplates(overrides={
+        "case_created": NotificationTemplateOverride(html="<p>{{{title}}}</p>"),
+    })
+    body = templates.render(_case(title="<script>alert(1)</script>"), "case_created",
+                            templates=tpls)
+    assert "<script>" not in body["html"]
+    assert "&lt;script&gt;" in body["html"]
+    # And the trusted shell accent colour still renders raw in the built-in shell.
+    body2 = templates.render(_case(), "case_created",
+                             branding=BrandingConfig(org_name="Acme", accent_color="#abcdef"))
+    assert "#abcdef" in body2["html"]
 
 
 # --------------------------------------------------------------------------- #
@@ -151,6 +224,42 @@ def test_default_html_uses_raw_only_for_trusted_shell():
     assert "<img src=x onerror" not in body["html"]
     assert "&lt;img src=x onerror=alert(1)&gt;" in body["html"]
     assert "#abcdef" in body["html"]       # accent colour passed through the trusted shell
+
+
+# --------------------------------------------------------------------------- #
+# FIX 4 — BrandingConfig logo/favicon validator rejects SVG (it can embed script)
+# and magic-sniffs declared raster types (consistency with validate_avatar / #9-#10).
+# --------------------------------------------------------------------------- #
+def test_branding_logo_rejects_svg_data_url():
+    import base64 as _b64
+
+    svg = "data:image/svg+xml;base64," + _b64.b64encode(
+        b"<svg onload=alert(1)></svg>").decode()
+    with pytest.raises(ValueError):
+        BrandingConfig(logo_data_url=svg)
+    with pytest.raises(ValueError):
+        BrandingConfig(favicon_data_url=svg)
+    # A plain (non-base64) svg data-URL is also refused.
+    with pytest.raises(ValueError):
+        BrandingConfig(logo_data_url="data:image/svg+xml,<svg></svg>")
+
+
+def test_branding_logo_magic_sniffs_declared_raster():
+    import base64 as _b64
+
+    # A PNG-declared data-URL whose body is NOT a PNG (markup smuggled in) is rejected.
+    fake = "data:image/png;base64," + _b64.b64encode(b"<svg>nope</svg>").decode()
+    with pytest.raises(ValueError):
+        BrandingConfig(logo_data_url=fake)
+    # A genuine PNG magic body is accepted.
+    png = "data:image/png;base64," + _b64.b64encode(
+        b"\x89PNG\r\n\x1a\n" + b"\x00" * 16).decode()
+    ok = BrandingConfig(logo_data_url=png)
+    assert ok.logo_data_url == png
+    # An unrecognised raster subtype (not in the sniff set) still passes the prefix
+    # check (back-compat — we never tighten an already-storable image kind).
+    bmp = "data:image/bmp;base64," + _b64.b64encode(b"BM" + b"\x00" * 10).decode()
+    assert BrandingConfig(logo_data_url=bmp).logo_data_url == bmp
 
 
 def test_logo_block_rejects_non_image_src():

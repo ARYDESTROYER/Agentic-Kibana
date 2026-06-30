@@ -205,6 +205,47 @@ def test_revoke_all_bumps_token_version() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Env single-admin is NOT permanently locked out after a revoke-all (Round-2 fix)
+# --------------------------------------------------------------------------- #
+def test_env_admin_can_relogin_after_revoke_all() -> None:
+    """Regression: the env single-admin (auth_admin_*) lives ONLY in the AuthService
+    BASE layer — it is NOT a stored User. ``refresh_sessions`` used to build the
+    per-user token_version snapshot from ``users.list()`` alone, omitting the
+    env-admin, so after a revoke-all bumped the persistent tv to 1 the env-admin's
+    synced tv stayed 0 → every fresh login stamped tv=0 < current_tv=1 →
+    PERMANENT reauth_required lockout. The fix unions the base usernames into the
+    snapshot, defaulting each from the SessionStore's per-user tv."""
+    with _build_client(
+        auth_enabled=True, auth_jwt_secret="envadm",
+        auth_admin_username="root", auth_admin_password="Root@123!",
+    ) as c:
+        state = _STATE["state"]
+        # The env-admin is NOT in the persistent user store (it's a base/env account).
+        assert pytest_run(state.users.count()) == 0
+        # 1) The env-admin can log in initially.
+        r0 = _login(c, "root", "Root@123!")
+        assert r0.status_code == 200, r0.text
+        tok0 = r0.json()["token"]
+        assert c.get("/api/cases", headers={"Authorization": f"Bearer {tok0}"}).status_code == 200
+        # 2) A revoke-all for the env-admin bumps the persistent tv to >=1 + refreshes
+        #    the AuthService snapshot — exactly what the admin route does.
+        revoked = pytest_run(state.sessions.revoke_all("root", by="test", reason="t"))
+        assert revoked >= 1
+        assert pytest_run(state.sessions.token_version_for("root")) >= 1
+        pytest_run(state.refresh_sessions())
+        # The AuthService snapshot now tracks the env-admin's bumped tv (NOT reset to 0).
+        assert state.auth._token_version_for("root") >= 1
+        # 3) THE FIX: a FRESH env-admin login mints a token whose tv matches the
+        #    current tv, so it is ACCEPTED — the env-admin is NOT permanently locked out.
+        c.cookies.clear()
+        r1 = _login(c, "root", "Root@123!")
+        assert r1.status_code == 200, r1.text
+        tok1 = r1.json()["token"]
+        out = c.get("/api/cases", headers={"Authorization": f"Bearer {tok1}"})
+        assert out.status_code == 200, out.text  # would be 401 reauth_required pre-fix
+
+
+# --------------------------------------------------------------------------- #
 # Idle + absolute expiry reject
 # --------------------------------------------------------------------------- #
 def test_idle_expiry_rejects() -> None:

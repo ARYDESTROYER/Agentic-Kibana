@@ -30,13 +30,14 @@ from app.config import (
     upgrade_feed,
 )
 from app.connectors.base import StructuredQuery
-from app.connectors.elastic import ElasticConnector
+from app.connectors.elastic import ElasticConnector, FeedScan
 from app.constants import CorrelationMode, EntityType, IndexRole, SourceSurface, SourceType
 from app.engine.correlation import correlate
-from app.engine.ingest import _is_ignored_cluster, handle_clusters
-from app.engine.poller import Poller
+from app.engine.ingest import _is_ignored_cluster, dedup_by_id, handle_clusters
+from app.engine.poller import Poller, advance_cursor_to
 from app.es.fake import InMemoryESClient
 from app.models import Cursor, RawEvent
+from app.ocsf import score_to_severity_id
 from app.stores.cursor_store import CursorStore
 from app.utils import now_utc, to_millis
 from tests.conftest import make_log_event
@@ -489,3 +490,230 @@ async def test_per_feed_query_filters_the_feed():
     ids = {e.id for e in events}
     assert "keep1" in ids
     assert "drop1" not in ids
+
+
+# --------------------------------------------------------------------------- #
+# 7. #4 NO-SKIP across overlapping feeds — the broad feed's cursor must advance
+#    over EVERY hit it READ (kept + dropped), never passing over a dropped hit's
+#    window, while the dropped hits are owned + processed by the narrower feed.
+#    Round-2 W6 HIGH (confirmed): ROUND2_AUDIT.md "Broad feed's per-feed cursor".
+# --------------------------------------------------------------------------- #
+def _overlap_es(base: int) -> InMemoryESClient:
+    """Broad events superset (``logs-*``) overlapping a narrow alerts subset
+    (``logs-alerts*``). The OLDEST hits live in the alerts subset; the broad feed's
+    OWN (events-only) hits are NEWER, sitting *beyond* a full page of alerts hits."""
+    es = InMemoryESClient()
+    # OLDEST: 3 alerts-subset hits (owned by the narrow alerts feed).
+    for i in range(3):
+        es.add_log("logs-alerts", make_log_event(ip="1.1.1.1", rule="a", severity=8.0,
+                   ts_millis=base + i * 1000), doc_id=f"al{i}")
+    # NEWER: 3 events-only hits (owned by the broad feed) — these must NOT be skipped.
+    for i in range(3):
+        es.add_log("logs-app", make_log_event(ip="2.2.2.2", rule="e", severity=8.0,
+                   ts_millis=base + 100_000 + i * 1000), doc_id=f"ev{i}")
+    return es
+
+
+@asyncio
+async def test_poll_feed_scan_watermark_covers_dropped_hits():
+    """``poll_feed_scan`` for the BROAD feed reports a watermark over EVERY hit it
+    READ — including the narrower-feed hits it DROPS — so the cursor can advance past
+    that window. Without this, a full page owned by the narrower feed leaves ``kept``
+    empty and the broad cursor never advances (#4 skip)."""
+    base = to_millis(now_utc()) - 600_000
+    es = _overlap_es(base)
+    config = {"index_patterns": [
+        {"pattern": "logs-*", "role": "events"},        # broad superset
+        {"pattern": "logs-alerts*", "role": "alerts"},  # narrow subset
+    ]}
+    conn = ElasticConnector(es, config=config, connector_id="srcX")
+    prefs = Preferences(setup_complete=True, poll_batch_size=3)  # one page = 3 oldest
+    broad = next(f for f in conn.feeds() if f.pattern == "logs-*")
+
+    # The broad feed's first page is the 3 OLDEST hits — all alerts-owned → kept empty.
+    scan = await conn.poll_feed_scan(prefs, broad, Cursor(), 0)
+    assert isinstance(scan, FeedScan)
+    assert scan.events == []                              # all dropped (alerts-owned)
+    # ...but the watermark reflects the scanned window so the cursor can move past it.
+    assert scan.scan_max_ts == base + 2000               # newest of the 3 alerts hits
+    assert set(scan.scan_boundary_ids) == {"al2"}
+
+
+@asyncio
+async def test_overlapping_feeds_no_skip_across_cursor_advance(app_state):
+    """End-to-end #4 via the REAL poller (``poll_once``): a broad events superset
+    overlapping a narrow alerts subset, batch size fitting ONE page → forces a
+    multi-tick drain where the broad feed's first page is ENTIRELY alerts-owned
+    (dropped). Across ticks every in-window event is covered EXACTLY once with NO gap
+    between the two feeds' cursors — proven by replaying each feed against its FINAL
+    cursor and asserting every owned hit is now ``should_skip`` (covered, not skipped)
+    and nothing was processed twice.
+
+    FAILS without the poller fix: the broad feed's cursor stays at 0 (stuck on the
+    all-dropped alerts page) → its own ``ev*`` events are never covered (a real skip)."""
+    base = to_millis(now_utc()) - 600_000
+    es = _overlap_es(base)
+    config = {"index_patterns": [
+        {"pattern": "logs-*", "role": "events"},        # broad superset
+        {"pattern": "logs-alerts*", "role": "alerts"},  # narrow subset
+    ]}
+    conn = ElasticConnector(es, config=config, connector_id="srcX")
+    cursor_store = CursorStore(InMemoryESClient())
+    poller = Poller(
+        app_state.es, app_state.cases, cursor_store, app_state._real_audit,
+        app_state.pipeline, app_state.get_prefs, source=conn,
+    )
+    prefs = app_state.prefs.model_copy(deep=True)
+    prefs.cold_start_lookback_minutes = 60
+    prefs.poll_batch_size = 3   # one page per feed per tick → forces multi-tick drain
+    prefs.default_correlation = CorrelationRule(
+        mode=CorrelationMode.THRESHOLD, n=99, window_seconds=3600, group_by=EntityType.IP
+    )
+
+    # Drive the REAL poller until both feeds' cursors stop moving (fully drained).
+    prev_keys: tuple = ()
+    for _ in range(8):
+        await poller.poll_once(prefs)
+        keys = (
+            (await cursor_store.load_keyed("srcX:logs")).timestamp_millis,
+            (await cursor_store.load_keyed("srcX:logs-alerts")).timestamp_millis,
+        )
+        if keys == prev_keys:
+            break
+        prev_keys = keys
+
+    # Each feed's cursor reached its OWN newest hit (no skip, no stall).
+    broad_cursor = await cursor_store.load_keyed("srcX:logs")
+    alerts_cursor = await cursor_store.load_keyed("srcX:logs-alerts")
+    assert broad_cursor.timestamp_millis == base + 102_000   # newest ev hit (broad-owned)
+    assert alerts_cursor.timestamp_millis == base + 2000     # newest alert hit (narrow-owned)
+
+    # NO GAP: replay each feed from its FINAL cursor — every hit it owns is now covered
+    # (``should_skip`` True), so re-polling yields zero fresh events (no skip, no dup).
+    for feed in conn.feeds():
+        final = await cursor_store.load_keyed(f"srcX:{feed.id}")
+        scan = await conn.poll_feed_scan(prefs, feed, final, base)
+        fresh = [e for e in scan.events if not final.should_skip(e)]
+        assert fresh == [], f"feed {feed.id} would re-yield {[e.id for e in fresh]}"
+
+    # Cross-check: each event is owned by exactly ONE feed (broad owns ev0..ev2, narrow
+    # owns al0..al2 — no overlap, no dup). Use a wide batch so the full set is seen.
+    prefs_wide = prefs.model_copy(update={"poll_batch_size": 50})
+    broad_owned = {e.id for e in (await conn.poll_feed_scan(
+        prefs_wide, conn.feeds()[0], Cursor(), base)).events}
+    alerts_owned = {e.id for e in (await conn.poll_feed_scan(
+        prefs_wide, conn.feeds()[1], Cursor(), base)).events}
+    assert broad_owned == {"ev0", "ev1", "ev2"}
+    assert alerts_owned == {"al0", "al1", "al2"}
+    assert broad_owned.isdisjoint(alerts_owned)              # each event owned by ONE feed
+    assert broad_owned | alerts_owned == {"al0", "al1", "al2", "ev0", "ev1", "ev2"}
+
+
+def test_advance_cursor_to_no_dup_tiebreaker_and_no_rewind():
+    """Unit guard for the watermark advance: same-millisecond ids are UNIONED with the
+    existing boundary (no re-process of a tie = no dup), and a watermark at/behind the
+    cursor never rewinds it (no skip backwards)."""
+    # Tie at the same ms → boundary unions, never drops the prior id.
+    c = Cursor(timestamp_millis=1000, boundary_ids=["a"])
+    out = advance_cursor_to(c, 1000, ["b"])
+    assert out.timestamp_millis == 1000
+    assert set(out.boundary_ids) == {"a", "b"}
+    # Forward watermark replaces the boundary with the new tie set.
+    out = advance_cursor_to(c, 2000, ["x", "y"])
+    assert out.timestamp_millis == 2000 and out.boundary_ids == ["x", "y"]
+    # Behind / empty watermark → unchanged (no rewind, no spurious advance).
+    assert advance_cursor_to(c, 500, ["z"]) is c
+    assert advance_cursor_to(c, 0, []) is c
+
+
+@asyncio
+async def test_broad_feed_cursor_not_stuck_when_full_page_owned_by_narrower(app_state):
+    """Regression for the EXACT confirmed bug: a full first page entirely owned by a
+    narrower feed previously left the broad feed's cursor unadvanced (kept empty →
+    ``advance_cursor`` no-op), starving its own newer events forever. The watermark
+    advance moves the cursor past the alerts page on the FIRST tick."""
+    base = to_millis(now_utc()) - 600_000
+    es = _overlap_es(base)
+    config = {"index_patterns": [
+        {"pattern": "logs-*", "role": "events"},
+        {"pattern": "logs-alerts*", "role": "alerts"},
+    ]}
+    conn = ElasticConnector(es, config=config, connector_id="srcX")
+    cursor_store = CursorStore(InMemoryESClient())
+    poller = Poller(
+        app_state.es, app_state.cases, cursor_store, app_state._real_audit,
+        app_state.pipeline, app_state.get_prefs, source=conn,
+    )
+    prefs = app_state.prefs.model_copy(deep=True)
+    prefs.cold_start_lookback_minutes = 60
+    prefs.poll_batch_size = 3
+    prefs.default_correlation = CorrelationRule(
+        mode=CorrelationMode.THRESHOLD, n=99, window_seconds=3600, group_by=EntityType.IP
+    )
+
+    await poller.poll_once(prefs)
+    broad_cursor = await cursor_store.load_keyed("srcX:logs")
+    # Advanced PAST the all-dropped alerts page (would be unset/0 without the fix).
+    assert broad_cursor.is_set()
+    assert broad_cursor.timestamp_millis == base + 2000
+
+    # Each subsequent tick advances the broad cursor FORWARD into its own newer events
+    # (never stuck, never skipping) until it reaches its newest hit (base + 102_000).
+    prev = broad_cursor.timestamp_millis
+    for _ in range(5):
+        await poller.poll_once(prefs)
+        cur = (await cursor_store.load_keyed("srcX:logs")).timestamp_millis
+        assert cur >= prev  # monotonic forward, never rewinds / re-stalls
+        prev = cur
+    assert prev == base + 102_000  # reached its OWN newest event — nothing skipped
+
+
+# --------------------------------------------------------------------------- #
+# 8. severity_floor compares OCSF severity_id (1-6), NOT the raw source severity.
+#    Round-2 W6 LOW (confirmed): ROUND2_AUDIT.md "Per-feed severity_floor units".
+# --------------------------------------------------------------------------- #
+@asyncio
+async def test_severity_floor_compares_ocsf_severity_id_not_raw():
+    """The floor is OCSF severity_id (1-6). The DISCRIMINATING case is a raw severity
+    on the 0..10 SIEM scale whose numeric value sits at/above the floor but whose OCSF
+    severity_id is BELOW it: raw ``5.0`` (0..10) → OCSF id 3 (Medium). Against a floor
+    of 4 the OLD raw compare (``5.0 < 4`` → False) wrongly judged it ELIGIBLE, while the
+    OCSF compare (``3 < 4`` → True) correctly BLOCKS auto-forward. The event is NEVER
+    dropped either way (#4) — only its ``auto_investigate_eligible`` flag differs.
+
+    This test FAILS under the old raw compare (it would see ``high5`` eligible)."""
+    es = InMemoryESClient()
+    base = to_millis(now_utc()) - 600_000
+    # raw 5.0 (0..10 scale) -> OCSF id 3 (Medium) -> BELOW floor 4 -> must be BLOCKED.
+    # (old raw compare: 5.0 < 4 is False -> wrongly eligible.)
+    es.add_log("logs-sev", make_log_event(ip="1.1.1.1", rule="r", severity=5.0,
+               ts_millis=base + 1000), doc_id="mid5")
+    # raw 70 (0..100 scale) -> OCSF id 4 (High) -> CLEARS floor 4 -> ELIGIBLE.
+    es.add_log("logs-sev", make_log_event(ip="2.2.2.2", rule="r", severity=70.0,
+               ts_millis=base + 2000), doc_id="high70")
+    config = {"index_patterns": [{"pattern": "logs-sev*", "role": "events",
+                                  "severity_floor": 4}]}
+    conn = ElasticConnector(es, config=config, connector_id="s1")
+    events = await conn.poll(Preferences(setup_complete=True), Cursor(), 0)
+    by_id = {e.id: e for e in events}
+
+    # NEVER dropped — both events are returned regardless of the floor (#4).
+    assert set(by_id) == {"mid5", "high70"}
+    # Sanity: the OCSF mapping is what the floor compares against.
+    assert score_to_severity_id(5.0) == 3 and score_to_severity_id(70.0) == 4
+    # Medium(3) < floor 4 -> BLOCKED (the bug fix); High(4) >= floor 4 -> ELIGIBLE.
+    assert by_id["mid5"].auto_investigate_eligible is False
+    assert by_id["high70"].auto_investigate_eligible is True
+
+
+def test_severity_floor_raw_compare_would_misclassify():
+    """Pins the unit the fix corrects: a raw 0..10 severity of ``5.0`` is OCSF
+    severity_id 3 (Medium). Against a floor of 4 the OLD raw compare and the OCSF
+    compare DISAGREE — the old code would NOT block it (5.0 >= 4), the fix DOES
+    (OCSF id 3 < 4). This guards the semantics independent of the poll wiring."""
+    floor = 4
+    # The fix: compare the OCSF severity_id.
+    assert score_to_severity_id(5.0) == 3
+    assert score_to_severity_id(5.0) < floor          # OCSF compare -> BLOCKED (correct)
+    # The OLD raw compare disagreed (5.0 is numerically >= 4 -> wrongly eligible).
+    assert not (5.0 < float(floor))

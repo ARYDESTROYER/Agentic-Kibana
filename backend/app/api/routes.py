@@ -3071,11 +3071,43 @@ def _guard_transition(action: str, current: CaseStatus, target: CaseStatus | Non
         )
 
 
-def _case_action_grant(action: str) -> str:
+def _case_action_grant(action: str, target: CaseStatus | None = None) -> str:
     """The ``cases`` action grant required to perform lifecycle ``action`` — close-
     class moves need ``cases:close``, everything else ``cases:write``. Shared by the
-    single-case endpoint and the bulk endpoint so RBAC is decided in ONE place."""
-    return "close" if action in _CLOSE_ACTIONS else "write"
+    single-case endpoint and the bulk endpoint so RBAC is decided in ONE place.
+
+    TARGET-AWARE: ``set_status`` (and its bulk form) is a generic status setter, so a
+    ``cases:write``-only analyst must NOT be able to drive a case to a TERMINAL/close-
+    axis status (RESOLVED/CLOSED) through it — that is exactly the ``cases:close``
+    grant the explicit close/resolve actions require. When ``set_status`` (or any
+    non-close action) targets a terminal status, the required grant is upgraded to
+    ``cases:close``. The deterministic #3 close-axis is unaffected (this is the human
+    analyst path; it never calls ``decide()``)."""
+    if action in _CLOSE_ACTIONS:
+        return "close"
+    # A generic set_status (or any non-close action) reaching a terminal status is a
+    # close-axis move → require cases:close, not cases:write.
+    if target is not None and target in _TERMINAL:
+        return "close"
+    return "write"
+
+
+def _grant_for_body(body: CaseAction) -> str:
+    """Resolve the required ``cases`` grant for a (possibly target-bearing) action.
+
+    Maps the action to its lifecycle target (``set_status`` carries the target in
+    ``body.status``) and delegates to :func:`_case_action_grant` so the single-case
+    and bulk endpoints upgrade a terminal-reaching ``set_status`` to ``cases:close``
+    in EXACTLY one place. A malformed ``set_status`` target is left to the action
+    handler to reject (400); for grant purposes it is treated as a non-terminal
+    write."""
+    target = _ACTION_STATUS.get(body.action)
+    if body.action == "set_status" and body.status:
+        try:
+            target = CaseStatus(body.status)
+        except ValueError:
+            target = None
+    return _case_action_grant(body.action, target)
 
 
 @router.post("/cases/{case_id}/action")
@@ -3096,7 +3128,7 @@ async def case_action(
     if request is not None:
         from .deps import _enforce
 
-        user = await _enforce(request, "cases", _case_action_grant(body.action))
+        user = await _enforce(request, "cases", _grant_for_body(body))
     actor = getattr(user, "username", "") or body.analyst or "analyst"
     return await _perform_case_action(case_id, body, actor, state)
 
@@ -3301,7 +3333,7 @@ async def cases_bulk_action(
     if request is not None:
         from .deps import _enforce
 
-        user = await _enforce(request, "cases", _case_action_grant(body.action))
+        user = await _enforce(request, "cases", _grant_for_body(body))
     actor = getattr(user, "username", "") or body.analyst or "analyst"
 
     # The per-case payload is the bulk body minus ``ids`` — i.e. a plain CaseAction

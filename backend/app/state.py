@@ -113,6 +113,14 @@ class AppState:
     def overview_service(self):
         return self._demo.overview_service if self._demo is not None else self._real_overview_service
 
+    @property
+    def chat_engine(self):
+        # In demo, chat MUST use the demo-bound engine ($0 demo gateway + demo
+        # audit/cases) so a chat turn spends no real $, writes no permanent real
+        # audit rows, and an in-case chat reads the DEMO case store. Off demo, the
+        # real engine — byte-for-byte as before.
+        return self._demo.chat_engine if self._demo is not None else self._real_chat_engine
+
     def _wire(self) -> None:
         es = self.es
         # OWN-state backend (Epoch A): cases/audit/usage/config/cursor live EITHER
@@ -169,7 +177,7 @@ class AppState:
             source=self.log_source, playbooks=self.playbooks, memory=self.memory,
             seq_store=self.case_seq,
         )
-        self.chat_engine = ChatEngine(
+        self._real_chat_engine = ChatEngine(
             es, self.gateway, self._real_audit, self._real_cases, self.rag,
             source=self.log_source, memory=self.memory,
         )
@@ -446,6 +454,18 @@ class AppState:
                 uname = str(getattr(u, "username", "") or "")
                 if uname:
                     versions[uname] = await sessions.token_version_for(uname)
+            # Include the AuthService BASE/env-admin username(s). They are NOT stored
+            # Users, so iterating users.list() alone leaves their snapshot tv at 0 —
+            # after a revoke-all bumps the persistent tv to >=1, a fresh env-admin
+            # login would stamp tv=0 < current_tv → permanent reauth_required lockout.
+            # Default each from the SessionStore's per-user tv (like a stored user);
+            # skip any already resolved above (a stored user with the same name wins).
+            seen = {k.strip().lower() for k in versions}
+            auth = getattr(self, "auth", None)
+            base_names = list(auth.base_usernames()) if auth is not None else []
+            for uname in base_names:
+                if uname and uname.strip().lower() not in seen:
+                    versions[uname] = await sessions.token_version_for(uname)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Refreshing session token_versions failed (%s)", exc)
             return
@@ -581,7 +601,7 @@ class AppState:
         self.log_source = self._build_log_source()
         self.poller._source = self.log_source
         self._real_pipeline._source = self.log_source
-        self.chat_engine._source = self.log_source
+        self._real_chat_engine._source = self.log_source
 
     def get_prefs(self) -> Preferences:
         return self.prefs
@@ -611,7 +631,7 @@ class AppState:
         await self.refresh_users()
         self.rag = self._build_rag()
         self._real_pipeline._rag = self.rag
-        self.chat_engine._rag = self.rag
+        self._real_chat_engine._rag = self.rag
         # Reload playbooks now that prefs (incl. any dir override) are available.
         self.playbooks = self._build_playbooks()
         self._real_pipeline._playbooks = self.playbooks

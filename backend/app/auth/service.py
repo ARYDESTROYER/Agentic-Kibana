@@ -185,6 +185,17 @@ class AuthService:
         change takes effect without a restart; does not touch the user view."""
         self._mfa_enforce_roles = {str(r) for r in (roles or [])}
 
+    def base_usernames(self) -> list[str]:
+        """The env-supplied BASE-layer usernames (the env single-admin +
+        ``auth_users``), lowercased. These accounts are NOT persisted in the
+        UserStore, so any caller building the per-user session ``token_version``
+        snapshot from ``users.list()`` alone would OMIT them — leaving their synced
+        ``tv`` at the default 0 even after a revoke-all bumped the persistent tv to
+        ≥1, which permanently locks the env-admin out (every fresh login stamps
+        tv=0 < current_tv → reauth_required). Union these into the snapshot so the
+        env-admin's ``tv`` tracks the SessionStore like a stored user."""
+        return list(self._base.keys())
+
     def set_session_versions(self, versions: dict[str, int] | None) -> None:
         """Refresh the synced per-user session ``token_version`` snapshot (Wave 3)
         from the persistent SessionStore. Called on startup + after a revoke-all so

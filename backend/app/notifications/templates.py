@@ -11,10 +11,15 @@ case_url, entity) the channels surface; these too are escaped at HTML-render tim
 Wave 7 adds:
 
 * A tiny **stdlib mustache-subset renderer** (:func:`render_template`): ``{{var}}``
-  is auto HTML-escaped (UNTRUSTED-safe), ``{{{var}}}`` is RAW (TRUSTED header HTML
-  ONLY — used by built-in templates for the branded shell), ``{{#section}}`` /
-  ``{{^section}}`` are truthiness blocks, dotted dict lookup is supported. There is
-  NO ``eval``/``getattr`` — section/variable lookups walk plain dicts only.
+  is auto HTML-escaped (UNTRUSTED-safe), ``{{{var}}}`` passes through RAW **only for a
+  closed WHITELIST of module-built presentation fragments** (``_RAW_TRUSTED_KEYS`` —
+  the validated accent colour + the pre-escaped logo block); ANY other ``{{{key}}}``
+  (e.g. an operator template referencing an UNTRUSTED case field) is escaped exactly
+  like ``{{var}}``, so a malicious operator override can never emit raw case/log HTML.
+  ``{{#section}}`` / ``{{^section}}`` are truthiness blocks, dotted dict lookup is
+  supported. There is NO ``eval``/``getattr`` — lookups walk plain dicts only. In
+  ``text_mode`` (the .txt body) ``{{var}}`` strips CR/LF/tab/control via
+  :func:`text_safe`, closing the body line-injection vector.
 * Five **preloaded default templates** (``case.new`` / ``case.escalation`` /
   ``case.resolved`` / ``digest.daily`` / ``test``), each with a good-looking HTML
   shell (consuming ``GET /api/branding`` tokens) + a plain-text alternative. An
@@ -113,6 +118,14 @@ def text_safe(value: Any, limit: int = 600) -> str:
 # {{^sec}}…{{/sec}} (inverted), {{var}} (escaped). Dotted lookup walks dicts only.
 _TOKEN_RE = re.compile(r"\{\{\{\s*([\w.]+)\s*\}\}\}|\{\{\s*([#^/]?)\s*([\w.]+)\s*\}\}")
 
+# The ONLY context keys a {{{raw}}} (triple-mustache, unescaped) token may emit
+# verbatim. These are presentation fragments this module BUILDS itself (a validated
+# #RRGGBB accent colour token + a pre-escaped logo <img>) — never an attacker- or
+# operator-supplied free-text field. ANY other {{{key}}} (incl. an operator-template
+# referencing title/entity/summary/rule/source_name) is escaped exactly like a
+# {{var}}, so a malicious operator override can never emit raw case/log HTML (#9).
+_RAW_TRUSTED_KEYS: frozenset[str] = frozenset({"accent_color", "logo_block"})
+
 
 def _lookup(ctx: dict[str, Any], dotted: str) -> Any:
     """Resolve a dotted key against a plain dict context. Walks DICTS only — never
@@ -136,12 +149,19 @@ def _truthy(v: Any) -> bool:
     return bool(v)
 
 
-def render_template(template: str, ctx: dict[str, Any]) -> str:
+def render_template(template: str, ctx: dict[str, Any], *, text_mode: bool = False) -> str:
     """Render a mustache-subset ``template`` against the plain-dict ``ctx``.
 
-    * ``{{var}}``  → ``html.escape(str(value))`` (auto-escaped; UNTRUSTED-safe).
-    * ``{{{var}}}`` → raw ``str(value)`` (NO escaping — TRUSTED header HTML ONLY; the
-      built-in templates use it only for pre-escaped branded-shell fragments).
+    * ``{{var}}``  → escaped, UNTRUSTED-safe. In the default HTML mode that is
+      ``html.escape(str(value))``; in ``text_mode`` it is :func:`text_safe` (strips
+      CR/LF/tab/control) so an attacker-controlled var can never inject raw newlines
+      into a structured ``key: value`` .txt body (the template's OWN literal newlines
+      are added by the template, not by an interpolated var).
+    * ``{{{var}}}`` → raw (NO escaping) ONLY for a tiny WHITELIST of module-built
+      presentation fragments (``_RAW_TRUSTED_KEYS`` — the validated accent colour +
+      the pre-escaped logo <img>). ANY other ``{{{key}}}`` (e.g. an operator template
+      referencing an UNTRUSTED case field) is escaped exactly like a ``{{var}}`` — a
+      malicious operator override can never emit raw case/log HTML (#9).
     * ``{{#sec}}…{{/sec}}`` → rendered iff ``sec`` is truthy (no list iteration — a
       truthy dict/str/number just gates the block; the inner context is unchanged).
     * ``{{^sec}}…{{/sec}}`` → rendered iff ``sec`` is FALSY (inverted).
@@ -149,6 +169,11 @@ def render_template(template: str, ctx: dict[str, Any]) -> str:
     Missing variables render as the empty string. There is no recursion into objects
     beyond dict lookups, no arbitrary attribute access, and no code evaluation.
     """
+    def _escape(val: Any) -> str:
+        if val is None:
+            return ""
+        return text_safe(val) if text_mode else html.escape(str(val))
+
     out: list[str] = []
     # A stack of (is_rendering,) frames so nested sections suppress correctly.
     render_stack: list[bool] = [True]
@@ -164,7 +189,13 @@ def render_template(template: str, ctx: dict[str, Any]) -> str:
         if raw_name is not None:  # {{{raw}}}
             if active:
                 val = _lookup(ctx, raw_name)
-                out.append("" if val is None else str(val))
+                # ONLY the module's own trusted presentation fragments pass through
+                # unescaped; every other key (incl. operator-referenced UNTRUSTED
+                # case fields) is escaped like a normal {{var}} (#9).
+                if raw_name in _RAW_TRUSTED_KEYS:
+                    out.append("" if val is None else str(val))
+                else:
+                    out.append(_escape(val))
             continue
         if sigil == "#":  # section open
             val = _lookup(ctx, name)
@@ -177,8 +208,7 @@ def render_template(template: str, ctx: dict[str, Any]) -> str:
                 render_stack.pop()
         else:  # {{var}} — auto-escaped
             if active:
-                val = _lookup(ctx, name)
-                out.append("" if val is None else html.escape(str(val)))
+                out.append(_escape(_lookup(ctx, name)))
     if render_stack[-1]:
         out.append(template[pos:])
     return "".join(out)
@@ -501,7 +531,11 @@ def render(
 
     subject = header_safe(render_template(subject_tpl, ctx), 200)
     html_body = render_template(html_tpl, ctx)
-    text_body = render_template(text_tpl, ctx)
+    # The .txt body renders in text_mode so interpolated UNTRUSTED vars are run
+    # through text_safe() (CR/LF/tab/control stripped) — closing the body line-
+    # injection vector (a forged ``Status:``/``Bcc:`` line) the .txt path otherwise
+    # left open (#9).
+    text_body = render_template(text_tpl, ctx, text_mode=True)
 
     return {
         "subject": subject,

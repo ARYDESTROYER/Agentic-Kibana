@@ -48,6 +48,27 @@ def advance_cursor(cursor: Cursor, fetched: list[RawEvent]) -> Cursor:
     return Cursor(timestamp_millis=max_ts, boundary_ids=boundary)
 
 
+def advance_cursor_to(cursor: Cursor, max_ts: int, boundary_ids: list[str]) -> Cursor:
+    """Advance ``cursor`` to an explicit watermark ``(max_ts, boundary_ids)``.
+
+    The watermark-driven variant of :func:`advance_cursor` (#4). A per-feed poll
+    advances over the watermark of EVERY hit it SCANNED — kept AND dropped — not just
+    the kept events, so a broad feed that drops hits owned by a narrower overlapping
+    feed still advances its OWN cursor over the whole window it scanned and never
+    skips its own newer events beyond that window. Same no-skip-ties tiebreaker as
+    ``advance_cursor``: same-millisecond ids are unioned with the existing boundary so
+    a tie is never re-processed nor skipped. A watermark at/behind the cursor (or an
+    empty/zero watermark — the feed read nothing) leaves the cursor unchanged."""
+    if max_ts <= 0 or max_ts < cursor.timestamp_millis:
+        return cursor
+    boundary = list(boundary_ids)
+    if cursor.timestamp_millis == max_ts:
+        boundary = list(dict.fromkeys(boundary + cursor.boundary_ids))
+    else:
+        boundary = list(dict.fromkeys(boundary))
+    return Cursor(timestamp_millis=max_ts, boundary_ids=boundary)
+
+
 class Poller:
     def __init__(
         self,
@@ -113,6 +134,26 @@ class Poller:
         except Exception:  # noqa: BLE001
             return []
 
+    async def _poll_feed_scan(self, prefs: Preferences, feed, cursor: Cursor, cold_from: int):
+        """Fetch one feed's batch + its full-scan watermark (#4).
+
+        Prefers the connector's ``poll_feed_scan`` (which reports the watermark of
+        EVERY hit it read, kept AND dropped) so a broad feed's cursor advances over the
+        whole window it scanned and never skips its own newer events past a window owned
+        by a narrower overlapping feed. Falls back to ``poll_feed`` for a connector that
+        only exposes the events list — there the watermark is synthesised from the kept
+        events (back-compat: a connector with no overlapping-feed drop has identical
+        kept/scanned sets, so this is byte-equivalent to advancing over the batch)."""
+        from ..connectors.elastic import FeedScan
+
+        scan_fn = getattr(self._source, "poll_feed_scan", None)
+        if scan_fn is not None:
+            return await scan_fn(prefs, feed, cursor, cold_from)
+        events = await self._source.poll_feed(prefs, feed, cursor, cold_from)
+        max_ts = max((e.timestamp_millis for e in events), default=0)
+        boundary = [e.id for e in events if e.timestamp_millis == max_ts] if max_ts > 0 else []
+        return FeedScan(events=events, scan_max_ts=max_ts, scan_boundary_ids=boundary)
+
     async def poll_once(self, prefs: Preferences | None = None) -> dict[str, Any]:
         prefs = prefs or self._get_prefs()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
@@ -125,9 +166,14 @@ class Poller:
         feeds = self._source_feeds()
         fetched: list[RawEvent] = []
         new_events: list[RawEvent] = []
-        # Track each feed's (key, loaded cursor, fetched batch) so we advance + persist
-        # each cursor independently after handling.
-        feed_state: list[tuple[str, Cursor, list[RawEvent]]] = []
+        # Track each feed's (key, loaded cursor, advanced cursor) so we persist each
+        # cursor independently after handling. The advanced cursor is computed from the
+        # FULL SCANNED watermark (kept + dropped hits), NOT only the kept batch (#4) —
+        # a broad feed that drops hits owned by a narrower overlapping feed must still
+        # advance its own cursor over the whole window it scanned or it skips its own
+        # newer events forever (the dropped hits are owned + processed by the narrower
+        # feed via that feed's own cursor; no skip, no dup).
+        feed_state: list[tuple[str, Cursor, Cursor]] = []
         if feeds:
             for feed in feeds:
                 # Per-feed exception isolation (#4): a single feed whose operator
@@ -139,21 +185,24 @@ class Poller:
                 try:
                     key = self._cursor_key(prefs, feed.id)
                     fcursor = await self._cursor_store.load_keyed(key)
-                    fbatch = await self._source.poll_feed(prefs, feed, fcursor, cold_from)
+                    scan = await self._poll_feed_scan(prefs, feed, fcursor, cold_from)
                 except Exception:  # noqa: BLE001 — isolate one feed's failure
                     logger.exception(
                         "poll_feed failed for feed %s; skipping it this tick (cursor untouched)",
                         getattr(feed, "id", "?"),
                     )
                     continue
-                feed_state.append((key, fcursor, fbatch))
+                fbatch = scan.events
+                # Advance over the full scanned watermark, not just the kept batch (#4).
+                advanced = advance_cursor_to(fcursor, scan.scan_max_ts, scan.scan_boundary_ids)
+                feed_state.append((key, fcursor, advanced))
                 fetched.extend(fbatch)
                 new_events.extend(e for e in fbatch if not fcursor.should_skip(e))
         else:
             cursor = await self._cursor_store.load()
             fetched = await self._source.poll(prefs, cursor, cold_from)
             new_events = [e for e in fetched if not cursor.should_skip(e)]
-            feed_state.append(("primary", cursor, fetched))
+            feed_state.append(("primary", cursor, advance_cursor(cursor, fetched)))
 
         stats = {"polled": len(fetched), "new": len(new_events),
                  "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
@@ -201,11 +250,11 @@ class Poller:
                 except Exception as exc:  # noqa: BLE001 — never break the poll loop
                     logger.warning("cross-source correlation failed: %s", exc)
 
-        # Advance EACH feed's cursor over ITS OWN fetched batch (even boundary dupes)
-        # so we never re-scan a window, then persist durably + independently (#4 — a
-        # slow feed's cursor is never dragged forward by a fast feed's events).
-        for key, fcursor, fbatch in feed_state:
-            new_cursor = advance_cursor(fcursor, fbatch)
+        # Persist EACH feed's advanced cursor durably + independently (#4 — a slow
+        # feed's cursor is never dragged forward by a fast feed's events). The advanced
+        # cursor was computed above from the FULL SCANNED watermark (kept + dropped),
+        # so a broad feed never skips its own window when it drops a narrower feed's hits.
+        for key, fcursor, new_cursor in feed_state:
             if (new_cursor.timestamp_millis, tuple(new_cursor.boundary_ids)) != (
                 fcursor.timestamp_millis, tuple(fcursor.boundary_ids)
             ):

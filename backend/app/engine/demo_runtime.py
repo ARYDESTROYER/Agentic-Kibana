@@ -95,6 +95,12 @@ class DemoStack:
         # Lazily built so we avoid importing the (heavy) pipeline at module import.
         self.pipeline = self._build_pipeline(secrets)
         self.ingest_service = IngestService(self.cases, self.audit, self.pipeline, self._demo_prefs)
+        # A chat engine bound to the DEMO gateway/audit/cases (NOT the real ones), so a
+        # /chat turn while demo is engaged spends $0 (demo gateway → pricing_source
+        # 'zero'), writes ONLY demo audit rows (purged on disable), and an in-case chat
+        # reads the DEMO case store (so it finds the demo case). This mirrors the
+        # demo-switchable active-store @properties on AppState — chat is no exception.
+        self.chat_engine = self._build_chat_engine()
         # A standup service over the demo ES (case stats reflect the demo store).
         from ..agents.standup import StandupService
 
@@ -116,6 +122,24 @@ class DemoStack:
         return InvestigationPipeline(
             self.es, secrets, self._cache, self.gateway, rag, self.cases, self.audit,
             source=source,
+        )
+
+    def _build_chat_engine(self):
+        """A ChatEngine wired to the DEMO gateway/audit/cases + a demo log source +
+        a demo RAG (over the demo case store), so chat during demo is $0 and isolated
+        — never the real gateway/audit/cases. No operator MEMORY is injected in demo
+        (memory=None) so a real operator's durable facts never bleed into the demo."""
+        from ..agents.chat import ChatEngine
+        from ..connectors.demo import DemoPullConnector
+        from ..tools.rag import RagService
+
+        prefs = self._get_prefs()
+        seed = int(getattr(getattr(prefs, "demo", None), "seed", 1337) or 1337)
+        source = DemoPullConnector(seed=seed)
+        rag = RagService(self.gateway, prefs, store=None, cases=self.cases)
+        return ChatEngine(
+            self.es, self.gateway, self.audit, self.cases, rag,
+            source=source, memory=None,
         )
 
     def _demo_prefs(self) -> Preferences:

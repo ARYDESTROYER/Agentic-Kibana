@@ -18,6 +18,7 @@ is backed exclusively by the scoped, read-only API key (Non-negotiable #1).
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import IndexPattern, Preferences
@@ -25,8 +26,8 @@ from ..constants import IndexRole, IngestMode, SourceType
 from ..es.base import BaseESClient
 from ..es.querybuilder import ids_query, poll_query
 from ..models import Cursor, RawEvent
-from ..ocsf import OCSFEvent, ecs_to_ocsf
-from ..utils import relative_to_millis
+from ..ocsf import OCSFEvent, ecs_to_ocsf, score_to_severity_id
+from ..utils import dotted_get, parse_es_timestamp, relative_to_millis, to_millis
 from .base import (
     AuthField,
     ConnectionTest,
@@ -40,6 +41,26 @@ from .base import (
 # Parity constants with ``app/tools/es_query.py`` (keep these in lock-step).
 _MAX_SIZE = 200
 _DEFAULT_SIZE = 50
+
+
+@dataclass
+class FeedScan:
+    """One feed's poll result + the watermark of EVERY hit it READ (#4 no-skip).
+
+    ``events`` are the KEPT events (this feed's most-specific owns) — the ones the
+    poller correlates/registers. ``scan_max_ts`` / ``scan_boundary_ids`` describe the
+    full SCANNED window (kept AND dropped hits): the broad feed reads hits owned by a
+    narrower overlapping feed and DROPS them (longest-pattern-wins), but it must still
+    advance ITS OWN cursor over the whole window it scanned — otherwise the dropped
+    hits' time window is passed over and the broad feed's own newer events beyond it are
+    SKIPPED forever (#4). The dropped hits are independently owned + processed by the
+    narrower feed via that feed's own cursor, so nothing is lost or duplicated.
+
+    ``scan_max_ts == 0`` means the feed read no hits this tick (cursor left untouched)."""
+
+    events: list[RawEvent] = field(default_factory=list)
+    scan_max_ts: int = 0
+    scan_boundary_ids: list[str] = field(default_factory=list)
 
 
 def _http_status(exc: Exception) -> int | None:
@@ -255,7 +276,12 @@ class ElasticConnector(PullConnector):
                 ev.feed_id = f.id
                 ev.index_role = f.role.value if f.role != IndexRole.IGNORE else "events"
                 floor = f.severity_floor
-                if floor is not None and ev.severity < float(floor):
+                # ``severity_floor`` is advertised as OCSF severity_id (1-6), so map the
+                # RAW source severity to its OCSF severity_id before comparing (a 0..100
+                # or 0..10 native severity must not be compared against a 1-6 floor).
+                # #4 preserved: below-floor only marks the event auto_investigate
+                # INELIGIBLE — it is NEVER dropped (still correlated + live-tailed).
+                if floor is not None and score_to_severity_id(ev.severity) < int(floor):
                     ev.auto_investigate_eligible = False
             else:
                 ev.index_role = self._role_for_index(ev.index)
@@ -502,23 +528,67 @@ class ElasticConnector(PullConnector):
     ) -> list[RawEvent]:
         """Fetch one in-scope polling batch FOR A SINGLE FEED (oldest first).
 
+        Returns only the KEPT events (this feed's most-specific owns). Backs ``poll``
+        (the union wrapper). The poller uses :meth:`poll_feed_scan` instead so it can
+        advance the cursor over the FULL scanned window (#4 — see :class:`FeedScan`)."""
+        return (await self.poll_feed_scan(prefs, feed, cursor, from_millis)).events
+
+    async def poll_feed_scan(
+        self, prefs: Preferences, feed: IndexPattern, cursor: Cursor, from_millis: int
+    ) -> FeedScan:
+        """Fetch one in-scope polling batch FOR A SINGLE FEED (oldest first) + the
+        full-scan watermark.
+
         The feed's own pattern + field mapping + message field + ``query`` +
-        ``severity_floor`` apply; each event is attributed to ``feed``. Backs the
-        poller's per-feed cursor loop. ``poll`` (the union) is a thin wrapper that
-        concatenates ``poll_feed`` over every feed with a shared cursor.
+        ``severity_floor`` apply; each KEPT event is attributed to ``feed``. Backs the
+        poller's per-feed cursor loop.
 
         A hit is KEPT only when THIS feed is its longest-pattern ("most specific")
         owner — so when a broad events feed (``logs-host-*``) overlaps a narrower
-        IGNORE feed (``logs-host-noise*``), the noise sub-index is read by the broad
-        feed but DROPPED here (it belongs to the ignore feed), and no event is ever
-        read twice. With a single feed (or no overlap) every hit is kept."""
+        IGNORE/ALERTS feed (``logs-host-noise*`` / ``logs-host-alerts*``), the sub-index
+        is read by the broad feed but DROPPED here (it belongs to the narrower feed),
+        and no event is ever read/processed twice. With a single feed (or no overlap)
+        every hit is kept.
+
+        CRITICAL (#4 no-skip): the returned :class:`FeedScan` also carries the watermark
+        of EVERY hit READ (kept AND dropped), so the poller advances THIS feed's cursor
+        over the whole window it scanned — never passing over (skipping) the dropped
+        hits' window. The dropped hits remain owned + independently processed by the
+        narrower feed via that feed's own cursor (no skip, no dup)."""
         fp = self._feed_prefs(prefs, feed)
         body = poll_query(fp, cursor, from_millis)
         self._apply_feed_query(body, feed)
         resp = await self._es.search_logs(fp.data_view_pattern, body)
         hits = resp.get("hits", {}).get("hits", [])
+        # Watermark over ALL scanned hits (kept + dropped) using the feed's own time
+        # field (same projection ``from_hit`` uses), so a dropped narrower-feed hit at
+        # the trailing edge still moves THIS feed's cursor and is never skipped.
+        scan_max_ts, scan_boundary = self._scan_watermark(hits, fp)
         kept = [h for h in hits if self._owns_index(feed, str(h.get("_index", "")))]
-        return self._tag_events([RawEvent.from_hit(h, fp) for h in kept], feed=feed)
+        events = self._tag_events([RawEvent.from_hit(h, fp) for h in kept], feed=feed)
+        return FeedScan(events=events, scan_max_ts=scan_max_ts,
+                        scan_boundary_ids=scan_boundary)
+
+    @staticmethod
+    def _scan_watermark(hits: list[dict[str, Any]], fp: Preferences) -> tuple[int, list[str]]:
+        """Max timestamp + the ids of EVERY hit at that timestamp, over ALL scanned
+        hits (kept or dropped). Mirrors the cursor's ``(max_ts, boundary_ids)`` shape
+        and ``advance_cursor`` tiebreaker so the poller can advance the feed's cursor
+        without skipping a same-millisecond tie. Returns ``(0, [])`` for no hits."""
+        max_ts = 0
+        ts_by_id: list[tuple[int, str]] = []
+        for h in hits:
+            ts = parse_es_timestamp(dotted_get(h.get("_source", {}) or {}, fp.time_field))
+            tms = to_millis(ts) if ts else 0
+            if tms <= 0:
+                continue
+            ts_by_id.append((tms, str(h.get("_id", ""))))
+            if tms > max_ts:
+                max_ts = tms
+        if max_ts <= 0:
+            return 0, []
+        boundary = list(dict.fromkeys(i for t, i in ts_by_id if t == max_ts))
+        return max_ts, boundary
 
     def _owns_index(self, feed: IndexPattern, index: str) -> bool:
         """True when ``feed`` is the most-specific (longest-pattern) feed matching

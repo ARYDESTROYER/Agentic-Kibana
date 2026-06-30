@@ -565,6 +565,39 @@ class BrandingConfig(BaseModel):
             raise ValueError("image must be an empty string or a data:image/* URL")
         if len(v) > 1_400_000:
             raise ValueError("image too large (max ~1MB)")
+        # Reject SVG (it can carry script) — mirror the avatar validator's SVG-reject
+        # for defense-in-depth, even though the logo/favicon render via <img src>/
+        # <link href> (not dangerouslySetInnerHTML). `data:image/svg+xml` AND a bare
+        # `data:image/svg` are both refused (#9/#10).
+        head = v[:64].lower()
+        if head.startswith("data:image/svg"):
+            raise ValueError("SVG images are not allowed (they can embed script)")
+        # Defense-in-depth magic-sniff for the common base64 raster types: a declared
+        # png/jpeg/webp/gif data-URL whose decoded body does not start with the
+        # matching magic is rejected (e.g. SVG/markup smuggled under a raster mime).
+        # Non-base64 data-URLs and unrecognised image subtypes are left to the prefix
+        # + SVG checks above (back-compat — never tightens an already-stored raster).
+        import binascii
+        import base64
+
+        m = re.match(r"^data:image/(png|jpeg|jpg|webp|gif);base64,(.+)$", v, re.DOTALL)
+        if m:
+            kind, body = m.group(1), m.group(2)
+            try:
+                raw = base64.b64decode(body, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError("image base64 body is malformed") from exc
+            magic = {
+                "png": (b"\x89PNG\r\n\x1a\n",),
+                "jpeg": (b"\xff\xd8\xff",),
+                "jpg": (b"\xff\xd8\xff",),
+                "gif": (b"GIF87a", b"GIF89a"),
+            }
+            if kind == "webp":
+                if not (raw[:4] == b"RIFF" and raw[8:12] == b"WEBP"):
+                    raise ValueError("image is not a valid webp")
+            elif not any(raw.startswith(p) for p in magic[kind]):
+                raise ValueError(f"image is not a valid {kind}")
         return v
 
     @field_validator("accent_color", "accent_color2")
