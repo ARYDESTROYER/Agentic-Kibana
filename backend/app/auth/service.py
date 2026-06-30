@@ -211,6 +211,61 @@ class AuthService:
         return int(self._session_versions.get((username or "").strip().lower(), 0) or 0)
 
     @staticmethod
+    async def purge_user_side_state(
+        username: str,
+        *,
+        inbox: object | None = None,
+        notif_prefs: object | None = None,
+        user_prefs: object | None = None,
+        custom_roles: object | None = None,
+    ) -> None:
+        """Best-effort cleanup of a deleted user's per-user side-state.
+
+        Deleting a user removes the account RECORD, but their per-user buckets in the
+        collaboration / notification KV stores are keyed by username and would
+        otherwise OUTLIVE the record — so a re-created same-name user would INHERIT
+        the deleted user's inbox + notification prefs. This hook clears that
+        side-state so the delete is complete and a name re-use starts clean.
+
+        Wire it from the user-delete route immediately AFTER ``users.delete`` (e.g.
+        ``await state.auth.purge_user_side_state(username, inbox=state.inbox,
+        notif_prefs=state.notif_prefs)``). Each store is OPTIONAL + getattr-guarded
+        so the no-auth / offline profiles (where a store is absent) are unaffected.
+
+        NEVER raises: a cleanup failure logs and is swallowed so it can never block
+        the delete itself (the account record is already gone). The cleared stores
+        are the per-user KV buckets ONLY — the authoritative audit / case feed is
+        untouched (it intentionally retains the actor's historical rows, #2).
+        """
+        uname = (username or "").strip()
+        if not uname:
+            return
+        # (label, store, method, args) — each cleared independently so one failure
+        # doesn't skip the rest.
+        targets = [
+            ("inbox", inbox, "clear", (uname,)),
+            ("notif_prefs", notif_prefs, "delete", (uname,)),
+            ("user_prefs", user_prefs, "delete", (uname,)),
+            # Custom roles are org-scoped definitions (not a per-user assignment),
+            # so there is nothing username-keyed to drop; the parameter is accepted
+            # for forward-compat / symmetry and only used if a delete(user) exists.
+            ("custom_roles", custom_roles, "delete_assignment", (uname,)),
+        ]
+        for label, store, method, args in targets:
+            if store is None:
+                continue
+            fn = getattr(store, method, None)
+            if not callable(fn):
+                continue
+            try:
+                result = fn(*args)
+                if hasattr(result, "__await__"):
+                    await result
+            except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+                log.warning("purge_user_side_state(%s): clearing %s failed: %s",
+                            uname, label, exc)
+
+    @staticmethod
     def _new_sid() -> str:
         """A fresh opaque 128-bit session id (hex) for the JWT ``sid`` claim."""
         from .. stores.sessions import new_sid

@@ -138,10 +138,12 @@ backend/app/
                      (built-ins + tlsoc.enrichers entry-point, filtered by toggle+key) ·
                      dispatch (enrich_indicator: type-routed IP/domain/hash/url/email,
                      fail-open, Redis-cached) · aggregate (fuse — default max() byte-
-                     identical, weighted fusion opt-in) · providers/ (17: abuseipdb ·
-                     virustotal · greynoise · shodan · shodan_internetdb · censys ·
-                     binaryedge · ipinfo · otx · pulsedive · spur · xforce · urlscan ·
-                     hibp · projecthoneypot · abusech · rdap; keyless ones default-on)
+                     identical, weighted fusion opt-in) · providers/ (19 registered
+                     classes, +17 new in Round 3: abuseipdb · virustotal · greynoise ·
+                     shodan · shodan_internetdb · censys · binaryedge · ipinfo · otx ·
+                     pulsedive · spur · xforce · urlscan · hibp · projecthoneypot ·
+                     abusech [urlhaus/threatfox/malwarebazaar = 3 classes] · rdap;
+                     keyless ones default-on)
   realtime.py        multiplexed SSE EventBus (Round 3): in-process asyncio pub/sub +
                      bounded per-subscriber ring + Last-Event-ID replay + heartbeat;
                      GET /api/events (default OFF; polling is the graceful fallback);
@@ -313,16 +315,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1109 tests
+# Backend tests (offline; MUST stay green) — currently 1142+ tests (see Journal for the exact per-wave count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1109 passed
+python -m pytest -q                         # -> 1142 passed (rises as harden-wave tests land; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
 cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/
-npx vitest run                             # -> 175 passed
+npx vitest run                             # -> 181 passed (see Journal for the current count)
 npm run lint                               # 0 react-hooks/rules-of-hooks errors (2 exhaustive-deps warnings OK)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -365,8 +367,9 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1109) + `npm run build` clean
-  + `vitest run` (175) + `npm run lint` (no rules-of-hooks errors) before every commit.
+- **Tests:** add/keep offline tests; `pytest -q` green (1142+) + `npm run build` clean
+  + `vitest run` (181+) + `npm run lint` (no rules-of-hooks errors) before every commit.
+  (Counts rise each wave — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
 ## 9. Sub-agent workflow (how we parallelize)
@@ -401,8 +404,8 @@ activity feed — AI is a first-class author but can only RECOMMEND, never close
 a richer **posture dashboard** (server-side MTTA/MTTR/dwell p50/p90, SLA/aging, quality
 mix, period-over-period deltas + **MITRE coverage** vs the 697-corpus + ATT&CK Navigator
 layer export); **fine-grained RBAC** (custom roles + inheritance + explicit DENY +
-opt-in row-scope hook, all server-enforced); **+17 enrichment providers** behind an
-`EnrichmentProvider` SPI (multi-indicator IP/domain/hash/url/email); **in-app
+opt-in row-scope hook, all server-enforced); **+17 new enrichment providers (19 total
+registered)** behind an `EnrichmentProvider` SPI (multi-indicator IP/domain/hash/url/email); **in-app
 notifications** (per-user fan-out inbox + bell + per-category×channel prefs); a
 standardized/customizable **Models page** (provider registry incl. Azure/Bedrock/Vertex
 + OpenAI-compatible `base_url`, bundled model registry + price overlays, a pre-flight
@@ -414,15 +417,16 @@ priority + a typed ReAct trace timeline with the deterministic `decide()` step s
 as a trust feature). Plus a shipped **security fix**: inverted RAG-knowledge fencing to
 a TRUSTED allowlist so operator-imported docs no longer reach the model unfenced
 (OWASP LLM01). New modules: `enrichment/` SPI (ABC + registry + dispatch + aggregate +
-17 providers), `realtime.py` (multiplexed SSE `EventBus`), 8 KV stores
+19 registered providers), `realtime.py` (multiplexed SSE `EventBus`), 8 KV stores
 (case_thread/case_activity/case_tasks/inbox/notif_prefs/custom_roles/price_overlay/
 shift_handoff), `engine/{shift_report,priority,budget,mitre_coverage}.py`, and 8
 per-feature `api/routes_*.py` routers (metrics/standup/enrichment/models/inapp/
 cases_collab/triage/roles).
 
-**GREEN BASELINE (verified 2026-06-30):** backend **1109 pytest** pass (395 → 772 → 794
-→ 1109); the standalone **webui builds clean** (tsc+vite) + **175 Vitest specs green**
-(86 → 175); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign `exhaustive-deps`
+**GREEN BASELINE (verified 2026-06-30):** backend **1142+ pytest** pass (395 → 772 → 794
+→ 1142; rises as the harden-wave regression tests land — see `Journal.md` for the exact
+per-wave count); the standalone **webui builds clean** (tsc+vite) + **181+ Vitest specs
+green** (86 → 181); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign `exhaustive-deps`
 warnings); `engine/case_manager.py` **byte-identical**; **ZERO new runtime deps** across
 all three rounds. Every round was additive, with non-negotiable #3 intact (Demo Mode
 uses a sandboxed policy copy; the Round-3 `BudgetGate` is a pure pre-flight that fails
@@ -437,8 +441,10 @@ for the Round 3 design + what-shipped, `docs/research/2026-06-round2/` for Round
 byte-identical, #9 untrusted fencing upheld on every new user/source-influenceable
 field):**
 - **W1 bug fixes** — RiskGauge Active-Risk-Index glitch, MFA-QR copy, duplicate close
-  X, chat framing, store-degraded UX; presentational + an optional additive
-  `/api/health.persistent`.
+  X, chat framing, store-degraded UX; presentational + a store-degraded notice derived
+  client-side from `/api/health.store_type` (in-memory-store detection — the health
+  endpoint returns `{status, version, es_connected, store_type, setup_complete}`; there
+  is no `persistent` field).
 - **W2 Login redesign + account self-service** — 2-column split login (brand hero +
   the existing 4-mode form, handlers untouched) + a self-service profile
   (`display_name`/`alias`/`avatar`/`alt_email`/`timezone`/`locale`/`prefs`) on the

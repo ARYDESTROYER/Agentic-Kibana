@@ -36,18 +36,43 @@ async def run_investigation(
     persona=None,
     playbook=None,
     memory=None,
+    cost_sink: list[float] | None = None,
 ) -> tuple[VerdictResult, float]:
     """Run triage → verdict, preferring the LangGraph state graph.
 
     The (deterministically pre-selected) ``persona`` specialises the investigator
     and the matched ``playbook`` is injected as TRUSTED procedure (and contributes
     its canned ``rag_queries``); the operator ``memory`` (durable trusted facts) is
-    injected as a distinct block — all three no-ops on the cheap benign/triage path."""
+    injected as a distinct block — all three no-ops on the cheap benign/triage path.
+
+    ``cost_sink`` — an OPTIONAL mutable accumulator (a list of per-stage costs). Each
+    realised stage cost (triage, benign/investigate) is appended AS SOON AS it
+    completes, so a caller that cancels this coroutine on a timeout can still account
+    for the spend that already hit the ledger (``sum(cost_sink)``) instead of losing
+    it. On the normal path ``sum(cost_sink) == returned flow_cost`` — the sink is a
+    side-channel mirror of the return value, never a substitute for it (#6: one ledger
+    write per call is unchanged; this only RECONCILES the case total with the ledger)."""
+
+    def _account(value: float) -> float:
+        """Record a LEAF stage cost into the optional sink and pass it through.
+
+        The sink mirrors, at leaf granularity, exactly the spend that hit the ledger,
+        so a TIMEOUT caller can reconcile ``Case.token_cost`` with the ledger instead
+        of losing the partial flow_cost. Triage (one gateway call) is accounted HERE;
+        the investigate path's per-step + formatter costs are accounted DEEPER (inside
+        ``investigator.investigate`` via the same ``cost_sink``), so they must NOT be
+        re-accounted here. The arithmetic of the returned flow_cost is unchanged."""
+        if cost_sink is not None:
+            cost_sink.append(value)
+        return value
 
     async def do_triage():
-        return await router.triage(cluster, enrichment, prefs, surface=surface, case_id=case_id)
+        triage = await router.triage(cluster, enrichment, prefs, surface=surface, case_id=case_id)
+        _account(triage.cost)  # leaf: one router gateway call already on the ledger
+        return triage
 
     async def do_benign(triage) -> tuple[VerdictResult, float]:
+        # No gateway call → zero leaf cost; nothing to account.
         return (
             VerdictResult(
                 verdict=Verdict.FALSE_POSITIVE,
@@ -78,7 +103,7 @@ async def run_investigation(
             rag_chunks = rag_chunks[: max(prefs.rag.top_k * 2, prefs.rag.top_k)]
         return await investigator.investigate(
             cluster, enrichment, rag_chunks, prefs, budget, surface=surface, case_id=case_id,
-            persona=persona, playbook=playbook, memory=memory,
+            persona=persona, playbook=playbook, memory=memory, cost_sink=cost_sink,
         )
 
     try:
@@ -89,6 +114,9 @@ async def run_investigation(
 
 
 async def _run_direct(do_triage, do_benign, do_investigate) -> tuple[VerdictResult, float]:
+    # NB: leaf costs are recorded into the optional cost_sink by do_triage (the router
+    # call) and inside investigator.investigate (per ReAct step + formatter), so the
+    # sink is NOT re-appended here — it would double-count the returned flow_cost.
     triage = await do_triage()
     cost = triage.cost
     if triage.bucket == TriageBucket.BENIGN:

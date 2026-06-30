@@ -22,11 +22,15 @@ to an empty timeline / best-effort write and is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Callable, TypeVar
 
 from ..constants import CASE_ACTIVITY_KEY, CASE_ACTIVITY_NS
 from ..models import CaseActivity
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.case_activity")
 
@@ -47,15 +51,10 @@ class CaseActivityStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, list[CaseActivity]]:
-        try:
-            doc = await self._kv.get(CASE_ACTIVITY_NS, CASE_ACTIVITY_KEY)
-        except Exception as exc:  # noqa: BLE001 — activity is best-effort
-            logger.warning("Loading case activity failed (%s); using empty set", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, list[CaseActivity]]:
         raw = doc.get("activity", {}) if isinstance(doc, dict) else {}
         out: dict[str, list[CaseActivity]] = {}
         for cid, items in (raw or {}).items():
@@ -68,15 +67,30 @@ class CaseActivityStore:
             out[str(cid)] = entries
         return out
 
-    async def _save_all(self, timelines: dict[str, list[CaseActivity]]) -> None:
+    @staticmethod
+    def _encode(timelines: dict[str, list[CaseActivity]]) -> dict:
+        return {"activity": {cid: [a.model_dump(mode="json") for a in entries]
+                             for cid, entries in timelines.items()}}
+
+    async def _load_all(self) -> dict[str, list[CaseActivity]]:
         try:
-            await self._kv.put(
-                CASE_ACTIVITY_NS, CASE_ACTIVITY_KEY,
-                {"activity": {cid: [a.model_dump(mode="json") for a in entries]
-                              for cid, entries in timelines.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting case activity failed (%s); continuing", exc)
+            doc = await self._kv.get(CASE_ACTIVITY_NS, CASE_ACTIVITY_KEY)
+        except Exception as exc:  # noqa: BLE001 — activity is best-effort
+            logger.warning("Loading case activity failed (%s); using empty set", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, list[CaseActivity]]], _T]) -> _T:
+        """Atomic read-modify-write over the shared activity doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            timelines = self._decode(current)
+            box["r"] = change(timelines)
+            return self._encode(timelines)
+
+        await kv_mutate(self._kv, CASE_ACTIVITY_NS, CASE_ACTIVITY_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def append(self, activity: CaseActivity) -> CaseActivity:
         """Append one activity entry to its case's timeline (keyed by
@@ -85,13 +99,15 @@ class CaseActivityStore:
         cid = _norm_case_id(activity.case_id)
         if not cid:
             raise ValueError("activity.case_id is required")
-        timelines = await self._load_all()
-        entries = list(timelines.get(cid, []))
-        entries.append(activity)
-        if len(entries) > _MAX_PER_CASE:
-            entries = entries[-_MAX_PER_CASE:]
-        timelines[cid] = entries
-        await self._save_all(timelines)
+
+        def _change(timelines: dict[str, list[CaseActivity]]) -> None:
+            entries = list(timelines.get(cid, []))
+            entries.append(activity)
+            if len(entries) > _MAX_PER_CASE:
+                entries = entries[-_MAX_PER_CASE:]
+            timelines[cid] = entries
+
+        await self._mutate(_change)
         return activity
 
     async def list_for_case(self, case_id: str | None, *, newest_first: bool = True,
@@ -112,9 +128,11 @@ class CaseActivityStore:
         """Drop an entire case's timeline (e.g. on case purge). Returns True if it
         existed."""
         cid = _norm_case_id(case_id)
-        timelines = await self._load_all()
-        if cid not in timelines:
-            return False
-        del timelines[cid]
-        await self._save_all(timelines)
-        return True
+
+        def _change(timelines: dict[str, list[CaseActivity]]) -> bool:
+            if cid not in timelines:
+                return False
+            del timelines[cid]
+            return True
+
+        return await self._mutate(_change)

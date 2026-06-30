@@ -3,13 +3,17 @@
  * per-provider SSO brand icons, and a segmented one-time-code input.
  *
  * These are presentational pieces composed by `pages/Login.tsx`. They deliberately
- * add NO new dependencies (framer-motion + lucide-react are already vendored) and
- * render all branding text as PLAIN text (#9): the hero never uses
- * dangerouslySetInnerHTML, the logo `alt` is empty, and the wordmark/tagline are
- * rendered as text nodes only.
+ * add NO new dependencies and render all branding text as PLAIN text (#9): the hero
+ * never uses dangerouslySetInnerHTML, the logo `alt` is empty, and the
+ * wordmark/tagline are rendered as text nodes only.
+ *
+ * The brand-hero motion (two drifting aurora blobs + the two content entrances) is
+ * implemented in PURE CSS (`@keyframes` in tailwind.config.js, classes below), NOT
+ * framer-motion. This keeps framer-motion OUT of the eager login chain so it never
+ * loads on first paint. All motion is neutralised by the global
+ * `@media (prefers-reduced-motion: reduce)` rule in styles/theme.css.
  */
 import * as React from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
 import { ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
@@ -307,34 +311,29 @@ export interface BrandHeroProps {
   footerText?: string;
 }
 
-/** One drifting aurora blob; static when reduced-motion is requested. */
+/**
+ * One drifting aurora blob (pure CSS). The drift loop runs via the `animationClass`
+ * keyframe; the global reduced-motion rule freezes it for users who ask for less
+ * motion. No JS animation library is pulled in.
+ */
 const AuroraBlob: React.FC<{
   className: string;
   color: string;
-  drift: { x: number[]; y: number[]; scale: number[] };
-  duration: number;
-  reduce: boolean;
-}> = ({ className, color, drift, duration, reduce }) => (
-  <motion.div
+  animationClass: string;
+}> = ({ className, color, animationClass }) => (
+  <div
     aria-hidden
-    className={cn('pointer-events-none absolute rounded-full blur-3xl', className)}
+    className={cn('pointer-events-none absolute rounded-full blur-3xl', animationClass, className)}
     style={{ backgroundColor: color }}
-    initial={false}
-    animate={reduce ? undefined : { x: drift.x, y: drift.y, scale: drift.scale }}
-    transition={
-      reduce
-        ? undefined
-        : { duration, repeat: Infinity, repeatType: 'mirror', ease: 'easeInOut' }
-    }
   />
 );
 
 /**
  * The brand hero panel. A deep slate base with a faint grid + a slow two-blob
  * aurora glow tinted by the primary accent + the secondary accent
- * (`--accent2`, falling back to the primary). All motion respects
- * prefers-reduced-motion. Hidden below `lg`; the form column carries a compact
- * brand header on small screens.
+ * (`--accent2`, falling back to the primary). All motion is pure CSS and respects
+ * prefers-reduced-motion (global rule in styles/theme.css). Hidden below `lg`; the
+ * form column carries a compact brand header on small screens.
  */
 export const BrandHero: React.FC<BrandHeroProps> = ({
   wordmark,
@@ -343,23 +342,18 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
   subtitle,
   footerText,
 }) => {
-  const reduce = useReducedMotion() ?? false;
   return (
     <div className="relative hidden overflow-hidden bg-[hsl(222_28%_9%)] lg:flex lg:flex-col">
-      {/* Aurora glow — two slow-drifting brand blobs. */}
+      {/* Aurora glow — two slow-drifting brand blobs (CSS-animated). */}
       <AuroraBlob
         className="-left-24 -top-24 h-[28rem] w-[28rem] opacity-50"
         color="hsl(var(--primary) / 0.55)"
-        drift={{ x: [0, 40, -10, 0], y: [0, 30, 60, 0], scale: [1, 1.12, 1.05, 1] }}
-        duration={22}
-        reduce={reduce}
+        animationClass="animate-aurora-a"
       />
       <AuroraBlob
         className="-bottom-32 right-[-6rem] h-[30rem] w-[30rem] opacity-45"
         color="hsl(var(--accent2, var(--primary)) / 0.5)"
-        drift={{ x: [0, -30, 20, 0], y: [0, -20, -50, 0], scale: [1, 1.08, 1.15, 1] }}
-        duration={28}
-        reduce={reduce}
+        animationClass="animate-aurora-b"
       />
 
       {/* Faint grid + noise texture (pure CSS; no asset). */}
@@ -386,12 +380,7 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
 
       {/* Content (z-10 over the glow). */}
       <div className="relative z-10 flex h-full flex-col justify-between p-12 text-white">
-        <motion.div
-          className="flex items-center gap-3"
-          initial={reduce ? false : { opacity: 0, y: -8 }}
-          animate={reduce ? undefined : { opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        >
+        <div className="flex animate-hero-in-down items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 shadow-lg backdrop-blur">
             {logoUrl ? (
               <img src={logoUrl} alt="" className="h-7 w-7 rounded-md object-contain" />
@@ -400,14 +389,9 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
             )}
           </span>
           <span className="text-lg font-semibold tracking-tight">{wordmark}</span>
-        </motion.div>
+        </div>
 
-        <motion.div
-          className="max-w-md"
-          initial={reduce ? false : { opacity: 0, y: 12 }}
-          animate={reduce ? undefined : { opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
-        >
+        <div className="max-w-md animate-hero-in-up">
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
             {tagline}
           </p>
@@ -428,7 +412,7 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
               </span>
             ))}
           </div>
-        </motion.div>
+        </div>
 
         <div className="text-xs text-white/40">
           {footerText ? <span>{footerText}</span> : <span>Secure sign-in</span>}

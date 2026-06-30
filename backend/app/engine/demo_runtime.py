@@ -30,6 +30,7 @@ from ..constants import SourceSurface
 from ..es.fake import InMemoryESClient
 from ..llm.gateway import LLMGateway
 from ..llm.providers import DemoMockProvider
+from ..realtime import EventBus
 from ..stores.cases import CaseStore
 from ..stores.usage import UsageStore
 from ..utils import now_utc, to_millis
@@ -81,6 +82,14 @@ class DemoStack:
         # A FRESH in-memory ES client — physically separate from the real store.
         self.es = InMemoryESClient()
         self.run_id = run_id
+        # An ISOLATED, throwaway realtime bus for the demo pipeline's ``agent.step``
+        # frames. ``history_per_topic=0`` disables the replay ring so a publish is a
+        # true no-op (nothing retained/replayed) and nothing leaks. It has NO
+        # subscribers and is garbage-collected with the stack on disable, so demo
+        # progress frames NEVER reach the live global EventBus singleton (isolation
+        # boundary, mirrors the separate stores). The pipeline is explicitly bound to
+        # this bus below so ``_emit_step``'s ``get_event_bus()`` fallback never fires.
+        self.event_bus = EventBus(history_per_topic=0)
         self.cases = _DemoCaseStore(self.es, run_id)
         self.audit = AuditLogger(self.es)
         self.usage_store = UsageStore(self.es)
@@ -119,10 +128,15 @@ class DemoStack:
         from ..tools.rag import RagService
 
         rag = RagService(self.gateway, prefs, store=None, cases=self.cases)
-        return InvestigationPipeline(
+        pipeline = InvestigationPipeline(
             self.es, secrets, self._cache, self.gateway, rag, self.cases, self.audit,
             source=source,
         )
+        # Bind the demo's ISOLATED bus so live ``agent.step`` frames never touch the
+        # global singleton (isolation boundary). Without this the pipeline's
+        # ``_emit_step`` would fall back to ``get_event_bus()`` and leak demo frames.
+        pipeline.event_bus = self.event_bus
+        return pipeline
 
     def _build_chat_engine(self):
         """A ChatEngine wired to the DEMO gateway/audit/cases + a demo log source +
@@ -163,6 +177,33 @@ class DemoStack:
     async def purge(self) -> None:
         """Hard-delete ALL demo data (cases/audit/usage/events) by dropping the demo
         ES client's in-memory docs. Idempotent; never raises."""
+        # Defense-in-depth: the demo pipeline publishes onto ``self.event_bus`` (an
+        # isolated, history-disabled throwaway bus), so the global singleton should
+        # already be clean. But if a FUTURE wiring regression ever let a demo
+        # ``cases:{id}`` frame land in the global bus replay ring, scrub it here so a
+        # demo run can never leave frames replayable past teardown. Collect the demo
+        # case ids BEFORE we drop the in-memory docs below. Best-effort; never raises.
+        try:
+            from ..realtime import get_event_bus
+
+            demo_case_ids = {
+                str(doc.get("case_id"))
+                for index in self.es.docs.values()
+                for doc in index.values()
+                if isinstance(doc, dict) and doc.get("case_id")
+            }
+            global_bus = get_event_bus()
+            history = getattr(global_bus, "_history", None)
+            if isinstance(history, dict) and demo_case_ids:
+                for topic in list(history.keys()):
+                    if topic.startswith("cases:") and topic.split("cases:", 1)[1] in demo_case_ids:
+                        history.pop(topic, None)
+        except Exception:  # noqa: BLE001 — purge is best-effort, never raises
+            pass
+        try:
+            self.event_bus.clear()
+        except Exception:  # noqa: BLE001
+            pass
         try:
             self.es.docs.clear()
             self.es.alias_to_index.clear()

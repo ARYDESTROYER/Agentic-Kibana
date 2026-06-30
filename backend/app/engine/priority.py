@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..config import Preferences, PriorityMatrix
+from ..constants import SourceType
 from ..models import Case
 from .risk import _asset_criticality
 
@@ -59,42 +60,117 @@ def _band_from_magnitude(magnitude: float) -> str:
     return _LOW
 
 
-def _normalise_severity(raw: float) -> float:
-    """Project a source-asserted severity onto a 0-100 scale.
+# Severity scales a connector can assert. Recorded as a string so it is contract-
+# stable + render-safe. ``unknown`` keeps the legacy magnitude heuristic (back-compat
+# for cases whose source scale cannot be resolved at read time).
+_SCALE_OCSF_0_100 = "ocsf_0_100"   # OCSF severity_score (already 0-100; identity-clamp)
+_SCALE_WAZUH_0_15 = "wazuh_0_15"   # Wazuh rule.level 0..15 -> level/15*100
+_SCALE_0_10 = "0_10"               # the suite's own 0-10 rating (critical_severity=7.0)
+_SCALE_UNKNOWN = "unknown"         # no resolvable scale -> legacy <=10?*10:raw heuristic
 
-    Source severities arrive in two common shapes: a 0-10 scale (the suite's own
-    ``critical_severity`` default of 7.0 is on this scale) or an already-0-100 scale
-    (OCSF ``severity_score`` via :data:`app.constants.OCSF_SEVERITY_TO_SCORE`). We
-    DETECT the scale conservatively: a value ``<= 10`` is treated as a 0-10 rating and
-    multiplied by 10; anything larger is assumed already 0-100. Clamped to 0..100."""
+
+def _scale_for_case(case: Case, prefs: Preferences | None) -> str:
+    """Resolve the SEVERITY SCALE the case's source asserts ``severity_max`` on.
+
+    The scale is unambiguous only with provenance: a bare magnitude can't tell a
+    Wazuh ``rule.level`` of 12 (CRITICAL on a 0-15 ladder) from an OCSF score of 12
+    (low on a 0-100 ladder). We look the case's ``source_id`` up against the operator's
+    configured ``Preferences.sources`` to read the connector's declared scale:
+
+    * Wazuh (``source_type == WAZUH``) asserts ``rule.level`` on a **0-15** ladder.
+    * PUSH connectors (HTTP/syslog/socket/queue/object-store/stream receivers) normalise
+      every record to OCSF, so ``severity_max`` is the OCSF ``severity_score`` — **0-100**.
+    * The seeded **demo** source emits a **0-100** severity (diurnal pyramid).
+
+    When ``prefs`` is None, or the case has no ``source_id``, or the source isn't
+    configured, we return ``unknown`` so the legacy magnitude heuristic applies —
+    keeping every pre-existing case + the no-prefs callers byte-identical."""
+    if prefs is None:
+        return _SCALE_UNKNOWN
+    source_id = getattr(case, "source_id", None)
+    if not source_id:
+        return _SCALE_UNKNOWN
+    # The seeded demo source emits a 0-100 severity regardless of its connector type.
+    if source_id == "demo":
+        return _SCALE_OCSF_0_100
+    inst = None
+    for s in (getattr(prefs, "sources", None) or []):
+        if getattr(s, "id", None) == source_id:
+            inst = s
+            break
+    if inst is None:
+        return _SCALE_UNKNOWN
+    stype = getattr(inst, "source_type", None)
+    if stype == SourceType.WAZUH:
+        return _SCALE_WAZUH_0_15
+    # PUSH-mode sources flow through the OCSF normaliser (receivers/*) → 0-100.
+    ingest = getattr(inst, "ingest_mode", None)
+    mode_val = getattr(ingest, "value", ingest)
+    if isinstance(mode_val, str) and mode_val != "pull":
+        return _SCALE_OCSF_0_100
+    # PULL Elastic/OpenSearch/generic: the suite default rating is 0-10.
+    return _SCALE_0_10
+
+
+def _normalise_severity(raw: float, scale: str = _SCALE_UNKNOWN) -> float:
+    """Project a source-asserted severity onto a 0-100 scale, scale-aware.
+
+    The ``scale`` (resolved from the case's source provenance by :func:`_scale_for_case`)
+    removes the old magnitude guess that mislabelled overlapping ranges — an OCSF
+    ``Informational`` score of 10 was scaled to 100 (HIGH) and a Wazuh ``rule.level`` of
+    12 (CRITICAL) was left at 12 (LOW). Each known scale projects deterministically:
+
+    * ``ocsf_0_100`` — already 0-100, identity-clamp (10 stays 10 → LOW/INFO).
+    * ``wazuh_0_15`` — ``level/15*100`` (12 → 80 → HIGH).
+    * ``0_10`` — ``raw*10`` (the suite's own 0-10 rating).
+    * ``unknown`` — the legacy heuristic (``raw<=10 ? raw*10 : raw``) for cases whose
+      scale can't be resolved (no prefs / unconfigured source) — back-compat only.
+
+    Clamped to 0..100. Never raises."""
     if raw <= 0:
         return 0.0
-    mag = raw * 10.0 if raw <= 10.0 else raw
+    if scale == _SCALE_OCSF_0_100:
+        mag = raw
+    elif scale == _SCALE_WAZUH_0_15:
+        mag = raw / 15.0 * 100.0
+    elif scale == _SCALE_0_10:
+        mag = raw * 10.0
+    else:  # _SCALE_UNKNOWN — legacy conservative heuristic.
+        mag = raw * 10.0 if raw <= 10.0 else raw
     return max(0.0, min(100.0, mag))
 
 
-def severity_band_from_events(case: Case) -> dict[str, Any]:
+def severity_band_from_events(case: Case, prefs: Preferences | None = None) -> dict[str, Any]:
     """SOURCE-asserted severity band for a case (NOT risk).
 
     Reads the maximum member-event severity the SOURCE asserted (recorded on
-    ``trigger_reason.severity_max`` by correlation). When no source severity was ever
-    asserted (``severity_max`` is None) we DERIVE a band from the risk breakdown's
-    diversity/volume floor as a last resort, and flag ``source`` accordingly so the UI
-    can badge "(derived)" honestly.
+    ``trigger_reason.severity_max`` by correlation) and projects it onto 0-100 using the
+    source's DECLARED severity scale (resolved from the case's ``source_id`` against
+    ``prefs.sources`` — see :func:`_scale_for_case`). This makes the chip correct across
+    overlapping native ladders: an OCSF ``Informational`` (score 10) reads LOW, and a
+    Wazuh ``rule.level`` of 12 (CRITICAL) reads HIGH, instead of the old magnitude guess
+    that inverted both. When ``prefs`` is None the legacy heuristic applies (back-compat).
 
-    Returns ``{band, value (0-100), raw, source}`` where ``source`` is
-    ``"source_asserted"`` or ``"derived"``."""
+    When no source severity was ever asserted (``severity_max`` is None) we DERIVE a band
+    from the deterministic risk total as a last resort, and flag ``source`` accordingly so
+    the UI can badge "(derived)" honestly.
+
+    Returns ``{band, value (0-100), raw, source, scale}`` where ``source`` is
+    ``"source_asserted"`` or ``"derived"`` and ``scale`` is the resolved native scale id
+    (``"unknown"`` when no source provenance was available)."""
     tr = case.trigger_reason
     raw = None
     if tr is not None and tr.severity_max is not None:
         raw = float(tr.severity_max)
     if raw is not None:
-        mag = _normalise_severity(raw)
+        scale = _scale_for_case(case, prefs)
+        mag = _normalise_severity(raw, scale)
         return {
             "band": _band_from_magnitude(mag),
             "value": round(mag, 2),
             "raw": raw,
             "source": "source_asserted",
+            "scale": scale,
         }
     # No source severity — fall back to the deterministic risk total (clearly flagged
     # as DERIVED, never claimed to be source-asserted).
@@ -104,6 +180,7 @@ def severity_band_from_events(case: Case) -> dict[str, Any]:
         "value": round(mag, 2),
         "raw": None,
         "source": "derived",
+        "scale": _SCALE_UNKNOWN,
     }
 
 
@@ -171,7 +248,7 @@ def derive_triage(case: Case, prefs: Preferences) -> dict[str, Any]:
     ``impact`` (asset criticality), and ``priority`` (the ITIL derivation), each with
     the inputs a UI HelpTip can show. Pure + defensive: a missing field degrades to a
     zero/low band, never raises. NONE of this is read by ``decide()`` (#3)."""
-    severity = severity_band_from_events(case)
+    severity = severity_band_from_events(case, prefs)
     impact = impact_band(case, prefs)
     urgency = urgency_band(case, prefs)
     priority = derive_priority(impact["band"], urgency["band"], prefs.priority_matrix)

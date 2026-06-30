@@ -501,6 +501,21 @@ async def assign_user_roles(
     if not patch:
         raise HTTPException(status_code=400, detail="no changes provided")
 
+    # SUPER-ADMIN ORPHAN GUARD — the last active super_admin can never be demoted out
+    # of the super_admin role through this surface (mirrors the sibling guard on
+    # ``PUT/DELETE /api/users/{u}`` in routes.py). This is ORTHOGONAL to the generic
+    # users:manage last-holder guard below and protects a DIFFERENT invariant: even a
+    # second users:manage holder (e.g. a soc_manager) must not be able to silently
+    # strip the platform's last super_admin of its wildcard authority. (#3-irrelevant:
+    # RBAC only gates WHO may call privileged endpoints; it never touches decide().)
+    from .routes import _would_orphan_super_admin
+
+    demoting_sa = body.role is not None and new_role != UserRole.SUPER_ADMIN.value
+    if await _would_orphan_super_admin(state, target, demoting=demoting_sa, disabling=False):
+        raise HTTPException(
+            status_code=409, detail="cannot demote the last active super_admin"
+        )
+
     # LOCKOUT GUARD — would this change drop the last effective users:manage holder?
     would_grants = _grants_for_roles(matrix, new_role, new_custom)
     still_manages = (

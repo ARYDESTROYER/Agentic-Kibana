@@ -112,18 +112,24 @@ export function useNavPrefs(): NavPrefsValue {
   );
   // Reconcile from the server exactly once, after the cascade hydrates. The local
   // mirror is authoritative for the FIRST paint; the server value (if present) wins
-  // once known, so the choice follows the user across devices.
+  // once known, so the choice follows the user across devices — EXCEPT a key the user
+  // deliberately toggled before hydration finished. Such an in-window toggle was ALSO
+  // PUT to the server, so it is the value a later device load reconciles to anyway;
+  // honouring it here just avoids snapping the local UI back to a stale snapshot.
   const reconciled = React.useRef(false);
+  const touched = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {
     if (!ready || reconciled.current) return;
     reconciled.current = true;
     const misc = (prefs.misc ?? {}) as Record<string, unknown>;
-    if (typeof misc[MISC_COLLAPSED] === 'boolean') {
+    if (!touched.current.has(MISC_COLLAPSED) && typeof misc[MISC_COLLAPSED] === 'boolean') {
       setCollapsedState(misc[MISC_COLLAPSED] as boolean);
     }
-    const groups = misc[MISC_OPEN_GROUPS];
-    if (Array.isArray(groups)) {
-      setOpenGroups(new Set(groups.filter((g): g is string => typeof g === 'string')));
+    if (!touched.current.has(MISC_OPEN_GROUPS)) {
+      const groups = misc[MISC_OPEN_GROUPS];
+      if (Array.isArray(groups)) {
+        setOpenGroups(new Set(groups.filter((g): g is string => typeof g === 'string')));
+      }
     }
   }, [ready, prefs.misc]);
 
@@ -135,6 +141,7 @@ export function useNavPrefs(): NavPrefsValue {
 
   const setCollapsed = React.useCallback(
     (v: boolean) => {
+      touched.current.add(MISC_COLLAPSED);
       setCollapsedState(v);
       writeMirror(LS_COLLAPSED, v ? '1' : '0');
       persistMisc({ [MISC_COLLAPSED]: v });
@@ -143,6 +150,7 @@ export function useNavPrefs(): NavPrefsValue {
   );
 
   const toggleCollapsed = React.useCallback(() => {
+    touched.current.add(MISC_COLLAPSED);
     setCollapsedState((prev) => {
       const next = !prev;
       writeMirror(LS_COLLAPSED, next ? '1' : '0');
@@ -153,6 +161,7 @@ export function useNavPrefs(): NavPrefsValue {
 
   const commitGroups = React.useCallback(
     (next: Set<string>) => {
+      touched.current.add(MISC_OPEN_GROUPS);
       const list = Array.from(next);
       writeMirror(LS_OPEN_GROUPS, JSON.stringify(list));
       persistMisc({ [MISC_OPEN_GROUPS]: list });
@@ -268,6 +277,11 @@ const ExpandedItem: React.FC<{
   const childActive = children.some((c) => c.id === page);
   const selfActive = page === item.id;
   const trailActive = selfActive || childActive;
+  // A host whose OWN id is ALSO one of its children (chat/metrics/inbox) renders the
+  // shared-id child link as the single canonical `aria-current="page"` marker, so the
+  // parent button must NOT also claim it (a nav landmark must have exactly one current
+  // page). The open child <ul> always carries the marker, so active state is never lost.
+  const idIsAlsoChild = children.some((c) => c.id === item.id);
   const panelId = `nav-group-${item.id}`;
 
   if (!hasChildren) {
@@ -306,7 +320,7 @@ const ExpandedItem: React.FC<{
         <button
           type="button"
           onClick={() => onNavigate(item.id)}
-          aria-current={selfActive ? 'page' : undefined}
+          aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
             'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -374,13 +388,17 @@ const CollapsedItem: React.FC<{
   const childActive = children.some((c) => c.id === page);
   const selfActive = page === item.id;
   const trailActive = selfActive || childActive;
+  // Same shared-id host case as the expanded rail: the fly-out child carries the
+  // canonical aria-current, so the rail button must not double it (the active trail is
+  // still shown visually via the selfActive/trailActive className branch).
+  const idIsAlsoChild = children.some((c) => c.id === item.id);
 
   const railButton = (
     <button
       type="button"
       onClick={() => onNavigate(item.id)}
       aria-label={item.label}
-      aria-current={selfActive ? 'page' : undefined}
+      aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
       className={cn(
         'relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
@@ -501,12 +519,15 @@ export function NavSidebar({
     [hasPermission],
   );
 
-  // Navigating into a child auto-opens its owning group (so the expanded rail keeps
-  // the trail visible). Parent navigation just routes.
+  // Navigating ALSO opens the owning disclosure group — both when navigating into a
+  // child (keep the trail visible) AND when tapping a parent host label itself (the
+  // documented contract: "the parent label navigates to the host page AND opens the
+  // group"). onOpenGroup is idempotent and only ever ADDS to the open set, so it never
+  // collapses an already-open group — the chevron stays the sole explicit collapse.
   const navigate = React.useCallback(
     (id: PageId) => {
       const parent = navParentOf(id);
-      if (parent && parent.id !== id) onOpenGroup(parent.id);
+      if (parent && (parent.children?.length ?? 0) > 0) onOpenGroup(parent.id);
       onNavigate(id);
     },
     [onNavigate, onOpenGroup],

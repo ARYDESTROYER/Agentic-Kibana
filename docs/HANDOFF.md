@@ -7,8 +7,9 @@
 
 - **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-06-30
 - **Status:** Round 1 + Round 2 + **Round 3** overhauls **complete and committed** (local `Testing`, **not pushed**).
-- **Green baseline (verified):** backend **1109 pytest** pass · webui **build clean** (tsc + vite) ·
-  **175 vitest** pass · **eslint 0 `react-hooks/rules-of-hooks` errors** (2 benign
+- **Green baseline (verified):** backend **1142+ pytest** pass · webui **build clean** (tsc + vite) ·
+  **181+ vitest** pass (counts rise each harden wave — see `Journal.md` for the exact current
+  totals) · **eslint 0 `react-hooks/rules-of-hooks` errors** (2 benign
   `exhaustive-deps` warnings) · `engine/case_manager.py` **byte-identical** to its pre-overhaul
   decision logic · **zero new runtime dependencies** added across all three rounds. The 12
   non-negotiables held throughout (incl. #6 — one LLM-gateway ledger write per call).
@@ -39,7 +40,7 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1109 passed
+python -m pytest -q                         # -> 1142 passed (rises as harden-wave tests land; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
@@ -47,7 +48,7 @@ python -m pytest -q                         # -> 1109 passed
 cd webui
 npm install
 npm run build      # tsc --noEmit && vite build  -> clean
-npx vitest run     # -> 175 passed
+npx vitest run     # -> 181 passed (see Journal.md for the current count)
 npm run lint       # eslint; must be 0 react-hooks/rules-of-hooks ERRORS (2 exhaustive-deps warnings OK)
 ```
 
@@ -88,8 +89,9 @@ backend/app/
   notifications/   channel SPI · email (SMTP+SES) · resend · webhook/slack/teams · templates · dispatch ·
                    InAppChannel (Round 3 — fan-out to InboxStore, no network)
   enrichment/      Round 3 — EnrichmentProvider SPI: base/registry/dispatch/aggregate +
-                   providers/ (17: abuseipdb/virustotal/greynoise/shodan(+internetdb)/censys/
-                   binaryedge/ipinfo/otx/pulsedive/spur/xforce/urlscan/hibp/projecthoneypot/abusech/rdap)
+                   providers/ (19 registered classes, +17 new in Round 3: abuseipdb/virustotal/
+                   greynoise/shodan(+internetdb)/censys/binaryedge/ipinfo/otx/pulsedive/spur/
+                   xforce/urlscan/hibp/projecthoneypot/abusech[urlhaus+threatfox+malwarebazaar=3]/rdap)
   realtime.py      Round 3 — multiplexed SSE EventBus (GET /api/events, default OFF, polling fallback)
   connectors/      SPI + registry · elastic/opensearch/wazuh · demo.py · receivers/
   engine/          correlation · risk · case_manager (decide()/apply() — #3) · case_id · poller ·
@@ -177,7 +179,7 @@ non-negotiables held). Design: `docs/research/2026-06-round3/PROPOSAL.md`; what-
 |---|---|---|
 | `bffe4b8` | W0 | Hot-file foundations: additive `Case` advisory axes + SLA datetimes, 11 model classes + 4 enums + 8 KV namespaces + 4 Preferences blocks + 13 optional `Secrets` provider slots; webui route code-split (`React.lazy` + manual chunks) |
 | `59c2999` | W1 | Shared substrate: 8 KV stores · `EnrichmentProvider` SPI (`enrichment/`) · SSE `EventBus` (`realtime.py`, `GET /api/events` default-OFF) · RBAC resource split + custom-role/inheritance/DENY `effective_matrix()` |
-| `2295363` | W2 | Backend features: posture metrics + MITRE coverage · shift report · 17 enrichment providers + multi-indicator · models registry + `BudgetGate` · in-app channel · case collaboration · triage/priority · custom-role CRUD (8 `routes_*.py`) |
+| `2295363` | W2 | Backend features: posture metrics + MITRE coverage · shift report · +17 new enrichment providers (19 registered) + multi-indicator · models registry + `BudgetGate` · in-app channel · case collaboration · triage/priority · custom-role CRUD (8 `routes_*.py`) |
 | `8b25ca2` | W2.5 | Gap-closure: cloud LLM providers first-class (Azure/Bedrock-SigV4/Vertex/OpenAI-compatible) · server-side custom-role enforcement · `conftest` network guard (offline enrichment tests) |
 | `3610147` | W3 | Webui surfaces: hamburger `NavSidebar` + `NotificationBell` · Settings card-grid + `BrandingEditor` · Roles matrix editor · standalone **Models** page · Metrics tabs + MITRE heatmap · Standup attention queue · CaseDetail 4 chips + `TraceTimeline` + collaboration · Inbox · `EnrichmentProvidersEditor` |
 | (this wave) | W4 + sec | Live SSE wiring + branding contrast + WCAG 2.2 polish; the **RAG-fencing TRUSTED-allowlist security fix** (operator-imported docs no longer reach the model unfenced — OWASP LLM01); docs sync |
@@ -229,7 +231,7 @@ case linking/merge, an integrations marketplace.
 1. `CLAUDE.md` is auto-loaded — it has the non-negotiables, the module map, and the status. Trust it,
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
 2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
-3. **Before committing anything:** `pytest -q` (1109) green, `npm run build` clean, `npx vitest run` (175)
+3. **Before committing anything:** `pytest -q` (1142+) green, `npm run build` clean, `npx vitest run` (181+)
    green, `npm run lint` 0 rules-of-hooks errors, and `git diff backend/app/engine/case_manager.py`
    **empty** (decision logic unchanged). Commit focused changes; **don't push** unless asked.
 4. This repo was built with review-gated, self-verifying waves (research → implement → pytest/build/

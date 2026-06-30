@@ -13,7 +13,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { CaseThread } from '../CaseThread';
+import { CaseThread, visibleMessageCount } from '../CaseThread';
 import type { CaseMessage } from '@/soc/pages/CaseDetail.api';
 
 function msg(over: Partial<CaseMessage>): CaseMessage {
@@ -139,6 +139,41 @@ describe('CaseThread (#4 collaboration / #9 escaping)', () => {
       />,
     );
     expect(screen.getByText(/was deleted/i)).toBeInTheDocument();
+  });
+
+  it('badge count (visibleMessageCount) matches the messages the thread actually renders', () => {
+    // Two live roots + one tombstoned root WITH NO replies (which the list drops).
+    const messages: CaseMessage[] = [
+      msg({ id: 'live-1', body: 'first finding' }),
+      msg({ id: 'live-2', body: 'second finding' }),
+      msg({ id: 'ghost', body: '', deleted: true, deleted_at: '2026-06-30T11:00:00Z' }),
+    ];
+    // The badge consumes this count — it must be 2 (NOT 3 = raw messages.length).
+    expect(visibleMessageCount(messages)).toBe(2);
+
+    render(
+      <CaseThread messages={messages} users={[]} currentUser={null} canComment={false} {...NOOP} />,
+    );
+    // Both live bodies render; the parentless tombstone shows NO 'deleted' placeholder.
+    expect(screen.getByText('first finding')).toBeInTheDocument();
+    expect(screen.getByText('second finding')).toBeInTheDocument();
+    expect(screen.queryByText(/was deleted/i)).toBeNull();
+  });
+
+  it('counts a tombstoned root that still anchors a reply (the fix does not over-correct)', () => {
+    // A deleted root WITH a reply must still render (placeholder + reply) and count.
+    const messages: CaseMessage[] = [
+      msg({ id: 'root', body: '', deleted: true, deleted_at: '2026-06-30T11:00:00Z' }),
+      msg({ id: 'reply', parent_id: 'root', body: 'a reply that must stay anchored' }),
+    ];
+    // Placeholder root + its reply → 2 rendered, 2 counted.
+    expect(visibleMessageCount(messages)).toBe(2);
+
+    render(
+      <CaseThread messages={messages} users={[]} currentUser={null} canComment={false} {...NOOP} />,
+    );
+    expect(screen.getByText(/was deleted/i)).toBeInTheDocument();
+    expect(screen.getByText('a reply that must stay anchored')).toBeInTheDocument();
   });
 
   it('mounts the composer only when the caller can comment', () => {

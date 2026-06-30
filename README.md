@@ -299,22 +299,25 @@ values.
 `ANTHROPIC`/`OPENAI`, the gateway now supports **Azure OpenAI**, **AWS Bedrock**
 (stdlib SigV4, no `boto3`), **Google Vertex**, and any **OpenAI-compatible** `base_url`
 (vLLM/Ollama/OpenRouter/Together/Groq — no new key). Enrichment was generalized into an
-`EnrichmentProvider` SPI with **17 providers** (keyless Shodan InternetDB / IPinfo Lite
-/ abuse.ch trio / RDAP-DoH default-on; GreyNoise / Shodan / Censys / BinaryEdge / OTX /
-Pulsedive / Spur / X-Force / URLscan / HIBP / Project Honeypot keyed + default-off),
+`EnrichmentProvider` SPI with **19 registered providers** (**+17 new** in Round 3 on top
+of the existing AbuseIPDB + VirusTotal; the abuse.ch entry spans the urlhaus / threatfox /
+malwarebazaar classes): keyless Shodan InternetDB / abuse.ch trio / RDAP-DoH default-on;
+AbuseIPDB / VirusTotal / GreyNoise / Shodan / Censys / BinaryEdge / IPinfo / OTX /
+Pulsedive / Spur / X-Force / URLscan / HIBP / Project Honeypot keyed + default-off —
 multi-indicator across IP/domain/hash/url/email. All keys are env-only `TLSOC_*` entries
 (see [`.env.example`](.env.example) and `docs/ENVIRONMENT.md` §2.6–2.7); enrichment is
 advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline this cycle: **1109 backend tests green** (fake/in-memory backends
+Verified offline this cycle: **1142+ backend tests green** (fake/in-memory backends
 + mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
 tests offline); the standalone **web UI builds clean** (`tsc` + Vite) with a dev-only
-Vitest harness (175 tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
+Vitest harness (181+ tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
+(Test counts rise each harden wave — see `Journal.md` for the exact current totals.)
 **Round 3** (12 requests across Waves 0–4: expandable nav, richer Settings real-estate,
 deeper branding/material, per-case human+AI collaboration, a posture dashboard +
-MITRE-coverage, fine-grained custom-role RBAC, +17 enrichment providers, in-app
+MITRE-coverage, fine-grained custom-role RBAC, +17 new enrichment providers (19 total), in-app
 notifications, a standardized Models page, distinctive UI, a forward-looking Standup,
 and clearer cases + agent-work visualization) — like Round 2 (login redesign + account
 self-service, sessions + token policy, the Settings-centric IA, Demo Mode, per-feed

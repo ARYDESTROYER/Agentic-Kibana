@@ -373,10 +373,14 @@ def sla_metrics(cases: list[Case], sla_policy: Any, *, now: datetime | None = No
         target = targets.get(prio)
         if target is None:
             continue  # no target for this (or no) priority → not SLA-scored
-        evaluated += 1
         start = _created_dt(c)
         if start is None:
+            # Unparseable created_at → no clock to measure. Exclude from the
+            # attainment denominator (matching the guard-before-count idiom used
+            # everywhere else in this file) so a corrupted doc can neither inflate
+            # ``evaluated`` nor be silently scored as SLA-met.
             continue
+        evaluated += 1
 
         # Response clock: created → first response (status_history / anchor), else now.
         resp_at = _as_dt(c.first_response_at) or _first_transition_at(c, _RESPONSE_STATUSES)
@@ -439,7 +443,14 @@ def _breach_row(case: Case, clock: str, elapsed: float, target: float, state: st
 
 
 def _window_filter(cases: list[Case], *, window_hours: int, now: datetime | None = None) -> list[Case]:
-    """Cases created within the last ``window_hours`` (0/negative → no filter)."""
+    """Cases created within the last ``window_hours`` (0/negative → no filter).
+
+    A case with an UNPARSEABLE created_at has no usable timestamp, so it cannot
+    honestly be attributed to any time bucket: it is excluded from EVERY bounded
+    window (current AND prev). This keeps the current/prev filters symmetric — the
+    prev-window comprehension in ``posture_metrics`` already drops null-date cases,
+    so counting them here would create a one-sided period-over-period delta. The
+    ``window_hours <= 0`` escape still returns everything (the no-window path)."""
     if window_hours <= 0:
         return list(cases)
     now = now or datetime.now(timezone.utc)
@@ -447,7 +458,7 @@ def _window_filter(cases: list[Case], *, window_hours: int, now: datetime | None
     out: list[Case] = []
     for c in cases:
         start = _created_dt(c)
-        if start is None or start.timestamp() >= cutoff:
+        if start is not None and start.timestamp() >= cutoff:
             out.append(c)
     return out
 
@@ -466,6 +477,23 @@ def _compare_block(curr: Any, prev: Any) -> dict[str, Any]:
     return {"value": curr, "prev": prev, "delta_pct": _delta_pct(curr, prev)}
 
 
+def truncation_marker(
+    fetched_count: int, store_total: int | None = None
+) -> dict[str, Any]:
+    """A small, honest provenance block the rollups attach so a consumer can tell a
+    PARTIAL result (the store had more rows than we fetched) from a complete one.
+
+    ``fetched_count`` is how many cases were pulled FROM THE STORE (i.e. before any
+    in-window filtering), and ``store_total`` is the store's reported total (from
+    ``CaseStore.list``). ``truncated`` is True only when the store held MORE rows than
+    we fetched — it is NOT set by an in-window filter dropping cases (that is expected
+    narrowing, not a missing tail). When the caller omits ``store_total`` we
+    conservatively assume the fetched set is the whole population (``truncated: false``)."""
+    fetched = int(fetched_count)
+    total = int(store_total) if store_total is not None else fetched
+    return {"truncated": total > fetched, "store_total": total, "fetched": fetched}
+
+
 def posture_metrics(
     cases: list[Case],
     *,
@@ -473,13 +501,17 @@ def posture_metrics(
     window_hours: int = 24,
     compare: str = "",
     now: datetime | None = None,
+    store_total: int | None = None,
 ) -> dict[str, Any]:
     """The rich security-posture rollup: lifecycle + quality + aging + SLA + a few
     period-over-period headline comparisons. Pure + deterministic; advisory only (#3).
 
-    ``cases`` is the FULL (already store-bounded) set; this function time-bounds it to
-    ``window_hours`` internally. When ``compare == 'prev'`` it also computes the
-    immediately-preceding equal-length window for delta% on the headline numbers."""
+    ``cases`` is the FULL fetched set (up to the route's store fetch bound); this
+    function time-bounds it to ``window_hours`` internally. When ``compare == 'prev'``
+    it also computes the immediately-preceding equal-length window for delta% on the
+    headline numbers. ``store_total`` is the store's reported total (when the fetch was
+    capped) so the response can flag a truncated/partial rollup honestly rather than
+    silently returning a wrong number computed over only the newest N cases."""
     now = now or datetime.now(timezone.utc)
     window_hours = max(0, int(window_hours))
 
@@ -497,6 +529,9 @@ def posture_metrics(
         "quality": quality,
         "aging": age,
         "sla": sla,
+        # ``cases`` is the full fetched set here (window filtering is internal), so its
+        # length IS the fetched count for the truncation comparison.
+        **truncation_marker(len(cases), store_total),
     }
 
     if compare == "prev" and window_hours > 0:

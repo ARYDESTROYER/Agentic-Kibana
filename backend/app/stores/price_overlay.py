@@ -26,10 +26,14 @@ an empty overlay (the built-in table stands) / best-effort write and is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Callable, TypeVar
 
 from ..constants import PRICE_OVERLAY_KEY, PRICE_OVERLAY_NS
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.price_overlay")
 
@@ -57,15 +61,10 @@ class PriceOverlayStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, dict[str, dict[str, float]]]:
-        try:
-            doc = await self._kv.get(PRICE_OVERLAY_NS, PRICE_OVERLAY_KEY)
-        except Exception as exc:  # noqa: BLE001 — overlay is best-effort to LOAD
-            logger.warning("Loading price overlay failed (%s); using empty overlay", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, dict[str, dict[str, float]]]:
         raw = doc.get("overlay", {}) if isinstance(doc, dict) else {}
         out: dict[str, dict[str, dict[str, float]]] = {}
         for scope, models in (raw or {}).items():
@@ -83,11 +82,25 @@ class PriceOverlayStore:
             out[str(scope)] = bucket
         return out
 
-    async def _save_all(self, overlay: dict[str, dict[str, dict[str, float]]]) -> None:
+    async def _load_all(self) -> dict[str, dict[str, dict[str, float]]]:
         try:
-            await self._kv.put(PRICE_OVERLAY_NS, PRICE_OVERLAY_KEY, {"overlay": overlay})
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting price overlay failed (%s); continuing", exc)
+            doc = await self._kv.get(PRICE_OVERLAY_NS, PRICE_OVERLAY_KEY)
+        except Exception as exc:  # noqa: BLE001 — overlay is best-effort to LOAD
+            logger.warning("Loading price overlay failed (%s); using empty overlay", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, dict[str, dict[str, float]]]], _T]) -> _T:
+        """Atomic read-modify-write over the shared overlay doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            overlay = self._decode(current)
+            box["r"] = change(overlay)
+            return {"overlay": overlay}
+
+        await kv_mutate(self._kv, PRICE_OVERLAY_NS, PRICE_OVERLAY_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def get(self, scope: str = _DEFAULT_SCOPE) -> dict[str, dict[str, float]]:
         """The whole per-model override map for the (org) scope — ``{model:
@@ -117,12 +130,14 @@ class PriceOverlayStore:
         if not m:
             raise ValueError("model is required")
         row = {"input": _coerce_rate(input_per_million), "output": _coerce_rate(output_per_million)}
-        overlay = await self._load_all()
-        bucket = dict(overlay.get(scope, {}))
-        bucket[m] = row
-        overlay[scope] = bucket
-        await self._save_all(overlay)
-        return row
+
+        def _change(overlay: dict[str, dict[str, dict[str, float]]]) -> dict[str, float]:
+            bucket = dict(overlay.get(scope, {}))
+            bucket[m] = row
+            overlay[scope] = bucket
+            return row
+
+        return await self._mutate(_change)
 
     async def put(self, overrides: dict[str, dict[str, float]],
                   scope: str = _DEFAULT_SCOPE) -> dict[str, dict[str, float]]:
@@ -141,20 +156,23 @@ class PriceOverlayStore:
                 }
             except ValueError:
                 continue  # skip an invalid override, keep the rest
-        overlay = await self._load_all()
-        overlay[scope] = bucket
-        await self._save_all(overlay)
-        return bucket
+
+        def _change(overlay: dict[str, dict[str, dict[str, float]]]) -> dict[str, dict[str, float]]:
+            overlay[scope] = bucket
+            return bucket
+
+        return await self._mutate(_change)
 
     async def delete(self, model: str, scope: str = _DEFAULT_SCOPE) -> bool:
         """Drop one model's override (→ the built-in rate applies again). Returns True
         if it existed."""
         m = (model or "").strip()
-        overlay = await self._load_all()
-        bucket = overlay.get(scope, {})
-        if m not in bucket:
-            return False
-        new_bucket = {k: v for k, v in bucket.items() if k != m}
-        overlay[scope] = new_bucket
-        await self._save_all(overlay)
-        return True
+
+        def _change(overlay: dict[str, dict[str, dict[str, float]]]) -> bool:
+            bucket = overlay.get(scope, {})
+            if m not in bucket:
+                return False
+            overlay[scope] = {k: v for k, v in bucket.items() if k != m}
+            return True
+
+        return await self._mutate(_change)

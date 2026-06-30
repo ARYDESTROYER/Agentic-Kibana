@@ -81,6 +81,24 @@ export default {
         'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'bar-indeterminate': { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'translateX(350%)' } },
         pulse: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.55' } },
+        /* Login brand-hero entrances (CSS replacements for the former framer-motion
+           pieces, so the login screen no longer pulls framer-motion onto first paint). */
+        'hero-in-down': { from: { opacity: '0', transform: 'translateY(-8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        'hero-in-up': { from: { opacity: '0', transform: 'translateY(12px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        /* The two slow-drifting aurora blobs. `alternate` + `infinite` mirrors the
+           old framer-motion `repeat: Infinity, repeatType: 'mirror'` loop. */
+        'aurora-a': {
+          '0%': { transform: 'translate(0,0) scale(1)' },
+          '33%': { transform: 'translate(40px,30px) scale(1.12)' },
+          '66%': { transform: 'translate(-10px,60px) scale(1.05)' },
+          '100%': { transform: 'translate(0,0) scale(1)' },
+        },
+        'aurora-b': {
+          '0%': { transform: 'translate(0,0) scale(1)' },
+          '33%': { transform: 'translate(-30px,-20px) scale(1.08)' },
+          '66%': { transform: 'translate(20px,-50px) scale(1.15)' },
+          '100%': { transform: 'translate(0,0) scale(1)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
@@ -89,6 +107,10 @@ export default {
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'bar-indeterminate': 'bar-indeterminate 1.1s ease-in-out infinite',
+        'hero-in-down': 'hero-in-down 0.5s cubic-bezier(0.16,1,0.3,1) both',
+        'hero-in-up': 'hero-in-up 0.55s cubic-bezier(0.16,1,0.3,1) 0.08s both',
+        'aurora-a': 'aurora-a 22s ease-in-out infinite alternate',
+        'aurora-b': 'aurora-b 28s ease-in-out infinite alternate',
       },
     },
   },

@@ -41,6 +41,14 @@ export default defineConfig({
          */
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return undefined;
+          // clsx / tailwind-merge back the entry's cn() helper AND are a transitive
+          // dependency of recharts. They MUST get their own tiny, stable chunk
+          // BEFORE the recharts branch — otherwise Rollup co-locates clsx into the
+          // recharts chunk, and the eager cn() then statically imports recharts,
+          // dragging all 422 KB onto first paint. Splitting them out keeps recharts
+          // reachable ONLY through the React.lazy chart pages.
+          if (/[\\/]node_modules[\\/](clsx|tailwind-merge)[\\/]/.test(id))
+            return 'utils';
           // recharts pulls in d3-* — keep it isolated so chart-heavy pages pay
           // for it only when they load.
           if (/[\\/]node_modules[\\/](recharts|d3-|victory-vendor|internmap|decimal\.js-light)/.test(id))

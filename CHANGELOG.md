@@ -7,6 +7,106 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-06-30 — Round 3: shared KV substrate, EnrichmentProvider SPI, custom-role/deny RBAC, SSE EventBus, posture/MITRE-coverage metrics, shift report, in-app notifications, Models page + BudgetGate, case collaboration, triage chips + trace
+
+A third multi-wave round delivering **12 user requests** ("useful, distinctive, fine-grained")
+across Waves 0–4 plus one ship-regardless security fix. Every wave was **additive** with
+**zero new runtime dependencies** (the SSE bus, the SigV4 Bedrock ladder, the enrichment
+SPI, the budget gate, and all the new KV stores are Python standard library; the webui
+composes the already-vendored radix/shadcn/framer/recharts/cmdk). New stores are KV-doc
+(no new index/table/migration); new model fields default so old persisted docs load
+unchanged. The non-negotiables hold throughout — in particular **`case_manager.decide()` /
+`apply()` is byte-identical** (guard test): the new `BudgetGate` is a pure **pre-flight**
+that fails safe to NEEDS_HUMAN and is **never** an auto-close path; **#6** (one LLM-gateway
+ledger write per real call — the budget gate raises *before* the call and *before* any
+write); **#7** (Standup stays aggregate-then-summarise); and **#9** (every new
+log/source/operator/AI-influenceable value is fenced before a prompt and escaped in the
+UI). The backend offline suite grew **794 → 1142 tests green**; the webui `tsc + vite
+build` is GREEN with the dev-only Vitest harness expanded to **181 specs** (eslint clean,
+0 `react-hooks/rules-of-hooks` errors). New here? See [`docs/HANDOFF.md`](docs/HANDOFF.md)
+and `docs/research/2026-06-round3/IMPLEMENTATION.md`. Developed on the `Testing` branch
+(commits `bffe4b8`…`3610147` + the live-wiring / security / docs wave).
+
+### Added — Wave 0: hot-file foundations (`bffe4b8`)
+- Additive `Case` advisory axes (severity / impact / priority chips) + SLA datetimes; 11
+  new model classes + 4 enums + 8 KV namespaces + 4 `Preferences` blocks + 13 optional
+  `Secrets` provider slots, all defaulted (old docs load unchanged). Webui route
+  **code-split** (`React.lazy` + manual chunks) so the bundle stays small.
+
+### Added — Wave 1: shared substrate (`59c2999`)
+- **8 KV-doc stores** (`case_thread` / `case_activity` / `case_tasks` / `inbox` /
+  `notif_prefs` / `custom_roles` / `price_overlay` / `shift_handoff`) over the existing KV
+  layer — no new index/table.
+- **`EnrichmentProvider` SPI** (`enrichment/`: base ABC + registry + dispatch + aggregate)
+  with a `tlsoc.enrichers` entry-point group; the default `max()` fusion is byte-identical
+  to the legacy path, weighted fusion is opt-in.
+- **Multiplexed SSE `EventBus`** (`realtime.py`, `GET /api/events`, **default OFF** with a
+  graceful polling fallback) — pure transport, frames published AFTER save, never feeds
+  `decide()`.
+- **RBAC resource split** + custom-role / inheritance / explicit-**DENY** `effective_matrix()`.
+
+### Added — Wave 2: backend features (`2295363`)
+- **Posture metrics + MITRE coverage** — server-side MTTA/MTTR/dwell (p50/p90), SLA/aging,
+  quality mix, period-over-period deltas, MITRE coverage vs the bundled 697-technique
+  corpus + an ATT&CK Navigator layer export (`routes_metrics.py`).
+- **Shift report** — `engine/shift_report.py` (a forward attention queue ranked by an
+  urgency = risk/severity/age/SLA score + SLA aging + per-analyst workload + deltas, all
+  deterministic, no LLM) folded into `StandupService`; the forward-looking JSON still goes
+  to the cheap model as a compact fenced aggregate (#7/#9). `routes_standup.py`.
+- **Enrichment providers** — **17 new providers** behind the SPI (**19 registered**
+  classes; abuse.ch is one config entry spanning the urlhaus/threatfox/malwarebazaar
+  classes) with multi-indicator routing (IP/domain/hash/url/email), per-provider rate
+  guard, fail-open + cached (`routes_enrichment.py`).
+- **Models registry + `BudgetGate`** — a `PROVIDER_REGISTRY` replacing the gateway
+  if/elif + a bundled `llm/model_registry.json` + operator **price overlays**; a pure
+  pre-flight `BudgetGate` (`engine/budget.py`) that raises **before** any billable
+  completion (never an auto-close) (`routes_models.py`).
+- **In-app channel** — an `InAppChannel` fanning out to the per-user `InboxStore` (no
+  network) (`routes_inapp.py`); **case collaboration** (threaded human/ai/system messages
+  + reactions + tasks + @mentions → inbox + an activity feed) (`routes_cases_collab.py`);
+  **triage/priority** chips + a typed ReAct trace timeline (`routes_triage.py`);
+  **custom-role CRUD** + preview/simulate/assignment (`routes_roles.py`).
+
+### Added — Wave 2.5: backend gap-closure (`8b25ca2`)
+- **Cloud LLM, first-class** — `Provider` widened to `azure` / `bedrock` / `vertex` /
+  `openai_compatible`; the gateway authenticates Azure, **Bedrock via a stdlib SigV4 ladder
+  (no `boto3`)**, and Vertex (OAuth Bearer); 12 cloud/enrichment `Secrets` (booleans-only
+  in `public()`); `ProjectHoneypotProvider` registered.
+- **Server-side custom-role enforcement** — a pure `can_for_roles(base, custom_roles, …)`
+  (role-union, deny-wins, super_admin hard-allow) drives `_enforce`, so assigned custom
+  roles are honored on routes (consistent with `/api/account/permissions`).
+- **Test netguard** — an autouse `conftest` socket guard blocks non-loopback egress (opt
+  out per test with `@pytest.mark.allow_network`), keeping the enrichment tests
+  deterministic + offline.
+
+### Added — Wave 3: webui surfaces (`3610147`)
+- Hamburger **`NavSidebar`** (two width states, Cmd/Ctrl+B) + a **`NotificationBell`**;
+  a Settings **card-grid** + `BrandingEditor`; a **Roles** matrix editor; a standalone
+  **Models** page; **Metrics** tabs + a MITRE heatmap; a **Standup** attention queue;
+  CaseDetail's **4 triage chips** + `TraceTimeline` + threaded collaboration; an **Inbox**;
+  and an `EnrichmentProvidersEditor`. (webui `tsc --noEmit && vite build` exit 0,
+  code-split preserved; #9 audit PASS — no `dangerouslySetInnerHTML` on data, untrusted
+  values escaped, secrets boolean-only.)
+
+### Fixed / Security — Wave 4: live wiring + RAG-fencing TRUSTED allowlist
+- **RAG-knowledge fencing inverted to a TRUSTED allow-list** — operator-imported RAG
+  documents previously rendered to the model **unfenced**; now only the built-in/verified
+  corpus is TRUSTED and everything else is fenced UNTRUSTED before any prompt, closing an
+  **OWASP-LLM01** prompt-injection gap (no behavior change for legitimate content).
+- **Live SSE wiring** (poller / dispatch / pipeline → `EventBus`; webui `EventSource`
+  with a polling fallback, still default-OFF); **`PUT /api/branding`** server-side
+  contrast-warning computation; a WCAG 2.2 polish pass; and a docs sync.
+
+### Notes
+- The **~25 Round-3 cloud-LLM + enrichment secrets** are now wired through both deploy
+  compose files (`deploy/docker-compose.{agnostic,tlsoc}.yml`) as commented-optional
+  `TLSOC_*` → unprefixed passthroughs, so the documented durable `.env` path works
+  end-to-end (`docs/ENVIRONMENT.md` §2.6–2.7, `.env.example`).
+- All new providers are **default-off** and **advisory only** — enrichment never feeds the
+  deterministic close/escalate decision (#3).
+
+---
+
 ## [Unreleased] — 2026-06-30 — Round 2: account/sessions, Settings IA, Demo Mode, per-feed sources, email + customization
 
 A second multi-wave round focused on operator experience: a redesigned login + account
@@ -30,7 +130,9 @@ only ever RECOMMEND/relabel and all untrusted text stays fenced (#9). New here? 
 
 ### Added — Wave 1: critical bug fixes
 - Webui/presentational fixes (RiskGauge, MFA QR + copy, a duplicate close `X`, chat
-  framing, store-degraded UX) plus an optional additive `/api/health.persistent` signal.
+  framing, store-degraded UX). The store-degraded notice is derived client-side from
+  `/api/health.store_type` (in-memory-store detection); the health endpoint returns
+  `{status, version, es_connected, store_type, setup_complete}` (no `persistent` field).
   No data-model changes.
 
 ### Added — Wave 2: login redesign + account self-service

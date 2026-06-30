@@ -112,16 +112,24 @@ async def llm_providers(state: AppState = Depends(get_state)) -> dict[str, Any]:
     from ..llm.providers import PROVIDER_REGISTRY
 
     configured = state.secrets.configured_status()
-    # A provider is "configured" when at least one credential it needs is set. The
+    # A provider is "configured" when EVERY credential it needs is set — reading from
+    # the boolean ``configured_status`` map so there is one source of truth. The
     # OpenAI-compatible/self-hosted path needs no key (base_url drives it).
+    #   * azure needs a key (its own, or the OpenAI key as a convenience per
+    #     config.provider_key) AND a resource endpoint — without the endpoint a call
+    #     would resolve to a placeholder host and DNS-fail, so endpoint is required.
+    #   * vertex's credential field is ``vertex_api_key`` (a short-lived OAuth token),
+    #     NOT ``vertex_access_token`` — the old read was permanently False.
     provider_configured = {
         "anthropic": bool(configured.get("anthropic_api_key")),
         "openai": bool(configured.get("openai_api_key")),
         "mock": True,
-        "azure": bool(getattr(state.secrets, "azure_openai_api_key", None)
-                      or configured.get("openai_api_key")),
-        "bedrock": bool(getattr(state.secrets, "aws_access_key_id", None)),
-        "vertex": bool(getattr(state.secrets, "vertex_access_token", None)),
+        "azure": bool(
+            (configured.get("azure_openai_api_key") or configured.get("openai_api_key"))
+            and configured.get("azure_openai_endpoint")
+        ),
+        "bedrock": bool(configured.get("aws_access_key_id")),
+        "vertex": bool(configured.get("vertex_api_key")),
         "openai_compatible": True,
     }
     grouped = models_by_provider()
@@ -183,18 +191,30 @@ async def llm_model_test(
             "chat", messages, cfg, surface="model_test",
         )
     except Exception as exc:  # noqa: BLE001 — a GatewayError or provider failure
-        # Plain, bounded error text (#9). The call STILL wrote one error ledger row.
+        # Plain, bounded error text (#9). If the provider ran and failed, the gateway
+        # already recorded one ERROR ledger row; a budget BLOCK raised before the call
+        # and recorded nothing (zero rows). Either way no OK row is written here.
         return {"ok": False, "model": _safe(mid), "provider": _safe(provider),
                 "error": _safe(exc)}
+    # Badge the price the same way the ledger row this call wrote did (gateway._record)
+    # and the sibling /cost/estimate endpoint: an active operator overlay → 'exact',
+    # else the built-in table provenance. Without this the dialog could show
+    # 'heuristic'/'default' while the ledger row for the same call shows 'exact'.
+    eff_model = result.model or mid
+    overlay = None
+    try:
+        overlay = await state.price_overlay.as_price_tuple(eff_model)
+    except Exception:  # noqa: BLE001 — overlay advisory; fall back to the table
+        overlay = None
     return {
         "ok": True,
-        "model": _safe(result.model or mid),
+        "model": _safe(eff_model),
         "provider": _safe(provider),
         "reply": _safe(result.text),
         "prompt_tokens": result.prompt_tokens,
         "completion_tokens": result.completion_tokens,
         "cost": result.cost,
-        "pricing_source": pricing_source(result.model or mid),
+        "pricing_source": "exact" if overlay is not None else pricing_source(eff_model),
         "base_url": base_url_for(mid),
     }
 

@@ -315,7 +315,10 @@ async def test_connector(
 
 
 @router.get("/sources")
-async def list_sources(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def list_sources(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "read")),
+) -> dict[str, Any]:
     return {"sources": [s.model_dump(mode="json") for s in state.prefs.sources]}
 
 
@@ -514,6 +517,7 @@ async def source_logs(
     from_: str | None = Query(default=None, alias="from"),
     to: str | None = None,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "read")),
 ) -> dict[str, Any]:
     """Browse the most-recent events for a source (bounded, read-only).
 
@@ -2925,6 +2929,7 @@ async def list_cases(
     limit: int = 50,
     offset: int = 0,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
     cases, total = await state.cases.list(
         status=status, source_surface=surface, entity_value=entity,
@@ -2934,7 +2939,11 @@ async def list_cases(
 
 
 @router.get("/cases/{case_id}")
-async def get_case(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def get_case(
+    case_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -2977,6 +2986,7 @@ async def global_search(
     q: str = Query("", description="free-text query"),
     limit: int = 20,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
     """Lightweight global search for the command palette / top-bar jump (W7c).
 

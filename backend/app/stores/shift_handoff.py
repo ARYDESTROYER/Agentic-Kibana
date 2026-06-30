@@ -24,12 +24,15 @@ failure degrades to empty lists / best-effort write and is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import SHIFT_HANDOFF_KEY, SHIFT_HANDOFF_NS
 from ..models import ActionItem, ShiftAck
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.shift_handoff")
 
@@ -50,13 +53,10 @@ class ShiftHandoffStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load(self) -> tuple[list[ActionItem], list[ShiftAck]]:
-        try:
-            doc = await self._kv.get(SHIFT_HANDOFF_NS, SHIFT_HANDOFF_KEY)
-        except Exception as exc:  # noqa: BLE001 — handoff is best-effort
-            logger.warning("Loading shift handoff failed (%s); using empty set", exc)
-            return [], []
+    @staticmethod
+    def _decode(doc: dict | None) -> tuple[list[ActionItem], list[ShiftAck]]:
         if not doc or not isinstance(doc, dict):
             return [], []
         items: list[ActionItem] = []
@@ -73,19 +73,40 @@ class ShiftHandoffStore:
                 continue
         return items, acks
 
-    async def _save(self, items: list[ActionItem], acks: list[ShiftAck]) -> None:
+    @staticmethod
+    def _encode(items: list[ActionItem], acks: list[ShiftAck]) -> dict:
         if len(acks) > _MAX_ACKS:
             acks = acks[-_MAX_ACKS:]
+        return {
+            "action_items": [i.model_dump(mode="json") for i in items],
+            "acks": [a.model_dump(mode="json") for a in acks],
+        }
+
+    async def _load(self) -> tuple[list[ActionItem], list[ShiftAck]]:
         try:
-            await self._kv.put(
-                SHIFT_HANDOFF_NS, SHIFT_HANDOFF_KEY,
-                {
-                    "action_items": [i.model_dump(mode="json") for i in items],
-                    "acks": [a.model_dump(mode="json") for a in acks],
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting shift handoff failed (%s); continuing", exc)
+            doc = await self._kv.get(SHIFT_HANDOFF_NS, SHIFT_HANDOFF_KEY)
+        except Exception as exc:  # noqa: BLE001 — handoff is best-effort
+            logger.warning("Loading shift handoff failed (%s); using empty set", exc)
+            return [], []
+        return self._decode(doc)
+
+    async def _mutate(
+        self, change: Callable[[list[ActionItem], list[ShiftAck]], tuple[_T, list[ActionItem], list[ShiftAck]]]
+    ) -> _T:
+        """Atomic read-modify-write over the shared handoff doc (lost-update safe).
+
+        ``change(items, acks)`` runs on a FRESH decode (it may run more than once on
+        a CAS retry) and returns ``(result, new_items, new_acks)``."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            items, acks = self._decode(current)
+            result, new_items, new_acks = change(items, acks)
+            box["r"] = result
+            return self._encode(new_items, new_acks)
+
+        await kv_mutate(self._kv, SHIFT_HANDOFF_NS, SHIFT_HANDOFF_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     # ---- Action items (the living attention queue) ----------------------- #
     async def list_action_items(self, *, open_only: bool = False) -> list[ActionItem]:
@@ -110,38 +131,42 @@ class ShiftHandoffStore:
             title=_norm(title), owner=owner, note=_norm(note),
             status=status if status in ("open", "in_progress", "done") else "open",
         )
-        items, acks = await self._load()
-        items.append(item)
-        await self._save(items, acks)
-        return item
+
+        def _change(items: list[ActionItem], acks: list[ShiftAck]):
+            items.append(item)
+            return item, items, acks
+
+        return await self._mutate(_change)
 
     async def update_action_item(self, item_id: str, **fields: Any) -> ActionItem | None:
         """Patch the provided (non-None) fields on an action item. Allowed: ``title``,
         ``owner``, ``status``, ``note``. Returns the updated item, or None."""
-        items, acks = await self._load()
         allowed = {"title", "owner", "status", "note"}
-        updated: ActionItem | None = None
-        for idx, i in enumerate(items):
-            if i.id != item_id:
-                continue
-            patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
-            if "status" in patch and patch["status"] not in ("open", "in_progress", "done"):
-                patch.pop("status")
-            updated = i.model_copy(update=patch)
-            items[idx] = updated
-            break
-        if updated is not None:
-            await self._save(items, acks)
-        return updated
+
+        def _change(items: list[ActionItem], acks: list[ShiftAck]):
+            updated: ActionItem | None = None
+            for idx, i in enumerate(items):
+                if i.id != item_id:
+                    continue
+                patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+                if "status" in patch and patch["status"] not in ("open", "in_progress", "done"):
+                    patch.pop("status")
+                updated = i.model_copy(update=patch)
+                items[idx] = updated
+                break
+            return updated, items, acks
+
+        return await self._mutate(_change)
 
     async def delete_action_item(self, item_id: str) -> bool:
         """Delete an action item. Returns True if it existed."""
-        items, acks = await self._load()
-        remaining = [i for i in items if i.id != item_id]
-        if len(remaining) == len(items):
-            return False
-        await self._save(remaining, acks)
-        return True
+
+        def _change(items: list[ActionItem], acks: list[ShiftAck]):
+            remaining = [i for i in items if i.id != item_id]
+            existed = len(remaining) != len(items)
+            return existed, remaining, acks
+
+        return await self._mutate(_change)
 
     # ---- Shift acknowledgements (append-only) ---------------------------- #
     async def acknowledge(self, user: str, window: str, *, note: str = "") -> ShiftAck:
@@ -149,10 +174,12 @@ class ShiftHandoffStore:
         a fresh ack each time, so a re-read is recorded). ``note`` is plain data (#9).
         Returns the stored ack."""
         ack = ShiftAck(user=_norm(user), window=_norm(window), note=_norm(note))
-        items, acks = await self._load()
-        acks.append(ack)
-        await self._save(items, acks)
-        return ack
+
+        def _change(items: list[ActionItem], acks: list[ShiftAck]):
+            acks.append(ack)
+            return ack, items, acks
+
+        return await self._mutate(_change)
 
     async def list_acks(self, *, window: str | None = None,
                         user: str | None = None) -> list[ShiftAck]:

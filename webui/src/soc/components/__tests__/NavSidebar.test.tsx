@@ -128,6 +128,38 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
     expect(screen.getByRole('button', { name: 'Cases' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /expand cases/i })).toBeNull();
   });
+
+  // A nav landmark must mark exactly ONE current page. For a host whose OWN id is
+  // ALSO one of its children (Analytics→metrics, Workspace→chat, Notifications→inbox),
+  // the open child leaf is the single canonical aria-current marker — the parent host
+  // button must NOT also claim it. The earlier tests only used overview/standup where
+  // host id != child id, so they never caught this duplicate.
+  it('emits exactly one aria-current=page for a host whose id equals a child id (Analytics→Metrics)', () => {
+    renderExpanded({ page: 'metrics', openGroups: new Set(['metrics']) });
+    // Exactly one current-page marker in the whole landmark.
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    // …and it rides the CHILD leaf, not the parent host label.
+    expect(screen.getByRole('button', { name: 'Metrics' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Analytics' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('emits exactly one aria-current=page for Workspace→Chat (shared id)', () => {
+    renderExpanded({ page: 'chat', openGroups: new Set(['chat']) });
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('button', { name: 'Workspace' })).not.toHaveAttribute('aria-current');
+  });
+
+  it('clicking the parent label navigates AND opens its group (per the documented contract)', () => {
+    // Overview host group is closed (default openGroups=empty). Click the parent LABEL
+    // (the first 'Overview' button — the primary destination), not the chevron.
+    const { onNavigate, onOpenGroup } = renderExpanded();
+    const labels = screen.getAllByRole('button', { name: 'Overview' });
+    const parentLabel = labels[0];
+    fireEvent.click(parentLabel);
+    expect(onNavigate).toHaveBeenCalledWith('overview');
+    expect(onOpenGroup).toHaveBeenCalledWith('overview');
+  });
 });
 
 /* ---- Collapsed icon-rail --------------------------------------------------- */
@@ -198,5 +230,41 @@ describe('useNavPrefs — synchronous hydration + dual persistence', () => {
     render(<PrefsHarness />);
     expect(screen.getByTestId('collapsed').textContent).toBe('true');
     expect(screen.getByTestId('open').textContent).toBe('settings');
+  });
+
+  it('does not clobber a collapse toggle made before the prefs cascade hydrates', () => {
+    prefsState.ready = false; // hydration still in flight
+    prefsState.misc = { nav_collapsed: false }; // server snapshot says expanded
+    const { rerender } = render(<PrefsHarness />);
+    expect(screen.getByTestId('collapsed').textContent).toBe('false');
+    act(() => {
+      fireEvent.click(screen.getByText('toggle-collapsed'));
+    }); // user collapses during the window
+    expect(screen.getByTestId('collapsed').textContent).toBe('true');
+    expect(putUser).toHaveBeenCalledWith({ misc: { nav_collapsed: true } });
+    // Cascade now settles with the (stale) server value still false → reconcile fires.
+    prefsState.ready = true;
+    act(() => {
+      rerender(<PrefsHarness />);
+    });
+    // The just-made toggle must NOT be reverted by the reconcile.
+    expect(screen.getByTestId('collapsed').textContent).toBe('true');
+  });
+
+  it('does not clobber an open-group toggle made before the cascade hydrates', () => {
+    prefsState.ready = false;
+    prefsState.misc = { nav_open_groups: ['settings'] }; // server holds a different set
+    const { rerender } = render(<PrefsHarness />);
+    expect(screen.getByTestId('open').textContent).toBe('');
+    act(() => {
+      fireEvent.click(screen.getByText('toggle-overview'));
+    });
+    expect(screen.getByTestId('open').textContent).toBe('overview');
+    prefsState.ready = true;
+    act(() => {
+      rerender(<PrefsHarness />);
+    });
+    // The user's in-window open survives; the stale server set does not overwrite it.
+    expect(screen.getByTestId('open').textContent).toBe('overview');
   });
 });

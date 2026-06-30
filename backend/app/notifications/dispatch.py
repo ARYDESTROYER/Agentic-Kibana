@@ -26,6 +26,7 @@ import logging
 import time
 from typing import Any
 
+from ..models import InAppNotification
 from . import templates
 from .channel import NotificationEvent, build_channel, ensure_registered
 
@@ -73,21 +74,41 @@ def _mentions_of(case: Any) -> list[str]:
 
 
 def _in_quiet_hours(quiet: Any) -> bool:
-    """Whether NOW (UTC) falls in a user's ``quiet_hours`` window ``{start, end}``
-    (``HH:MM`` 24h strings). A window that wraps midnight (start > end) is handled.
-    Missing/malformed config → False (no quiet hours). Never raises."""
+    """Whether NOW falls in a user's ``quiet_hours`` window ``{start, end, tz}``
+    (``HH:MM`` 24h strings). The window is evaluated in the user's ``tz`` (an IANA
+    name like ``Asia/Kolkata``) so an operator's "10pm-6am" means THEIR local
+    night, not the server's UTC night. A blank / invalid / unknown ``tz`` falls back
+    to UTC. A window that wraps midnight (start > end) is handled. Missing/malformed
+    config → False (no quiet hours). Never raises."""
     if not isinstance(quiet, dict):
         return False
     start = _parse_hhmm(quiet.get("start"))
     end = _parse_hhmm(quiet.get("end"))
     if start is None or end is None or start == end:
         return False
-    now = time.gmtime()
-    minute = now.tm_hour * 60 + now.tm_min
+    minute = _local_minute_of_day(quiet.get("tz"))
     if start < end:
         return start <= minute < end
     # Wraps midnight (e.g. 22:00 → 06:00).
     return minute >= start or minute < end
+
+
+def _local_minute_of_day(tz: Any) -> int:
+    """Minutes-since-midnight of NOW in the IANA timezone ``tz`` (e.g.
+    ``Asia/Kolkata``). Falls back to UTC on a blank / non-string / unknown tz. Never
+    raises — a bad tz must never block notification routing."""
+    name = tz.strip() if isinstance(tz, str) else ""
+    if name:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            now_local = datetime.now(ZoneInfo(name))
+            return now_local.hour * 60 + now_local.minute
+        except Exception as exc:  # noqa: BLE001 — unknown key / no tzdata → UTC fallback
+            logger.debug("quiet-hours tz %r unresolved (%s); using UTC", name, exc)
+    now = time.gmtime()
+    return now.tm_hour * 60 + now.tm_min
 
 
 def _parse_hhmm(value: Any) -> int | None:
@@ -293,11 +314,28 @@ class NotificationService:
         for m in _mentions_of(case):
             always.append(m)
 
+        # ALWAYS recipients (assignee + @mentions) — these win the prefs filter and
+        # are never deferred (a direct address always fans in immediately).
+        always_keys = {(u or "").strip().lower() for u in always}
+
         role_members = await self._role_recipients(event.trigger)
         routed: list[str] = []
+        deferred: list[str] = []
         for user in role_members:
-            if await self._inapp_allows(user, category):
+            if (user or "").strip().lower() in always_keys:
+                continue  # an always-recipient is delivered via the always tier
+            decision = await self._inapp_route(user, category)
+            if decision == "deliver":
                 routed.append(user)
+            elif decision == "defer":
+                deferred.append(user)
+            # "mute" → the user explicitly opted out of this category; drop (intended).
+
+        # Record the deferred (quiet-hours / digest) role-tier items into each user's
+        # pending-digest buffer so they are HELD, not silently lost. Best-effort —
+        # never blocks delivery of the live recipients.
+        if deferred:
+            await self._defer_inapp(event, category, deferred)
 
         # De-dup preserving order; ALWAYS recipients first (they win the prefs filter).
         seen: set[str] = set()
@@ -309,6 +347,35 @@ class NotificationService:
             seen.add(key)
             out.append(u)
         return out
+
+    async def _defer_inapp(self, event: NotificationEvent, category: str,
+                           users: list[str]) -> None:
+        """Hold a routed in-app item for each ``users`` recipient in their pending-
+        digest buffer (quiet-hours / digest cadence). Best-effort; never raises —
+        a deferral glitch must not break live delivery."""
+        inbox = self._inbox
+        if inbox is None or not hasattr(inbox, "defer"):
+            return
+        meta = event.meta or {}
+        title = (event.subject or "").strip()[:200] or str(meta.get("title") or "case")
+        body = (event.text or "").strip()[:1000]
+        severity = str(meta.get("severity_label") or "") or None
+        case_id = str(meta.get("case_id") or "") or None
+        url = str(meta.get("case_url") or "") or None
+        seen: set[str] = set()
+        for user in users:
+            key = (user or "").strip().lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            try:
+                await inbox.defer(InAppNotification(
+                    recipient=user, category=category, title=title, body=body,
+                    severity=severity, case_id=case_id, url=url,
+                    ref={"trigger": event.trigger, "deferred": True},
+                ))
+            except Exception as exc:  # noqa: BLE001 — best-effort; never block delivery
+                logger.debug("in-app defer for %s failed: %s", user, exc)
 
     async def _role_recipients(self, trigger: str) -> list[str]:
         """Active usernames whose role should be notified of ``trigger``'s category.
@@ -333,40 +400,54 @@ class NotificationService:
                 out.append(username)
         return out
 
-    async def _inapp_allows(self, user: str, category: str) -> bool:
-        """Whether ``user``'s :class:`NotificationPref` routes ``category`` to the
-        in-app inbox right now (category enabled + ``in_app`` channel listed + not in
-        quiet-hours + not deferred to a digest). DEFAULT-ON: a user with nothing
-        stored (or an absent category entry) receives in-app notifications, so a fresh
-        SOC works out of the box. Never raises → defaults to True on any glitch."""
+    async def _inapp_route(self, user: str, category: str) -> str:
+        """How ``user``'s :class:`NotificationPref` routes ``category`` to the in-app
+        inbox right now → one of:
+
+        * ``"deliver"`` — fan in immediately (DEFAULT-ON: a user with nothing stored,
+          or an absent category entry, receives in-app notifications);
+        * ``"mute"``    — the user explicitly disabled this category / excluded the
+          in-app channel → drop (intended opt-out);
+        * ``"defer"``   — the user is in quiet-hours or on a digest cadence → HOLD the
+          item in their pending-digest buffer instead of losing it (see
+          :meth:`_defer_inapp`), to be surfaced when the window ends / the digest
+          fires.
+
+        Never raises → defaults to ``"deliver"`` on any glitch."""
         if self._notif_prefs is None:
-            return True
+            return "deliver"
         try:
             pref = await self._notif_prefs.get(user)
         except Exception as exc:  # noqa: BLE001
             logger.debug("notif pref load failed for %s: %s", user, exc)
-            return True
+            return "deliver"
         try:
             cats = getattr(pref, "categories", {}) or {}
             entry = cats.get(category)
             if isinstance(entry, dict):
                 if entry.get("enabled") is False:
-                    return False
+                    return "mute"
                 channels = entry.get("channels")
                 # An explicit channel list that EXCLUDES in-app mutes the inbox for
                 # this category; an absent/empty list means "default" → in-app on.
                 if isinstance(channels, list) and channels and "in_app" not in channels:
-                    return False
-            # Quiet-hours: defer (drop) routed (non-personal) items during the window.
+                    return "mute"
+            # Quiet-hours: hold (defer) routed (non-personal) items during the window.
             if _in_quiet_hours(getattr(pref, "quiet_hours", None)):
-                return False
-            # Digest batching: a user on a digest cadence doesn't get per-event items.
+                return "defer"
+            # Digest cadence: a digest user gets a held copy, not a per-event item.
             if str(getattr(pref, "digest", "") or "off").lower() not in ("", "off"):
-                return False
+                return "defer"
         except Exception as exc:  # noqa: BLE001 — a malformed pref never blocks delivery
             logger.debug("notif pref eval failed for %s: %s", user, exc)
-            return True
-        return True
+            return "deliver"
+        return "deliver"
+
+    async def _inapp_allows(self, user: str, category: str) -> bool:
+        """Back-compat boolean: True iff the category is delivered LIVE to ``user``
+        (a deferred/muted user returns False). New code should prefer
+        :meth:`_inapp_route` which distinguishes mute from defer."""
+        return (await self._inapp_route(user, category)) == "deliver"
 
     def _inapp_publish(self, username: str, payload: dict[str, Any]) -> None:
         """Publish an ``inapp`` live-badge event to ONE user on the EventBus (Wave-4).

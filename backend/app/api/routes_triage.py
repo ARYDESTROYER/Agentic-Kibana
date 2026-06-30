@@ -105,7 +105,14 @@ async def case_timeline(
     include_prompts = getattr(state.prefs.trace, "include_prompts", True)
 
     # Per-role cost/token attribution from the usage ledger (aggregate → per-span).
-    cost_by_role, tokens_by_role, llm_spans_by_role = await _usage_attribution(state, case_id)
+    cost_by_role, tokens_by_role = await _usage_attribution(state, case_id)
+
+    # Count the audit LLM rows (PROMPT + VERDICT) per role from the SAME rows the spans
+    # are built from. The role's ledger TOTAL is split across exactly the spans that
+    # receive a slice — NOT the ledger call count — so the per-role span sum reconciles
+    # with the ledger for any N (a single-call normal run AND a multi-step ReAct loop).
+    # See routes_triage tests test_timeline_totals_reconcile_*.
+    audit_llm_rows_by_role = _count_llm_rows_by_role(rows)
 
     spans: list[TraceSpan] = []
     step = 0
@@ -117,7 +124,7 @@ async def case_timeline(
         if actor == "case_manager" and at == ActionType.DECISION.value:
             continue
         span = _row_to_span(case_id, row, step, include_prompts,
-                            cost_by_role, tokens_by_role, llm_spans_by_role)
+                            cost_by_role, tokens_by_role, audit_llm_rows_by_role)
         spans.append(span)
         step += 1
 
@@ -148,6 +155,34 @@ def _get(row: Any, key: str, default: Any = None) -> Any:
     return getattr(row, key, default)
 
 
+# Audit action types that represent ONE LLM-producing step (a gateway completion the
+# ledger metered). These are exactly the rows ``_row_to_span`` attributes a cost slice
+# to (``is_llm_row``), so dividing a role's ledger total by their per-role COUNT makes
+# the per-role span sum reconcile with the ledger truth (#6 source of truth).
+_LLM_ROW_ACTIONS: frozenset[str] = frozenset({
+    ActionType.PROMPT.value,
+    ActionType.VERDICT.value,
+})
+
+
+def _count_llm_rows_by_role(rows: Any) -> dict[str, int]:
+    """Count the LLM-producing audit rows (PROMPT/VERDICT) per actor role.
+
+    This is the EXACT divisor for cost/token attribution: the role's ledger total is
+    split across precisely the spans that receive a slice. The case_manager DECISION row
+    is excluded (it is rendered as the deterministic terminal span, never an LLM step).
+    Defensive: tolerates dict OR pydantic rows; never raises."""
+    by_role: dict[str, int] = {}
+    for row in rows:
+        actor = str(_get(row, "actor", "") or "")
+        at = str(_get(row, "action_type", "") or "")
+        if actor == "case_manager" and at == ActionType.DECISION.value:
+            continue
+        if at in _LLM_ROW_ACTIONS:
+            by_role[actor] = by_role.get(actor, 0) + 1
+    return by_role
+
+
 # audit action_type → TraceSpan.kind. Agent invocations (PROMPT/VERDICT/CONTEXT/the
 # router DECISION) are ``invoke_agent``; tool + es_query rows are ``execute_tool``;
 # the case_manager DECISION is ``decision`` (handled separately). Anything else
@@ -176,14 +211,17 @@ def _row_to_span(
     include_prompts: bool,
     cost_by_role: dict[str, float],
     tokens_by_role: dict[str, int],
-    llm_spans_by_role: dict[str, int],
+    llm_rows_by_role: dict[str, int],
 ) -> TraceSpan:
     """Project one audit row into a typed TraceSpan.
 
     Classifies the span ``kind``, marks tool/log payloads UNTRUSTED (#9), and
     attributes a per-role cost/token slice from the usage ledger to the LLM-producing
-    rows (PROMPT/VERDICT). The ``summary`` carries SHORT prose only — the heavy payload
-    is left in the audit doc (referenced by ``payload_ref``), never re-inlined here."""
+    rows (PROMPT/VERDICT). The slice divisor is the per-role COUNT of those same audit
+    rows (``llm_rows_by_role``) — NOT the ledger call count — so the per-role span sum
+    reconciles with the ledger for both a single-call run and a multi-step ReAct loop.
+    The ``summary`` carries SHORT prose only — the heavy payload is left in the audit doc
+    (referenced by ``payload_ref``), never re-inlined here."""
     actor = str(_get(row, "actor", "") or "")
     at = str(_get(row, "action_type", "") or "")
     kind = _KIND_BY_ACTION.get(at, "invoke_agent")
@@ -213,13 +251,13 @@ def _row_to_span(
 
     # Cost / token attribution: only LLM-producing rows (a PROMPT or VERDICT by an LLM
     # role) take a slice of that role's ledger total (split evenly across that role's
-    # LLM spans so per-case totals reconcile with the ledger).
+    # LLM AUDIT ROWS so per-case totals reconcile with the ledger — see #6).
     cost = None
     tokens = None
     model = _get(row, "model")
-    is_llm_row = at in (ActionType.PROMPT.value, ActionType.VERDICT.value)
+    is_llm_row = at in _LLM_ROW_ACTIONS
     if is_llm_row and actor in cost_by_role:
-        n = max(1, llm_spans_by_role.get(actor, 1))
+        n = max(1, llm_rows_by_role.get(actor, 1))
         cost = round(cost_by_role.get(actor, 0.0) / n, 6)
         tokens = int(tokens_by_role.get(actor, 0) / n)
 
@@ -319,19 +357,22 @@ def _policy_clause(case: Any, prefs: Any) -> dict[str, Any]:
 
 async def _usage_attribution(
     state: Any, case_id: str
-) -> tuple[dict[str, float], dict[str, int], dict[str, int]]:
-    """Per-role cost/token totals for a case from the usage ledger (#6 source of
-    truth), plus the count of LLM spans we expect per role (to split the role total
-    evenly). Defensive: a ledger miss degrades to empty maps (no cost shown), never
-    raises. Reads the aggregate ``summary(case_id=...)`` — does NOT touch the gateway
-    write path (#6 stays the single writer)."""
+) -> tuple[dict[str, float], dict[str, int]]:
+    """Per-role cost/token TOTALS for a case from the usage ledger (#6 source of truth).
+
+    Returns the per-role ledger totals; the per-span divisor is the count of LLM AUDIT
+    rows (see :func:`_count_llm_rows_by_role`), NOT the ledger call count — that is what
+    makes the per-role span sum reconcile with the ledger for a multi-step ReAct run
+    (N gateway calls metered, but only the PROMPT + VERDICT audit rows carry a slice).
+    Defensive: a ledger miss degrades to empty maps (no cost shown), never raises. Reads
+    the aggregate ``summary(case_id=...)`` — does NOT touch the gateway write path (#6
+    stays the single writer)."""
     cost_by_role: dict[str, float] = {}
     tokens_by_role: dict[str, int] = {}
-    llm_spans_by_role: dict[str, int] = {}
     try:
         summary = await state.usage_store.summary(window_hours=24 * 365, case_id=case_id)
     except Exception:  # noqa: BLE001 — the timeline must never 500 on a ledger miss
-        return cost_by_role, tokens_by_role, llm_spans_by_role
+        return cost_by_role, tokens_by_role
     for entry in (summary.get("by_role") or []):
         if not isinstance(entry, dict):
             continue
@@ -340,6 +381,4 @@ async def _usage_attribution(
             continue
         cost_by_role[key] = float(entry.get("cost", 0.0) or 0.0)
         tokens_by_role[key] = int(entry.get("tokens", 0) or 0)
-        # the ledger records one call per LLM step for a role; use its call count.
-        llm_spans_by_role[key] = max(1, int(entry.get("calls", 1) or 1))
-    return cost_by_role, tokens_by_role, llm_spans_by_role
+    return cost_by_role, tokens_by_role

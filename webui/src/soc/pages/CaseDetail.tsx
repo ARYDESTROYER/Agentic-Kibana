@@ -146,7 +146,7 @@ import { useAuth } from '@/soc/auth';
 
 import { CaseTriageHeader } from '@/soc/components/CaseTriageHeader';
 import { TraceTimeline } from '@/soc/components/TraceTimeline';
-import { CaseThread } from '@/soc/components/CaseThread';
+import { CaseThread, visibleMessageCount } from '@/soc/components/CaseThread';
 import { CaseTasks } from '@/soc/components/CaseTasks';
 import { CaseActivityFeed } from '@/soc/components/CaseActivityFeed';
 import {
@@ -757,6 +757,33 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setActivityLoading(false);
     }
   }, [id]);
+
+  // LIVE (Wave 4) refetch nudges. A `case.activity` SSE frame (only while realtime is
+  // enabled AND the thread tab is mounted) asks us to refetch the AUTHORITATIVE thread
+  // / activity feed — the frame payload is never rendered (#9), it only triggers a
+  // reload, and nothing here touches the case decision (#3). Trailing-debounced so a
+  // burst of teammate/AI events collapses into one refetch instead of a fetch storm.
+  const liveThreadTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveActivityTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const liveRefreshThread = React.useCallback(() => {
+    if (liveThreadTimer.current) clearTimeout(liveThreadTimer.current);
+    liveThreadTimer.current = setTimeout(() => {
+      void loadThread();
+    }, 1200);
+  }, [loadThread]);
+  const liveRefreshActivity = React.useCallback(() => {
+    if (liveActivityTimer.current) clearTimeout(liveActivityTimer.current);
+    liveActivityTimer.current = setTimeout(() => {
+      void loadActivity();
+    }, 1200);
+  }, [loadActivity]);
+  React.useEffect(
+    () => () => {
+      if (liveThreadTimer.current) clearTimeout(liveThreadTimer.current);
+      if (liveActivityTimer.current) clearTimeout(liveActivityTimer.current);
+    },
+    [],
+  );
 
   React.useEffect(() => {
     if (open && tab === 'thread') {
@@ -1662,6 +1689,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                           setC(next);
                           if (activity !== null) void loadActivity();
                         }}
+                        liveCaseId={id}
+                        onLiveThread={liveRefreshThread}
+                        onLiveActivity={liveRefreshActivity}
                       />
                     </TabsContent>
                     <TabsContent value="collab" className="mt-0 animate-fade-in">
@@ -3444,6 +3474,14 @@ const CollaborationThreadTab: React.FC<{
   onTaskStatus: (taskId: string, status: TaskStatus) => void;
   onTaskLog: (taskId: string, note: string) => void;
   onAssigned: (next: Case) => void;
+  /**
+   * Optional LIVE wiring (Wave 4): when set, the thread + activity feed subscribe to
+   * the per-case SSE room and nudge the caller to refetch on a `case.activity` frame
+   * (realtime is still default-OFF on the backend → polling fallback otherwise).
+   */
+  liveCaseId?: string;
+  onLiveThread?: () => void;
+  onLiveActivity?: () => void;
 }> = ({
   c,
   thread,
@@ -3468,6 +3506,9 @@ const CollaborationThreadTab: React.FC<{
   onTaskStatus,
   onTaskLog,
   onAssigned,
+  liveCaseId,
+  onLiveThread,
+  onLiveActivity,
 }) => {
   return (
     <div className="grid gap-6 p-6 lg:grid-cols-[1fr_20rem]">
@@ -3477,13 +3518,16 @@ const CollaborationThreadTab: React.FC<{
           <SectionHeading
             icon={MessageSquare}
             tone="info"
-            actions={
-              thread && thread.length ? (
+            actions={(() => {
+              // Count the SAME set CaseThread renders (drop tombstoned roots with no
+              // replies) so the badge can never over-count vs the visible list.
+              const visible = thread ? visibleMessageCount(thread) : 0;
+              return visible ? (
                 <Badge variant="info">
-                  {thread.length} message{thread.length === 1 ? '' : 's'}
+                  {visible} message{visible === 1 ? '' : 's'}
                 </Badge>
-              ) : undefined
-            }
+              ) : undefined;
+            })()}
           >
             Discussion
           </SectionHeading>
@@ -3517,6 +3561,8 @@ const CollaborationThreadTab: React.FC<{
               onEdit={onEdit}
               onDelete={onDelete}
               onReact={onReact}
+              liveCaseId={liveCaseId}
+              onLiveActivity={onLiveThread}
             />
           )}
         </div>
@@ -3549,7 +3595,12 @@ const CollaborationThreadTab: React.FC<{
           <SectionHeading icon={History} tone="info">
             Activity
           </SectionHeading>
-          <CaseActivityFeed items={activity || []} loading={activityLoading && activity === null} />
+          <CaseActivityFeed
+            items={activity || []}
+            loading={activityLoading && activity === null}
+            liveCaseId={liveCaseId}
+            onLiveActivity={onLiveActivity}
+          />
         </div>
       </aside>
     </div>

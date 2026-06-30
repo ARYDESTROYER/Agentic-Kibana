@@ -44,6 +44,39 @@ services:
       - ABUSEIPDB_API_KEY=${TLSOC_ABUSEIPDB_API_KEY:-}
       - VIRUSTOTAL_API_KEY=${TLSOC_VIRUSTOTAL_API_KEY:-}
       - EMBEDDING_API_KEY=${TLSOC_EMBEDDING_API_KEY:-}
+      # --- Round-3 cloud LLM providers (all optional + default-off; Azure OpenAI /
+      #     AWS Bedrock via stdlib SigV4 / Google Vertex). Set the matching TLSOC_*
+      #     in .env to enable; see docs/ENVIRONMENT.md §2.6 and .env.example. ---
+      - AZURE_OPENAI_API_KEY=${TLSOC_AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${TLSOC_AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_VERSION=${TLSOC_AZURE_OPENAI_API_VERSION:-}
+      - AWS_ACCESS_KEY_ID=${TLSOC_AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${TLSOC_AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${TLSOC_AWS_REGION:-}
+      - VERTEX_PROJECT=${TLSOC_VERTEX_PROJECT:-}
+      - VERTEX_LOCATION=${TLSOC_VERTEX_LOCATION:-}
+      - VERTEX_API_KEY=${TLSOC_VERTEX_API_KEY:-}
+      # --- Round-3 enrichment providers (all optional + default-off; the keyless
+      #     ones — Shodan InternetDB / abuse.ch trio / RDAP — run without any key).
+      #     Set the matching TLSOC_* in .env to enable a keyed provider; see
+      #     docs/ENVIRONMENT.md §2.7 and .env.example. Field-name nuances are honored
+      #     (IPINFO_TOKEN, CENSYS_API_ID/_SECRET, XFORCE_API_KEY/_PASSWORD,
+      #     HONEYPOT_ACCESS_KEY, ABUSECH_AUTH_KEY). ---
+      - GREYNOISE_API_KEY=${TLSOC_GREYNOISE_API_KEY:-}
+      - SHODAN_API_KEY=${TLSOC_SHODAN_API_KEY:-}
+      - CENSYS_API_ID=${TLSOC_CENSYS_API_ID:-}
+      - CENSYS_API_SECRET=${TLSOC_CENSYS_API_SECRET:-}
+      - BINARYEDGE_API_KEY=${TLSOC_BINARYEDGE_API_KEY:-}
+      - IPINFO_TOKEN=${TLSOC_IPINFO_TOKEN:-}
+      - OTX_API_KEY=${TLSOC_OTX_API_KEY:-}
+      - PULSEDIVE_API_KEY=${TLSOC_PULSEDIVE_API_KEY:-}
+      - SPUR_API_KEY=${TLSOC_SPUR_API_KEY:-}
+      - XFORCE_API_KEY=${TLSOC_XFORCE_API_KEY:-}
+      - XFORCE_API_PASSWORD=${TLSOC_XFORCE_API_PASSWORD:-}
+      - URLSCAN_API_KEY=${TLSOC_URLSCAN_API_KEY:-}
+      - HIBP_API_KEY=${TLSOC_HIBP_API_KEY:-}
+      - HONEYPOT_ACCESS_KEY=${TLSOC_HONEYPOT_ACCESS_KEY:-}
+      - ABUSECH_AUTH_KEY=${TLSOC_ABUSECH_AUTH_KEY:-}
       # --- Cache (optional; in-memory fallback if Redis is absent) ---
       - REDIS_URL=${TLSOC_REDIS_URL:-redis://tlsoc-redis:6379/0}
       - LOG_LEVEL=${TLSOC_LOG_LEVEL:-INFO}

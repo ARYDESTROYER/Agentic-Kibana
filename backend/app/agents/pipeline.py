@@ -325,27 +325,41 @@ class InvestigationPipeline:
                 # LangGraph flow: triage -> (benign shortcut | strong investigator).
                 # Enforce caps.timeout_seconds (Section 6.3 #4): a runaway / slow
                 # investigation is capped to a NEEDS_HUMAN verdict, never left to spin.
+                # A mutable cost_sink mirrors each REALISED gateway cost as it lands on
+                # the ledger, so a timeout that cancels the flow mid-investigation can
+                # still account the PARTIAL spend (otherwise Case.token_cost would
+                # under-count vs the ledger). It is a side-channel for the timeout path
+                # ONLY: the normal path uses the returned flow_cost (sum is identical).
+                cost_accum: list[float] = []
                 try:
                     verdict, flow_cost = await asyncio.wait_for(
                         run_investigation(
                             self._router, investigator, self._rag, cluster, enrichment,
                             prefs, budget, source_surface.value, case_id,
                             persona=persona, playbook=playbook, memory=memory_entries,
+                            cost_sink=cost_accum,
                         ),
                         timeout=prefs.caps.timeout_seconds,
                     )
                     cost += flow_cost
                 except asyncio.TimeoutError:
+                    # Account the spend already on the ledger before the cap fired so
+                    # Case.token_cost reconciles with the usage rows (#6 — no spend is
+                    # silently dropped). Use ONLY the sink here (flow_cost was never
+                    # returned), so there is no double counting.
+                    partial_cost = sum(cost_accum)
+                    cost += partial_cost
                     logger.warning(
-                        "Investigation for %s exceeded caps.timeout_seconds=%ss; capping to human",
-                        cluster.signature, prefs.caps.timeout_seconds,
+                        "Investigation for %s exceeded caps.timeout_seconds=%ss; capping to "
+                        "human (accounted partial cost=%s)",
+                        cluster.signature, prefs.caps.timeout_seconds, round(partial_cost, 6),
                     )
                     await self._audit.record(
                         action_type=ActionType.ERROR, surface=source_surface.value,
                         actor="pipeline", case_id=case_id,
                         result_summary=(
                             f"investigation timed out after {prefs.caps.timeout_seconds}s; "
-                            "capped to NEEDS_HUMAN"
+                            f"capped to NEEDS_HUMAN (partial cost={round(partial_cost, 6)})"
                         ),
                     )
                     verdict = VerdictResult(

@@ -399,7 +399,14 @@ class AzureOpenAIProvider(OpenAIProvider):
 
     def __init__(self, api_key: str, base_url: str,
                  api_version: str = "2024-10-21") -> None:
-        super().__init__(api_key, base_url=base_url or "https://example.openai.azure.com")
+        if not (base_url or "").strip():
+            # Fail with an actionable message rather than silently pointing at an
+            # example placeholder host that would DNS-fail at call time. Azure needs
+            # the resource endpoint (``azure_openai_endpoint``) to route a deployment.
+            raise ValueError(
+                "Azure OpenAI endpoint (azure_openai_endpoint) is not configured"
+            )
+        super().__init__(api_key, base_url=base_url)
         self._api_version = api_version
 
     async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:

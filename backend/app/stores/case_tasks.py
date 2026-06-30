@@ -19,13 +19,16 @@ a failure degrades to an empty task list / best-effort write and is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import CASE_TASKS_KEY, CASE_TASKS_NS
 from ..models import CaseTask
 from ..utils import iso_now
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.case_tasks")
 
@@ -43,15 +46,10 @@ class CaseTaskStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, list[CaseTask]]:
-        try:
-            doc = await self._kv.get(CASE_TASKS_NS, CASE_TASKS_KEY)
-        except Exception as exc:  # noqa: BLE001 — tasks are best-effort
-            logger.warning("Loading case tasks failed (%s); using empty set", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, list[CaseTask]]:
         raw = doc.get("tasks", {}) if isinstance(doc, dict) else {}
         out: dict[str, list[CaseTask]] = {}
         for cid, items in (raw or {}).items():
@@ -64,15 +62,30 @@ class CaseTaskStore:
             out[str(cid)] = tasks
         return out
 
-    async def _save_all(self, all_tasks: dict[str, list[CaseTask]]) -> None:
+    @staticmethod
+    def _encode(all_tasks: dict[str, list[CaseTask]]) -> dict:
+        return {"tasks": {cid: [t.model_dump(mode="json") for t in tasks]
+                          for cid, tasks in all_tasks.items()}}
+
+    async def _load_all(self) -> dict[str, list[CaseTask]]:
         try:
-            await self._kv.put(
-                CASE_TASKS_NS, CASE_TASKS_KEY,
-                {"tasks": {cid: [t.model_dump(mode="json") for t in tasks]
-                           for cid, tasks in all_tasks.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting case tasks failed (%s); continuing", exc)
+            doc = await self._kv.get(CASE_TASKS_NS, CASE_TASKS_KEY)
+        except Exception as exc:  # noqa: BLE001 — tasks are best-effort
+            logger.warning("Loading case tasks failed (%s); using empty set", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, list[CaseTask]]], _T]) -> _T:
+        """Atomic read-modify-write over the shared tasks doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            all_tasks = self._decode(current)
+            box["r"] = change(all_tasks)
+            return self._encode(all_tasks)
+
+        await kv_mutate(self._kv, CASE_TASKS_NS, CASE_TASKS_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     @staticmethod
     def _sorted(tasks: list[CaseTask]) -> list[CaseTask]:
@@ -100,100 +113,109 @@ class CaseTaskStore:
         cid = _norm_case_id(case_id)
         if not cid:
             raise ValueError("case_id is required")
-        all_tasks = await self._load_all()
-        tasks = list(all_tasks.get(cid, []))
-        next_order = (max((t.order for t in tasks), default=-1) + 1) if tasks else 0
-        task = CaseTask(
-            case_id=cid, title=(title or "").strip(), assignee=assignee,
-            status=status if status in ("open", "in_progress", "done", "blocked") else "open",
-            order=next_order,
-        )
-        tasks.append(task)
-        all_tasks[cid] = tasks
-        await self._save_all(all_tasks)
-        return task
+        title = (title or "").strip()
+        status = status if status in ("open", "in_progress", "done", "blocked") else "open"
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> CaseTask:
+            tasks = list(all_tasks.get(cid, []))
+            next_order = (max((t.order for t in tasks), default=-1) + 1) if tasks else 0
+            task = CaseTask(case_id=cid, title=title, assignee=assignee,
+                            status=status, order=next_order)
+            tasks.append(task)
+            all_tasks[cid] = tasks
+            return task
+
+        return await self._mutate(_change)
 
     async def update(self, case_id: str | None, task_id: str, **fields: Any) -> CaseTask | None:
         """Patch the provided (non-None) fields on a task. Allowed: ``title``,
         ``assignee``, ``status``, ``order``. Returns the updated task, or None."""
         cid = _norm_case_id(case_id)
-        all_tasks = await self._load_all()
-        tasks = list(all_tasks.get(cid, []))
         allowed = {"title", "assignee", "status", "order"}
-        updated: CaseTask | None = None
-        for idx, t in enumerate(tasks):
-            if t.id != task_id:
-                continue
-            patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
-            if "status" in patch and patch["status"] not in ("open", "in_progress", "done", "blocked"):
-                patch.pop("status")
-            updated = t.model_copy(update=patch)
-            tasks[idx] = updated
-            break
-        if updated is not None:
-            all_tasks[cid] = tasks
-            await self._save_all(all_tasks)
-        return updated
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> CaseTask | None:
+            tasks = list(all_tasks.get(cid, []))
+            for idx, t in enumerate(tasks):
+                if t.id != task_id:
+                    continue
+                patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+                if "status" in patch and patch["status"] not in ("open", "in_progress", "done", "blocked"):
+                    patch.pop("status")
+                upd = t.model_copy(update=patch)
+                tasks[idx] = upd
+                all_tasks[cid] = tasks
+                return upd
+            return None
+
+        return await self._mutate(_change)
 
     async def delete(self, case_id: str | None, task_id: str) -> bool:
         """Delete a task. Returns True if it existed."""
         cid = _norm_case_id(case_id)
-        all_tasks = await self._load_all()
-        tasks = list(all_tasks.get(cid, []))
-        remaining = [t for t in tasks if t.id != task_id]
-        if len(remaining) == len(tasks):
-            return False
-        all_tasks[cid] = remaining
-        await self._save_all(all_tasks)
-        return True
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> bool:
+            tasks = list(all_tasks.get(cid, []))
+            remaining = [t for t in tasks if t.id != task_id]
+            if len(remaining) == len(tasks):
+                return False
+            all_tasks[cid] = remaining
+            return True
+
+        return await self._mutate(_change)
 
     async def reorder(self, case_id: str | None, ordered_ids: list[str]) -> list[CaseTask]:
         """Reassign ``order`` from a caller-supplied id sequence (drag-and-drop). Ids
         not present in ``ordered_ids`` keep their relative position AFTER the ordered
         ones. Returns the case's tasks in the new order."""
         cid = _norm_case_id(case_id)
-        all_tasks = await self._load_all()
-        tasks = list(all_tasks.get(cid, []))
-        rank = {tid: i for i, tid in enumerate(ordered_ids)}
-        tail = len(ordered_ids)
-        # Assign new order: listed ids by their position; the rest appended in their
-        # current sorted order.
-        leftovers = [t for t in self._sorted(tasks) if t.id not in rank]
-        for i, t in enumerate(leftovers):
-            rank[t.id] = tail + i
-        new_tasks = [t.model_copy(update={"order": rank.get(t.id, t.order)}) for t in tasks]
-        all_tasks[cid] = new_tasks
-        await self._save_all(all_tasks)
-        return self._sorted(new_tasks)
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> list[CaseTask]:
+            tasks = list(all_tasks.get(cid, []))
+            rank = {tid: i for i, tid in enumerate(ordered_ids)}
+            tail = len(ordered_ids)
+            # Assign new order: listed ids by their position; the rest appended in
+            # their current sorted order.
+            leftovers = [t for t in self._sorted(tasks) if t.id not in rank]
+            for i, t in enumerate(leftovers):
+                rank[t.id] = tail + i
+            new_tasks = [t.model_copy(update={"order": rank.get(t.id, t.order)}) for t in tasks]
+            all_tasks[cid] = new_tasks
+            return self._sorted(new_tasks)
+
+        return await self._mutate(_change)
 
     async def log(self, case_id: str | None, task_id: str, note: str,
                   *, by: str = "") -> CaseTask | None:
         """Append a ``{ts, by, note}`` entry to a task's append-only ``logs`` trail.
         ``note`` is plain data (#9). Returns the updated task, or None."""
         cid = _norm_case_id(case_id)
-        all_tasks = await self._load_all()
-        tasks = list(all_tasks.get(cid, []))
-        updated: CaseTask | None = None
-        for idx, t in enumerate(tasks):
-            if t.id != task_id:
-                continue
-            logs = list(t.logs)
-            logs.append({"ts": iso_now(), "by": (by or "").strip(), "note": (note or "").strip()})
-            updated = t.model_copy(update={"logs": logs})
-            tasks[idx] = updated
-            break
-        if updated is not None:
-            all_tasks[cid] = tasks
-            await self._save_all(all_tasks)
-        return updated
+        by = (by or "").strip()
+        note = (note or "").strip()
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> CaseTask | None:
+            tasks = list(all_tasks.get(cid, []))
+            for idx, t in enumerate(tasks):
+                if t.id != task_id:
+                    continue
+                logs = list(t.logs)
+                logs.append({"ts": iso_now(), "by": by, "note": note})
+                upd = t.model_copy(update={"logs": logs})
+                tasks[idx] = upd
+                all_tasks[cid] = tasks
+                return upd
+            return None
+
+        return await self._mutate(_change)
 
     async def delete_case(self, case_id: str | None) -> bool:
         """Drop an entire case's task list (e.g. on case purge). Returns True if it
         existed."""
         cid = _norm_case_id(case_id)
-        all_tasks = await self._load_all()
-        if cid not in all_tasks:
-            return False
-        del all_tasks[cid]
-        await self._save_all(all_tasks)
-        return True
+
+        def _change(all_tasks: dict[str, list[CaseTask]]) -> bool:
+            if cid not in all_tasks:
+                return False
+            del all_tasks[cid]
+            return True
+
+        return await self._mutate(_change)

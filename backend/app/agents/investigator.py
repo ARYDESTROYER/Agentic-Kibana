@@ -118,8 +118,19 @@ class Investigator:
         persona: AgentPersona | None = None,
         playbook: "Playbook | None" = None,
         memory: list[MemoryEntry] | None = None,
+        cost_sink: list[float] | None = None,
     ) -> tuple[VerdictResult, float]:
         cost = 0.0
+
+        def _account(value: float) -> None:
+            """Mirror each REALISED gateway cost into the optional ``cost_sink`` the
+            moment it lands, so an outer timeout that cancels this coroutine mid-ReAct
+            can still reconcile ``Case.token_cost`` with the spend already on the
+            ledger. ``sum(cost_sink contributions) == cost`` on the normal path — the
+            sink never substitutes for the return value, it only RECORDS partials (#6:
+            one ledger write per call is untouched)."""
+            if cost_sink is not None:
+                cost_sink.append(value)
         # Per-rule model selection (C3-6b): resolve via the cluster's primary rule;
         # identical to ``prefs.investigator_model``/``prefs.formatter_model`` when
         # no per-rule override exists.
@@ -203,6 +214,7 @@ class Investigator:
                     return _fail_to_human(f"investigator model error: {exc}", cluster, prefs), cost
 
                 cost += res.cost
+                _account(res.cost)  # leaf: this ReAct gateway call is now on the ledger
                 budget.add_tokens(res.prompt_tokens, res.completion_tokens)
                 obj = extract_json(res.text)
 
@@ -282,6 +294,7 @@ class Investigator:
                 model_cfg=prefs.model_for_rule(Role.FORMATTER, primary_rule),
             )
             cost += fcost
+            _account(fcost)  # leaf: the formatter gateway call is now on the ledger
             if not verdict.reproduce_query:
                 verdict.reproduce_query = entity_kql(cluster, prefs)
 

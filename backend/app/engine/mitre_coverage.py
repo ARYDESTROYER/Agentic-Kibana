@@ -71,7 +71,26 @@ def _tactics_of(meta: dict[str, Any]) -> list[str]:
     return out
 
 
-def compute_mitre_coverage(cases: list[Case]) -> dict[str, Any]:
+def _truncation_marker(fetched_count: int, store_total: int | None) -> dict[str, Any]:
+    """Honest partial-result provenance (mirrors ``metrics.truncation_marker``).
+
+    When ``store_total`` exceeds the count fetched FROM THE STORE the coverage tally is
+    computed over only the newest N cases, so the covered-technique count is a LOWER
+    BOUND; the flag lets the UI label it as such instead of silently presenting an
+    undercount. ``truncated`` reflects the store fetch cap only — an in-window filter
+    narrowing the set is expected, not a missing tail. When the caller omits
+    ``store_total`` we assume the fetched set is the whole population."""
+    fetched = int(fetched_count)
+    total = int(store_total) if store_total is not None else fetched
+    return {"truncated": total > fetched, "store_total": total, "fetched": fetched}
+
+
+def compute_mitre_coverage(
+    cases: list[Case],
+    *,
+    store_total: int | None = None,
+    fetched_count: int | None = None,
+) -> dict[str, Any]:
     """Tally ``Case.mitre`` across ``cases`` against the bundled corpus.
 
     Pure + deterministic. Output:
@@ -86,6 +105,9 @@ def compute_mitre_coverage(cases: list[Case]) -> dict[str, Any]:
       where ``techniques`` are the COVERED ones (id/name/case_count), sorted by
       case_count desc then id.
     * ``top_techniques`` — the most-seen covered techniques across all tactics.
+    * ``truncated`` / ``store_total`` / ``fetched`` — partial-result provenance: when
+      the route's store fetch was capped (``store_total > fetched``) the covered tally
+      is a LOWER BOUND, not the full picture, and ``truncated`` is True.
     """
     corpus = _corpus()
 
@@ -163,6 +185,10 @@ def compute_mitre_coverage(cases: list[Case]) -> dict[str, Any]:
         "invalid_dropped": invalid_dropped,
         "by_tactic": by_tactic,
         "top_techniques": top[:25],
+        # ``fetched_count`` (rows pulled from the store, pre-window) is used for the
+        # truncation comparison when the caller pre-window-filters; else fall back to
+        # ``len(cases)`` (no pre-filtering → the input IS the fetched set).
+        **_truncation_marker(len(cases) if fetched_count is None else fetched_count, store_total),
     }
 
 
@@ -181,15 +207,25 @@ def _heat_color(count: int, max_count: int) -> str:
 
 
 def navigator_layer(
-    cases: list[Case], *, name: str = "TLSOC case coverage", window_hours: int | None = None
+    cases: list[Case],
+    *,
+    name: str = "TLSOC case coverage",
+    window_hours: int | None = None,
+    store_total: int | None = None,
+    fetched_count: int | None = None,
 ) -> dict[str, Any]:
     """Build an ATT&CK Navigator **v4.5** layer dict from our case load.
 
     Each covered, VALID technique becomes a layer ``technique`` entry scored by the
     number of cases that referenced it, with a heat colour + a comment naming the
     case count. The layer is pure JSON the UI can hand to the Navigator unchanged.
-    Invalid/forged ids never appear (#9 — dropped by ``compute_mitre_coverage``)."""
-    coverage = compute_mitre_coverage(cases)
+    Invalid/forged ids never appear (#9 — dropped by ``compute_mitre_coverage``).
+    When ``store_total`` exceeds the count fetched from the store the layer's metadata
+    records that it was scored over a TRUNCATED (newest-N) case set, so the export is
+    honest."""
+    coverage = compute_mitre_coverage(
+        cases, store_total=store_total, fetched_count=fetched_count
+    )
     by_tactic = coverage["by_tactic"]
 
     # Flatten to per-technique max case_count (a technique may surface under several
@@ -245,5 +281,7 @@ def navigator_layer(
             {"name": "corpus", "value": coverage["corpus_version"]},
             {"name": "covered_techniques", "value": str(coverage["covered_techniques"])},
             {"name": "total_techniques", "value": str(coverage["total_techniques"])},
+            {"name": "truncated", "value": str(bool(coverage["truncated"])).lower()},
+            {"name": "store_total", "value": str(coverage["store_total"])},
         ],
     }

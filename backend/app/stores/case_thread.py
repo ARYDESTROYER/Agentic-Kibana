@@ -23,13 +23,16 @@ glitch can never drop an alert or break a case page.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import CASE_THREAD_KEY, CASE_THREAD_NS
 from ..models import CaseMessage
 from ..utils import iso_now
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.case_thread")
 
@@ -47,15 +50,10 @@ class CaseThreadStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, list[CaseMessage]]:
-        try:
-            doc = await self._kv.get(CASE_THREAD_NS, CASE_THREAD_KEY)
-        except Exception as exc:  # noqa: BLE001 — threads are best-effort
-            logger.warning("Loading case threads failed (%s); using empty set", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, list[CaseMessage]]:
         raw = doc.get("threads", {}) if isinstance(doc, dict) else {}
         out: dict[str, list[CaseMessage]] = {}
         for cid, items in (raw or {}).items():
@@ -68,15 +66,30 @@ class CaseThreadStore:
             out[str(cid)] = msgs
         return out
 
-    async def _save_all(self, threads: dict[str, list[CaseMessage]]) -> None:
+    @staticmethod
+    def _encode(threads: dict[str, list[CaseMessage]]) -> dict:
+        return {"threads": {cid: [m.model_dump(mode="json") for m in msgs]
+                            for cid, msgs in threads.items()}}
+
+    async def _load_all(self) -> dict[str, list[CaseMessage]]:
         try:
-            await self._kv.put(
-                CASE_THREAD_NS, CASE_THREAD_KEY,
-                {"threads": {cid: [m.model_dump(mode="json") for m in msgs]
-                             for cid, msgs in threads.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting case threads failed (%s); continuing", exc)
+            doc = await self._kv.get(CASE_THREAD_NS, CASE_THREAD_KEY)
+        except Exception as exc:  # noqa: BLE001 — threads are best-effort
+            logger.warning("Loading case threads failed (%s); using empty set", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, list[CaseMessage]]], _T]) -> _T:
+        """Atomic read-modify-write over the shared thread doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            threads = self._decode(current)
+            box["r"] = change(threads)
+            return self._encode(threads)
+
+        await kv_mutate(self._kv, CASE_THREAD_NS, CASE_THREAD_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def list_for_case(self, case_id: str | None) -> list[CaseMessage]:
         """Every message for a case in insertion (chronological) order — including
@@ -101,11 +114,13 @@ class CaseThreadStore:
         cid = _norm_case_id(message.case_id)
         if not cid:
             raise ValueError("message.case_id is required")
-        threads = await self._load_all()
-        msgs = list(threads.get(cid, []))
-        msgs.append(message)
-        threads[cid] = msgs
-        await self._save_all(threads)
+
+        def _change(threads: dict[str, list[CaseMessage]]) -> None:
+            msgs = list(threads.get(cid, []))
+            msgs.append(message)
+            threads[cid] = msgs
+
+        await self._mutate(_change)
         return message
 
     async def edit(self, case_id: str | None, message_id: str, body: str,
@@ -113,38 +128,38 @@ class CaseThreadStore:
         """Edit a message body in place (stamps ``edited_at``). Editing a tombstoned
         (deleted) message is a no-op (returns None). ``body`` is plain data (#9)."""
         cid = _norm_case_id(case_id)
-        threads = await self._load_all()
-        msgs = list(threads.get(cid, []))
-        updated: CaseMessage | None = None
-        for idx, m in enumerate(msgs):
-            if m.id != message_id or m.deleted_at:
-                continue
-            updated = m.model_copy(update={"body": body or "", "edited_at": iso_now()})
-            msgs[idx] = updated
-            break
-        if updated is not None:
-            threads[cid] = msgs
-            await self._save_all(threads)
-        return updated
+
+        def _change(threads: dict[str, list[CaseMessage]]) -> CaseMessage | None:
+            msgs = list(threads.get(cid, []))
+            for idx, m in enumerate(msgs):
+                if m.id != message_id or m.deleted_at:
+                    continue
+                upd = m.model_copy(update={"body": body or "", "edited_at": iso_now()})
+                msgs[idx] = upd
+                threads[cid] = msgs
+                return upd
+            return None
+
+        return await self._mutate(_change)
 
     async def delete(self, case_id: str | None, message_id: str) -> CaseMessage | None:
         """Tombstone a message (sets ``deleted_at`` — the row STAYS so threaded
         replies keep their parent and the audit/UI can render 'deleted'). Returns
         the tombstoned message, or None if not found / already deleted."""
         cid = _norm_case_id(case_id)
-        threads = await self._load_all()
-        msgs = list(threads.get(cid, []))
-        updated: CaseMessage | None = None
-        for idx, m in enumerate(msgs):
-            if m.id != message_id or m.deleted_at:
-                continue
-            updated = m.model_copy(update={"deleted_at": iso_now(), "body": ""})
-            msgs[idx] = updated
-            break
-        if updated is not None:
-            threads[cid] = msgs
-            await self._save_all(threads)
-        return updated
+
+        def _change(threads: dict[str, list[CaseMessage]]) -> CaseMessage | None:
+            msgs = list(threads.get(cid, []))
+            for idx, m in enumerate(msgs):
+                if m.id != message_id or m.deleted_at:
+                    continue
+                upd = m.model_copy(update={"deleted_at": iso_now(), "body": ""})
+                msgs[idx] = upd
+                threads[cid] = msgs
+                return upd
+            return None
+
+        return await self._mutate(_change)
 
     async def react(self, case_id: str | None, message_id: str, emoji: str,
                     user: str, *, remove: bool = False) -> CaseMessage | None:
@@ -157,33 +172,35 @@ class CaseThreadStore:
         user = (user or "").strip()
         if not emoji:
             return await self.get(case_id, message_id)
-        threads = await self._load_all()
-        msgs = list(threads.get(cid, []))
-        updated: CaseMessage | None = None
-        for idx, m in enumerate(msgs):
-            if m.id != message_id or m.deleted_at:
-                continue
-            reactions = [
-                r for r in m.reactions
-                if not (isinstance(r, dict) and r.get("emoji") == emoji and r.get("user") == user)
-            ]
-            if not remove:
-                reactions.append({"emoji": emoji, "user": user})
-            updated = m.model_copy(update={"reactions": reactions})
-            msgs[idx] = updated
-            break
-        if updated is not None:
-            threads[cid] = msgs
-            await self._save_all(threads)
-        return updated
+
+        def _change(threads: dict[str, list[CaseMessage]]) -> CaseMessage | None:
+            msgs = list(threads.get(cid, []))
+            for idx, m in enumerate(msgs):
+                if m.id != message_id or m.deleted_at:
+                    continue
+                reactions = [
+                    r for r in m.reactions
+                    if not (isinstance(r, dict) and r.get("emoji") == emoji and r.get("user") == user)
+                ]
+                if not remove:
+                    reactions.append({"emoji": emoji, "user": user})
+                upd = m.model_copy(update={"reactions": reactions})
+                msgs[idx] = upd
+                threads[cid] = msgs
+                return upd
+            return None
+
+        return await self._mutate(_change)
 
     async def delete_case(self, case_id: str | None) -> bool:
         """Drop an entire case's thread (e.g. on case purge). Returns True if it
         existed."""
         cid = _norm_case_id(case_id)
-        threads = await self._load_all()
-        if cid not in threads:
-            return False
-        del threads[cid]
-        await self._save_all(threads)
-        return True
+
+        def _change(threads: dict[str, list[CaseMessage]]) -> bool:
+            if cid not in threads:
+                return False
+            del threads[cid]
+            return True
+
+        return await self._mutate(_change)

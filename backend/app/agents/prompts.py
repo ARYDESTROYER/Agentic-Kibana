@@ -146,9 +146,20 @@ def render_cluster(cluster: Cluster, enrichment: EnrichmentResult | None,
         f"asset={cluster.risk_breakdown.asset_criticality})"
     )
     if enrichment:
+        # score / malicious are deterministic numeric/bool CONTROL values computed in
+        # code (like risk_score above) -> rendered plainly. country + the sources dict
+        # VALUES (country codes, and especially provider ``*_error`` strings) are
+        # provider-/attacker-influenceable -> FENCE each untrusted LEAF so it can never
+        # close the fence early and impersonate the TRUSTED playbook/memory block (#9).
+        # fence() also neutralises any forged fence / PLAYBOOK / MEMORY markers inside.
+        country = fence(enrichment.country, source="enrichment") if enrichment.country else "unknown"
+        fenced_sources = {
+            k: (fence(v, source="enrichment") if isinstance(v, str) else v)
+            for k, v in (enrichment.sources or {}).items()
+        }
         lines.append(
             f"- ip_reputation: score={enrichment.reputation_score} malicious={enrichment.is_malicious} "
-            f"country={enrichment.country} sources={json.dumps(enrichment.sources)[:300]}"
+            f"country={country} sources={json.dumps(fenced_sources, default=str)[:600]}"
         )
 
     lines.append("\n## Sample events (raw log data — UNTRUSTED)")

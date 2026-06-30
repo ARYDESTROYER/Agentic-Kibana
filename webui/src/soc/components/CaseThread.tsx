@@ -538,6 +538,32 @@ const MessageItem: React.FC<MessageItemProps> = ({
   );
 };
 
+/* ----------------------------------------------------------- visible count -- */
+
+/**
+ * The number of messages the thread actually RENDERS — i.e. every message EXCEPT a
+ * tombstoned ROOT that has no replies (those are dropped as nothing-useful-to-show;
+ * a tombstoned root WITH replies still renders as a placeholder to anchor them).
+ *
+ * Exported so the Discussion badge in CaseDetail counts the exact same set the list
+ * renders (see {@link CaseThread}'s `visibleRoots`) — the two must never drift.
+ */
+export function visibleMessageCount(messages: CaseMessage[]): number {
+  const replyParents = new Set<string>();
+  for (const m of messages) {
+    if (m.parent_id) replyParents.add(m.parent_id);
+  }
+  let count = 0;
+  for (const m of messages) {
+    const tombstoned = Boolean(m.deleted || m.deleted_at);
+    // A parentless tombstone with no replies is hidden; everything else renders
+    // (live messages, replies, and tombstoned roots that still anchor a reply).
+    if (tombstoned && !m.parent_id && !replyParents.has(m.id)) continue;
+    count += 1;
+  }
+  return count;
+}
+
 /* --------------------------------------------------------------- component -- */
 
 export interface CaseThreadProps {

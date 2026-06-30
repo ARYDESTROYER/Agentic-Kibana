@@ -25,12 +25,15 @@ caller error), never on a backend failure.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import CUSTOM_ROLES_KEY, CUSTOM_ROLES_NS
 from ..models import CustomRole
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.custom_roles")
 
@@ -52,15 +55,10 @@ class CustomRoleStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, list[CustomRole]]:
-        try:
-            doc = await self._kv.get(CUSTOM_ROLES_NS, CUSTOM_ROLES_KEY)
-        except Exception as exc:  # noqa: BLE001 — roles are best-effort to LOAD
-            logger.warning("Loading custom roles failed (%s); using empty set", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, list[CustomRole]]:
         raw = doc.get("roles", {}) if isinstance(doc, dict) else {}
         out: dict[str, list[CustomRole]] = {}
         for scope, items in (raw or {}).items():
@@ -73,15 +71,30 @@ class CustomRoleStore:
             out[str(scope)] = roles
         return out
 
-    async def _save_all(self, all_roles: dict[str, list[CustomRole]]) -> None:
+    @staticmethod
+    def _encode(all_roles: dict[str, list[CustomRole]]) -> dict:
+        return {"roles": {scope: [r.model_dump(mode="json") for r in roles]
+                          for scope, roles in all_roles.items()}}
+
+    async def _load_all(self) -> dict[str, list[CustomRole]]:
         try:
-            await self._kv.put(
-                CUSTOM_ROLES_NS, CUSTOM_ROLES_KEY,
-                {"roles": {scope: [r.model_dump(mode="json") for r in roles]
-                           for scope, roles in all_roles.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting custom roles failed (%s); continuing", exc)
+            doc = await self._kv.get(CUSTOM_ROLES_NS, CUSTOM_ROLES_KEY)
+        except Exception as exc:  # noqa: BLE001 — roles are best-effort to LOAD
+            logger.warning("Loading custom roles failed (%s); using empty set", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, list[CustomRole]]], _T]) -> _T:
+        """Atomic read-modify-write over the shared roles doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            all_roles = self._decode(current)
+            box["r"] = change(all_roles)
+            return self._encode(all_roles)
+
+        await kv_mutate(self._kv, CUSTOM_ROLES_NS, CUSTOM_ROLES_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def list(self, scope: str = _DEFAULT_SCOPE) -> list[CustomRole]:
         """Every custom role in the (org) scope, in stored order."""
@@ -104,22 +117,26 @@ class CustomRoleStore:
         if not name:
             raise ValueError("custom role name is required")
         validated = validated.model_copy(update={"name": name})
-        all_roles = await self._load_all()
-        roles = [r for r in all_roles.get(scope, []) if r.name.strip().lower() != name.lower()]
-        roles.append(validated)
-        all_roles[scope] = roles
-        await self._save_all(all_roles)
-        return validated
+
+        def _change(all_roles: dict[str, list[CustomRole]]) -> CustomRole:
+            roles = [r for r in all_roles.get(scope, []) if r.name.strip().lower() != name.lower()]
+            roles.append(validated)
+            all_roles[scope] = roles
+            return validated
+
+        return await self._mutate(_change)
 
     async def delete(self, name: str, scope: str = _DEFAULT_SCOPE) -> bool:
         """Delete a custom role by name (case-insensitive). Returns True if it
         existed."""
         needle = _norm_name(name).lower()
-        all_roles = await self._load_all()
-        roles = all_roles.get(scope, [])
-        remaining = [r for r in roles if r.name.strip().lower() != needle]
-        if len(remaining) == len(roles):
-            return False
-        all_roles[scope] = remaining
-        await self._save_all(all_roles)
-        return True
+
+        def _change(all_roles: dict[str, list[CustomRole]]) -> bool:
+            roles = all_roles.get(scope, [])
+            remaining = [r for r in roles if r.name.strip().lower() != needle]
+            if len(remaining) == len(roles):
+                return False
+            all_roles[scope] = remaining
+            return True
+
+        return await self._mutate(_change)

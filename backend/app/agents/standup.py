@@ -21,7 +21,14 @@ from typing import Any
 
 from ..audit.audit_log import AuditLogger
 from ..config import Preferences
-from ..constants import CASES_READ_PATTERN, OPEN_CASE_STATUSES, ActionType, Role
+from ..constants import (
+    CASES_READ_PATTERN,
+    OPEN_CASE_STATUSES,
+    UNTRUSTED_CLOSE,
+    UNTRUSTED_OPEN,
+    ActionType,
+    Role,
+)
 from ..engine import shift_report
 from ..es.base import BaseESClient
 from ..es.querybuilder import standup_aggregations
@@ -34,8 +41,20 @@ logger = logging.getLogger("tlsoc.agents.standup")
 
 # Bound how many OPEN cases the shift rollup pulls per status so a huge tenant can't
 # turn the standup into an unbounded scan; the attention queue itself is capped again
-# at read time. Ranking is by urgency, so the most-pressing cases surface regardless.
+# at read time. Ranking is by RISK (the dominant urgency signal — 0.5 weight in
+# ``shift_report.urgency_score``), so a stale-but-high-risk SLA-breached case can no
+# longer be evicted by recency before urgency ranking even when one status holds more
+# than this many open cases. In tenants with >LIMIT high-risk open cases in a single
+# status, lower-risk cases beyond the cap are omitted from the brief.
 _OPEN_FETCH_LIMIT = 500
+
+# When fencing the COMPACT aggregate for the model we wrap the WHOLE structured payload
+# in the untrusted markers (so the model treats it as DATA) but we must NOT shove the
+# multi-KB JSON through the per-VALUE ``fence()`` whose 600-char cap is meant to bound a
+# single leaf — that silently dropped 80-95% of the shift handoff. Instead each untrusted
+# LEAF string is neutralised + fenced individually (each is short), and the assembled
+# JSON is bounded only by a generous final safety net.
+_FENCE_BLOCK_MAX_CHARS = 16000
 
 # What-needs-attention-first standup prompt (Feature 11). A LOCAL specialisation of the
 # base standup writer so we do NOT touch the shared agents/prompts.py this wave; it adds
@@ -216,26 +235,42 @@ class StandupService:
 
     async def _open_cases(self) -> list[Any]:
         """Pull the live OPEN cases (bounded). Never raises — a degraded store yields []
-        and the shift block reports empty rather than 500ing the standup."""
+        and the shift block reports empty rather than 500ing the standup.
+
+        The bound is aligned with the RANKING signals, not recency: per status we fetch
+        the UNION of (a) the top-N by ``risk_score`` desc — risk is the dominant urgency
+        term (0.5 weight) — and (b) the oldest-N by ``created_at`` asc — the SLA-aging
+        dimension is purely age-based. Deduped, this guarantees a stale-but-SLA-breached
+        high-risk case survives the cap and reaches urgency ranking, where the old
+        ``updated_at``-desc fetch would have evicted it behind 500 freshly-touched
+        benign cases (both ``risk_score`` and ``created_at`` are sortable columns in the
+        ES and SQL backends)."""
         if self._cases is None:
             return []
         seen: set[str] = set()
         out: list[Any] = []
         for status in OPEN_CASE_STATUSES:
-            try:
-                cases, _ = await self._cases.list(
-                    status=status, limit=_OPEN_FETCH_LIMIT, sort_field="updated_at"
-                )
-            except Exception as exc:  # noqa: BLE001 — best-effort; one status failing
-                logger.warning("open-case fetch (status=%s) failed: %s", status, exc)
-                continue
-            for case in cases:
-                cid = getattr(case, "case_id", "") or ""
-                if cid and cid in seen:
+            for sort_field, sort_order in (("risk_score", "desc"), ("created_at", "asc")):
+                try:
+                    cases, _ = await self._cases.list(
+                        status=status,
+                        limit=_OPEN_FETCH_LIMIT,
+                        sort_field=sort_field,
+                        sort_order=sort_order,
+                    )
+                except Exception as exc:  # noqa: BLE001 — best-effort; one fetch failing
+                    logger.warning(
+                        "open-case fetch (status=%s sort=%s) failed: %s",
+                        status, sort_field, exc,
+                    )
                     continue
-                if cid:
-                    seen.add(cid)
-                out.append(case)
+                for case in cases:
+                    cid = getattr(case, "case_id", "") or ""
+                    if cid and cid in seen:
+                        continue
+                    if cid:
+                        seen.add(cid)
+                    out.append(case)
         return out
 
     async def _action_items(self) -> list[dict[str, Any]]:
@@ -251,8 +286,6 @@ class StandupService:
         return [i.model_dump(mode="json") for i in items]
 
     async def _summarise(self, aggregate: dict[str, Any], prefs: Preferences) -> tuple[str, float]:
-        from .prompts import fence
-
         # Lead with the shift-handoff framing when the compact aggregate carries the
         # deterministic ``shift`` block (Feature 11); otherwise use the base standup
         # prompt for byte-identical legacy behaviour.
@@ -264,11 +297,14 @@ class StandupService:
             system = STANDUP_SYSTEM
         # Fence the aggregate: bucket keys + shift-block values (usernames/IPs/rule
         # names/case titles/entities) are log-/case-derived and therefore untrusted
-        # (Non-negotiable #9). ONLY this compact aggregate goes to the model — never
-        # raw logs or full case bodies (#7).
+        # (Non-negotiable #9). We fence the WHOLE structured aggregate via fence_block —
+        # scrubbing forged markers in each untrusted LEAF but sending the structure WHOLE
+        # — instead of pushing the multi-KB JSON through the per-value fence() whose
+        # 600-char cap would silently drop 80-95% of the shift handoff. ONLY this compact
+        # aggregate goes to the model — never raw logs or full case bodies (#7).
         messages = [
             {"role": "system", "content": system},
-            {"role": "user", "content": fence(json.dumps(aggregate, default=str))},
+            {"role": "user", "content": fence_block(aggregate)},
         ]
         await self._audit.record(
             action_type=ActionType.PROMPT, surface=Role.STANDUP.value, actor=Role.STANDUP.value,
@@ -290,14 +326,91 @@ def _buckets(agg: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [{"key": b.get("key"), "count": b.get("doc_count")} for b in agg.get("buckets", [])]
 
 
+# --------------------------------------------------------------------------- #
+# Whole-aggregate untrusted fencing (#9 without #7-breaking truncation)
+# --------------------------------------------------------------------------- #
+# Forged-marker neutralisation, identical to the replacements ``prompts.fence`` applies
+# to a single value, so an attacker-controlled LEAF (an IP / username / rule id / case
+# title) can never close the fence early or impersonate the TRUSTED PLAYBOOK / MEMORY
+# blocks. Applied per-leaf AND once more over the assembled JSON (defence in depth).
+_FORGED_MARKERS: tuple[tuple[str, str], ...] = (
+    (UNTRUSTED_OPEN, "<fence>"),
+    (UNTRUSTED_CLOSE, "</fence>"),
+    ("<<<PLAYBOOK>>>", "<pb>"),
+    ("<<<END_PLAYBOOK>>>", "</pb>"),
+    ("<<<MEMORY>>>", "<mem>"),
+    ("<<<END_MEMORY>>>", "</mem>"),
+)
+
+
+def _neutralise_markers(text: str) -> str:
+    for marker, repl in _FORGED_MARKERS:
+        text = text.replace(marker, repl)
+    return text
+
+
+def _fence_leaves(value: Any) -> Any:
+    """Recursively neutralise forged fence/PLAYBOOK/MEMORY markers in every STRING leaf
+    of a system-built aggregate, leaving numeric/bool/None control values + the dict
+    structure itself intact.
+
+    The aggregate is a deterministic, code-built structure (top-N lists, a bounded
+    attention queue, headline counts). Its ONLY attacker-influenceable parts are the
+    leaf strings (entity values, usernames, IPs, rule ids, case titles). We scrub THOSE
+    in place — short, per-leaf — so the whole structure can travel to the model WHOLE,
+    fenced as untrusted DATA, without the 600-char per-value cap eating the handoff."""
+    if isinstance(value, str):
+        return _neutralise_markers(value)
+    if isinstance(value, dict):
+        return {k: _fence_leaves(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_fence_leaves(v) for v in value]
+    return value
+
+
+def fence_block(value: Any, *, source: str = "log", max_chars: int = _FENCE_BLOCK_MAX_CHARS) -> str:
+    """Fence a WHOLE system-built aggregate as untrusted DATA WITHOUT per-value truncation.
+
+    Unlike ``prompts.fence`` (which bounds a SINGLE leaf value at 600 chars), this wraps a
+    structured, code-assembled payload (a dict/list of bounded top-N facets) in the same
+    OPEN/CLOSE markers + ``source=`` provenance, scrubbing forged markers in every string
+    LEAF first so the markers stay balanced (#9) — but it sends the structure WHOLE
+    (bounded only by a generous ``max_chars`` safety net) so the standup / chat aggregate
+    is no longer 80-95% truncated before it reaches the model. The aggregate is still ONLY
+    the compact aggregate — never raw logs / full case bodies (#7).
+
+    ``value`` may be a pre-serialised JSON string or a python structure; either way the
+    leaves are scrubbed (a string input is scrubbed wholesale)."""
+    if isinstance(value, str):
+        body = _neutralise_markers(value)
+    else:
+        body = json.dumps(_fence_leaves(value), default=str)
+        # Defence in depth: scrub once more over the serialised form in case a marker
+        # straddled a key/value boundary after serialisation.
+        body = _neutralise_markers(body)
+    if len(body) > max_chars:
+        logger.warning(
+            "fence_block payload %d chars exceeds the %d-char safety net; truncating "
+            "(consider tightening the aggregate top-N upstream)", len(body), max_chars
+        )
+        body = body[: max_chars - 1] + "…"
+    label = f" source={source}"
+    return f"{UNTRUSTED_OPEN}{label}\n{body}\n{UNTRUSTED_CLOSE}"
+
+
 def _prior_window_cases(cases: list[Any], *, ref: Any, window_hours: int) -> list[Any]:
     """Approximate the OPEN snapshot one equal window ago from the CURRENT open cases.
 
-    A case that is STILL open now and was created before the current window started was
-    also open at the previous window boundary — so the subset created at/before
-    ``ref - 2*window`` ... ``ref - window`` (i.e. older than one window) is a
-    deterministic, no-extra-query proxy for the prior window's open set. This keeps the
-    delta apples-to-apples without a second store round-trip. Never raises."""
+    A case that is STILL open now and was created at/before the start of the current
+    window (``ref - window_hours``) was therefore also open at that prior window boundary
+    — so the subset created at/before ``ref - window_hours`` (a single UPPER bound, NO
+    lower bound: a genuinely old still-open case still counts) is a deterministic,
+    no-extra-query proxy for the prior window's open snapshot. This keeps the
+    open-snapshot delta apples-to-apples without a second store round-trip. Never raises.
+
+    NOTE: do NOT add a ``ref - 2*window`` lower bound — that would wrongly drop
+    long-overdue cases that are STILL open and so were also open one window ago, breaking
+    the proxy."""
     from datetime import timedelta
 
     try:

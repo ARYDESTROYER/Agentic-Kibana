@@ -14,8 +14,10 @@
 > (Standup stays aggregate-then-summarise), and **#9** (every new log/source/operator/AI
 > -influenceable value is fenced before a prompt and escaped in the UI).
 >
-> **Green baseline:** backend **1109 pytest** (794 → 802 → 900 → 1074 → 1109) · webui
-> `tsc + vite` clean · **175 vitest** (86 → 175) · eslint 0 rules-of-hooks errors.
+> **Green baseline:** backend **1142+ pytest** (794 → 802 → 900 → 1074 → 1109 → 1142;
+> rising as the post-round harden-wave regression tests land — see `Journal.md` for the
+> exact current count) · webui `tsc + vite` clean · **181+ vitest** (86 → 175 → 181) ·
+> eslint 0 rules-of-hooks errors.
 >
 > **Commit chain:** `bffe4b8` (W0) → `59c2999` (W1) → `2295363` (W2) → `8b25ca2` (W2.5)
 > → `3610147` (W3) → the live-wiring / RAG-fencing-security / docs wave (W4).
@@ -32,7 +34,7 @@
 | 4 | Per-case human+AI ticket collaboration | W1, W2, W3 | Threaded human/ai/system messages + reactions + tasks + @mentions + activity feed |
 | 5 | Richer posture dashboard | W2, W3 | Server-side MTTA/MTTR/dwell + SLA/aging + deltas + MITRE coverage + Navigator layer |
 | 6 | Fine-grained permissions | W1, W2, W2.5, W3 | Custom roles + inheritance + explicit DENY + opt-in row-scope hook (server-enforced) |
-| 7 | +15–20 enrichment sources | W1, W2, W2.5 | `EnrichmentProvider` SPI + **17 providers** + multi-indicator (IP/domain/hash/url/email) |
+| 7 | +15–20 enrichment sources | W1, W2, W2.5 | `EnrichmentProvider` SPI + **+17 new providers (19 registered)** + multi-indicator (IP/domain/hash/url/email) |
 | 8 | In-app notification delivery | W1, W2, W3 | Per-user fan-out inbox + bell + per-category×channel prefs + quiet-hours/digest |
 | 9 | Standardized/customizable Models page | W0, W2, W2.5, W3 | Provider registry (Azure/Bedrock/Vertex/OpenAI-compatible) + registry JSON + `BudgetGate` |
 | 10 | Distinctive (less generic) UI | W0, W3 | Opt-in "command" material pack + glass chrome + page archetypes + editorial charts |
@@ -120,7 +122,8 @@ routers in `main.py` and wires services in `state.py`.
   risk/severity/age/SLA + SLA aging + per-analyst workload + deltas, all deterministic,
   no LLM) folded into `StandupService`; the forward-looking JSON still goes to the cheap
   model as a compact fenced aggregate (#7/#9). Router `routes_standup.py`.
-- **#7 enrichment** — **17 providers** behind the SPI (see the catalog below),
+- **#7 enrichment** — **+17 new providers (19 registered classes)** behind the SPI
+  (the abuse.ch entry spans urlhaus/threatfox/malwarebazaar; see the catalog below),
   multi-indicator via `enrich_indicator(value, kind)`, per-provider rate guard,
   fail-open + cached. Router `routes_enrichment.py`.
 - **#9 models** — a `PROVIDER_REGISTRY` replacing the gateway if/elif (generalized
@@ -287,7 +290,13 @@ Mounted under `require_auth`; every non-GET route carries an authZ gate
 
 ---
 
-## Enrichment provider catalog (17, behind the SPI)
+## Enrichment provider catalog (17 entries / 19 registered classes, behind the SPI)
+
+> Counting rule: **19** provider classes are registered in `BUILTIN_PROVIDERS`; the
+> abuse.ch row below is **one** catalog entry that fans out to **3** classes
+> (URLhaus / ThreatFox / MalwareBazaar), so the 17 rows = 19 classes. The "+17 new"
+> framing elsewhere counts Round-3 additions on top of the pre-existing AbuseIPDB +
+> VirusTotal (19 − 2 = 17).
 
 | Provider | Indicators | Key | Default | Env (`TLSOC_…`) |
 |---|---|---|---|---|

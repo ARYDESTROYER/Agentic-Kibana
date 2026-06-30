@@ -65,8 +65,9 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **1109 tests**
-  green is the primary correctness gate (auth DEFAULT OFF, so the suite runs
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. **1142+ tests**
+  green (rising each harden wave — see `Journal.md` for the exact current count) is
+  the primary correctness gate (auth DEFAULT OFF, so the suite runs
   unauthenticated). A `conftest` autouse **network guard** blocks non-loopback egress
   so the new enrichment-provider tests stay deterministic and offline (opt out per
   test with `@pytest.mark.allow_network`). The **SQL state backend is tested offline
@@ -78,7 +79,7 @@ plugin zips are built.
   ```
   The clean `tsc + vite` build (a `dist/` bundle) **is the check** here — there is
   no browser to render it in this sandbox. A dev-only **Vitest** harness
-  (`npm run test`, **175 tests**) covers render/regression of key surfaces (Settings,
+  (`npm run test`, **181+ tests**) covers render/regression of key surfaces (Settings,
   Demo Mode, command palette, customization, the Round-3 nav sidebar / Roles editor /
   Models page / Metrics tabs / CaseDetail chips + trace timeline / Inbox) and runs in
   the CI gate. **Zero new runtime deps** were added across Round 2 **or** Round 3.

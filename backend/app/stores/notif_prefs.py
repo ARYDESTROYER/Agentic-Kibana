@@ -20,12 +20,15 @@ best-effort write and is logged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import NOTIF_PREFS_KEY, NOTIF_PREFS_NS, USER_PREFS_DEFAULT_BUCKET
 from ..models import NotificationPref
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.notif_prefs")
 
@@ -46,6 +49,7 @@ class NotificationPrefsStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        self._lock = asyncio.Lock()
 
     @staticmethod
     def default_for(user_id: str | None) -> NotificationPref:
@@ -54,14 +58,8 @@ class NotificationPrefsStore:
         quiet-hours, digest off. ``user`` carries the normalised id."""
         return NotificationPref(user=normalize_user_id(user_id), categories={}, digest="off")
 
-    async def _load_all(self) -> dict[str, NotificationPref]:
-        try:
-            doc = await self._kv.get(NOTIF_PREFS_NS, NOTIF_PREFS_KEY)
-        except Exception as exc:  # noqa: BLE001 — prefs are best-effort
-            logger.warning("Loading notification prefs failed (%s); using defaults", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, NotificationPref]:
         raw = doc.get("prefs", {}) if isinstance(doc, dict) else {}
         out: dict[str, NotificationPref] = {}
         for uid, item in (raw or {}).items():
@@ -71,14 +69,29 @@ class NotificationPrefsStore:
                 continue
         return out
 
-    async def _save_all(self, prefs: dict[str, NotificationPref]) -> None:
+    @staticmethod
+    def _encode(prefs: dict[str, NotificationPref]) -> dict:
+        return {"prefs": {uid: p.model_dump(mode="json") for uid, p in prefs.items()}}
+
+    async def _load_all(self) -> dict[str, NotificationPref]:
         try:
-            await self._kv.put(
-                NOTIF_PREFS_NS, NOTIF_PREFS_KEY,
-                {"prefs": {uid: p.model_dump(mode="json") for uid, p in prefs.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting notification prefs failed (%s); continuing", exc)
+            doc = await self._kv.get(NOTIF_PREFS_NS, NOTIF_PREFS_KEY)
+        except Exception as exc:  # noqa: BLE001 — prefs are best-effort
+            logger.warning("Loading notification prefs failed (%s); using defaults", exc)
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, NotificationPref]], _T]) -> _T:
+        """Atomic read-modify-write over the shared prefs doc (lost-update safe)."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            prefs = self._decode(current)
+            box["r"] = change(prefs)
+            return self._encode(prefs)
+
+        await kv_mutate(self._kv, NOTIF_PREFS_NS, NOTIF_PREFS_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def get(self, user_id: str | None) -> NotificationPref:
         """A user's notification prefs (a sane default when nothing is stored)."""
@@ -94,36 +107,42 @@ class NotificationPrefsStore:
         ``user`` is forced to the normalised id so the bucket key + body agree."""
         uid = normalize_user_id(user_id)
         pref = pref.model_copy(update={"user": uid})
-        prefs = await self._load_all()
-        prefs[uid] = pref
-        await self._save_all(prefs)
-        return pref
+
+        def _change(prefs: dict[str, NotificationPref]) -> NotificationPref:
+            prefs[uid] = pref
+            return pref
+
+        return await self._mutate(_change)
 
     async def patch(self, user_id: str | None, **fields: Any) -> NotificationPref:
         """Patch only the provided (non-None) top-level fields (``categories`` /
         ``quiet_hours`` / ``digest``). Re-validates through the model so the stored
         object is always a real :class:`NotificationPref`."""
         uid = normalize_user_id(user_id)
-        prefs = await self._load_all()
-        current = prefs.get(uid) or self.default_for(user_id)
-        merged = current.model_dump(mode="json")
-        for key, value in fields.items():
-            if value is None or key == "user":
-                continue
-            merged[key] = value
-        merged["user"] = uid
-        updated = NotificationPref.model_validate(merged)
-        prefs[uid] = updated
-        await self._save_all(prefs)
-        return updated
+
+        def _change(prefs: dict[str, NotificationPref]) -> NotificationPref:
+            current = prefs.get(uid) or self.default_for(user_id)
+            merged = current.model_dump(mode="json")
+            for key, value in fields.items():
+                if value is None or key == "user":
+                    continue
+                merged[key] = value
+            merged["user"] = uid
+            updated = NotificationPref.model_validate(merged)
+            prefs[uid] = updated
+            return updated
+
+        return await self._mutate(_change)
 
     async def delete(self, user_id: str | None) -> bool:
         """Drop a user's pref bucket (e.g. on user delete → falls back to default).
         Returns True if it existed."""
         uid = normalize_user_id(user_id)
-        prefs = await self._load_all()
-        if uid not in prefs:
-            return False
-        del prefs[uid]
-        await self._save_all(prefs)
-        return True
+
+        def _change(prefs: dict[str, NotificationPref]) -> bool:
+            if uid not in prefs:
+                return False
+            del prefs[uid]
+            return True
+
+        return await self._mutate(_change)

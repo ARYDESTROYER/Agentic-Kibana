@@ -210,6 +210,18 @@ class LLMGateway:
         surface: str = "rag",
         case_id: str | None = None,
     ) -> list[list[float]]:
+        """Embed ``texts`` through the provider (then the ledger, #6).
+
+        NOTE: embeddings are METERED but deliberately NOT pre-flight-gated by the
+        BudgetGate. The gate's ``check`` is completion-shaped (it prices a prompt +
+        ``max_tokens`` of OUTPUT) and embeddings have no output-token dimension and
+        are 1-2 orders of magnitude cheaper per call; gating them would add no
+        meaningful spend control while risking a hard-fail of a RAG import on a
+        ceiling that the completion path is already enforcing. The cost still lands
+        in the ledger, so the BudgetGate's rolling-spend read accounts for it on the
+        NEXT completion pre-flight. (If an operator ever needs to cap embedding spend
+        specifically, add an embed-shaped pre-flight here mirroring _budget_preflight.)
+        """
         started = time.perf_counter()
         try:
             provider = self._provider(model_cfg.provider, for_embedding=True,
@@ -227,7 +239,14 @@ class LLMGateway:
             result = await self._mock_fallback.embed(texts, "mock-embed")
             model_used = "mock-embed"
         latency = int((time.perf_counter() - started) * 1000)
-        cost = cost_for(model_used, result.tokens, 0, await self._overlay_tuple(model_used))
+        if self._demo:
+            # $0 mock run — embeddings are input-only, so the synthetic cost mirrors
+            # complete()'s demo branch (and _record's demo fallback) so a demo embed
+            # row's cost matches its pricing_source='zero' "simulated" badge instead
+            # of carrying the real $0.02/1M table rate.
+            cost = _demo_synthetic_cost(result.tokens, 0)
+        else:
+            cost = cost_for(model_used, result.tokens, 0, await self._overlay_tuple(model_used))
         await self._record(Role.EMBEDDING.value, surface, case_id, model_used,
                            result.tokens, 0, latency, UsageOutcome.OK, cost)
         return result.vectors
