@@ -53,6 +53,11 @@ const Audit = React.lazy(() => import('./pages/Audit'));
 const Account = React.lazy(() => import('./pages/Account'));
 const SessionsPage = React.lazy(() => import('./pages/Sessions'));
 const AdminSessions = React.lazy(() => import('./pages/AdminSessions'));
+// Round-3 surfaces: standalone admin/notification pages. Models + Roles are their
+// own admin pages (promoted out of Settings); Inbox is the notification center.
+const Models = React.lazy(() => import('./pages/Models'));
+const Roles = React.lazy(() => import('./pages/Roles'));
+const Inbox = React.lazy(() => import('./pages/Inbox'));
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -81,6 +86,28 @@ function renderPage(
     case 'intelligence':
       // Intelligence = Knowledge | Memory | Playbooks & Agents.
       return <Intelligence onNavigate={navigate} tab={opts?.tab} />;
+
+    // ---- Round-3 nav-child leaf ids that deep-link into a host page's tab. The
+    //      expandable sidebar navigates directly to these leaf ids, so they must
+    //      resolve to the owning host with the right sub-tab pre-selected. ---- //
+    case 'dashboard':
+      // The dashboard IS the Overview/Home posture view (no standalone page).
+      return <Home onNavigate={navigate} tab="dashboard" />;
+    case 'playbooks':
+      // "Playbooks & Agents" is the Catalog tab of the Intelligence host.
+      return <Intelligence onNavigate={navigate} tab="catalog" />;
+
+    // ---- Round-3 standalone admin / notification surfaces ---- //
+    case 'models':
+      // Models & LLMs admin (catalog / cost & budget / providers). Self-gated by
+      // <ProtectedRoute resource="models" action="read"> inside the page.
+      return <Models />;
+    case 'roles':
+      // RBAC roles editor. Self-gated by <ProtectedRoute resource="roles" action="manage">.
+      return <Roles />;
+    case 'inbox':
+      // In-app notification center (the top-bar bell links here).
+      return <Inbox onNavigate={navigate} />;
 
     case 'cases':
       return <Cases onNavigate={navigate} initialStatus={opts?.status} />;

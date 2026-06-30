@@ -92,6 +92,18 @@ import { CustomizationSection } from '@/soc/components/CustomizationSection';
 import { NotificationsEditor } from '@/soc/components/NotificationsEditor';
 import { Can } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
+import {
+  SettingsGrid,
+  SettingsCard,
+  StickySaveBar,
+  SettingsTOC,
+  type SettingsTOCItem,
+} from '@/soc/components/SettingsGrid';
+import {
+  changedKeys as computeChangedKeys,
+  changedPatch,
+  sectionIsDirty,
+} from '@/soc/pages/settings-dirty';
 import { useNavigate } from '@/soc/router';
 import { useAuth } from '@/soc/auth';
 
@@ -106,6 +118,10 @@ import { AdminSessionsInner } from '@/soc/pages/AdminSessions';
 import { SecurityMfaInner, SecuritySsoInner } from '@/soc/pages/Security';
 // Round-2 Wave 5 — the Experimental › Demo Mode control.
 import { DemoModeSection } from '@/soc/components/DemoModeSection';
+// Round-3 Wave 2 — the full enrichment-provider catalog (manifests + write-only
+// secrets + try-a-lookup). Self-contained: fetches its own provider manifests and
+// writes prefs.enrichment.use_* through the shared settings PUT.
+import { EnrichmentProvidersEditor } from '@/soc/components/EnrichmentProvidersEditor';
 
 /* --------------------------------------------------------------- sections --- */
 
@@ -357,6 +373,18 @@ const SECTION_GROUPS: SectionGroup[] = [
 
 const ALL_SECTIONS: SectionMeta[] = SECTION_GROUPS.flatMap((g) => g.sections);
 
+/**
+ * Sections that render their OWN SettingsGrid of cards (full-width, no outer Card
+ * chrome). Everything else sits on the shared single-card surface. Keep in sync with
+ * the sections refactored to `SectionShell` + `SettingsCard`.
+ */
+const GRID_SECTIONS: ReadonlySet<SectionId> = new Set<SectionId>([
+  'general',
+  'detection',
+  'knowledge',
+  'advanced',
+]);
+
 function isSectionId(v: string): v is SectionId {
   return ALL_SECTIONS.some((s) => s.id === v);
 }
@@ -393,6 +421,77 @@ function SubHeader({ title, children }: { title: string; children?: React.ReactN
   return (
     <div className="flex items-center gap-1.5">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Track which anchored `SettingsCard` is currently in view, so the in-section TOC can
+ * highlight it. Pure scroll-spy via IntersectionObserver; no-ops in non-DOM envs.
+ */
+function useActiveAnchor(anchors: string[]): string {
+  const [active, setActive] = React.useState<string>(anchors[0] ?? '');
+  React.useEffect(() => {
+    setActive((cur) => (anchors.includes(cur) ? cur : anchors[0] ?? ''));
+    if (typeof document === 'undefined' || typeof IntersectionObserver === 'undefined') return;
+    const visible = new Map<string, number>();
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) visible.set(e.target.id, e.intersectionRatio);
+          else visible.delete(e.target.id);
+        }
+        let best = '';
+        let bestRatio = -1;
+        for (const [id, ratio] of visible) {
+          if (ratio > bestRatio) {
+            best = id;
+            bestRatio = ratio;
+          }
+        }
+        if (best) setActive(best);
+      },
+      { rootMargin: '-96px 0px -55% 0px', threshold: [0, 0.25, 0.5, 1] },
+    );
+    const els = anchors
+      .map((a) => document.getElementById(a))
+      .filter((el): el is HTMLElement => Boolean(el));
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+    // anchors is a stable literal per section; join for a stable dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchors.join('|')]);
+  return active;
+}
+
+/**
+ * The shared wrapper for a multi-card Settings section: a section title and, for
+ * long sections (≥ 2 TOC items), a sticky in-section anchor TOC that scroll-spies the
+ * cards. The TOC sits as a thin sticky bar above the cards and uses the full width.
+ */
+function SectionShell({
+  title,
+  sub,
+  toc,
+  children,
+}: {
+  title: string;
+  sub?: string;
+  toc?: SettingsTOCItem[];
+  children: React.ReactNode;
+}) {
+  const anchors = React.useMemo(() => (toc ?? []).map((t) => t.anchor), [toc]);
+  const active = useActiveAnchor(anchors);
+  const showToc = (toc?.length ?? 0) >= 2;
+  return (
+    <div className="space-y-6">
+      <SectionTitle title={title} sub={sub} />
+      {showToc ? (
+        <div className="sticky top-2 z-10 -mx-1 overflow-x-auto rounded-lg border border-border bg-card/90 px-1.5 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/75">
+          <SettingsTOC items={toc!} active={active} className="min-w-max flex-row gap-1" />
+        </div>
+      ) : null}
       {children}
     </div>
   );
@@ -607,71 +706,96 @@ function SecretInput({
 
 /* ------------------------------------------------------------- sub-sections - */
 
+const GENERAL_TOC: SettingsTOCItem[] = [
+  { anchor: 'general-sources', label: 'Data sources', icon: Database },
+  { anchor: 'general-mapping', label: 'Log scope & mapping', icon: SlidersHorizontal },
+  { anchor: 'general-polling', label: 'Polling', icon: RefreshCw },
+];
+
 function GeneralSection({ prefs, update, onNavigate }: SecProps & { onNavigate?: (p: any, opts?: any) => void }) {
   return (
-    <div className="space-y-8">
-      <SectionTitle title="General & data scope" sub="The index pattern, the fields the agent maps entities from, and how the durable poller pulls new events." />
-
-      <div className="space-y-4">
-        <SubHeader title="Data sources">
-          <HelpTip text="Connect and manage SIEM/EDR/queue sources (Elasticsearch, OpenSearch, Wazuh, push receivers) on the dedicated Sources page." />
-        </SubHeader>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+    <SectionShell
+      title="General & data scope"
+      sub="The index pattern, the fields the agent maps entities from, and how the durable poller pulls new events."
+      toc={GENERAL_TOC}
+    >
+      <SettingsGrid>
+        <SettingsCard
+          anchor="general-sources"
+          title="Data sources"
+          icon={Database}
+          description="Connect and manage SIEM/EDR/queue sources (Elasticsearch, OpenSearch, Wazuh, push receivers) on the dedicated Sources page."
+          actions={
+            onNavigate ? (
+              <Button variant="outline" size="sm" onClick={() => onNavigate('sources')}>
+                <Database className="h-4 w-4" aria-hidden />
+                Open Sources
+              </Button>
+            ) : null
+          }
+        >
           <p className="text-sm text-muted-foreground">
             Add, edit, and test-connect log sources, and browse a source&apos;s logs.
           </p>
-          {onNavigate ? (
-            <Button variant="outline" size="sm" onClick={() => onNavigate('sources')}>
-              <Database className="h-4 w-4" aria-hidden />
-              Open Sources
-            </Button>
-          ) : null}
-        </div>
-      </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Default log scope & field mapping">
-          <HelpTip text="The fallback index pattern and field mapping used when a source does not override them." />
-        </SubHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextPref label="Log index pattern" value={prefs.data_view_pattern} onChange={(v) => update({ data_view_pattern: v })} />
-          <TextPref label="Timestamp field" value={prefs.time_field} onChange={(v) => update({ time_field: v })} />
-          <TextPref label="Source IP field" value={prefs.source_ip_field} onChange={(v) => update({ source_ip_field: v })} />
-          <TextPref label="User field" value={prefs.user_field} onChange={(v) => update({ user_field: v })} />
-          <TextPref label="Host field" value={prefs.host_field} onChange={(v) => update({ host_field: v })} />
-          <TextPref label="Rule / module field" value={prefs.rule_field} onChange={(v) => update({ rule_field: v })} />
-          <TextPref label="Rule name field" value={prefs.rule_name_field} onChange={(v) => update({ rule_name_field: v })} />
-          <TextPref label="Severity field" value={prefs.severity_field} onChange={(v) => update({ severity_field: v })} />
-          <NumPref label="Severity threshold" value={prefs.severity_threshold} step={0.5} onChange={(v) => update({ severity_threshold: v })} />
-          <TextPref
-            label="Investigate lookback"
-            value={prefs.investigate_lookback}
-            help='Starting window for manual entity investigation, e.g. "now-24h".'
-            onChange={(v) => update({ investigate_lookback: v })}
-          />
-        </div>
-      </div>
+        <SettingsCard
+          anchor="general-mapping"
+          title="Default log scope & field mapping"
+          icon={SlidersHorizontal}
+          description="The fallback index pattern and field mapping used when a source does not override them."
+          wide="full"
+        >
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <TextPref label="Log index pattern" value={prefs.data_view_pattern} onChange={(v) => update({ data_view_pattern: v })} />
+            <TextPref label="Timestamp field" value={prefs.time_field} onChange={(v) => update({ time_field: v })} />
+            <TextPref label="Source IP field" value={prefs.source_ip_field} onChange={(v) => update({ source_ip_field: v })} />
+            <TextPref label="User field" value={prefs.user_field} onChange={(v) => update({ user_field: v })} />
+            <TextPref label="Host field" value={prefs.host_field} onChange={(v) => update({ host_field: v })} />
+            <TextPref label="Rule / module field" value={prefs.rule_field} onChange={(v) => update({ rule_field: v })} />
+            <TextPref label="Rule name field" value={prefs.rule_name_field} onChange={(v) => update({ rule_name_field: v })} />
+            <TextPref label="Severity field" value={prefs.severity_field} onChange={(v) => update({ severity_field: v })} />
+            <NumPref label="Severity threshold" value={prefs.severity_threshold} step={0.5} onChange={(v) => update({ severity_threshold: v })} />
+            <TextPref
+              label="Investigate lookback"
+              value={prefs.investigate_lookback}
+              help='Starting window for manual entity investigation, e.g. "now-24h".'
+              onChange={(v) => update({ investigate_lookback: v })}
+            />
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Polling">
-          <HelpTip text="The background poller pulls new events on a durable cursor (no skip, no dup). Off by default in some deployments." />
-        </SubHeader>
-        <SwitchPref
-          label="Polling enabled"
-          checked={Boolean(prefs.polling_enabled)}
-          onChange={(v) => update({ polling_enabled: v })}
-        />
-        <div className="grid gap-4 sm:grid-cols-3">
-          <NumPref label="Poll interval (seconds)" value={prefs.poll_interval_seconds} onChange={(v) => update({ poll_interval_seconds: v })} />
-          <NumPref label="Poll batch size" value={prefs.poll_batch_size} onChange={(v) => update({ poll_batch_size: v })} />
-          <NumPref label="Cold-start lookback (minutes)" value={prefs.cold_start_lookback_minutes} onChange={(v) => update({ cold_start_lookback_minutes: v })} />
-        </div>
-      </div>
-    </div>
+        <SettingsCard
+          anchor="general-polling"
+          title="Polling"
+          icon={RefreshCw}
+          description="The background poller pulls new events on a durable cursor (no skip, no dup). Off by default in some deployments."
+          wide
+        >
+          <div className="space-y-4">
+            <SwitchPref
+              label="Polling enabled"
+              checked={Boolean(prefs.polling_enabled)}
+              onChange={(v) => update({ polling_enabled: v })}
+            />
+            <div className="grid gap-4 sm:grid-cols-3">
+              <NumPref label="Poll interval (seconds)" value={prefs.poll_interval_seconds} onChange={(v) => update({ poll_interval_seconds: v })} />
+              <NumPref label="Poll batch size" value={prefs.poll_batch_size} onChange={(v) => update({ poll_batch_size: v })} />
+              <NumPref label="Cold-start lookback (minutes)" value={prefs.cold_start_lookback_minutes} onChange={(v) => update({ cold_start_lookback_minutes: v })} />
+            </div>
+          </div>
+        </SettingsCard>
+      </SettingsGrid>
+    </SectionShell>
   );
 }
 
-function ModelsSection({ prefs, update, models }: SecProps & { models: ModelsResponse | null }) {
+function ModelsSection({
+  prefs,
+  update,
+  models,
+  onNavigate,
+}: SecProps & { models: ModelsResponse | null; onNavigate?: (p: any, opts?: any) => void }) {
   return (
     <div className="space-y-6">
       <SectionTitle title="Per-role models" sub="The model used for each task." />
@@ -694,6 +818,20 @@ function ModelsSection({ prefs, update, models }: SecProps & { models: ModelsRes
             onChange={(m) => update({ [ROLE_PREF_KEY[role]]: m } as Partial<Preferences>)}
           />
         ))}
+      </div>
+      {/* The richer Models admin page (catalog capabilities, pricing/provenance,
+          cost estimator + budget ceiling, providers) is its own first-class surface;
+          this subsection keeps only the per-role assignment. */}
+      <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+        <span className="text-sm text-muted-foreground">
+          Model catalog, pricing, cost &amp; budget, and providers
+        </span>
+        {onNavigate ? (
+          <Button variant="outline" size="sm" onClick={() => onNavigate('models')}>
+            <Sparkles className="h-4 w-4" aria-hidden />
+            Open Models admin
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -760,67 +898,88 @@ function KeysSection({
   );
 }
 
+const DETECTION_TOC: SettingsTOCItem[] = [
+  { anchor: 'detection-correlation', label: 'Correlation', icon: Workflow },
+  { anchor: 'detection-risk', label: 'Risk weights', icon: SlidersHorizontal },
+  { anchor: 'detection-escalation', label: 'Escalation', icon: ShieldAlert },
+  { anchor: 'detection-autoclose', label: 'Auto-close', icon: ShieldCheck },
+  { anchor: 'detection-crosssource', label: 'Cross-source', icon: Network },
+];
+
 function DetectionSection({ prefs, update }: SecProps) {
   const corr = prefs.default_correlation || {};
   const weights = prefs.risk_weights || {};
   return (
-    <div className="space-y-8">
-      <SectionTitle
-        title="Detection & correlation"
-        sub="How alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
-      />
+    <SectionShell
+      title="Detection & correlation"
+      sub="How alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
+      toc={DETECTION_TOC}
+    >
+      <SettingsGrid>
+        <SettingsCard
+          anchor="detection-correlation"
+          title="Correlation"
+          icon={Workflow}
+          description="Alerts that share an entity within the window cluster into one case. The cluster signature keeps cases idempotent (no dups)."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumPref label="Threshold (N)" value={corr.n} onChange={(v) => update({ default_correlation: { ...corr, n: v } })} />
+            <NumPref label="Window (seconds)" value={corr.window_seconds} onChange={(v) => update({ default_correlation: { ...corr, window_seconds: v } })} />
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Correlation">
-          <HelpTip text="Alerts that share an entity within the window cluster into one case. The cluster signature keeps cases idempotent (no dups)." />
-        </SubHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <NumPref label="Threshold (N)" value={corr.n} onChange={(v) => update({ default_correlation: { ...corr, n: v } })} />
-          <NumPref label="Window (seconds)" value={corr.window_seconds} onChange={(v) => update({ default_correlation: { ...corr, window_seconds: v } })} />
-        </div>
-      </div>
+        <SettingsCard
+          anchor="detection-risk"
+          title="Risk weights"
+          icon={SlidersHorizontal}
+          description="The deterministic risk model's weights. Values are auto-normalised to a 0–100 score; the model never sees raw logs."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
+              <NumPref
+                key={k}
+                label={humanizeToken(k)}
+                value={weights[k]}
+                step={0.05}
+                onChange={(v) => update({ risk_weights: { ...weights, [k]: v } })}
+              />
+            ))}
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Risk weights">
-          <HelpTip text="The deterministic risk model's weights. Values are auto-normalised to a 0–100 score; the model never sees raw logs." />
-        </SubHeader>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
-            <NumPref
-              key={k}
-              label={humanizeToken(k)}
-              value={weights[k]}
-              step={0.05}
-              onChange={(v) => update({ risk_weights: { ...weights, [k]: v } })}
-            />
-          ))}
-        </div>
-      </div>
+        <SettingsCard
+          anchor="detection-escalation"
+          title="Escalation"
+          icon={ShieldAlert}
+          description="The confidence below which a case is escalated for a human, and the severity considered critical."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <NumPref label="Escalation confidence" value={prefs.escalation_confidence} step={0.05} onChange={(v) => update({ escalation_confidence: v })} />
+            <NumPref label="Critical severity" value={prefs.critical_severity} step={0.5} onChange={(v) => update({ critical_severity: v })} />
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Escalation">
-          <HelpTip text="The confidence below which a case is escalated for a human, and the severity considered critical." />
-        </SubHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <NumPref label="Escalation confidence" value={prefs.escalation_confidence} step={0.05} onChange={(v) => update({ escalation_confidence: v })} />
-          <NumPref label="Critical severity" value={prefs.critical_severity} step={0.5} onChange={(v) => update({ critical_severity: v })} />
-        </div>
-      </div>
+        <SettingsCard
+          anchor="detection-autoclose"
+          title="Auto-close policy"
+          icon={ShieldCheck}
+          description="The close/escalate decision is always made by deterministic code against this policy — never by raw model output. NEEDS_HUMAN never auto-closes."
+          wide="full"
+        >
+          <AutonomyControls prefs={prefs} update={update} />
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Auto-close policy">
-          <HelpTip text="The close/escalate decision is always made by deterministic code against this policy — never by raw model output. NEEDS_HUMAN never auto-closes." />
-        </SubHeader>
-        <AutonomyControls prefs={prefs} update={update} />
-      </div>
-
-      <div className="space-y-4">
-        <SubHeader title="Cross-source correlation">
-          <HelpTip text="An opt-in second pass that links related open cases across sources sharing an entity. Surfaces RELATED cases — never force-merges." />
-        </SubHeader>
-        <CrossSourceSubsection prefs={prefs} update={update} />
-      </div>
-    </div>
+        <SettingsCard
+          anchor="detection-crosssource"
+          title="Cross-source correlation"
+          icon={Network}
+          description="An opt-in second pass that links related open cases across sources sharing an entity. Surfaces RELATED cases — never force-merges."
+          wide="full"
+        >
+          <CrossSourceSubsection prefs={prefs} update={update} />
+        </SettingsCard>
+      </SettingsGrid>
+    </SectionShell>
   );
 }
 
@@ -834,12 +993,6 @@ function CrossSourceSubsection({ prefs, update }: SecProps) {
   const enabled = x.enabled ?? false;
   return (
     <div className="space-y-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Cross-source correlation
-        <span className="ml-2 font-normal normal-case tracking-normal">
-          opt-in; links related cases across sources, never merges them
-        </span>
-      </p>
       <SwitchPref
         label="Enable cross-source correlation"
         help="A second, source-agnostic pass groups open cases that share an entity (IP, host, user, file hash, domain) within the time window across multiple sources. Matches are surfaced as RELATED cases — the per-cluster 1:1 case mapping is never changed and nothing is force-merged. Off by default."
@@ -888,11 +1041,15 @@ function EnrichmentSection({ prefs, update }: SecProps) {
       <SectionTitle title="Enrichment" sub="Threat-intel lookups (cached in Redis)." />
       <div className="space-y-2">
         <SwitchPref label="Enrichment enabled" checked={e.enabled ?? true} onChange={(v) => set({ enabled: v })} />
-        <SwitchPref label="Use AbuseIPDB" checked={e.use_abuseipdb ?? true} onChange={(v) => set({ use_abuseipdb: v })} />
-        <SwitchPref label="Use VirusTotal" checked={e.use_virustotal ?? true} onChange={(v) => set({ use_virustotal: v })} />
-        <SwitchPref label="Use GeoIP" checked={e.use_geoip ?? true} onChange={(v) => set({ use_geoip: v })} />
       </div>
       <NumPref label="Cache TTL (seconds)" value={e.cache_ttl_seconds} onChange={(v) => set({ cache_ttl_seconds: v })} />
+      {/* The full provider catalog (manifests + write-only secrets + try-a-lookup).
+          Self-contained: it fetches its own provider manifests and persists the
+          per-provider use_* toggles + secrets via its own co-located api (the
+          shared settings PUT for toggles, the dedicated secrets route for keys),
+          so it manages its own save lifecycle independent of the section dirty-map.
+          `embedded` suppresses its own heading since the section provides one. */}
+      <EnrichmentProvidersEditor embedded />
     </div>
   );
 }
@@ -1005,6 +1162,14 @@ function AutonomyControls({ prefs, update }: SecProps) {
   );
 }
 
+const ADVANCED_TOC: SettingsTOCItem[] = [
+  { anchor: 'advanced-caps', label: 'Per-case caps', icon: SlidersHorizontal },
+  { anchor: 'advanced-killswitch', label: 'Kill switch', icon: ShieldAlert },
+  { anchor: 'advanced-allowlist', label: 'Allowlist', icon: Zap },
+  { anchor: 'advanced-suppression', label: 'Suppression', icon: FileText },
+  { anchor: 'advanced-lock', label: 'Settings lock', icon: Lock },
+];
+
 function AdvancedSection({
   prefs,
   update,
@@ -1026,135 +1191,153 @@ function AdvancedSection({
     setTagInput('');
   };
   return (
-    <div className="space-y-8">
-      <SectionTitle
-        title="Advanced"
-        sub="Power-user controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-rule retrieval, the rule catalog, and the settings lock."
-      />
-
-      <div className="space-y-4">
-        <SubHeader title="Per-case caps">
-          <HelpTip text="Hard limits per investigation. A case that hits a cap is routed to NEEDS_HUMAN rather than running unbounded." />
-        </SubHeader>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <NumPref label="Max tool calls / case" value={caps.max_tool_calls} onChange={(v) => setCaps({ max_tool_calls: v })} />
-          <NumPref label="Max tokens / case" value={caps.max_tokens} onChange={(v) => setCaps({ max_tokens: v })} />
-          <NumPref label="Timeout (seconds)" value={caps.timeout_seconds} onChange={(v) => setCaps({ timeout_seconds: v })} />
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <SubHeader title="Kill switch">
-          <HelpTip text="An emergency stop. When on, the agent immediately halts ALL automated investigation; manual investigation still works." />
-        </SubHeader>
-        <div
-          className={cn(
-            'rounded-md border px-4 py-3 transition-colors',
-            caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-surface',
-          )}
+    <SectionShell
+      title="Advanced"
+      sub="Power-user controls: per-case caps, the kill switch, the auto-forward allowlist, suppression-rule retrieval, the rule catalog, and the settings lock."
+      toc={ADVANCED_TOC}
+    >
+      <SettingsGrid>
+        <SettingsCard
+          anchor="advanced-caps"
+          title="Per-case caps"
+          icon={SlidersHorizontal}
+          description="Hard limits per investigation. A case that hits a cap is routed to NEEDS_HUMAN rather than running unbounded."
+          wide
         >
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className={cn('text-sm font-medium', caps.kill_switch ? 'text-critical' : 'text-foreground')}>
-                Kill switch (stop all investigations)
-              </p>
-              <p className="text-xs text-muted-foreground">
-                When on, the agent halts all automated investigation immediately.
-              </p>
-            </div>
-            <Switch
-              checked={Boolean(caps.kill_switch)}
-              onCheckedChange={(v) => setCaps({ kill_switch: v })}
-              aria-label="Kill switch"
-            />
+          <div className="grid gap-4 sm:grid-cols-3">
+            <NumPref label="Max tool calls / case" value={caps.max_tool_calls} onChange={(v) => setCaps({ max_tool_calls: v })} />
+            <NumPref label="Max tokens / case" value={caps.max_tokens} onChange={(v) => setCaps({ max_tokens: v })} />
+            <NumPref label="Timeout (seconds)" value={caps.timeout_seconds} onChange={(v) => setCaps({ timeout_seconds: v })} />
           </div>
-        </div>
-      </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Auto-forward allowlist">
-          <HelpTip text="Rule values whose alerts auto-forward straight to investigation (bypassing the cheap router). Operator-entered values render as plain text." />
-        </SubHeader>
-        <SwitchPref
-          label="Background automated scans"
-          help="Run scheduled background scans that triage new cases automatically."
-          checked={Boolean(prefs.background_scan_enabled)}
-          onChange={(v) => update({ background_scan_enabled: v })}
-        />
-        <div className="space-y-1.5">
-          <Label htmlFor="allowlist-input">Allowlisted rule values</Label>
-          <Input
-            id="allowlist-input"
-            placeholder="Type a rule value and press Enter"
-            value={tagInput}
-            onChange={(e) => setTagInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addTag();
-              }
-            }}
-          />
-          {allowlist.length ? (
-            <div className="flex flex-wrap gap-1.5 pt-1.5">
-              {allowlist.map((r) => (
-                <Badge key={r} variant="outline" className="gap-1 pr-1">
-                  {/* UNTRUSTED-ish rule value — plain text only */}
-                  <span className="truncate">{r}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${r}`}
-                    className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() =>
-                      update({ auto_forward_allowlist: allowlist.filter((x) => x !== r) })
-                    }
-                  >
-                    <X className="h-3 w-3" aria-hidden />
-                  </button>
-                </Badge>
-              ))}
+        <SettingsCard
+          anchor="advanced-killswitch"
+          title="Kill switch"
+          icon={ShieldAlert}
+          description="An emergency stop. When on, the agent immediately halts ALL automated investigation; manual investigation still works."
+        >
+          <div
+            className={cn(
+              'rounded-md border px-4 py-3 transition-colors',
+              caps.kill_switch ? 'border-critical/50 bg-critical/10' : 'border-border bg-surface',
+            )}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className={cn('text-sm font-medium', caps.kill_switch ? 'text-critical' : 'text-foreground')}>
+                  Kill switch (stop all investigations)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  When on, the agent halts all automated investigation immediately.
+                </p>
+              </div>
+              <Switch
+                checked={Boolean(caps.kill_switch)}
+                onCheckedChange={(v) => setCaps({ kill_switch: v })}
+                aria-label="Kill switch"
+              />
             </div>
-          ) : null}
-        </div>
-      </div>
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Suppression & rule catalog">
-          <HelpTip text="Inject approved suppression rules as TRUSTED retrieval context, and review/manage the detection rule catalog on the Playbooks & agents page." />
-        </SubHeader>
-        <SwitchPref
-          label="Inject suppression rules"
-          help="Retrieve approved suppression rules (source: suppression) and inject them into investigations as a TRUSTED fenced block. Suppression rules only go live via the approval queue — never automatically."
-          checked={rag.use_suppression_rules ?? true}
-          onChange={(v) => setRag({ use_suppression_rules: v })}
-        />
-        <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-          <span className="text-sm text-muted-foreground">Detection rule catalog &amp; playbooks</span>
-          {onNavigate ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
-            >
-              <FileText className="h-4 w-4" aria-hidden />
-              Open catalog
-            </Button>
-          ) : null}
-        </div>
-      </div>
+        <SettingsCard
+          anchor="advanced-allowlist"
+          title="Auto-forward allowlist"
+          icon={Zap}
+          description="Rule values whose alerts auto-forward straight to investigation (bypassing the cheap router). Operator-entered values render as plain text."
+          wide="full"
+        >
+          <div className="space-y-4">
+            <SwitchPref
+              label="Background automated scans"
+              help="Run scheduled background scans that triage new cases automatically."
+              checked={Boolean(prefs.background_scan_enabled)}
+              onChange={(v) => update({ background_scan_enabled: v })}
+            />
+            <div className="space-y-1.5">
+              <Label htmlFor="allowlist-input">Allowlisted rule values</Label>
+              <Input
+                id="allowlist-input"
+                placeholder="Type a rule value and press Enter"
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addTag();
+                  }
+                }}
+              />
+              {allowlist.length ? (
+                <div className="flex flex-wrap gap-1.5 pt-1.5">
+                  {allowlist.map((r) => (
+                    <Badge key={r} variant="outline" className="gap-1 pr-1">
+                      {/* UNTRUSTED-ish rule value — plain text only */}
+                      <span className="truncate">{r}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${r}`}
+                        className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() =>
+                          update({ auto_forward_allowlist: allowlist.filter((x) => x !== r) })
+                        }
+                      >
+                        <X className="h-3 w-3" aria-hidden />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Settings lock">
-          <HelpTip text="When on, the console marks settings read-only. A safety guard against accidental edits in shared/production deployments. (Server-side read-only mode still wins.)" />
-        </SubHeader>
-        <SwitchPref
-          label="Read-only settings mode"
-          help="Surface settings as read-only in the console. Save is disabled while this is on."
-          checked={Boolean(prefs.read_only_settings_mode)}
-          onChange={(v) => update({ read_only_settings_mode: v })}
-        />
-      </div>
-    </div>
+        <SettingsCard
+          anchor="advanced-suppression"
+          title="Suppression & rule catalog"
+          icon={FileText}
+          description="Inject approved suppression rules as TRUSTED retrieval context, and review/manage the detection rule catalog on the Playbooks & agents page."
+          wide
+        >
+          <div className="space-y-4">
+            <SwitchPref
+              label="Inject suppression rules"
+              help="Retrieve approved suppression rules (source: suppression) and inject them into investigations as a TRUSTED fenced block. Suppression rules only go live via the approval queue — never automatically."
+              checked={rag.use_suppression_rules ?? true}
+              onChange={(v) => setRag({ use_suppression_rules: v })}
+            />
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+              <span className="text-sm text-muted-foreground">Detection rule catalog &amp; playbooks</span>
+              {onNavigate ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Open catalog
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </SettingsCard>
+
+        <SettingsCard
+          anchor="advanced-lock"
+          title="Settings lock"
+          icon={Lock}
+          description="When on, the console marks settings read-only. A safety guard against accidental edits in shared/production deployments. (Server-side read-only mode still wins.)"
+        >
+          <SwitchPref
+            label="Read-only settings mode"
+            help="Surface settings as read-only in the console. Save is disabled while this is on."
+            checked={Boolean(prefs.read_only_settings_mode)}
+            onChange={(v) => update({ read_only_settings_mode: v })}
+          />
+        </SettingsCard>
+      </SettingsGrid>
+    </SectionShell>
   );
 }
 
@@ -1695,6 +1878,12 @@ function AutomationSection({ prefs, update }: SecProps) {
   );
 }
 
+const KNOWLEDGE_TOC: SettingsTOCItem[] = [
+  { anchor: 'knowledge-rag', label: 'Retrieval (RAG)', icon: Library },
+  { anchor: 'knowledge-threat', label: 'Threat context', icon: ShieldAlert },
+  { anchor: 'knowledge-corpus', label: 'Corpus', icon: FileText },
+];
+
 function KnowledgeSection({
   prefs,
   update,
@@ -1705,92 +1894,104 @@ function KnowledgeSection({
     update({ threat_context: { ...cfg, ...patch } });
 
   return (
-    <div className="space-y-8">
-      <SectionTitle
-        title="Knowledge & threat context"
-        sub="Retrieval-augmented context for investigations, the per-case threat-context panel (IOC reputation, MITRE, related cases), and the reusable-knowledge loop."
-      />
+    <SectionShell
+      title="Knowledge & threat context"
+      sub="Retrieval-augmented context for investigations, the per-case threat-context panel (IOC reputation, MITRE, related cases), and the reusable-knowledge loop."
+      toc={KNOWLEDGE_TOC}
+    >
+      <SettingsGrid>
+        <SettingsCard
+          anchor="knowledge-rag"
+          title="Retrieval (RAG)"
+          icon={Library}
+          description="Hybrid BM25 + vector retrieval injects relevant knowledge into investigations as a clearly-labelled TRUSTED block."
+          wide
+        >
+          <RagControls prefs={prefs} update={update} />
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Retrieval (RAG)">
-          <HelpTip text="Hybrid BM25 + vector retrieval injects relevant knowledge into investigations as a clearly-labelled TRUSTED block." />
-        </SubHeader>
-        <RagControls prefs={prefs} update={update} />
-      </div>
-
-      <div className="space-y-4">
-        <SubHeader title="Threat-context panel">
-          <HelpTip text="The Threat context tab on each case. Sections fail open — a missing enrichment or MITRE lookup degrades to empty, never an error." />
-        </SubHeader>
-        <SwitchPref
-          label="Threat-context panel enabled"
-          help="Assemble and show the Threat context tab on each case."
-          checked={cfg.enabled ?? true}
-          onChange={(v) => set({ enabled: v })}
-        />
-        <SwitchPref
-          label="MITRE ATT&CK technique lookup"
-          help="Resolve technique ids against the bundled curated MITRE corpus (name, tactics, link)."
-          checked={cfg.mitre_enabled ?? true}
-          onChange={(v) => set({ mitre_enabled: v })}
-        />
-        <SwitchPref
-          label="Reuse resolved cases"
-          help="Auto-index closed/resolved cases into the corpus so future triage can retrieve 'we've seen this before'."
-          checked={cfg.reuse_resolved_cases ?? true}
-          onChange={(v) => set({ reuse_resolved_cases: v })}
-        />
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <Label>IOC malicious threshold</Label>
-              <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
-            </div>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={cfg.ioc_malicious_threshold ?? 50}
-              onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
+        <SettingsCard
+          anchor="knowledge-threat"
+          title="Threat-context panel"
+          icon={ShieldAlert}
+          description="The Threat context tab on each case. Sections fail open — a missing enrichment or MITRE lookup degrades to empty, never an error."
+          wide="full"
+        >
+          <div className="space-y-3">
+            <SwitchPref
+              label="Threat-context panel enabled"
+              help="Assemble and show the Threat context tab on each case."
+              checked={cfg.enabled ?? true}
+              onChange={(v) => set({ enabled: v })}
             />
+            <SwitchPref
+              label="MITRE ATT&CK technique lookup"
+              help="Resolve technique ids against the bundled curated MITRE corpus (name, tactics, link)."
+              checked={cfg.mitre_enabled ?? true}
+              onChange={(v) => set({ mitre_enabled: v })}
+            />
+            <SwitchPref
+              label="Reuse resolved cases"
+              help="Auto-index closed/resolved cases into the corpus so future triage can retrieve 'we've seen this before'."
+              checked={cfg.reuse_resolved_cases ?? true}
+              onChange={(v) => set({ reuse_resolved_cases: v })}
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <Label>IOC malicious threshold</Label>
+                  <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={cfg.ioc_malicious_threshold ?? 50}
+                  onChange={(e) => set({ ioc_malicious_threshold: Number(e.target.value) })}
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </SettingsCard>
 
-      <div className="space-y-4">
-        <SubHeader title="Corpus & procedures">
-          <HelpTip text="Manage the RAG knowledge corpus (runbooks, MITRE, imported threat-intel) and the per-cluster playbooks on their dedicated pages." />
-        </SubHeader>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-            <span className="text-sm text-muted-foreground">Knowledge corpus (RAG)</span>
-            {onNavigate ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigate('intelligence', { tab: 'knowledge' })}
-              >
-                <Library className="h-4 w-4" aria-hidden />
-                Open
-              </Button>
-            ) : null}
+        <SettingsCard
+          anchor="knowledge-corpus"
+          title="Corpus & procedures"
+          icon={FileText}
+          description="Manage the RAG knowledge corpus (runbooks, MITRE, imported threat-intel) and the per-cluster playbooks on their dedicated pages."
+          wide="full"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+              <span className="text-sm text-muted-foreground">Knowledge corpus (RAG)</span>
+              {onNavigate ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigate('intelligence', { tab: 'knowledge' })}
+                >
+                  <Library className="h-4 w-4" aria-hidden />
+                  Open
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
+              <span className="text-sm text-muted-foreground">Playbooks &amp; agents</span>
+              {onNavigate ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
+                >
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Open
+                </Button>
+              ) : null}
+            </div>
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-surface px-4 py-3">
-            <span className="text-sm text-muted-foreground">Playbooks & agents</span>
-            {onNavigate ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigate('intelligence', { tab: 'catalog' })}
-              >
-                <FileText className="h-4 w-4" aria-hidden />
-                Open
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
+        </SettingsCard>
+      </SettingsGrid>
+    </SectionShell>
   );
 }
 
@@ -2037,22 +2238,20 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const [secretDraft, setSecretDraft] = React.useState<Record<string, string>>({});
   const [savingSecrets, setSavingSecrets] = React.useState(false);
 
-  // Dirty when the editable prefs diverge from the last saved snapshot. Compares
-  // everything except the non-editable `sources`/`setup_complete`.
-  const dirty = React.useMemo(() => {
-    if (!prefs || !savedPrefs) return false;
-    const strip = (p: Preferences) => {
-      const { sources, setup_complete, ...rest } = p;
-      void sources;
-      void setup_complete;
-      return rest;
-    };
-    try {
-      return JSON.stringify(strip(prefs)) !== JSON.stringify(strip(savedPrefs));
-    } catch {
-      return true;
-    }
-  }, [prefs, savedPrefs]);
+  // Per-section dirty map: the set of CHANGED top-level editable keys (vs the saved
+  // snapshot). Drives the sticky save bar, per-section "modified" dots, and a MINIMAL
+  // Save patch (only the changed keys, never the whole object). `sources`/
+  // `setup_complete` are excluded as non-editable.
+  const changed = React.useMemo(
+    () =>
+      computeChangedKeys(
+        prefs as Record<string, unknown> | null,
+        savedPrefs as Record<string, unknown> | null,
+      ),
+    [prefs, savedPrefs],
+  );
+  const dirty = changed.size > 0;
+  const changedCount = changed.size;
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -2085,11 +2284,19 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   const save = React.useCallback(async () => {
     if (!prefs) return;
+    // Send ONLY the changed top-level keys (a minimal patch) rather than the whole
+    // object — additive/omitted fields are safe, and we never clobber a key the user
+    // did not touch. `sources`/`setup_complete` are excluded inside `changedPatch`.
+    const patch = changedPatch(
+      prefs as Record<string, unknown>,
+      savedPrefs as Record<string, unknown> | null,
+    );
+    if (!Object.keys(patch).length) {
+      toast.message('No changes to save.');
+      return;
+    }
     setSaving(true);
     try {
-      const { sources, setup_complete, ...patch } = prefs;
-      void sources;
-      void setup_complete;
       const res = await api.putSettings(patch as Partial<Preferences>);
       setPrefs(res.prefs);
       setSavedPrefs(res.prefs);
@@ -2099,7 +2306,13 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     } finally {
       setSaving(false);
     }
-  }, [prefs]);
+  }, [prefs, savedPrefs]);
+
+  // Discard: revert the working draft to the last saved snapshot (a clean revert,
+  // not a re-fetch, so an in-flight server change is not pulled in mid-edit).
+  const discard = React.useCallback(() => {
+    setPrefs(savedPrefs);
+  }, [savedPrefs]);
 
   const saveSecrets = React.useCallback(async () => {
     const body: Record<string, string> = {};
@@ -2218,7 +2431,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
       case 'general':
         return <GeneralSection {...secProps} onNavigate={onNavigate} />;
       case 'models':
-        return <ModelsSection {...secProps} models={models} />;
+        return <ModelsSection {...secProps} models={models} onNavigate={onNavigate} />;
       case 'keys':
         return (
           <KeysSection
@@ -2322,7 +2535,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
             {dirty ? (
               <Badge variant="warning" className="gap-1">
                 <span className="inline-block h-1.5 w-1.5 rounded-full bg-warning" aria-hidden />
-                Unsaved changes
+                {changedCount} unsaved
               </Badge>
             ) : null}
             {onRerunWizard ? (
@@ -2331,10 +2544,6 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                 Re-run setup wizard
               </Button>
             ) : null}
-            <Button size="sm" onClick={() => void save()} disabled={readOnly || !dirty || saving}>
-              <Save className="h-4 w-4" aria-hidden />
-              {saving ? 'Saving…' : 'Save settings'}
-            </Button>
           </div>
         }
       />
@@ -2380,13 +2589,14 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                       {g.sections.map((s) => {
                         const Icon = s.icon;
                         const active = section === s.id;
+                        const modified = sectionIsDirty(s.id, changed);
                         return (
                           <button
                             key={s.id}
                             type="button"
                             onClick={() => setSection(s.id)}
                             aria-current={active ? 'page' : undefined}
-                            title={s.blurb}
+                            title={modified ? `${s.blurb} (unsaved changes)` : s.blurb}
                             className={cn(
                               'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -2405,6 +2615,13 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                               aria-hidden
                             />
                             <span className="truncate">{s.name}</span>
+                            {modified ? (
+                              <span
+                                className="ml-auto inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-warning"
+                                aria-label="Unsaved changes in this section"
+                                title="Unsaved changes"
+                              />
+                            ) : null}
                           </button>
                         );
                       })}
@@ -2416,10 +2633,33 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
           </div>
         </nav>
 
-        {/* Section body */}
-        <Card>
-          <CardContent className="p-6 sm:p-7">{renderSection()}</CardContent>
-        </Card>
+        {/* Section body. Grid sections bring their own SettingsCards (full width, no
+            outer Card); simpler sections sit on the shared single-card surface. */}
+        <div className="min-w-0">
+          {GRID_SECTIONS.has(section) ? (
+            renderSection()
+          ) : (
+            <Card>
+              <CardContent className="p-6 sm:p-7">{renderSection()}</CardContent>
+            </Card>
+          )}
+
+          {/* Sticky save/discard bar — only visible while there are unsaved changes.
+              Save sends only the changed keys; Discard reverts to the saved snapshot. */}
+          <StickySaveBar
+            visible={dirty}
+            busy={saving}
+            saveDisabled={readOnly}
+            onSave={() => void save()}
+            onDiscard={discard}
+            saveLabel="Save settings"
+            message={
+              readOnly
+                ? 'Settings are read-only — changes cannot be saved.'
+                : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
+            }
+          />
+        </div>
       </div>
 
       <p className="border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">

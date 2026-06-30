@@ -16,6 +16,12 @@ export default {
         /** App canvas (one notch behind cards) + a soft elevated surface. */
         canvas: 'hsl(var(--canvas))',
         surface: 'hsl(var(--surface))',
+        /** Round-3 tint aliases — a preset can nudge the backdrop/surface tint
+            independently of the card colour (both default to canvas/surface). */
+        'canvas-tint': 'hsl(var(--canvas-tint))',
+        'surface-tint': 'hsl(var(--surface-tint))',
+        /** The glass-panel base tint (consumed by GlassSurface). */
+        glass: 'hsl(var(--glass-tint))',
         primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
         secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
@@ -39,10 +45,20 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        /** Round-3 explicit radius scale (operator-tunable via theme tokens). The
+            three above stay anchored to `--radius` for back-compat; these expose
+            the full scale for new chrome (xl panels, sm chips). */
+        'r-sm': 'var(--radius-sm)',
+        'r-md': 'var(--radius-md)',
+        'r-lg': 'var(--radius-lg)',
+        'r-xl': 'var(--radius-xl)',
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'SFMono-Regular', 'Consolas', 'Menlo', 'monospace'],
+        /** Operator-selectable display family for hero titles; falls back to the
+            sans stack when `--font-display` is unset by branding. */
+        display: ['var(--font-display)', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
         /* Quiet, border-first elevation. Light mode leans on hairline borders;

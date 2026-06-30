@@ -66,6 +66,9 @@ import { Button } from '@/ui/button';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 
+import { fetchPosture, type PostureResponse } from './Metrics.posture.api';
+import { humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
+
 // --------------------------------------------------------------------------- //
 // Window toggle
 // --------------------------------------------------------------------------- //
@@ -165,6 +168,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const [metrics, setMetrics] = React.useState<Metrics | null>(null);
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
   const [rag, setRag] = React.useState<RagStats | null>(null);
+  // Server-side posture rollup (Round 3) — the authoritative lifecycle (MTTA/MTTR/
+  // dwell p50/p90 with honest labelled DASH) + SLA. Replaces the client-side timing
+  // derivation; degrades to null (the page falls back to local samples).
+  const [posture, setPosture] = React.useState<PostureResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = React.useState<string | null>(null);
@@ -173,16 +180,18 @@ export default function Overview({ onNavigate }: OverviewProps) {
     setLoading(true);
     setError(null);
     try {
-      const [c, m, u, r] = await Promise.allSettled([
+      const [c, m, u, r, p] = await Promise.allSettled([
         api.listCases({ limit: 200 }),
         api.getMetrics(hours),
         api.usageSummary(hours),
         api.ragStats(),
+        fetchPosture(hours, ''),
       ]);
       if (c.status === 'fulfilled') setCases(c.value.cases ?? []);
       if (m.status === 'fulfilled') setMetrics(m.value);
       if (u.status === 'fulfilled') setUsage(u.value);
       if (r.status === 'fulfilled') setRag(r.value);
+      if (p.status === 'fulfilled') setPosture(p.value);
       // Only surface a page-level error if the load is wholly empty (the cases +
       // metrics calls both failed) — partial failures degrade per-widget.
       if (c.status === 'rejected' && m.status === 'rejected') {
@@ -287,6 +296,51 @@ export default function Overview({ onNavigate }: OverviewProps) {
           : mttrSamples.length,
     };
   }, [cases, metrics]);
+
+  // Response-timing rows: PREFER the server posture lifecycle (real p50 with an
+  // honest labelled DASH + reason); fall back to the local sample derivation when the
+  // posture endpoint is unavailable so the section never blanks.
+  const timing = React.useMemo(() => {
+    const life = posture?.lifecycle;
+    const row = (
+      label: string,
+      block: { p50: number | string; available: boolean; reason: string; count: number } | undefined,
+      localValue: number | null,
+      localN: number,
+      accent: StatAccent,
+    ) => {
+      if (life && block) {
+        return {
+          label,
+          value: block.available ? humanizeMins(block.p50) : DASH,
+          sub: block.available
+            ? `p50 · ${fmtNumber(block.count)} sample${block.count === 1 ? '' : 's'}`
+            : block.reason || 'no samples yet',
+          accent,
+        };
+      }
+      return {
+        label,
+        value: fmtDuration(localValue),
+        sub: `${fmtNumber(localN)} valid sample${localN === 1 ? '' : 's'}`,
+        accent,
+      };
+    };
+    return [
+      row('MTTD', life?.dwell_minutes, derived.mttd, derived.mttdN, 'info' as StatAccent),
+      row('MTTA', life?.mtta_minutes, derived.mtta, derived.mttaN, 'medium' as StatAccent),
+      row('MTTR', life?.mttr_minutes, derived.mttr, derived.mttrN, 'success' as StatAccent),
+    ];
+  }, [posture, derived]);
+
+  // SLA posture (server-side, advisory). null when the policy is off / unavailable.
+  const slaPosture = React.useMemo(() => {
+    const sla = posture?.sla;
+    if (!sla || !sla.enabled) return null;
+    const atRisk = (sla.response_at_risk ?? 0) + (sla.resolve_at_risk ?? 0);
+    const breached = (sla.response_breached ?? 0) + (sla.resolve_breached ?? 0);
+    return { atRisk, breached, attainment: sla.attainment_pct ?? 0 };
+  }, [posture]);
 
   // Weighted risk pressure (0..100) — average risk, lifted by critical density.
   const riskIndex = React.useMemo(() => {
@@ -602,41 +656,38 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </div>
           </div>
 
-          {/* ---- Timing StatCards ---- */}
+          {/* ---- Timing StatCards (server posture lifecycle, honest DASH) ---- */}
           <section className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Response timing
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Response timing
+              </h2>
+              {slaPosture ? (
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium',
+                    slaPosture.breached > 0
+                      ? 'border-critical/40 bg-critical/10 text-critical'
+                      : slaPosture.atRisk > 0
+                        ? 'border-high/40 bg-high/10 text-high'
+                        : 'border-success/40 bg-success/10 text-success',
+                  )}
+                  title="SLA attainment vs the per-priority response/resolve targets"
+                >
+                  SLA {ratioPct(slaPosture.attainment / 100)} ·{' '}
+                  {fmtNumber(slaPosture.breached)} breached · {fmtNumber(slaPosture.atRisk)} at risk
+                </span>
+              ) : null}
+            </div>
             <div className="grid gap-5 md:grid-cols-3">
-            {(
-              [
-                {
-                  label: 'MTTD',
-                  value: fmtDuration(derived.mttd),
-                  n: derived.mttdN,
-                  accent: 'info' as StatAccent,
-                },
-                {
-                  label: 'MTTA',
-                  value: fmtDuration(derived.mtta),
-                  n: derived.mttaN,
-                  accent: 'medium' as StatAccent,
-                },
-                {
-                  label: 'MTTR',
-                  value: fmtDuration(derived.mttr),
-                  n: derived.mttrN,
-                  accent: 'success' as StatAccent,
-                },
-              ]
-            ).map((s) => (
+            {timing.map((s) => (
               <StatCard
                 key={s.label}
                 label={s.label}
                 value={s.value}
                 accent={s.accent}
                 icon={Clock3}
-                sub={`${fmtNumber(s.n)} valid sample${s.n === 1 ? '' : 's'}`}
+                sub={s.sub}
               />
             ))}
             </div>

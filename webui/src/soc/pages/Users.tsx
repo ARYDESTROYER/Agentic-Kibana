@@ -11,10 +11,19 @@
  * inline toasts. Usernames are operator-entered → rendered as plain text.
  */
 import * as React from 'react';
-import { Users as UsersIcon, UserPlus, KeyRound, Trash2, RefreshCw, Loader2 } from 'lucide-react';
+import {
+  Users as UsersIcon,
+  UserPlus,
+  KeyRound,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  ShieldCheck,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import type { RolesResponse, User } from '@/lib/types';
+import { rolesApi, BUILTIN_ROLES } from './Roles.api';
 import { humanizeAge } from '@/lib/format';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
@@ -83,9 +92,13 @@ export function UsersInner() {
   const { username: me } = useAuth();
   const [users, setUsers] = React.useState<User[]>([]);
   const [roles, setRoles] = React.useState<string[]>([]);
+  // Custom (non built-in) role names from the resolved matrix — offered when
+  // assigning a user a base role + custom_roles[] (Round 3 / Feature 6).
+  const [customRoleNames, setCustomRoleNames] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [addOpen, setAddOpen] = React.useState(false);
   const [resetFor, setResetFor] = React.useState<User | null>(null);
+  const [rolesFor, setRolesFor] = React.useState<User | null>(null);
   const [busyUser, setBusyUser] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -93,7 +106,11 @@ export function UsersInner() {
     try {
       const [u, r] = await Promise.all([api.users.list(), api.roles.get()]);
       setUsers(u.users);
-      setRoles((r as RolesResponse).roles);
+      const matrixRes = r as RolesResponse;
+      setRoles(matrixRes.roles);
+      setCustomRoleNames(
+        Object.keys(matrixRes.matrix ?? {}).filter((n) => !BUILTIN_ROLES.has(n)),
+      );
     } catch (e) {
       toast.error(errMsg(e, 'Could not load users.'));
     } finally {
@@ -224,6 +241,19 @@ export function UsersInner() {
       align: 'right',
       cell: (u) => (
         <div className="flex items-center justify-end gap-1">
+          {customRoleNames.length > 0 ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setRolesFor(u)}
+              disabled={busyUser === u.username}
+              aria-label={`Manage roles for ${u.username}`}
+              title="Assign custom roles"
+            >
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon"
@@ -304,7 +334,156 @@ export function UsersInner() {
           void load();
         }}
       />
+
+      <AssignRolesDialog
+        user={rolesFor}
+        roles={roles}
+        customRoleNames={customRoleNames}
+        onOpenChange={(open) => {
+          if (!open) setRolesFor(null);
+        }}
+        onDone={() => {
+          setRolesFor(null);
+          void load();
+        }}
+      />
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Assign-roles dialog (base role + custom_roles[]) — Round 3 / Feature 6.
+// --------------------------------------------------------------------------- //
+/** Read a user's currently-assigned custom roles from its prefs bag (defensive:
+ * the typed `User` does not surface `prefs`, so we narrow an unknown cast). */
+function userCustomRoles(user: User | null): string[] {
+  if (!user) return [];
+  const prefs = (user as unknown as { prefs?: { custom_roles?: unknown } }).prefs;
+  const raw = prefs?.custom_roles;
+  return Array.isArray(raw) ? raw.map((x) => String(x)) : [];
+}
+
+function AssignRolesDialog({
+  user,
+  roles,
+  customRoleNames,
+  onOpenChange,
+  onDone,
+}: {
+  user: User | null;
+  roles: string[];
+  customRoleNames: string[];
+  onOpenChange: (v: boolean) => void;
+  onDone: () => void;
+}) {
+  const [baseRole, setBaseRole] = React.useState('');
+  const [assigned, setAssigned] = React.useState<Set<string>>(new Set());
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    if (user) {
+      setBaseRole(typeof user.role === 'string' ? user.role : String(user.role));
+      setAssigned(new Set(userCustomRoles(user)));
+    }
+  }, [user]);
+
+  const toggle = (name: string) => {
+    setAssigned((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const submit = async () => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      await rolesApi.assignUserRoles(user.username, {
+        role: baseRole,
+        custom_roles: Array.from(assigned),
+      });
+      toast.success(`Roles updated for ${user.username}.`);
+      onDone();
+    } catch (e) {
+      // The server surfaces the last-admin lockout guard (409) — show its message.
+      toast.error(errMsg(e, 'Could not update roles.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={!!user} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Assign roles</DialogTitle>
+          <DialogDescription>
+            Set the base role and any custom roles{user ? ` for ${user.username}` : ''}. The
+            server prevents removing the last user who can manage users.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="assign-base-role">Base role</Label>
+            <Select value={baseRole || undefined} onValueChange={setBaseRole} disabled={busy}>
+              <SelectTrigger id="assign-base-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {roleLabel(r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Custom roles</Label>
+            {customRoleNames.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No custom roles defined yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {customRoleNames.map((name) => {
+                  const on = assigned.has(name);
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => toggle(name)}
+                      aria-pressed={on}
+                      className={
+                        on
+                          ? 'rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
+                          : 'rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground'
+                      }
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} disabled={busy || !baseRole}>
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <ShieldCheck className="h-4 w-4" aria-hidden />
+            )}
+            Save roles
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

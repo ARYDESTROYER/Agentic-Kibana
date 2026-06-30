@@ -53,7 +53,6 @@ import {
   Search,
   Send,
   Shield,
-  SlidersHorizontal,
   Star,
   Tag,
   Target,
@@ -142,31 +141,40 @@ import {
   ConfidenceBadge,
 } from '@/soc/components/badges';
 import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
-import { Can } from '@/soc/components/Can';
+import { Can, useCan } from '@/soc/components/Can';
+import { useAuth } from '@/soc/auth';
+
+import { CaseTriageHeader } from '@/soc/components/CaseTriageHeader';
+import { TraceTimeline } from '@/soc/components/TraceTimeline';
+import { CaseThread } from '@/soc/components/CaseThread';
+import { CaseTasks } from '@/soc/components/CaseTasks';
+import { CaseActivityFeed } from '@/soc/components/CaseActivityFeed';
+import {
+  getTriage,
+  getTimeline,
+  getThread,
+  postThread,
+  editThreadMessage,
+  deleteThreadMessage,
+  reactThreadMessage,
+  getTasks,
+  addTask,
+  patchTask,
+  logTask,
+  getActivity,
+  listPickableUsers,
+  type TriageChips,
+  type TimelineResponse,
+  type CaseMessage as ThreadMessage,
+  type CaseTask as CaseTaskItem,
+  type CaseActivityItem,
+  type PickableUser,
+  type TaskStatus,
+} from '@/soc/pages/CaseDetail.api';
 
 import type { Navigate } from '@/soc/router';
 
 /* --------------------------------------------------------------- contracts -- */
-
-/** One agent-pipeline step (mirrors backend `TraceStep`). */
-interface TraceStep {
-  ts?: string;
-  actor?: string;
-  action_type?: string | null;
-  model?: string | null;
-  query_text?: string | null;
-  tool_name?: string | null;
-  tool_input?: unknown;
-  tool_output_summary?: string | null;
-  result_summary?: string | null;
-  prompt_excerpt?: string | null;
-}
-
-interface TraceResponse {
-  case_id: string;
-  steps: TraceStep[];
-  total: number;
-}
 
 /** One selectable notification channel in the Notify dialog. */
 interface NotifyChannelOption {
@@ -429,14 +437,6 @@ function confidenceCalibration(
 /** Map a severity-ish value to a token text-color class for the headline panels. */
 type ScoreTone = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-function toneForScore(score: number): ScoreTone {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  if (score >= 15) return 'low';
-  return 'info';
-}
-
 const TONE_TEXT: Record<ScoreTone, string> = {
   critical: 'text-critical',
   high: 'text-high',
@@ -470,22 +470,6 @@ function verdictHeadline(verdict?: string): { label: string; tone: ScoreTone } {
   if (t === 'needs_human') return { label: 'Needs human', tone: 'high' };
   if (t === 'suspicious') return { label: 'Suspicious', tone: 'high' };
   return { label: humanizeToken(verdict), tone: 'medium' };
-}
-
-/** Severity / impact band from a 0-100 score → headline label. */
-function bandHeadline(score: number): { label: string; tone: ScoreTone } {
-  const tone = toneForScore(score);
-  const label =
-    tone === 'critical'
-      ? 'Critical'
-      : tone === 'high'
-        ? 'High'
-        : tone === 'medium'
-          ? 'Medium'
-          : tone === 'low'
-            ? 'Low'
-            : 'Info';
-  return { label, tone };
 }
 
 /** Confidence headline (Low / Medium / High) from a 0..1 (or 0..100) score. */
@@ -573,13 +557,36 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'why' | 'threat' | 'trace' | 'collab' | 'chat'
+    'overview' | 'why' | 'threat' | 'trace' | 'thread' | 'collab' | 'chat'
   >('overview');
 
-  // Lazy tab payloads.
-  const [trace, setTrace] = React.useState<TraceStep[] | null>(null);
-  const [traceLoading, setTraceLoading] = React.useState(false);
-  const [traceError, setTraceError] = React.useState<unknown>(null);
+  // Round 3 — triage chips (#12), eager so the overview header is honest on open.
+  const [triage, setTriage] = React.useState<TriageChips | null>(null);
+  const [triageLoading, setTriageLoading] = React.useState(false);
+
+  // Round 3 — typed ReAct timeline (#12), lazy on the Trace tab.
+  const [timeline, setTimeline] = React.useState<TimelineResponse | null>(null);
+  const [timelineLoading, setTimelineLoading] = React.useState(false);
+  const [timelineError, setTimelineError] = React.useState<unknown>(null);
+
+  // Round 3 — collaboration thread (#4), lazy on the Thread tab.
+  const [thread, setThread] = React.useState<ThreadMessage[] | null>(null);
+  const [threadLoading, setThreadLoading] = React.useState(false);
+  const [threadError, setThreadError] = React.useState<unknown>(null);
+  const [threadBusyId, setThreadBusyId] = React.useState<string | null>(null);
+
+  // Round 3 — tasks + activity (#4), lazy on the Thread tab alongside the thread.
+  const [tasks, setTasks] = React.useState<CaseTaskItem[] | null>(null);
+  const [tasksBusyId, setTasksBusyId] = React.useState<string | null>(null);
+  const [activity, setActivity] = React.useState<CaseActivityItem[] | null>(null);
+  const [activityLoading, setActivityLoading] = React.useState(false);
+
+  // Users for the assignee picker + @mention autocomplete (best-effort).
+  const [pickUsers, setPickUsers] = React.useState<PickableUser[]>([]);
+
+  const { username: currentUser } = useAuth();
+  const canComment = useCan('cases', 'comment');
+  const canWriteCase = useCan('cases', 'write');
 
   const [rationale, setRationale] = React.useState<CaseRationale | null>(null);
   const [rationaleLoading, setRationaleLoading] = React.useState(false);
@@ -645,33 +652,250 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     if (!open) return;
     // Reset all per-case lazy state when the case changes / opens.
     setC(null);
-    setTrace(null);
     setRationale(null);
-    setTraceError(null);
     setRationaleError(null);
+    setTriage(null);
+    setTimeline(null);
+    setTimelineError(null);
+    setThread(null);
+    setThreadError(null);
+    setThreadBusyId(null);
+    setTasks(null);
+    setTasksBusyId(null);
+    setActivity(null);
     setTab('overview');
     void loadCase();
   }, [open, id, loadCase]);
 
-  const loadTrace = React.useCallback(async () => {
+  // Triage chips (#12) — eager so the overview header reflects the four honest
+  // signals as soon as the case opens. Best-effort: a failure leaves the chips null
+  // and the overview falls back to its legacy headline panels.
+  const loadTriage = React.useCallback(async () => {
     if (!id) return;
-    setTraceLoading(true);
-    setTraceError(null);
+    setTriageLoading(true);
     try {
-      const res = await api.get<TraceResponse>(`cases/${encodeURIComponent(id)}/trace`);
-      setTrace(res.steps || []);
-    } catch (e) {
-      setTraceError(e);
+      const res = await getTriage(id);
+      setTriage(res.chips || null);
+    } catch {
+      setTriage(null);
     } finally {
-      setTraceLoading(false);
+      setTriageLoading(false);
     }
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'trace' && trace === null && !traceLoading) {
-      void loadTrace();
+    if (open && id) void loadTriage();
+  }, [open, id, loadTriage]);
+
+  // Users for the picker + @mention autocomplete (best-effort, once per open).
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void listPickableUsers().then((res) => {
+      if (!cancelled) setPickUsers(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Typed ReAct timeline (#12) — lazy on the Trace tab.
+  const loadTimeline = React.useCallback(async () => {
+    if (!id) return;
+    setTimelineLoading(true);
+    setTimelineError(null);
+    try {
+      const res = await getTimeline(id);
+      setTimeline(res);
+    } catch (e) {
+      setTimelineError(e);
+    } finally {
+      setTimelineLoading(false);
     }
-  }, [open, tab, trace, traceLoading, loadTrace]);
+  }, [id]);
+
+  React.useEffect(() => {
+    if (open && tab === 'trace' && timeline === null && !timelineLoading) {
+      void loadTimeline();
+    }
+  }, [open, tab, timeline, timelineLoading, loadTimeline]);
+
+  // ---- Collaboration: thread + tasks + activity (#4) -------------------- //
+  const loadThread = React.useCallback(async () => {
+    if (!id) return;
+    setThreadLoading(true);
+    setThreadError(null);
+    try {
+      const res = await getThread(id);
+      setThread(res.messages || []);
+    } catch (e) {
+      setThreadError(e);
+    } finally {
+      setThreadLoading(false);
+    }
+  }, [id]);
+
+  const loadTasks = React.useCallback(async () => {
+    if (!id) return;
+    try {
+      const res = await getTasks(id);
+      setTasks(res.tasks || []);
+    } catch {
+      setTasks([]);
+    }
+  }, [id]);
+
+  const loadActivity = React.useCallback(async () => {
+    if (!id) return;
+    setActivityLoading(true);
+    try {
+      const res = await getActivity(id);
+      setActivity(res.activity || []);
+    } catch {
+      setActivity([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [id]);
+
+  React.useEffect(() => {
+    if (open && tab === 'thread') {
+      if (thread === null && !threadLoading) void loadThread();
+      if (tasks === null) void loadTasks();
+      if (activity === null && !activityLoading) void loadActivity();
+    }
+  }, [
+    open,
+    tab,
+    thread,
+    threadLoading,
+    tasks,
+    activity,
+    activityLoading,
+    loadThread,
+    loadTasks,
+    loadActivity,
+  ]);
+
+  // Thread mutation handlers — each calls the API then refreshes the thread +
+  // activity (so an @mention/new event shows). #3-safe: posting never touches the
+  // case decision (the backend enforces this).
+  const postMessage = React.useCallback(
+    async (text: string, parentId?: string) => {
+      if (!id) return;
+      setThreadBusyId(parentId || '__post__');
+      try {
+        await postThread(id, { body: text, parent_id: parentId ?? null });
+        await loadThread();
+        void loadActivity();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not post the message.');
+      } finally {
+        setThreadBusyId(null);
+      }
+    },
+    [id, loadThread, loadActivity],
+  );
+
+  const editMessage = React.useCallback(
+    async (msgId: string, text: string) => {
+      if (!id) return;
+      setThreadBusyId(msgId);
+      try {
+        await editThreadMessage(id, msgId, text);
+        await loadThread();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not edit the message.');
+      } finally {
+        setThreadBusyId(null);
+      }
+    },
+    [id, loadThread],
+  );
+
+  const removeMessage = React.useCallback(
+    async (msgId: string) => {
+      if (!id) return;
+      setThreadBusyId(msgId);
+      try {
+        await deleteThreadMessage(id, msgId);
+        await loadThread();
+        void loadActivity();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not delete the message.');
+      } finally {
+        setThreadBusyId(null);
+      }
+    },
+    [id, loadThread, loadActivity],
+  );
+
+  const reactMessage = React.useCallback(
+    async (msgId: string, emoji: string, remove: boolean) => {
+      if (!id) return;
+      setThreadBusyId(msgId);
+      try {
+        await reactThreadMessage(id, msgId, emoji, remove);
+        await loadThread();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not react.');
+      } finally {
+        setThreadBusyId(null);
+      }
+    },
+    [id, loadThread],
+  );
+
+  // Task mutation handlers.
+  const createTask = React.useCallback(
+    async (title: string) => {
+      if (!id) return;
+      setTasksBusyId('__add__');
+      try {
+        await addTask(id, { title });
+        await loadTasks();
+        void loadActivity();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not add the task.');
+      } finally {
+        setTasksBusyId(null);
+      }
+    },
+    [id, loadTasks, loadActivity],
+  );
+
+  const setTaskStatus = React.useCallback(
+    async (taskId: string, status: TaskStatus) => {
+      if (!id) return;
+      setTasksBusyId(taskId);
+      try {
+        await patchTask(id, taskId, { status });
+        await loadTasks();
+        void loadActivity();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not update the task.');
+      } finally {
+        setTasksBusyId(null);
+      }
+    },
+    [id, loadTasks, loadActivity],
+  );
+
+  const addTaskLog = React.useCallback(
+    async (taskId: string, note: string) => {
+      if (!id) return;
+      setTasksBusyId(taskId);
+      try {
+        await logTask(id, taskId, note);
+        await loadTasks();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not log the note.');
+      } finally {
+        setTasksBusyId(null);
+      }
+    },
+    [id, loadTasks],
+  );
 
   const loadRationale = React.useCallback(async () => {
     if (!id) return;
@@ -739,9 +963,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setRunPlaybookOpen(false);
       setRunPlaybookId('');
       // The run is a re-investigation — invalidate the lazy tab payloads.
-      setTrace(null);
       setRationale(null);
       setThreat(null);
+      setTimeline(null);
+      void loadTriage();
       toast.success('Playbook applied — the case was re-investigated with it as context.');
     } catch (e) {
       toast.error(
@@ -750,7 +975,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     } finally {
       setRunningPlaybook(false);
     }
-  }, [id, runPlaybookId]);
+  }, [id, runPlaybookId, loadTriage]);
 
   // Models for the reinvestigate picker (best-effort).
   React.useEffect(() => {
@@ -869,8 +1094,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setC(next);
       setPending(null);
       resetActionFields();
-      setTrace(null);
       setRationale(null);
+      setTimeline(null);
+      // A lifecycle action re-derives the chips + leaves an activity row.
+      void loadTriage();
+      if (activity !== null) void loadActivity();
     } catch (e) {
       setError(e);
       setPending(null);
@@ -888,6 +1116,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     actionReason,
     id,
     resetActionFields,
+    loadTriage,
+    loadActivity,
+    activity,
   ]);
 
   const runReinvestigate = React.useCallback(async () => {
@@ -898,14 +1129,15 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       const next = await api.reinvestigateCase(id, input);
       setC(next);
       setReinvestOpen(false);
-      setTrace(null);
       setRationale(null);
+      setTimeline(null);
+      void loadTriage();
     } catch (e) {
       setError(e);
     } finally {
       setReinvesting(false);
     }
-  }, [reinvestModel, id]);
+  }, [reinvestModel, id, loadTriage]);
 
   const runExport = React.useCallback(
     async (fmt: 'json' | 'md') => {
@@ -931,8 +1163,6 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     },
     [id],
   );
-
-  const riskScore = typeof c?.risk_score === 'number' ? c.risk_score : 0;
 
   const modelOptions = React.useMemo<Array<{ value: string; text: string }>>(() => {
     const out: Array<{ value: string; text: string }> = [];
@@ -1355,8 +1585,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="trace" className="gap-1.5 text-xs">
                         <GitBranch className="h-3.5 w-3.5" /> Trace
                       </TabsTrigger>
+                      <TabsTrigger value="thread" className="gap-1.5 text-xs">
+                        <Users className="h-3.5 w-3.5" /> Collaboration
+                      </TabsTrigger>
                       <TabsTrigger value="collab" className="gap-1.5 text-xs">
-                        <MessageSquare className="h-3.5 w-3.5" /> Notes &amp; feedback
+                        <Star className="h-3.5 w-3.5" /> Feedback
                       </TabsTrigger>
                       <TabsTrigger value="chat" className="gap-1.5 text-xs">
                         <MessageSquare className="h-3.5 w-3.5" /> Chat
@@ -1369,7 +1602,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <OverviewTab
                         c={c}
                         fpPolicy={fpPolicy}
-                        riskScore={riskScore}
+                        triage={triage}
+                        triageLoading={triageLoading}
                         onNavigate={onNavigate}
                       />
                     </TabsContent>
@@ -1393,12 +1627,41 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       />
                     </TabsContent>
                     <TabsContent value="trace" className="mt-0 animate-fade-in">
-                      <TraceTab
+                      <TraceTimeline
+                        data={timeline}
+                        loading={timelineLoading}
+                        error={timelineError}
+                        onRetry={loadTimeline}
+                      />
+                    </TabsContent>
+                    <TabsContent value="thread" className="mt-0 animate-fade-in">
+                      <CollaborationThreadTab
                         c={c}
-                        steps={trace}
-                        loading={traceLoading}
-                        error={traceError}
-                        onRetry={loadTrace}
+                        thread={thread}
+                        threadLoading={threadLoading}
+                        threadError={threadError}
+                        threadBusyId={threadBusyId}
+                        tasks={tasks}
+                        tasksBusyId={tasksBusyId}
+                        activity={activity}
+                        activityLoading={activityLoading}
+                        users={pickUsers}
+                        currentUser={currentUser}
+                        canComment={canComment}
+                        canWrite={canWriteCase}
+                        onRetryThread={loadThread}
+                        onPost={(text) => void postMessage(text)}
+                        onReply={(parentId, text) => void postMessage(text, parentId)}
+                        onEdit={(msgId, text) => void editMessage(msgId, text)}
+                        onDelete={(msgId) => void removeMessage(msgId)}
+                        onReact={(msgId, emoji, remove) => void reactMessage(msgId, emoji, remove)}
+                        onAddTask={(title) => void createTask(title)}
+                        onTaskStatus={(taskId, status) => void setTaskStatus(taskId, status)}
+                        onTaskLog={(taskId, note) => void addTaskLog(taskId, note)}
+                        onAssigned={(next) => {
+                          setC(next);
+                          if (activity !== null) void loadActivity();
+                        }}
                       />
                     </TabsContent>
                     <TabsContent value="collab" className="mt-0 animate-fade-in">
@@ -1994,9 +2257,10 @@ const AutomationApplied: React.FC<{ c: Case }> = ({ c }) => {
 const OverviewTab: React.FC<{
   c: Case;
   fpPolicy: FpPolicy;
-  riskScore: number;
+  triage: TriageChips | null;
+  triageLoading: boolean;
   onNavigate?: Navigate;
-}> = ({ c, fpPolicy, riskScore, onNavigate }) => {
+}> = ({ c, fpPolicy, triage, triageLoading, onNavigate }) => {
   const trigger = c.trigger_reason as { sentence?: string } | undefined;
   const triggerSentence = trigger?.sentence;
   const allEvidence = c.evidence || [];
@@ -2006,12 +2270,9 @@ const OverviewTab: React.FC<{
 
   const ruleIds = (c.rule_ids || []).filter((r) => typeof r === 'string' && r.trim());
 
-  // Headline panels.
+  // Verdict + confidence headline panels (kept). Severity / impact / priority are now
+  // the four-chip CaseTriageHeader (#12) — honestly distinct, no longer all = risk.
   const verdictH = verdictHeadline(c.verdict);
-  const sevScore = riskScore;
-  const severityH = bandHeadline(sevScore);
-  const impactH = bandHeadline(sevScore);
-  const priorityH = bandHeadline(sevScore);
   const confH = confidenceHeadline(c.confidence);
 
   // Affected assets (entity + enrichment KV).
@@ -2103,12 +2364,13 @@ const OverviewTab: React.FC<{
         {profile ? <MetaItem label="Profile" value={profile} /> : null}
       </div>
 
-      {/* ----------------------------------------------- headline panels */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* ------------------------------- the four honest triage chips (#12) */}
+      <CaseTriageHeader chips={triage} loading={triageLoading} />
+
+      {/* verdict + confidence headline (kept; severity/impact/priority moved into
+          the four-chip header above so each signal is honestly distinct). */}
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
         <HeadlinePanel label="Verdict" value={verdictH.label} tone={verdictH.tone} />
-        <HeadlinePanel label="Severity" value={severityH.label} tone={severityH.tone} />
-        <HeadlinePanel label="Impact" value={impactH.label} tone={impactH.tone} />
-        <HeadlinePanel label="Priority" value={priorityH.label} tone={priorityH.tone} />
         <HeadlinePanel label="Confidence" value={confH.label} tone={confH.tone} />
       </div>
 
@@ -3062,152 +3324,234 @@ const ThreatContextTab: React.FC<{
   );
 };
 
-/* =============================================================== Agent trace == */
+/* ================================================= Collaboration thread (#4) == */
 
-const TraceTab: React.FC<{
+/** An assignee picker over the known users (with a free-text fallback when the user
+ *  store is empty / auth is off). Saves via api.caseAssign + bubbles the updated case
+ *  through `onAssigned`. The assignee string is UNTRUSTED → rendered plain. */
+const AssigneePicker: React.FC<{
   c: Case;
-  steps: TraceStep[] | null;
-  loading: boolean;
-  error: unknown;
-  onRetry: () => void;
-}> = ({ c, steps, loading, error, onRetry }) => {
-  if (loading) {
+  users: PickableUser[];
+  canWrite: boolean;
+  onAssigned: (next: Case) => void;
+}> = ({ c, users, canWrite, onAssigned }) => {
+  const current = (c.assignee || '').trim();
+  const [free, setFree] = React.useState(current);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => setFree(c.assignee || ''), [c.assignee]);
+
+  const save = React.useCallback(
+    async (value: string) => {
+      setSaving(true);
+      try {
+        const next = await api.caseAssign(c.case_id, value.trim());
+        onAssigned(next);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not save the assignee.');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [c.case_id, onAssigned],
+  );
+
+  // When we have a user list, use a Select; otherwise a free-text input + Save.
+  if (users.length) {
+    const known = users.some((u) => u.username.toLowerCase() === current.toLowerCase());
     return (
-      <div className="space-y-4 p-6">
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-24 w-full" />
-        <Skeleton className="h-24 w-full" />
+      <div className="flex items-center gap-2">
+        <Select
+          value={current && known ? current : '__unassigned__'}
+          disabled={!canWrite || saving}
+          onValueChange={(v) => void save(v === '__unassigned__' ? '' : v)}
+        >
+          <SelectTrigger className="h-9 w-full" aria-label="Assignee">
+            <SelectValue placeholder="Unassigned" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__unassigned__">Unassigned</SelectItem>
+            {/* If the current assignee is a free-text id not in the user list, keep it
+                selectable so it isn't silently lost. UNTRUSTED → plain text. */}
+            {current && !known ? <SelectItem value={current}>{current}</SelectItem> : null}
+            {users.map((u) => (
+              <SelectItem key={u.username} value={u.username}>
+                {/* UNTRUSTED username — plain text. */}
+                {u.username}
+                {u.role ? ` · ${u.role}` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {saving ? <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
       </div>
     );
   }
-  if (error) {
-    return (
-      <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not load trace</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Something went wrong.'}
-          </AlertDescription>
-        </Alert>
-        <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" /> Retry
-        </Button>
-      </div>
-    );
-  }
-  if (!steps || steps.length === 0) {
-    return (
-      <div className="p-6">
-        <EmptyState
-          icon={GitBranch}
-          title="No agent trace yet"
-          description="This case has no recorded pipeline steps. Trace rows appear after an investigation runs (router → investigator → tools → verdict)."
-        />
-      </div>
-    );
-  }
 
-  const iconFor = (s: TraceStep): React.ComponentType<{ className?: string }> => {
-    if (s.tool_name) return Wrench;
-    const a = (s.action_type || '').toLowerCase();
-    if (a.includes('verdict')) return Check;
-    if (a.includes('rout')) return GitBranch;
-    if (a.includes('invest')) return Search;
-    if (a.includes('format')) return FileText;
-    if (a.includes('decision') || a.includes('case')) return SlidersHorizontal;
-    return Activity;
-  };
-
-  const toneFor = (s: TraceStep): ScoreTone => {
-    if (s.tool_name) return 'info';
-    const a = (s.action_type || '').toLowerCase();
-    if (a.includes('verdict') || a.includes('decision') || a.includes('case')) return 'low';
-    if (a.includes('rout') || a.includes('invest')) return 'info';
-    return 'medium';
-  };
-
-  const toolCount = steps.filter((s) => !!s.tool_name).length;
-  const decided = c.decision_by ? humanizeToken(c.decision_by) : null;
-
+  const dirty = free.trim() !== current;
   return (
-    <div className="space-y-7 p-6">
-      {/* ------------------------------------------- decision-path summary */}
-      <div className="rounded-lg border border-border bg-card p-6">
-        <SectionHeading icon={GitBranch} tone="info">
-          Decision path
-        </SectionHeading>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="info">
-            {steps.length} step{steps.length === 1 ? '' : 's'}
-          </Badge>
-          <Badge variant="info" className="gap-1">
-            <Wrench className="h-3 w-3" />
-            {toolCount} tool{toolCount === 1 ? '' : 's'}
-          </Badge>
-          <Badge variant="outline">{fmtMoney(c.token_cost)}</Badge>
-          {decided ? (
-            <Badge variant="success" className="gap-1">
-              <Check className="h-3 w-3" />
-              Decided by {decided}
-            </Badge>
-          ) : null}
+    <div className="flex items-center gap-2">
+      <Input
+        placeholder="Unassigned — type to assign…"
+        value={free}
+        disabled={!canWrite}
+        onChange={(e) => setFree(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && dirty) void save(free);
+        }}
+      />
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!canWrite || !dirty || saving}
+        onClick={() => void save(free)}
+      >
+        {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        Save
+      </Button>
+    </div>
+  );
+};
+
+/**
+ * The full collaboration surface for a case (#4): the thread (AI is a first-class
+ * author), an assignee picker, a task checklist, and the activity feed — all over the
+ * Round-3 collaboration endpoints. Writes are gated by `canComment` / `canWrite`
+ * (the caller passes the resolved RBAC booleans). #3-safe: nothing here changes the
+ * case decision.
+ */
+const CollaborationThreadTab: React.FC<{
+  c: Case;
+  thread: ThreadMessage[] | null;
+  threadLoading: boolean;
+  threadError: unknown;
+  threadBusyId: string | null;
+  tasks: CaseTaskItem[] | null;
+  tasksBusyId: string | null;
+  activity: CaseActivityItem[] | null;
+  activityLoading: boolean;
+  users: PickableUser[];
+  currentUser: string | null;
+  canComment: boolean;
+  canWrite: boolean;
+  onRetryThread: () => void;
+  onPost: (text: string) => void;
+  onReply: (parentId: string, text: string) => void;
+  onEdit: (msgId: string, text: string) => void;
+  onDelete: (msgId: string) => void;
+  onReact: (msgId: string, emoji: string, remove: boolean) => void;
+  onAddTask: (title: string) => void;
+  onTaskStatus: (taskId: string, status: TaskStatus) => void;
+  onTaskLog: (taskId: string, note: string) => void;
+  onAssigned: (next: Case) => void;
+}> = ({
+  c,
+  thread,
+  threadLoading,
+  threadError,
+  threadBusyId,
+  tasks,
+  tasksBusyId,
+  activity,
+  activityLoading,
+  users,
+  currentUser,
+  canComment,
+  canWrite,
+  onRetryThread,
+  onPost,
+  onReply,
+  onEdit,
+  onDelete,
+  onReact,
+  onAddTask,
+  onTaskStatus,
+  onTaskLog,
+  onAssigned,
+}) => {
+  return (
+    <div className="grid gap-6 p-6 lg:grid-cols-[1fr_20rem]">
+      {/* -------------------------------------------------- main: the thread */}
+      <div className="min-w-0 space-y-5">
+        <div className="rounded-lg border border-border bg-card p-6">
+          <SectionHeading
+            icon={MessageSquare}
+            tone="info"
+            actions={
+              thread && thread.length ? (
+                <Badge variant="info">
+                  {thread.length} message{thread.length === 1 ? '' : 's'}
+                </Badge>
+              ) : undefined
+            }
+          >
+            Discussion
+          </SectionHeading>
+          {threadLoading && thread === null ? (
+            <div className="space-y-3">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ) : threadError ? (
+            <div>
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Could not load the thread</AlertTitle>
+                <AlertDescription>
+                  {threadError instanceof Error ? threadError.message : 'Something went wrong.'}
+                </AlertDescription>
+              </Alert>
+              <Button className="mt-3" size="sm" variant="outline" onClick={onRetryThread}>
+                <RefreshCw className="h-4 w-4" /> Retry
+              </Button>
+            </div>
+          ) : (
+            <CaseThread
+              messages={thread || []}
+              users={users}
+              currentUser={currentUser}
+              canComment={canComment}
+              busyId={threadBusyId}
+              onPost={onPost}
+              onReply={onReply}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onReact={onReact}
+            />
+          )}
         </div>
       </div>
 
-      {/* ------------------------------------------- timeline */}
-      <ol className="relative space-y-4 border-l border-border pl-6">
-        {steps.map((s, i) => {
-          const Icon = iconFor(s);
-          const tone = toneFor(s);
-          return (
-            <li key={i} className="relative">
-              <span
-                className={cn(
-                  'absolute -left-[2.1rem] flex h-7 w-7 items-center justify-center rounded-full border',
-                  TONE_BORDER[tone],
-                )}
-              >
-                <Icon className={cn('h-3.5 w-3.5', TONE_TEXT[tone])} />
-              </span>
-              <div className="rounded-lg border border-border bg-card p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">
-                    {humanizeToken(s.actor) || 'Step'}
-                  </span>
-                  {s.action_type ? (
-                    <Badge variant="outline">{humanizeToken(s.action_type)}</Badge>
-                  ) : null}
-                  {s.tool_name ? (
-                    <Badge variant="info">{s.tool_name}</Badge>
-                  ) : null}
-                  {s.model ? (
-                    <span className="font-mono text-xs text-muted-foreground">{s.model}</span>
-                  ) : null}
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {s.ts ? formatTimestamp(s.ts) : DASH}
-                  </span>
-                </div>
-                {s.query_text ? (
-                  <div className="mt-2">
-                    <div className="mb-1 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
-                      {s.tool_name ? 'Command run' : 'Query'}
-                    </div>
-                    {/* UNTRUSTED — inside CodeBlock fence. */}
-                    <CodeBlock value={s.query_text} wrap copyable maxHeightClassName="max-h-40" />
-                  </div>
-                ) : null}
-                {s.tool_output_summary || s.result_summary ? (
-                  /* UNTRUSTED — plain text. */
-                  <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
-                    {s.tool_output_summary || s.result_summary}
-                  </p>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      {/* -------------------------------------------------- aside: ownership */}
+      <aside className="space-y-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <SectionHeading icon={Users} tone="info">
+            Ownership
+          </SectionHeading>
+          <Label className="mb-1.5 block text-xs uppercase tracking-wide text-muted-foreground">
+            Assignee
+          </Label>
+          <AssigneePicker c={c} users={users} canWrite={canWrite} onAssigned={onAssigned} />
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-5">
+          <CaseTasks
+            tasks={tasks || []}
+            canWrite={canWrite}
+            busyId={tasksBusyId}
+            onAdd={onAddTask}
+            onStatus={onTaskStatus}
+            onLog={onTaskLog}
+          />
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-5">
+          <SectionHeading icon={History} tone="info">
+            Activity
+          </SectionHeading>
+          <CaseActivityFeed items={activity || []} loading={activityLoading && activity === null} />
+        </div>
+      </aside>
     </div>
   );
 };

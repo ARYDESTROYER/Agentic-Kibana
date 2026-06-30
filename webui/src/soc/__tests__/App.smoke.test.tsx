@@ -27,7 +27,29 @@ vi.mock('@/lib/api', () => {
   return {
     setUnauthorizedHandler: vi.fn(),
     setReauthHandler: vi.fn(),
+    // ApiError is imported by several co-located *.api.ts modules (e.g. Models /
+    // Roles error-message helpers); keep it a real Error subclass so `instanceof`
+    // checks behave.
+    ApiError: class ApiError extends Error {
+      status: number;
+      body: unknown;
+      constructor(status = 0, message = '', body: unknown = null) {
+        super(message);
+        this.name = 'ApiError';
+        this.status = status;
+        this.body = body;
+      }
+    },
     api: {
+      // Round-3 generic verbs. The integrated shell mounts the NotificationBell
+      // (polls `api.get('notifications/inbox/unread-count')`) and every co-located
+      // *.api.ts module (Inbox / Models / Roles / Metrics / CaseDetail / Enrichment)
+      // calls these top-level verbs. Without them the smoke test throws synchronously
+      // inside an effect. Empty resolutions are safe — the bell shows 0 unread.
+      get: ok({}),
+      post: ok({}),
+      put: ok({}),
+      del: ok({}),
       auth: {
         me: ok({ auth_enabled: false, authenticated: true, user: null }),
         login: ok({ token: 't', user: { username: 'x' } }),

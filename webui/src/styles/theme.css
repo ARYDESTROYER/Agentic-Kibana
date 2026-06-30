@@ -56,6 +56,36 @@
     --warning: 36 88% 42%;
 
     --radius: 0.625rem;
+
+    /* ---- Round-3 extra token set (ALLOW-LISTED; see theme.tsx ALLOWED_TOKENS).
+       A small, bounded scale that distinguishes the console without forking the
+       colour system. Every var here has BOTH a light (:root) and dark (.dark)
+       value so a material/preset switch is theme-correct. Defaults below === the
+       byte-for-byte "quiet" look that shipped before this wave. */
+    /* Radius scale (corner system) — `--radius` stays the lg anchor above. */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.625rem;
+    --radius-xl: 0.875rem;
+    /* Density scale — the vertical rhythm unit chrome/rows multiply (8px grid). */
+    --density-unit: 0.25rem;
+    /* Canvas / surface tints — alias the existing canvas/surface so a preset can
+       nudge the backdrop without touching the card colour. */
+    --canvas-tint: 220 20% 97%;
+    --surface-tint: 220 20% 99%;
+    /* Secondary brand accent (login hero aurora / decorative). Falls back to the
+       primary hue when branding leaves it unset (see tailwind `accent2`). */
+    /* --accent2 intentionally UNSET here so the tailwind fallback to --primary
+       applies until branding sets it. */
+    /* Optional display font family for hero titles (operator-selectable, enum). */
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    /* ---- Material-pack chrome vars (the 'quiet' pack === today). The 'command'
+       pack raises these via theme.tsx; consumers (GlassSurface, shell) read them
+       so 'quiet' renders identically to the pre-wave UI. */
+    --glass-tint: 220 20% 99%;     /* the surface tint a glass panel blurs over   */
+    --glass-opacity: 0.82;         /* fill opacity of a glass panel (0..1)         */
+    --glow-strength: 0;            /* 0 = no glow (quiet); command raises it       */
+    --grid-opacity: 0;             /* 0 = no command-grid overlay (quiet)          */
   }
 
   .dark {
@@ -96,6 +126,23 @@
     --info: 199 84% 58%;
     --success: 158 70% 46%;
     --warning: 40 90% 56%;
+
+    /* ---- Round-3 extra token set (dark values). Mirrors :root above; the
+       radius/density scale is mode-agnostic but redeclared so a token-override
+       (applyTokens) on .dark still composes from a known base. */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.625rem;
+    --radius-xl: 0.875rem;
+    --density-unit: 0.25rem;
+    --canvas-tint: 222 24% 8%;
+    --surface-tint: 222 20% 11%;
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    /* Material-pack chrome (quiet defaults; command raises via theme.tsx). */
+    --glass-tint: 222 20% 11%;
+    --glass-opacity: 0.78;
+    --glow-strength: 0;
+    --grid-opacity: 0;
   }
 
   * {
@@ -152,6 +199,25 @@
   }
 }
 
+@layer utilities {
+  /* Optional faint "command-grid" overlay for the command material pack. Driven
+     ENTIRELY by `--grid-opacity` (0 in quiet → invisible), so applying it on a
+     quiet shell is a no-op. Decorative only — always pair with aria-hidden. */
+  .command-grid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, hsl(var(--primary) / 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--primary) / 0.5) 1px, transparent 1px);
+    background-size: 32px 32px;
+    opacity: var(--grid-opacity);
+    mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
+  }
+}
+
 /* Respect reduced-motion globally. */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -161,5 +227,22 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Respect reduced-transparency: when the OS asks for solid surfaces, neutralise
+   every glass/glow/grid effect GLOBALLY (defence-in-depth — GlassSurface also
+   guards in component CSS). The backdrop-filter is dropped and the panel becomes
+   a fully-opaque surface so text contrast (WCAG-AA) is never weakened by blur. */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  .dark {
+    --glass-opacity: 1;
+    --glow-strength: 0;
+    --grid-opacity: 0;
+  }
+  .glass-surface {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }

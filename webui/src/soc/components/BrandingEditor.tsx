@@ -1,22 +1,29 @@
 /**
- * BrandingEditor — the org white-label panel for the new (Tailwind/token) console.
+ * BrandingEditor — the org white-label + theme panel for the Tailwind/token console.
  *
- * Mirrors the legacy Settings/BrandingSection data wiring, but on the shadcn-style
- * primitives + design tokens. It lets an operator set the org/product wordmark,
- * upload a logo + favicon (stored inline as base64 data: URLs), pick the primary +
- * secondary accent colours (with INSTANT live preview by rewriting the `--primary`/
- * `--ring`/`--accent2` CSS vars), choose the default theme (Light / Dark / System),
- * and edit login / footer / support copy.
+ * Round-3 extends the legacy white-label editor (wordmark / logo / favicon / accent /
+ * default theme / login copy) with the BOUNDED design-token surface:
+ *   - a one-click named accent PRESET picker (AA-vetted hues from theme-tokens);
+ *   - a bounded ThemeTokens editor (severity hues, radius, display font) applied as a
+ *     LIVE PREVIEW via `applyTokens` (allow-listed + sanitised — #9/#10);
+ *   - a light / dark / system default theme choice (drives `default_theme`);
+ *   - a 'command' MATERIAL pack toggle (denser chrome; colours/contrast unchanged);
+ *   - a live WCAG-AA contrast advisory — from the PUT response when the backend
+ *     computes one (`contrast_warnings` / `auto_corrected`), else a defensive local
+ *     check on the chosen accent.
  *
- * Persistence: edits are buffered locally and only written on Save via
- * `api.putBranding(...)`. Discard reverts the live preview to the saved branding.
- * A successful Save reseeds the saved baseline so dirty-tracking resets.
+ * Persistence: edits are buffered locally and written on Save via `putBrandingDoc`.
+ * Discard reverts the live preview to the saved branding. A successful Save reseeds
+ * the baseline (dirty-tracking resets) and re-applies the resolved appearance.
  *
- * Security: the live preview renders the operator-supplied logo/favicon data URLs
- * in <img>; all wordmark/tagline/footer copy renders as PLAIN text (never markup).
+ * Security: the live preview renders the operator-supplied logo/favicon data URLs in
+ * <img>; ALL wordmark/tagline/footer copy renders as PLAIN text (never markup). Every
+ * theme-token value is allow-listed + sanitised by `theme-tokens.ts` before it ever
+ * touches the DOM; appearance inputs are hex/enum/length-bounded.
  */
 import * as React from 'react';
 import {
+  AlertTriangle,
   Brush,
   Check,
   Image as ImageIcon,
@@ -28,13 +35,27 @@ import {
   Sun,
   Trash2,
   X,
+  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { api } from '@/lib/api';
-import type { Branding } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { useTheme } from '@/soc/theme';
+import {
+  ACCENT_PRESETS,
+  ALLOWED_TOKENS,
+  applyTokens,
+  clearTokens,
+  hexToHslTriplet,
+  type Material,
+  type ThemeMode,
+} from '@/soc/theme-tokens';
+import {
+  getBrandingDoc,
+  putBrandingDoc,
+  accentContrastAdvisory,
+  type BrandingDoc,
+} from './branding.api';
 
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -42,6 +63,13 @@ import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/ui/select';
 
 /* ----------------------------------------------------------------- limits --- */
 
@@ -65,8 +93,8 @@ const MAX_URL_LEN = 2000;
 const DEFAULT_ACCENT = '#6c5ce7';
 const DEFAULT_ACCENT2 = '#00b894';
 
-/** Built-in defaults — reproduce the no-branding experience. */
-const DEFAULT_BRANDING: Branding = {
+/** Built-in defaults — reproduce the no-branding experience (Round-3 superset). */
+const DEFAULT_BRANDING: BrandingDoc = {
   org_name: '',
   product_name: '',
   logo_data_url: '',
@@ -78,12 +106,59 @@ const DEFAULT_BRANDING: Branding = {
   footer_text: '',
   support_url: '',
   dark_mode_default: false,
+  material: 'quiet',
+  default_theme: 'system',
+  theme_tokens: {},
+  presets: [],
 };
 
-const THEME_OPTIONS: Array<{ id: 'light' | 'dark' | 'system'; label: string; icon: typeof Sun }> = [
+const THEME_OPTIONS: Array<{ id: ThemeMode; label: string; icon: typeof Sun }> = [
   { id: 'light', label: 'Light', icon: Sun },
   { id: 'dark', label: 'Dark', icon: Moon },
   { id: 'system', label: 'System', icon: Monitor },
+];
+
+/**
+ * The BOUNDED design tokens exposed in the editor. Only allow-listed token names
+ * appear; the input kind constrains the value (color → #rrggbb, font → enum,
+ * radius → a small rem range). Everything still passes `sanitizeTokenValue` before
+ * it is written, and only `applyTokens` (allow-list) touches the DOM.
+ */
+type TokenKind = 'color' | 'radius' | 'font';
+interface TokenSpec {
+  name: string; // the --css-var
+  label: string;
+  kind: TokenKind;
+}
+const TOKEN_SPECS: TokenSpec[] = [
+  { name: '--critical', label: 'Critical', kind: 'color' },
+  { name: '--high', label: 'High', kind: 'color' },
+  { name: '--medium', label: 'Medium', kind: 'color' },
+  { name: '--low', label: 'Low', kind: 'color' },
+  { name: '--info', label: 'Info', kind: 'color' },
+  { name: '--success', label: 'Success', kind: 'color' },
+  { name: '--warning', label: 'Warning', kind: 'color' },
+  { name: '--radius', label: 'Corner radius', kind: 'radius' },
+  { name: '--font-display', label: 'Display font', kind: 'font' },
+];
+// Defence-in-depth: every spec must reference an allow-listed token.
+const SAFE_TOKEN_SPECS = TOKEN_SPECS.filter((s) => ALLOWED_TOKENS.has(s.name));
+
+const FONT_CHOICES: Array<{ key: string; label: string }> = [
+  { key: '', label: 'Default' },
+  { key: 'inter', label: 'Inter' },
+  { key: 'system', label: 'System UI' },
+  { key: 'grotesk', label: 'Space Grotesk' },
+  { key: 'mono', label: 'Monospace' },
+];
+
+const RADIUS_CHOICES: Array<{ key: string; label: string }> = [
+  { key: '', label: 'Default' },
+  { key: '0rem', label: 'Square' },
+  { key: '0.375rem', label: 'Subtle' },
+  { key: '0.5rem', label: 'Rounded' },
+  { key: '0.75rem', label: 'Soft' },
+  { key: '1rem', label: 'Pill-ish' },
 ];
 
 /* -------------------------------------------------------------- utilities --- */
@@ -92,52 +167,68 @@ function isValidHex(v: string): boolean {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
 }
 
-/** #rrggbb (or #rgb) → "H S% L%" triplet for the CSS token vars (null if bad). */
-function hexToHslTriplet(hex: string): string | null {
-  let h = hex.trim();
-  if (!h.startsWith('#')) return null;
-  h = h.slice(1);
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-  if (h.length !== 6 || /[^0-9a-fA-F]/.test(h)) return null;
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  let s = 0;
-  let hue = 0;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r:
-        hue = (g - b) / d + (g < b ? 6 : 0);
-        break;
-      case g:
-        hue = (b - r) / d + 2;
-        break;
-      default:
-        hue = (r - g) / d + 4;
-        break;
-    }
-    hue /= 6;
-  }
-  return `${Math.round(hue * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
-}
-
 /** Live-preview the accent by rewriting (or clearing) the primary/ring CSS vars. */
 function applyAccentPreview(accentHex: string): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   const triplet = accentHex ? hexToHslTriplet(accentHex) : null;
   if (triplet) {
-    root.style.setProperty('--primary', triplet);
-    root.style.setProperty('--ring', triplet);
+    applyTokens({ '--primary': triplet, '--ring': triplet }, root);
   } else {
     root.style.removeProperty('--primary');
     root.style.removeProperty('--ring');
   }
+}
+
+/** Live-preview the secondary accent → `--accent2` (cleared when blank). */
+function applyAccent2Preview(accentHex: string): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  const triplet = accentHex ? hexToHslTriplet(accentHex) : null;
+  if (triplet) applyTokens({ '--accent2': triplet }, root);
+  else root.style.removeProperty('--accent2');
+}
+
+/**
+ * Live-preview the bounded theme-token bag. Hex colour values are converted to the
+ * `H S% L%` triplet the tokens expect; all values route through `applyTokens` (which
+ * re-validates against the allow-list + `sanitizeTokenValue`). Tokens absent from the
+ * draft are CLEARED so toggling one off restores the stylesheet default.
+ */
+function applyThemeTokensPreview(tokens: Record<string, string>): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  // Clear every editable token first, then re-apply the present ones.
+  clearTokens(
+    SAFE_TOKEN_SPECS.map((s) => s.name),
+    root,
+  );
+  const toApply: Record<string, string> = {};
+  for (const spec of SAFE_TOKEN_SPECS) {
+    const raw = tokens[spec.name];
+    if (!raw) continue;
+    if (spec.kind === 'color') {
+      const triplet = isValidHex(raw) ? hexToHslTriplet(raw) : null;
+      if (triplet) toApply[spec.name] = triplet;
+    } else {
+      toApply[spec.name] = raw;
+    }
+  }
+  applyTokens(toApply, root);
+}
+
+/** Live-preview the material chrome class (decorative grid overlay). */
+function applyMaterialPreview(material: Material): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  applyTokens(
+    material === 'command'
+      ? { '--glass-opacity': '0.64', '--glow-strength': '0.45', '--grid-opacity': '0.05' }
+      : { '--glass-opacity': '0.82', '--glow-strength': '0', '--grid-opacity': '0' },
+    root,
+  );
+  root.classList.toggle('command-grid', material === 'command');
+  root.dataset.material = material;
 }
 
 /** Live-preview the favicon from a trusted data: URL (empty/blank → no change). */
@@ -164,6 +255,16 @@ function readAsDataUrl(file: File): Promise<string> {
 
 function errMsg(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
+}
+
+/** Normalise to the Round-3 default colour mode (default_theme wins over legacy). */
+function effectiveDefaultTheme(b: BrandingDoc): ThemeMode {
+  if (b.dark_mode_default) return 'dark';
+  const dt = (b.default_theme || '') as string;
+  if (dt === 'light' || dt === 'dark' || dt === 'system') return dt;
+  const legacy = (b.theme || '') as string;
+  if (legacy === 'light' || legacy === 'dark' || legacy === 'system') return legacy;
+  return 'system';
 }
 
 /* ----------------------------------------------------------- small heading -- */
@@ -312,21 +413,27 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const { branding: ctxBranding, setTheme, isDark } = useTheme();
 
   // The server-confirmed baseline (for dirty-tracking) and the working draft.
-  const [saved, setSaved] = React.useState<Branding>({ ...DEFAULT_BRANDING, ...ctxBranding });
-  const [draft, setDraft] = React.useState<Branding>({ ...DEFAULT_BRANDING, ...ctxBranding });
+  const seed = React.useMemo<BrandingDoc>(
+    () => ({ ...DEFAULT_BRANDING, ...(ctxBranding as Partial<BrandingDoc>) }),
+    [ctxBranding],
+  );
+  const [saved, setSaved] = React.useState<BrandingDoc>(seed);
+  const [draft, setDraft] = React.useState<BrandingDoc>(seed);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [saving, setSaving] = React.useState(false);
   const [logoError, setLogoError] = React.useState<string | null>(null);
   const [faviconError, setFaviconError] = React.useState<string | null>(null);
+  // WCAG advisories from the LAST save (server-computed), if any.
+  const [serverWarnings, setServerWarnings] = React.useState<string[]>([]);
+  const [autoCorrected, setAutoCorrected] = React.useState<Record<string, string>>({});
 
-  // Fetch the authoritative branding once (the context value is also seeded from
-  // it, but re-fetch so a freshly-saved value in another tab is reflected).
+  // Fetch the authoritative branding once.
   React.useEffect(() => {
     let mounted = true;
     void (async () => {
       try {
-        const b = await api.getBranding();
+        const b = await getBrandingDoc();
         if (!mounted) return;
         const merged = { ...DEFAULT_BRANDING, ...b };
         setSaved(merged);
@@ -342,18 +449,21 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     };
   }, []);
 
-  const set = (patch: Partial<Branding>) => {
+  const set = (patch: Partial<BrandingDoc>) => {
     setDraft((d) => ({ ...d, ...patch }));
   };
 
-  // On unmount, restore the live accent preview to the saved/applied branding so
-  // an unsaved accent edit never leaks globally (e.g. switching settings sections
-  // or navigating away without Save/Discard rewrites `--primary` for the console).
-  const savedAccentRef = React.useRef(saved.accent_color);
-  savedAccentRef.current = saved.accent_color;
+  // On unmount, restore the live preview to the saved/applied branding so unsaved
+  // appearance edits never leak globally (switching sections / navigating away).
+  const savedRef = React.useRef(saved);
+  savedRef.current = saved;
   React.useEffect(() => {
     return () => {
-      applyAccentPreview(savedAccentRef.current || '');
+      const s = savedRef.current;
+      applyAccentPreview(s.accent_color || '');
+      applyAccent2Preview(s.accent_color2 || '');
+      applyThemeTokensPreview(s.theme_tokens || {});
+      applyMaterialPreview((s.material as Material) || 'quiet');
     };
   }, []);
 
@@ -370,18 +480,53 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   };
   const onAccent2 = (value: string) => {
     set({ accent_color2: value });
-    // accent2 is informational (gradient); no global var to rewrite live.
+    if (!value || isValidHex(value)) applyAccent2Preview(value || '');
   };
   const resetAccents = () => {
     set({ accent_color: '', accent_color2: '' });
     applyAccentPreview('');
+    applyAccent2Preview('');
+  };
+
+  /** Apply a one-click named preset (accent + accent2). */
+  const applyPreset = (hex: string, hex2?: string) => {
+    set({ accent_color: hex, accent_color2: hex2 || '' });
+    applyAccentPreview(hex);
+    applyAccent2Preview(hex2 || '');
+  };
+
+  /* ------------------------------------------------------------ theme tokens - */
+
+  const themeTokens = draft.theme_tokens || {};
+  const setToken = (name: string, value: string) => {
+    const next = { ...themeTokens };
+    if (!value) delete next[name];
+    else next[name] = value;
+    set({ theme_tokens: next });
+    applyThemeTokensPreview(next);
+  };
+  const resetTokens = () => {
+    set({ theme_tokens: {} });
+    applyThemeTokensPreview({});
   };
 
   /* ----------------------------------------------------------------- theme -- */
 
-  const onTheme = (id: 'light' | 'dark' | 'system') => {
-    set({ theme: id });
+  const currentDefaultTheme = effectiveDefaultTheme(draft);
+  const onDefaultTheme = (id: ThemeMode) => {
+    // Keep BOTH the Round-3 `default_theme` and the legacy `theme` aligned, and clear
+    // the legacy `dark_mode_default` override so the explicit choice wins cleanly.
+    set({ default_theme: id, theme: id, dark_mode_default: false });
     setTheme(id); // instant live preview through the ThemeProvider
+  };
+
+  /* ----------------------------------------------------------- material pack - */
+
+  const material: Material = draft.material === 'command' ? 'command' : 'quiet';
+  const onMaterial = (commandOn: boolean) => {
+    const next: Material = commandOn ? 'command' : 'quiet';
+    set({ material: next });
+    applyMaterialPreview(next);
   };
 
   /* ------------------------------------------------------------------ logo -- */
@@ -428,25 +573,24 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
   /* --------------------------------------------------------------- persist -- */
 
-  const dirty = React.useMemo(
-    () =>
-      draft.org_name !== saved.org_name ||
-      draft.product_name !== saved.product_name ||
-      draft.logo_data_url !== saved.logo_data_url ||
-      draft.favicon_data_url !== saved.favicon_data_url ||
-      draft.accent_color !== saved.accent_color ||
-      draft.accent_color2 !== saved.accent_color2 ||
-      draft.theme !== saved.theme ||
-      draft.login_subtitle !== saved.login_subtitle ||
-      draft.footer_text !== saved.footer_text ||
-      draft.support_url !== saved.support_url ||
-      draft.dark_mode_default !== saved.dark_mode_default,
-    [draft, saved],
-  );
+  const dirty = React.useMemo(() => {
+    try {
+      return JSON.stringify(draft) !== JSON.stringify(saved);
+    } catch {
+      return true;
+    }
+  }, [draft, saved]);
 
   const supportUrlValid =
     !draft.support_url ||
     (/^https?:\/\//i.test(draft.support_url) && draft.support_url.length <= MAX_URL_LEN);
+
+  // A local WCAG-AA advisory for the chosen accent (used when the backend does not
+  // return one). Recomputed on every accent edit.
+  const localContrast = React.useMemo(
+    () => (accentValid ? accentContrastAdvisory(accent) : null),
+    [accent, accentValid],
+  );
 
   const canSave =
     dirty && accentValid && accent2Valid && supportUrlValid && !readOnly && !saving;
@@ -454,15 +598,24 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const save = async () => {
     setSaving(true);
     try {
-      const next = await api.putBranding({
+      const next = await putBrandingDoc({
         ...draft,
         accent_color: accent,
         accent_color2: accent2,
       });
-      const merged = { ...DEFAULT_BRANDING, ...next };
+      const { contrast_warnings, auto_corrected, ...brand } = next;
+      const merged = { ...DEFAULT_BRANDING, ...brand };
       setSaved(merged);
       setDraft(merged);
+      setServerWarnings(Array.isArray(contrast_warnings) ? contrast_warnings : []);
+      setAutoCorrected(
+        auto_corrected && typeof auto_corrected === 'object' ? auto_corrected : {},
+      );
+      // Re-apply the resolved appearance (the backend may have auto-corrected values).
       applyAccentPreview(merged.accent_color || '');
+      applyAccent2Preview(merged.accent_color2 || '');
+      applyThemeTokensPreview(merged.theme_tokens || {});
+      applyMaterialPreview((merged.material as Material) || 'quiet');
       applyFaviconPreview(merged.favicon_data_url || '');
       toast.success('Branding saved.');
     } catch (e) {
@@ -476,11 +629,15 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     setDraft(saved);
     setLogoError(null);
     setFaviconError(null);
+    setServerWarnings([]);
+    setAutoCorrected({});
     applyAccentPreview(saved.accent_color || '');
+    applyAccent2Preview(saved.accent_color2 || '');
+    applyThemeTokensPreview(saved.theme_tokens || {});
+    applyMaterialPreview((saved.material as Material) || 'quiet');
     applyFaviconPreview(saved.favicon_data_url || '');
-    if (saved.theme === 'dark' || saved.theme === 'light' || saved.theme === 'system') {
-      setTheme(saved.theme);
-    }
+    const t = effectiveDefaultTheme(saved);
+    setTheme(t);
   };
 
   /* ---------------------------------------------------------------- render -- */
@@ -503,12 +660,16 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     );
   }
 
+  const hasServerWarnings = serverWarnings.length > 0;
+  const correctedNames = Object.keys(autoCorrected);
+
   return (
     <div className="space-y-6">
       <div className="space-y-1 border-b border-border pb-4">
-        <h2 className="text-lg font-semibold tracking-tight text-foreground">Branding</h2>
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">Branding &amp; theme</h2>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          White-label the console: wordmark, logo, accent colours, default theme, and login copy.
+          White-label the console: wordmark, logo, accent colours, the design-token theme,
+          the material pack, the default colour mode, and login copy.
         </p>
       </div>
 
@@ -537,6 +698,33 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           </div>
         </div>
       </div>
+
+      {/* WCAG-AA contrast advisory: server-reported (authoritative) OR the local check. */}
+      {hasServerWarnings ? (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" aria-hidden />
+          <AlertTitle>Contrast check (from the last save)</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-4">
+              {/* server warning strings are controlled UI copy — render plain text */}
+              {serverWarnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+            {correctedNames.length ? (
+              <p className="mt-2 text-xs">
+                Auto-corrected to stay AA: {correctedNames.join(', ')}.
+              </p>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : localContrast ? (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" aria-hidden />
+          <AlertTitle>{localContrast.severe ? 'Accent fails WCAG-AA' : 'Low accent contrast'}</AlertTitle>
+          <AlertDescription>{localContrast.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
       {/* Wordmark */}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -608,7 +796,50 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
       <Separator />
 
-      {/* Accents */}
+      {/* Accent presets */}
+      <div className="space-y-3">
+        <Heading
+          title="Accent presets"
+          sub="One-click brand hues — each vetted to keep white text at WCAG-AA on the accent fill."
+        />
+        <div className="flex flex-wrap gap-2">
+          {ACCENT_PRESETS.map((p) => {
+            const active =
+              accent.toLowerCase() === p.hex.toLowerCase() &&
+              (accent2.toLowerCase() === (p.hex2 || '').toLowerCase() || !p.hex2);
+            return (
+              <button
+                key={p.key}
+                type="button"
+                disabled={readOnly}
+                onClick={() => applyPreset(p.hex, p.hex2)}
+                aria-pressed={active}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                  active
+                    ? 'border-primary bg-accent text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <span
+                  className="h-4 w-4 rounded-full ring-1 ring-black/10"
+                  style={{
+                    background: p.hex2
+                      ? `linear-gradient(135deg, ${p.hex} 0%, ${p.hex2} 100%)`
+                      : p.hex,
+                  }}
+                  aria-hidden
+                />
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Accent colours */}
       <div className="space-y-3">
         <Heading title="Accent colours" sub="The primary accent previews instantly across the console." />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -645,19 +876,96 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
       <Separator />
 
+      {/* Design tokens (bounded) */}
+      <div className="space-y-3">
+        <Heading
+          title="Design tokens"
+          sub="Bounded theme tokens — severity hues, corner radius, and the display font. Values are allow-listed and sanitised; previews apply instantly."
+        />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {SAFE_TOKEN_SPECS.map((spec) => {
+            const value = themeTokens[spec.name] || '';
+            if (spec.kind === 'color') {
+              const invalid = Boolean(value) && !isValidHex(value);
+              return (
+                <ColorField
+                  key={spec.name}
+                  label={spec.label}
+                  value={value}
+                  placeholder="#000000"
+                  invalid={invalid}
+                  disabled={readOnly}
+                  onChange={(v) => setToken(spec.name, v)}
+                />
+              );
+            }
+            const choices = spec.kind === 'font' ? FONT_CHOICES : RADIUS_CHOICES;
+            return (
+              <div key={spec.name} className="space-y-1.5">
+                <Label>{spec.label}</Label>
+                <Select
+                  value={value || '__default__'}
+                  disabled={readOnly}
+                  onValueChange={(v) => setToken(spec.name, v === '__default__' ? '' : v)}
+                >
+                  <SelectTrigger aria-label={spec.label}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {choices.map((c) => (
+                      <SelectItem key={c.key || '__default__'} value={c.key || '__default__'}>
+                        {c.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
+        </div>
+        <Button variant="ghost" size="sm" onClick={resetTokens} disabled={readOnly}>
+          <RotateCcw className="h-4 w-4" aria-hidden />
+          Reset tokens
+        </Button>
+      </div>
+
+      <Separator />
+
+      {/* Material pack */}
+      <div className="space-y-3">
+        <Heading
+          title="Material pack"
+          sub="The shell surface treatment. “Command” adds a faint glow + grid overlay for a denser command-center feel — colours and text contrast are unchanged."
+        />
+        <label className="flex w-fit cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-sm text-foreground">
+          <Switch
+            checked={material === 'command'}
+            disabled={readOnly}
+            onCheckedChange={onMaterial}
+            aria-label="Use the command material pack"
+          />
+          <span className="inline-flex items-center gap-1.5">
+            <Zap className="h-4 w-4 text-primary" aria-hidden />
+            Command material pack
+          </span>
+        </label>
+      </div>
+
+      <Separator />
+
       {/* Theme */}
       <div className="space-y-3">
-        <Heading title="Default theme" sub="The console theme; “System” follows the OS preference." />
+        <Heading title="Default theme" sub="The org default colour mode; “System” follows the OS. A user’s own choice always wins." />
         <div className="inline-flex rounded-lg border border-border bg-muted p-1">
           {THEME_OPTIONS.map((o) => {
-            const active = (draft.theme || 'system') === o.id;
+            const active = currentDefaultTheme === o.id;
             const Icon = o.icon;
             return (
               <button
                 key={o.id}
                 type="button"
                 disabled={readOnly}
-                onClick={() => onTheme(o.id)}
+                onClick={() => onDefaultTheme(o.id)}
                 aria-pressed={active}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
@@ -676,19 +984,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
         </div>
         <p className="text-xs text-muted-foreground">
           Currently showing the <strong className="font-semibold text-foreground">{isDark ? 'dark' : 'light'}</strong> theme.
-        </p>
-        <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-foreground">
-          <Switch
-            checked={draft.dark_mode_default}
-            disabled={readOnly}
-            onCheckedChange={(v) => set({ dark_mode_default: v })}
-            aria-label="Default new sessions to dark mode"
-          />
-          Default new sessions to dark mode
-        </label>
-        <p className="text-xs text-muted-foreground">
-          Seeds the colour mode for a fresh browser when “System” is selected. A user’s own
-          light/dark toggle always wins.
         </p>
       </div>
 

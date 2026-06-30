@@ -19,6 +19,12 @@ import * as React from 'react';
 import { Toaster } from '@/ui/sonner';
 import { api } from '@/lib/api';
 import type { Branding } from '@/lib/types';
+import {
+  applyBranding as applyBrandingTokens,
+  resolveDark as resolveDarkPrecedence,
+  type BrandingLike,
+  type Material,
+} from './theme-tokens';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -56,15 +62,14 @@ function writeStoredMode(v: ThemeMode): void {
   }
 }
 
-function prefersDark(): boolean {
-  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
-}
-
-/** Resolve a mode to the effective dark flag. */
-function resolveDark(mode: ThemeMode): boolean {
-  if (mode === 'dark') return true;
-  if (mode === 'light') return false;
-  return prefersDark();
+/**
+ * Resolve a mode to the effective dark flag, delegating to the ONE precedence
+ * resolver. `branding` (when provided) acts as the org default for users on
+ * `system` — see theme-tokens.resolveDark. Omitting it keeps the prior user-pref /
+ * OS-only behaviour.
+ */
+function resolveDark(mode: ThemeMode, branding?: BrandingLike | null): boolean {
+  return resolveDarkPrecedence(mode, branding ?? null);
 }
 
 /** Apply or remove the `.dark` class on <html>. */
@@ -73,75 +78,6 @@ function applyDarkClass(dark: boolean): void {
   const root = document.documentElement;
   root.classList.toggle('dark', dark);
   root.style.colorScheme = dark ? 'dark' : 'light';
-}
-
-/**
- * Convert a `#rrggbb` (or `#rgb`) hex string to an HSL triplet string in the
- * `"H S% L%"` form the tokens expect (so it can be assigned to `--primary` etc.).
- * Returns null for anything that does not parse, so callers can no-op safely.
- */
-function hexToHslTriplet(hex: string): string | null {
-  let h = hex.trim();
-  if (!h.startsWith('#')) return null;
-  h = h.slice(1);
-  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
-  if (h.length !== 6 || /[^0-9a-fA-F]/.test(h)) return null;
-  const r = parseInt(h.slice(0, 2), 16) / 255;
-  const g = parseInt(h.slice(2, 4), 16) / 255;
-  const b = parseInt(h.slice(4, 6), 16) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  let s = 0;
-  let hue = 0;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    switch (max) {
-      case r:
-        hue = (g - b) / d + (g < b ? 6 : 0);
-        break;
-      case g:
-        hue = (b - r) / d + 2;
-        break;
-      default:
-        hue = (r - g) / d + 4;
-        break;
-    }
-    hue /= 6;
-  }
-  const H = Math.round(hue * 360);
-  const S = Math.round(s * 100);
-  const L = Math.round(l * 100);
-  return `${H} ${S}% ${L}%`;
-}
-
-/**
- * Apply the branding accent(s) to CSS vars, or clear them.
- *
- * - The PRIMARY hex drives `--primary` / `--ring` (the brand colour everywhere).
- * - The SECONDARY hex (`accent_color2`, previously plumbed but unused) drives a
- *   new `--accent2` triplet, consumed by the login hero's aurora gradient. When
- *   no secondary is set, `--accent2` is cleared so the hero falls back to a tint
- *   of `--primary` (see `bg-aurora` / the inline hero styles).
- */
-function applyAccent(accentHex: string, accent2Hex = ''): void {
-  if (typeof document === 'undefined') return;
-  const root = document.documentElement;
-  const triplet = accentHex ? hexToHslTriplet(accentHex) : null;
-  if (triplet) {
-    root.style.setProperty('--primary', triplet);
-    root.style.setProperty('--ring', triplet);
-  } else {
-    root.style.removeProperty('--primary');
-    root.style.removeProperty('--ring');
-  }
-  const triplet2 = accent2Hex ? hexToHslTriplet(accent2Hex) : null;
-  if (triplet2) {
-    root.style.setProperty('--accent2', triplet2);
-  } else {
-    root.style.removeProperty('--accent2');
-  }
 }
 
 /** Inject/update the favicon from a trusted data: URL (empty → no change). */
@@ -167,11 +103,35 @@ function applyDocumentTitle(branding: Branding): void {
   if (title) document.title = title;
 }
 
-/** Apply all passive branding side effects (accent + favicon + title). */
-function applyBranding(branding: Branding): void {
-  applyAccent(branding.accent_color || '', branding.accent_color2 || '');
+/**
+ * Toggle the decorative command-grid overlay class on <html>. Driven by the
+ * resolved material; in 'quiet' the class is removed (and `--grid-opacity` is 0
+ * anyway, so even a stale class would be invisible). Decorative only.
+ */
+function applyMaterialClass(material: Material): void {
+  if (typeof document === 'undefined') return;
+  const root = document.documentElement;
+  root.classList.toggle('command-grid', material === 'command');
+  root.dataset.material = material;
+}
+
+/**
+ * Apply ALL branding side effects: appearance tokens (accent + material pack +
+ * bounded theme-token overrides, via the ONE allow-listed resolver) + favicon +
+ * title + the material overlay class. The token application is fully delegated to
+ * `theme-tokens.applyBranding`, which writes ONLY allow-listed, sanitised CSS vars
+ * (#10/#9). Returns the resolved material.
+ *
+ * `branding` is typed `Branding` for the known fields; the backend forwards the
+ * additive round-3 fields (`material`/`theme_tokens`/`presets`/`default_theme`)
+ * verbatim, so we read it structurally as a `BrandingLike`.
+ */
+function applyBranding(branding: Branding): Material {
+  const material = applyBrandingTokens(branding as unknown as BrandingLike);
+  applyMaterialClass(material);
   applyFavicon(branding);
   applyDocumentTitle(branding);
+  return material;
 }
 
 export interface ThemeContextValue {
@@ -185,6 +145,8 @@ export interface ThemeContextValue {
   toggle: () => void;
   /** The current branding (defaults until/unless the backend overrides). */
   branding: Branding;
+  /** The resolved shell material pack ('quiet' === pre-wave default). */
+  material: Material;
   /** True once the initial branding fetch has settled (ok or failed). */
   ready: boolean;
 }
@@ -194,25 +156,33 @@ const ThemeContext = React.createContext<ThemeContextValue | null>(null);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mode, setMode] = React.useState<ThemeMode>(() => readStoredMode());
   const [branding, setBranding] = React.useState<Branding>(DEFAULT_BRANDING);
+  const [material, setMaterial] = React.useState<Material>('quiet');
   const [ready, setReady] = React.useState(false);
   const [isDark, setIsDark] = React.useState<boolean>(() => resolveDark(readStoredMode()));
+
+  // Branding-as-default is only consulted when the user is on `system`; keep a
+  // stable ref so the OS-change listener re-resolves against the latest branding.
+  const brandingRef = React.useRef<Branding>(branding);
+  brandingRef.current = branding;
 
   // Apply the `.dark` class whenever the resolved value changes.
   React.useEffect(() => {
     applyDarkClass(isDark);
   }, [isDark]);
 
-  // Re-resolve when the mode changes.
+  // Re-resolve when the mode OR the org-default (branding) changes. For an
+  // explicit light/dark user choice the branding is irrelevant (precedence #1).
   React.useEffect(() => {
-    setIsDark(resolveDark(mode));
-  }, [mode]);
+    setIsDark(resolveDark(mode, branding as unknown as BrandingLike));
+  }, [mode, branding]);
 
-  // Follow the OS preference while on `system`.
+  // Follow the OS preference while on `system` (consulting the branding default).
   React.useEffect(() => {
     if (mode !== 'system') return undefined;
     const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!mq) return undefined;
-    const onChange = () => setIsDark(prefersDark());
+    const onChange = () =>
+      setIsDark(resolveDark('system', brandingRef.current as unknown as BrandingLike));
     mq.addEventListener?.('change', onChange);
     return () => mq.removeEventListener?.('change', onChange);
   }, [mode]);
@@ -227,8 +197,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const b = await api.getBranding();
         if (!mounted.current) return;
         const merged: Branding = { ...DEFAULT_BRANDING, ...b };
-        applyBranding(merged);
+        const resolvedMaterial = applyBranding(merged);
         setBranding(merged);
+        setMaterial(resolvedMaterial);
       } catch {
         /* legacy / unreachable backend → defaults already in effect */
       } finally {
@@ -247,7 +218,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const toggle = React.useCallback(() => {
     setMode((prev) => {
-      const currentlyDark = resolveDark(prev);
+      const currentlyDark = resolveDark(prev, brandingRef.current as unknown as BrandingLike);
       const next: ThemeMode = currentlyDark ? 'light' : 'dark';
       writeStoredMode(next);
       return next;
@@ -255,8 +226,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const value = React.useMemo<ThemeContextValue>(
-    () => ({ theme: mode, isDark, setTheme, toggle, branding, ready }),
-    [mode, isDark, setTheme, toggle, branding, ready],
+    () => ({ theme: mode, isDark, setTheme, toggle, branding, material, ready }),
+    [mode, isDark, setTheme, toggle, branding, material, ready],
   );
 
   return (

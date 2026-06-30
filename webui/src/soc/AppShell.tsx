@@ -20,7 +20,6 @@ import * as React from 'react';
 import {
   Moon,
   Sun,
-  Shield,
   CheckCircle2,
   AlertTriangle,
   Database,
@@ -32,8 +31,9 @@ import {
   Monitor,
   Palette,
   ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
   Command as CommandIcon,
-  type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
@@ -60,11 +60,13 @@ import { humanizeToken } from '@/lib/format';
 import type { AccountProfile, HealthResponse } from '@/lib/types';
 import { useTheme } from './theme';
 import { usePrefs } from './prefs';
-import { useAuth } from './auth';
 import { useDemo } from './demo';
 import { DemoBanner } from './components/DemoBanner';
 import { CommandPalette } from './components/CommandPalette';
-import { NAV_GROUPS, navItem, type NavGroup, type PageId } from './nav';
+import { GlassSurface } from './components/GlassSurface';
+import { NavSidebar, useNavPrefs } from './components/NavSidebar';
+import { NotificationBell } from './components/NotificationBell';
+import { navItem, navLabel, type PageId } from './nav';
 import type { Navigate } from './router';
 
 export interface AppShellProps {
@@ -222,36 +224,6 @@ function useAccountProfile(active: boolean): AccountProfile | null {
   return profile;
 }
 
-/** One rail item: an icon button with a tooltip; active = filled primary square. */
-const RailItem: React.FC<{
-  id: PageId;
-  label: string;
-  icon: LucideIcon;
-  active: boolean;
-  onSelect: () => void;
-}> = ({ label, icon: Icon, active, onSelect }) => (
-  <Tooltip>
-    <TooltipTrigger asChild>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-label={label}
-        aria-current={active ? 'page' : undefined}
-        className={cn(
-          'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-          active
-            ? 'bg-primary text-primary-foreground shadow-glow'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-        )}
-      >
-        <Icon className="h-5 w-5" aria-hidden />
-      </button>
-    </TooltipTrigger>
-    <TooltipContent side="right">{label}</TooltipContent>
-  </Tooltip>
-);
-
 /** Small round avatar (image + initials fallback) used in the shell user chip. */
 const UserAvatar: React.FC<{ src?: string; name: string; className?: string }> = ({
   src,
@@ -389,7 +361,6 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const { isDark, branding } = useTheme();
   const { setThemeMode } = usePrefs();
-  const { hasPermission } = useAuth();
   // The header toggle flips light↔dark AND persists the choice to the user's prefs
   // (Wave 7), so it survives a reload + follows the user across devices.
   const toggleTheme = React.useCallback(
@@ -400,6 +371,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  // Nav collapse + open-group state (shell-owned; hydrates synchronously from a
+  // localStorage mirror to avoid a first-paint flash, then reconciles with the
+  // server-side UserPrefs.misc and persists every change). See useNavPrefs.
+  const { collapsed, toggleCollapsed, openGroups, toggleGroup, openGroup } = useNavPrefs();
 
   // Refetch the demo status on every route change so the banner/badges stay fresh
   // even between the background poll ticks (cheap GET; inert when demo is off).
@@ -407,23 +382,12 @@ export const AppShell: React.FC<AppShellProps> = ({
     void refreshDemo();
   }, [page, refreshDemo]);
 
-  // Filter the nav by RBAC: an item with a `perm` is hidden unless the user has the
-  // grant; a group with no visible items is dropped. With auth/RBAC off,
-  // hasPermission() is always true so the full nav shows (back-compat).
-  const navGroups = React.useMemo<NavGroup[]>(
-    () =>
-      NAV_GROUPS.map((g) => ({
-        ...g,
-        items: g.items.filter((it) => !it.perm || hasPermission(it.perm.resource, it.perm.action)),
-      })).filter((g) => g.items.length > 0),
-    [hasPermission],
-  );
-
   // Product name for the breadcrumb prefix; falls back to a neutral default.
   const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'ASP';
   const logoUrl = branding.logo_data_url?.trim() || '';
-  const current = navItem(page);
-  const pageLabel = current?.label ?? 'Overview';
+  // Breadcrumb leaf label — resolves top-level items, disclosure children, and the
+  // consolidated sub-pages (navItem only knows top-level rail items).
+  const pageLabel = navItem(page)?.label ?? navLabel(page);
 
   const baseHv = healthView(health, err);
   // Round-2 Wave 5 tie-in (promised in W1): while demo mode is active the app's own
@@ -446,59 +410,74 @@ export const AppShell: React.FC<AppShellProps> = ({
       : baseHv;
   const HealthIcon = hv.icon;
 
-  // Cmd/Ctrl-K opens the palette.
+  // Cmd/Ctrl-K opens the palette; Cmd/Ctrl-B toggles the sidebar width.
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 'k') {
         e.preventDefault();
         setPaletteOpen((v) => !v);
+      } else if (k === 'b') {
+        e.preventDefault();
+        toggleCollapsed();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [toggleCollapsed]);
+
+  // The hamburger toggle, shared by the expanded-header + collapsed-rail slots.
+  const navToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          aria-keyshortcuts="Control+B Meta+B"
+        >
+          {collapsed ? (
+            <PanelLeftOpen className="h-4 w-4" aria-hidden />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" aria-hidden />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side={collapsed ? 'right' : 'bottom'}>
+        {collapsed ? 'Expand navigation' : 'Collapse navigation'}
+        <kbd className="ml-1.5 rounded border border-border bg-muted px-1 text-[10px]">⌘B</kbd>
+      </TooltipContent>
+    </Tooltip>
+  );
 
   return (
     <div className="flex min-h-screen bg-canvas text-foreground">
-      {/* ---- Slim left icon rail ------------------------------------------- */}
-      <aside
-        className="sticky top-0 flex h-screen w-16 shrink-0 flex-col items-center border-r border-border bg-surface py-3"
-        aria-label="Primary navigation"
-      >
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt=""
-              className="h-7 w-7 rounded object-contain"
-            />
-          ) : (
-            <Shield className="h-5 w-5" aria-hidden />
-          )}
-        </div>
-        <nav className="flex flex-1 flex-col items-center gap-1">
-          {navGroups.map((group, gi) => (
-            <React.Fragment key={group.id}>
-              {gi > 0 && <Separator className="my-1.5 w-6" />}
-              {group.items.map((item) => (
-                <RailItem
-                  key={item.id}
-                  id={item.id}
-                  label={item.label}
-                  icon={item.icon}
-                  active={page === item.id}
-                  onSelect={() => onNavigate(item.id)}
-                />
-              ))}
-            </React.Fragment>
-          ))}
-        </nav>
-      </aside>
+      {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) -- */}
+      <NavSidebar
+        page={page}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+        openGroups={openGroups}
+        onToggleGroup={toggleGroup}
+        onOpenGroup={openGroup}
+        logoUrl={logoUrl}
+        productName={productName}
+        toggleSlot={navToggle}
+      />
 
       {/* ---- Main column --------------------------------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top bar */}
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-surface/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-surface/80">
+        {/* Top bar — frosted command-center chrome (GlassSurface honours
+            prefers-reduced-transparency by falling back to a solid surface). */}
+        <GlassSurface
+          as="header"
+          blur="md"
+          rim={false}
+          className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border px-4"
+        >
           {/* Breadcrumb: OUR product name / current page (plain text — untrusted). */}
           <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
             <span className="truncate font-semibold text-foreground">{productName}</span>
@@ -523,6 +502,10 @@ export const AppShell: React.FC<AppShellProps> = ({
                 ⌘K
               </kbd>
             </Button>
+
+            {/* In-app notification bell (#8) — self-contained: polls the unread
+                count, opens a recent-items dropdown, links to the Inbox page. */}
+            <NotificationBell onNavigate={onNavigate} />
 
             {/* Theme toggle */}
             <Tooltip>
@@ -595,7 +578,7 @@ export const AppShell: React.FC<AppShellProps> = ({
               </>
             ) : null}
           </div>
-        </header>
+        </GlassSurface>
 
         {/* Content slot — re-keyed so the fade-in replays on each route change. */}
         <main id="socMain" role="main" className="flex-1">

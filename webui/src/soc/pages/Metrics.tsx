@@ -1,25 +1,33 @@
 /**
- * Metrics — the triage analytics dashboard (new "command center" UI).
+ * Metrics — the triage analytics dashboard, split into three tabs (Round 3 / #5):
  *
- * Reads GET /api/metrics (windowed) and turns it into KPI tiles, a verdict donut,
- * persona/playbook bar lists, a cases-per-day trend, an analyst-feedback quality
- * panel, and a compact LLM-cost summary. RAG corpus + operator-memory health are
- * loaded alongside as point-in-time (NON-windowed) extras and are non-fatal: a
- * failure there leaves them null and the rest of the page still renders.
+ *   - Operational : verdict/disposition mix, persona/playbook routing, cases-per-day,
+ *                   feedback quality, LLM cost, knowledge-base + memory health — the
+ *                   classic windowed `/api/metrics` view (unchanged).
+ *   - Performance : the REAL server-side lifecycle rollup from `/api/metrics/posture`
+ *                   (MTTA/MTTR/dwell p50/p90 with honest labelled DASH), triage
+ *                   QUALITY rates, and period-over-period delta tiles (▲/▼ delta%).
+ *   - Posture     : aging buckets + SLA breach/at-risk + the MITRE ATT&CK coverage
+ *                   heatmap (with the Navigator-layer export note).
  *
- * Built entirely from the shared SOC primitives (ui/* + soc/components/*) + tokens,
- * so both the light and dark themes are first-class with no hardcoded hex. Every
- * label/value that is backend-derived is rendered as PLAIN text (UNTRUSTED-safe).
+ * The client-side 200-case derivations are GONE — Performance + Posture read the
+ * deterministic server rollup. Built entirely from the shared SOC primitives + tokens.
+ *
+ * SECURITY (#9): every backend-derived label/value (verdict labels, case numbers,
+ * technique names, analyst names) renders as PLAIN text — never markup.
  */
 import * as React from 'react';
 import {
+  Activity,
   BarChart3,
   Bot,
   CheckCircle2,
   Clock,
+  Crosshair,
   Database,
   FileText,
   Gauge,
+  Layers,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -47,10 +55,11 @@ import { Button } from '@/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
-import { StatCard } from '@/soc/components/StatCard';
+import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { Stagger } from '@/soc/components/Stagger';
@@ -61,9 +70,18 @@ import {
   TrendArea,
   type DonutSegment,
 } from '@/soc/components/charts';
+import { BurnDownChart, MitreHeatmap } from '@/soc/components/charts-soc';
 import { semanticColor, token } from '@/soc/components/palette';
 
 import type { Navigate } from '@/soc/router';
+import {
+  fetchMitreCoverage,
+  fetchPosture,
+  navigatorLayerUrl,
+  type MitreCoverageResponse,
+  type PostureResponse,
+} from './Metrics.posture.api';
+import { deltaView, humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
 
 // --------------------------------------------------------------------------- //
 // Constants + helpers
@@ -76,6 +94,7 @@ const WINDOWS = [
 
 type WindowId = (typeof WINDOWS)[number]['id'];
 type RankSort = 'count' | 'alpha';
+type MetricsTab = 'operational' | 'performance' | 'posture';
 
 /** Humanize a minutes value to a compact "Xd Yh" / "Xh Ym" / "Xm" string. */
 function humanizeMinutes(mins?: number | null): string {
@@ -90,37 +109,35 @@ function humanizeMinutes(mins?: number | null): string {
   return remH ? `${days}d ${remH}h` : `${days}d`;
 }
 
-/** Map a humanized verdict-legend label to a Cases status filter for drill-through.
- *  Only "Needs human" maps to a real status queue; the other verdict classes have
- *  no 1:1 status, so they have no drill target. */
+/** Map a humanized verdict-legend label to a Cases status filter for drill-through. */
 function verdictStatus(label: string): string | undefined {
   return label.toLowerCase().includes('needs human') ? 'needs_human' : undefined;
 }
 
-/** Turn a {label→count} record into colored bar-list items, ordered by count
- *  (default) or alphabetically. Labels are backend-derived → humanized plain text. */
+/** Turn a {label→count} record into colored bar-list items, ordered by count/alpha. */
 function recordItems(
   rec: Record<string, number> | undefined,
   sort: RankSort = 'count',
 ): BarListItem[] {
   if (!rec) return [];
-  const rows = Object.entries(rec).filter(
-    ([, v]) => typeof v === 'number' && v > 0,
-  );
+  const rows = Object.entries(rec).filter(([, v]) => typeof v === 'number' && v > 0);
   rows.sort((a, b) =>
     sort === 'alpha'
       ? humanizeToken(a[0]).localeCompare(humanizeToken(b[0]))
       : b[1] - a[1],
   );
-  return rows.map(([k, v]) => ({
-    label: humanizeToken(k),
-    value: v,
-    // Default gradient bar (`bg-accent-bar`) — keeps ranked lists visually consistent.
-  }));
+  return rows.map(([k, v]) => ({ label: humanizeToken(k), value: v }));
+}
+
+/** Tidy a tactic id ("TA0002") into a readable column label using its rollup key. */
+function tacticLabel(tacticId: string): string {
+  // The backend keys by_tactic by the tactic id; show the id (plain) — it is the
+  // stable, framework-canonical handle and is never attacker-controlled here.
+  return tacticId;
 }
 
 // --------------------------------------------------------------------------- //
-// Loading skeleton
+// Loading skeleton (operational tab)
 // --------------------------------------------------------------------------- //
 const MetricsSkeleton: React.FC = () => (
   <div className="space-y-6" aria-busy="true" aria-label="Loading analytics">
@@ -132,11 +149,6 @@ const MetricsSkeleton: React.FC = () => (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
       {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-[260px] w-full rounded-lg" />
-      ))}
-    </div>
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-      {Array.from({ length: 2 }).map((_, i) => (
-        <Skeleton key={i} className="h-[240px] w-full rounded-lg" />
       ))}
     </div>
   </div>
@@ -151,6 +163,7 @@ interface ChartCardProps {
   accentClass?: string;
   children: React.ReactNode;
   className?: string;
+  action?: React.ReactNode;
 }
 
 function ChartCard({
@@ -159,6 +172,7 @@ function ChartCard({
   accentClass = 'text-primary',
   children,
   className,
+  action,
 }: ChartCardProps) {
   return (
     <Card className={cn('flex flex-col', className)}>
@@ -168,6 +182,7 @@ function ChartCard({
             <Icon className={cn('h-3.5 w-3.5', accentClass)} aria-hidden />
           </span>
           {title}
+          {action ? <span className="ml-auto">{action}</span> : null}
         </CardTitle>
       </CardHeader>
       <CardContent className="flex-1">{children}</CardContent>
@@ -189,22 +204,20 @@ function ChartEmpty({ children }: { children: React.ReactNode }) {
 // --------------------------------------------------------------------------- //
 export interface MetricsProps {
   onNavigate?: Navigate;
-  /**
-   * When hosted as a tab inside the Analytics scaffold (Round-2 W4 consolidation),
-   * suppress the page's own PageHeader and surface only the window/refresh controls
-   * so the host owns the title (no duplicate headers).
-   */
   embedded?: boolean;
 }
 
 export default function MetricsPage({ onNavigate, embedded = false }: MetricsProps) {
   const [windowId, setWindowId] = React.useState<WindowId>('168');
   const [rankSort, setRankSort] = React.useState<RankSort>('count');
+  const [tab, setTab] = React.useState<MetricsTab>('operational');
 
   const [data, setData] = React.useState<Metrics | null>(null);
-  // Point-in-time knowledge-base + memory health (NOT windowed). Non-fatal.
   const [rag, setRag] = React.useState<RagStats | null>(null);
   const [memory, setMemory] = React.useState<MemoryResponse | null>(null);
+  // Server-side posture + MITRE rollups (Round 3). Loaded alongside; non-fatal.
+  const [posture, setPosture] = React.useState<PostureResponse | null>(null);
+  const [mitre, setMitre] = React.useState<MitreCoverageResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
 
@@ -221,17 +234,20 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
     setLoading(true);
     setError(null);
     try {
-      // The windowed metrics drive the page (a failure surfaces the error state).
-      // RAG/memory are point-in-time extras — each wrapped so one failing never
-      // blanks the dashboard.
-      const [m, ragStats, mem] = await Promise.all([
+      const [m, ragStats, mem, post, mit] = await Promise.all([
         api.getMetrics(hours),
         api.ragStats().catch(() => null),
         api.getMemory().catch(() => null),
+        fetchPosture(hours, 'prev').catch(() => null),
+        // MITRE coverage spans ALL cases (window_hours=0) so the heatmap reflects the
+        // whole observed technique footprint, independent of the operational window.
+        fetchMitreCoverage(0).catch(() => null),
       ]);
       setData(m);
       setRag(ragStats);
       setMemory(mem);
+      setPosture(post);
+      setMitre(mit);
     } catch (e) {
       setError(e);
     } finally {
@@ -243,7 +259,7 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
     void load();
   }, [load]);
 
-  // ---- derived series ---------------------------------------------------- //
+  // ---- derived series (operational) ------------------------------------- //
   const verdictSegments = React.useMemo<DonutSegment[]>(() => {
     const bv = data?.by_verdict;
     if (!bv) return [];
@@ -290,33 +306,22 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
   const perDay = React.useMemo(
     () =>
       Array.isArray(data?.cases_per_day)
-        ? data!.cases_per_day.map((d) =>
-            typeof d.count === 'number' ? d.count : 0,
-          )
+        ? data!.cases_per_day.map((d) => (typeof d.count === 'number' ? d.count : 0))
         : [],
     [data],
   );
-  const perDayTotal = React.useMemo(
-    () => perDay.reduce((s, x) => s + x, 0),
-    [perDay],
-  );
+  const perDayTotal = React.useMemo(() => perDay.reduce((s, x) => s + x, 0), [perDay]);
 
   const fb = data?.feedback;
   const cost = data?.cost;
   const currency = (cost?.currency as string | undefined) || undefined;
 
-  const outcomeItems = React.useMemo(
-    () => recordItems(fb?.outcome_distribution),
-    [fb],
-  );
+  const outcomeItems = React.useMemo(() => recordItems(fb?.outcome_distribution), [fb]);
 
   const costTrend = React.useMemo(() => {
     const series = cost?.cost_over_time;
     if (!Array.isArray(series)) return [];
-    return series.map((p) => ({
-      x: '',
-      y: Number((p as { cost?: number }).cost) || 0,
-    }));
+    return series.map((p) => ({ x: '', y: Number((p as { cost?: number }).cost) || 0 }));
   }, [cost]);
 
   // ---- knowledge base & memory (point-in-time) -------------------------- //
@@ -324,7 +329,6 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
     () => recordItems(rag?.by_source, rankSort),
     [rag, rankSort],
   );
-
   const memoryEntries = React.useMemo(() => memory?.entries ?? [], [memory]);
   const activeMemoryCount = React.useMemo(
     () => memoryEntries.filter((e) => e.active).length,
@@ -349,77 +353,69 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
   const hasKnowledge = rag !== null || memory !== null;
   const hasAny = (data?.total_cases ?? 0) > 0;
 
-  // ---- header actions ---------------------------------------------------- //
+  // ---- header actions --------------------------------------------------- //
   const headerActions = (
-        <>
-          {/* Time window toggle */}
-          <div
-            className="inline-flex rounded-md border border-border bg-surface p-1"
-            role="group"
-            aria-label="Time window"
+    <>
+      <div
+        className="inline-flex rounded-md border border-border bg-surface p-1"
+        role="group"
+        aria-label="Time window"
+      >
+        {WINDOWS.map((w) => (
+          <button
+            key={w.id}
+            type="button"
+            onClick={() => setWindowId(w.id)}
+            aria-pressed={windowId === w.id}
+            className={cn(
+              'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              windowId === w.id
+                ? 'bg-card text-foreground shadow-elev1'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
           >
-            {WINDOWS.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => setWindowId(w.id)}
-                aria-pressed={windowId === w.id}
-                className={cn(
-                  'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  windowId === w.id
-                    ? 'bg-card text-foreground shadow-elev1'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {w.label}
-              </button>
-            ))}
-          </div>
+            {w.label}
+          </button>
+        ))}
+      </div>
 
-          {/* Rank sort toggle */}
-          <div
-            className="inline-flex rounded-md border border-border bg-surface p-1"
-            role="group"
-            aria-label="Sort ranked breakdowns"
-          >
-            {(
-              [
-                { id: 'count', label: 'Count' },
-                { id: 'alpha', label: 'A–Z' },
-              ] as const
-            ).map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => setRankSort(o.id)}
-                aria-pressed={rankSort === o.id}
-                className={cn(
-                  'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  rankSort === o.id
-                    ? 'bg-card text-foreground shadow-elev1'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
+      {tab === 'operational' ? (
+        <div
+          className="inline-flex rounded-md border border-border bg-surface p-1"
+          role="group"
+          aria-label="Sort ranked breakdowns"
+        >
+          {(
+            [
+              { id: 'count', label: 'Count' },
+              { id: 'alpha', label: 'A–Z' },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => setRankSort(o.id)}
+              aria-pressed={rankSort === o.id}
+              className={cn(
+                'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                rankSort === o.id
+                  ? 'bg-card text-foreground shadow-elev1'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={cn('h-4 w-4', loading && 'animate-spin')}
-              aria-hidden
-            />
-            Refresh
-          </Button>
-        </>
+      <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+        <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
+        Refresh
+      </Button>
+    </>
   );
 
   const header = embedded ? (
@@ -429,12 +425,12 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
       eyebrow="Analytics"
       icon={BarChart3}
       title="Metrics"
-      description="Triage volume, verdict mix, agent routing, and analyst feedback quality."
+      description="Triage volume, lifecycle performance, and security posture."
       actions={headerActions}
     />
   );
 
-  // ---- knowledge base & memory section ----------------------------------- //
+  // ---- knowledge base & memory section (operational tab footer) --------- //
   const knowledgeSection = hasKnowledge ? (
     <section className="space-y-5 pt-2">
       <Separator />
@@ -454,43 +450,22 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
       </div>
 
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiTile
-          label="RAG documents"
-          value={fmtNumber(rag?.document_count)}
-          icon={FileText}
-          accent="primary"
-        />
-        <KpiTile
-          label="RAG chunks"
-          value={fmtNumber(rag?.total_chunks)}
-          icon={Database}
-          accent="info"
-        />
+        <KpiTile label="RAG documents" value={fmtNumber(rag?.document_count)} icon={FileText} accent="primary" />
+        <KpiTile label="RAG chunks" value={fmtNumber(rag?.total_chunks)} icon={Database} accent="info" />
         <KpiTile
           label="Embedding model"
           value={
             rag?.embedding_model ? (
-              <InlineCode className="text-base">
-                {rag.embedding_model}
-              </InlineCode>
+              <InlineCode className="text-base">{rag.embedding_model}</InlineCode>
             ) : (
               DASH
             )
           }
-          sub={
-            typeof rag?.dim === 'number'
-              ? `${fmtNumber(rag.dim)} dims`
-              : undefined
-          }
+          sub={typeof rag?.dim === 'number' ? `${fmtNumber(rag.dim)} dims` : undefined}
           icon={Sparkles}
           accent="info"
         />
-        <KpiTile
-          label="Memory facts"
-          value={fmtNumber(memory?.count)}
-          icon={Bot}
-          accent="medium"
-        />
+        <KpiTile label="Memory facts" value={fmtNumber(memory?.count)} icon={Bot} accent="medium" />
         <KpiTile
           label="Active memory"
           value={memory ? fmtNumber(activeMemoryCount) : DASH}
@@ -503,15 +478,9 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <ChartCard title="Corpus by source" icon={Database}>
           {corpusItems.length ? (
-            <BarList
-              items={corpusItems}
-              format={(n) => fmtNumber(n)}
-              showPercent
-            />
+            <BarList items={corpusItems} format={(n) => fmtNumber(n)} showPercent />
           ) : (
-            <ChartEmpty>
-              {rag ? 'No RAG corpus indexed yet.' : 'Corpus stats unavailable.'}
-            </ChartEmpty>
+            <ChartEmpty>{rag ? 'No RAG corpus indexed yet.' : 'Corpus stats unavailable.'}</ChartEmpty>
           )}
         </ChartCard>
 
@@ -531,18 +500,14 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
               }
             />
           ) : (
-            <ChartEmpty>
-              {memory
-                ? 'No memory facts recorded yet.'
-                : 'Memory stats unavailable.'}
-            </ChartEmpty>
+            <ChartEmpty>{memory ? 'No memory facts recorded yet.' : 'Memory stats unavailable.'}</ChartEmpty>
           )}
         </ChartCard>
       </div>
     </section>
   ) : null;
 
-  // ---- KPI definitions --------------------------------------------------- //
+  // ---- KPI definitions (operational) ------------------------------------ //
   interface KpiDef {
     key: string;
     label: string;
@@ -569,9 +534,7 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
           value: fmtNumber(data.needs_human_cases),
           icon: Users,
           accent: 'high',
-          onClick: onNavigate
-            ? () => onNavigate('cases', { status: 'needs_human' })
-            : undefined,
+          onClick: onNavigate ? () => onNavigate('cases', { status: 'needs_human' }) : undefined,
         },
         {
           key: 'closed',
@@ -580,9 +543,7 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
           sub: `${fmtNumber(data.open_cases)} open`,
           icon: CheckCircle2,
           accent: 'success',
-          onClick: onNavigate
-            ? () => onNavigate('cases', { status: 'closed' })
-            : undefined,
+          onClick: onNavigate ? () => onNavigate('cases', { status: 'closed' }) : undefined,
         },
         {
           key: 'mttr',
@@ -595,8 +556,7 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
         {
           key: 'agreement',
           label: 'Agreement rate',
-          value:
-            fb && fb.graded_cases > 0 ? fmtPercent(fb.agreement_rate) : DASH,
+          value: fb && fb.graded_cases > 0 ? fmtPercent(fb.agreement_rate) : DASH,
           sub: fb ? `${fmtNumber(fb.graded_cases)} graded` : undefined,
           icon: ThumbsUp,
           accent: 'success',
@@ -604,15 +564,252 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
         {
           key: 'risk',
           label: 'Avg risk',
-          value:
-            typeof data.avg_risk_score === 'number'
-              ? Math.round(data.avg_risk_score)
-              : DASH,
+          value: typeof data.avg_risk_score === 'number' ? Math.round(data.avg_risk_score) : DASH,
           icon: Gauge,
           accent: 'critical',
         },
       ]
     : [];
+
+  // ----- operational tab body -------------------------------------------- //
+  const operationalBody =
+    loading && !data ? (
+      <MetricsSkeleton />
+    ) : !hasAny ? (
+      <div className="space-y-8">
+        <Card>
+          <CardContent className="py-4">
+            <EmptyState
+              icon={BarChart3}
+              title="No cases yet"
+              description={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
+            />
+          </CardContent>
+        </Card>
+        {knowledgeSection}
+      </div>
+    ) : (
+      <div className="space-y-8">
+        <Stagger
+          className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6"
+          step={40}
+          itemClassName="h-full"
+        >
+          {kpis.map((k) => (
+            <KpiTile
+              key={k.key}
+              label={k.label}
+              value={k.value}
+              sub={k.sub}
+              icon={k.icon}
+              accent={k.accent}
+              onClick={k.onClick}
+            />
+          ))}
+        </Stagger>
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
+          <ChartCard title="Verdict mix" icon={BarChart3}>
+            {verdictSegments.length ? (
+              <div className="space-y-3">
+                <DonutChart
+                  segments={verdictSegments}
+                  format={(n) => fmtNumber(n)}
+                  ariaLabel="Verdict mix"
+                  center={
+                    <>
+                      <span className="text-2xl font-bold tabular-nums text-foreground">
+                        {fmtNumber(data?.total_cases)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">cases</span>
+                    </>
+                  }
+                />
+                <ul className="flex flex-col divide-y divide-border border-t border-border">
+                  {verdictSegments.map((s) => {
+                    const status = verdictStatus(s.label);
+                    const drillable = Boolean(status && onNavigate);
+                    return (
+                      <li key={s.label} className="flex items-center gap-2 py-1.5 text-xs">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: s.color }}
+                          aria-hidden
+                        />
+                        {drillable ? (
+                          <button
+                            type="button"
+                            onClick={() => onNavigate!('cases', { status: status! })}
+                            className="truncate text-left text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`View ${s.label} cases`}
+                          >
+                            {s.label}
+                          </button>
+                        ) : (
+                          <span className="truncate text-muted-foreground">{s.label}</span>
+                        )}
+                        <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
+                          {fmtNumber(s.value)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : (
+              <ChartEmpty>No verdicts recorded in this window.</ChartEmpty>
+            )}
+          </ChartCard>
+
+          <ChartCard title="Disposition mix" icon={BarChart3}>
+            {dispositionSegments.length ? (
+              <div className="space-y-3">
+                <DonutChart
+                  segments={dispositionSegments}
+                  format={(n) => fmtNumber(n)}
+                  ariaLabel="Disposition mix"
+                  center={
+                    <>
+                      <span className="text-2xl font-bold tabular-nums text-foreground">
+                        {fmtNumber(data?.total_cases)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">cases</span>
+                    </>
+                  }
+                />
+                <ul className="flex flex-col divide-y divide-border border-t border-border">
+                  {dispositionSegments.map((s) => (
+                    <li key={s.label} className="flex items-center gap-2 py-1.5 text-xs">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ background: s.color }}
+                        aria-hidden
+                      />
+                      <span className="truncate text-muted-foreground">{s.label}</span>
+                      <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
+                        {fmtNumber(s.value)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <ChartEmpty>No dispositions recorded in this window.</ChartEmpty>
+            )}
+          </ChartCard>
+
+          <ChartCard title="Persona usage" icon={Users} accentClass="text-accent">
+            {personaItems.length ? (
+              <BarList items={personaItems} format={(n) => fmtNumber(n)} showPercent />
+            ) : (
+              <ChartEmpty>No specialist routing recorded.</ChartEmpty>
+            )}
+          </ChartCard>
+
+          <ChartCard title="Playbook usage" icon={FileText} accentClass="text-medium">
+            {playbookItems.length ? (
+              <BarList items={playbookItems} format={(n) => fmtNumber(n)} showPercent />
+            ) : (
+              <ChartEmpty>No playbooks selected in this window.</ChartEmpty>
+            )}
+          </ChartCard>
+
+          <ChartCard title="Cases per day" icon={TrendingUp} accentClass="text-success">
+            {perDay.length > 1 ? (
+              <div className="space-y-2">
+                <MiniBars data={perDay} colorToken="success" height={140} ariaLabel="Cases per day" />
+                <p className="text-xs text-muted-foreground">
+                  {`${perDay.length} days · ${fmtNumber(perDayTotal)} cases`}
+                </p>
+              </div>
+            ) : (
+              <ChartEmpty>Not enough data points to chart a trend.</ChartEmpty>
+            )}
+          </ChartCard>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <ChartCard title="Analyst feedback quality" icon={ThumbsUp} accentClass="text-success">
+            {fb && fb.graded_cases > 0 ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <StatCard label="Agreement" value={fmtPercent(fb.agreement_rate)} accent="success" />
+                  <StatCard
+                    label="Time saved"
+                    value={humanizeMinutes(fb.time_saved_minutes)}
+                    accent="primary"
+                  />
+                </div>
+                <BarList
+                  items={[
+                    { label: 'Accuracy', value: Math.round((fb.avg_accuracy || 0) * 100), color: 'bg-success' },
+                    {
+                      label: 'Reasoning quality',
+                      value: Math.round((fb.avg_reasoning_quality || 0) * 100),
+                      color: 'bg-primary',
+                    },
+                    {
+                      label: 'Action appropriateness',
+                      value: Math.round((fb.avg_action_appropriateness || 0) * 100),
+                      color: 'bg-info',
+                    },
+                  ]}
+                  format={(n) => `${n}%`}
+                />
+                {outcomeItems.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Recorded outcomes
+                    </p>
+                    <BarList items={outcomeItems} format={(n) => fmtNumber(n)} />
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <ChartEmpty>
+                No analyst feedback recorded yet. Grade closed cases to build accuracy,
+                reasoning and time-saved metrics here.
+              </ChartEmpty>
+            )}
+          </ChartCard>
+
+          <ChartCard title={`LLM cost (${windowLabel})`} icon={Timer} accentClass="text-medium">
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <StatCard
+                  label="Total cost"
+                  value={fmtMoney(cost?.total_cost as number | undefined, currency)}
+                  accent="medium"
+                />
+                <StatCard label="Tokens" value={fmtTokens(cost?.total_tokens as number | undefined)} accent="info" />
+                <StatCard
+                  label="LLM calls"
+                  value={fmtNumber(cost?.call_count as number | undefined)}
+                  accent="primary"
+                />
+              </div>
+              {costTrend.length > 1 ? (
+                <div className="space-y-1">
+                  <TrendArea
+                    data={costTrend}
+                    colorToken="medium"
+                    height={120}
+                    showXAxis={false}
+                    format={(n) => fmtMoney(n, currency)}
+                    ariaLabel="LLM spend over time"
+                  />
+                  <p className="text-xs text-muted-foreground">LLM spend over the selected window.</p>
+                </div>
+              ) : (
+                <ChartEmpty>Not enough spend data points to chart a trend.</ChartEmpty>
+              )}
+            </div>
+          </ChartCard>
+        </div>
+
+        {knowledgeSection}
+      </div>
+    );
 
   return (
     <div className="animate-fade-in space-y-8">
@@ -629,310 +826,567 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
         </Alert>
       ) : null}
 
-      {loading ? (
-        <MetricsSkeleton />
-      ) : !hasAny ? (
-        <div className="space-y-8">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as MetricsTab)}>
+        <TabsList>
+          <TabsTrigger value="operational">
+            <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
+            Operational
+          </TabsTrigger>
+          <TabsTrigger value="performance">
+            <Activity className="mr-1.5 h-4 w-4" aria-hidden />
+            Performance
+          </TabsTrigger>
+          <TabsTrigger value="posture">
+            <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
+            Posture
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="operational">{operationalBody}</TabsContent>
+
+        <TabsContent value="performance">
+          <PerformanceTab
+            posture={posture}
+            loading={loading && !posture}
+            windowLabel={windowLabel}
+          />
+        </TabsContent>
+
+        <TabsContent value="posture">
+          <PostureTab
+            posture={posture}
+            mitre={mitre}
+            loading={loading && !posture && !mitre}
+            windowLabel={windowLabel}
+            onNavigate={onNavigate}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// =========================================================================== //
+// Performance tab — lifecycle (server p50/p90 + honest DASH) + quality + deltas
+// =========================================================================== //
+interface PerfPostureProps {
+  posture: PostureResponse | null;
+  loading: boolean;
+  windowLabel: string;
+}
+
+function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
+  if (loading) {
+    return (
+      <div className="space-y-6" aria-busy="true" aria-label="Loading performance metrics">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} lines={1} />
+          ))}
+        </div>
+        <Skeleton className="h-[200px] w-full rounded-lg" />
+      </div>
+    );
+  }
+  if (!posture) {
+    return (
+      <Card>
+        <CardContent className="py-4">
+          <EmptyState
+            icon={Activity}
+            title="Performance metrics unavailable"
+            description="The posture rollup could not be loaded. Try refreshing; it computes lifecycle timing and triage-quality rates server-side."
+          />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { lifecycle, quality, compare } = posture;
+
+  // Period-over-period delta tiles (▲/▼ delta%). The compare block is present only
+  // when the server computed a prior window (compare=prev + a positive window).
+  // Only the CompareBlock-valued keys (NOT `mode`) drive a delta tile.
+  type CmpKey = Exclude<keyof NonNullable<PostureResponse['compare']>, 'mode'>;
+  const lifecycleTiles: Array<{
+    key: string;
+    label: string;
+    block: ReturnType<typeof statBlockTile>;
+    cmp?: CmpKey;
+    icon: LucideIcon;
+    accent: KpiAccent;
+  }> = [
+    { key: 'mtta', label: 'MTTA (p50)', block: statBlockTile(lifecycle.mtta_minutes), cmp: 'mtta_p50', icon: Clock, accent: 'info' },
+    { key: 'mttr', label: 'MTTR (p50)', block: statBlockTile(lifecycle.mttr_minutes), cmp: 'mttr_p50', icon: Timer, accent: 'success' },
+    { key: 'dwell', label: 'Dwell (p50)', block: statBlockTile(lifecycle.dwell_minutes), icon: Activity, accent: 'medium' },
+  ];
+
+  return (
+    <div className="space-y-8">
+      {/* Lifecycle p50 KPI tiles with deltas */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Lifecycle timing ({windowLabel})
+        </h2>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          {lifecycleTiles.map((t) => {
+            const dv = t.cmp ? deltaView(compare?.[t.cmp], { lowerIsBetter: true }) : { show: false, label: '' };
+            return (
+              <KpiTile
+                key={t.key}
+                label={t.label}
+                value={t.block.value}
+                sub={t.block.sub}
+                icon={t.icon}
+                accent={t.accent}
+                delta={
+                  dv.show && typeof dv.value === 'number'
+                    ? { value: dv.value, label: dv.label }
+                    : undefined
+                }
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Percentile detail (p50 / p90 / mean / max) */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Percentile distribution
+        </h2>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <PercentileCard title="Time to acknowledge" icon={Clock} block={lifecycle.mtta_minutes} />
+          <PercentileCard title="Time to resolve" icon={Timer} block={lifecycle.mttr_minutes} />
+          <PercentileCard title="Time to first response" icon={Activity} block={lifecycle.dwell_minutes} />
+        </div>
+      </section>
+
+      {/* Quality rates */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Triage quality
+        </h2>
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+          <QualityTile
+            label="FP rate"
+            value={ratioPct(quality.false_positive_rate)}
+            sub={`${fmtNumber(quality.false_positive_cases)} of ${fmtNumber(quality.verdicted_cases)} verdicted`}
+            delta={deltaView(compare?.false_positive_rate, { lowerIsBetter: true })}
+            accent="success"
+          />
+          <QualityTile
+            label="Incident yield"
+            value={ratioPct(quality.alert_to_incident_ratio)}
+            sub={`${fmtNumber(quality.true_positive_cases)} true positives`}
+            delta={deltaView(compare?.alert_to_incident_ratio)}
+            accent="critical"
+          />
+          <QualityTile
+            label="Escalation rate"
+            value={ratioPct(quality.escalation_rate)}
+            sub={`${fmtNumber(quality.escalated_cases)} escalated`}
+            delta={deltaView(compare?.escalation_rate, { lowerIsBetter: true })}
+            accent="high"
+          />
+          <QualityTile
+            label="Containment"
+            value={ratioPct(quality.containment_rate)}
+            sub={`${fmtNumber(quality.terminal_cases)} worked to close`}
+            accent="info"
+          />
+          <QualityTile
+            label="Automation rate"
+            value={ratioPct(quality.automation_rate)}
+            sub={`${fmtNumber(quality.auto_closed_cases)} agent-closed`}
+            delta={deltaView(compare?.automation_rate)}
+            accent="primary"
+          />
+        </div>
+      </section>
+
+      {compare ? (
+        <p className="text-xs text-muted-foreground">
+          Deltas compare the last {windowLabel} against the immediately-preceding equal
+          window. A falling FP / escalation / time metric reads as an improvement (green).
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Render-ready value/sub for a StatBlock-backed KPI tile (honest DASH). */
+function statBlockTile(block: { p50: number | string; available: boolean; reason: string; count: number }): {
+  value: string;
+  sub: string;
+} {
+  if (!block.available) {
+    return { value: DASH, sub: block.reason || 'no samples yet' };
+  }
+  return { value: humanizeMins(block.p50), sub: `${fmtNumber(block.count)} samples` };
+}
+
+interface PercentileCardProps {
+  title: string;
+  icon: LucideIcon;
+  block: PostureResponse['lifecycle']['mttr_minutes'];
+}
+
+function PercentileCard({ title, icon: Icon, block }: PercentileCardProps) {
+  return (
+    <ChartCard title={title} icon={Icon}>
+      {block.available ? (
+        <dl className="grid grid-cols-2 gap-3">
+          {(
+            [
+              ['p50', block.p50],
+              ['p90', block.p90],
+              ['mean', block.mean],
+              ['max', block.max],
+            ] as Array<[string, number | string]>
+          ).map(([k, v]) => (
+            <div key={k} className="rounded-md border border-border bg-surface px-3 py-2.5">
+              <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{k}</dt>
+              <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-foreground">
+                {humanizeMins(v)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <ChartEmpty>{block.reason || 'No samples yet.'}</ChartEmpty>
+      )}
+    </ChartCard>
+  );
+}
+
+interface QualityTileProps {
+  label: string;
+  value: string;
+  sub?: string;
+  delta?: ReturnType<typeof deltaView>;
+  accent: KpiAccent;
+}
+
+function QualityTile({ label, value, sub, delta, accent }: QualityTileProps) {
+  return (
+    <KpiTile
+      label={label}
+      value={value}
+      sub={sub}
+      accent={accent}
+      delta={
+        delta && delta.show && typeof delta.value === 'number'
+          ? { value: delta.value, label: delta.label }
+          : undefined
+      }
+    />
+  );
+}
+
+// =========================================================================== //
+// Posture tab — aging buckets + SLA breach/at-risk + MITRE coverage heatmap
+// =========================================================================== //
+interface PostureTabProps {
+  posture: PostureResponse | null;
+  mitre: MitreCoverageResponse | null;
+  loading: boolean;
+  windowLabel: string;
+  onNavigate?: Navigate;
+}
+
+const AGE_ACCENT: Record<string, StatAccent> = {
+  '<1h': 'success',
+  '1-4h': 'info',
+  '4-24h': 'medium',
+  '1-3d': 'high',
+  '3-7d': 'high',
+  '>7d': 'critical',
+};
+
+function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: PostureTabProps) {
+  if (loading) {
+    return (
+      <div className="space-y-6" aria-busy="true" aria-label="Loading posture">
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <SkeletonCard key={i} lines={1} />
+          ))}
+        </div>
+        <Skeleton className="h-[260px] w-full rounded-lg" />
+      </div>
+    );
+  }
+
+  const aging = posture?.aging;
+  const sla = posture?.sla;
+
+  // Aging buckets → BurnDown-friendly + bar-list. We show buckets as bars; oldest as a
+  // compact list with deep-links.
+  const ageBars: BarListItem[] = (aging?.age_buckets ?? []).map((b) => ({
+    label: b.bucket,
+    value: b.count,
+    color: ageBarColor(b.bucket),
+  }));
+  const maxAge = Math.max(1, ...ageBars.map((b) => b.value));
+
+  // Closure-vs-arrival burn-down: a single comparison point is enough to read the
+  // balance; we render it as a 2-point series for the BurnDownChart shape.
+  const burndown =
+    aging && (aging.arrivals > 0 || aging.closures > 0)
+      ? [
+          { x: 'start', open: aging.backlog + aging.closures, closed: 0 },
+          { x: windowLabel, open: aging.backlog, closed: aging.closures },
+        ]
+      : [];
+
+  // MITRE columns: each tactic is a column; cells are its covered techniques (top 8).
+  const mitreColumns =
+    mitre && mitre.covered_techniques > 0
+      ? Object.values(mitre.by_tactic)
+          .filter((t) => t.techniques.length > 0)
+          .sort((a, b) => b.covered - a.covered)
+          .map((t) => ({
+            tactic: t.tactic,
+            label: tacticLabel(t.tactic),
+            cells: t.techniques.slice(0, 8).map((tech) => ({
+              technique: tech.id,
+              name: tech.name,
+              value: tech.case_count,
+            })),
+          }))
+      : [];
+
+  return (
+    <div className="space-y-8">
+      {/* Aging + queue depth tiles */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Open-case aging
+        </h2>
+        {aging ? (
+          <>
+            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
+              <StatCard label="Queue depth" value={fmtNumber(aging.queue_depth)} accent="info" />
+              <StatCard label="Backlog" value={fmtNumber(aging.backlog)} accent="medium" />
+              <StatCard label="Arrivals" value={fmtNumber(aging.arrivals)} accent="primary" />
+              <StatCard label="Closures" value={fmtNumber(aging.closures)} accent="success" />
+              <StatCard label="Close vs arrival" value={ratioPct(aging.closure_vs_arrival)} accent="success" />
+              <StatCard
+                label="Oldest open"
+                value={aging.oldest[0] ? `${Math.round(aging.oldest[0].age_hours)}h` : DASH}
+                accent="critical"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <ChartCard title="Age distribution" icon={Layers}>
+                {ageBars.some((b) => b.value > 0) ? (
+                  <BarList items={ageBars} format={(n) => fmtNumber(n)} showPercent />
+                ) : (
+                  <ChartEmpty>No open cases to age.</ChartEmpty>
+                )}
+                {/* keep maxAge referenced for clarity; bars scale internally */}
+                <span className="sr-only">{`max ${maxAge}`}</span>
+              </ChartCard>
+
+              <ChartCard title="Closure vs arrival" icon={TrendingUp} accentClass="text-success">
+                {burndown.length ? (
+                  <BurnDownChart
+                    data={burndown}
+                    height={200}
+                    openLabel="Open backlog"
+                    closedLabel="Closed"
+                    format={(n) => fmtNumber(n)}
+                    ariaLabel="Open backlog vs closures over the window"
+                  />
+                ) : (
+                  <ChartEmpty>No arrivals or closures in this window.</ChartEmpty>
+                )}
+              </ChartCard>
+            </div>
+
+            {aging.oldest.length ? (
+              <ChartCard title="Oldest open cases" icon={Clock} accentClass="text-critical">
+                <ul className="flex flex-col divide-y divide-border">
+                  {aging.oldest.slice(0, 8).map((c) => (
+                    <li key={c.case_id} className="flex items-center gap-3 py-2 text-sm">
+                      {onNavigate ? (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('cases', { status: c.status })}
+                          className="truncate text-left font-mono text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`View cases in status ${c.status || 'open'}`}
+                        >
+                          {c.case_number || c.case_id}
+                        </button>
+                      ) : (
+                        <span className="truncate font-mono text-foreground">
+                          {c.case_number || c.case_id}
+                        </span>
+                      )}
+                      <span className="truncate text-muted-foreground">{humanizeToken(c.status)}</span>
+                      <span className="ml-auto font-mono tabular-nums text-foreground">
+                        {Math.round(c.age_hours)}h
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </ChartCard>
+            ) : null}
+          </>
+        ) : (
+          <Card>
+            <CardContent className="py-4">
+              <EmptyState icon={Layers} title="Aging unavailable" description="The posture rollup could not be loaded." />
+            </CardContent>
+          </Card>
+        )}
+      </section>
+
+      {/* SLA */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          SLA attainment
+        </h2>
+        {sla?.enabled ? (
+          <>
+            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+              <StatCard label="Attainment" value={ratioPct((sla.attainment_pct ?? 0) / 100)} accent="success" />
+              <StatCard label="Evaluated" value={fmtNumber(sla.evaluated)} accent="info" />
+              <StatCard label="Response breached" value={fmtNumber(sla.response_breached)} accent="critical" />
+              <StatCard label="Resolve breached" value={fmtNumber(sla.resolve_breached)} accent="critical" />
+              <StatCard
+                label="At risk"
+                value={fmtNumber((sla.response_at_risk ?? 0) + (sla.resolve_at_risk ?? 0))}
+                accent="high"
+              />
+            </div>
+            {sla.breaching && sla.breaching.length ? (
+              <ChartCard title="Breaching / at-risk" icon={Gauge} accentClass="text-critical">
+                <ul className="flex flex-col divide-y divide-border">
+                  {sla.breaching.slice(0, 10).map((b) => (
+                    <li key={`${b.case_id}-${b.clock}`} className="flex items-center gap-3 py-2 text-xs">
+                      <span
+                        className={cn(
+                          'inline-flex shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+                          b.state === 'breached'
+                            ? 'bg-critical/10 text-critical'
+                            : 'bg-high/10 text-high',
+                        )}
+                      >
+                        {b.state === 'breached' ? 'Breached' : 'At risk'}
+                      </span>
+                      <span className="truncate font-mono text-foreground">{b.case_number || b.case_id}</span>
+                      <span className="truncate text-muted-foreground">
+                        {humanizeToken(b.clock)} · {b.priority || '—'}
+                      </span>
+                      <span className="ml-auto font-mono tabular-nums text-foreground">+{Math.round(b.over_pct)}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </ChartCard>
+            ) : (
+              <Card>
+                <CardContent className="py-4">
+                  <EmptyState
+                    compact
+                    icon={CheckCircle2}
+                    title="No SLA breaches"
+                    description="No evaluated case is currently breaching or at risk against its priority target."
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </>
+        ) : (
           <Card>
             <CardContent className="py-4">
               <EmptyState
-                icon={BarChart3}
-                title="No cases yet"
-                description={`Nothing has been triaged in the last ${windowLabel}. As the agent processes alerts, volume, verdicts and feedback analytics will appear here.`}
+                compact
+                icon={Gauge}
+                title="SLA tracking is off"
+                description={sla?.reason || 'Enable an SLA policy with per-priority response/resolve targets in Settings to track attainment here.'}
               />
             </CardContent>
           </Card>
-          {knowledgeSection}
+        )}
+      </section>
+
+      {/* MITRE ATT&CK coverage */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            MITRE ATT&CK coverage
+          </h2>
+          {mitre ? (
+            <span className="text-xs text-muted-foreground">
+              {fmtNumber(mitre.covered_techniques)} of {fmtNumber(mitre.total_techniques)} techniques ·{' '}
+              {ratioPct((mitre.coverage_pct ?? 0) / 100)} · corpus {mitre.corpus_version}
+            </span>
+          ) : null}
         </div>
-      ) : (
-        <>
-          {/* KPI row */}
-          <Stagger
-            className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6"
-            step={40}
-            itemClassName="h-full"
-          >
-            {kpis.map((k) => (
-              <KpiTile
-                key={k.key}
-                label={k.label}
-                value={k.value}
-                sub={k.sub}
-                icon={k.icon}
-                accent={k.accent}
-                onClick={k.onClick}
+        {mitre && mitreColumns.length ? (
+          <Card>
+            <CardContent className="space-y-4 pt-6">
+              <MitreHeatmap
+                columns={mitreColumns}
+                colorToken="critical"
+                ariaLabel="MITRE ATT&CK technique coverage by tactic"
               />
-            ))}
-          </Stagger>
-
-          {/* Charts grid */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
-            <ChartCard title="Verdict mix" icon={BarChart3}>
-              {verdictSegments.length ? (
-                <div className="space-y-3">
-                  <DonutChart
-                    segments={verdictSegments}
-                    format={(n) => fmtNumber(n)}
-                    ariaLabel="Verdict mix"
-                    center={
-                      <>
-                        <span className="text-2xl font-bold tabular-nums text-foreground">
-                          {fmtNumber(data?.total_cases)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          cases
-                        </span>
-                      </>
-                    }
-                  />
-                  <ul className="flex flex-col divide-y divide-border border-t border-border">
-                    {verdictSegments.map((s) => {
-                      const status = verdictStatus(s.label);
-                      const drillable = Boolean(status && onNavigate);
-                      return (
-                        <li
-                          key={s.label}
-                          className="flex items-center gap-2 py-1.5 text-xs"
-                        >
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ background: s.color }}
-                            aria-hidden
-                          />
-                          {drillable ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onNavigate!('cases', { status: status! })
-                              }
-                              className="truncate text-left text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              aria-label={`View ${s.label} cases`}
-                            >
-                              {s.label}
-                            </button>
-                          ) : (
-                            <span className="truncate text-muted-foreground">
-                              {s.label}
-                            </span>
-                          )}
-                          <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
-                            {fmtNumber(s.value)}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ) : (
-                <ChartEmpty>No verdicts recorded in this window.</ChartEmpty>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Disposition mix" icon={BarChart3}>
-              {dispositionSegments.length ? (
-                <div className="space-y-3">
-                  <DonutChart
-                    segments={dispositionSegments}
-                    format={(n) => fmtNumber(n)}
-                    ariaLabel="Disposition mix"
-                    center={
-                      <>
-                        <span className="text-2xl font-bold tabular-nums text-foreground">
-                          {fmtNumber(data?.total_cases)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">cases</span>
-                      </>
-                    }
-                  />
-                  <ul className="flex flex-col divide-y divide-border border-t border-border">
-                    {dispositionSegments.map((s) => (
-                      <li key={s.label} className="flex items-center gap-2 py-1.5 text-xs">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ background: s.color }}
-                          aria-hidden
-                        />
-                        <span className="truncate text-muted-foreground">{s.label}</span>
-                        <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
-                          {fmtNumber(s.value)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <ChartEmpty>No dispositions recorded in this window.</ChartEmpty>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Persona usage" icon={Users} accentClass="text-accent">
-              {personaItems.length ? (
-                <BarList
-                  items={personaItems}
-                  format={(n) => fmtNumber(n)}
-                  showPercent
-                />
-              ) : (
-                <ChartEmpty>No specialist routing recorded.</ChartEmpty>
-              )}
-            </ChartCard>
-
-            <ChartCard
-              title="Playbook usage"
-              icon={FileText}
-              accentClass="text-medium"
-            >
-              {playbookItems.length ? (
-                <BarList
-                  items={playbookItems}
-                  format={(n) => fmtNumber(n)}
-                  showPercent
-                />
-              ) : (
-                <ChartEmpty>No playbooks selected in this window.</ChartEmpty>
-              )}
-            </ChartCard>
-
-            <ChartCard
-              title="Cases per day"
-              icon={TrendingUp}
-              accentClass="text-success"
-            >
-              {perDay.length > 1 ? (
-                <div className="space-y-2">
-                  <MiniBars
-                    data={perDay}
-                    colorToken="success"
-                    height={140}
-                    ariaLabel="Cases per day"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {`${perDay.length} days · ${fmtNumber(perDayTotal)} cases`}
-                  </p>
-                </div>
-              ) : (
-                <ChartEmpty>Not enough data points to chart a trend.</ChartEmpty>
-              )}
-            </ChartCard>
-          </div>
-
-          {/* Feedback quality + LLM cost */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <ChartCard
-              title="Analyst feedback quality"
-              icon={ThumbsUp}
-              accentClass="text-success"
-            >
-              {fb && fb.graded_cases > 0 ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <StatCard
-                      label="Agreement"
-                      value={fmtPercent(fb.agreement_rate)}
-                      accent="success"
-                    />
-                    <StatCard
-                      label="Time saved"
-                      value={humanizeMinutes(fb.time_saved_minutes)}
-                      accent="primary"
-                    />
-                  </div>
-                  <BarList
-                    items={[
-                      {
-                        label: 'Accuracy',
-                        value: Math.round((fb.avg_accuracy || 0) * 100),
-                        color: 'bg-success',
-                      },
-                      {
-                        label: 'Reasoning quality',
-                        value: Math.round(
-                          (fb.avg_reasoning_quality || 0) * 100,
-                        ),
-                        color: 'bg-primary',
-                      },
-                      {
-                        label: 'Action appropriateness',
-                        value: Math.round(
-                          (fb.avg_action_appropriateness || 0) * 100,
-                        ),
-                        color: 'bg-info',
-                      },
-                    ]}
-                    format={(n) => `${n}%`}
-                  />
-                  {outcomeItems.length ? (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Recorded outcomes
-                      </p>
-                      <BarList
-                        items={outcomeItems}
-                        format={(n) => fmtNumber(n)}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <ChartEmpty>
-                  No analyst feedback recorded yet. Grade closed cases to build
-                  accuracy, reasoning and time-saved metrics here.
-                </ChartEmpty>
-              )}
-            </ChartCard>
-
-            <ChartCard
-              title={`LLM cost (${windowLabel})`}
-              icon={Timer}
-              accentClass="text-medium"
-            >
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <StatCard
-                    label="Total cost"
-                    value={fmtMoney(
-                      cost?.total_cost as number | undefined,
-                      currency,
-                    )}
-                    accent="medium"
-                  />
-                  <StatCard
-                    label="Tokens"
-                    value={fmtTokens(cost?.total_tokens as number | undefined)}
-                    accent="info"
-                  />
-                  <StatCard
-                    label="LLM calls"
-                    value={fmtNumber(cost?.call_count as number | undefined)}
-                    accent="primary"
-                  />
-                </div>
-                {costTrend.length > 1 ? (
-                  <div className="space-y-1">
-                    <TrendArea
-                      data={costTrend}
-                      colorToken="medium"
-                      height={120}
-                      showXAxis={false}
-                      format={(n) => fmtMoney(n, currency)}
-                      ariaLabel="LLM spend over time"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      LLM spend over the selected window.
-                    </p>
-                  </div>
-                ) : (
-                  <ChartEmpty>
-                    Not enough spend data points to chart a trend.
-                  </ChartEmpty>
-                )}
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>
+                  Each cell is a covered technique; intensity scales with the number of cases
+                  referencing it. Invalid / forged ids are dropped
+                  {mitre.invalid_dropped > 0 ? ` (${fmtNumber(mitre.invalid_dropped)} dropped)` : ''}.
+                </span>
+                <a
+                  href={navigatorLayerUrl(0)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download="navigator.layer.json"
+                  className="inline-flex items-center gap-1 font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Crosshair className="h-3.5 w-3.5" aria-hidden />
+                  Export ATT&CK Navigator layer
+                </a>
               </div>
-            </ChartCard>
-          </div>
-
-          {knowledgeSection}
-        </>
-      )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="py-4">
+              <EmptyState
+                icon={Crosshair}
+                title={mitre ? 'No technique coverage yet' : 'Coverage unavailable'}
+                description={
+                  mitre
+                    ? 'No case has been labelled with a valid MITRE ATT&CK technique yet. As the agent attributes techniques, the coverage heatmap fills in here.'
+                    : 'The MITRE coverage rollup could not be loaded. Try refreshing.'
+                }
+              />
+            </CardContent>
+          </Card>
+        )}
+      </section>
     </div>
   );
+}
+
+/** Age-bucket → bar color token class (older → hotter). */
+function ageBarColor(bucket: string): string {
+  switch (AGE_ACCENT[bucket]) {
+    case 'success':
+      return 'bg-success';
+    case 'info':
+      return 'bg-info';
+    case 'medium':
+      return 'bg-medium';
+    case 'high':
+      return 'bg-high';
+    case 'critical':
+      return 'bg-critical';
+    default:
+      return 'bg-accent-bar';
+  }
 }
