@@ -241,10 +241,16 @@ async def _fanout_mentions(
         )
     bus = _event_bus(state)
     if bus is not None and created:
+        # Align with the dispatch in-app live-badge path: publish to the allowlisted
+        # ``notifications`` topic (event ``inapp``, per-user audience) so the Wave-4
+        # NotificationBell EventSource actually receives a mention badge. (The old
+        # ``inbox`` topic is NOT in the /events allowlist, so it never reached a
+        # subscriber.) Frame carries plain identifiers only (#9); best-effort.
         try:
             bus.publish(
-                "inbox", "inapp",
-                {"kind": "mention", "case_id": case_id, "message_id": msg.id},
+                "notifications", "inapp",
+                {"category": NotificationCategory.MENTION.value,
+                 "case_id": case_id, "message_id": msg.id},
                 audience=[n.recipient for n in created],
             )
         except Exception:  # noqa: BLE001 — realtime is advisory
@@ -256,6 +262,35 @@ def _event_bus(state: AppState):
         return getattr(state, "event_bus", None)
     except Exception:  # noqa: BLE001
         return None
+
+
+def _publish_case_activity(state: AppState, case_id: str, *, kind: str,
+                           actor: str, summary: str = "",
+                           ref: dict[str, Any] | None = None) -> None:
+    """Publish a ``case.activity`` realtime frame to the per-case room so the Wave-4
+    case-detail EventSource (subscribed to topic ``cases:{case_id}``) renders the
+    collaboration event live.
+
+    FIRE-AND-FORGET, AFTER the store write, BEST-EFFORT — wrapped so a bus error can
+    never break a thread/task/reaction post (#11). DEFAULT-OFF preserved: when realtime
+    is disabled nobody is subscribed and ``publish`` is a cheap history-only no-op. The
+    payload carries only PLAIN, already-render-safe identifiers + a clipped summary —
+    no unfenced log/AI text is fed anywhere (#9; the UI escapes ``summary`` on render).
+    The topic is the exact-match ``cases:{case_id}`` room the ``/events`` endpoint
+    allowlists for a case-detail view; this is a pure NUDGE — the client refetches the
+    authoritative thread/activity/task state (#3 untouched: nothing here decides)."""
+    bus = _event_bus(state)
+    if bus is None or not case_id:
+        return
+    payload: dict[str, Any] = {"case_id": case_id, "kind": kind, "actor": actor or ""}
+    if summary:
+        payload["summary"] = truncate(summary, 200)
+    if ref:
+        payload["ref"] = ref
+    try:
+        bus.publish(f"cases:{case_id}", "case.activity", payload)
+    except Exception:  # noqa: BLE001 — realtime is advisory; never break the post
+        pass
 
 
 async def _audit(state: AppState, action: ActionType, *, actor: str, case_id: str,
@@ -487,13 +522,14 @@ async def post_case_thread(
     )
     await _fanout_mentions(state, case_id, msg, mentions, author)
 
-    # Realtime nudge to the case room (broadcast — case watchers).
-    bus = _event_bus(state)
-    if bus is not None:
-        try:
-            bus.publish("case", "thread", {"case_id": case_id, "message_id": msg.id})
-        except Exception:  # noqa: BLE001
-            pass
+    # Realtime nudge to the per-case room (topic ``cases:{case_id}``) so the Wave-4
+    # case-detail EventSource renders the new message live. AFTER the store write +
+    # fan-out; best-effort; never alters the case decision (#3).
+    _publish_case_activity(
+        state, case_id, kind="commented", actor=author,
+        summary=truncate(text, 200),
+        ref={"message_id": msg.id, "author_type": author_type},
+    )
 
     return _msg_public(msg)
 
@@ -528,6 +564,8 @@ async def edit_case_message(
     await _audit(state, ActionType.THREAD_POST, actor=actor, case_id=case_id,
                  summary=f"thread edit msg={msg_id}")
     await _fanout_mentions(state, case_id, updated, mentions, actor)
+    _publish_case_activity(state, case_id, kind="edited_comment", actor=actor,
+                           ref={"message_id": msg_id})
     return _msg_public(updated)
 
 
@@ -555,6 +593,8 @@ async def delete_case_message(
                  summary=f"thread delete (tombstone) msg={msg_id}")
     await _activity(state, case_id, kind="deleted_comment", actor=actor,
                     summary="message deleted", ref={"message_id": msg_id})
+    _publish_case_activity(state, case_id, kind="deleted_comment", actor=actor,
+                           summary="message deleted", ref={"message_id": msg_id})
     return _msg_public(updated)
 
 
@@ -583,6 +623,10 @@ async def react_case_message(
         raise HTTPException(status_code=404, detail="message not found or deleted")
     await _audit(state, ActionType.REACTION, actor=actor, case_id=case_id,
                  summary=f"reaction {'-' if body.remove else '+'}{emoji} msg={msg_id}")
+    _publish_case_activity(
+        state, case_id, kind="reaction", actor=actor,
+        ref={"message_id": msg_id, "emoji": emoji, "removed": bool(body.remove)},
+    )
     return _msg_public(updated)
 
 
@@ -632,6 +676,8 @@ async def add_case_task(
                  summary=f"task add: {truncate(title, 120)}")
     await _activity(state, case_id, kind="task_added", actor=actor,
                     summary=truncate(title, 200), ref={"task_id": task.id})
+    _publish_case_activity(state, case_id, kind="task_added", actor=actor,
+                           summary=truncate(title, 200), ref={"task_id": task.id})
     return task.model_dump(mode="json")
 
 
@@ -669,6 +715,11 @@ async def patch_case_task(
     await _activity(state, case_id, kind="task_updated", actor=actor,
                     summary=f"task {updated.status}: {truncate(updated.title, 160)}",
                     ref={"task_id": tid})
+    _publish_case_activity(
+        state, case_id, kind="task_updated", actor=actor,
+        summary=f"task {updated.status}: {truncate(updated.title, 160)}",
+        ref={"task_id": tid},
+    )
     return updated.model_dump(mode="json")
 
 
@@ -695,4 +746,6 @@ async def log_case_task(
         raise HTTPException(status_code=404, detail="task not found")
     await _audit(state, ActionType.TASK_UPDATE, actor=actor, case_id=case_id,
                  summary=f"task log {tid}: {truncate(note, 120)}")
+    _publish_case_activity(state, case_id, kind="task_logged", actor=actor,
+                           summary=truncate(note, 200), ref={"task_id": tid})
     return updated.model_dump(mode="json")

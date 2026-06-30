@@ -49,7 +49,7 @@ import {
 } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
-import { HeroPanel } from '@/soc/components/HeroPanel';
+import { CommandCenterLayout } from '@/soc/components/layouts';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { RiskGauge } from '@/soc/components/RiskGauge';
@@ -541,14 +541,18 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const empty = !loading && !error && cases.length === 0 && !metrics?.total_cases;
 
   return (
-    <div className="space-y-6">
-      <HeroPanel
-        eyebrow="Security Command Center"
-        icon={Radar}
-        title="Security Posture Dashboard"
-        description="Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases."
-        meta={lastRefresh ? `Last refresh ${formatTimestamp(lastRefresh)}` : undefined}
-        actions={
+    <CommandCenterLayout
+      hero={{
+        // `.hero-display` opts this hero's title into the distinctive display
+        // typography (theme.css) without touching the shared HeroPanel component.
+        className: 'hero-display',
+        eyebrow: 'Security Command Center',
+        icon: Radar,
+        title: 'Security Posture Dashboard',
+        description:
+          'Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases.',
+        meta: lastRefresh ? `Last refresh ${formatTimestamp(lastRefresh)}` : undefined,
+        actions: (
           <>
             {windowToggle}
             <Button
@@ -561,9 +565,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <RefreshCw className="h-4 w-4" aria-hidden />
             </Button>
           </>
-        }
-      />
-
+        ),
+      }}
+    >
       {error ? (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -848,6 +852,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </section>
         </div>
       )}
-    </div>
+    </CommandCenterLayout>
   );
 }

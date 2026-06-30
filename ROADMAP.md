@@ -9,21 +9,29 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`, local — NOT pushed):** backend **794 pytest**
-green · webui build clean (tsc+vite) · **86 vitest** green (19 files) · eslint **0
+**Current baseline (branch `Testing`, local — NOT pushed):** backend **1109 pytest**
+green · webui build clean (tsc+vite) · **175 vitest** green · eslint **0
 `react-hooks/rules-of-hooks` errors** · `engine/case_manager.py` **byte-identical** ·
 **zero new runtime deps**. Round 1 + Round 2 (incl. the adversarial audit +
-remediation) are **complete and committed**.
+remediation) + **Round 3** (12 requests across Waves 0–4) are **complete and committed**.
 
-## Next — post-Round-2 backlog
+## Next — post-Round-3 backlog
 
-Two tracks, both scoped in `docs/research/2026-06-round2/`:
+Round 3's 12 requests are done (see "Progress" below). Remaining tracks:
 
-**A. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
+**A. Round-3 follow-ups (Wave 4 / next):** live SSE wiring end-to-end (publish from
+poller/dispatch/pipeline → `EventBus`, webui `EventSource` w/ polling fallback for the
+bell / case-activity / agent-step stream) · `PUT /api/branding` server-side
+contrast-warning computation · the opt-in row-level data scope (the `can_object()` hook
+shipped OFF) · the OCSF classification/observables surfacing + the 1.4→1.8 version bump.
+
+**B. Pre-Round-3 backlog still open (scoped in `docs/research/2026-06-round2/`):**
+
+**B-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
 concurrency · multi-generation refresh-reuse detection · ES-only `CONFIG_INDEX`
 nested-type collision · deep-link breadcrumb (cosmetic).
 
-**B. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
+**B-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
 whole Tier-1 productivity tier EXCEPT API keys: **saved views** (W7b), **bulk case
 actions** (W7c), **Cmd-K command palette** (W7c), **global search** `GET /api/search`
 (W7c), and the **audit-log viewer** `GET /api/audit` (W7c). Remaining, in recommended
@@ -56,6 +64,56 @@ possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 3 — "useful, distinctive, fine-grained" overhaul (12 requests, Waves 0–4)**
+  (branch `Testing`; **1109 backend tests green** (794→802→900→1074→1109 across the
+  waves) + webui tsc/vite clean + **175 Vitest** green (86→175); **additive, zero new
+  runtime deps, #3 `decide()` byte-identical, #6 one-ledger-write-per-call preserved**,
+  the 12 non-negotiables held — #9 untrusted-fencing upheld on every new
+  user/source/AI-influenceable field). Design: `docs/research/2026-06-round3/PROPOSAL.md`;
+  what-shipped: `docs/research/2026-06-round3/IMPLEMENTATION.md`. Commits
+  `bffe4b8 → 59c2999 → 2295363 → 8b25ca2 → 3610147` + the live-wiring/security/docs wave.
+  - ☑ **W0 hot-file foundations** (`bffe4b8`) — additive `Case` advisory axes (severity/
+    impact/urgency/priority bands + sources) + SLA datetimes; 11 model classes + 4 enums
+    + 8 KV-namespace triples + 4 Preferences blocks (sla/priority_matrix/budget/realtime)
+    + `BrandingConfig` material/theme tokens + `EnrichmentConfig`/`RBACConfig` carriers +
+    13 optional `Secrets` provider slots; webui route code-split (`React.lazy` + manual
+    chunks; entry 444 KB → 63.75 KB gz). `case_manager.py` byte-identical (guard test).
+  - ☑ **W1 shared substrate** (`59c2999`) — 8 KV stores; the `EnrichmentProvider` SPI
+    (`enrichment/`) with AbuseIPDB+VirusTotal refactored behind it (`enrich_ip()` alias +
+    `max()` aggregation byte-identical, weighted `fusion` opt-in); the multiplexed SSE
+    `EventBus` (`realtime.py`) + `GET /api/events` (default OFF) + nginx location; the
+    RBAC resource-vocab split + `effective_matrix()` custom-role/inheritance/DENY-wins +
+    the opt-in `can_object()` row-scope hook (OFF).
+  - ☑ **W2 backend feature logic** (`2295363`) — #5 posture (`engine/metrics` MTTA/MTTR/
+    dwell + `engine/mitre_coverage`; `routes_metrics`); #11 standup (`engine/shift_report`
+    folded into `StandupService`, #7 intact; `routes_standup`); #7 enrichment (17 providers
+    + multi-indicator + rate guard; `routes_enrichment`); #9 models (provider registry +
+    `model_registry.json` + `PriceOverlayStore` + `engine/budget` BudgetGate; `routes_models`);
+    #8 in-app (`InAppChannel` → `InboxStore`; `routes_inapp`); #4 collaboration (threaded
+    human/ai/system messages + reactions + tasks + @mentions; `routes_cases_collab`); #12
+    triage (`engine/priority` + a typed ReAct timeline w/ a distinct deterministic DECISION
+    step; `routes_triage`); #6 roles (`routes_roles` CRUD + preview/simulate + assign).
+  - ☑ **W2.5 backend gap-closure** (`8b25ca2`) — cloud LLM providers first-class
+    (`Provider` widened to azure/bedrock/vertex/openai_compatible; `ModelConfig.base_url/
+    api_version/region` + 12 cloud/enrichment `Secrets`; gateway SigV4 for Bedrock); the
+    `ProjectHoneypotProvider` + abuse.ch Auth-Key; server-side custom-role enforcement in
+    `deps._enforce` (`can_for_roles`); an autouse `conftest` network guard (offline tests).
+  - ☑ **W3 webui surfaces** (`3610147`) — hamburger `NavSidebar` (2 width states, Cmd/Ctrl+B,
+    disclosure children) + `NotificationBell`; Settings card-grid + sticky save +
+    `BrandingEditor` (tokens/presets/material); Roles matrix editor (grants/denies/inherits
+    + preview/simulate + lockout guard); a standalone **Models** admin page (capabilities +
+    price edit + test-call + cost estimator + budget burn-down); Metrics Operational/
+    Performance/Posture tabs + MITRE heatmap; Standup attention queue + acks; CaseDetail 4
+    honest chips + `TraceTimeline` + threaded collaboration; Inbox + NotificationPrefs;
+    `EnrichmentProvidersEditor`. ONE theme-tokens precedence resolver; `GlassSurface`
+    (reduced-transparency fallback). #9 audit PASS (no `dangerouslySetInnerHTML` on data).
+  - ☑ **Security fix (ship-regardless)** — inverted RAG-knowledge fencing to a TRUSTED
+    allowlist: only built-in/verified corpus is trusted, operator-imported docs are fenced
+    UNTRUSTED before any prompt (closes an OWASP-LLM01 prompt-injection gap; no behavior
+    change for legitimate content).
+  - ◐ **W4 live wiring + polish (in progress this wave)** — publish SSE frames from the
+    poller/dispatch/pipeline (webui `EventSource` w/ polling fallback), `PUT /api/branding`
+    contrast computation, distinctive-UI polish + WCAG 2.2 pass, docs sync (this entry).
 - ☑ **Round 2 — 7 waves (W1–W7c) + audit/remediation** (branch `Testing`; **794
   backend tests green** (649→772 across the waves, then →794 with the audit
   remediation) + webui tsc/vite clean + **86 Vitest** green; **additive, zero new

@@ -6,11 +6,12 @@
 > Everything in here is verified against the repo as of the date below — not from memory.
 
 - **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-06-30
-- **Status:** Round 1 + Round 2 overhauls **complete and committed** (local `Testing`, **not pushed**).
-- **Green baseline (verified):** backend **794 pytest** pass · webui **build clean** (tsc + vite) ·
-  **86 vitest** pass (19 files) · **eslint 0 `react-hooks/rules-of-hooks` errors** (2 benign
+- **Status:** Round 1 + Round 2 + **Round 3** overhauls **complete and committed** (local `Testing`, **not pushed**).
+- **Green baseline (verified):** backend **1109 pytest** pass · webui **build clean** (tsc + vite) ·
+  **175 vitest** pass · **eslint 0 `react-hooks/rules-of-hooks` errors** (2 benign
   `exhaustive-deps` warnings) · `engine/case_manager.py` **byte-identical** to its pre-overhaul
-  decision logic · **zero new runtime dependencies** added across both rounds.
+  decision logic · **zero new runtime dependencies** added across all three rounds. The 12
+  non-negotiables held throughout (incl. #6 — one LLM-gateway ledger write per call).
 
 ---
 
@@ -38,7 +39,7 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 794 passed
+python -m pytest -q                         # -> 1109 passed
 ```
 
 ### WebUI build + tests + lint
@@ -46,7 +47,7 @@ python -m pytest -q                         # -> 794 passed
 cd webui
 npm install
 npm run build      # tsc --noEmit && vite build  -> clean
-npx vitest run     # -> 86 passed (19 files)
+npx vitest run     # -> 175 passed
 npm run lint       # eslint; must be 0 react-hooks/rules-of-hooks ERRORS (2 exhaustive-deps warnings OK)
 ```
 
@@ -73,24 +74,38 @@ backend/app/
   config.py        Secrets (env-only) + Preferences (UI-editable). EVERY new setting lands here.
   constants.py     enums (CaseStatus/Disposition, Verdict, UserRole, IndexRole incl. ignore, ...)
   models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView, ...)
-  api/routes.py    THE big FastAPI router (every endpoint).  api/deps.py = auth/RBAC gates.
+  api/routes.py    THE big FastAPI router.  api/deps.py = auth/RBAC gates (+ custom-role union).
+                   Round 3 added 8 per-feature routers mounted in main.py: routes_metrics ·
+                   routes_standup · routes_enrichment · routes_models · routes_inapp ·
+                   routes_cases_collab · routes_triage · routes_roles
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
   stores/          backend-agnostic KV-doc stores: users · sessions · user_prefs · memory ·
-                   cases/usage/config/cursor · sql/ (SQLite/Postgres) — NO new index/table needed
-  notifications/   channel SPI · email (SMTP+SES) · resend · webhook/slack/teams · templates · dispatch
+                   cases/usage/config/cursor · proposals · sql/ (SQLite/Postgres) +
+                   Round-3: case_thread/case_activity/case_tasks · inbox · notif_prefs ·
+                   custom_roles · price_overlay · shift_handoff — NO new index/table needed
+  notifications/   channel SPI · email (SMTP+SES) · resend · webhook/slack/teams · templates · dispatch ·
+                   InAppChannel (Round 3 — fan-out to InboxStore, no network)
+  enrichment/      Round 3 — EnrichmentProvider SPI: base/registry/dispatch/aggregate +
+                   providers/ (17: abuseipdb/virustotal/greynoise/shodan(+internetdb)/censys/
+                   binaryedge/ipinfo/otx/pulsedive/spur/xforce/urlscan/hibp/projecthoneypot/abusech/rdap)
+  realtime.py      Round 3 — multiplexed SSE EventBus (GET /api/events, default OFF, polling fallback)
   connectors/      SPI + registry · elastic/opensearch/wazuh · demo.py · receivers/
   engine/          correlation · risk · case_manager (decide()/apply() — #3) · case_id · poller ·
-                   ingest · metrics · threshold_automation · threat_context · mitre · demo_generator/runtime
+                   ingest · metrics (+ Round-3 posture) · mitre_coverage · shift_report · priority ·
+                   budget (BudgetGate) · threshold_automation · threat_context · mitre · demo_generator/runtime
   agents/          router · investigator · formatter · chat · standup · overview · personas · pipeline
   threat/          bundled compact MITRE ATT&CK technique map (+ refresh script)
 webui/src/
-  soc/pages/       Login, Cases, CaseDetail, Settings (the consolidated hub), Account, Sessions,
-                   Users, Security, Audit, Workspace(Chat+Investigate), Analytics(Metrics+Cost),
-                   Home(Overview+Standup), Intelligence(Knowledge+Memory+Catalog), Scans, ...
+  soc/pages/       Login, Cases, CaseDetail (Round-3 4 chips + TraceTimeline + collaboration),
+                   Settings (consolidated hub), Account, Sessions, Users, Security, Audit,
+                   Workspace(Chat+Investigate), Analytics(Metrics tabs+Cost), Home(Overview+Standup),
+                   Intelligence(Knowledge+Memory+Catalog), Scans + Round-3 Models, Roles, Inbox, ...
   soc/components/  RiskGauge, QRCode, CommandPalette, SavedViewsBar, DataTable, NotificationsEditor,
-                   SourceEditor (feeds), DemoBanner, badges, charts, HelpTip, ...
+                   SourceEditor (feeds), DemoBanner, badges, charts, HelpTip + Round-3 NavSidebar,
+                   NotificationBell, GlassSurface, SettingsGrid/Card, theme-tokens resolver,
+                   MitreHeatmap/BurnDownChart, CaseThread, EnrichmentProvidersEditor, BrandingEditor, ...
   ui/              shadcn/radix primitives (button, dialog, command, table, ...)
   lib/             api.ts (client) · types.ts (keep in sync with backend models) · format · cn
 ```
@@ -153,6 +168,20 @@ Design blueprints (read these before extending a feature): `docs/research/2026-0
 (per-wave designs with file:line anchors), `ROUND2_BUGS.md`, `ROUND2_BEST_OF_BEST.md`, `ROUND2_AUDIT.md`,
 `ROUND2_PLAN.md` (the live tracker + status log).
 
+### Round 3 (commits `bffe4b8` → `3610147` + the live-wiring/security/docs wave) — "useful, distinctive, fine-grained"
+12 user requests delivered across Waves 0–4 (additive, zero new deps, #3 byte-identical, the 12
+non-negotiables held). Design: `docs/research/2026-06-round3/PROPOSAL.md`; what-shipped (per-wave
++ endpoints + commit chain): `docs/research/2026-06-round3/IMPLEMENTATION.md`.
+
+| Commit | Wave | What |
+|---|---|---|
+| `bffe4b8` | W0 | Hot-file foundations: additive `Case` advisory axes + SLA datetimes, 11 model classes + 4 enums + 8 KV namespaces + 4 Preferences blocks + 13 optional `Secrets` provider slots; webui route code-split (`React.lazy` + manual chunks) |
+| `59c2999` | W1 | Shared substrate: 8 KV stores · `EnrichmentProvider` SPI (`enrichment/`) · SSE `EventBus` (`realtime.py`, `GET /api/events` default-OFF) · RBAC resource split + custom-role/inheritance/DENY `effective_matrix()` |
+| `2295363` | W2 | Backend features: posture metrics + MITRE coverage · shift report · 17 enrichment providers + multi-indicator · models registry + `BudgetGate` · in-app channel · case collaboration · triage/priority · custom-role CRUD (8 `routes_*.py`) |
+| `8b25ca2` | W2.5 | Gap-closure: cloud LLM providers first-class (Azure/Bedrock-SigV4/Vertex/OpenAI-compatible) · server-side custom-role enforcement · `conftest` network guard (offline enrichment tests) |
+| `3610147` | W3 | Webui surfaces: hamburger `NavSidebar` + `NotificationBell` · Settings card-grid + `BrandingEditor` · Roles matrix editor · standalone **Models** page · Metrics tabs + MITRE heatmap · Standup attention queue · CaseDetail 4 chips + `TraceTimeline` + collaboration · Inbox · `EnrichmentProvidersEditor` |
+| (this wave) | W4 + sec | Live SSE wiring + branding contrast + WCAG 2.2 polish; the **RAG-fencing TRUSTED-allowlist security fix** (operator-imported docs no longer reach the model unfenced — OWASP LLM01); docs sync |
+
 ---
 
 ## 6. Known issues / deferred (next-round candidates)
@@ -164,6 +193,12 @@ architectural decision). Full detail + file:line in `docs/research/2026-06-round
 - **Multi-generation refresh-reuse detection** — only the last rotation generation is tracked.
 - **Shared `CONFIG_INDEX` nested-type collision** (ES-only, speculative).
 - **Deep-link breadcrumb** for folded sub-pages shows "Overview" (cosmetic).
+
+**Round 3 follow-ups (Wave 4 / next):** end-to-end live SSE wiring (publish from poller/dispatch/
+pipeline → `EventBus`; webui `EventSource` w/ polling fallback for the bell / case-activity / agent
+step stream) · `PUT /api/branding` server-side contrast-warning computation · the opt-in row-level
+data scope (`can_object()` hook shipped OFF) · OCSF classification/observables surfacing + the
+1.4→1.8 version bump. See `ROADMAP.md`.
 
 **Best-of-best roadmap (Tier 2/3, not yet built)** — `ROUND2_BEST_OF_BEST.md`: API keys / programmatic
 access, a dashboard builder, scheduled reports, watchlists, SLA timers, a hunting/query builder,
@@ -183,6 +218,7 @@ case linking/merge, an integrations marketplace.
 | Security posture + hardening TODOs | `SECURITY.md` |
 | What changed, when | `CHANGELOG.md` · `Journal.md` |
 | Round-2 design intent (extend a feature) | `docs/research/2026-06-round2/ROUND2_DESIGN.md` |
+| Round-3 design + what-shipped (extend a feature) | `docs/research/2026-06-round3/PROPOSAL.md` · `IMPLEMENTATION.md` |
 | Audit findings + dispositions | `docs/research/2026-06-round2/ROUND2_AUDIT.md` |
 | What's next | `ROADMAP.md` · `ROUND2_BEST_OF_BEST.md` |
 
@@ -192,8 +228,8 @@ case linking/merge, an integrations marketplace.
 
 1. `CLAUDE.md` is auto-loaded — it has the non-negotiables, the module map, and the status. Trust it,
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
-2. The memory files (auto-recalled) point back here. The Round-2 design docs are the implementation blueprint.
-3. **Before committing anything:** `pytest -q` (794) green, `npm run build` clean, `npx vitest run` (86)
+2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
+3. **Before committing anything:** `pytest -q` (1109) green, `npm run build` clean, `npx vitest run` (175)
    green, `npm run lint` 0 rules-of-hooks errors, and `git diff backend/app/engine/case_manager.py`
    **empty** (decision logic unchanged). Commit focused changes; **don't push** unless asked.
 4. This repo was built with review-gated, self-verifying waves (research → implement → pytest/build/

@@ -92,6 +92,46 @@ class InvestigationPipeline:
         # after apply()+save and may ONLY tag/recommend/notify/queue a re-investigation/
         # open a HITL Proposal — it NEVER sets case.status/disposition (#3).
         self.automation = None
+        # Optional realtime EventBus for live ``agent.step`` progress frames (Round-3
+        # Wave-4). DEFAULT None → resolved lazily from the module singleton so this
+        # works with zero integrator wiring (mirrors AppState.event_bus); set
+        # explicitly only to inject a test/alternate bus. Publishing is ALWAYS
+        # best-effort + fully isolated: it NEVER changes decide()/the ledger and a bus
+        # error can never break the pipeline (#3/#11). When realtime is disabled nobody
+        # subscribes and publish is a cheap history-only no-op.
+        self.event_bus = None
+
+    def _emit_step(
+        self, case_id: str, step: str, *, status: str = "running",
+        detail: str = "", extra: dict | None = None,
+    ) -> None:
+        """Publish ONE ``agent.step`` frame to the per-case room (``cases:{case_id}``)
+        so the Wave-4 case-detail EventSource can render investigation progress live.
+
+        ADDITIVE + BEST-EFFORT + NON-BLOCKING: this is a pure transport nudge that runs
+        ALONGSIDE the deterministic flow — it reads nothing the decision depends on and
+        writes nothing onto the case. The decision is produced solely by
+        ``case_manager.apply()``; these frames only NARRATE the steps. The whole thing
+        is wrapped so a bus error (or a missing bus) can never break the pipeline
+        (#3/#11). ``detail`` is a SHORT, already-render-safe label (a persona/playbook
+        id, a verdict enum, a status word) — never raw log/AI text (#9; the UI escapes
+        it regardless)."""
+        try:
+            bus = self.event_bus
+            if bus is None:
+                from ..realtime import get_event_bus
+
+                bus = get_event_bus()
+            if bus is None or not case_id:
+                return
+            payload: dict = {"case_id": case_id, "step": step, "status": status}
+            if detail:
+                payload["detail"] = truncate(str(detail), 200)
+            if extra:
+                payload.update(extra)
+            bus.publish(f"cases:{case_id}", "agent.step", payload)
+        except Exception as exc:  # noqa: BLE001 — realtime is advisory; never break the flow
+            logger.debug("agent.step publish skipped for %s: %s", case_id, exc)
 
     def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
         enrich = EnrichTool(self._secrets, prefs, self._cache)
@@ -207,6 +247,11 @@ class InvestigationPipeline:
                     )
                     return existing
 
+            # Live progress: the investigation has begun (router/triage stage). Pure
+            # narration — best-effort, never gates the flow (#3/#11).
+            self._emit_step(case_id, "router", status="running",
+                            detail="triage starting")
+
             investigator, enrich = self._build_investigator(prefs)
 
             # --- enrichment + deterministic risk ---
@@ -250,6 +295,11 @@ class InvestigationPipeline:
                     f"persona={persona.id} reason={playbook_reason}"
                 ),
             )
+            # Live progress: the specialist persona + playbook are selected.
+            self._emit_step(
+                case_id, "persona", status="running", detail=persona.id,
+                extra={"playbook_id": (playbook.id if playbook else "")},
+            )
 
             # Operator MEMORY (durable trusted facts): auto-injected into the strong
             # investigation as a distinct TRUSTED block. Best-effort + bounded; a
@@ -269,6 +319,9 @@ class InvestigationPipeline:
                     reproduce_query=entity_kql(cluster, prefs),
                 )
             else:
+                # Live progress: handing off to the tool-using investigation graph.
+                self._emit_step(case_id, "tools", status="running",
+                                detail="investigation running")
                 # LangGraph flow: triage -> (benign shortcut | strong investigator).
                 # Enforce caps.timeout_seconds (Section 6.3 #4): a runaway / slow
                 # investigation is capped to a NEEDS_HUMAN verdict, never left to spin.
@@ -304,6 +357,12 @@ class InvestigationPipeline:
                         reproduce_query=entity_kql(cluster, prefs),
                     )
 
+            # Live progress: a verdict exists (from the kill-switch, the timeout cap,
+            # or the investigation graph). The DETERMINISTIC close/escalate decision
+            # has NOT been made yet — that is the next step.
+            self._emit_step(case_id, "verdict", status="running",
+                            detail=verdict.verdict.value)
+
             case_number = await self._allocate_case_number(existing, cluster, prefs)
             case = self._assemble_case(
                 case_id, cluster, verdict, source_surface, existing, cost, prefs,
@@ -320,6 +379,17 @@ class InvestigationPipeline:
                     f"decision_by={case.decision_by.value if case.decision_by else None} "
                     f"risk={case.risk_score} cost={round(cost, 6)}"
                 ),
+            )
+            # Live progress: TERMINAL ``decision`` frame, emitted AFTER apply()+save +
+            # the audit record so it only REPORTS the already-decided, already-persisted
+            # case — it never feeds the deterministic decision (#3). This is the last
+            # agent.step a subscriber sees for this run.
+            self._emit_step(
+                case_id, "decision", status="done", detail=case.status.value,
+                extra={
+                    "verdict": verdict.verdict.value,
+                    "decision_by": (case.decision_by.value if case.decision_by else None),
+                },
             )
             # Threshold automation (F10) runs AFTER the deterministic decision + save
             # (#3). It may ONLY tag/recommend/notify/queue a re-investigation (which

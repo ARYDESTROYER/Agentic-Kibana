@@ -87,6 +87,23 @@ Optional for Mode A:
   private CA.
 - `TLSOC_ABUSEIPDB_API_KEY`, `TLSOC_VIRUSTOTAL_API_KEY` — enrichment (degrades
   gracefully if absent).
+- **Cloud LLM providers (Round 3, optional, default-off):** `TLSOC_AZURE_OPENAI_API_KEY`
+  (+ `_ENDPOINT` / `_API_VERSION`) for Azure OpenAI; `TLSOC_AWS_ACCESS_KEY_ID` /
+  `TLSOC_AWS_SECRET_ACCESS_KEY` / `TLSOC_AWS_REGION` for AWS Bedrock (stdlib SigV4, no
+  `boto3`); `TLSOC_VERTEX_PROJECT` / `_LOCATION` / `_API_KEY` for Google Vertex. Any
+  OpenAI-compatible endpoint (vLLM/Ollama/OpenRouter/Together/Groq) needs no new key —
+  set the model's `base_url` in Settings → Models. See `docs/ENVIRONMENT.md` §2.6.
+- **More enrichment providers (Round 3, optional):** 17 providers behind an
+  `EnrichmentProvider` SPI. Keyless ones (Shodan InternetDB, IPinfo Lite, abuse.ch
+  URLhaus/MalwareBazaar/ThreatFox, RDAP/DoH) are **default-on, no key**. Keyed +
+  default-off: `TLSOC_GREYNOISE_API_KEY`, `TLSOC_SHODAN_API_KEY`, `TLSOC_CENSYS_API_ID`/
+  `_SECRET`, `TLSOC_BINARYEDGE_API_KEY`, `TLSOC_IPINFO_TOKEN`, `TLSOC_OTX_API_KEY`,
+  `TLSOC_PULSEDIVE_API_KEY`, `TLSOC_SPUR_API_KEY`, `TLSOC_XFORCE_API_KEY`/`_PASSWORD`,
+  `TLSOC_URLSCAN_API_KEY`, `TLSOC_HIBP_API_KEY`, `TLSOC_HONEYPOT_ACCESS_KEY`,
+  `TLSOC_ABUSECH_AUTH_KEY`. Toggle each in Settings → Enrichment. See
+  `docs/ENVIRONMENT.md` §2.7. (When running under Compose, add the matching unprefixed
+  `- AZURE_OPENAI_API_KEY=${TLSOC_AZURE_OPENAI_API_KEY:-}` line to the `tlsoc-backend`
+  `environment:` block for each provider you enable.)
 - `TLSOC_EMBEDDING_API_KEY` — embeddings for RAG (falls back to the OpenAI key,
   then to local hashing embeddings).
 - `TLSOC_PG_USER` / `TLSOC_PG_DB` (default `tlsoc` / `tlsoc`), `TLSOC_REDIS_URL`,

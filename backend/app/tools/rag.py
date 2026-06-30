@@ -51,6 +51,31 @@ SEED_SOURCES = frozenset({"runbook", "mitre", "suppression", "resolved_case"})
 # Retrievable like any other knowledge and injected as a TRUSTED fenced block.
 THREAT_CONTEXT_SOURCE = "threat_context"
 
+# TRUSTED-KNOWLEDGE ALLOWLIST (OWASP LLM01 hardening). Only chunks whose ``source``
+# is in this allowlist are rendered as TRUSTED reference material in a prompt; ANY
+# other retrieved chunk — notably operator/user-IMPORTED documents
+# (``import_document`` → source="imported"), pasted threat-intel
+# (``threat_context``), or any future/unknown source — is attacker-influenceable
+# and MUST be wrapped in the UNTRUSTED fence (#9) before it enters a prompt, exactly
+# like raw log evidence. This is an ALLOWLIST (default-deny), not a denylist, so a
+# new corpus source is UNTRUSTED until someone deliberately adds it here.
+#
+# The set is the system-verified seed corpus: shipped operator runbooks, the bundled
+# MITRE ATT&CK technique descriptions, and our own suppression guidance. NOTE:
+# ``resolved_case`` is intentionally NOT trusted-rendered — its text is derived from
+# case fields (entity/rules/evidence/notes), which are log-derived and therefore
+# attacker-influenceable, so it is fenced as an UNTRUSTED baseline at render time.
+TRUSTED_KNOWLEDGE_SOURCES = frozenset({"runbook", "mitre", "suppression"})
+
+
+def is_trusted_knowledge(source: str | None) -> bool:
+    """Whether a retrieved RAG chunk's ``source`` is in the TRUSTED allowlist.
+
+    Default-deny: anything not explicitly allow-listed (imported docs, pasted
+    threat-intel, unknown/future sources) is UNTRUSTED and must be fenced before it
+    reaches a model prompt (#9 / OWASP LLM01)."""
+    return source in TRUSTED_KNOWLEDGE_SOURCES
+
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 

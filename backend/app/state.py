@@ -247,6 +247,11 @@ class AppState:
             queue_playbook_run=self._automation_queue_playbook,
         )
         self._real_pipeline.automation = self.automation
+        # Let the pipeline reach the realtime EventBus for live ``agent.step`` frames
+        # (Round-3 Wave-4). The bus is the module-global singleton (survives _wire());
+        # publishing is best-effort, post-save, #3/#11-safe — and a cheap no-op when
+        # realtime is disabled / nobody is subscribed.
+        self._real_pipeline.event_bus = self.event_bus
 
     async def _automation_notify(self, case, trigger: str) -> None:
         """Automation NOTIFY action → dispatch through the existing notification

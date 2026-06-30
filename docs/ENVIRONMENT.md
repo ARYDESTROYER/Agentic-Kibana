@@ -15,6 +15,12 @@ pain, so they are documented separately.
 > refresh rotation) is **DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on.
 > A reversible, $0 **Demo Mode** populates the product with synthetic data without
 > any source wiring (see `DEMO.md`). See `COMPATIBILITY.md` for the full matrix.
+>
+> **Round 3** added optional, default-off **cloud LLM providers** (Azure OpenAI / AWS
+> Bedrock / Google Vertex + any OpenAI-compatible `base_url`) and **17 enrichment
+> providers** behind an `EnrichmentProvider` SPI — all keyed via env (see §2.6 / §2.7).
+> The keyless enrichment providers are default-on; everything else stays default-off,
+> additive, and degrades gracefully.
 
 ---
 
@@ -59,9 +65,11 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **794 tests**
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. **1109 tests**
   green is the primary correctness gate (auth DEFAULT OFF, so the suite runs
-  unauthenticated). The **SQL state backend is tested offline
+  unauthenticated). A `conftest` autouse **network guard** blocks non-loopback egress
+  so the new enrichment-provider tests stay deterministic and offline (opt out per
+  test with `@pytest.mark.allow_network`). The **SQL state backend is tested offline
   on SQLite** (`sqlalchemy`+`aiosqlite`); `asyncpg`/`pgvector` are imported lazily,
   so no Postgres is needed in the sandbox.
 - **Web UI (primary surface):** builds fully (the npm registry is reachable).
@@ -70,9 +78,10 @@ plugin zips are built.
   ```
   The clean `tsc + vite` build (a `dist/` bundle) **is the check** here — there is
   no browser to render it in this sandbox. A dev-only **Vitest** harness
-  (`npm run test`, **86 tests**) covers render/regression of key surfaces (Settings,
-  Demo Mode, command palette, customization) and runs in the CI gate. **Zero new
-  runtime deps** were added in Round 2.
+  (`npm run test`, **175 tests**) covers render/regression of key surfaces (Settings,
+  Demo Mode, command palette, customization, the Round-3 nav sidebar / Roles editor /
+  Models page / Metrics tabs / CaseDetail chips + trace timeline / Inbox) and runs in
+  the CI gate. **Zero new runtime deps** were added across Round 2 **or** Round 3.
 - **Plugin (legacy):** builds fully. Verify **statically**: `tsc --noEmit` clean,
   `unzip -l` shows `target/public/tlsocAgenticTriage.plugin.js`, manifest
   `kibanaVersion` correct, `grep -c tlsoc-backend` in the browser bundle = 0.
@@ -156,8 +165,12 @@ unprefixed backend vars, so the suite's `.env` cannot clash with the host stack'
 | `TLSOC_PG_USER` / `TLSOC_PG_PASSWORD` / `TLSOC_PG_DB` | (compose builds `STATE_DB_URL`) | Postgres creds for the agnostic stack (`TLSOC_PG_PASSWORD` REQUIRED there) |
 | `TLSOC_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` | LLM provider key |
 | `TLSOC_OPENAI_API_KEY` | `OPENAI_API_KEY` | LLM provider key |
-| `TLSOC_ABUSEIPDB_API_KEY` | `ABUSEIPDB_API_KEY` | enrichment key |
-| `TLSOC_VIRUSTOTAL_API_KEY` | `VIRUSTOTAL_API_KEY` | enrichment key |
+| `TLSOC_ABUSEIPDB_API_KEY` | `ABUSEIPDB_API_KEY` | enrichment key (AbuseIPDB) |
+| `TLSOC_VIRUSTOTAL_API_KEY` | `VIRUSTOTAL_API_KEY` | enrichment key (VirusTotal) |
+| `TLSOC_AZURE_OPENAI_API_KEY` / `_ENDPOINT` / `_API_VERSION` | `AZURE_OPENAI_API_KEY` / `_ENDPOINT` / `_API_VERSION` | **Round 3** — Azure OpenAI cloud LLM (optional) |
+| `TLSOC_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `TLSOC_AWS_REGION` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | **Round 3** — AWS Bedrock cloud LLM (stdlib SigV4, no boto3) (optional) |
+| `TLSOC_VERTEX_PROJECT` / `_LOCATION` / `_API_KEY` | `VERTEX_PROJECT` / `VERTEX_LOCATION` / `VERTEX_API_KEY` | **Round 3** — Google Vertex cloud LLM (short-lived OAuth Bearer) (optional) |
+| `TLSOC_GREYNOISE_API_KEY` · `TLSOC_SHODAN_API_KEY` · `TLSOC_CENSYS_API_ID`/`_SECRET` · `TLSOC_BINARYEDGE_API_KEY` · `TLSOC_IPINFO_TOKEN` · `TLSOC_OTX_API_KEY` · `TLSOC_PULSEDIVE_API_KEY` · `TLSOC_SPUR_API_KEY` · `TLSOC_XFORCE_API_KEY`/`_PASSWORD` · `TLSOC_URLSCAN_API_KEY` · `TLSOC_HIBP_API_KEY` · `TLSOC_HONEYPOT_ACCESS_KEY` · `TLSOC_ABUSECH_AUTH_KEY` | the same names unprefixed | **Round 3** — the 17-provider enrichment SPI (§2.7); all optional + default-off; keyless providers (Shodan InternetDB / IPinfo Lite / abuse.ch trio / RDAP-DoH) need no key and are default-on |
 | `TLSOC_EMBEDDING_API_KEY` | `EMBEDDING_API_KEY` | embeddings (falls back to the OpenAI key) |
 | `TLSOC_REDIS_URL` | `REDIS_URL` | enrichment cache (degrades to in-memory) |
 | `TLSOC_LOG_LEVEL` | `LOG_LEVEL` | backend log level |
@@ -225,3 +238,59 @@ analyst browser ─ webui:80 (nginx) ─ /api proxy ─ tlsoc-backend:8088
 > A production deploy needs **outbound HTTPS** from `tlsoc-backend` to the
 > configured LLM + enrichment providers (or a local/vLLM gateway). Without LLM
 > egress, investigations fail safe to NEEDS_HUMAN (never dropped).
+
+### 2.6 Cloud LLM providers (Round 3 — optional, default-off)
+
+The single LLM gateway (`llm/gateway.py`, #6 — one ledger write per call) is now
+provider-agnostic. `anthropic` + `openai` remain the default; Round 3 added three
+first-class cloud providers plus any OpenAI-compatible endpoint, all keyed via env
+and all **default-off** (no behavior change unless you wire a model to one in
+**Settings → Models**). Keys are booleans in the UI (`configured ✓`), never values.
+
+| Provider | Backend env | Notes |
+|---|---|---|
+| **Azure OpenAI** | `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` (`https://<resource>.openai.azure.com`), `AZURE_OPENAI_API_VERSION` (e.g. `2024-10-21`) | falls back to `OPENAI_API_KEY` if the Azure key is blank |
+| **AWS Bedrock** | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | the gateway signs requests with a **stdlib SigV4** ladder (the same HMAC pattern as the SES email preset) — **no `boto3` dependency** |
+| **Google Vertex** | `VERTEX_PROJECT`, `VERTEX_LOCATION` (e.g. `us-central1`), `VERTEX_API_KEY` | `VERTEX_API_KEY` is a **short-lived OAuth access token** carried as a Bearer (mint with your own credential flow / `gcloud auth print-access-token`) |
+| **OpenAI-compatible** (vLLM / Ollama / OpenRouter / Together / Groq) | reuses `OPENAI_API_KEY` | no new key — set the model's **`base_url`** (+ optional `api_version`/`region`) in Settings → Models; one generalized client class drives them all |
+
+A bundled `llm/model_registry.json` carries context-window / max-output / modality /
+capability + input/output/cache pricing for the catalog; operators override prices
+per model via the `PriceOverlayStore` (KV, no migration). An optional pre-flight
+**`BudgetGate`** (daily/monthly ceilings on `Preferences.budget`, default off) checks
+`estimate_cost` BEFORE the call; over budget it raises so the investigator fails safe
+to **NEEDS_HUMAN** — never a silent close (#3), and the ledger still writes exactly
+once per real call (#6).
+
+### 2.7 Enrichment providers (Round 3 — the EnrichmentProvider SPI)
+
+Enrichment was generalized into an `EnrichmentProvider` SPI (`backend/app/enrichment/`)
+mirroring the connector registry: an ABC + manifest (indicator types, auth fields,
+free-tier note) + `tlsoc.enrichers` entry-point + type-routed parallel dispatch
+(fail-open, Redis-cached) + a weighted aggregate. AbuseIPDB + VirusTotal were
+refactored as the first two providers; `enrich_ip()` stays a byte-identical alias and
+the default aggregation stays `max()` (weighted `fusion` is opt-in) so the risk-scorer
+call site + the `EnrichmentResult` contract are unchanged (#3).
+
+- **Keyless, default-on** (no env needed): **Shodan InternetDB**, **IPinfo Lite**,
+  the **abuse.ch trio** (URLhaus / MalwareBazaar / ThreatFox), **RDAP** + **DoH**.
+- **Keyed, optional + default-off** (toggle in **Settings → Enrichment**; the env key
+  only enables it): `GREYNOISE_API_KEY`, `SHODAN_API_KEY`, `CENSYS_API_ID` +
+  `CENSYS_API_SECRET`, `BINARYEDGE_API_KEY`, `IPINFO_TOKEN`, `OTX_API_KEY`,
+  `PULSEDIVE_API_KEY`, `SPUR_API_KEY`, `XFORCE_API_KEY` + `XFORCE_API_PASSWORD`,
+  `URLSCAN_API_KEY`, `HIBP_API_KEY`, `HONEYPOT_ACCESS_KEY` (Project Honeypot http:BL —
+  also set `EnrichmentConfig.use_honeypot`), and `ABUSECH_AUTH_KEY` (an optional
+  abuse.ch Auth-Key that lifts the keyless rate caps).
+- **Multi-indicator**: `enrich_indicator(value, kind)` routes IP / domain / hash / url
+  / email to the providers that support each kind. Free tiers are tiny (Shodan ~1 req/s,
+  Censys ~1 req/2.5s, GreyNoise 50/week) so each provider carries a per-provider TTL +
+  rate guard. Every provider string (PTR/banner/tags/reputation text) is treated as
+  **UNTRUSTED** and fenced before any prompt / escaped in the UI (#9); enrichment is
+  **advisory only** and never feeds the deterministic `decide()` (#3).
+
+> Compose note: the agnostic/legacy compose files map a fixed set of `TLSOC_*` → backend
+> vars. The Round-3 cloud-LLM / enrichment keys above are read by the backend under their
+> **unprefixed** names; when running under Docker Compose, add the matching
+> `- AZURE_OPENAI_API_KEY=${TLSOC_AZURE_OPENAI_API_KEY:-}` (etc.) line to the
+> `tlsoc-backend` `environment:` block for each provider you enable. Running the backend
+> directly, it reads them from the environment as-is.

@@ -295,19 +295,35 @@ caps, kill switch) lives in UI-editable **Preferences**, surfaced in Settings an
 the first-run wizard. The UI shows secrets as booleans (`configured ✓`), never the
 values.
 
+**Cloud LLM + enrichment providers (Round 3, all optional + default-off).** Beyond
+`ANTHROPIC`/`OPENAI`, the gateway now supports **Azure OpenAI**, **AWS Bedrock**
+(stdlib SigV4, no `boto3`), **Google Vertex**, and any **OpenAI-compatible** `base_url`
+(vLLM/Ollama/OpenRouter/Together/Groq — no new key). Enrichment was generalized into an
+`EnrichmentProvider` SPI with **17 providers** (keyless Shodan InternetDB / IPinfo Lite
+/ abuse.ch trio / RDAP-DoH default-on; GreyNoise / Shodan / Censys / BinaryEdge / OTX /
+Pulsedive / Spur / X-Force / URLscan / HIBP / Project Honeypot keyed + default-off),
+multi-indicator across IP/domain/hash/url/email. All keys are env-only `TLSOC_*` entries
+(see [`.env.example`](.env.example) and `docs/ENVIRONMENT.md` §2.6–2.7); enrichment is
+advisory only and never feeds the deterministic close/escalate decision.
+
 ## Status & verification
 
-Verified offline this cycle: **794 backend tests green** (fake/in-memory backends
-+ mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite) with
-a dev-only Vitest harness (86 tests, 19 files); eslint clean (0
-`react-hooks/rules-of-hooks` errors). Round 2 (login redesign + account self-service,
-sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources,
-Resend/SES + email templates, per-user customization + saved views + terminology +
-theme, and the command palette + global search + bulk actions + audit viewer),
-closed out by a 16-agent adversarial audit + a HIGH/MEDIUM remediation pass — like
-the seven-wave overhaul before it — was **additive with zero new runtime
-dependencies** and left `case_manager.decide()` byte-identical (CI-verified).
-Live-stack validation against a real SIEM is a deploy step. New here? See
-[`docs/HANDOFF.md`](docs/HANDOFF.md). See
+Verified offline this cycle: **1109 backend tests green** (fake/in-memory backends
++ mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
+tests offline); the standalone **web UI builds clean** (`tsc` + Vite) with a dev-only
+Vitest harness (175 tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
+**Round 3** (12 requests across Waves 0–4: expandable nav, richer Settings real-estate,
+deeper branding/material, per-case human+AI collaboration, a posture dashboard +
+MITRE-coverage, fine-grained custom-role RBAC, +17 enrichment providers, in-app
+notifications, a standardized Models page, distinctive UI, a forward-looking Standup,
+and clearer cases + agent-work visualization) — like Round 2 (login redesign + account
+self-service, sessions + token policy, the Settings-centric IA, Demo Mode, per-feed
+sources, Resend/SES + email templates, per-user customization, command palette + global
+search + bulk actions + audit viewer) and the seven-wave overhaul before it — was
+**additive with zero new runtime dependencies** and left `case_manager.decide()`
+byte-identical (CI-verified); the 12 non-negotiables held throughout. A shipped security
+fix inverts RAG-knowledge fencing to a TRUSTED allowlist so operator-imported documents
+can no longer reach the model unfenced (OWASP LLM01). Live-stack validation against a
+real SIEM is a deploy step. New here? See [`docs/HANDOFF.md`](docs/HANDOFF.md). See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
 status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.

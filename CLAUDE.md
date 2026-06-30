@@ -131,13 +131,35 @@ backend/app/
   llm/               gateway (THE cost-ledger choke point) · providers · pricing
   tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
                      rag (hybrid BM25+vector retrieval; import/list/get/delete +
-                     stats) · vectorstore (+ list_documents/list_chunks/
-                     delete_document/stats)
+                     stats; Round-3 TRUSTED-allowlist fencing — only built-in/verified
+                     corpus is trusted, imported docs are fenced UNTRUSTED, #9) ·
+                     vectorstore (+ list_documents/list_chunks/delete_document/stats)
+  enrichment/        EnrichmentProvider SPI (Round 3): base (ABC + manifest) · registry
+                     (built-ins + tlsoc.enrichers entry-point, filtered by toggle+key) ·
+                     dispatch (enrich_indicator: type-routed IP/domain/hash/url/email,
+                     fail-open, Redis-cached) · aggregate (fuse — default max() byte-
+                     identical, weighted fusion opt-in) · providers/ (17: abuseipdb ·
+                     virustotal · greynoise · shodan · shodan_internetdb · censys ·
+                     binaryedge · ipinfo · otx · pulsedive · spur · xforce · urlscan ·
+                     hibp · projecthoneypot · abusech · rdap; keyless ones default-on)
+  realtime.py        multiplexed SSE EventBus (Round 3): in-process asyncio pub/sub +
+                     bounded per-subscriber ring + Last-Event-ID replay + heartbeat;
+                     GET /api/events (default OFF; polling is the graceful fallback);
+                     frames published AFTER save, never before decide()
   engine/            correlation (multi-strategy + opt-in cross-source linking) ·
                      risk · cost_gate · case_manager (AutoClosePolicy; decide() pure) ·
                      signatures · poller · ingest (push/queue → OCSF) · runbooks
                      (RAG-knowledge loader) · chunking · case_id (customizable
                      case-XXXX nomenclature; KV sequence + template) ·
+                     metrics (verdict/status mix + Round-3 posture: MTTA/MTTR/dwell
+                     p50/p90 from status_history, SLA/aging, period-over-period) ·
+                     mitre_coverage (Case.mitre vs the 697-corpus → per-tactic % +
+                     ATT&CK Navigator v4.5 layer export) ·
+                     shift_report (deterministic attention queue + SLA/aging + workload
+                     + deltas for the forward Standup; aggregate-only #7) ·
+                     priority (read-time severity/impact/urgency/priority derivation —
+                     advisory, never feeds decide()) ·
+                     budget (pure pre-flight BudgetGate; over-budget → NEEDS_HUMAN) ·
                      threshold_automation (#3-safe rule actions → HITL proposal) ·
                      threat_context (IOC reputation + MITRE + related cases, fail-open) ·
                      mitre (bundled ATT&CK technique lookup) ·
@@ -169,32 +191,48 @@ backend/app/
                      refresh rotation) · user_prefs (UserPrefsStore over KV — personal
                      saved views/columns/terminology/theme, keyed by user) · memory
                      (MemoryStore over the KVStore — durable operator facts;
-                     EsKVStore/SqlKVStore adapters, no new index) · audit/audit_log
-                     (ES-backed) · sql/ (engine · models · repositories ·
-                     vectorstore — SQLite/Postgres+pgvector)
-  api/               routes (UI contract; incl. /sources, /auth+/users+/auth/mfa+
-                     /auth/sso, /auth/refresh+/auth/reauth, /sessions+/admin/sessions,
-                     /account/me+/me/avatar, /demo/*, /prefs/{user,org,effective}+
-                     /views+/terminology, /notifications+/notifications/preview,
-                     /proposals, /settings/schema, /search, /audit) · deps (require_auth
-                     + require_permission + require_fresh_auth + session check) ·
-                     state.py (DI hub) · main.py
+                     EsKVStore/SqlKVStore adapters, no new index) · proposals ·
+                     8 Round-3 KV stores (same zero-migration pattern, no new index/
+                     table): case_thread · case_activity · case_tasks (per-case
+                     collaboration #4) · inbox (per-user fan-out, ~200/user ring) ·
+                     notif_prefs (in-app #8) · custom_roles (#6) · price_overlay
+                     (per-model price overrides #9) · shift_handoff (Standup acks +
+                     action items #11) · audit/audit_log (ES-backed) · sql/ (engine ·
+                     models · repositories · vectorstore — SQLite/Postgres+pgvector)
+  api/               routes (the big UI-contract router; incl. /sources, /auth+/users+
+                     /auth/mfa+/auth/sso, /auth/refresh+/auth/reauth, /sessions+
+                     /admin/sessions, /account/me+/me/avatar, /demo/*, /prefs/{user,org,
+                     effective}+/views+/terminology, /notifications+/notifications/
+                     preview, /proposals, /settings/schema, /search, /audit, /branding+
+                     /branding/presets) + 8 Round-3 per-feature routers
+                     (routes_metrics · routes_standup · routes_enrichment · routes_models
+                     · routes_inapp · routes_cases_collab · routes_triage · routes_roles)
+                     mounted in main.py · deps (require_auth + require_permission +
+                     require_fresh_auth + custom-role union enforcement + session check) ·
+                     state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
 backend/playbooks/   operator-authored *.md PLAYBOOKS (+ README) — data, not code;
                      dir overridable via Preferences.playbooks.dir
 backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) — green
 webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/Radix SPA
   package.json       Node 22; Tailwind + Radix primitives; build = tsc --noEmit && vite build
-  src/               main.tsx · styles/theme.css (design tokens) · ui/* (shadcn/Radix
+  src/               main.tsx · styles/theme.css (design tokens + Round-3 allow-listed
+                     theme tokens + material chrome vars) · ui/* (shadcn/Radix
                      primitives) · soc/ (App/AppShell/router/nav/theme/auth; pages/*
-                     incl. Users/Security/Approvals/Settings/Knowledge/Memory;
+                     incl. Users/Security/Approvals/Settings/Knowledge/Memory + Round-3
+                     Models/Roles/Inbox + Metrics tabs + CaseDetail chips/trace/collab;
                      components/* incl. Can RBAC guard, MfaSetupCard, QRCode,
-                     NotificationsEditor, RiskGauge, palette) · lib/ (api etc.) · test/
+                     NotificationsEditor, RiskGauge, palette + Round-3 NavSidebar,
+                     NotificationBell, GlassSurface, SettingsGrid/Card, theme-tokens
+                     resolver, MitreHeatmap/BurnDownChart, TraceTimeline, CaseThread,
+                     EnrichmentProvidersEditor, BrandingEditor) · lib/ (api etc.) · test/
   Dockerfile         nginx image (tlsoc-webui) with the /api proxy
 archive/             FROZEN legacy code (not built/tested/shipped) — see archive/README.md
   kibana-plugin/     the retired Kibana plugin (tlsoc_agentic_triage/ + dist/ + BUILD.md)
 deploy/              docker-compose.agnostic.yml (Postgres+Redis+backend+webui) ·
                      docker-compose.tlsoc.yml (legacy ELK merge) · mappings/ · dashboards/
-docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_STUDY.md
+docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_STUDY.md ·
+                     HANDOFF.md · research/2026-06-round2/ · research/2026-06-round3/
+                     (PROPOSAL.md + IMPLEMENTATION.md)
 .env.example  README.md  DEPLOY.md  COMPATIBILITY.md  CLAUDE.md  Journal.md  ROADMAP.md
 ```
 
@@ -275,16 +313,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 794 tests
+# Backend tests (offline; MUST stay green) — currently 1109 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 794 passed
+python -m pytest -q                         # -> 1109 passed
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
 cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/
-npx vitest run                             # -> 86 passed (19 files)
+npx vitest run                             # -> 175 passed
 npm run lint                               # 0 react-hooks/rules-of-hooks errors (2 exhaustive-deps warnings OK)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -327,8 +365,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (794) + `npm run build` clean
-  + `vitest run` (86) + `npm run lint` (no rules-of-hooks errors) before every commit.
+- **Tests:** add/keep offline tests; `pytest -q` green (1109) + `npm run build` clean
+  + `vitest run` (175) + `npm run lint` (no rules-of-hooks errors) before every commit.
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
 ## 9. Sub-agent workflow (how we parallelize)
@@ -345,26 +383,55 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: **Round 1 + Round 2 overhauls COMPLETE** (committed on `Testing`, local only —
-**not pushed**). Phase-1 spine + vendor-agnostic transition + the Vigil-inspired
-overhaul (Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2** (account
-self-service, sessions + token policy, Settings-centric IA, Demo Mode, source
+Current: **Round 1 + Round 2 + Round 3 overhauls COMPLETE** (committed on `Testing`,
+local only — **not pushed**). Phase-1 spine + vendor-agnostic transition + the
+Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2**
+(account self-service, sessions + token policy, Settings-centric IA, Demo Mode, source
 multi-feed, Resend/SES + email templates, per-user customization, command palette /
-global search / bulk actions / audit viewer) all shipped, then closed out by a
-**16-agent adversarial audit** (`aae7a76`, 8 confirmed RBAC/poller/gauge fixes) and a
-**remediation pass** (`763ded9`, +22 tests).
+global search / bulk actions / audit viewer) + **Round 3** (12 requests across Waves
+0–4) all shipped.
 
-**GREEN BASELINE (verified 2026-06-30):** backend **794 pytest** pass (was 395 →
-772 → 794); the standalone **webui builds clean** (tsc+vite) + **86 Vitest specs
-green** (19 files); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign
-`exhaustive-deps` warnings); `engine/case_manager.py` **byte-identical**; **ZERO new
-runtime deps** across both rounds. Every round was additive, with non-negotiable #3
-intact (Demo Mode uses a sandboxed policy copy). The legacy Kibana plugin is
-**archived** (`archive/`). Active branch: **`Testing`**. New here? Start with
-`docs/HANDOFF.md`. See `docs/VIGIL_STUDY.md` for the study + multi-wave plan,
-`docs/research/2026-06-round2/` (`ROUND2_AUDIT.md` deferred/low items +
-`ROUND2_BEST_OF_BEST.md` Tier 2/3 backlog) for the Round 2 design, and `ROADMAP.md`
-for live status.
+**Round 3 (commits `bffe4b8 → 59c2999 → 2295363 → 8b25ca2 → 3610147` + this docs/live
+wave) — 12 user requests, additive, zero new deps, #3 byte-identical, the 12
+non-negotiables held:** expandable hamburger nav + sub-pages; richer Settings
+real-estate (card grid + sticky save); deeper branding/material (bounded theme-token
+allow-list + AA presets + a "command" material pack); per-case **human+AI ticket
+collaboration** (threaded human/ai/system messages, reactions, tasks, @mentions, an
+activity feed — AI is a first-class author but can only RECOMMEND, never close);
+a richer **posture dashboard** (server-side MTTA/MTTR/dwell p50/p90, SLA/aging, quality
+mix, period-over-period deltas + **MITRE coverage** vs the 697-corpus + ATT&CK Navigator
+layer export); **fine-grained RBAC** (custom roles + inheritance + explicit DENY +
+opt-in row-scope hook, all server-enforced); **+17 enrichment providers** behind an
+`EnrichmentProvider` SPI (multi-indicator IP/domain/hash/url/email); **in-app
+notifications** (per-user fan-out inbox + bell + per-category×channel prefs); a
+standardized/customizable **Models page** (provider registry incl. Azure/Bedrock/Vertex
++ OpenAI-compatible `base_url`, bundled model registry + price overlays, a pre-flight
+`BudgetGate`); **distinctive UI** (opt-in material pack + glass chrome + page archetypes
++ editorial charts, calm "quiet" default preserved); a **forward-looking Standup**
+(deterministic attention queue + SLA/aging + workload + ack/handoff, still
+aggregate-only #7); and **clearer cases** (4 honest triage chips risk/severity/impact/
+priority + a typed ReAct trace timeline with the deterministic `decide()` step surfaced
+as a trust feature). Plus a shipped **security fix**: inverted RAG-knowledge fencing to
+a TRUSTED allowlist so operator-imported docs no longer reach the model unfenced
+(OWASP LLM01). New modules: `enrichment/` SPI (ABC + registry + dispatch + aggregate +
+17 providers), `realtime.py` (multiplexed SSE `EventBus`), 8 KV stores
+(case_thread/case_activity/case_tasks/inbox/notif_prefs/custom_roles/price_overlay/
+shift_handoff), `engine/{shift_report,priority,budget,mitre_coverage}.py`, and 8
+per-feature `api/routes_*.py` routers (metrics/standup/enrichment/models/inapp/
+cases_collab/triage/roles).
+
+**GREEN BASELINE (verified 2026-06-30):** backend **1109 pytest** pass (395 → 772 → 794
+→ 1109); the standalone **webui builds clean** (tsc+vite) + **175 Vitest specs green**
+(86 → 175); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign `exhaustive-deps`
+warnings); `engine/case_manager.py` **byte-identical**; **ZERO new runtime deps** across
+all three rounds. Every round was additive, with non-negotiable #3 intact (Demo Mode
+uses a sandboxed policy copy; the Round-3 `BudgetGate` is a pure pre-flight that fails
+safe to NEEDS_HUMAN, never a silent close) and #6 (one ledger write per call) preserved.
+The legacy Kibana plugin is **archived** (`archive/`). Active branch: **`Testing`**.
+New here? Start with `docs/HANDOFF.md`. See `docs/VIGIL_STUDY.md` for the study +
+multi-wave plan, `docs/research/2026-06-round3/` (`PROPOSAL.md` + `IMPLEMENTATION.md`)
+for the Round 3 design + what-shipped, `docs/research/2026-06-round2/` for Round 2, and
+`ROADMAP.md` for live status.
 
 **Done — Round 2 (commits since `ccc7a46`; W1–W7c; additive, zero new deps, #3
 byte-identical, #9 untrusted fencing upheld on every new user/source-influenceable

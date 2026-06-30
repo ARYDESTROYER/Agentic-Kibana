@@ -18,10 +18,14 @@
  * `aria-label`; the badge is `aria-hidden` (the label carries the count). The poll
  * pauses on `document.hidden` to avoid background churn.
  *
- * SSE seam (Wave 4): polling is isolated in `useUnreadCount`; swap the interval for
- * an EventSource there without touching the render.
+ * LIVE (Wave 4): polling is isolated in `useUnreadCount`, which additively layers the
+ * `useEventStream` SSE hook on top. When realtime is enabled the bell refreshes its
+ * unread count the moment an `inapp` frame arrives and SLOWS its poll (it does not
+ * stop it) while the stream is healthy; when realtime is disabled the endpoint 204s
+ * and the bell keeps polling at the normal cadence — today's behaviour, unchanged.
  */
 import * as React from 'react';
+import { useEventStream } from '@/lib/useEventStream';
 import { Bell, CheckCheck, Inbox as InboxIcon, AlertTriangle } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
@@ -40,13 +44,30 @@ import {
 
 /** Poll cadence for the unread count (ms). The dropdown refetches on open. */
 const POLL_MS = 30000;
+/**
+ * Slow-poll cadence (ms) used as a SAFETY NET while a live SSE stream is healthy —
+ * frames drive the refresh, but we still re-sync occasionally in case a frame was
+ * dropped from the bus's bounded ring. Polling is never fully stopped (graceful
+ * degradation if the stream silently dies between heartbeats).
+ */
+const POLL_MS_LIVE = 120000;
 /** How many recent items the dropdown shows. */
 const RECENT_LIMIT = 8;
+/**
+ * SSE topics the bell listens on: in-app notifications (`notifications`/`inapp` from
+ * the dispatcher) and case-mention nudges (`inbox`/`inapp` from collaboration). Both
+ * deliver the `inapp` event channel; any frame on either topic triggers a re-sync.
+ */
+const BELL_TOPICS = ['notifications', 'inbox'];
 
 /**
  * Poll the unread count. Pauses while the tab is hidden; refetches immediately when
  * it becomes visible again. A 401/auth-off backend simply yields 0 (the bell stays
  * quiet) — never throws into the shell.
+ *
+ * Live layer (additive): subscribes to the `inapp` SSE channel via `useEventStream`.
+ * When the stream is healthy (`live`) the bell refreshes on every frame and drops to
+ * a slow safety-net poll; when realtime is disabled/unavailable it polls normally.
  */
 function useUnreadCount(): { unread: number; refresh: () => void } {
   const [unread, setUnread] = React.useState(0);
@@ -59,6 +80,14 @@ function useUnreadCount(): { unread: number; refresh: () => void } {
       });
   }, []);
 
+  // Live updates: a fresh `inapp` frame means the unread count likely changed; refetch
+  // the authoritative count (the frame is only a nudge — #9: we never render its body).
+  const onEvent = React.useCallback(() => {
+    if (typeof document !== 'undefined' && document.hidden) return;
+    refresh();
+  }, [refresh]);
+  const { live } = useEventStream(BELL_TOPICS, { enabled: true, onEvent });
+
   React.useEffect(() => {
     let alive = true;
     const tick = () => {
@@ -66,7 +95,8 @@ function useUnreadCount(): { unread: number; refresh: () => void } {
       refresh();
     };
     tick();
-    const t = window.setInterval(tick, POLL_MS);
+    // Slow the poll to a safety-net cadence while a live stream drives refreshes.
+    const t = window.setInterval(tick, live ? POLL_MS_LIVE : POLL_MS);
     const onVis = () => {
       if (typeof document !== 'undefined' && !document.hidden) tick();
     };
@@ -76,7 +106,7 @@ function useUnreadCount(): { unread: number; refresh: () => void } {
       window.clearInterval(t);
       document.removeEventListener?.('visibilitychange', onVis);
     };
-  }, [refresh]);
+  }, [refresh, live]);
 
   return { unread, refresh };
 }

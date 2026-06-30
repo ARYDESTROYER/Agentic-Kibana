@@ -7,8 +7,17 @@
  *
  * SECURITY (#9): every `actor`, `summary`, and `ref` value is operator-/log-derived
  * UNTRUSTED text — rendered EXCLUSIVELY as plain text nodes, never markup.
+ *
+ * LIVE (Wave 4): optionally subscribes to the per-case SSE room
+ * (`cases:{liveCaseId}`) via `useEventStream`. A `case.activity` frame is a NUDGE — it
+ * carries only plain identifiers and never a verdict; the component calls the caller's
+ * `onLiveActivity` so the parent refetches the authoritative feed (#3 untouched). This
+ * is purely additive: with no `liveCaseId` (the default) the component is exactly the
+ * pure presentational timeline it has always been, and the parent keeps polling.
  */
 import * as React from 'react';
+
+import { useEventStream } from '@/lib/useEventStream';
 import {
   Activity,
   Bell,
@@ -74,13 +83,44 @@ export interface CaseActivityFeedProps {
   items: CaseActivityItem[];
   loading?: boolean;
   className?: string;
+  /**
+   * Optional: the case id to subscribe to for LIVE `case.activity` frames. When set
+   * (and realtime is enabled on the backend), the feed nudges the caller to refetch
+   * as collaboration events land. Omitted by default → no stream, today's behaviour.
+   */
+  liveCaseId?: string;
+  /**
+   * Called when a live `case.activity` frame arrives (debounced upstream by the bus).
+   * The caller should refetch the authoritative activity feed. Only fires when
+   * `liveCaseId` is set and a stream is healthy.
+   */
+  onLiveActivity?: () => void;
 }
 
 /**
  * The activity feed: a newest-first vertical timeline. Each entry shows the kind
  * icon, an actor + relative time, and a plain-text summary.
  */
-export const CaseActivityFeed: React.FC<CaseActivityFeedProps> = ({ items, loading, className }) => {
+export const CaseActivityFeed: React.FC<CaseActivityFeedProps> = ({
+  items,
+  loading,
+  className,
+  liveCaseId,
+  onLiveActivity,
+}) => {
+  // Live nudge: a `case.activity` frame on this case's room → refetch authoritative
+  // state. The frame payload is never rendered here (#9) — it only triggers a reload.
+  const onEvent = React.useCallback(
+    (ev: { type: string }) => {
+      if (ev.type === 'case.activity') onLiveActivity?.();
+    },
+    [onLiveActivity],
+  );
+  useEventStream(liveCaseId ? [`cases:${liveCaseId}`] : [], {
+    enabled: Boolean(liveCaseId),
+    onEvent,
+  });
+
   if (loading) {
     return (
       <div className={cn('space-y-3', className)}>

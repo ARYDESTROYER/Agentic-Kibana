@@ -20,8 +20,17 @@
  * @mention HIGHLIGHTER tokenises the plain string and wraps matched tokens in a
  * <span>; it never parses HTML. Writes are gated by the caller with <Can> (the
  * composer is only mounted when `canComment`).
+ *
+ * LIVE (Wave 4): optionally subscribes to the per-case SSE room (`cases:{liveCaseId}`)
+ * via `useEventStream`. A `case.activity` frame nudges the caller (`onLiveActivity`) to
+ * refetch the authoritative thread so a teammate's/AI's new message appears without a
+ * manual refresh. Purely additive: with no `liveCaseId` (default) the thread is the
+ * same pure presentational surface and the parent keeps polling. The frame payload is
+ * never rendered (#9) — it only triggers a reload.
  */
 import * as React from 'react';
+
+import { useEventStream } from '@/lib/useEventStream';
 import {
   Bot,
   Check,
@@ -546,6 +555,17 @@ export interface CaseThreadProps {
   onDelete: (msgId: string) => void;
   onReact: (msgId: string, emoji: string, remove: boolean) => void;
   className?: string;
+  /**
+   * Optional: the case id to subscribe to for LIVE `case.activity` frames. When set
+   * (and realtime is enabled on the backend), a teammate's/AI's new message nudges the
+   * caller to refetch. Omitted by default → no stream, today's polling behaviour.
+   */
+  liveCaseId?: string;
+  /**
+   * Called when a live `case.activity` frame arrives for `liveCaseId`. The caller
+   * should refetch the authoritative thread. Only fires when `liveCaseId` is set.
+   */
+  onLiveActivity?: () => void;
 }
 
 /**
@@ -565,7 +585,22 @@ export const CaseThread: React.FC<CaseThreadProps> = ({
   onDelete,
   onReact,
   className,
+  liveCaseId,
+  onLiveActivity,
 }) => {
+  // Live nudge: a `case.activity` frame on this case's room → ask the caller to refetch
+  // the thread. The frame payload is never rendered here (#9) — it only triggers a load.
+  const onEvent = React.useCallback(
+    (ev: { type: string }) => {
+      if (ev.type === 'case.activity') onLiveActivity?.();
+    },
+    [onLiveActivity],
+  );
+  useEventStream(liveCaseId ? [`cases:${liveCaseId}`] : [], {
+    enabled: Boolean(liveCaseId),
+    onEvent,
+  });
+
   // Partition into roots + replies-by-parent, preserving chronological order.
   const { roots, repliesByParent } = React.useMemo(() => {
     const sorted = [...messages].sort(

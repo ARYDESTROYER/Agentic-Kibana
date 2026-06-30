@@ -13,6 +13,7 @@ from typing import Any
 
 from ..constants import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
 from ..models import Cluster, EnrichmentResult, MemoryEntry, RagChunk
+from ..tools.rag import is_trusted_knowledge
 from ..utils import truncate
 
 # Distinct delimiters for the TRUSTED operator-MEMORY block (durable facts the
@@ -172,17 +173,20 @@ def render_cluster(cluster: Cluster, enrichment: EnrichmentResult | None,
         if knowledge:
             lines.append("\n## Retrieved knowledge (runbooks / MITRE / suppression / threat-intel)")
             for ch in knowledge:
-                # Shipped operator knowledge (runbooks/MITRE/suppression) is our own
-                # trusted text. IMPORTED threat-intel ("threat_context") is UNTRUSTED
-                # corpus content (operator-pasted, possibly attacker-influenced) — it
-                # is FENCED so it can never smuggle instructions into the TRUSTED
-                # context (#9). fence() also neutralises forged fence/markers.
-                if ch.source == "threat_context":
-                    lines.append(
-                        f"- [{ch.source}] {fence(ch.text, source='threat_context')}"
-                    )
-                else:
+                # TRUSTED ALLOWLIST (OWASP LLM01 / #9): only the system-verified seed
+                # corpus (runbooks / MITRE / suppression) is our own trusted text and
+                # rendered as TRUSTED reference. ANY other retrieved source —
+                # operator/user-IMPORTED documents ("imported"), pasted threat-intel
+                # ("threat_context"), or an unknown/future source — is
+                # attacker-influenceable and is FENCED so it can never smuggle
+                # instructions into the TRUSTED context. fence() also neutralises any
+                # forged fence / PLAYBOOK / MEMORY markers inside the chunk.
+                if is_trusted_knowledge(ch.source):
                     lines.append(f"- [{ch.source}] {truncate(ch.text, 400)}")
+                else:
+                    lines.append(
+                        f"- [{ch.source}] {fence(ch.text, source=ch.source or 'imported')}"
+                    )
         if baseline:
             # Prior analyst decisions carry case-derived (and therefore log-derived,
             # attacker-influenceable) text — FENCE them as UNTRUSTED knowledge too.

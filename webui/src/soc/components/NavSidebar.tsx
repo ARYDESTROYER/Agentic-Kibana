@@ -233,8 +233,11 @@ const ChildLink: React.FC<{
         onClick={onSelect}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'flex w-full items-center gap-2.5 rounded-md py-1.5 pl-9 pr-2 text-left text-sm transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          // min-h-8 (32px) keeps the leaf row ≥24px for WCAG 2.2 §2.5.8 (target size).
+          'flex min-h-8 w-full items-center gap-2.5 rounded-md py-1.5 pl-9 pr-2 text-left text-sm transition-colors',
+          // scroll-my-1 keeps a focused row off the scroll-container edge so its focus
+          // ring is never clipped when keyboard focus scrolls it into view (§2.4.11).
+          'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           active
             ? 'bg-primary/10 font-medium text-primary'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -276,7 +279,8 @@ const ExpandedItem: React.FC<{
           aria-current={selfActive ? 'page' : undefined}
           className={cn(
             'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            // scroll-my-1: keep a focused leaf off the scroll edge (§2.4.11).
+            'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             selfActive
               ? 'bg-primary text-primary-foreground shadow-glow'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -305,7 +309,7 @@ const ExpandedItem: React.FC<{
           aria-current={selfActive ? 'page' : undefined}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             trailActive
               ? 'font-medium text-foreground'
               : 'text-muted-foreground hover:text-foreground',

@@ -162,6 +162,56 @@
   }
 }
 
+@layer components {
+  /* ------------------------------------------------------------------------ *
+   * Display heading treatment (distinctiveness pass — opt-in, additive).
+   *
+   * A tasteful hero-title type style that consumes the operator-selectable
+   * `--font-display` token (allow-listed in theme-tokens.ts — NOT touched here).
+   * It is OPT-IN: only surfaces that add `.text-display` get it, so the calm
+   * "quiet" default everywhere else is byte-identical. Tighter tracking + a
+   * subtle optical-size lean give the landing hero a command-center identity
+   * without any colour-system change. WCAG: this only sets family/weight/
+   * tracking — contrast is unchanged (inherits `text-foreground`).
+   * ------------------------------------------------------------------------ */
+  .text-display {
+    font-family: var(--font-display, 'Inter', ui-sans-serif, system-ui, sans-serif);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    /* Enable contextual ligatures + tabular-stable rendering for big titles. */
+    font-feature-settings: 'ss01' 1, 'cv01' 1, 'calt' 1;
+    text-wrap: balance;
+  }
+
+  /* A bounded display heading scale (clamp-based, responsive without breakpoints).
+     Pages may use these alongside `.text-display` for a distinctive hero title that
+     stays AA + reflows on small screens. Defaults below are conservative so an
+     un-opted-in heading is unaffected. */
+  .text-display-xl {
+    font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.625rem);
+    line-height: 1.08;
+  }
+  .text-display-lg {
+    font-size: clamp(1.5rem, 1.15rem + 1.6vw, 2.125rem);
+    line-height: 1.12;
+  }
+
+  /* Hero opt-in: applied to a HeroPanel's `className` so its (untouched) `<h1>`
+     title adopts the display treatment without modifying the HeroPanel component.
+     Scoped to the descendant title only; everything else in the hero is unchanged.
+     Purely typographic (family/weight/tracking/size) — contrast is inherited, so
+     it stays WCAG-AA. The `text-wrap: balance` keeps long titles tidy. */
+  .hero-display h1 {
+    font-family: var(--font-display, 'Inter', ui-sans-serif, system-ui, sans-serif);
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    font-feature-settings: 'ss01' 1, 'cv01' 1, 'calt' 1;
+    text-wrap: balance;
+    font-size: clamp(1.5rem, 1.15rem + 1.6vw, 2.125rem);
+    line-height: 1.12;
+  }
+}
+
 @layer utilities {
   /* Thin, subtle scrollbars (both themes). */
   * {

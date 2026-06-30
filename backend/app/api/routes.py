@@ -1304,7 +1304,18 @@ async def branding_put(
     prefs = state.prefs.model_copy(deep=True)
     prefs.branding = body
     await state.update_prefs(prefs)
-    return prefs.branding.model_dump(mode="json")
+    # Persist exactly as before, then ADDITIVELY annotate the response with a WCAG-AA
+    # contrast advisory (Wave-4): derived black/white *-foreground per operator accent
+    # (auto_corrected) + plain-text warnings for pairs that still can't reach AA. This
+    # WARNS, it does not block — the save above already succeeded. Operator hex is
+    # already bounded by BrandingConfig (#9); the helper is pure + fail-open.
+    from ..engine.contrast import evaluate_branding_contrast
+
+    saved = prefs.branding.model_dump(mode="json")
+    advisory = evaluate_branding_contrast(saved)
+    saved["auto_corrected"] = advisory["auto_corrected"]
+    saved["contrast_warnings"] = advisory["contrast_warnings"]
+    return saved
 
 
 # --------------------------------------------------------------------------- #
