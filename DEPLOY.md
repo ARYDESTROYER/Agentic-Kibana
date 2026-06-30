@@ -10,6 +10,10 @@ human-reviewable cases.
 > compose file. One deployment can read from Elasticsearch, OpenSearch, Wazuh, a
 > webhook, syslog, Kafka, and more.
 
+> **New here?** Start with **[`docs/HANDOFF.md`](docs/HANDOFF.md)** — the
+> onboarding map (repo layout, the green baseline, how to run it) — then return
+> here to deploy.
+
 > **Just want a guided demo?** See **[`DEMO.md`](DEMO.md)** — `./scripts/run-demo.sh`
 > brings the suite up locally with **auth enabled** (login + RBAC + MFA + SSO live)
 > and the seeded `Admin` / `Admin@123` super_admin, then walks every headline
@@ -21,7 +25,7 @@ human-reviewable cases.
 
 | | **Mode A — Agnostic stack (RECOMMENDED)** | **Mode B — Legacy ELK merge (optional)** |
 |---|---|---|
-| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, and the standalone React/EUI web UI (nginx). | Just the backend (+Redis) bolted into an existing ELK stack; the UI is the **Kibana plugin**. |
+| What runs | A self-contained stack: Postgres (+pgvector), Redis, the backend, and the standalone React + Tailwind + shadcn web UI (nginx). | Just the backend (+Redis) bolted into an existing ELK stack; the UI is the **archived Kibana plugin** (revive at your own risk). |
 | Own state | PostgreSQL — **no Elasticsearch required** for the app's own bookkeeping. | The suite's own `tlsoc-agent-*` Elasticsearch indices. |
 | UI | Standalone SPA at `http://localhost:8080`. | Inside Kibana, as the `tlsocAgenticTriage` plugin. |
 | Log source | Connected from the wizard (pull or push). | Connected from the wizard (pull or push). |
@@ -58,7 +62,7 @@ backend choice is independent of where logs come from.
 | `tlsoc-postgres` | `pgvector/pgvector:pg16` | The app's OWN state (cases/audit/usage/config/cursor + RAG vectors). Replaces the `tlsoc-agent-*` ES indices. |
 | `tlsoc-redis` | `redis:7-alpine` | Enrichment + dedup cache (recommended; backend falls back to in-memory without it). |
 | `tlsoc-backend` | built from `backend/Dockerfile` | FastAPI + LangGraph agent. Started with `STATE_BACKEND=postgres`. Listens on `:8088`. |
-| `tlsoc-webui` | built from `webui/Dockerfile` | The standalone React/EUI SPA served by nginx on `:80`, published as `:8080`. Proxies `/api/*` to the backend. |
+| `tlsoc-webui` | built from `webui/Dockerfile` | The standalone React + Tailwind + shadcn SPA served by nginx on `:80`, published as `:8080`. Proxies `/api/*` to the backend. |
 
 ### 3.1 Configure `.env`
 
@@ -420,16 +424,18 @@ docker exec tlsoc-backend curl -fsS http://localhost:8088/api/health ; echo
 
 ### 7.3 Install the pre-built Kibana plugin
 
-The plugin ships **pre-built** in `plugin/dist/`. **Do not compile on the server.**
+The plugin is **archived** (`archive/kibana-plugin/`) and ships **pre-built** in
+`archive/kibana-plugin/dist/`. It is no longer built/version-stamped in CI — the
+standalone webui is the sole supported surface. **Do not compile on the server.**
 Install the zip that matches your Kibana version, then restart Kibana:
 
 | Running Kibana | Install this committed zip |
 |---|---|
-| 8.12.2 | `plugin/dist/tlsocAgenticTriage-8.12.2.zip` |
-| 8.19.12 | `plugin/dist/tlsocAgenticTriage-8.19.12.zip` |
+| 8.12.2 | `archive/kibana-plugin/dist/tlsocAgenticTriage-8.12.2.zip` |
+| 8.19.12 | `archive/kibana-plugin/dist/tlsocAgenticTriage-8.19.12.zip` |
 
 ```bash
-docker cp plugin/dist/tlsocAgenticTriage-8.19.12.zip kibana:/tmp/
+docker cp archive/kibana-plugin/dist/tlsocAgenticTriage-8.19.12.zip kibana:/tmp/
 docker exec kibana ./bin/kibana-plugin install file:///tmp/tlsocAgenticTriage-8.19.12.zip
 docker restart kibana
 ```
@@ -441,9 +447,9 @@ in `kibana.yml` if needed. Then open the **TLSOC Agentic Triage** app in Kibana
 and complete the same wizard described in §3.4.
 
 > The Kibana plugin folder is ephemeral; a `compose down/up` or image pull removes
-> it — just re-run the install + restart. (See `plugin/BUILD.md` for building the
-> zip in a separate session; never run `yarn kbn bootstrap` on a production
-> server.)
+> it — just re-run the install + restart. (See `archive/kibana-plugin/BUILD.md`
+> for reviving + building the zip in a separate session; never run
+> `yarn kbn bootstrap` on a production server.)
 
 ---
 

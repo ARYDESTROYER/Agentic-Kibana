@@ -1,5 +1,8 @@
 # ENVIRONMENT.md — every environment, in detail
 
+> **New here? Start with [`HANDOFF.md`](HANDOFF.md)** — the START-HERE onboarding
+> doc (run commands, current status, what's done, what's next).
+
 There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
@@ -56,7 +59,7 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **772 tests**
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. **794 tests**
   green is the primary correctness gate (auth DEFAULT OFF, so the suite runs
   unauthenticated). The **SQL state backend is tested offline
   on SQLite** (`sqlalchemy`+`aiosqlite`); `asyncpg`/`pgvector` are imported lazily,

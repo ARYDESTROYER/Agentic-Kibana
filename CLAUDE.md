@@ -1,5 +1,8 @@
 # CLAUDE.md — TLSOC Agentic Triage Suite (master context for all agents)
 
+> **New here? Read [`docs/HANDOFF.md`](docs/HANDOFF.md) first** (where we are, how to
+> run it, what's done/next), then this file.
+>
 > **READ THIS FIRST, EVERY SESSION.** This is the single source of truth for the
 > project: what it is, how it is built/deployed, the environment, the rules, and
 > the current roadmap. It is written for Claude Code agents (and humans) so any
@@ -54,7 +57,8 @@ Components, loosely coupled:
   truly needs the embedded-in-Kibana experience, revive it from the archive.
 
 Authoritative companion docs (keep them in sync when you change behavior):
-`README.md` (overview), `DEPLOY.md` (deploy), `docs/USAGE.md` (use + examples),
+`docs/HANDOFF.md` (onboarding — START HERE), `README.md` (overview), `DEPLOY.md`
+(deploy), `docs/USAGE.md` (use + examples),
 `docs/TROUBLESHOOTING.md` (failures), `COMPATIBILITY.md` (upstream compatibility),
 `docs/ENVIRONMENT.md` (environments), `docs/VIGIL_STUDY.md` (Vigil study + overhaul
 plan), `ROADMAP.md` (work tracking).
@@ -271,15 +275,20 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 772 tests
+# Backend tests (offline; MUST stay green) — currently 794 tests
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q
+python -m pytest -q                         # -> 794 passed
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
-# Web UI build (PRIMARY surface; Node 22 — /opt/node22 is fine) — tsc + vite
-cd webui && npm install && npm run build   # produces webui/dist/
+# Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/
+npx vitest run                             # -> 86 passed (19 files)
+npm run lint                               # 0 react-hooks/rules-of-hooks errors (2 exhaustive-deps warnings OK)
+
+# One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
+./scripts/run-demo.sh
 
 # Full agnostic stack (DEPLOY target — NOT runnable in this sandbox: images blocked)
 cp .env.example .env   # set TLSOC_PG_PASSWORD + at least one LLM key
@@ -314,13 +323,13 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
     branding/MFA). Pages are `webui/src/soc/pages/*`; shell/nav/router/theme/auth in
     `webui/src/soc/{AppShell,nav,router,theme,auth}.tsx`. Compose these everywhere so
     the console stays consistent (8px grid, WCAG AA).
-- **Backend↔plugin contract:** additive request/response fields are safe (proxy
-  forwards arbitrary JSON). Keep `common/index.ts` types in sync with `models.py`.
+- **Backend↔webui contract:** additive request/response fields are safe (the nginx
+  `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
+  `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green before every commit.
-  Triple-verify plugin builds (tsc + unzip + manifest + no-leak grep).
-- **Git:** branch `claude/sharp-tesla-t73bqy`. Commit focused changes; push.
-  Commit/PR trailer: `https://claude.ai/code/session_01JxMk6xXxXEgQ1JKUnD7EF6`.
+- **Tests:** add/keep offline tests; `pytest -q` green (794) + `npm run build` clean
+  + `vitest run` (86) + `npm run lint` (no rules-of-hooks errors) before every commit.
+- **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
 ## 9. Sub-agent workflow (how we parallelize)
 
@@ -336,17 +345,26 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: Phase-1 spine + vendor-agnostic transition + the Vigil-inspired overhaul
-(Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2** (account self-service,
-sessions + token policy, Settings-centric IA, Demo Mode, source multi-feed, Resend/SES
-+ email templates, per-user customization, command palette / global search / bulk
-actions / audit viewer) all shipped — **772 backend tests green** (was 395); the
-standalone **webui builds clean** (tsc+vite) + **86 Vitest specs green**. Every round
-has been additive, **zero new runtime deps**, with non-negotiable #3 intact
-(`case_manager.decide()` byte-identical — Demo Mode uses a sandboxed policy copy). The
-legacy Kibana plugin is **archived** (`archive/`). Active branch: **`Testing`**. See
-`docs/VIGIL_STUDY.md` for the study + multi-wave plan, `docs/research/2026-06-round2/`
-for the Round 2 design, and `ROADMAP.md` for live status.
+Current: **Round 1 + Round 2 overhauls COMPLETE** (committed on `Testing`, local only —
+**not pushed**). Phase-1 spine + vendor-agnostic transition + the Vigil-inspired
+overhaul (Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2** (account
+self-service, sessions + token policy, Settings-centric IA, Demo Mode, source
+multi-feed, Resend/SES + email templates, per-user customization, command palette /
+global search / bulk actions / audit viewer) all shipped, then closed out by a
+**16-agent adversarial audit** (`aae7a76`, 8 confirmed RBAC/poller/gauge fixes) and a
+**remediation pass** (`763ded9`, +22 tests).
+
+**GREEN BASELINE (verified 2026-06-30):** backend **794 pytest** pass (was 395 →
+772 → 794); the standalone **webui builds clean** (tsc+vite) + **86 Vitest specs
+green** (19 files); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign
+`exhaustive-deps` warnings); `engine/case_manager.py` **byte-identical**; **ZERO new
+runtime deps** across both rounds. Every round was additive, with non-negotiable #3
+intact (Demo Mode uses a sandboxed policy copy). The legacy Kibana plugin is
+**archived** (`archive/`). Active branch: **`Testing`**. New here? Start with
+`docs/HANDOFF.md`. See `docs/VIGIL_STUDY.md` for the study + multi-wave plan,
+`docs/research/2026-06-round2/` (`ROUND2_AUDIT.md` deferred/low items +
+`ROUND2_BEST_OF_BEST.md` Tier 2/3 backlog) for the Round 2 design, and `ROADMAP.md`
+for live status.
 
 **Done — Round 2 (commits since `ccc7a46`; W1–W7c; additive, zero new deps, #3
 byte-identical, #9 untrusted fencing upheld on every new user/source-influenceable
@@ -516,7 +534,7 @@ collaboration; additive, spine + the 12 non-negotiables intact):
   chat memory-action echo + dismissible "remember this?" suggestion; Metrics
   "Knowledge base & memory" section + Overview RAG/memory tiles; Cases-list
   collaboration (sortable assignee, tags + comment-count badges, filters). All
-  attacker-influenceable text renders as plain text / `EuiCodeBlock` (#9 upheld);
+  attacker-influenceable text renders as plain text / code block (#9 upheld);
   no new npm deps.
 
 Done (Wave 3 — analytics, eval loop, collaboration, white-label UI + CI; additive):
@@ -549,7 +567,9 @@ Done (Wave 2 — Markdown playbooks + optional auth, additive, spine intact):
   `app/auth/` (PBKDF2 + stdlib HS256 JWT) + `app/middleware/` (security-headers /
   CSRF / rate-limit); router-level `require_auth` gate (no-op when disabled) with a
   tiny `PUBLIC_API_PATHS` allowlist; `/api/auth/{login,me,logout}`; a CI
-  route-coverage test that fails if any `/api` route bypasses auth.
+  route-coverage test (`test_route_auth_coverage`) that fails if any `/api` route
+  bypasses auth — **now strengthened to also fail if any non-GET `/api` route lacks
+  an authZ (`require_permission`) gate**, so every state-changer is RBAC-checked.
 
 Done (the Vigil-inspired overhaul — Wave 1, additive, spine intact):
 - **Multi-agent roster** — declarative `AgentPersona` registry (`agents/personas.py`):
@@ -576,8 +596,8 @@ Done (the vendor-agnostic epochs):
   schema (`ocsf/`); pull connectors (Elasticsearch/OpenSearch) + 16 push/queue/
   object-store receivers (`connectors/receivers/`) + ingestion (`engine/ingest.py`).
 - **Epoch C — Wazuh connector** (reuses the OpenSearch connector + alert→OCSF).
-- **Epoch D — Standalone web UI + wizard** (`webui/`, Vite+React+EUI) — now the
-  primary surface.
+- **Epoch D — Standalone web UI + wizard** (`webui/`, Vite+React; later re-skinned to
+  Tailwind + shadcn/Radix in the UI overhaul) — now the primary surface.
 
 Remaining (see `ROADMAP.md` + `docs/VIGIL_STUDY.md`):
 - **Wave 2 leftovers:** an approval workflow (HITL action gating) + a pre-flight

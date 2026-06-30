@@ -10,6 +10,21 @@ guarantees **deterministic code**, not model behaviour.
 Every claim below is enforced somewhere in the tree; the enforcement point is cited
 inline. See also the 12 non-negotiables in [`CLAUDE.md`](CLAUDE.md) §5,
 [`README.md`](README.md), and [`docs/RUNBOOK.md`](docs/RUNBOOK.md) (rotation).
+New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md).
+
+> **Round 2 security additions (2026-06-30).** The auth/identity surface gained:
+> a server-side **session registry** (`stores/sessions.py`) with explicit revocation,
+> per-user **token-version** invalidation, and idle/absolute/refresh **token policy**
+> (`Preferences.session_policy`); refresh-token rotation with reuse (theft) detection;
+> and step-up re-auth. The new **Demo Mode** is fully **isolated** — synthetic data flows
+> through a separate in-memory store with a `$0` deterministic mock LLM, never touching the
+> real stores or the durable poll cursor, and `disable` purges it (reversible). Email
+> templates **auto-escape** every untrusted variable and strip CRLF from headers
+> (`notifications/templates.py`). RBAC enforcement is now **CI-verified**:
+> `tests/test_route_auth_coverage.py` fails if any non-GET `/api` route lacks an authZ gate.
+> Remaining hardening TODOs (session-store optimistic concurrency, multi-generation
+> refresh-reuse detection) are tracked in
+> [`docs/research/2026-06-round2/ROUND2_AUDIT.md`](docs/research/2026-06-round2/ROUND2_AUDIT.md).
 
 ## 1. Trust boundaries
 
@@ -21,7 +36,7 @@ superuser/admin credential at runtime.
 ┌──────────────┐   TLS reverse proxy   ┌──────────────┐                ┌──────────────────┐
 │  Analyst     │   (nginx serves the   │  Standalone  │   relative     │  tlsoc-backend   │
 │  browser     │ ──SPA + proxies /api─▶│  web UI      │ ──/api/* call─▶ │  (FastAPI +      │
-│ (React/EUI)  │                       │  (nginx)     │   server-side   │   LangGraph)     │
+│(React/Tailwind)                      │  (nginx)     │   server-side   │   LangGraph)     │
 └──────────────┘                       └──────────────┘                 └───────┬──────────┘
         ▲  booleans only,                                                       │
         │  never secret values            TRUST BOUNDARY 2                      │

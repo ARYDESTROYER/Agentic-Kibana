@@ -7,6 +7,9 @@
 > case manager close or escalate — **a TRUE_POSITIVE is never auto-closed**. It is
 > a **read-only consumer**: your upstream pipeline is never modified.
 
+> **New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)** — the authoritative
+> onboarding doc (what's built, how to run it, where everything lives).
+
 It builds on the prior **TLSOC Agentic Triage Suite** (an ELK/Kibana-coupled
 backend + Kibana plugin) but is now **product-agnostic**: it works against
 Elasticsearch, OpenSearch, Wazuh, Splunk-HEC, syslog, Kafka, cloud queues, object
@@ -294,14 +297,17 @@ values.
 
 ## Status & verification
 
-Verified offline this cycle: **772 backend tests green** (fake/in-memory backends
+Verified offline this cycle: **794 backend tests green** (fake/in-memory backends
 + mock LLM, no network); the standalone **web UI builds clean** (`tsc` + Vite) with
-a dev-only Vitest harness (86 tests). Round 2 (login redesign + account self-service,
+a dev-only Vitest harness (86 tests, 19 files); eslint clean (0
+`react-hooks/rules-of-hooks` errors). Round 2 (login redesign + account self-service,
 sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources,
 Resend/SES + email templates, per-user customization + saved views + terminology +
-theme, and the command palette + global search + bulk actions + audit viewer) — like
+theme, and the command palette + global search + bulk actions + audit viewer),
+closed out by a 16-agent adversarial audit + a HIGH/MEDIUM remediation pass — like
 the seven-wave overhaul before it — was **additive with zero new runtime
-dependencies** and left `case_manager.decide()` byte-identical.
-Live-stack validation against a real SIEM is a deploy step. See
+dependencies** and left `case_manager.decide()` byte-identical (CI-verified).
+Live-stack validation against a real SIEM is a deploy step. New here? See
+[`docs/HANDOFF.md`](docs/HANDOFF.md). See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
 status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.

@@ -17,13 +17,16 @@ command palette + global search + bulk actions + audit viewer. Every wave was
 **additive** with **zero new runtime dependencies** (sessions/JWT, the template renderer,
 the SES SMTP-credential derivation, and the per-user prefs store are all Python standard
 library; the webui composes the existing vendored shadcn + Tailwind). The backend offline
-suite grew **649 → 772 tests green**; the webui `tsc + vite build` is GREEN with the
-dev-only Vitest harness expanded to **86 tests**. The non-negotiables hold throughout —
-in particular **`case_manager.decide()` is byte-identical** (CI-verified): Demo Mode runs
-FP through the real `decide()` against a *sandboxed* policy copy (live policy untouched)
-and keeps NEEDS_HUMAN open; bulk actions run the analyst human-action path, never an
-auto-close; templates/terminology only ever RECOMMEND/relabel and all untrusted text stays
-fenced (#9). Developed on the `Testing` branch (commits `6adf195`…`5869f13`).
+suite grew **649 → 794 tests green**; the webui `tsc + vite build` is GREEN with the
+dev-only Vitest harness expanded to **86 tests** (19 files), and eslint is clean
+(0 `react-hooks/rules-of-hooks` errors, 2 exhaustive-deps warnings). The
+non-negotiables hold throughout — in particular **`case_manager.decide()` is
+byte-identical** (CI-verified): Demo Mode runs FP through the real `decide()` against
+a *sandboxed* policy copy (live policy untouched) and keeps NEEDS_HUMAN open; bulk
+actions run the analyst human-action path, never an auto-close; templates/terminology
+only ever RECOMMEND/relabel and all untrusted text stays fenced (#9). New here? See
+[`docs/HANDOFF.md`](docs/HANDOFF.md). Developed on the `Testing` branch
+(commits `6adf195`…`763ded9`).
 
 ### Added — Wave 1: critical bug fixes
 - Webui/presentational fixes (RiskGauge, MFA QR + copy, a duplicate close `X`, chat
@@ -120,10 +123,34 @@ fenced (#9). Developed on the `Testing` branch (commits `6adf195`…`5869f13`).
   individually, partial-failure tolerant, NEVER `case_manager.decide()`; and an **audit
   viewer** (`GET /api/audit`) over the append-only trail.
 
+### Fixed — Audit & remediation (commits `aae7a76` + `763ded9`)
+- **16-agent adversarial audit** (commit `aae7a76`) — a fleet review of the full Round 2
+  surface (RBAC gates, the poller cursor, sessions, Demo Mode, email templates, the gauge)
+  plus a docs refresh and `docs/research/2026-06-round2/ROUND2_AUDIT.md`. It surfaced real
+  bugs → **8 confirmed fixes auto-applied**, mostly missing/incorrect RBAC gates (no-ops in
+  the default-OFF profile), a poller cursor edge case, and a RiskGauge rendering bug.
+- **HIGH/MEDIUM remediation** (commit `763ded9`, **+22 regression tests**) — the confirmed
+  review items: **#4 feed cursor starvation** (a fast feed could starve a slow one — each
+  `{source.id}:{feed.id}` advances independently); **demo-chat isolation** (chat in Demo
+  Mode stays on the sandboxed in-memory store); **env single-admin token-version lockout**
+  (the env-managed admin no longer self-locks on a `tv` bump); **`set_status` → `RESOLVED`
+  RBAC** (resolving via `set_status` now requires the same permission as `resolve`); and
+  **email hardening** — `text_safe()` on plain-text bodies, `{{{ }}}` raw-output restricted
+  to trusted header HTML, and branding-SVG rejection. A **strengthened authZ-coverage CI
+  test** now **fails if any non-GET `/api` route lacks an authZ gate**.
+- Deferred / low-severity items are tracked in
+  `docs/research/2026-06-round2/ROUND2_AUDIT.md` (session-KV optimistic concurrency,
+  multi-generation refresh-reuse, an ES-only CONFIG_INDEX nested-type collision, a cosmetic
+  deep-link breadcrumb); the best-of-best Tier 2/3 backlog (API keys, dashboard builder,
+  scheduled reports, watchlists, SLA timers, a hunting/query builder) is in
+  `docs/research/2026-06-round2/ROUND2_BEST_OF_BEST.md`.
+
 ### Notes
 - Auth remains **DEFAULT OFF**; sessions/account/customization gates no-op when auth is off
   (`'default'` user prefs, allow-all RBAC), preserving the zero-auth back-compat behaviour
-  and the offline suite.
+  and the offline suite. Enabling it (`TLSOC_AUTH_ENABLED=true`) seeds an
+  `Admin` / `Admin@123` super-admin (forced password change on first login).
+- **Run the demo locally:** `./scripts/run-demo.sh` (backend on :8088, webui on :5173).
 
 ---
 

@@ -7,8 +7,12 @@ shipped UI and the backend API contract (`backend/app/api/routes.py`).
 > **The standalone web UI is the primary surface.** It is a self-hosted SPA
 > (Vite + React + **Tailwind + shadcn**, in `webui/`) that talks to the FastAPI
 > backend **directly** over `/api/*` (proxied by nginx in production). The old
-> Kibana plugin (`plugin/tlsoc_agentic_triage/`) is **legacy**; this document
+> Kibana plugin (`archive/kibana-plugin/`) is **archived/legacy**; this document
 > describes the standalone UI.
+>
+> **New here?** Start with **[`docs/HANDOFF.md`](HANDOFF.md)** for the
+> orientation map (what's where, the green baseline, how to run it), then come
+> back here for the feature-by-feature how-to.
 
 The suite is **vendor-agnostic**: it ingests from any number of configured
 **sources** (pull connectors like Elasticsearch / OpenSearch / Wazuh, or push
@@ -80,7 +84,7 @@ This is the heart of the vendor-agnostic design. The wizard lists every availabl
 connector from `GET /api/connectors` (grouped by category: `siem`, `edr_xdr`,
 `transport`, `queue`, `object_store`, `file`). Pick one and the wizard renders a
 **dynamic form** from that connector's `auth_fields` + `config_fields` (no
-per-connector UI code — `ConnectorForm` turns the manifest into a validated EUI
+per-connector UI code — `ConnectorForm` turns the manifest into a validated
 form).
 
 - **Pull sources** (Elasticsearch / OpenSearch / Wazuh): supply the cluster URL,
@@ -195,9 +199,9 @@ pull connectors, and every push receiver). It opens the **Source Logs flyout**
 | Control | What it does |
 |---|---|
 | **Table** | One row per event: timestamp · `source.ip` · module/rule · severity · message. |
-| **Expand a row** | Reveals the **raw `_source`** document in an `EuiCodeBlock`. |
+| **Expand a row** | Reveals the **raw `_source`** document in a code block. |
 | **Search box** | Free-text `query` filter passed to the source. |
-| **Time range** | An `EuiSuperDatePicker` (`from`/`to`); defaults to the **last 15m**. |
+| **Time range** | A date-range picker (`from`/`to`); defaults to the **last 15m**. |
 | **Live tail** | A toggle that auto-refreshes every **10s** so new events stream in. |
 
 How the rows are produced depends on the source's runtime mode:
@@ -215,7 +219,7 @@ How the rows are produced depends on the source's runtime mode:
 Each row is `{ ts, source_ip, user, host, rule, severity, message, _raw }` where
 `_raw` is the full log document. **Secrets are never returned.** An unknown source
 id returns `404`; a read failure (e.g. an auth/TLS error against a pull source)
-returns `502`. All log content renders as plain text / `EuiCodeBlock` — it is
+returns `502`. All log content renders as plain text / code blocks — it is
 attacker-influenceable and fenced/escaped as UNTRUSTED (see `SECURITY.md`).
 
 ---

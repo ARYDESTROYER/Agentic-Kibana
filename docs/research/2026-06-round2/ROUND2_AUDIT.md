@@ -1,8 +1,38 @@
 # Round 2 Adversarial Audit — Consolidated Findings
 
+> **New here? Start with [`docs/HANDOFF.md`](../../HANDOFF.md).** It is the
+> authoritative onboarding doc (current state, demo, build/test baselines). This file
+> is the audit ledger that doc points to for the Round-2 finding-by-finding record.
+
+## Status summary (resolved 2026-06-30)
+
+All CONFIRM-FIX findings and every HIGH/MEDIUM REVIEW finding are **RESOLVED** —
+**18 resolved / 6 deferred**.
+
+- **8 mechanical fixes** landed in **`aae7a76`** (the 8 RBAC/poller/gauge fixes
+  below).
+- **10 HIGH/MEDIUM remediations** landed in **`763ded9`** (+22 regression tests):
+  #4 broad-feed cursor starvation, demo-chat isolation (+ store-layer write-guard),
+  env single-admin `token_version` lockout, `set_status → RESOLVED` RBAC, email
+  `text_safe`/`{{{var}}}`/branding-SVG hardening, and the strengthened authZ-coverage
+  CI test (now fails if any non-GET `/api` route lacks an authZ gate).
+- **6 remain DEFERRED** (low-severity / speculative / cosmetic-with-judgment, no
+  concrete exploit): session-KV optimistic concurrency, multi-generation
+  refresh-reuse, per-feed `severity_floor` units, branding SVG-validator parity,
+  shared `CONFIG_INDEX` nested-type collision (ES-only), and the deep-link
+  breadcrumb host mapping. Tracked here + (for Tier 2/3 features) in
+  [`ROUND2_BEST_OF_BEST.md`](ROUND2_BEST_OF_BEST.md).
+
+Green baseline at close: **794 backend pytest** pass, **86 vitest** pass (19 files),
+**webui build clean** (tsc+vite), eslint **0 react-hooks/rules-of-hooks errors**,
+`engine/case_manager.py` **byte-identical**, **zero new runtime deps**.
+
+---
+
 > Triage-lead consolidation of the Round-2 adversarial audit. Each finding below
 > was re-verified against the live tree (`backend/app/...`, `webui/src/soc/...`) at
-> the file:line cited. Dispositions:
+> the file:line cited. Original triage dispositions (now superseded by the
+> per-finding **Resolution** lines):
 > - **CONFIRM-FIX** — real bug / invariant or authZ violation, clear evidence, and a
 >   low-risk *mechanical* fix that cannot regress the default profile.
 > - **REVIEW** — real or likely, but the fix is architectural / touches security-
@@ -20,7 +50,7 @@
 ## Area: RBAC coverage of state-changing routes
 
 ### CRITICAL — `PUT /api/settings` is not permission-gated (full RBAC bypass)
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `require_permission("settings","manage")` added.
 - Evidence verified: `routes.py:580-595 put_settings` carries only the global
   `require_auth` (`main.py:63`) + a `read_only_settings_mode` flag check. It
   `_deep_update`s the arbitrary body into the FULL `Preferences` (incl. `rbac`,
@@ -35,7 +65,7 @@
   + customization area — describe this same root cause; consolidated here.)
 
 ### HIGH — `PUT /api/branding` writes org-wide branding with no gate
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `require_admin` added, matching `/prefs/org` + `/terminology`.
 - Evidence: `routes.py:1203-1210 branding_put` has only `require_auth` +
   read-only-flag. Sibling org writers `PUT /api/prefs/org` (`routes.py:1316`) and
   `PUT /api/terminology` (`routes.py:1345`) DO carry `require_admin`.
@@ -44,7 +74,7 @@
   "settings","manage")`.)
 
 ### HIGH — RAG mutators `/api/rag/import` + `DELETE /api/rag/documents/{id}` not gated by `rag:manage`
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `require_permission("rag","manage")` added to both.
 - Evidence: `routes.py:834 rag_import` and `routes.py:851 rag_delete_document` carry
   no permission dep. The grant is modeled (`policy.py:35 rag:["read","manage"]`) and
   IS enforced on the parallel writer `/api/threat-context/import`
@@ -54,7 +84,7 @@
   `threat_context_import`.
 
 ### HIGH — Operator MEMORY writes (`POST/PUT/DELETE /api/memory`) enforce no permission
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `require_permission("memory","manage")` added to all three writers.
 - Evidence: `routes.py:922 add_memory`, `:935 update_memory`, `:946 delete_memory`
   carry only `require_auth`. `require_permission("memory"...)` appears NOWHERE in
   `routes.py` (grep-confirmed) → the modeled `memory:["read","manage"]`
@@ -64,7 +94,7 @@
 - Fix: add `_=Depends(require_permission("memory","manage"))` to all three writers.
 
 ### MEDIUM — `POST /api/playbooks/reload` has no permission gate
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `require_permission("settings","manage")` added.
 - Evidence: `routes.py:1088-1092 playbooks_reload` carries only `require_auth`; it
   hot-swaps the live deterministic playbook set. `playbooks:run` IS enforced on
   `/run-playbook` (`routes.py:3597`).
@@ -72,7 +102,7 @@
   config/admin action). Lower severity (#3: a playbook can only RECOMMEND).
 
 ### MEDIUM — Case collaboration writes (comment/tags/assign) bypass RBAC
-- **Disposition: CONFIRM-FIX.**
+- **Disposition: CONFIRM-FIX.** **RESOLVED (`aae7a76`)** — `request` param + inline `_enforce` added, mirroring `case_action`.
 - Evidence: `routes.py:3360 case_comment`, `:3379 case_tags`, `:3402 case_assign`
   have no `request` param and no `_enforce` — unlike `case_action`
   (`routes.py:3068-3072` inline `_enforce`). `policy.py:99 _AUDITOR` is granted
@@ -84,7 +114,12 @@
   None` and guards `if request is not None`). Resolve actor from the principal.
 
 ### MEDIUM — Route-auth-coverage CI test proves authN only (false confidence)
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — `test_route_auth_coverage.py`
+  now asserts that **every non-GET `/api` route declares an authZ gate**
+  (`require_permission`/`require_role`/`require_admin`/`require_fresh_auth`) OR is in
+  a small reviewed `_AUTHZ_EXEMPT` allowlist (capped, every entry must map to a real
+  registered route). The test fails CI if any state-changer slips the gate — the
+  curated regression guard the original triage recommended.
 - Evidence: `test_route_auth_coverage.py:33-49` asserts only `require_auth`
   (auto-satisfied by the global mount); `:167-188` asserts `require_admin` on
   exactly two routes. No assertion that state-changers carry an authZ gate.
@@ -99,7 +134,10 @@
 ## Area: Slice #3 / bulk actions — close/escalate invariant
 
 ### HIGH — `set_status → RESOLVED` reaches a terminal status with only `cases:write` (single + bulk)
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — reaching the terminal RESOLVED
+  status now requires the `cases:close` grant on both the single and bulk paths
+  (transition/grant made target-aware), with a new RBAC regression test.
+  `case_manager.decide()` is untouched (this was always the HUMAN path; #3 byte-identical).
 - Evidence verified: `routes.py:3020 _CLOSE_ACTIONS = {close,confirm_fp,resolve,
   reopen}`; `_case_action_grant` (`:3047-3051`) returns `"close"` only for those, so
   `set_status` → `"write"`. `_guard_transition` (`:3027-3044`) blocks `set_status`→
@@ -120,7 +158,11 @@
 ## Area: Demo isolation & reversibility (Wave 5)
 
 ### HIGH — Chat during demo mode bypasses demo isolation ($0 broken, real audit writes, demo cases invisible)
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — chat is now demo-bound: in demo
+  mode the chat engine routes through the throwaway demo audit/usage/case stores and
+  the deterministic mock gateway, so a chat turn writes no real audit/usage rows and
+  sees demo cases. New test drives a chat turn under demo and asserts the real
+  `_real_audit`/`_real_usage` are unchanged.
 - Evidence verified: `state.py:172-175` builds `self.chat_engine = ChatEngine(es,
   self.gateway, self._real_audit, self._real_cases, ...)` with the REAL
   gateway/audit/cases. `chat_engine` is NOT among the demo-switchable active-store
@@ -137,7 +179,9 @@
   Real high-impact bug, but not low-risk mechanical.
 
 ### LOW — Write-guard is advisory (one seed site), not enforced at the store layer
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — folded into the demo-chat fix;
+  the write-guard now asserts on the demo store write path (belt-and-braces), so a
+  real-tagged row can never reach the demo store or vice-versa.
 - Evidence verified: `state.py:912 _write_guard` is called only at the seed loop
   (`state.py:815`). `_DemoCaseStore.save` (`demo_runtime.py:54-62`) only TAGS; never
   calls it. No concrete leak today (store instances are correctly separated).
@@ -150,7 +194,10 @@
 ## Area: Sessions & token policy
 
 ### HIGH — Env single-admin permanently locks itself out after any `token_version` bump
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — the `refresh_sessions` tv
+  snapshot now unions `users.list()` with the AuthService base/env-admin usernames
+  before `set_session_versions`, so an env-only admin is no longer left at tv=0 after
+  a revoke-all / refresh-reuse bump. Covered by a new env-admin lockout test.
 - Evidence verified: `state.py:430-455 refresh_sessions` builds the tv snapshot ONLY
   from `self.users.list()`; the env single-admin is NOT seeded into the UserStore
   (`state.py:388-389` skips when `env_admin`). A revoke-all / refresh-reuse bumps the
@@ -164,12 +211,12 @@
   one-liner.
 
 ### LOW — Concurrent RMW on the single session KV doc can silently lose a revoke
-- **Disposition: REVIEW.** (`likely`) — needs optimistic concurrency / per-process
+- **Disposition: REVIEW → DEFERRED.** (`likely`) — needs optimistic concurrency / per-process
   lock on a security-critical path; design change. `stores/sessions.py` RMW is
   documented as accepted "at our scale". Human call on whether to harden.
 
 ### LOW — Refresh-token reuse detection only catches one rotation generation
-- **Disposition: REVIEW.** (`likely`) — `sessions.py` keeps a single
+- **Disposition: REVIEW → DEFERRED.** (`likely`) — `sessions.py` keeps a single
   `refresh_prev_hash`; a token stolen ≥2 rotations back is treated as `unknown`
   (plain 401) instead of triggering the theft/revoke-all path. Either document the
   single-generation window or move to a session-id chain. Design decision.
@@ -179,7 +226,10 @@
 ## Area: Email / template injection & secrets
 
 ### MEDIUM — `text_safe()` is dead code → untrusted vars inject raw newlines into the .txt body
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — the text part now renders in a
+  `text_mode` where `{{var}}` interpolation routes through `text_safe()`
+  (`templates.py:175`), stripping CR/LF/tab/control chars and closing the body
+  line-injection vector. Docstring corrected; regression test added.
 - Evidence verified: `templates.py:98 text_safe()` is defined; grep shows it is
   NEVER called in `backend/app`. The text part renders via `{{var}}` →
   `html.escape` (`templates.py:181`), which does NOT strip `\r\n\t`; `_plain`
@@ -193,7 +243,10 @@
   fix is not no-regret. Document or fix deliberately.
 
 ### MEDIUM — Operator `{{{var}}}` override can emit attacker-influenced log text as RAW HTML
-- **Disposition: REVIEW.** (also reported under the #9 area — same root cause).
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — the unescaped triple-mustache
+  is now constrained to trusted, operator-authored presentation HTML and no longer a
+  path for case-derived (untrusted) values; the docstring guarantee is restored and a
+  regression test pins it. (also reported under the #9 area — same root cause).
 - Evidence verified: `templates.py:164-167` emits `{{{name}}}` with no escaping;
   `_lookup` resolves ANY ctx key incl. untrusted-derived `title/entity/summary/
   rule/source_name`. `_TEMPLATE_VARS` (`:256-261`) includes those. The docstring
@@ -210,7 +263,10 @@
 ## Area: Source feeds back-compat & #4
 
 ### HIGH — Broad feed's per-feed cursor permanently STUCK when a full batch is owned by a narrower overlapping feed (#4 violation)
-- **Disposition: REVIEW.**
+- **Disposition: REVIEW.** **RESOLVED (`763ded9`)** — the broad feed now advances its
+  cursor over **all** fetched timestamps (not only the kept subset), so a page wholly
+  owned by a narrower overlapping feed no longer freezes the broad feed's cursor; its
+  own newer events are processed. Direct #4 repro added as a regression test.
 - Evidence verified: `elastic.py:515-521 poll_feed` queries the feed's own pattern,
   then drops hits owned by a more-specific feed (`kept = [...]`, `_owns_index`).
   `poller.py:191-199` advances the cursor over only the KEPT batch; `advance_cursor`
@@ -278,7 +334,7 @@
 ## Area: Webui — visual / nav correctness
 
 ### LOW — `RiskGauge` band thresholds diverge from the canonical `RiskBadge` bands (medium ≥33 vs ≥35, no info band)
-- **Disposition: CONFIRM-FIX (cosmetic).**
+- **Disposition: CONFIRM-FIX (cosmetic).** **RESOLVED (`aae7a76`)** — `RiskGauge` medium band moved `>= 33` → `>= 35`; comment corrected.
 - Evidence verified: `RiskGauge.tsx:14` comment claims it "matches RiskBadge /
   Overview bands", but `:15-20 bandOf` uses `medium >= 33` and 4 bands. Canonical
   `badges.tsx:22-29` uses `medium >= 35`, `low >= 15`, `info < 15`; `Overview.tsx`

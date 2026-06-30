@@ -1,17 +1,33 @@
 # ROADMAP.md — live work tracking
 
+> **New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)** — the START-HERE
+> onboarding doc (run commands, current status, what's done, what's next).
+
 Status legend: ☐ todo · ◐ in-progress · ☑ done. Update this + `Journal.md` as you
-work. Target: **Kibana / Elasticsearch 8.19.12**. Every item ends with: rebuild
-the 8.19.12 zip, `pytest -q` green, plugin build verified, docs + Journal updated,
-commit + push.
+work. The webui is the primary surface (Vite + React + **Tailwind + shadcn/radix**;
+the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep the
+count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
+docs + Journal updated, commit + push.
 
-## Next — best-of-best backlog (post-Round-2)
+**Current baseline (branch `Testing`, local — NOT pushed):** backend **794 pytest**
+green · webui build clean (tsc+vite) · **86 vitest** green (19 files) · eslint **0
+`react-hooks/rules-of-hooks` errors** · `engine/case_manager.py` **byte-identical** ·
+**zero new runtime deps**. Round 1 + Round 2 (incl. the adversarial audit +
+remediation) are **complete and committed**.
 
-Round 2 already shipped the whole Tier-1 productivity tier EXCEPT API keys: **saved
-views** (W7b), **bulk case actions** (W7c), **Cmd-K command palette** (W7c), **global
-search** `GET /api/search` (W7c), and the **audit-log viewer** `GET /api/audit` (W7c).
-The remaining best-of-best work, in recommended order
-(`docs/research/2026-06-round2/ROUND2_BEST_OF_BEST.md`):
+## Next — post-Round-2 backlog
+
+Two tracks, both scoped in `docs/research/2026-06-round2/`:
+
+**A. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
+concurrency · multi-generation refresh-reuse detection · ES-only `CONFIG_INDEX`
+nested-type collision · deep-link breadcrumb (cosmetic).
+
+**B. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
+whole Tier-1 productivity tier EXCEPT API keys: **saved views** (W7b), **bulk case
+actions** (W7c), **Cmd-K command palette** (W7c), **global search** `GET /api/search`
+(W7c), and the **audit-log viewer** `GET /api/audit` (W7c). Remaining, in recommended
+order:
 
 - ☐ **API keys / tokens management UI** (Tier-1 #5) — scoped, revocable keys on the
   existing JWT/PBKDF2 auth (prefix + last-used); the vendor-agnostic open-API
@@ -40,11 +56,18 @@ possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
-- ☑ **Round 2 — 7 waves (W1–W7c)** (branch `Testing`; **772 backend tests green**
-  (649→772) + webui tsc/vite clean + **86 Vitest** green; **additive, zero new runtime
-  deps, #3 `decide()` byte-identical** — Demo Mode uses a sandboxed policy copy — and
-  #9 untrusted-fencing held on every new user/source-influenceable field). Design:
-  `docs/research/2026-06-round2/`.
+- ☑ **Round 2 — 7 waves (W1–W7c) + audit/remediation** (branch `Testing`; **794
+  backend tests green** (649→772 across the waves, then →794 with the audit
+  remediation) + webui tsc/vite clean + **86 Vitest** green; **additive, zero new
+  runtime deps, #3 `decide()` byte-identical** — Demo Mode uses a sandboxed policy
+  copy — and #9 untrusted-fencing held on every new user/source-influenceable field).
+  Design + audit: `docs/research/2026-06-round2/`.
+  - ☑ **Final — adversarial audit + remediation** — a 16-agent audit fleet
+    (`ROUND2_AUDIT.md`) → 8 confirmed RBAC/poller/gauge fixes (`aae7a76`) + a
+    HIGH/MEDIUM remediation pass (`763ded9`, +22 tests: #4 feed-cursor starvation,
+    demo-chat isolation, env single-admin token-version lockout, `set_status→RESOLVED`
+    RBAC gap, email `text_safe`/`{{{ }}}`/branding-SVG hardening) and a strengthened
+    authZ-coverage CI test (fails if any non-GET `/api` route lacks an authZ gate).
   - ☑ **W1 Bug fixes** — RiskGauge Active-Risk-Index glitch, MFA-QR copy, duplicate
     close X, chat framing, store-degraded UX; presentational + optional additive
     `/api/health.persistent`. No data-model change.
@@ -282,7 +305,8 @@ storage, and the Kibana-bound UI.
   REMAINING: standup-aggregation + routes entity-path onto the connector; TLS
   syslog; S3 Parquet.
 - ☐ **Epoch C — Wazuh connector** (reuse OpenSearch connector + alert→OCSF mapper).
-- ◐ **Epoch D — Standalone web UI.** DONE: `webui/` Vite+React+TS+EUI SPA; the
+- ◐ **Epoch D — Standalone web UI.** DONE: `webui/` Vite+React+TS SPA (originally EUI,
+  later re-skinned to **Tailwind + shadcn/Radix** — the current stack); the
   **first-run wizard** (welcome+demo / sources / providers+per-role models /
   detection / review) driven by connector manifests; reusable dynamic
   `ConnectorForm`/`ConnectorPicker`; Sources manager; sectioned full-Preferences

@@ -5,6 +5,11 @@ It brings the suite up locally with **auth enabled** (so the redesigned login,
 6-role RBAC, MFA, sessions, and SSO surfaces are all live) and walks a presenter
 through every headline feature in order. Budget ~15-20 minutes.
 
+> **New here / setting this up cold?** Read **[`docs/HANDOFF.md`](docs/HANDOFF.md)**
+> first (the onboarding map: repo layout, the green baseline, how to run it), then
+> come back to present from this script. For deploy specifics see
+> **[`DEPLOY.md`](DEPLOY.md)**.
+
 > **Fastest path to a great demo:** if you just want a populated, $0, fully
 > isolated showcase with no source wiring, skip straight to **§3a — Demo Mode**.
 > One click seeds weeks of synthetic cases (and can keep generating new ones
