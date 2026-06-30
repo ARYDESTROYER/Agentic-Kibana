@@ -1463,6 +1463,38 @@ class SessionPolicyConfig(BaseModel):
     notify_on_terminate: bool = False
 
 
+class LockoutPolicyConfig(BaseModel):
+    """Account lockout / brute-force throttle for password logins.
+
+    A defence against credential-stuffing / online password-guessing that the
+    per-IP rate limiter (``middleware/rate_limit.py``) cannot stop on its own (an
+    attacker rotating source IPs against ONE account is invisible to a per-IP
+    bucket). Counting is per-ACCOUNT and lives IN-MEMORY in ``AuthService`` (the
+    same per-process, non-persistent posture as the rate limiter) so the
+    synchronous, I/O-free ``authenticate()`` hot path is preserved; lock state is
+    intentionally lost on restart (fail-open) and is not shared across workers.
+
+    Only KNOWN, ACTIVE accounts are tracked — an unknown username is never counted,
+    so an attacker cannot lock out an arbitrary account they merely name, nor bloat
+    memory by enumerating random usernames. A locked account still runs the
+    constant-time dummy-hash verify, so lockout adds no timing/enumeration oracle.
+
+    * ``enabled`` — master switch. Default ON; only trips after ``max_attempts`` so
+      normal logins (and the offline test suite, which makes ≤2 bad attempts per
+      account) are unaffected.
+    * ``max_attempts`` — consecutive failures that trip the lock. Default 5.
+    * ``window_seconds`` — staleness window: a failure older than this resets the
+      counter (so 4 fails today + 1 next week is NOT a lockout). Default 15 min.
+    * ``lockout_seconds`` — how long the account stays locked once tripped; it
+      auto-unlocks after this cooldown. An admin can unlock early. Default 15 min.
+    """
+
+    enabled: bool = True
+    max_attempts: int = Field(default=5, ge=1, le=100)
+    window_seconds: int = Field(default=900, ge=30)     # 15 min rolling window
+    lockout_seconds: int = Field(default=900, ge=30)    # 15 min cooldown
+
+
 class MfaConfig(BaseModel):
     """Multi-factor (TOTP) configuration (Wave 2 / F3).
 
@@ -1807,6 +1839,10 @@ class Preferences(BaseModel):
     # toggles. Generous defaults so an existing auth-on deployment never expires
     # mid-run; enforced by the async session check in require_auth (no secrets here).
     session_policy: SessionPolicyConfig = Field(default_factory=SessionPolicyConfig)
+    # Account lockout / brute-force throttle (per-account, in-memory). Default ON but
+    # only trips after max_attempts consecutive failures; gates the password login
+    # choke point in AuthService.authenticate (no secrets here).
+    lockout: LockoutPolicyConfig = Field(default_factory=LockoutPolicyConfig)
     # SSO / OIDC (Wave 2 / F4) — default OFF; client secrets stay in the SECRET tier.
     sso: SSOConfig = Field(default_factory=SSOConfig)
     # Notifications (Wave 4 / F5) — default OFF; per-channel secrets stay in the

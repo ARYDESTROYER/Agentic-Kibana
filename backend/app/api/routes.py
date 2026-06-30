@@ -1696,6 +1696,20 @@ async def auth_login(
         raise HTTPException(status_code=400, detail="authentication is disabled")
     token = auth.authenticate(body.username, body.password)
     if not token:
+        # Account lockout (brute-force throttle): when the account is locked, surface a
+        # 429 + Retry-After instead of the generic 401 so the client can back off. The
+        # counter itself lives in AuthService.authenticate (this only reports it).
+        locked = auth.lockout_state(body.username)
+        if locked:
+            await state.audit.record(
+                action_type=ActionType.AUTH_EVENT, surface="auth", actor=body.username or "",
+                result_summary="login blocked: account locked",
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="account temporarily locked due to too many failed attempts",
+                headers={"Retry-After": str(locked["retry_after"])},
+            )
         await state.audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=body.username or "",
             result_summary="login failed",
@@ -2058,6 +2072,25 @@ async def admin_revoke_all(
     await _audit_session(state, "session_admin_revoke_all", by, "",
                          f"admin revoked all {count} session(s) for {username}")
     return {"ok": True, "revoked": count}
+
+
+@router.post("/admin/users/{username}/unlock")
+async def admin_unlock_user(
+    username: str, request: Request, state: AppState = Depends(get_state),
+    _admin=Depends(require_admin),  # users:manage — same gate as the admin user console
+) -> dict[str, Any]:
+    """Clear an account's brute-force lockout + failed-attempt counter so the user can
+    log in again immediately (rather than waiting out the cooldown). Idempotent — an
+    account that is not locked simply reports ``unlocked: false``. Audited (#2)."""
+    auth = getattr(state, "auth", None)
+    by = current_username(request)
+    cleared = bool(auth.unlock(username)) if auth is not None else False
+    await state.audit.record(
+        action_type=ActionType.AUTH_EVENT, surface="auth", actor=by,
+        result_summary=f"admin cleared lockout for {username}"
+        + ("" if cleared else " (was not locked)"),
+    )
+    return {"ok": True, "unlocked": cleared}
 
 
 def _norm_user(username: str) -> str:
@@ -2800,7 +2833,18 @@ async def list_users(
     _=Depends(require_permission("users", "manage")),
 ) -> dict[str, Any]:
     users = await state.users.list()
-    return {"users": [u.public() for u in users]}
+    auth = getattr(state, "auth", None)
+    # Annotate each row with the in-memory brute-force lockout status (additive, no
+    # secrets) so the admin console can surface a "locked" badge + an unlock action.
+    out: list[dict[str, Any]] = []
+    for u in users:
+        pub = u.public()
+        try:
+            pub["locked"] = bool(auth.is_locked(u.username)) if auth is not None else False
+        except Exception:  # noqa: BLE001
+            pub["locked"] = False
+        out.append(pub)
+    return {"users": out}
 
 
 @router.post("/users")

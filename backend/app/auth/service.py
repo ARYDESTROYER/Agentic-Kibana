@@ -29,7 +29,9 @@ Stdlib only — see :mod:`app.auth.tokens` and :mod:`app.auth.passwords`.
 from __future__ import annotations
 
 import logging
+import math
 import secrets
+import time
 from dataclasses import dataclass, field
 
 from app.auth.passwords import hash_password, verify_password
@@ -86,6 +88,31 @@ class _Record:
     mfa_enabled: bool = False
 
 
+@dataclass
+class _LockoutPolicy:
+    """The in-memory mirror of ``Preferences.lockout`` consulted by the synchronous
+    :meth:`AuthService.authenticate`. Refreshed via :meth:`set_lockout_policy`."""
+
+    enabled: bool = True
+    max_attempts: int = 5
+    window_seconds: int = 900
+    lockout_seconds: int = 900
+
+
+@dataclass
+class _LockState:
+    """Per-account failed-login bookkeeping (in-memory, per process).
+
+    ``fails`` counts CONSECUTIVE failures within the staleness window; ``last_fail``
+    is the monotonic timestamp of the most recent failure (used to expire a stale
+    counter); ``locked_until`` is the monotonic deadline the lock auto-clears at
+    (``0.0`` when not currently locked)."""
+
+    fails: int = 0
+    last_fail: float = 0.0
+    locked_until: float = 0.0
+
+
 class AuthService:
     """Verify credentials and mint/validate session tokens.
 
@@ -136,6 +163,14 @@ class AuthService:
         # layer — verify() stays sync + I/O-free.
         self._session_versions: dict[str, int] = {}
 
+        # Account lockout / brute-force throttle (per-account, in-memory). The policy
+        # mirrors Preferences.lockout (refreshed via set_lockout_policy); _lockouts is
+        # the live per-account failed-login bookkeeping, keyed by lowercased username.
+        # In-memory ONLY (like the per-IP rate limiter) — lost on restart (fail-open),
+        # not shared across workers; keeps authenticate() synchronous + I/O-free.
+        self._lockout_policy = _LockoutPolicy()
+        self._lockouts: dict[str, _LockState] = {}
+
         # The env-supplied accounts form the BASE layer; store users overlay it via
         # set_users(). The env admin is super_admin; other env users get the default.
         self._base: dict[str, _Record] = {}
@@ -184,6 +219,83 @@ class AuthService:
         ``Preferences.mfa.enforce_for_roles``). Called on prefs reload so a settings
         change takes effect without a restart; does not touch the user view."""
         self._mfa_enforce_roles = {str(r) for r in (roles or [])}
+
+    def set_lockout_policy(self, policy: object | None) -> None:
+        """Refresh the account-lockout policy from ``Preferences.lockout`` (called on
+        wire + on prefs reload so a settings change takes effect without a restart).
+        Accepts the Pydantic ``LockoutPolicyConfig`` (or any object exposing the same
+        attributes); ``None`` keeps the current policy. Does NOT clear existing
+        counters — disabling the policy simply stops it being consulted."""
+        if policy is None:
+            return
+        self._lockout_policy = _LockoutPolicy(
+            enabled=bool(getattr(policy, "enabled", True)),
+            max_attempts=max(1, int(getattr(policy, "max_attempts", 5) or 5)),
+            window_seconds=max(1, int(getattr(policy, "window_seconds", 900) or 900)),
+            lockout_seconds=max(1, int(getattr(policy, "lockout_seconds", 900) or 900)),
+        )
+
+    # ----- Account lockout (brute-force throttle) ----------------------------- #
+    def _lockout_key(self, username: str) -> str:
+        return (username or "").strip().lower()
+
+    def _locked_remaining(self, key: str) -> float:
+        """Seconds until ``key``'s lock auto-clears, or 0.0 if not locked. Expires a
+        stale lock in passing so the dict self-heals."""
+        st = self._lockouts.get(key)
+        if st is None or st.locked_until <= 0.0:
+            return 0.0
+        remaining = st.locked_until - time.monotonic()
+        if remaining <= 0.0:
+            # Cooldown elapsed — clear the lock (and the counter) so the next attempt
+            # starts fresh.
+            self._lockouts.pop(key, None)
+            return 0.0
+        return remaining
+
+    def _record_failure(self, key: str) -> None:
+        """Count a failed password attempt for a KNOWN active account and trip the
+        lock at ``max_attempts``. A failure older than the staleness window resets the
+        counter first (so non-consecutive fails don't accumulate forever)."""
+        pol = self._lockout_policy
+        now = time.monotonic()
+        st = self._lockouts.get(key)
+        if st is None or (st.fails and now - st.last_fail > pol.window_seconds):
+            st = _LockState()
+            self._lockouts[key] = st
+        st.fails += 1
+        st.last_fail = now
+        if st.fails >= pol.max_attempts:
+            st.locked_until = now + pol.lockout_seconds
+
+    def is_locked(self, username: str) -> bool:
+        """Whether ``username`` is currently locked out (policy enabled + within an
+        active cooldown). Cheap + side-effect-free beyond expiring a stale lock."""
+        if not self._lockout_policy.enabled:
+            return False
+        return self._locked_remaining(self._lockout_key(username)) > 0.0
+
+    def lockout_state(self, username: str) -> dict | None:
+        """A small status dict for ``username`` when LOCKED, else ``None``. Used by the
+        login route to return a 429 + ``Retry-After`` and by the admin user view.
+        ``retry_after`` is whole seconds (rounded up, min 1)."""
+        if not self._lockout_policy.enabled:
+            return None
+        key = self._lockout_key(username)
+        remaining = self._locked_remaining(key)
+        if remaining <= 0.0:
+            return None
+        st = self._lockouts.get(key)
+        return {
+            "locked": True,
+            "retry_after": max(1, int(math.ceil(remaining))),
+            "failed_attempts": int(st.fails) if st else self._lockout_policy.max_attempts,
+        }
+
+    def unlock(self, username: str) -> bool:
+        """Clear ``username``'s lockout + failed-attempt counter (admin action / a
+        successful login). Returns ``True`` if state was actually cleared."""
+        return self._lockouts.pop(self._lockout_key(username), None) is not None
 
     def base_usernames(self) -> list[str]:
         """The env-supplied BASE-layer usernames (the env single-admin +
@@ -284,14 +396,29 @@ class AuthService:
         (token_version). The route layer registers the ``sid`` in the SessionStore at
         the cookie-set site; an unregistered sid on a validly-signed token is lazily
         registered by the deps layer (never rejected)."""
+        key = self._lockout_key(username)
+        # Account lockout (brute-force throttle): a locked account never reaches the
+        # real hash compare, but STILL runs the dummy verify so the timing/enumeration
+        # profile is identical to a normal failure (no oracle). A locked attempt does
+        # NOT extend the cooldown — the lock is a fixed window from the tripping fail.
+        if self._lockout_policy.enabled and self._locked_remaining(key) > 0.0:
+            verify_password(password or "", _DUMMY_HASH)
+            return None
         rec = self._lookup(username)
         if rec is None or not rec.active or not rec.password_hash:
             # Verify against a real full-iteration dummy hash so an unknown/disabled
             # user costs the same as a known active one (no timing enumeration).
+            # NOTE: unknown/inactive accounts are NOT counted — an attacker cannot lock
+            # out an account they merely name, nor bloat memory by enumerating names.
             verify_password(password or "", _DUMMY_HASH)
             return None
         if not verify_password(password or "", rec.password_hash):
+            if self._lockout_policy.enabled:
+                self._record_failure(key)
             return None
+        # Success — clear any accumulated failed-attempt / lock state for this account.
+        if key in self._lockouts:
+            self._lockouts.pop(key, None)
         return encode(
             {
                 "sub": username, "role": rec.role, "mc": rec.must_change_password,

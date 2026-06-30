@@ -157,6 +157,12 @@ class AppState:
             admin_username=self.secrets.auth_admin_username,
             mfa_enforce_roles=list(getattr(getattr(self.prefs, "mfa", None), "enforce_for_roles", []) or []),
         )
+        # Account lockout / brute-force throttle policy (in-memory; mirrors
+        # Preferences.lockout). Refreshed on prefs reload + user-mgmt mutations.
+        try:
+            self.auth.set_lockout_policy(getattr(self.prefs, "lockout", None))
+        except Exception:  # noqa: BLE001
+            pass
         # Multi-USER store (Wave 1) over the SAME KV the MEMORY/PROPOSAL stores use
         # — no new index/table/migration. Seeded + folded into AuthService during
         # async startup() (and after user-mgmt mutations) via refresh_users().
@@ -524,6 +530,7 @@ class AppState:
             self.auth.set_mfa_enforce_roles(
                 list(getattr(getattr(self.prefs, "mfa", None), "enforce_for_roles", []) or [])
             )
+            self.auth.set_lockout_policy(getattr(self.prefs, "lockout", None))
         except Exception as exc:  # noqa: BLE001
             logger.warning("AuthService.set_users failed (%s)", exc)
         # Keep the per-user session token_version snapshot in AuthService current so
@@ -846,6 +853,7 @@ class AppState:
             self.auth.set_mfa_enforce_roles(
                 list(getattr(getattr(prefs, "mfa", None), "enforce_for_roles", []) or [])
             )
+            self.auth.set_lockout_policy(getattr(prefs, "lockout", None))
         except Exception:  # noqa: BLE001
             pass
         # Keep the realtime EventBus heartbeat cadence live after a settings change
