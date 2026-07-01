@@ -92,6 +92,13 @@ class Poller:
         self._get_prefs = get_prefs
         self._task: asyncio.Task | None = None
         self._running = False
+        # The durable cursor key used by the LEGACY / un-fed union path (a source with
+        # no ``index_patterns`` feeds). Defaults to ``"primary"`` so a single-source
+        # deployment reads the legacy ``CURSOR_DOC_ID`` doc unchanged (#4 — no
+        # migration). The Round-4 :class:`PollerManager` overrides this to a DISTINCT
+        # ``f"{source.id}:primary"`` for every NON-primary un-fed source so two un-fed
+        # sources under fan-out never stomp the single shared ``primary`` cursor doc.
+        self._legacy_cursor_key = "primary"
 
     def _correlation_lookback_seconds(self, prefs: Preferences) -> int:
         """The sliding look-back (seconds) correlation must see each poll.
@@ -199,10 +206,19 @@ class Poller:
                 fetched.extend(fbatch)
                 new_events.extend(e for e in fbatch if not fcursor.should_skip(e))
         else:
-            cursor = await self._cursor_store.load()
+            # Legacy / un-fed union path. The primary (or sole) source uses the legacy
+            # ``"primary"`` cursor doc (byte-identical, no migration); a NON-primary
+            # un-fed source under fan-out uses its OWN ``f"{source.id}:primary"`` key
+            # (set by the PollerManager) so two un-fed sources never collide (#4).
+            lkey = self._legacy_cursor_key
+            cursor = (
+                await self._cursor_store.load()
+                if lkey == "primary"
+                else await self._cursor_store.load_keyed(lkey)
+            )
             fetched = await self._source.poll(prefs, cursor, cold_from)
             new_events = [e for e in fetched if not cursor.should_skip(e)]
-            feed_state.append(("primary", cursor, advance_cursor(cursor, fetched)))
+            feed_state.append((lkey, cursor, advance_cursor(cursor, fetched)))
 
         stats = {"polled": len(fetched), "new": len(new_events),
                  "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
@@ -227,9 +243,14 @@ class Poller:
             window_events = dedup_by_id(window_fetched + new_events)
             stats["window_events"] = len(window_events)
 
-            # Honour the primary source's per-source entity strategy (entity-agnostic
+            # Honour THIS source's per-source entity strategy (entity-agnostic
             # correlation; default ``auto`` keeps today's behaviour byte-for-byte).
-            strategy = prefs.entity_strategy_for(prefs.primary_source())
+            # Round 4 fan-out: each per-source Poller resolves ITS OWN SourceInstance
+            # from its connector_id (falling back to the primary/global strategy when
+            # the connector has no matching configured source — the legacy single-poll
+            # / implicit-source case, byte-identical to before).
+            own_source = prefs.source_by_id(getattr(self._source, "connector_id", None))
+            strategy = prefs.entity_strategy_for(own_source or prefs.primary_source())
             clusters = correlate(window_events, prefs, entity_strategy=strategy)
             # Attach/investigate/register is the SHARED ingest path (identical for
             # push receivers): see app/engine/ingest.handle_clusters.

@@ -2026,6 +2026,19 @@ class Preferences(BaseModel):
             return primary
         return next((s for s in self.sources if s.enabled), None)
 
+    def source_by_id(self, source_id: str | None) -> "SourceInstance | None":
+        """The configured source whose ``id`` matches ``source_id`` (or None).
+
+        Used by the poller fan-out (Round 4) so each per-source :class:`Poller`
+        resolves ITS OWN :class:`SourceInstance` — e.g. for the per-source entity
+        strategy — instead of always the primary. A falsy id, or an id that matches
+        no configured source (e.g. the legacy implicit source_type default id like
+        ``"elasticsearch"``), returns None so the caller falls back to the primary
+        source's / global strategy, preserving single-source behaviour."""
+        if not source_id:
+            return None
+        return next((s for s in self.sources if s.id == source_id), None)
+
     def match_rule(self, src: dict[str, Any]) -> RuleDefinition | None:
         """Classify a raw log ``_source`` against the rule catalog (C3-1).
 

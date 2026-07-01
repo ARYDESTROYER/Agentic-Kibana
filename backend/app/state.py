@@ -24,7 +24,6 @@ from .audit.audit_log import AuditLogger
 from .cache import Cache
 from .config import Preferences, Secrets
 from .engine.ingest import IngestService
-from .engine.poller import Poller
 from .es.base import BaseESClient
 from .es.indices import bootstrap_indices
 from .llm.gateway import LLMGateway
@@ -215,10 +214,14 @@ class AppState:
             cases=self._real_cases, shift_handoff=self.shift_handoff,
         )
         self._real_overview_service = OverviewService(self.gateway, self.secrets, self.cache, self._real_audit)
-        self.poller = Poller(
-            es, self._real_cases, self.cursor_store, self._real_audit, self._real_pipeline, self.get_prefs,
-            source=self.log_source,
-        )
+        # Round 4: fan the poller out across EVERY enabled PULL source (not just the
+        # primary). The PollerManager owns N per-source Pollers (the primary child
+        # wraps ``self.log_source``; non-primary sources get their own #1-safe
+        # per-source client + connector). It IS ``self.poller`` and preserves the
+        # single Poller's external contract (start/stop/poll_once/_source/_attach).
+        from .engine.poller_manager import PollerManager
+
+        self.poller = PollerManager(self)
         # Shared ingest path for PUSH receivers (webhook/syslog/queues/…): the same
         # correlate → case path the poller uses.
         self._real_ingest_service = IngestService(
@@ -692,11 +695,20 @@ class AppState:
         Rebuilds the primary connector from ``self.prefs`` and updates the live
         components that hold it (poller, pipeline, chat), so a wizard-driven source
         change takes effect without a restart. (Elastic/OpenSearch wrap the same
-        scoped ES client, so this is behaviour-identical for those two.)"""
+        scoped ES client, so this is behaviour-identical for those two.)
+
+        Round 4: also rebuild the PollerManager's per-source fan-out so an added /
+        removed / re-primaried source is polled (or stops being polled) immediately —
+        ``rebuild()`` re-points the primary child at the fresh ``log_source`` and
+        rebuilds every non-primary child (closing any owned clients, no leak)."""
         self.log_source = self._build_log_source()
         self.poller._source = self.log_source
         self._real_pipeline._source = self.log_source
         self._real_chat_engine._source = self.log_source
+        try:
+            self.poller.rebuild()
+        except Exception as exc:  # noqa: BLE001 — fan-out rebuild must never break a source edit
+            logger.warning("Poller fan-out rebuild failed (%s); continuing", exc)
 
     def get_prefs(self) -> Preferences:
         return self.prefs
@@ -730,6 +742,15 @@ class AppState:
         # Reload playbooks now that prefs (incl. any dir override) are available.
         self.playbooks = self._build_playbooks()
         self._real_pipeline._playbooks = self.playbooks
+        # Round 4: now that the PERSISTED prefs (incl. configured sources) are loaded,
+        # re-point the primary log surface + (re)build the PollerManager fan-out so a
+        # deployment that boots WITH multiple persisted PULL sources polls ALL of them,
+        # not just the primary. Byte-identical for the 0/1-source case (the fallback
+        # connector is rebuilt identically). Best-effort — never blocks startup.
+        try:
+            self.rebuild_log_source()
+        except Exception as exc:  # noqa: BLE001 — never block startup on a source rebuild
+            logger.warning("Log-source / poller rebuild on startup failed (%s); continuing", exc)
         # Round-3 Wave-1: apply the operator's realtime heartbeat cadence onto the
         # process-wide EventBus singleton (idempotent, tolerates None). The bus is a
         # default-OFF transport — publishing is always safe; the /api/events endpoint
