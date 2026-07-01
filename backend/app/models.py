@@ -938,6 +938,11 @@ class BatchJob(BaseModel):
       ``{retrieved: bool, result_state: str|None}`` so partial retrieval is safe.
     * ``model`` — the model the batch runs; ``discount`` the applied price multiplier
       (0.5 == 50% off) a later wave threads onto the resulting :class:`UsageDoc`.
+    * ``candidates`` — for an EVENT-detection batch, the surviving funnel candidates keyed
+      by ``custom_id`` (each an aggregate summary + its member events + detection_source),
+      persisted at submit so the batch scheduler can reconstruct them when confirmations
+      return and RE-ENTER the pipeline on the SAME correlate path (byte-identical
+      ``cluster_signature`` #4). Empty for a non-detection batch — purely additive.
 
     ADVISORY plumbing — a batch job never touches the deterministic decision (#3), and
     #6 is preserved (one UsageDoc per resolved call when results are folded back in)."""
@@ -951,6 +956,9 @@ class BatchJob(BaseModel):
     discount: float = 0.5
     submitted_at: str | None = None
     polled_at: str | None = None
+    # EVENT-detection re-entry payload (Wave-6). custom_id -> serialised CandidateAlert
+    # (see engine/event_detection.candidate_to_json). Additive; default empty.
+    candidates: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class DetectionRule(BaseModel):

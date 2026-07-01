@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import require_auth
 from app.api.routes import router
+from app.api.routes_setup import router as setup_router
 from app.config import Secrets
 from app.constants import UserRole
 from app.es.fake import InMemoryESClient
@@ -134,7 +135,10 @@ async def test_user_public_view_hides_hash() -> None:
 # --------------------------------------------------------------------------- #
 # Auth-on + RBAC-on end-to-end harness
 # --------------------------------------------------------------------------- #
-def _client(*, seed_admin: bool = True, env_admin: bool = False, rbac: bool = True):
+def _client(
+    *, seed_admin: bool = True, env_admin: bool = False, rbac: bool = True,
+    setup_complete: bool = True,
+):
     secrets = Secrets(
         _env_file=None, es_store_enabled=False, redis_url="",
         anthropic_api_key=None, openai_api_key=None,
@@ -150,7 +154,7 @@ def _client(*, seed_admin: bool = True, env_admin: bool = False, rbac: bool = Tr
     async def lifespan(app: FastAPI):
         state = AppState.create(secrets=secrets, es=InMemoryESClient(), provider_overrides=overrides)
         await state.startup(start_poller=False)
-        prefs = state.prefs.model_copy(update={"setup_complete": True})
+        prefs = state.prefs.model_copy(update={"setup_complete": setup_complete})
         if rbac:
             prefs = prefs.model_copy(update={"rbac": prefs.rbac.model_copy(update={"enabled": True})})
         await state.update_prefs(prefs)
@@ -160,7 +164,14 @@ def _client(*, seed_admin: bool = True, env_admin: bool = False, rbac: bool = Tr
 
     api = FastAPI(lifespan=lifespan)
     api.include_router(router, dependencies=[Depends(require_auth)])
+    # The Wave-4 OOBE writer (routes_setup.py) — the SOLE first-admin bootstrap path
+    # now that the legacy /api/setup/init-admin was removed (H4 / FINDING #11).
+    api.include_router(setup_router, dependencies=[Depends(require_auth)])
     return TestClient(api)
+
+
+# A strong password that clears the OOBE server policy (>=12, != username, not common).
+_STRONG = "Str0ng-OOBE-Pass!"
 
 
 def _login(c, username, password):
@@ -178,18 +189,20 @@ def test_setup_status_public_and_seeded() -> None:
         assert s["seeded_default"] is True
 
 
-def test_init_admin_only_when_empty() -> None:
-    # No seed + no env admin → store is empty → needs_user true → init works once.
-    with _client(seed_admin=False) as c:
+def test_account_only_when_empty() -> None:
+    # No seed + no env admin → store is empty → needs_user true → account works once.
+    # (The legacy /api/setup/init-admin was removed — H4 / FINDING #11; the OOBE writer
+    # is now /api/setup/account, which requires setup_complete False + a strong password.)
+    with _client(seed_admin=False, setup_complete=False) as c:
         s = c.get("/api/setup/status").json()
         assert s["needs_user"] is True and s["user_count"] == 0
-        r = c.post("/api/setup/init-admin", json={"username": "owner", "password": "owner-pass-1"})
+        r = c.post("/api/setup/account", json={"username": "owner", "password": _STRONG})
         assert r.status_code == 200 and r.json()["username"] == "owner"
         # Second attempt is 409 (already initialised).
-        r2 = c.post("/api/setup/init-admin", json={"username": "x", "password": "y-very-long"})
+        r2 = c.post("/api/setup/account", json={"username": "x", "password": _STRONG + "y"})
         assert r2.status_code == 409
         # And the created owner can log in (super_admin).
-        assert _login(c, "owner", "owner-pass-1").status_code == 200
+        assert _login(c, "owner", _STRONG).status_code == 200
 
 
 def test_seeded_admin_login_and_role() -> None:

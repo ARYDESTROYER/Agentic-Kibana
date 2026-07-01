@@ -286,7 +286,12 @@ class AppState:
         # (fresh baseline model). Best-effort — a rewire never breaks on this assignment.
         self._funnel_baseline = None
         try:
-            self.poller._event_funnel = self._route_event_feed
+            # Assign the hook DIRECTLY to the PRIMARY child so correctness does not depend
+            # on a subsequent rebuild() running first (FINDING #8). The poller-concurrency
+            # owner (H2) propagates the SAME ``_event_funnel`` attribute to ALL fan-out
+            # children inside rebuild()/_build_child_for — the attribute name/contract is
+            # kept stable so both edits compose.
+            self.poller._primary._event_funnel = self._route_event_feed
         except Exception as exc:  # noqa: BLE001 — funnel wiring must never break a rewire
             logger.warning("event-funnel hook wiring failed (%s); routing disabled", exc)
 
@@ -602,6 +607,7 @@ class AppState:
                 gateway=self.gateway,
                 make_provider=self.build_batch_provider,
                 get_prefs=self.get_prefs,
+                reenter=self._reenter_detections,
             )
             self._batch_service = svc
         return svc
@@ -638,9 +644,80 @@ class AppState:
                 return
             model = evdet.model_for_funnel(prefs)
             provider = self._funnel_batch_provider(prefs)
-            await self.batch_service.submit(provider, model, requests)
+            # Persist the survivors (aggregate summary + member events + detection_source)
+            # keyed by custom_id ALONGSIDE the BatchJob, so the batch scheduler can rebuild
+            # them and re-enter the pipeline (same cluster_signature #4) when the
+            # confirmations return. The member events never enter the batch prompt (#7).
+            serialised = {c.custom_id: evdet.candidate_to_json(c) for c in candidates}
+            await self.batch_service.submit(provider, model, requests, candidates=serialised)
         except Exception as exc:  # noqa: BLE001 — the funnel must never break a poll cycle
             logger.warning("event-detection funnel run failed: %s", exc)
+
+    async def _reenter_detections(self, job, results) -> int:
+        """Re-enter LLM-CONFIRMED event-detections into the SAME pipeline path (#4/#3).
+
+        Called by the batch scheduler AFTER ``process_results`` records the ledger (#6).
+        Reconstructs the persisted funnel candidates for THIS job, maps the batch results
+        (by ``custom_id``) onto the confirmed ones via
+        :func:`event_detection.results_to_candidates` (fail-closed: an unconfirmed /
+        unparseable result is NOT re-entered), and feeds each confirmed cluster through the
+        EXISTING pipeline entry — ``register_candidate`` (idempotent, visible, $0) then
+        ``investigate_cluster`` — so it acquires the SAME ``cluster_signature`` the normal
+        correlate path would (#4), attaches to any open case for that signature, and runs
+        the UNCHANGED deterministic ``decide()`` inside ``investigate_cluster`` (#3 — this
+        method NEVER calls decide() directly). An entirely-suppressed cluster is dropped
+        (the same defence-in-depth gate the realtime path uses). Best-effort + never
+        raises; returns the number of clusters investigated (for logs/tests).
+
+        Gated by the same default-OFF batch/detection toggle as the funnel; a job with no
+        persisted candidates (a plain investigation batch) re-enters nothing."""
+        from .constants import SourceSurface
+        from .engine import event_detection as evdet
+        from .engine.cost_gate import passes_suppression
+
+        prefs = self.prefs
+        if not (getattr(getattr(prefs, "batch", None), "enabled", False)
+                and getattr(getattr(prefs, "baseline", None), "enabled", False)):
+            return 0
+        raw_candidates = getattr(job, "candidates", None) or {}
+        if not raw_candidates:
+            return 0
+        try:
+            candidates = []
+            for raw in raw_candidates.values():
+                cand = evdet.candidate_from_json(raw)
+                if cand is not None:
+                    candidates.append(cand)
+            if not candidates:
+                return 0
+            results_by_id = {}
+            for res in results or []:
+                cid = str(getattr(res, "custom_id", "") or "")
+                if cid:
+                    results_by_id[cid] = res
+            confirmed = evdet.results_to_candidates(candidates, results_by_id)
+            if not confirmed:
+                return 0
+            count = 0
+            for cluster, _src in confirmed:
+                # Defence-in-depth: an entirely-suppressed cluster is the intended drop
+                # (same gate the realtime handle_clusters walks). NEVER drops a single
+                # below-floor event (#4) — that concept doesn't apply to a confirmed
+                # aggregate detection.
+                if not passes_suppression(cluster, prefs):
+                    continue
+                # register_candidate makes the case idempotent + visible ($0);
+                # investigate_cluster runs the ReAct investigation + the UNCHANGED decide()
+                # and dedups on the same signature (one open case per signature, #4).
+                await self._real_pipeline.register_candidate(
+                    cluster, SourceSurface.AUTOMATED_SCAN, prefs)
+                await self._real_pipeline.investigate_cluster(
+                    cluster, SourceSurface.AUTOMATED_SCAN, prefs)
+                count += 1
+            return count
+        except Exception as exc:  # noqa: BLE001 — re-entry must never break a batch tick
+            logger.warning("event-detection re-entry failed for job %s: %s", getattr(job, "id", "?"), exc)
+            return 0
 
     async def _ensure_funnel_baseline(self):
         """The single long-lived streaming baseline behind the funnel, warmed from the
@@ -720,24 +797,70 @@ class AppState:
             or demo_active
         )
 
+    # How long a tuning cadence window is (seconds) — the scheduler runs run_once AT MOST
+    # once per window regardless of the 6h tick, so a rule is never re-raised every tick
+    # (FINDING #14). ``manual`` is instant (an operator triggered it explicitly).
+    _TUNER_CADENCE_SECONDS = {
+        "hourly": 3600,
+        "nightly": 24 * 3600,
+        "weekly": 7 * 24 * 3600,
+        "manual": 0,
+    }
+
     async def _tuner_scheduler_loop(self) -> None:
         """Nightly threshold-tuning pass. Gated on ``prefs.threshold_tuning.enabled``;
         a disabled config makes this a pure sleep loop (NO-OP). Calls the bound
         ``threshold_tuner`` run_once (which itself never calls decide() and only writes
-        the tuning ledger / HITL proposals / bounded config knobs). Never closes a case."""
-        # A generous fixed cadence keeps the loop cheap; run_once's own window covers the
-        # trailing days, so we do not need a precise wall-clock nightly trigger here.
+        the tuning ledger / HITL proposals / bounded config knobs). Never closes a case.
+
+        The loop ticks every 6h but run_once fires AT MOST once per configured cadence
+        window (``last_run_at`` in the tuning_store): a nightly cadence never re-raises the
+        same knob four times a day (FINDING #14 — unbounded n growth)."""
         interval = 6 * 3600
         while self._scheduler_running:
             try:
                 cfg = getattr(self.prefs, "threshold_tuning", None)
-                if cfg is not None and cfg.enabled and not self._schedulers_gated_off():
+                if (
+                    cfg is not None and cfg.enabled
+                    and not self._schedulers_gated_off()
+                    and await self._tuner_cadence_elapsed(cfg)
+                ):
                     await self.threshold_tuner(
                         self.prefs, self._closed_case_reader(),
                     )
+                    # Stamp the effective run so the next tick within the window no-ops.
+                    try:
+                        await self.tuning_store.set_last_run_at()
+                    except Exception as exc:  # noqa: BLE001 — best-effort cadence bookkeeping
+                        logger.debug("tuner last_run stamp failed: %s", exc)
             except Exception as exc:  # noqa: BLE001 — the loop must never die
                 logger.warning("threshold-tuner scheduler tick failed: %s", exc)
             await asyncio.sleep(interval)
+
+    async def _tuner_cadence_elapsed(self, cfg) -> bool:
+        """True when the configured tuning cadence window has elapsed since the last
+        effective run (so run_once fires at most once per cadence, FINDING #14). A missing
+        / unparseable last_run is treated as "run now"; a read glitch fails OPEN (run) so a
+        store outage never silently freezes tuning forever."""
+        window = self._TUNER_CADENCE_SECONDS.get(getattr(cfg, "cadence", "nightly"), 24 * 3600)
+        if window <= 0:
+            return True
+        try:
+            last_iso = await self.tuning_store.get_last_run_at()
+        except Exception:  # noqa: BLE001 — fail OPEN (run) on a read glitch
+            return True
+        if not last_iso:
+            return True
+        from datetime import datetime, timezone
+
+        try:
+            last = datetime.fromisoformat(str(last_iso).replace("Z", "+00:00"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            return True
+        elapsed = (datetime.now(timezone.utc) - last).total_seconds()
+        return elapsed >= window
 
     async def _campaign_scheduler_loop(self) -> None:
         """Daily cross-case campaign-correlation pass. Gated on ``prefs.campaign.enabled``;
@@ -779,20 +902,27 @@ class AppState:
             await asyncio.sleep(interval)
 
     def _closed_case_reader(self):
-        """An async ``read(limit, offset) -> list[Case]`` pager over CLOSED cases for the
-        threshold-tuner (which pages it, never a naive 200-cap). Best-effort: a store
-        glitch yields an empty page (the tuner then no-ops for the window)."""
-        from .constants import CaseStatus
+        """An async ``read(limit, offset) -> list[Case]`` pager over the TERMINAL cases
+        (CLOSED **and** RESOLVED) for the threshold-tuner (which pages it, never a naive
+        200-cap). Confirmed true-positives are frequently RESOLVED (worked to completion,
+        pending final close) rather than CLOSED, so a CLOSED-only reader would leave
+        shadow-eval blind to them and defeat the TP-protection rail (FINDING #4). We mirror
+        ``routes_tuning._closed_reader``'s scope exactly. Best-effort: a store glitch on one
+        status yields an empty page for it (the tuner then just sees fewer cases)."""
+        from .constants import TERMINAL_CASE_STATUSES
 
         async def _read(limit: int, offset: int):
-            try:
-                page, _total = await self.cases.list(
-                    status=CaseStatus.CLOSED.value, limit=limit, offset=offset,
-                    sort_field="updated_at", sort_order="desc",
-                )
-                return page
-            except Exception:  # noqa: BLE001
-                return []
+            collected = []
+            for status in TERMINAL_CASE_STATUSES:
+                try:
+                    page, _total = await self.cases.list(
+                        status=status, limit=limit, offset=offset,
+                        sort_field="updated_at", sort_order="desc",
+                    )
+                except Exception:  # noqa: BLE001 — a read glitch never breaks tuning
+                    continue
+                collected.extend(page)
+            return collected
 
         return _read
 
@@ -1609,11 +1739,15 @@ class _BatchJobService:
     double-writes. It NEVER imports ``case_manager`` / calls ``decide()`` (#3) — folding
     verdict text into cases is the pipeline's job downstream."""
 
-    def __init__(self, *, store, gateway, make_provider, get_prefs) -> None:
+    def __init__(self, *, store, gateway, make_provider, get_prefs, reenter=None) -> None:
         self._store = store
         self._gateway = gateway
         self._make_provider = make_provider
         self._get_prefs = get_prefs
+        # Optional ``async reenter(job, results) -> int`` hook: re-enters LLM-CONFIRMED
+        # event-detections into the SAME correlate→pipeline path (#4/#3). None → results
+        # are only billed (a plain investigation batch), never re-entered here.
+        self._reenter = reenter
 
     @property
     def store(self):
@@ -1624,14 +1758,21 @@ class _BatchJobService:
         gates on this; default OFF so nothing routes to batch out of the box."""
         return bool(getattr(getattr(self._get_prefs(), "batch", None), "enabled", False))
 
-    async def submit(self, provider: str, model: str, requests: list[dict]):
+    async def submit(self, provider: str, model: str, requests: list[dict], *, candidates=None):
         """Submit a batch to ``provider`` and PERSIST the resulting job (resume-safe).
-        Returns the stored :class:`app.models.BatchJob`."""
+        Returns the stored :class:`app.models.BatchJob`.
+
+        ``candidates`` — an optional ``{custom_id -> serialised CandidateAlert}`` map for an
+        EVENT-detection batch. Persisted onto the job so :meth:`process` can reconstruct
+        the survivors and RE-ENTER the pipeline (same-signature cluster #4) when the
+        confirmations return. None/empty for a plain investigation batch."""
         prov = self._make_provider(provider)
         try:
             job = await prov.submit(model, requests)
         finally:
             await prov.aclose()
+        if candidates:
+            job.candidates = dict(candidates)
         return await self._store.save(job)
 
     async def poll(self, job):
@@ -1644,16 +1785,29 @@ class _BatchJobService:
         return await self._store.save(job)
 
     async def process(self, job, *, role: str = "investigator", surface: str = "batch"):
-        """Stream a completed job's results and fold them through the ONE gateway ledger
-        EXACTLY once (deduped by ``custom_id``). Returns the newly-recorded results."""
+        """Stream a completed job's results, fold them through the ONE gateway ledger
+        EXACTLY once (deduped by ``custom_id``, #6), then RE-ENTER any LLM-CONFIRMED
+        event-detection into the SAME correlate→pipeline path (#4/#3) via the injected
+        ``reenter`` hook. Returns the newly-recorded results.
+
+        Only the NEWLY-recorded (first-seen) succeeded results are handed to ``reenter``,
+        so a re-poll / restart re-enters each confirmed detection at most once (the ledger
+        dedup and the re-entry are driven by the same first-retrieval event). Re-entry is
+        best-effort and never blocks the ledger fold."""
         prov = self._make_provider(job.provider)
         try:
             results = list(await prov.results(job))
         finally:
             await prov.aclose()
-        return await self._store.process_results(
+        recorded = await self._store.process_results(
             job, results, self._gateway, role=role, surface=surface
         )
+        if self._reenter is not None and recorded:
+            try:
+                await self._reenter(job, recorded)
+            except Exception:  # noqa: BLE001 — re-entry never breaks the ledger fold
+                pass
+        return recorded
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

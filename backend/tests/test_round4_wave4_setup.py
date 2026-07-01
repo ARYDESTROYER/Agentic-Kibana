@@ -22,9 +22,11 @@ the public-allowlist entries are correct.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+import pytest
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.deps import require_auth
@@ -32,14 +34,18 @@ from app.api.routes import router
 from app.api.routes_setup import (
     _COMMON_PASSWORDS,
     _MIN_PASSWORD_LEN,
+    SetupAccountBody,
     password_policy_error,
+    setup_account,
 )
 from app.api.routes_setup import router as setup_router
-from app.auth.passwords import verify_password
+from app.auth.passwords import hash_password, verify_password
 from app.config import Secrets
 from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
 from app.state import AppState
+from app.stores.memory import EsKVStore
+from app.stores.users import UserStore
 
 # A strong password that clears the whole server policy (>=12, != username, not common).
 _STRONG = "Str0ng-OOBE-Pass!"
@@ -237,3 +243,105 @@ def test_account_rejects_empty_username() -> None:
     with _build_client(auth_enabled=True, auth_jwt_secret="empty", auth_seed_admin=False) as c:
         r = c.post("/api/setup/account", json={"username": "   ", "password": _STRONG})
         assert r.status_code == 400, r.text
+
+
+# --------------------------------------------------------------------------- #
+# H4 / FINDING #13 — concurrent first-run setup creates EXACTLY ONE admin
+# --------------------------------------------------------------------------- #
+@asynccontextmanager
+async def _live_state(**secret_overrides):
+    """A started AppState (auth ON, seeding OFF, setup_complete False) for driving the
+    setup_account coroutine directly under asyncio concurrency."""
+    setup_complete = secret_overrides.pop("setup_complete", False)
+    secrets = Secrets(
+        _env_file=None, es_store_enabled=False, redis_url="",
+        anthropic_api_key=None, openai_api_key=None,
+        auth_enabled=True, auth_jwt_secret="conc", auth_seed_admin=False,
+        **secret_overrides,
+    )
+    mock = MockProvider()
+    overrides = {"anthropic": mock, "openai": mock, "mock": mock}
+    state = AppState.create(secrets=secrets, es=InMemoryESClient(), provider_overrides=overrides)
+    await state.startup(start_poller=False)
+    prefs = state.prefs.model_copy(deep=True)
+    prefs.setup_complete = setup_complete
+    await state.update_prefs(prefs)
+    try:
+        yield state
+    finally:
+        await state.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_store_create_if_absent_is_serialized_under_concurrency() -> None:
+    # Two concurrent create_if_absent seeds on ONE store → exactly one user, no
+    # last-writer-wins clobber (the asyncio.Lock serializes the read-check-write).
+    store = UserStore(EsKVStore(InMemoryESClient()))
+    results = await asyncio.gather(
+        store.create_if_absent(username="alpha", password_hash=hash_password(_STRONG)),
+        store.create_if_absent(username="beta", password_hash=hash_password(_STRONG)),
+    )
+    created = [u for u in results if u is not None]
+    assert len(created) == 1                 # exactly ONE winner
+    assert await store.count() == 1          # store holds a single admin
+    # The other call observed the non-empty store and returned None (no clobber).
+    assert sum(1 for u in results if u is None) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_setup_account_calls_create_one_admin() -> None:
+    # Drive the setup_account coroutine directly (bypassing the sync TestClient portal
+    # so the two calls genuinely interleave on the event loop). Exactly ONE admin is
+    # created; the loser 409s — no duplicate/last-writer-wins bootstrap (FINDING #13).
+    async with _live_state() as state:
+        body_a = SetupAccountBody(username="alpha", password=_STRONG)
+        body_b = SetupAccountBody(username="beta", password=_STRONG)
+        results = await asyncio.gather(
+            setup_account(body_a, state=state),
+            setup_account(body_b, state=state),
+            return_exceptions=True,
+        )
+        oks = [r for r in results if isinstance(r, dict) and r.get("ok")]
+        conflicts = [r for r in results if isinstance(r, HTTPException) and r.status_code == 409]
+        assert len(oks) == 1, results          # exactly ONE admin created
+        assert len(conflicts) == 1, results    # the other lost the race → 409
+        assert await state.users.count() == 1  # store holds a single admin
+
+
+# --------------------------------------------------------------------------- #
+# H4 / FINDING #12 — a store-read glitch FAILS SAFE (503), never fails open
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_account_fails_safe_on_store_read_glitch() -> None:
+    # If the user-store probe RAISES (a real read glitch), the OOBE gate must refuse
+    # (503) rather than silently proceed to a 2nd bootstrap. The raising has_any()
+    # probe surfaces the error (count()/_load() would swallow it → fail OPEN).
+    async with _live_state() as state:
+        async def _boom() -> bool:
+            raise RuntimeError("simulated store read failure")
+
+        state.users.has_any = _boom  # type: ignore[method-assign]
+        body = SetupAccountBody(username="root", password=_STRONG)
+        with pytest.raises(HTTPException) as ei:
+            await setup_account(body, state=state)
+        assert ei.value.status_code == 503
+        # No user was created — the glitch blocked the bootstrap (fail-safe).
+        assert await state.users.count() == 0
+
+
+@pytest.mark.asyncio
+async def test_has_any_raises_on_kv_read_error() -> None:
+    # The raising probe itself: has_any() propagates a KV load error (unlike count(),
+    # which swallows it and returns 0). This is the primitive that makes the gate safe.
+    class _BoomKV:
+        async def get(self, ns: str, key: str):
+            raise RuntimeError("kv down")
+
+        async def put(self, ns: str, key: str, value):  # pragma: no cover - unused
+            return None
+
+    store = UserStore(_BoomKV())  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError):
+        await store.has_any()
+    # count() stays swallowing (degrades to 0) — proving has_any() is the safe probe.
+    assert await store.count() == 0

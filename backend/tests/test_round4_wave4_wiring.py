@@ -350,6 +350,133 @@ async def test_schedulers_gated_off_when_polling_paused_or_kill_switch():
 # --------------------------------------------------------------------------- #
 # 5. poller_manager fan-out is unaffected — routing lives per-Poller.
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# 6. HEADLINE WIRING — a CONFIRMED batch detection RE-ENTERS the pipeline and
+#    creates a Case with the SAME cluster_signature, via decide() (Wave-6 H1 #2).
+# --------------------------------------------------------------------------- #
+@asyncio_mark
+async def test_confirmed_batch_detection_reenters_pipeline_and_creates_case(app_state: AppState):
+    """The headline gap the harden wave closes: a batched EVENT-detection that the LLM
+    CONFIRMS must actually create a Case — built via the NORMAL pipeline (register +
+    investigate), with a ``cluster_signature`` byte-identical to
+    ``cluster_signature(entity_type, value)`` for that entity, and the UNCHANGED
+    deterministic ``decide()`` run once (the case carries a verdict/status)."""
+    from app.constants import EntityType
+    from app.engine import event_detection as evdet
+    from app.engine.signatures import cluster_signature
+    from app.llm.batch import BatchResult
+    from app.models import BatchJob, RawEvent
+
+    # Enable batch + baseline (the funnel/detection toggle the re-entry gates on).
+    prefs = app_state.prefs.model_copy(deep=True)
+    from app.config import BaselineConfig, BatchConfig
+    prefs.batch = BatchConfig(enabled=True)
+    prefs.baseline = BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=1)
+    prefs.setup_complete = True
+    await app_state.update_prefs(prefs)
+
+    # Build a surviving funnel candidate from real member events for one entity.
+    ip = "203.0.113.55"
+    base = to_millis(now_utc()) - 60_000
+    members = [
+        RawEvent(id=f"m{i}", index="ev-logs", source={"source": {"ip": ip}},
+                 timestamp_millis=base + i * 1000, ip=ip, rule="linux_auth", severity=5.0)
+        for i in range(4)
+    ]
+    summaries = evdet.pre_aggregate(members, app_state.prefs)
+    assert summaries, "pre_aggregate must yield a bucket summary"
+    custom_id = "evdet-test-cid"
+    candidate = evdet.CandidateAlert(
+        summary=summaries[0], detection_source="anomaly", modified_z=8.0, custom_id=custom_id,
+    )
+
+    # Persist the candidate onto a BatchJob exactly as _route_event_feed would at submit.
+    job = BatchJob(
+        id="batch-detect-1", provider="anthropic", model="claude-haiku-4-5-20251001",
+        custom_ids={custom_id: {"retrieved": False, "result_state": None}},
+        candidates={custom_id: evdet.candidate_to_json(candidate)},
+    )
+
+    # The LLM CONFIRMS the detection for this custom_id.
+    results = [BatchResult(
+        custom_id=custom_id, result_type="succeeded",
+        text='{"detection": true, "confidence": 0.95, "reason": "brute force"}',
+        prompt_tokens=50, completion_tokens=10, model="claude-haiku-4-5-20251001",
+    )]
+
+    reentered = await app_state._reenter_detections(job, results)
+    assert reentered == 1
+
+    # A Case now exists whose cluster_signature is byte-identical to the normal path's.
+    expected_sig = cluster_signature(EntityType.IP, ip)
+    cases, total = await app_state.cases.list()
+    assert total == 1
+    case = cases[0]
+    assert case.cluster_signature == expected_sig
+    assert case.entity.type == EntityType.IP and case.entity.value == ip
+    # decide() ran once → the case carries a verdict + a routed status (NEEDS_HUMAN under
+    # the mock investigator; the point is decide() produced a status, not a specific one).
+    assert case.verdict is not None
+    assert case.status is not None
+
+
+@asyncio_mark
+async def test_unconfirmed_batch_detection_creates_no_case(app_state: AppState):
+    """Fail-closed: a batch result that does NOT confirm the detection re-enters nothing
+    (no case), so a benign aggregate the model rejects never becomes a case on its own."""
+    from app.engine import event_detection as evdet
+    from app.llm.batch import BatchResult
+    from app.models import BatchJob, RawEvent
+
+    prefs = app_state.prefs.model_copy(deep=True)
+    from app.config import BaselineConfig, BatchConfig
+    prefs.batch = BatchConfig(enabled=True)
+    prefs.baseline = BaselineConfig(enabled=True, seasonality="none", warmup_multiplier=1)
+    await app_state.update_prefs(prefs)
+
+    ip = "198.51.100.7"
+    members = [RawEvent(id=f"m{i}", index="ev-logs", source={"source": {"ip": ip}},
+                        timestamp_millis=1_700_000_000_000 + i, ip=ip, rule="linux_auth")
+               for i in range(3)]
+    summaries = evdet.pre_aggregate(members, app_state.prefs)
+    cid = "evdet-benign"
+    cand = evdet.CandidateAlert(summary=summaries[0], detection_source="anomaly",
+                                modified_z=6.0, custom_id=cid)
+    job = BatchJob(id="batch-benign", provider="anthropic", model="m",
+                   candidates={cid: evdet.candidate_to_json(cand)})
+    results = [BatchResult(custom_id=cid, result_type="succeeded",
+                           text='{"detection": false, "confidence": 0.9}')]
+    reentered = await app_state._reenter_detections(job, results)
+    assert reentered == 0
+    _cases, total = await app_state.cases.list()
+    assert total == 0
+
+
+@asyncio_mark
+async def test_reentry_gated_off_when_detection_disabled(app_state: AppState):
+    """With batch/baseline OFF (default), re-entry is a strict no-op even if a job somehow
+    carries persisted candidates — the default-OFF safety property holds end to end."""
+    from app.engine import event_detection as evdet
+    from app.llm.batch import BatchResult
+    from app.models import BatchJob, RawEvent
+
+    ip = "203.0.113.99"
+    members = [RawEvent(id="m0", index="ev-logs", source={"source": {"ip": ip}},
+                        timestamp_millis=1_700_000_000_000, ip=ip, rule="linux_auth")]
+    summaries = evdet.pre_aggregate(members, app_state.prefs)
+    cid = "evdet-off"
+    cand = evdet.CandidateAlert(summary=summaries[0], detection_source="anomaly",
+                                modified_z=9.0, custom_id=cid)
+    job = BatchJob(id="batch-off", provider="anthropic", model="m",
+                   candidates={cid: evdet.candidate_to_json(cand)})
+    results = [BatchResult(custom_id=cid, result_type="succeeded",
+                           text='{"detection": true, "confidence": 0.99}')]
+    # batch/baseline are OFF by default in the app_state fixture.
+    assert await app_state._reenter_detections(job, results) == 0
+    _cases, total = await app_state.cases.list()
+    assert total == 0
+
+
 @asyncio_mark
 async def test_poller_manager_fanout_unaffected_by_routing_wiring(app_state: AppState):
     """The funnel hook rides the PRIMARY child (state-wired). With detection OFF the

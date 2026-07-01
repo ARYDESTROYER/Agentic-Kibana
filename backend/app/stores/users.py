@@ -22,6 +22,7 @@ read-modify-write under the asyncio event loop; no two coroutines interleave a s
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ..constants import USERS_KEY, USERS_NS, UserRole
@@ -41,10 +42,18 @@ class UserStore:
 
     The KV value is ``{"entries": [<User json>, ...]}``. Methods are
     read-modify-write. ``_load`` never raises (a failure logs + returns an empty
-    list); mutations surface persistence errors."""
+    list); mutations surface persistence errors.
+
+    The OOBE bootstrap create (``create_if_absent``) is serialized under an
+    ``asyncio.Lock`` so two concurrent first-run setup requests cannot both pass
+    the read-check and each write an admin (last-writer-wins) — exactly ONE admin
+    is created under concurrency (H4 / FINDING #13)."""
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        # Serializes the read-check-write bootstrap so concurrent first-run setup
+        # calls create exactly one admin (FINDING #13). Only the seed path takes it.
+        self._bootstrap_lock = asyncio.Lock()
 
     async def _load(self) -> list[User]:
         try:
@@ -92,6 +101,20 @@ class UserStore:
 
     async def count(self) -> int:
         return len(await self._load())
+
+    async def has_any(self) -> bool:
+        """Whether ANY user exists — a RAISING probe (unlike ``count()``/``_load()``,
+        which swallow a load error and degrade to an empty set). A store-read glitch
+        therefore PROPAGATES here so the OOBE setup gate fails SAFE (503 / blocked)
+        rather than silently proceeding to a 2nd bootstrap (H4 / FINDING #12).
+
+        Reads the raw KV doc directly (no swallowing ``_load``) and lets any store
+        error bubble to the caller."""
+        doc = await self._kv.get(USERS_NS, USERS_KEY)
+        if not doc:
+            return False
+        entries = doc.get("entries", []) if isinstance(doc, dict) else []
+        return bool(entries)
 
     async def get(self, username: str) -> User | None:
         needle = _norm(username)
@@ -146,19 +169,26 @@ class UserStore:
     ) -> User | None:
         """Race-safe seed: create the user ONLY if the store is empty AND the
         username is absent. Returns the created user, or ``None`` if it already
-        existed / the store was non-empty (so seeding never clobbers real users)."""
-        entries = await self._load()
-        if entries:
-            return None
-        user = User(
-            username=(username or "").strip(),
-            password_hash=password_hash,
-            role=role,
-            active=active,
-            must_change_password=must_change_password,
-        )
-        await self._save([user])
-        return user
+        existed / the store was non-empty (so seeding never clobbers real users).
+
+        The read-check-write runs under ``self._bootstrap_lock`` so two concurrent
+        first-run setup requests cannot both observe an empty store and each save an
+        admin (last-writer-wins) — exactly ONE admin is created under concurrency
+        (H4 / FINDING #13). At single-process scale the lock is the whole guard; the
+        emptiness check inside it is the linearization point."""
+        async with self._bootstrap_lock:
+            entries = await self._load()
+            if entries:
+                return None
+            user = User(
+                username=(username or "").strip(),
+                password_hash=password_hash,
+                role=role,
+                active=active,
+                must_change_password=must_change_password,
+            )
+            await self._save([user])
+            return user
 
     async def update(self, username: str, **fields: object) -> User | None:
         """Patch a user (role / active / password_hash / must_change_password).

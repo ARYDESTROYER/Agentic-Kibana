@@ -100,6 +100,32 @@ class InvestigationPipeline:
         # error can never break the pipeline (#3/#11). When realtime is disabled nobody
         # subscribes and publish is a cheap history-only no-op.
         self.event_bus = None
+        # Per-cluster-signature locks (Round-4 harden). The poller fan-out
+        # (:class:`PollerManager`) runs per-source pollers CONCURRENTLY, so two ticks /
+        # sources correlating the SAME cluster signature could both run the
+        # ``find_open_by_signature → save`` critical section interleaved and each mint a
+        # NEW case for that signature (breaking #4 — one open case per signature). These
+        # locks serialize that critical section PER SIGNATURE (never globally), so only
+        # one create-or-attach for a given signature is ever in flight. Lazily created;
+        # granularity is per-signature so unrelated signatures still run in parallel.
+        # This is a SHARED instance so every caller of this ONE pipeline (poller fan-out,
+        # push-ingest, manual investigate) contends on the same lock for a signature.
+        self._sig_locks: dict[str, asyncio.Lock] = {}
+
+    def signature_lock(self, signature: str) -> asyncio.Lock:
+        """Return the shared :class:`asyncio.Lock` for ``signature`` (created lazily).
+
+        Held around the ``find_open_by_signature → save`` critical section by
+        ``investigate_cluster`` / ``register_candidate`` (and by ``ingest.handle_clusters``
+        via this same registry) so two concurrent per-source pollers correlating the SAME
+        signature cannot both create a case (#4). Per-signature granularity means
+        different signatures never block each other. Creation is safe under the single
+        event-loop model (no ``await`` between the membership check and the insert)."""
+        lock = self._sig_locks.get(signature)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._sig_locks[signature] = lock
+        return lock
 
     def _emit_step(
         self, case_id: str, step: str, *, status: str = "running",
@@ -213,6 +239,25 @@ class InvestigationPipeline:
             return ""
 
     async def investigate_cluster(
+        self,
+        cluster: Cluster,
+        source_surface: SourceSurface,
+        prefs: Preferences,
+        *,
+        force: bool = False,
+        force_playbook_id: str | None = None,
+    ) -> Case:
+        """Investigate a cluster into a case. The ``find_open_by_signature → save``
+        critical section is serialized PER SIGNATURE (:meth:`signature_lock`) so two
+        concurrent per-source pollers correlating the SAME signature never both mint a
+        case (#4). Different signatures still run concurrently."""
+        async with self.signature_lock(cluster.signature):
+            return await self._investigate_cluster_locked(
+                cluster, source_surface, prefs,
+                force=force, force_playbook_id=force_playbook_id,
+            )
+
+    async def _investigate_cluster_locked(
         self,
         cluster: Cluster,
         source_surface: SourceSurface,
@@ -437,7 +482,17 @@ class InvestigationPipeline:
     ) -> Case:
         """Create/refresh an OPEN candidate case with NO LLM cost (deterministic
         risk only). Every correlated cluster becomes a visible case so nothing is
-        ever dropped; auto-forwarded clusters are investigated separately."""
+        ever dropped; auto-forwarded clusters are investigated separately.
+
+        The ``find_open_by_signature → save`` critical section is serialized PER
+        SIGNATURE (:meth:`signature_lock`) so two concurrent per-source pollers
+        registering the SAME signature never both mint a candidate case (#4)."""
+        async with self.signature_lock(cluster.signature):
+            return await self._register_candidate_locked(cluster, source_surface, prefs)
+
+    async def _register_candidate_locked(
+        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences
+    ) -> Case:
         existing = await self._cases.find_open_by_signature(cluster.signature)
         case_id = existing.case_id if existing else new_id("case-")
         breakdown = compute_risk(cluster, prefs, 0.0)

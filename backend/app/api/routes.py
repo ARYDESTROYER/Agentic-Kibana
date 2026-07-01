@@ -199,46 +199,13 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
     }
 
 
-class InitAdminBody(BaseModel):
-    username: str
-    password: str
-
-
-@router.post("/setup/init-admin")
-async def setup_init_admin(
-    body: InitAdminBody, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """PUBLIC OOBE: create the FIRST super_admin. Succeeds ONLY when no users exist
-    (409 otherwise) so it can never be used to add or escalate accounts once the
-    platform is bootstrapped. No-op-rejecting when auth is disabled."""
-    if not state.secrets.auth_enabled:
-        raise HTTPException(status_code=400, detail="authentication is disabled")
-    uname = (body.username or "").strip()
-    pw = (body.password or "").strip()
-    if not uname or len(pw) < 8:
-        raise HTTPException(
-            status_code=400, detail="username required and password must be >= 8 characters"
-        )
-    if await state.users.count() > 0:
-        raise HTTPException(status_code=409, detail="a user already exists; admin already initialised")
-    from ..auth.passwords import hash_password
-
-    created = await state.users.create_if_absent(
-        username=uname,
-        password_hash=hash_password(pw),
-        role=UserRole.SUPER_ADMIN.value,
-        active=True,
-        must_change_password=False,
-    )
-    if created is None:  # lost a race — someone else just initialised
-        raise HTTPException(status_code=409, detail="a user already exists; admin already initialised")
-    state._seeded_default_admin = False
-    await state.refresh_users()
-    await state.audit.record(
-        action_type=ActionType.USER_MGMT, surface="setup", actor=uname,
-        result_summary=f"initialised first super_admin '{uname}'",
-    )
-    return {"ok": True, "username": created.username}
+# NOTE: the legacy PUBLIC ``POST /api/setup/init-admin`` was REMOVED (H4 / FINDING
+# #11). It bypassed the OOBE strong-password policy (it only required >= 8 chars), so a
+# weak first-admin credential could be set. The webui now bootstraps the first admin
+# ONLY through ``POST /api/setup/account`` (routes_setup.py), which enforces the
+# server-side strong-password policy and self-locks. That is the single OOBE writer;
+# there is no longer a second, weaker path. (Its ``/api/setup/init-admin`` entry was
+# also dropped from ``deps.PUBLIC_API_PATHS``.)
 
 
 @router.post("/setup/secrets")

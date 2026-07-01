@@ -5,8 +5,9 @@ Covers, over the REAL app router (auth gate mirrored from main.py):
 * Seeding: demo ``Admin``/``Admin@123`` seeds ONLY when auth is enabled AND the
   store is empty AND no env-admin is configured; never with auth off.
 * ``/api/setup/status`` (PUBLIC) reports auth/rbac/user_count/needs_user/seeded.
-* ``/api/setup/init-admin`` (PUBLIC) creates the first super_admin, 409s once a user
-  exists, and is rejected when auth is off.
+* ``/api/setup/account`` (PUBLIC, routes_setup.py) creates the first super_admin,
+  409s once a user exists, and is rejected when auth is off. (The legacy weaker
+  ``/api/setup/init-admin`` was REMOVED — H4 / FINDING #11.)
 * ``/api/auth/login`` returns ``token`` + ``user{role, must_change_password}``.
 * ``/api/auth/me`` surfaces the principal; ``/api/auth/change-password`` works.
 * RBAC enforcement: with rbac on, a low-privilege role is 403'd on ``users:manage``
@@ -24,6 +25,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import require_auth
 from app.api.routes import router
+from app.api.routes_setup import router as setup_router
 from app.config import Secrets
 from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
@@ -58,7 +60,14 @@ def _build_client(**secret_overrides):
 
     api = FastAPI(lifespan=lifespan)
     api.include_router(router, dependencies=[Depends(require_auth)])
+    # The Wave-4 OOBE writer (routes_setup.py) — the SOLE first-admin bootstrap path
+    # now that the legacy /api/setup/init-admin was removed (H4 / FINDING #11).
+    api.include_router(setup_router, dependencies=[Depends(require_auth)])
     return TestClient(api)
+
+
+# A strong password that clears the OOBE server policy (>=12, != username, not common).
+_STRONG = "Str0ng-OOBE-Pass!"
 
 
 def _login(c: TestClient, username: str, password: str):
@@ -77,8 +86,8 @@ def test_auth_off_status_and_open_access() -> None:
         assert st["rbac_enabled"] is False
         # Everything open: a protected route is reachable with no session.
         assert c.get("/api/cases").status_code == 200
-        # init-admin is rejected when auth is off.
-        r = c.post("/api/setup/init-admin", json={"username": "x", "password": "password1"})
+        # The OOBE account writer is rejected when auth is off.
+        r = c.post("/api/setup/account", json={"username": "x", "password": _STRONG})
         assert r.status_code == 400
 
 
@@ -122,23 +131,26 @@ def test_env_admin_suppresses_demo_seed() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# init-admin OOBE (auth ON, seeding OFF → empty store)
+# setup/account OOBE (auth ON, seeding OFF → empty store)
 # --------------------------------------------------------------------------- #
-def test_init_admin_creates_first_then_409() -> None:
-    with _build_client(auth_enabled=True, auth_jwt_secret="oobe", auth_seed_admin=False) as c:
+def test_account_creates_first_then_409() -> None:
+    with _build_client(
+        auth_enabled=True, auth_jwt_secret="oobe", auth_seed_admin=False,
+        setup_complete=False,
+    ) as c:
         st = c.get("/api/setup/status").json()
         assert st["user_count"] == 0 and st["needs_user"] is True
-        # Short password rejected.
-        assert c.post("/api/setup/init-admin", json={"username": "root", "password": "short"}).status_code == 400
+        # Weak password rejected by the strong-password policy (too short).
+        assert c.post("/api/setup/account", json={"username": "root", "password": "short"}).status_code == 400
         # Create the first super_admin.
-        r = c.post("/api/setup/init-admin", json={"username": "root", "password": "rootpassword1"})
+        r = c.post("/api/setup/account", json={"username": "root", "password": _STRONG})
         assert r.status_code == 200 and r.json()["username"] == "root"
-        # Now a user exists → init-admin is 409 (cannot add/escalate accounts via OOBE).
-        r2 = c.post("/api/setup/init-admin", json={"username": "evil", "password": "evilpassword1"})
+        # Now a user exists → account is 409 (cannot add/escalate accounts via OOBE).
+        r2 = c.post("/api/setup/account", json={"username": "evil", "password": _STRONG + "z"})
         assert r2.status_code == 409
         assert c.get("/api/setup/status").json()["needs_user"] is False
         # The created admin can log in.
-        assert _login(c, "root", "rootpassword1").status_code == 200
+        assert _login(c, "root", _STRONG).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -212,9 +224,12 @@ def test_rbac_roles_matrix_endpoint() -> None:
 # Last-super-admin lockout guard
 # --------------------------------------------------------------------------- #
 def test_cannot_delete_or_demote_last_super_admin() -> None:
-    with _build_client(auth_enabled=True, auth_jwt_secret="guard", auth_seed_admin=False) as c:
-        c.post("/api/setup/init-admin", json={"username": "root", "password": "rootpassword1"})
-        _login(c, "root", "rootpassword1")
+    with _build_client(
+        auth_enabled=True, auth_jwt_secret="guard", auth_seed_admin=False,
+        setup_complete=False,
+    ) as c:
+        c.post("/api/setup/account", json={"username": "root", "password": _STRONG})
+        _login(c, "root", _STRONG)
         # Demoting the only super_admin → 409.
         assert c.put("/api/users/root", json={"role": "analyst_tier1"}).status_code == 409
         # Disabling the only super_admin → 409.

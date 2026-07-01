@@ -109,7 +109,7 @@ _AUTHZ_EXEMPT_AUTH_FLOW = frozenset({
     "/api/auth/refresh", "/api/auth/reauth",
     "/api/auth/mfa/setup", "/api/auth/mfa/confirm", "/api/auth/mfa/verify",
     "/api/auth/mfa/disable",
-    "/api/setup/init-admin", "/api/setup/complete", "/api/setup/secrets",
+    "/api/setup/complete", "/api/setup/secrets",
     # Round-4 Wave-4 — OOBE "create admin account" writer (routes_setup.py). Pre-auth
     # + self-locking (403 once setup complete / 409 once an admin exists), NOT an RBAC
     # grant. Also in PUBLIC_API_PATHS (reachable before a session exists).
@@ -354,7 +354,7 @@ def test_public_paths_are_minimal_and_known() -> None:
     # A small, deliberate allowlist — guard against accidental growth.
     assert PUBLIC_API_PATHS <= {
         "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-        "/api/setup/status", "/api/setup/init-admin", "/api/setup/account",
+        "/api/setup/status", "/api/setup/account",
         # Wave 2 — each guarded by a single-use token/state, not a session.
         "/api/auth/mfa/verify",
         "/api/auth/sso/providers", "/api/auth/sso/authorize", "/api/auth/sso/callback",
@@ -392,19 +392,25 @@ def test_wave1_identity_routes_are_registered() -> None:
     # coverage walk above actually guards them).
     paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
     for expected in (
-        "/api/setup/init-admin",
+        # The legacy weaker /api/setup/init-admin was REMOVED (H4 / FINDING #11);
+        # /api/setup/account (routes_setup.py) is now the SOLE OOBE admin writer.
+        "/api/setup/account",
         "/api/auth/change-password",
         "/api/roles",
         "/api/users",
         "/api/users/{username}",
     ):
         assert expected in paths, f"missing Wave-1 identity route {expected}"
+    # The removed legacy route must NOT be re-registered.
+    assert "/api/setup/init-admin" not in paths
 
 
 def test_wave1_public_paths_present_in_allowlist() -> None:
-    # The two new OOBE public paths are in the allowlist (reachable pre-session).
+    # The OOBE public paths are in the allowlist (reachable pre-session).
     assert "/api/setup/status" in PUBLIC_API_PATHS
-    assert "/api/setup/init-admin" in PUBLIC_API_PATHS
+    assert "/api/setup/account" in PUBLIC_API_PATHS
+    # The legacy weaker init-admin path was REMOVED (H4 / FINDING #11).
+    assert "/api/setup/init-admin" not in PUBLIC_API_PATHS
     # ...and the user-management routes are NOT public (deny-by-default).
     assert "/api/users" not in PUBLIC_API_PATHS
     assert "/api/roles" not in PUBLIC_API_PATHS

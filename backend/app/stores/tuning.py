@@ -32,6 +32,11 @@ from .base import KVStore
 
 logger = logging.getLogger("tlsoc.stores.tuning")
 
+# The KV key (same namespace) recording the LAST effective tuner run instant, so the
+# scheduler can honour the configured cadence and never re-run within the window
+# (FINDING #14 — unbounded knob growth from every-tick re-raises).
+TUNING_LAST_RUN_KEY = "last_run"
+
 # A tuning record's target kind — which knob was moved.
 TuningTarget = Literal["correlation_n", "severity_floor"]
 
@@ -186,6 +191,32 @@ class TuningStore:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Persisting tuning record failed (%s); continuing", exc)
         return record
+
+    async def get_last_run_at(self) -> str | None:
+        """The ISO instant of the last effective tuner run, or None if never run. Used
+        by the scheduler to honour the cadence window (FINDING #14). Never raises."""
+        try:
+            doc = await self._kv.get(TUNING_NS, TUNING_LAST_RUN_KEY)
+        except Exception as exc:  # noqa: BLE001 — best-effort; treat as "never ran"
+            logger.warning("Loading tuner last_run failed (%s); treating as never-ran", exc)
+            return None
+        if not isinstance(doc, dict):
+            return None
+        ts = doc.get("at")
+        return str(ts) if ts else None
+
+    async def set_last_run_at(self, at: str | None = None) -> None:
+        """Stamp the last effective tuner run instant (defaults to now). CAS-safe.
+        Best-effort — a failure only means the cadence gate may allow one extra run."""
+        stamp = at or iso_now()
+
+        def _mutate(_cur: dict[str, Any] | None) -> dict[str, Any]:
+            return {"at": stamp}
+
+        try:
+            await self._kv.mutate(TUNING_NS, TUNING_LAST_RUN_KEY, _mutate)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Persisting tuner last_run failed (%s); continuing", exc)
 
     async def mark_rolled_back(self, record_id: str) -> TuningRecord | None:
         """Flag a record rolled-back (CAS-safe). Returns the updated record, or None

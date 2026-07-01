@@ -183,7 +183,16 @@ async def handle_clusters(
     pipeline: "InvestigationPipeline",
     source_surface: SourceSurface,
 ) -> dict[str, int]:
-    """Attach / investigate / register each cluster. Returns count stats."""
+    """Attach / investigate / register each cluster. Returns count stats.
+
+    The per-cluster ``find_open_by_signature → (attach | investigate | register)``
+    critical section is serialized PER SIGNATURE via the shared pipeline lock
+    (``pipeline.signature_lock``) so two concurrent per-source pollers (the Round-4
+    fan-out) correlating the SAME signature can never both mint a case (#4). Because
+    that lock is non-reentrant, this path calls the pipeline's ``_locked`` internals
+    (which skip re-acquiring) INSIDE the lock. A signature with no configured lock
+    registry (e.g. a bare pipeline in a test) degrades to a no-op nullcontext, so
+    single-source behaviour is byte-identical."""
     stats = {"clusters": len(clusters), "investigated": 0, "candidates": 0,
              "attached": 0, "suppressed": 0, "ignored": 0}
     allow = set(prefs.auto_forward_allowlist)
@@ -200,40 +209,70 @@ async def handle_clusters(
         if not passes_suppression(cluster, prefs):
             stats["suppressed"] += 1
             continue
-        existing = await cases.find_open_by_signature(cluster.signature)
-        if existing:
-            await attach_cluster(cases, existing, cluster)
-            stats["attached"] += 1
-            continue
-        # Alerts-role index patterns carry SIEM-generated detections the operator
-        # wants EVERY one of triaged: an alerts-role cluster is auto-forwarded to
-        # investigation regardless of the auto-forward allowlist (still gated by
-        # background_scan_enabled, the global automated-investigation switch).
-        # Events-role clusters keep the existing correlate→allowlist behaviour.
-        #
-        # The per-source + per-feed "Auto-Correlate" toggle (Wave 5 / F6 + Wave 6) is an
-        # ADDITIONAL gate on top of all of the above: a cluster auto-forwards only when
-        # its source AND every matched feed allow it. All toggles default TRUE so this
-        # is byte-identical out of the box; a disabled toggle routes the cluster to a
-        # candidate (manual triage) instead — it is still correlated + never dropped.
-        #
-        # The per-feed ``severity_floor`` (Wave 6, #4) is the final gate:
-        # ``cluster.auto_investigate_eligible`` is False only when EVERY member is below
-        # its feed floor — such a cluster is registered as a CANDIDATE (+ live-tail),
-        # never dropped, never auto-forwarded.
-        forwarded = (
-            prefs.background_scan_enabled
-            and cluster.auto_investigate_eligible
-            and _auto_correlate_allowed(cluster, prefs)
-            and (cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values))
-        )
-        if forwarded:
-            await pipeline.investigate_cluster(cluster, source_surface, prefs)
-            stats["investigated"] += 1
-        else:
-            await pipeline.register_candidate(cluster, source_surface, prefs)
-            stats["candidates"] += 1
+        # Serialize the find→create/attach critical section PER SIGNATURE (#4). The
+        # lock is shared across the whole fan-out (poller children + push-ingest) via
+        # the ONE pipeline, so a signature is only ever created/attached once at a time.
+        async with _sig_lock(pipeline, cluster.signature):
+            existing = await cases.find_open_by_signature(cluster.signature)
+            if existing:
+                await attach_cluster(cases, existing, cluster)
+                stats["attached"] += 1
+                continue
+            # Alerts-role index patterns carry SIEM-generated detections the operator
+            # wants EVERY one of triaged: an alerts-role cluster is auto-forwarded to
+            # investigation regardless of the auto-forward allowlist (still gated by
+            # background_scan_enabled, the global automated-investigation switch).
+            # Events-role clusters keep the existing correlate→allowlist behaviour.
+            #
+            # The per-source + per-feed "Auto-Correlate" toggle (Wave 5 / F6 + Wave 6) is
+            # an ADDITIONAL gate on top of all of the above: a cluster auto-forwards only
+            # when its source AND every matched feed allow it. All toggles default TRUE so
+            # this is byte-identical out of the box; a disabled toggle routes the cluster
+            # to a candidate (manual triage) instead — still correlated + never dropped.
+            #
+            # The per-feed ``severity_floor`` (Wave 6, #4) is the final gate:
+            # ``cluster.auto_investigate_eligible`` is False only when EVERY member is
+            # below its feed floor — such a cluster is registered as a CANDIDATE (+ live-
+            # tail), never dropped, never auto-forwarded.
+            forwarded = (
+                prefs.background_scan_enabled
+                and cluster.auto_investigate_eligible
+                and _auto_correlate_allowed(cluster, prefs)
+                and (cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values))
+            )
+            # The non-reentrant per-signature lock is already held → call the ``_locked``
+            # pipeline internals (they perform the find→save WITHOUT re-acquiring, so no
+            # self-deadlock). Falls back to the public method for a pipeline that predates
+            # the split ONLY when the lock is a no-op (``_sig_lock`` returned nullcontext),
+            # so the fallback can never re-enter a held lock.
+            if forwarded:
+                fn = getattr(pipeline, "_investigate_cluster_locked", None) or pipeline.investigate_cluster
+                await fn(cluster, source_surface, prefs)
+                stats["investigated"] += 1
+            else:
+                fn = getattr(pipeline, "_register_candidate_locked", None) or pipeline.register_candidate
+                await fn(cluster, source_surface, prefs)
+                stats["candidates"] += 1
     return stats
+
+
+def _sig_lock(pipeline, signature: str):
+    """The shared per-signature lock context for ``handle_clusters`` (#4).
+
+    Returns ``pipeline.signature_lock(signature)`` when the pipeline exposes it (the
+    real :class:`InvestigationPipeline`), else a no-op ``nullcontext`` so a bare/stub
+    pipeline in a test keeps working byte-identically. When the fallback nullcontext is
+    used the pipeline also lacks the ``_locked`` internals, so the public
+    investigate/register methods are safe to call (no lock is held)."""
+    import contextlib
+
+    getter = getattr(pipeline, "signature_lock", None)
+    if getter is None:
+        return contextlib.nullcontext()
+    try:
+        return getter(signature)
+    except Exception:  # noqa: BLE001 — never let lock acquisition break ingest
+        return contextlib.nullcontext()
 
 
 async def link_cross_source(

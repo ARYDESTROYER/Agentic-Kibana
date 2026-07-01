@@ -457,3 +457,69 @@ def results_to_candidates(
             continue
         out.append((shape_candidate_cluster(cand), cand.detection_source))
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Durable candidate (de)serialisation — persisted alongside the BatchJob at
+# submit time so the batch scheduler can reconstruct the survivors (incl. their
+# member events) and re-enter the pipeline when the confirmations return (Wave-6).
+# --------------------------------------------------------------------------- #
+def candidate_to_json(candidate: CandidateAlert) -> dict[str, Any]:
+    """Serialise ONE surviving candidate — the aggregate summary + its member RawEvents
+    (needed by :func:`shape_candidate_cluster` to rebuild the SAME-signature cluster #4) +
+    the deciding ``detection_source`` — to a JSON-safe dict. Persisted keyed by
+    ``custom_id`` next to the BatchJob so a later poll can re-enter the pipeline."""
+    s = candidate.summary
+    return {
+        "custom_id": candidate.custom_id,
+        "detection_source": candidate.detection_source,
+        "modified_z": float(candidate.modified_z),
+        "entity_type": s.entity_type,
+        "entity_value": s.entity_value,
+        "bucket": int(s.bucket),
+        "signature": s.signature,
+        "members": [ev.model_dump(mode="json") for ev in s.members],
+    }
+
+
+def candidate_from_json(raw: dict[str, Any]) -> CandidateAlert | None:
+    """Reconstruct a :class:`CandidateAlert` from :func:`candidate_to_json`. Rebuilds the
+    member :class:`RawEvent` list so the confirmed cluster re-enters the pipeline with a
+    byte-identical ``cluster_signature`` (#4). Returns None for a malformed/empty record
+    (skipped by the caller — a lost candidate never becomes a case, never crashes a poll)."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        members: list[RawEvent] = []
+        for m in raw.get("members", []) or []:
+            try:
+                members.append(RawEvent.model_validate(m))
+            except Exception:  # noqa: BLE001 — skip a corrupt member, keep the rest
+                continue
+        entity_type = str(raw.get("entity_type") or "")
+        entity_value = str(raw.get("entity_value") or "")
+        if not entity_type or not entity_value:
+            return None
+        summary = EntityBucketSummary(
+            entity_type=entity_type,
+            entity_value=entity_value,
+            bucket=int(raw.get("bucket") or 0),
+            signature=str(raw.get("signature") or ""),
+            count=len(members),
+            distinct_rules=0,
+            distinct_hosts=0,
+            severity_max=0.0,
+            rule_mix={},
+            host_mix={},
+            first_seen_millis=members[0].timestamp_millis if members else 0,
+            last_seen_millis=members[-1].timestamp_millis if members else 0,
+            members=members,
+        )
+        return CandidateAlert(
+            summary=summary,
+            detection_source=str(raw.get("detection_source") or DetectionSource.DETECTION.value),
+            modified_z=float(raw.get("modified_z") or 0.0),
+            custom_id=str(raw.get("custom_id") or ""),
+        )
+    except Exception:  # noqa: BLE001 — a malformed candidate is skipped, never fatal
+        return None

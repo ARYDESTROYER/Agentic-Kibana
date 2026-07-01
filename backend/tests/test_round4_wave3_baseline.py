@@ -119,6 +119,70 @@ def test_tdigest_serialisation_is_stable_and_pinned() -> None:
     assert len(st.tdigest) <= 100 * 2
 
 
+def test_tdigest_centroid_count_is_hard_bounded_under_a_long_stream() -> None:
+    """The t-digest MUST NOT grow without limit: the K1 scale-function merge caps the
+    centroid count at ≈ compression regardless of how many observations stream in.
+
+    Regression for finding #16 — the old ``max(bound, 1.0)`` floor forced every tail
+    centroid to survive as a weight-1 singleton, so the count grew ~logarithmically
+    (memory per signature/bucket leaked forever). Feeding 5000 heavy-tailed values into
+    one bucket must leave the centroid count comfortably under the Elasticsearch node
+    bound of ``20 × compression`` — and, in fact, near ``compression`` itself."""
+    import random
+
+    for compression in (50, 100, 200):
+        eng = BaselineEngine(_cfg(tdigest_compression=compression))
+        rng = random.Random(1234)
+        for _ in range(5000):
+            # A skewed, heavy-tailed mix (the worst case for the buggy floor: many
+            # distinct tail values that used to each survive as a singleton).
+            eng.update("s", 0, rng.lognormvariate(3.0, 1.0))
+        st = eng.snapshot("s")[0]
+        # Faithful bound: well under the ES node cap of 20*compression, and in practice
+        # ~compression (the K1 total range is compression/2 k-units).
+        assert len(st.tdigest) <= 20 * compression
+        assert len(st.tdigest) <= 2 * compression
+        # All the weight is still accounted for (no observations dropped by merging).
+        assert sum(w for _, w in st.tdigest) == pytest.approx(5000.0)
+
+
+def test_tdigest_bounded_and_byte_identical_replay() -> None:
+    """A long identical stream stays byte-identical across runs AND bounded — the fix
+    must not trade determinism (replay is the property that lets the baseline live
+    OUTSIDE the deterministic decision) for the memory bound."""
+    import random
+
+    def run() -> list:
+        eng = BaselineEngine(_cfg(tdigest_compression=100))
+        rng = random.Random(99)
+        for _ in range(5000):
+            eng.update("sig-Z", 3, rng.gauss(100.0, 15.0))
+        return eng.snapshot("sig-Z")[3].tdigest
+
+    a = run()
+    b = run()
+    assert a == b                       # byte-identical centroid list across replays
+    assert len(a) <= 2 * 100            # and still bounded
+
+
+def test_tdigest_bound_holds_as_stream_grows_no_leak() -> None:
+    """The count must PLATEAU as n grows (not keep climbing) — the direct assertion the
+    old docstring/test falsely implied. With the buggy floor the count rose monotonically
+    with n; with the K1 bound it settles."""
+    import random
+
+    eng = BaselineEngine(_cfg(tdigest_compression=100))
+    rng = random.Random(7)
+    counts: dict[int, int] = {}
+    for i in range(1, 40001):
+        eng.update("s", 0, rng.gauss(50.0, 8.0))
+        if i in (10000, 20000, 40000):
+            counts[i] = len(eng.snapshot("s")[0].tdigest)
+    # 4× the data must not meaningfully grow the sketch (bounded, not logarithmic).
+    assert counts[40000] <= 2 * 100
+    assert counts[40000] <= counts[10000] + 20   # essentially flat, no unbounded creep
+
+
 # --------------------------------------------------------------------------- #
 # EWMA tracks a level shift with the expected alpha for H = 14d
 # --------------------------------------------------------------------------- #

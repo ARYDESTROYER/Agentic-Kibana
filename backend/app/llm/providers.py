@@ -243,16 +243,22 @@ class OpenAIProvider(BaseProvider):
         text = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage", {})
         # OpenAI prompt caching is READ-only (automatic, no write surcharge): the cached
-        # prefix count is nested under ``prompt_tokens_details.cached_tokens``. The
-        # cached tokens are INCLUDED in ``prompt_tokens``; we surface them so the ledger
-        # can re-price the cached slice at 0.1× (cost_for subtracts nothing here — the
-        # cache term is additive-at-a-cheaper-rate, so we keep prompt_tokens as the full
-        # billed input and let the UI show the cached breakdown).
+        # prefix count is nested under ``prompt_tokens_details.cached_tokens``. Unlike
+        # Anthropic — whose ``input_tokens`` EXCLUDES the cached slice — OpenAI's
+        # ``prompt_tokens`` INCLUDES the cached tokens. ``cost_for`` bills its
+        # ``cache_read_tokens`` as an ADDITIVE 0.1× term, so if we handed it the full
+        # ``prompt_tokens`` the cached slice would be charged 1× (in prompt_tokens) +
+        # 0.1× (the additive term) = ~1.1× instead of 0.1× (double-billed). We therefore
+        # pass the UNCACHED remainder (prompt_tokens − cached) as the full-rate input and
+        # surface ``cache_read_tokens=cached`` separately, so the ledger charges
+        # (prompt_tokens − cached)×input + cached×0.1×input — matching Anthropic's split.
         details = usage.get("prompt_tokens_details") or {}
         cached = int(details.get("cached_tokens", 0) or 0) if isinstance(details, dict) else 0
+        prompt_tokens = int(usage.get("prompt_tokens", _estimate_tokens(str(messages))))
+        uncached = max(prompt_tokens - cached, 0)
         return CompletionResult(
             text=text,
-            prompt_tokens=int(usage.get("prompt_tokens", _estimate_tokens(str(messages)))),
+            prompt_tokens=uncached,
             completion_tokens=int(usage.get("completion_tokens", _estimate_tokens(text))),
             model=model,
             cache_read_tokens=cached,

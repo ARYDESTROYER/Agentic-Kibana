@@ -148,10 +148,14 @@ async def setup_account(
         raise HTTPException(status_code=400, detail=policy_err)
 
     # 4) self-lock: an admin already existing means the platform is bootstrapped.
+    #    Use the RAISING ``has_any()`` probe (NOT ``count()``): ``count()``/``_load()``
+    #    swallow a store-read error and degrade to 0/empty, which would 'fail OPEN' and
+    #    let a store glitch allow a 2nd bootstrap. ``has_any()`` lets the load error
+    #    PROPAGATE so we fail SAFE with a 503 instead (H4 / FINDING #12).
     try:
-        already = await state.users.count() > 0
+        already = await state.users.has_any()
     except Exception as exc:  # noqa: BLE001 — a store read glitch → fail SAFE (don't create)
-        logger.warning("setup/account: user-count probe failed (%s); refusing", exc)
+        logger.warning("setup/account: user-store probe failed (%s); refusing", exc)
         raise HTTPException(status_code=503, detail="user store unavailable; try again") from exc
     if already:
         raise HTTPException(

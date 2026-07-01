@@ -22,7 +22,9 @@ The four streaming primitives per bucket (all from ``docs/research/2026-07-round
   ``S_k = S_{k−1} + (x_k − M_{k−1})·(x_k − M_k)``; ``var = S_k/(k−1)``. Error ~1/n.
 * **t-digest** (one per bucket, ``compression`` pinned, default 100) for robust
   p50/p95/p99 on heavy-tailed volume/rate. Deterministic insertion + a fixed merge
-  order so replay is byte-identical.
+  order (the Dunning **K1 scale function**, so tail centroids stay fine while central
+  ones coalesce) → replay is byte-identical AND the centroid count is HARD-bounded at
+  ≈ ``compression/2`` no matter how long the stream runs (memory per bucket is capped).
 * **Modified-z / MAD** robust threshold: ``M = 0.6745·(x − median)/MAD`` (median +
   MAD read robustly from the t-digest), flag when ``|M| > modified_z_threshold``
   (default 3.5). Robust so the very outliers we hunt can't inflate the dispersion.
@@ -125,15 +127,26 @@ def bucket_for(seasonality: str, day_of_week: int, hour: int) -> int:
 # to q(1−q) so it is most accurate at the tails (p95/p99). Insertion is a buffered
 # batch-merge: values are appended then, once the buffer + centroids exceed a bound,
 # folded in with a FIXED sort/merge order so replay is byte-identical.
+#
+# The merge test uses the canonical Dunning **K1 scale function** (NOT a raw q(1−q)
+# product): two adjacent centroids spanning cumulative quantiles [q_left, q_right] may
+# merge only while ``k(q_right) − k(q_left) ≤ 1`` for
+# ``k(q) = (compression / 2π)·arcsin(2q − 1)``. K1 is steep at the tails (so tail
+# centroids stay fine-grained → the p95/p99 accuracy we rely on) and flat in the middle
+# (so central centroids coalesce aggressively). Because k(q) rises monotonically from
+# −compression/4 to +compression/4, the total centroid count is HARD-BOUNDED at
+# ≈ compression/2 regardless of how many observations stream in — the bound is real.
 # --------------------------------------------------------------------------- #
 @dataclass
 class _TDigest:
     """A minimal deterministic t-digest over ``[mean, weight]`` centroids.
 
     Determinism guarantees: centroids are kept sorted by mean; the compress step
-    merges in ascending-mean order with a size cap of ``compression`` bounding each
-    centroid's weight by ``q(1−q)``. No randomness, no hashing — the same ordered
-    input always yields the same centroid list."""
+    merges in ascending-mean order under the Dunning **K1 scale-function** merge
+    criterion (``k(q_right) − k(q_left) ≤ 1``, ``k(q) = (compression/2π)·arcsin(2q−1)``),
+    which bounds the centroid count at ≈ ``compression/2`` — accuracy is concentrated
+    at the tails. No randomness, no hashing — the same ordered input always yields the
+    same centroid list."""
 
     compression: float = 100.0
     centroids: list[list[float]] = None  # type: ignore[assignment]  # [[mean, weight], ...]
@@ -141,6 +154,19 @@ class _TDigest:
     def __post_init__(self) -> None:
         if self.centroids is None:
             self.centroids = []
+
+    def _k1(self, q: float) -> float:
+        """The canonical t-digest K1 scale function ``(compression/2π)·arcsin(2q−1)``.
+
+        Monotonic on ``[0, 1]`` from ``−compression/4`` to ``+compression/4``; its slope
+        is steepest at the tails (fine centroids there) and flattest in the middle
+        (coarse centroids there). The 1-unit merge budget over its bounded total range
+        is exactly what caps the centroid count at ≈ ``compression/2``."""
+        if q <= 0.0:
+            q = 0.0
+        elif q >= 1.0:
+            q = 1.0
+        return (float(self.compression) / (2.0 * math.pi)) * math.asin(2.0 * q - 1.0)
 
     @property
     def total_weight(self) -> float:
@@ -164,32 +190,41 @@ class _TDigest:
             self._compress()
 
     def _compress(self) -> None:
-        """Fold adjacent centroids while each merged weight stays under the
-        size-varying bound ``q(1−q)·4·δ·total`` (δ = 1/compression). A single
-        left-to-right pass over the mean-sorted centroids — fully deterministic."""
+        """Fold adjacent centroids under the K1 scale-function merge test — a single
+        left-to-right pass over the mean-sorted centroids, fully deterministic.
+
+        A centroid growing from left-edge quantile ``q_left`` to right-edge ``q_right``
+        may absorb the next centroid only while ``k(q_right) − k(q_left) ≤ 1`` (``k`` =
+        :meth:`_k1`). There is NO ``max(bound, 1.0)`` floor: the floor was the bug — it
+        forced every tail centroid to survive as a weight-1 singleton, so the count grew
+        ~logarithmically without limit. Under the true K1 budget, tail centroids merge as
+        soon as their combined quantile span fits one k-unit, so the count is bounded at
+        ≈ ``compression/2`` no matter how long the stream runs."""
         cs = self.centroids
         total = math.fsum(w for _, w in cs)
         if total <= 0 or len(cs) <= 1:
             return
-        delta = 1.0 / float(self.compression)
         merged: list[list[float]] = []
-        cum = 0.0
+        cum = 0.0                       # cumulative weight LEFT of the current centroid
         cur_mean, cur_w = cs[0]
         cur_mean = float(cur_mean)
         cur_w = float(cur_w)
+        q_left = 0.0                    # left-edge quantile of the current merged centroid
         for mean, w in cs[1:]:
-            # q at the CENTRE of the (current + candidate) merged mass.
-            q = (cum + (cur_w + w) / 2.0) / total
-            bound = 4.0 * total * delta * q * (1.0 - q)
-            if cur_w + w <= max(bound, 1.0):
+            mean = float(mean)
+            w = float(w)
+            # Right-edge quantile if we were to absorb this next centroid.
+            q_right = (cum + cur_w + w) / total
+            if self._k1(q_right) - self._k1(q_left) <= 1.0:
                 # Merge: weighted-mean update (fixed arithmetic order).
                 new_w = cur_w + w
-                cur_mean = cur_mean + (float(mean) - cur_mean) * (float(w) / new_w)
+                cur_mean = cur_mean + (mean - cur_mean) * (w / new_w)
                 cur_w = new_w
             else:
                 merged.append([cur_mean, cur_w])
                 cum += cur_w
-                cur_mean, cur_w = float(mean), float(w)
+                q_left = cum / total
+                cur_mean, cur_w = mean, w
         merged.append([cur_mean, cur_w])
         self.centroids = merged
 

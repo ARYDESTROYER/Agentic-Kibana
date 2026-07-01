@@ -35,7 +35,7 @@ from app.llm.batch import (
     make_batch_provider,
 )
 from app.llm.gateway import LLMGateway
-from app.llm.pricing import cache_rates, cost_for
+from app.llm.pricing import cache_rates, cost_for, resolve_price
 from app.llm.providers import AnthropicProvider, CompletionResult, OpenAIProvider
 from app.models import BatchJob
 from app.stores.batch_jobs import BatchJobStore
@@ -195,6 +195,117 @@ async def test_openai_provider_parses_cached_tokens():
                                   "gpt-4o", temperature=0.1, max_tokens=8)
     assert res.cache_read_tokens == 128
     assert res.cache_write_tokens == 0  # OpenAI caching is read-only
+    # OpenAI's ``prompt_tokens`` INCLUDES the cached slice; the provider hands the
+    # ledger the UNCACHED remainder (200 - 128 = 72) so ``cost_for`` does not double-
+    # bill the cached tokens (full-rate prompt_tokens PLUS the additive 0.1× term).
+    assert res.prompt_tokens == 72
+    assert res.completion_tokens == 30
+
+
+async def test_openai_cache_not_double_billed_end_to_end():
+    """OpenAI: prompt_tokens=1000 incl. cached=800 must cost the UNCACHED remainder at
+    full rate + the cached slice at 0.1× — NOT the full 1000 at full rate + 0.1× on top.
+
+    Guards the H3 fix: without it, the cached 800 tokens would be billed ~1.1× input
+    (1× in prompt_tokens + 0.1× additive) instead of 0.1×.
+    """
+    provider = OpenAIProvider(api_key="sk-oai")
+
+    class _Client:
+        async def post(self, *_a, **_k):
+            return _Resp({
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 1000, "completion_tokens": 50,
+                          "prompt_tokens_details": {"cached_tokens": 800}},
+            })
+
+        async def aclose(self):
+            return None
+
+    provider._client = _Client()  # type: ignore[assignment]
+    res = await provider.complete("router", [{"role": "user", "content": "x"}],
+                                  "gpt-4o", temperature=0.1, max_tokens=8)
+    # Provider surfaces the uncached remainder as full-rate input + cached separately.
+    assert res.prompt_tokens == 200  # 1000 - 800
+    assert res.cache_read_tokens == 800
+
+    in_price, out_price = resolve_price("gpt-4o", None)
+    read_rate, _w5, _w1 = cache_rates("gpt-4o", in_price)
+    priced = cost_for("gpt-4o", res.prompt_tokens, res.completion_tokens,
+                      cache_read_tokens=res.cache_read_tokens)
+    expected = round(
+        (200 / 1_000_000.0) * in_price
+        + (50 / 1_000_000.0) * out_price
+        + (800 / 1_000_000.0) * read_rate,
+        8,
+    )
+    assert priced == expected
+    # The buggy formula (full 1000 at input rate + 800 additive read) would over-charge.
+    buggy = round(
+        (1000 / 1_000_000.0) * in_price
+        + (50 / 1_000_000.0) * out_price
+        + (800 / 1_000_000.0) * read_rate,
+        8,
+    )
+    assert priced < buggy
+
+
+async def test_anthropic_cache_billing_unchanged():
+    """Anthropic's ``input_tokens`` already EXCLUDES the cached slice, so its billing
+    (200 uncached at full rate + 800 cache-read at 0.1×) is the correct baseline and
+    the H3 fix must NOT touch it."""
+    provider = AnthropicProvider(api_key="sk-ant")
+
+    class _Client:
+        async def post(self, *_a, **_k):
+            return _Resp({
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 200, "output_tokens": 50,
+                          "cache_read_input_tokens": 800},
+            })
+
+        async def aclose(self):
+            return None
+
+    provider._client = _Client()  # type: ignore[assignment]
+    res = await provider.complete("router", [{"role": "user", "content": "x"}],
+                                  "claude-opus-4-8", temperature=0.1, max_tokens=8)
+    assert res.prompt_tokens == 200  # unchanged — Anthropic already excludes cache
+    assert res.cache_read_tokens == 800
+
+    in_price, out_price = resolve_price("claude-opus-4-8", None)
+    read_rate, _w5, _w1 = cache_rates("claude-opus-4-8", in_price)
+    priced = cost_for("claude-opus-4-8", res.prompt_tokens, res.completion_tokens,
+                      cache_read_tokens=res.cache_read_tokens)
+    expected = round(
+        (200 / 1_000_000.0) * in_price
+        + (50 / 1_000_000.0) * out_price
+        + (800 / 1_000_000.0) * read_rate,
+        8,
+    )
+    assert priced == expected
+
+
+async def test_openai_no_cache_path_byte_identical():
+    """Non-cache OpenAI responses keep prompt_tokens verbatim (cached=0 → uncached ==
+    prompt_tokens) — the fix is a no-op on the historical path."""
+    provider = OpenAIProvider(api_key="sk-oai")
+
+    class _Client:
+        async def post(self, *_a, **_k):
+            return _Resp({
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 321, "completion_tokens": 44},
+            })
+
+        async def aclose(self):
+            return None
+
+    provider._client = _Client()  # type: ignore[assignment]
+    res = await provider.complete("router", [{"role": "user", "content": "x"}],
+                                  "gpt-4o", temperature=0.1, max_tokens=8)
+    assert res.prompt_tokens == 321
+    assert res.cache_read_tokens == 0
 
 
 async def test_openai_service_tier_flex_injected_when_set():
@@ -434,6 +545,34 @@ async def test_process_results_idempotent_no_double_write():
     newly = await store.process_results(reloaded, _results(), gw)
     assert newly == []
     assert len(await _usage_docs(es)) == 2  # still exactly two (#6 exactly-once)
+
+
+async def test_concurrent_process_results_bill_each_custom_id_once():
+    """FINDING #3 / #6 — two OVERLAPPING process_results calls over the SAME results must
+    bill each custom_id EXACTLY once. The dedup is a CAS CLAIM (flip-to-retrieved INSIDE
+    one kv_mutate) BEFORE billing, so a read-check-then-act double-write can't happen even
+    when the two calls interleave."""
+    import asyncio
+
+    es = InMemoryESClient()
+    gw = LLMGateway(secrets=_FakeSecrets(), usage_store=UsageStore(es))
+    store = BatchJobStore(_kv())
+    job = _job()
+    await store.save(job)
+
+    # Fire both folds concurrently over the identical result set.
+    r1, r2 = await asyncio.gather(
+        store.process_results(await store.get("batch-x"), _results(), gw),
+        store.process_results(await store.get("batch-x"), _results(), gw),
+    )
+    # Across BOTH calls, each custom_id was recorded exactly once (union has 2, no dup).
+    recorded_ids = [r.custom_id for r in r1] + [r.custom_id for r in r2]
+    assert sorted(recorded_ids) == ["cid-A", "cid-B"]
+    # And the ledger holds exactly two rows — no double-write under concurrency (#6).
+    assert len(await _usage_docs(es)) == 2
+    done = await store.get("batch-x")
+    assert done.state == BatchJobState.RETRIEVED
+    assert all(done.custom_ids[c]["retrieved"] for c in ("cid-A", "cid-B"))
 
 
 async def test_process_results_partial_then_remainder():

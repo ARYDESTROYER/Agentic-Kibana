@@ -151,25 +151,39 @@ class BatchJobStore:
         ``custom_id``): if its ``custom_id`` is already marked ``retrieved`` on THIS
         job it is SKIPPED (dedup → exactly-once #6); otherwise ``gateway._record`` is
         called ONCE — OK rows at the 0.5× batch rate (``batch=True``) with the result's
-        token + cache counts, error/expired rows as an ERROR outcome — and the
-        custom_id is flagged ``retrieved``. Returns the list of results that were newly
-        recorded (skipped duplicates excluded) so the caller can fold verdict text into
-        cases. NEVER calls ``decide()`` (#3)."""
-        # Snapshot which custom_ids are already retrieved (dedup gate) from the persisted
-        # job, so a re-run over the same results writes zero new rows.
-        stored = await self.get(job.id)
-        already: set[str] = set()
-        if stored is not None:
-            already = {cid for cid, v in stored.custom_ids.items()
-                       if cid != "__meta__" and v.get("retrieved")}
+        token + cache counts, error/expired rows as an ERROR outcome. Returns the list of
+        results that were newly recorded (skipped duplicates excluded) so the caller can
+        fold verdict text into cases. NEVER calls ``decide()`` (#3).
 
-        recorded: list[Any] = []
-        newly_retrieved: dict[str, str] = {}  # custom_id -> result_state
+        ATOMIC CLAIM (FINDING #3, #6): the dedup gate is a read-check-then-act only if the
+        custom_ids are flipped AFTER billing — two overlapping ticks / replicas could both
+        pass the snapshot check and double-bill one custom_id. Instead we CLAIM the not-
+        yet-retrieved custom_ids INSIDE ONE ``kv_mutate`` compare-and-set (flip them to
+        ``retrieved`` and RETURN the set actually claimed) BEFORE any billing. A concurrent
+        writer that lost the CAS re-reads the now-flipped flags and claims an empty set, so
+        each custom_id is billed EXACTLY once even under concurrency."""
+        # Index this batch's results by custom_id (first occurrence wins), so a claimed id
+        # maps back to exactly one result to bill.
+        by_id: dict[str, Any] = {}
         for res in results:
             cid = str(getattr(res, "custom_id", "")).strip()
-            if not cid or cid in already or cid in newly_retrieved:
-                continue  # dedup: already billed (or a duplicate within this batch)
-            rtype = str(getattr(res, "result_type", "succeeded"))
+            if cid and cid not in by_id:
+                by_id[cid] = res
+        if not by_id:
+            return []
+
+        # CLAIM atomically: flip every un-retrieved custom_id present in this batch to
+        # retrieved in ONE CAS, recording its result_state, and return the ids we claimed
+        # (those that were NOT already retrieved). Only claimed ids are billed below.
+        states = {cid: str(getattr(res, "result_type", "succeeded")) for cid, res in by_id.items()}
+        claimed = await self._claim(job.id, states)
+
+        recorded: list[Any] = []
+        for cid in claimed:
+            res = by_id.get(cid)
+            if res is None:
+                continue
+            rtype = states.get(cid, "succeeded")
             case_id = self._case_id_for(job, cid)
             if rtype == "succeeded":
                 await gateway._record(
@@ -189,10 +203,6 @@ class BatchJobStore:
                     role, surface, case_id, getattr(res, "model", "") or job.model,
                     0, 0, 0, UsageOutcome.ERROR, 0.0, batch=True,
                 )
-            newly_retrieved[cid] = rtype
-
-        if newly_retrieved:
-            await self._mark_retrieved(job.id, newly_retrieved)
         return recorded
 
     @staticmethod
@@ -204,21 +214,36 @@ class BatchJobStore:
         cid = entry.get("case_id")
         return str(cid) if cid else None
 
-    async def _mark_retrieved(self, job_id: str, states: dict[str, str]) -> None:
-        def _change(jobs: dict[str, BatchJob]) -> None:
+    async def _claim(self, job_id: str, states: dict[str, str]) -> list[str]:
+        """Atomically CLAIM the un-retrieved custom_ids in ``states`` for billing.
+
+        Inside ONE CAS (:func:`kv_mutate` via :meth:`_mutate`): for each custom_id that is
+        NOT already ``retrieved``, flip it to ``retrieved`` (recording its result_state)
+        and add it to the claimed set; a custom_id already ``retrieved`` is left untouched
+        and NOT claimed. Returns the list of custom_ids this call newly claimed — the only
+        ones the caller then bills, so under concurrent ticks/replicas each custom_id is
+        billed EXACTLY once (#6, FINDING #3). Also flips the whole job to RETRIEVED once
+        every tracked custom_id is in."""
+        def _change(jobs: dict[str, BatchJob]) -> list[str]:
             job = jobs.get(job_id)
             if job is None:
-                return None
+                return []
             tracking = dict(job.custom_ids)
+            claimed: list[str] = []
             for cid, rstate in states.items():
                 entry = dict(tracking.get(cid) or {})
+                if entry.get("retrieved"):
+                    continue  # already billed by another writer — do not re-claim
                 entry["retrieved"] = True
                 entry["result_state"] = rstate
                 tracking[cid] = entry
+                claimed.append(cid)
+            if not claimed:
+                return []
             job.custom_ids = tracking
             # Flip the whole job to RETRIEVED once every tracked custom_id is in.
             if BatchJobStore._all_retrieved(job):
                 job.state = BatchJobState.RETRIEVED
             jobs[job_id] = job
-            return None
-        await self._mutate(_change)
+            return claimed
+        return await self._mutate(_change)

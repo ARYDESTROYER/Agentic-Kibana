@@ -391,8 +391,12 @@ def derive_proposals(
        reduction) — the default auto-apply candidate.
     2. If ``max_n_step`` is 0 (n-tuning disabled) but a feed carries this rule, raise
        that feed's ``severity_floor`` by 1.
-    ``already_tuned`` maps rule_id → current auto-applied n so we never re-raise a knob
-    we already moved this cycle-set beyond target relief."""
+    ``already_tuned`` maps rule_id → the n we ALREADY auto-raised it to within this
+    cadence window. Such a rule is SKIPPED entirely (not re-raised) — the FP-rate is
+    computed over the same trailing window of already-closed cases, which does not change
+    tick-to-tick, so re-bumping the same rule every tick would grow ``n`` unbounded
+    (FINDING #14). One effective bump per rule per cadence; the next window's fresh
+    closes decide whether it still needs relief."""
     cfg = prefs.threshold_tuning
     target = float(cfg.fp_rate_target)
     min_samples = int(cfg.min_samples)
@@ -405,10 +409,14 @@ def derive_proposals(
             continue
         if st.fp_lower_bound <= target:
             continue
-        # Genuinely noisy. Prefer a bounded n raise.
+        # Already auto-tuned this rule within the cadence window → do NOT re-raise it
+        # for the SAME noise (bounded to one effective bump per rule per cadence, #14).
+        if rid in already_tuned:
+            continue
+        # Genuinely noisy. Prefer a bounded n raise (off the CURRENT live n, which the
+        # prior cycle already persisted — so ``before`` is always the live value).
         if step > 0:
-            cur = prefs.correlation_for(rid)
-            current_n = already_tuned.get(rid, cur.n)
+            current_n = prefs.correlation_for(rid).n
             new_n = current_n + step
             out.append(TuningProposal(
                 rule_id=rid, kind="correlation_n",
@@ -502,6 +510,31 @@ async def _read_window(
     return out
 
 
+async def _recently_tuned_ns(tuning_store: TuningStore, window_start: datetime) -> dict[str, int]:
+    """The ``{rule_id -> after}`` map of ``correlation_n`` auto-raises that landed WITHIN
+    the current cadence window and are still active (not rolled back). A rule in this set
+    was already relieved this window, so ``derive_proposals`` skips re-raising it for the
+    same noise (FINDING #14). Never raises — a store glitch yields an empty map."""
+    out: dict[str, int] = {}
+    try:
+        records = await tuning_store.list(active_only=True)
+    except Exception as exc:  # noqa: BLE001 — best-effort; degrade to "nothing tuned yet"
+        logger.debug("recently-tuned read failed (%s); assuming none", exc)
+        return out
+    for rec in records:
+        if getattr(rec, "target", None) != "correlation_n":
+            continue
+        applied = _parse_iso(getattr(rec, "applied_at", None))
+        if applied is None or applied < window_start:
+            continue
+        rid = str(getattr(rec, "rule_id", "") or "")
+        if not rid:
+            continue
+        # Keep the HIGHEST after we already raised this rule to this window.
+        out[rid] = max(out.get(rid, 0), int(getattr(rec, "after", 0) or 0))
+    return out
+
+
 async def run_once(
     prefs: Preferences,
     cases: "list[Case] | CaseReader",
@@ -552,7 +585,13 @@ async def run_once(
         outcome.rule_stats = stats
         outcome.ran = True
 
-        proposals_to_make = derive_proposals(prefs, stats)
+        # Build the set of rules we ALREADY auto-raised within this cadence window so a
+        # rule is not re-bumped repeatedly for the SAME (unchanging) trailing-window noise
+        # (FINDING #14 — unbounded knob growth). Best-effort: a store glitch degrades to an
+        # empty set (the derive/shadow rails still bound each single bump).
+        already_tuned = await _recently_tuned_ns(tuning_store, window_start)
+
+        proposals_to_make = derive_proposals(prefs, stats, already_tuned=already_tuned)
         if not proposals_to_make:
             outcome.reason = "no noisy rule cleared the bar"
             return outcome

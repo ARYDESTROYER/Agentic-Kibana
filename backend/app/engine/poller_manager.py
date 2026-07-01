@@ -63,6 +63,15 @@ class PollerManager:
         # The primary child (built from state.log_source) + the non-primary children.
         # The primary is rebuilt implicitly by state.rebuild_log_source (which re-points
         # ``primary._source``); the non-primary set is rebuilt by ``rebuild()``.
+        # Round-4 Wave-4 EVENT-feed funnel hook. State wires the MANAGER-level reference
+        # here (``manager._event_funnel = state._route_event_feed``); ``rebuild()`` /
+        # ``_build_child_for`` then PROPAGATE it to EVERY child (primary + non-primary) so
+        # an events-role feed on ANY source routes to the funnel — not just the primary
+        # (finding #7). Default None → no routing (byte-identical realtime path). Set
+        # before ``rebuild()`` so the first build already fans it out. (H1 owns the
+        # manager-level reference contract via state.py; we share the ``_event_funnel``
+        # attribute name.)
+        self._event_funnel: Callable | None = None
         self._primary: Poller = self._build_primary()
         self._children: list[Poller] = []
         # ES clients this manager OWNS (non-primary sources with per-source overrides).
@@ -70,6 +79,13 @@ class PollerManager:
         self._owned_clients: list = []
         self._task: asyncio.Task | None = None
         self._running = False
+        # Serialize whole fan-out ticks per manager (finding #6/#15). The scheduler loop
+        # and a manual ``POST /api/poll`` share this ONE lock so only one fan-out tick
+        # runs at a time — a manual poll waits for the loop tick (single-poller sequential
+        # semantics), which also closes the finding-#5 duplicate-case window between two
+        # overlapping ticks. Per-signature locking (in the pipeline) still guards
+        # concurrency WITHIN a tick across sources; this guards concurrency ACROSS ticks.
+        self._poll_lock = asyncio.Lock()
         self.rebuild()
 
     # ------------------------------------------------------------------ #
@@ -96,10 +112,14 @@ class PollerManager:
     def _build_primary(self) -> Poller:
         """The primary child wraps ``state.log_source`` (state owns its client)."""
         st = self._state
-        return Poller(
+        child = Poller(
             st.es, st._real_cases, st.cursor_store, st._real_audit,
             st._real_pipeline, st.get_prefs, source=st.log_source,
         )
+        # Propagate the manager-level EVENT-feed funnel hook (finding #7). ``__init__``
+        # sets ``self._event_funnel`` before this runs; ``rebuild()`` re-propagates.
+        child._event_funnel = getattr(self, "_event_funnel", None)
+        return child
 
     def _pull_sources(self, prefs: Preferences) -> list:
         """Every enabled PULL source (registry class check is authoritative; also honor
@@ -147,6 +167,10 @@ class PollerManager:
             es_client, st._real_cases, st.cursor_store, st._real_audit,
             st._real_pipeline, st.get_prefs, source=connector,
         )
+        # Propagate the manager-level EVENT-feed funnel hook to this NON-primary child
+        # too (finding #7) so an events-role feed on a non-primary source also routes to
+        # the funnel when routing is enabled — previously only the primary was wired.
+        child._event_funnel = getattr(self, "_event_funnel", None)
         # Un-fed (no feeds) non-primary source → legacy union path would key the cursor
         # ``"primary"`` and stomp the shared doc. Give it a DISTINCT key (#4).
         if not _connector_has_feeds(connector):
@@ -158,6 +182,17 @@ class PollerManager:
         previously-owned clients first (no leak). The primary child is left to
         ``state.rebuild_log_source`` (it re-points ``_source``); we rebuild it here too
         so ``self._state.log_source`` is always the live primary connector."""
+        # FINDING #7 + H1 contract: the canonical EVENT-feed funnel reference is the one
+        # STATE last assigned onto ``_primary._event_funnel`` (state._wire() sets it at
+        # boot, before this method ever runs). Capture that LIVE hook off the current
+        # primary BEFORE we mint a fresh one, mirror it to the manager-level
+        # ``self._event_funnel``, then fan it out to every child below — so an events-role
+        # feed on ANY source (not just the primary) routes to the funnel. If the manager
+        # already has a non-None hook (set via ``set_event_funnel``), keep that.
+        live = getattr(self, "_event_funnel", None)
+        if live is None:
+            live = getattr(getattr(self, "_primary", None), "_event_funnel", None)
+        self._event_funnel = live
         # Close previously-owned non-primary clients.
         self._close_owned()
         self._primary = self._build_primary()
@@ -178,6 +213,30 @@ class PollerManager:
             except Exception as exc:  # noqa: BLE001 — one bad source must not break fan-out
                 logger.error("Could not build poller for source %s (%s): %s",
                              getattr(src, "id", "?"), getattr(src, "source_type", "?"), exc)
+        # Re-propagate the manager-level EVENT-feed funnel hook onto EVERY child (#7).
+        # The individual builders already set it, but ``_event_funnel`` may have been
+        # (re)assigned on the manager after construction; this guarantees a rebuild leaves
+        # every child carrying the current hook (or None when routing is off).
+        self._propagate_funnel()
+
+    def set_event_funnel(self, funnel: Callable | None) -> None:
+        """Set the manager-level EVENT-feed funnel hook + fan it out to every child (#7).
+
+        State calls this (or assigns ``manager._event_funnel`` then ``rebuild()``s) to
+        wire the detection funnel. Storing it here — not only on the primary — is what
+        lets an events-role feed on ANY source route to the funnel."""
+        self._event_funnel = funnel
+        self._propagate_funnel()
+
+    def _propagate_funnel(self) -> None:
+        """Copy the manager-level ``_event_funnel`` onto every child (primary + non-
+        primary). Best-effort; a missing attribute only means routing stays off."""
+        funnel = getattr(self, "_event_funnel", None)
+        for p in self._all_pollers():
+            try:
+                p._event_funnel = funnel
+            except Exception:  # noqa: BLE001 — never break a rebuild on this
+                pass
 
     def _all_pollers(self) -> list[Poller]:
         return [self._primary, *self._children]
@@ -198,20 +257,27 @@ class PollerManager:
         """Fan out ONE poll cycle across every per-source poller and aggregate the
         stats into a single dict (same shape a single Poller returns). Each source is
         isolated (one failure is logged + skipped, never aborting the others). A
-        fan-out semaphore bounds concurrency (``caps.max_concurrent``); an in-flight
-        cluster-signature guard is shared across children for this tick."""
+        fan-out semaphore bounds concurrency (``caps.max_concurrent``).
+
+        The WHOLE tick is serialized by ``self._poll_lock`` (finding #6/#15): the
+        scheduler loop and a manual ``POST /api/poll`` share this ONE lock, so only one
+        fan-out tick runs at a time and a manual poll waits for the loop tick — the same
+        sequential semantics the single Poller had. Duplicate-case safety WITHIN a tick
+        (two sources, same signature) is enforced by the pipeline's per-signature locks,
+        not by mutating the shared pipeline (the old monkeypatch guard was removed)."""
         prefs = prefs or self._get_prefs()
+        async with self._poll_lock:
+            return await self._poll_once_locked(prefs)
+
+    async def _poll_once_locked(self, prefs: Preferences) -> dict[str, Any]:
         pollers = self._all_pollers()
         # Single-poll fast path: 0/1 poller behaves BYTE-IDENTICALLY to the old single
-        # Poller (no semaphore/guard overhead, same return object).
+        # Poller (no semaphore overhead, same return object).
         if len(pollers) <= 1:
             return await self._primary.poll_once(prefs)
 
         limit = max(1, int(getattr(prefs.caps, "max_concurrent", 3)))
         sem = asyncio.Semaphore(limit)
-        # Shared per-tick in-flight guard: stops the SAME cluster signature being
-        # investigated concurrently by two sources' pipelines in one tick.
-        guard = _install_inflight_guard(self._state._real_pipeline)
 
         async def _run_one(p: Poller) -> dict[str, Any] | None:
             async with sem:
@@ -224,10 +290,7 @@ class PollerManager:
                     )
                     return None
 
-        try:
-            results = await asyncio.gather(*[_run_one(p) for p in pollers])
-        finally:
-            guard.restore()
+        results = await asyncio.gather(*[_run_one(p) for p in pollers])
 
         agg: dict[str, Any] = {k: 0 for k in _SUM_KEYS}
         for res in results:
@@ -284,47 +347,3 @@ def _connector_has_feeds(connector) -> bool:
         return bool(list(getter()))
     except Exception:  # noqa: BLE001
         return False
-
-
-class _InflightGuard:
-    """Wraps ``pipeline.investigate_cluster`` for one manager tick so the SAME cluster
-    signature is not investigated concurrently by two per-source pollers. A signature
-    already in-flight this tick is skipped (returns None) rather than double-run. The
-    original method is restored after the tick (so the shared pipeline is untouched
-    outside a fan-out tick). This adds NO status/close logic (#3): it only de-dups the
-    investigation call — a skipped duplicate has already been correlated by the same
-    signature, so nothing is lost."""
-
-    def __init__(self, pipeline) -> None:
-        self._pipeline = pipeline
-        self._orig = getattr(pipeline, "investigate_cluster", None)
-        self._inflight: set[str] = set()
-
-    def install(self) -> "_InflightGuard":
-        orig = self._orig
-        if orig is None:
-            return self
-
-        async def _wrapped(cluster, *args, **kwargs):
-            sig = getattr(cluster, "signature", None)
-            if sig is not None and sig in self._inflight:
-                logger.debug("skipping duplicate in-flight investigation for %s", sig)
-                return None
-            if sig is not None:
-                self._inflight.add(sig)
-            try:
-                return await orig(cluster, *args, **kwargs)
-            finally:
-                if sig is not None:
-                    self._inflight.discard(sig)
-
-        self._pipeline.investigate_cluster = _wrapped  # type: ignore[assignment]
-        return self
-
-    def restore(self) -> None:
-        if self._orig is not None:
-            self._pipeline.investigate_cluster = self._orig  # type: ignore[assignment]
-
-
-def _install_inflight_guard(pipeline) -> _InflightGuard:
-    return _InflightGuard(pipeline).install()

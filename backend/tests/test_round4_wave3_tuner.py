@@ -200,6 +200,64 @@ async def test_noisy_rule_auto_applies_n_raise_audited_and_reversible(app_state:
 
 
 # --------------------------------------------------------------------------- #
+# FINDING #14 — a rule is bumped ONCE per cadence window, never re-raised every tick.
+# --------------------------------------------------------------------------- #
+async def test_two_ticks_within_cadence_bump_only_once(app_state: AppState) -> None:
+    """The nightly tuner runs on a 6h loop but must re-raise a knob AT MOST once per
+    cadence window: without a guard it would bump ``n`` on EVERY tick (the trailing-window
+    FP-rate is unchanged tick-to-tick), growing the knob unbounded. ``run_once`` builds an
+    ``already_tuned`` set from the tuning_store so the SECOND pass over the SAME noise does
+    NOT re-apply."""
+    prefs = _tuning_prefs(min_samples=25)
+    cases = [_closed_case(case_id=f"c{i}", rule="noisy_rule") for i in range(30)]
+
+    store = TuningStore(app_state._kv)
+    audit = FakeAudit()
+    write, box = _writer_capture()
+
+    # TICK 1 — the noisy rule is genuinely noisy → +1 auto-applied (5 -> 6).
+    out1 = await run_once(prefs, cases, app_state.proposals, audit,
+                          tuning_store=store, write_prefs=write)
+    assert len(out1.auto_applied) == 1
+    assert out1.auto_applied[0].before == 5 and out1.auto_applied[0].after == 6
+    written_prefs = box["prefs"]
+    assert written_prefs.correlation_for("noisy_rule").n == 6
+    assert len(await store.list(active_only=True)) == 1
+
+    # TICK 2 — same window, same cases, the raised prefs threaded in. The rule is STILL
+    # over target (nothing changed), but it was ALREADY tuned this window → NO second bump.
+    out2 = await run_once(written_prefs, cases, app_state.proposals, audit,
+                          tuning_store=store, write_prefs=write)
+    assert out2.ran is True
+    assert out2.auto_applied == []                      # NOT re-raised
+    assert out2.proposals == []
+    # Exactly ONE record in the ledger; n did not creep to 7.
+    assert len(await store.list(active_only=True)) == 1
+    assert box["prefs"].correlation_for("noisy_rule").n == 6
+    # Only the tick-1 TUNING audit exists (no second auto-apply audit).
+    assert len(audit.by_type(ActionType.TUNING)) == 1
+
+
+async def test_scheduler_cadence_gate_skips_ticks_within_window(app_state: AppState) -> None:
+    """The scheduler's cadence gate: with a fresh (never-run) store the gate is OPEN; once
+    a run is stamped, a subsequent tick INSIDE the nightly window is gated CLOSED; a stamp
+    older than the window re-opens it (FINDING #14 — belt on the scheduler side too)."""
+    cfg = ThresholdTuningConfig(enabled=True, cadence="nightly")
+    # Never run yet → gate open.
+    assert await app_state._tuner_cadence_elapsed(cfg) is True
+    # Stamp "now" → a same-window tick is gated off.
+    await app_state.tuning_store.set_last_run_at()
+    assert await app_state._tuner_cadence_elapsed(cfg) is False
+    # A stamp older than the nightly window (25h ago) re-opens the gate.
+    old = (now_utc() - timedelta(hours=25)).isoformat()
+    await app_state.tuning_store.set_last_run_at(old)
+    assert await app_state._tuner_cadence_elapsed(cfg) is True
+    # Manual cadence is always instant (window 0).
+    assert await app_state._tuner_cadence_elapsed(
+        ThresholdTuningConfig(enabled=True, cadence="manual")) is True
+
+
+# --------------------------------------------------------------------------- #
 # A 3-of-3 fluke does NOT trip (Wilson + min-samples)
 # --------------------------------------------------------------------------- #
 async def test_three_of_three_fluke_does_not_trip(app_state: AppState) -> None:
