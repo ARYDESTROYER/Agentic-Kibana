@@ -110,12 +110,20 @@ describe('BatchJobs', () => {
     jobsMock.mockResolvedValue({ jobs: JOBS, count: JOBS.length });
     renderPage();
 
-    await waitFor(() => expect(screen.getByText('Total jobs')).toBeInTheDocument());
+    // The "Requests" tile derives `of 14 retrieved` from the async-loaded rows
+    // (totals.requests = 10 + 4). The four StatCards render EAGERLY (even during the
+    // loading skeleton, with totals = 0), so `Total jobs` is present before the
+    // jobsMock promise resolves — asserting it via getByText after a waitFor on a
+    // DIFFERENT node would race the row-load under CPU contention. Anchor the wait on
+    // the value that only appears once the rows land: `of 14 retrieved`. findByText
+    // polls until the loaded-state re-render commits (default 1000ms is tight under a
+    // fully parallel suite → give it explicit headroom without weakening the assert).
+    expect(await screen.findByText(/of 14 retrieved/, {}, { timeout: 5000 })).toBeInTheDocument();
+    // Now that the loaded state has committed, the sibling tiles are all present.
+    expect(screen.getByText('Total jobs')).toBeInTheDocument();
     expect(screen.getByText('In flight')).toBeInTheDocument();
     // "Retrieved" names both a stat tile and a state badge → at least one present.
     expect(screen.getAllByText('Retrieved').length).toBeGreaterThan(0);
-    // 10 of 14 requests retrieved across the two jobs.
-    expect(screen.getByText(/of 14 retrieved/)).toBeInTheDocument();
   });
 
   it('shows the empty state when there are no jobs', async () => {

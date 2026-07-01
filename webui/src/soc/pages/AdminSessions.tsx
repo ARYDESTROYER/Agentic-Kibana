@@ -209,8 +209,9 @@ export function AdminSessionsInner() {
               ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <label className="flex items-center gap-2 text-sm text-foreground">
+          <label htmlFor="term-notify" className="flex items-center gap-2 text-sm text-foreground">
             <Checkbox
+              id="term-notify"
               checked={termNotify}
               onCheckedChange={(v) => setTermNotify(v === true)}
               aria-label="Notify the user"
@@ -250,8 +251,9 @@ export function AdminSessionsInner() {
               their already-issued tokens stop working. They will need to sign in again everywhere.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <label className="flex items-center gap-2 text-sm text-foreground">
+          <label htmlFor="revoke-all-notify" className="flex items-center gap-2 text-sm text-foreground">
             <Checkbox
+              id="revoke-all-notify"
               checked={revokeAllNotify}
               onCheckedChange={(v) => setRevokeAllNotify(v === true)}
               aria-label="Notify the user"

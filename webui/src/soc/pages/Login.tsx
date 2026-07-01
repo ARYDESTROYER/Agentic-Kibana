@@ -452,6 +452,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         onChange={(e) => setUsername(e.target.value)}
                         autoComplete="username"
                         disabled={busy}
+                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                         autoFocus
                       />
                     </div>
@@ -557,6 +558,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         autoComplete="username"
                         name="username"
                         disabled={busy}
+                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                         autoFocus
                       />
                     </div>
@@ -639,6 +641,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                           value={mfaCode}
                           onChange={(e) => setMfaCode(e.target.value)}
                           disabled={busy}
+                          /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                           autoFocus
                         />
                       </div>
@@ -647,6 +650,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         value={mfaCode}
                         onChange={setMfaCode}
                         disabled={busy}
+                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                         autoFocus
                         aria-label="Authentication code"
                       />
@@ -700,6 +704,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         onChange={(e) => setNewPassword(e.target.value)}
                         autoComplete="new-password"
                         disabled={busy}
+                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                         autoFocus
                       />
                     </div>

@@ -784,10 +784,13 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          {/* A native <label> does not forward clicks to a Radix Switch (a
+              <button role="switch">); the Switch is self-labeled via aria-label.
+              A <div> keeps the layout/behavior identical. */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Switch checked={grouped} onCheckedChange={setGrouped} aria-label="Group by category" />
             Group by category
-          </label>
+          </div>
           <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
             <SelectTrigger className="w-[12rem]" aria-label="Sort memories">
               <SelectValue placeholder="Sort" />

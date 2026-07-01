@@ -234,6 +234,9 @@ const UserAvatar: React.FC<{ src?: string; name: string; className?: string }> =
   const [broken, setBroken] = React.useState(false);
   if (src && !broken) {
     return (
+      // onError is a broken-image fallback (swap to initials), not a user
+      // interaction — the rule flags any handler on a non-interactive element.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
       <img
         src={src}
         alt=""

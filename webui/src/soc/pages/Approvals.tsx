@@ -332,8 +332,13 @@ function ProposalCard({
       <div className="flex flex-wrap items-center justify-end gap-2 pl-3">
         <Tooltip>
           <TooltipTrigger asChild>
+            {/* tabIndex={0} makes this disabled-state lock indicator keyboard-
+                focusable so its explanatory tooltip is reachable without a mouse
+                (there is no real control to disable — this replaces the gated
+                Approve button). It is intentionally focusable-but-not-interactive. */}
             <span
               className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground"
+              /* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */
               tabIndex={0}
               aria-label="Approve requires admin"
             >
@@ -675,10 +680,13 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
           </span>
         </div>
         {proposals.length > 0 ? (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          // Not a <label>: a native label does not forward clicks to a Radix
+          // Switch (a <button role="switch">); the Switch is self-labeled via
+          // aria-label. A <div> keeps the layout/behavior identical.
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Switch checked={groupBy} onCheckedChange={setGroupBy} aria-label="Group by source or rule" />
             Group by source / rule
-          </label>
+          </div>
         ) : null}
       </div>
 

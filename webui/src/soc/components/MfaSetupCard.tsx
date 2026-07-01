@@ -192,6 +192,7 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
                 value={disableCode}
                 onChange={(ev) => setDisableCode(ev.target.value)}
                 disabled={busy}
+                /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                 autoFocus
               />
               <div className="flex gap-2">
@@ -299,6 +300,7 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
                   value={confirmCode}
                   onChange={(ev) => setConfirmCode(ev.target.value)}
                   disabled={busy}
+                  /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                   autoFocus
                 />
                 <Button type="submit" size="sm" disabled={busy || confirmCode.trim().length < 6}>

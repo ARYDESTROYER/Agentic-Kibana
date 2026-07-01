@@ -229,6 +229,7 @@ function ResetDialog({ tier, onClose, onDone }: ResetDialogProps) {
               autoCorrect="off"
               spellCheck={false}
               disabled={busy}
+              /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
               autoFocus
             />
           </form>

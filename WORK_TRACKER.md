@@ -326,7 +326,13 @@ CaseDetail.tsx, config.py, models.py, routes.py.
   next: A11y pass → P5 full verify + adversarial audit → P6 polish (2nd fleet, stabilize 2 flaky tests) → P7 docs.
 - Baseline before coupling: 1550 pytest / 582 vitest / build clean / 0 lint. Entry index chunk ~537kB (coupling fixes).
 - FLAKY tests (stabilize in P6): account.render + Knowledge '/of 14 retrieved/' (async timeout under load).
+- d3801f9 feat(round5): loose coupling G8 (registry routing + code-splitting + router decomposition; bugs
+  #3/#11/#13/#14). Entry bundle 537→264kB. 1583 pytest / 600 vitest / route_auth_coverage green.
+  NOTE: coupling verify AGENT died on transient API error, but I verified the tree GREEN myself before commit.
 - ALL 6 USER FEATURE ASKS SHIPPED: G1 color, G2 design system, G3 settings, G4/G5 dashboard+hero, G6 rules, G7 custom dash.
+- ALL 8 WAVES DONE (W0 + G1-G8). Baseline now 1583 pytest / 600 vitest / build clean 264kB / 0 lint errors.
+- FINISHING: A11y pass running (wf_02d185c0-440); then P6 UI polish/rework fleet + adversarial audit; then P5 final
+  verify; then P7 docs (CLAUDE/HANDOFF/README/ROADMAP/CHANGELOG + round5 IMPLEMENTATION) + delete this tracker.
 - CONTENTION for remaining waves: Rules+CustomDash both touch registry/nav (running Rules FIRST, then CustomDash).
   Coupling-A (useNavigate) touches ALL pages → run LAST after all page edits. routes.py split = one-slice serial.
 

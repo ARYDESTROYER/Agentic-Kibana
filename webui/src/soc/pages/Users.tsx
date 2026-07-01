@@ -570,6 +570,7 @@ function AddUserDialog({
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="off"
               disabled={busy}
+              /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
               autoFocus
             />
           </div>
@@ -670,6 +671,7 @@ function ResetPasswordDialog({
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             disabled={busy}
+            /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
             autoFocus
           />
         </div>

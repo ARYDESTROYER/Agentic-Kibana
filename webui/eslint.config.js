@@ -75,8 +75,19 @@ export default tseslint.config(
       // lint gate stays at 0 ERRORS (only rules-of-hooks is an error). This spreads the
       // recommended config's rules and forces every one to "warn" (the recommended set
       // marks some as "error"; we do not want those to break `npm run lint` yet).
+      //
+      // Preserve the plugin's own intent: rules the recommended config sets to
+      // 'off' stay OFF (the plugin turns OFF its DEPRECATED rules — e.g.
+      // `label-has-for`, superseded by `label-has-associated-control`). Blanket-
+      // forcing EVERY key to 'warn' resurrected those deprecated rules and made
+      // them fire false positives on correctly-associated `htmlFor`/`id` labels.
+      // We downgrade the ENABLED recommended rules ('error'→'warn') and keep the
+      // 'off' ones off.
       ...Object.fromEntries(
-        Object.keys(jsxA11y.configs.recommended.rules).map((rule) => [rule, 'warn']),
+        Object.entries(jsxA11y.configs.recommended.rules).map(([rule, setting]) => {
+          const level = Array.isArray(setting) ? setting[0] : setting;
+          return [rule, level === 'off' || level === 0 ? 'off' : 'warn'];
+        }),
       ),
       // Off (registered only so existing disable-directives are recognised).
       '@typescript-eslint/no-explicit-any': 'off',

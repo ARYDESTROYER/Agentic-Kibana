@@ -216,6 +216,7 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
             placeholder="Jump to a page, search cases/sources, run an action…"
             value={query}
             onValueChange={setQuery}
+            /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
             autoFocus
           />
           <CommandList>

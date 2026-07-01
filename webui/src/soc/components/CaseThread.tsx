@@ -216,6 +216,7 @@ const ThreadComposer: React.FC<{
       <Textarea
         ref={ref}
         rows={onCancel ? 2 : 3}
+        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement in a comment composer/dialog; behavior-preserving */
         autoFocus={autoFocus}
         className="resize-none"
         placeholder={placeholder || 'Add a comment… use @ to mention a teammate'}
@@ -378,6 +379,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             <div className="mt-2">
               <ThreadComposer
                 users={users}
+                /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                 autoFocus
                 submitLabel="Save"
                 busy={busy}
@@ -498,6 +500,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             <div className="flex-1">
               <ThreadComposer
                 users={users}
+                /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
                 autoFocus
                 submitLabel="Reply"
                 busy={busy}

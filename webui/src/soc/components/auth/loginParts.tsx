@@ -283,6 +283,7 @@ export const OtpInput: React.FC<OtpInputProps> = ({
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
           maxLength={1}
           disabled={disabled}
+          /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
           autoFocus={autoFocus && i === 0}
           aria-label={`${ariaLabel} digit ${i + 1}`}
           className={cn(

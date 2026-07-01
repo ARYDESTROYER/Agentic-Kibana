@@ -390,6 +390,7 @@ function ImageUpload({
           type="file"
           accept={accept}
           disabled={disabled}
+          aria-label={promptText}
           className="sr-only"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -987,7 +988,11 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           title="Material pack"
           sub="The shell surface treatment. “Command” adds a faint glow + grid overlay for a denser command-center feel — colours and text contrast are unchanged."
         />
-        <label className="flex w-fit cursor-pointer items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-sm text-foreground">
+        {/* Not a <label>: a native <label> does not forward clicks to a Radix
+            Switch (a <button role="switch">), so it provided no association —
+            the Switch is self-labeled via aria-label. A <div> keeps the styling
+            and behavior identical while dropping the misleading label semantics. */}
+        <div className="flex w-fit items-center gap-3 rounded-md border border-border bg-surface px-4 py-3 text-sm text-foreground">
           <Switch
             checked={material === 'command'}
             disabled={readOnly}
@@ -998,7 +1003,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             <Zap className="h-4 w-4 text-primary" aria-hidden />
             Command material pack
           </span>
-        </label>
+        </div>
       </div>
 
       <Separator />

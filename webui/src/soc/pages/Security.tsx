@@ -250,8 +250,9 @@ function ProviderEditor({
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs">Group → role map (one per line, e.g. <span className="font-mono">soc-admins=super_admin</span>)</Label>
+          <Label htmlFor="sso-group-role-map" className="text-xs">Group → role map (one per line, e.g. <span className="font-mono">soc-admins=super_admin</span>)</Label>
           <textarea
+            id="sso-group-role-map"
             className="w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs"
             rows={3}
             value={groupMapText}

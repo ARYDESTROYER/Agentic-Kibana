@@ -168,6 +168,10 @@ export const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
               <Minus />
             </IconButton>
             <div className="relative flex-1">
+              {/* Labeled via Field's <label htmlFor={id}> (id set below); the
+                  association crosses the render-prop boundary so the linter can't
+                  see it statically. */}
+              {/* eslint-disable-next-line jsx-a11y/control-has-associated-label */}
               <input
                 ref={ref}
                 id={id}

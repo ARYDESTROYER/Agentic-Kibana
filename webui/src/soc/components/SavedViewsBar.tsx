@@ -199,6 +199,7 @@ export const SavedViewsBar: React.FC<SavedViewsBarProps> = ({
               }}
               placeholder="e.g. My open criticals"
               aria-label="View name"
+              /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
               autoFocus
             />
             <p className="text-[11px] text-muted-foreground">

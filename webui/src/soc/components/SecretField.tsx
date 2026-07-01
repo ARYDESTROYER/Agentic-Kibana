@@ -93,6 +93,9 @@ export const SecretField = React.forwardRef<HTMLInputElement, SecretFieldProps>(
 
             {/* New-value input (masked). This is the ONLY place a secret is typed. */}
             <div className="relative">
+              {/* Labeled via Field's <label htmlFor={id}> — association crosses the
+                  render-prop boundary so the linter can't see it statically. */}
+              {/* eslint-disable-next-line jsx-a11y/control-has-associated-label */}
               <input
                 ref={ref}
                 id={id}

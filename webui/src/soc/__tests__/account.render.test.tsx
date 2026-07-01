@@ -88,12 +88,17 @@ describe('Account page', () => {
     });
     renderAccount();
 
-    expect(await screen.findByText('Alice Analyst')).toBeInTheDocument();
-    // @username + role badge derived from humanizeToken.
+    // The page mounts in a loading skeleton, then api.account.get() resolves and the
+    // profile card commits. Under a fully parallel suite that async transition can slip
+    // past waitFor's default 1000ms — poll with explicit headroom (same assertion).
+    expect(await screen.findByText('Alice Analyst', {}, { timeout: 5000 })).toBeInTheDocument();
+    // @username + role badge derived from humanizeToken (present in the same commit).
     expect(screen.getByText('@alice')).toBeInTheDocument();
     expect(screen.getByText('Analyst tier2')).toBeInTheDocument();
     // The editable display-name input mirrors the loaded value.
-    const display = (await screen.findByLabelText('Display name')) as HTMLInputElement;
+    const display = (await screen.findByLabelText('Display name', undefined, {
+      timeout: 5000,
+    })) as HTMLInputElement;
     expect(display.value).toBe('Alice Analyst');
   });
 
@@ -119,14 +124,18 @@ describe('Account page', () => {
     );
     renderAccount();
 
-    const display = (await screen.findByLabelText('Display name')) as HTMLInputElement;
+    // Wait out the loading→ready transition before editing (headroom for a contended
+    // suite; the assertion — that the field exists and is editable — is unchanged).
+    const display = (await screen.findByLabelText('Display name', undefined, {
+      timeout: 5000,
+    })) as HTMLInputElement;
     fireEvent.change(display, { target: { value: 'Alice A.' } });
 
     const save = screen.getByRole('button', { name: /Save changes/i });
-    await waitFor(() => expect(save).not.toBeDisabled());
+    await waitFor(() => expect(save).not.toBeDisabled(), { timeout: 5000 });
     fireEvent.click(save);
 
-    await waitFor(() => expect(accountPut).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(accountPut).toHaveBeenCalledTimes(1), { timeout: 5000 });
     expect(accountPut.mock.calls[0][0]).toMatchObject({ display_name: 'Alice A.' });
   });
 
@@ -139,8 +148,10 @@ describe('Account page', () => {
     });
     renderAccount();
 
-    await waitFor(() =>
-      expect(screen.getByText(/environment-provisioned administrator/i)).toBeInTheDocument(),
+    await waitFor(
+      () =>
+        expect(screen.getByText(/environment-provisioned administrator/i)).toBeInTheDocument(),
+      { timeout: 5000 },
     );
     expect(screen.queryByRole('button', { name: /Save changes/i })).toBeNull();
   });

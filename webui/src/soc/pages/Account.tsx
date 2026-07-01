@@ -124,6 +124,9 @@ const AvatarBlock: React.FC<{ src?: string; name: string; size?: number }> = ({
   const dim = { width: size, height: size };
   if (src && !broken) {
     return (
+      // onError is a broken-image fallback (swap to initials), not a user
+      // interaction — the rule flags any handler on a non-interactive element.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
       <img
         src={src}
         alt=""
@@ -407,6 +410,7 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                         type="file"
                         accept="image/png,image/jpeg,image/webp,image/gif"
                         className="hidden"
+                        aria-label="Upload avatar image"
                         onChange={(e) => void onPickAvatar(e.target.files?.[0])}
                       />
                       <Button

@@ -173,7 +173,10 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                       <span className="flex items-center gap-1.5">
                         {c.setup_help ? (
                           // The (?) opens a popover; stop the card's click/keydown so it
-                          // doesn't also select the connector.
+                          // doesn't also select the connector. This span is only a
+                          // propagation boundary — the real interactive element is the
+                          // HelpTip button nested inside it, so it needs no role/tabindex.
+                          // eslint-disable-next-line jsx-a11y/no-static-element-interactions
                           <span
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => e.stopPropagation()}

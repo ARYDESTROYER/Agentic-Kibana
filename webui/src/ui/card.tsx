@@ -74,13 +74,22 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 CardHeader.displayName = 'CardHeader';
 
 const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
-    <h3
-      ref={ref}
-      className={cn('text-base font-semibold leading-tight tracking-tight text-foreground', className)}
-      {...props}
-    />
-  ),
+  ({ className, children, ...props }, ref) => {
+    // Never emit an EMPTY heading (a11y: jsx-a11y/heading-has-content — an empty
+    // <h3> is announced as a blank heading and clutters the AT heading list).
+    // When there are no children the title collapses to nothing; callers always
+    // pass a title, so this is behavior-identical for every real consumer.
+    if (children == null || children === false || children === '') return null;
+    return (
+      <h3
+        ref={ref}
+        className={cn('text-base font-semibold leading-tight tracking-tight text-foreground', className)}
+        {...props}
+      >
+        {children}
+      </h3>
+    );
+  },
 );
 CardTitle.displayName = 'CardTitle';
 

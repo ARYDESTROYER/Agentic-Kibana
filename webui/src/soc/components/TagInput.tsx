@@ -94,6 +94,10 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
               disabled && 'cursor-not-allowed opacity-50',
             )}
           >
+            {/* role="list" is kept intentionally: `display:contents` (the
+                `contents` class) strips implicit list semantics in several
+                browsers, so the explicit role restores them. */}
+            {/* eslint-disable-next-line jsx-a11y/no-redundant-roles */}
             <ul role="list" className="contents">
               {value.map((tag, i) => (
                 <li
@@ -115,6 +119,9 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
                 </li>
               ))}
             </ul>
+            {/* Labeled via Field's <label htmlFor={id}> — association crosses the
+                render-prop boundary so the linter can't see it statically. */}
+            {/* eslint-disable-next-line jsx-a11y/control-has-associated-label */}
             <input
               ref={ref}
               id={id}
