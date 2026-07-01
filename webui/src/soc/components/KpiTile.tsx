@@ -33,7 +33,20 @@ export interface KpiTileProps {
   delta?: KpiDelta;
   /** When provided the tile becomes a keyboard-accessible button. */
   onClick?: () => void;
+  /**
+   * Stable id for the `data-testid="kpi-<id>"` anchor. When omitted it is derived
+   * from the label (slugified), so every tile is test-addressable without churn.
+   */
+  testId?: string;
   className?: string;
+}
+
+/** Slugify a label into a stable, lowercase, dash-joined id for test anchors. */
+function slugId(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 /** Soft tinted chip behind the icon — the only place accent color appears. */
@@ -54,8 +67,9 @@ const ACCENT_CHIP: Record<KpiAccent, string> = {
  * keyboard-accessible button with focus ring + calm hover. Token-themed.
  */
 export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
-  ({ label, value, sub, icon: Icon, accent = 'primary', delta, onClick, className }, ref) => {
+  ({ label, value, sub, icon: Icon, accent = 'primary', delta, onClick, testId, className }, ref) => {
     const clickable = typeof onClick === 'function';
+    const kpiTestId = `kpi-${testId ?? slugId(label)}`;
 
     const inner = (
       <>
@@ -107,6 +121,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           ref={ref as React.Ref<HTMLButtonElement>}
           type="button"
           onClick={onClick}
+          data-testid={kpiTestId}
           className={cn(
             base,
             'block w-full transition-colors hover:border-primary/40 hover:bg-accent/30',
@@ -120,7 +135,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     }
 
     return (
-      <div ref={ref as React.Ref<HTMLDivElement>} className={cn(base, className)}>
+      <div ref={ref as React.Ref<HTMLDivElement>} data-testid={kpiTestId} className={cn(base, className)}>
         {inner}
       </div>
     );

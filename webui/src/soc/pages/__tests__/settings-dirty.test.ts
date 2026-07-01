@@ -102,6 +102,24 @@ describe('per-section dirty map', () => {
     expect(sectionChangedKeys('models', ch)).toEqual([]);
   });
 
+  it('tracks the live `auto_close` policy block on the detection section (Round-5 R1)', () => {
+    // The auto-close editor writes `prefs.auto_close` (the field decide() reads). The
+    // detection section must OWN that key so an edit lights the dot + rides the patch —
+    // alongside the legacy `fp_auto_close` scalar (kept for the migrate path).
+    expect(SECTION_KEYS.detection).toContain('auto_close');
+    expect(SECTION_KEYS.detection).toContain('fp_auto_close');
+
+    const savedAc = { ...saved, auto_close: { false_positive: { enabled: false } } };
+    const draftAc = { ...saved, auto_close: { false_positive: { enabled: true } } };
+    const ch = changedKeys(draftAc, savedAc);
+    expect(ch.has('auto_close')).toBe(true);
+    expect(sectionIsDirty('detection', ch)).toBe(true);
+    expect(sectionChangedKeys('detection', ch)).toContain('auto_close');
+    // Only that key rides the minimal PUT patch.
+    const patch = changedPatch(draftAc, savedAc);
+    expect(Object.keys(patch)).toEqual(['auto_close']);
+  });
+
   it('lights BOTH sections that share an owned key (e.g. rag)', () => {
     const draft = { ...saved, rag: { enabled: false } };
     const savedWithRag = { ...saved, rag: { enabled: true } };

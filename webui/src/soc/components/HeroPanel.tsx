@@ -17,6 +17,8 @@ export interface HeroPanelProps {
   actions?: React.ReactNode;
   className?: string;
   children?: React.ReactNode;
+  /** Optional stable test anchor forwarded to the hero <section> root. */
+  'data-testid'?: string;
 }
 
 /**
@@ -33,9 +35,11 @@ export function HeroPanel({
   actions,
   className,
   children,
+  'data-testid': dataTestId,
 }: HeroPanelProps) {
   return (
     <section
+      data-testid={dataTestId}
       className={cn(
         'relative overflow-hidden rounded-lg border border-border bg-card',
         className,

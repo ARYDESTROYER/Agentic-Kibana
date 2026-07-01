@@ -2598,6 +2598,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
                             type="button"
                             onClick={() => setSection(s.id)}
                             aria-current={active ? 'page' : undefined}
+                            data-testid={`settings-section-${s.id}`}
                             title={modified ? `${s.blurb} (unsaved changes)` : s.blurb}
                             className={cn(
                               'group inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',

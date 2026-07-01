@@ -243,6 +243,7 @@ const ChildLink: React.FC<{
         type="button"
         onClick={onSelect}
         aria-current={active ? 'page' : undefined}
+        data-testid={`nav-${child.id}`}
         className={cn(
           // min-h-8 (32px) keeps the leaf row ≥24px for WCAG 2.2 §2.5.8 (target size).
           'flex min-h-8 w-full items-center gap-2.5 rounded-md py-1.5 pl-9 pr-2 text-left text-sm transition-colors',
@@ -293,6 +294,7 @@ const ExpandedItem: React.FC<{
           type="button"
           onClick={() => onNavigate(item.id)}
           aria-current={selfActive ? 'page' : undefined}
+          data-testid={`nav-${item.id}`}
           className={cn(
             'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
             // scroll-my-1: keep a focused leaf off the scroll edge (§2.4.11).
@@ -323,6 +325,7 @@ const ExpandedItem: React.FC<{
           type="button"
           onClick={() => onNavigate(item.id)}
           aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
+          data-testid={`nav-${item.id}`}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
             'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -401,6 +404,7 @@ const CollapsedItem: React.FC<{
       onClick={() => onNavigate(item.id)}
       aria-label={item.label}
       aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
+      data-testid={`nav-${item.id}`}
       className={cn(
         'relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',

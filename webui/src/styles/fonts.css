@@ -1,0 +1,26 @@
+/**
+ * Self-hosted webfonts (Round-5 W0-A / DESIGN_STANDARD §2.1).
+ *
+ * Ships the fonts the Tailwind fontFamily stack already NAMED but never shipped:
+ * Inter (variable weight axis) + JetBrains Mono (the mono/log/IOC face). Sourced
+ * from @fontsource dev-deps → build-time WOFF2, ZERO runtime JS, offline / air-gap
+ * safe (no Google Fonts CDN). Imported once from main.tsx before theme.css so the
+ * @font-face declarations exist when the base layer paints.
+ *
+ * - Inter: the single variable `wght` axis file (covers 100..900) → one asset for
+ *   the whole weight range used across the app (400 body · 500 labels · 600 heads ·
+ *   650 display). `font-display: swap` (declared by Fontsource) keeps text visible.
+ * - JetBrains Mono: only the weights actually used — 400 (code/logs), 500 (emphasis),
+ *   700 (rare bold). Static faces (JetBrains Mono has no variable Fontsource pkg).
+ *
+ * The family strings here MUST match `tailwind.config.js` fontFamily:
+ *   sans → 'Inter Variable', 'Inter', …   ·   mono → 'JetBrains Mono', …
+ */
+
+/* Inter — variable weight axis (single WOFF2, family 'Inter Variable'). */
+@import '@fontsource-variable/inter/wght.css';
+
+/* JetBrains Mono — the three weights the UI actually renders. */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';

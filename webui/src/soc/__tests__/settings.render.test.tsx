@@ -89,7 +89,7 @@ import { AuthProvider } from '../auth';
 import { RouterProvider } from '../router';
 import { TooltipProvider } from '@/ui/tooltip';
 import Settings from '../pages/Settings';
-import Overview from '../pages/Overview';
+import Overview, { PAGE_TITLE } from '../pages/Overview';
 
 function renderWithProviders(node: React.ReactNode) {
   return render(
@@ -124,17 +124,25 @@ describe('Settings IA consolidation (Round-2 Wave 4)', () => {
   it('shows the folded-in Account + Administration sections in the auth-off default', async () => {
     renderWithProviders(<Settings />);
     await waitFor(
-      () => expect(screen.getAllByText('General & data scope').length).toBeGreaterThan(0),
+      () => expect(screen.getByTestId('settings-section-general')).toBeInTheDocument(),
       { timeout: 5000 },
     );
+    // Each rail entry is anchored by its stable section id (reword-proof), and we KEEP
+    // the display-label assertion so a relabel that drops the concept still fails.
     // Personal-account group (no perm → always visible).
+    expect(screen.getByTestId('settings-section-profile')).toBeInTheDocument();
     expect(screen.getByText('Profile')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section-account_security')).toBeInTheDocument();
     expect(screen.getByText('Security & two-factor')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section-sessions')).toBeInTheDocument();
     expect(screen.getByText('Sessions & activity')).toBeInTheDocument();
     // Administration group — in the auth-off default, hasPermission() is true so the
     // perm-gated sections still render in the rail (nothing hidden by default).
+    expect(screen.getByTestId('settings-section-admin_users')).toBeInTheDocument();
     expect(screen.getByText('Users & roles')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section-security')).toBeInTheDocument();
     expect(screen.getByText('Security & SSO')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section-admin_sessions')).toBeInTheDocument();
     expect(screen.getByText('Active sessions')).toBeInTheDocument();
   });
 
@@ -172,10 +180,11 @@ describe('Overview page — render smoke', () => {
 
     renderWithProviders(<Overview />);
 
-    // The Overview hero title is unique and renders after the data resolves.
-    await waitFor(
-      () => expect(screen.getByText('Security Posture Dashboard')).toBeInTheDocument(),
-      { timeout: 5000 },
-    );
+    // The Overview hero renders after the data resolves. Anchor on the stable
+    // `page-hero` testid (reword-proof) + the current title constant.
+    await waitFor(() => expect(screen.getByTestId('page-hero')).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    expect(screen.getByTestId('page-hero')).toHaveTextContent(PAGE_TITLE);
   });
 });

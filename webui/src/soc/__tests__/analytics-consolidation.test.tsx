@@ -114,9 +114,15 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
 
   it('renders ONE tab strip: Operational | Performance | Posture | Cost', async () => {
     render(<Metrics embedded />);
+    // Anchor on the stable per-id tab testids (reword-proof) while KEEPING the
+    // accessible role+name checks (a tab that drops its label still fails).
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /operational/i })).toBeInTheDocument(),
+      expect(screen.getByTestId('metrics-tab-operational')).toBeInTheDocument(),
     );
+    expect(screen.getByTestId('metrics-tab-performance')).toBeInTheDocument();
+    expect(screen.getByTestId('metrics-tab-posture')).toBeInTheDocument();
+    expect(screen.getByTestId('metrics-tab-cost')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /operational/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /performance/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /posture/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^cost$/i })).toBeInTheDocument();

@@ -85,25 +85,27 @@ vi.mock('@/lib/api', () => {
 });
 
 import { App } from '../App';
+import { PAGE_TITLE } from '../pages/Overview';
 
 describe('SOC console — app smoke', () => {
   it('boots to the Overview dashboard without throwing', async () => {
     render(<App />);
-    // The dashboard hero title is unique to Overview and renders before the charts.
-    await waitFor(
-      () => expect(screen.getByText('Security Posture Dashboard')).toBeInTheDocument(),
-      { timeout: 5000 },
-    );
+    // Boot guard: the app must reach the Overview hero. We anchor on the stable
+    // `page-hero` testid (survives any reword/restyle) AND assert the current hero
+    // title constant renders inside it — proving the console booted, not white-screened.
+    await waitFor(() => expect(screen.getByTestId('page-hero')).toBeInTheDocument(), {
+      timeout: 5000,
+    });
+    expect(screen.getByTestId('page-hero')).toHaveTextContent(PAGE_TITLE);
     // The top-level ErrorBoundary fallback must NOT be showing.
     expect(screen.queryByText(/Something went wrong/i)).toBeNull();
   });
 
   it('exposes a focusable skip-to-main link that targets #socMain (WCAG 2.4.1)', async () => {
     render(<App />);
-    await waitFor(
-      () => expect(screen.getByText('Security Posture Dashboard')).toBeInTheDocument(),
-      { timeout: 5000 },
-    );
+    await waitFor(() => expect(screen.getByTestId('page-hero')).toBeInTheDocument(), {
+      timeout: 5000,
+    });
     // The skip link is a real anchor (in the tab order) pointing at the main region.
     const skip = screen.getByRole('link', { name: /skip to main content/i });
     expect(skip).toHaveAttribute('href', '#socMain');

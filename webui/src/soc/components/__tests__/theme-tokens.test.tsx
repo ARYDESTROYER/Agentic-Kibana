@@ -8,6 +8,12 @@
  *   - `resolveDark` honours the explicit-user > org-default > OS precedence.
  *   - `GlassSurface` carries the `glass-surface` reduced-transparency marker class
  *     so the media rule can neutralise its blur, and renders a translucent token fill.
+ *
+ * NOTE (Round-5 W0-Z Z3): this spec asserts the SECURITY behaviour of the theming
+ * layer (allow-list enforced, sanitizer strips injection, AA advisory fires) and
+ * round-trips of OPERATOR-SUPPLIED values only — it must NEVER pin a `theme.css`
+ * default token VALUE literal, so the W0-A token retune (new severity hues, aliased
+ * Radix ramps) does not break it. Keep it that way.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';

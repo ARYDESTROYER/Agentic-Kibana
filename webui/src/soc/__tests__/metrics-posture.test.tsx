@@ -162,9 +162,10 @@ describe('Metrics posture (Round 3 / F5)', () => {
   it('renders the Performance tab with the server lifecycle p50 + honest DASH', async () => {
     render(<Metrics embedded />);
 
-    // Switch to the Performance tab.
-    await waitFor(() => expect(screen.getByRole('tab', { name: /performance/i })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('tab', { name: /performance/i }));
+    // Switch to the Performance tab (anchored on the stable testid; the content
+    // assertions below carry the real behavioral value).
+    await waitFor(() => expect(screen.getByTestId('metrics-tab-performance')).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId('metrics-tab-performance'));
 
     // MTTA p50 humanizes 45m; the MTTA tile is present (the value also appears in the
     // percentile-distribution card, so assert at least one occurrence).
@@ -187,8 +188,8 @@ describe('Metrics posture (Round 3 / F5)', () => {
   it('renders the Posture tab with the MITRE heatmap + Navigator export link', async () => {
     render(<Metrics embedded />);
 
-    await waitFor(() => expect(screen.getByRole('tab', { name: /posture/i })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('tab', { name: /posture/i }));
+    await waitFor(() => expect(screen.getByTestId('metrics-tab-posture')).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId('metrics-tab-posture'));
 
     // The MITRE coverage section + a covered technique id render.
     await waitFor(() => expect(screen.getByText(/MITRE ATT&CK coverage/i)).toBeInTheDocument());

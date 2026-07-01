@@ -12,14 +12,18 @@ const badgeVariants = cva(
         default: 'border-transparent bg-primary text-primary-foreground',
         secondary: 'border-border bg-muted text-muted-foreground',
         outline: 'border-border text-foreground',
-        destructive: 'border-transparent bg-critical text-primary-foreground',
-        success: 'border-success/20 bg-success/10 text-success',
-        warning: 'border-warning/20 bg-warning/10 text-warning',
-        info: 'border-info/20 bg-info/10 text-info',
-        critical: 'border-critical/20 bg-critical/10 text-critical',
-        high: 'border-high/20 bg-high/10 text-high',
-        medium: 'border-medium/20 bg-medium/10 text-medium',
-        low: 'border-low/20 bg-low/10 text-low',
+        // The `destructive` variant NAME is a public contract; it resolves to
+        // --critical (the dead --destructive token was removed in W0-A §1.2).
+        destructive: 'border-transparent bg-critical text-critical-foreground',
+        // Wash-style semantic badges: `/10` fill + the AA-tuned `-text` standalone
+        // color (W0-A §1.3) — the plain `text-{axis}` tints failed 4.5:1 as text.
+        success: 'border-success/20 bg-success/10 text-success-text',
+        warning: 'border-warning/20 bg-warning/10 text-warning-text',
+        info: 'border-info/20 bg-info/10 text-info-text',
+        critical: 'border-critical/20 bg-critical/10 text-critical-text',
+        high: 'border-high/20 bg-high/10 text-high-text',
+        medium: 'border-medium/20 bg-medium/10 text-medium-text',
+        low: 'border-low/20 bg-low/10 text-low-text',
       },
     },
     defaultVariants: {

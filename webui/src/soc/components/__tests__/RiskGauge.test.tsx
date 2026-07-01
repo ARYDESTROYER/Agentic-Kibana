@@ -32,11 +32,15 @@ function geom(size: number) {
   return { r, len };
 }
 
-/** The two arc <path>s: [track, progress]. The progress one carries a dasharray. */
+/**
+ * The two arc <path>s: [track, progress]. Identified STRUCTURALLY, not by class
+ * name (so a W0-A token/class rename can't break the finder): the progress arc is
+ * the one carrying a `stroke-dasharray`; the track is the other one.
+ */
 function paths(container: HTMLElement) {
   const all = Array.from(container.querySelectorAll('path'));
-  const track = all.find((p) => (p.getAttribute('class') || '').includes('stroke-muted'));
   const progress = all.find((p) => p.getAttribute('stroke-dasharray') != null);
+  const track = all.find((p) => p !== progress);
   return { all, track, progress };
 }
 
@@ -104,23 +108,40 @@ describe('RiskGauge (BUG-1 ring rewrite)', () => {
     });
   });
 
-  // (B) Colour: band token on the progress arc + currentColor (not a gradient url).
-  describe('band colour token + currentColor stroke', () => {
-    const cases: Array<[number, string]> = [
-      [27, 'text-low'],
-      [55, 'text-medium'],
-      [70, 'text-high'],
-      [85, 'text-critical'],
-    ];
-    for (const [score, token] of cases) {
-      it(`score=${score} → progress arc has ${token} and stroke="currentColor"`, () => {
+  // (B) Colour: the progress arc paints via `currentColor` (driven by a per-band
+  // token class), never a paint-server url/gradient. We assert this BEHAVIOR without
+  // pinning specific token class names (W0-A retunes severity hues — e.g. low→blue —
+  // but the arc must always be currentColor and the band class must vary by score).
+  describe('band colour via currentColor stroke (band-agnostic)', () => {
+    const SCORE_BANDS = [27, 55, 70, 85] as const;
+    for (const score of SCORE_BANDS) {
+      it(`score=${score} → progress arc strokes currentColor (no paint-server url)`, () => {
         const { progress } = paths(render(<RiskGauge score={score} />).container);
-        const cls = progress!.getAttribute('class') || '';
-        expect(cls).toContain(token);
         expect(progress!.getAttribute('stroke')).toBe('currentColor');
-        expect(progress!.getAttribute('stroke')).not.toMatch(/url\(/);
+        expect(progress!.getAttribute('stroke') || '').not.toMatch(/url\(/);
+        // A per-band colour is expressed as a class (whatever the token names are).
+        expect(progress!.getAttribute('class') || '').not.toBe('');
       });
     }
+
+    it('distinct severity bands yield distinct band colour classes', () => {
+      const classFor = (score: number) => {
+        const { progress } = paths(render(<RiskGauge score={score} />).container);
+        // Keep only the colour-ish (text-*/stroke-*) classes so unrelated utility
+        // classes (transition-*, duration-*) don't mask the band signal.
+        return (progress!.getAttribute('class') || '')
+          .split(/\s+/)
+          .filter((c) => /^(text|stroke)-/.test(c))
+          .sort()
+          .join(' ');
+      };
+      const low = classFor(27);
+      const critical = classFor(85);
+      // Low-band and critical-band arcs must be coloured differently.
+      expect(low).not.toBe('');
+      expect(critical).not.toBe('');
+      expect(low).not.toBe(critical);
+    });
   });
 
   // (D) No gradient remains anywhere in the output.

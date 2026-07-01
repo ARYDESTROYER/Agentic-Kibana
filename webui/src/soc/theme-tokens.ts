@@ -293,6 +293,86 @@ export function hexToHslTriplet(hex: string): string | null {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Runtime AA guard for the operator accent (W0-A A7 / DESIGN_STANDARD §11).   */
+/* The accent fill (`--primary`) always carries WHITE (`--primary-foreground`) */
+/* text across buttons/badges, so white-on-accent must clear WCAG AA. This is  */
+/* self-contained (mirrors branding.api.ts contrastRatio) so the design-system */
+/* layer stays free of the api/types import graph + any circular import.       */
+/* ------------------------------------------------------------------------- */
+
+/** Relative luminance per WCAG 2.x for a normalised [r,g,b] in 0..1 (sRGB→linear). */
+function relLuminance(r: number, g: number, b: number): number {
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** HSL (h 0..360, s/l 0..1) → [r,g,b] each 0..1. */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hk = ((h % 360) + 360) % 360 / 360;
+  const t2c = (t: number) => {
+    let tc = t;
+    if (tc < 0) tc += 1;
+    if (tc > 1) tc -= 1;
+    if (tc < 1 / 6) return p + (q - p) * 6 * tc;
+    if (tc < 1 / 2) return q;
+    if (tc < 2 / 3) return p + (q - p) * (2 / 3 - tc) * 6;
+    return p;
+  };
+  return [t2c(hk + 1 / 3), t2c(hk), t2c(hk - 1 / 3)];
+}
+
+/** Parse an `"H S% L%"` triplet → {h,s,l} (s/l as 0..1), or null. */
+function parseHslTriplet(triplet: string): { h: number; s: number; l: number } | null {
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%\s*$/.exec(triplet);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const s = Number(m[2]) / 100;
+  const l = Number(m[3]) / 100;
+  if (Number.isNaN(h) || Number.isNaN(s) || Number.isNaN(l)) return null;
+  return { h, s: Math.max(0, Math.min(1, s)), l: Math.max(0, Math.min(1, l)) };
+}
+
+/** WCAG contrast (1..21) of WHITE text on an `"H S% L%"` accent fill, or null. */
+function whiteOnHslContrast(triplet: string): number | null {
+  const hsl = parseHslTriplet(triplet);
+  if (!hsl) return null;
+  const [r, g, b] = hslToRgb(hsl.h, hsl.s, hsl.l);
+  const lFill = relLuminance(r, g, b);
+  const lWhite = 1; // white luminance
+  return (Math.max(lFill, lWhite) + 0.05) / (Math.min(lFill, lWhite) + 0.05);
+}
+
+/**
+ * AA-guard an operator accent triplet so white-on-accent clears WCAG AA (4.5:1):
+ *   - if it already passes, return it unchanged;
+ *   - else DARKEN (lower L in 1% steps, ≥ the same hue) until it passes;
+ *   - if even a near-black accent (L floor ~12%) cannot reach 3:1, REJECT (null) so
+ *     the caller falls back to the AA-vetted stylesheet default.
+ * Pure + deterministic; returns the (possibly darkened) `"H S% L%"` triplet or null.
+ */
+export function guardAccentTriplet(triplet: string | null, minRatio = 4.5): string | null {
+  if (!triplet) return null;
+  const hsl = parseHslTriplet(triplet);
+  if (!hsl) return null;
+  const initial = whiteOnHslContrast(triplet);
+  if (initial != null && initial >= minRatio) return triplet;
+  // Darken toward a floor; recompute at each step.
+  for (let l = hsl.l; l >= 0.12; l -= 0.01) {
+    const cand = `${Math.round(hsl.h)} ${Math.round(hsl.s * 100)}% ${Math.round(l * 100)}%`;
+    const ratio = whiteOnHslContrast(cand);
+    if (ratio != null && ratio >= minRatio) return cand;
+  }
+  // Could not reach AA even near-black: accept a darkened value if it clears the 3:1
+  // UI/large-text floor, else reject entirely (use the vetted default).
+  const floor = `${Math.round(hsl.h)} ${Math.round(hsl.s * 100)}% 12%`;
+  const floorRatio = whiteOnHslContrast(floor);
+  return floorRatio != null && floorRatio >= 3 ? floor : null;
+}
+
+/* ------------------------------------------------------------------------- */
 /* The ONE colour-mode resolver — explicit precedence.                        */
 /* ------------------------------------------------------------------------- */
 
@@ -380,8 +460,12 @@ export function applyBranding(
   // the stylesheet default (rather than leaving a stale inline override).
   for (const name of BRANDING_MANAGED_TOKENS) root.style.removeProperty(name);
 
-  // 1. Accent.
-  const accentTriplet = branding?.accent_color ? hexToHslTriplet(branding.accent_color) : null;
+  // 1. Accent. Guard it so WHITE (`--primary-foreground`) on the accent fill clears
+  //    WCAG AA (auto-darken, or reject → keep the vetted stylesheet default). The
+  //    accent drives BOTH `--primary` and the `--ring`; `--ring` reuses the same
+  //    guarded value (its own ≥3:1 bar is looser, so the AA-guarded value is safe).
+  const rawAccent = branding?.accent_color ? hexToHslTriplet(branding.accent_color) : null;
+  const accentTriplet = guardAccentTriplet(rawAccent);
   if (accentTriplet) {
     applyTokens({ '--primary': accentTriplet, '--ring': accentTriplet }, root);
   }

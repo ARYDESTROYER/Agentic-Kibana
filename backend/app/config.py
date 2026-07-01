@@ -696,6 +696,34 @@ class BrandingConfig(BaseModel):
     # Caps for the theme-token override map (plain data, but bounded — #9/#10).
     _MAX_THEME_TOKENS: ClassVar[int] = 200
     _MAX_THEME_TOKEN_LEN: ClassVar[int] = 200
+    # Round-5 W0-A A7 — the server-side MIRROR of the webui allow-list
+    # (theme-tokens.ts ALLOWED_TOKENS). Only these `--*` custom properties are
+    # persistable; any other key is DROPPED (silently, not raised) so a legacy doc
+    # never fails validation but a disallowed/derived token can never be smuggled in.
+    # The derived AA companions (`*-foreground`/`*-text`) are deliberately ABSENT so
+    # an operator can never break the measured contrast pairing. Keep this in lockstep
+    # with theme-tokens.ts ALLOWED_TOKENS.
+    _ALLOWED_THEME_TOKENS: ClassVar[frozenset[str]] = frozenset({
+        # Core brand + ring
+        "--primary", "--ring", "--accent2",
+        # Semantic SOC fills (operator may re-key severity hues within reason)
+        "--critical", "--high", "--medium", "--low", "--info", "--success", "--warning",
+        # Canvas / surface tints (backdrop nudges)
+        "--canvas-tint", "--surface-tint",
+        # Radius + density scale
+        "--radius", "--radius-sm", "--radius-md", "--radius-lg", "--radius-xl", "--density-unit",
+        # Display font hook (value further restricted below)
+        "--font-display",
+        # Material-pack chrome
+        "--glass-tint", "--glass-opacity", "--glow-strength", "--grid-opacity",
+    })
+    # The vetted display-font values (mirror theme-tokens.ts FONT_ALLOWLIST outputs).
+    _FONT_ALLOWLIST: ClassVar[dict[str, str]] = {
+        "inter": "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        "system": "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+        "mono": "'JetBrains Mono', SFMono-Regular, Consolas, Menlo, monospace",
+        "grotesk": "'Space Grotesk', Inter, ui-sans-serif, system-ui, sans-serif",
+    }
     # Caps for the Round-4 login white-label copy (plain text, bounded — #9/#10).
     _MAX_LOGIN_HEADLINE_LEN: ClassVar[int] = 120
     _MAX_LOGIN_BODY_LEN: ClassVar[int] = 600
@@ -717,22 +745,59 @@ class BrandingConfig(BaseModel):
             return "dark"
         return self.default_theme or self.theme
 
+    @classmethod
+    def _sanitize_token_value(cls, name: str, value: str) -> str | None:
+        """Mirror of theme-tokens.ts ``sanitizeTokenValue`` (#9/#10). Rejects any
+        value that could escape a single CSS declaration (braces/semicolons/`url(`/
+        `expression(`/comment markers/angle-brackets/backslashes/`@`, or > cap length),
+        returning None when unsafe. ``--font-display`` is restricted to the vetted
+        font enum (key OR a known full stack). Bare HSL/hex/rem values all pass.
+        Defence-in-depth: the client never applies a value this rejects, so persisting
+        it would be dead + risky."""
+        v = value.strip()
+        if not v or len(v) > cls._MAX_THEME_TOKEN_LEN:
+            return None
+        if re.search(r"[{}<>\\;@]", v):
+            return None
+        if re.search(r"url\s*\(", v, re.IGNORECASE):
+            return None
+        if re.search(r"expression\s*\(", v, re.IGNORECASE):
+            return None
+        if "/*" in v or "*/" in v:
+            return None
+        if name == "--font-display":
+            key = v.lower()
+            if key in cls._FONT_ALLOWLIST:
+                return cls._FONT_ALLOWLIST[key]
+            return v if v in cls._FONT_ALLOWLIST.values() else None
+        return v
+
     @field_validator("theme_tokens")
     @classmethod
     def _check_theme_tokens(cls, v: dict[str, str]) -> dict[str, str]:
+        # Round-5 W0-A A7: allow-list + sanitize server-side, mirroring the webui
+        # (theme-tokens.ts). Unknown keys + unsafe values are DROPPED (not raised) so
+        # a legacy doc always loads; gross abuse (too many / over-long) still raises,
+        # preserving the prior behaviour. The webui already ignores anything this drops.
         if not v:
             return {}
-        if len(v) > 200:
+        if len(v) > cls._MAX_THEME_TOKENS:
             raise ValueError("too many theme tokens (max 200)")
         out: dict[str, str] = {}
         for key, val in v.items():
             k = str(key).strip()
-            sval = str(val)
             if not k:
                 continue
-            if len(k) > 200 or len(sval) > 200:
+            k = k if k.startswith("--") else f"--{k}"
+            sval = str(val)
+            if len(k) > cls._MAX_THEME_TOKEN_LEN or len(sval) > cls._MAX_THEME_TOKEN_LEN:
                 raise ValueError("theme token key/value too long (max 200 characters)")
-            out[k] = sval
+            if k not in cls._ALLOWED_THEME_TOKENS:
+                continue  # drop non-allow-listed / derived (*-foreground/*-text) tokens
+            safe = cls._sanitize_token_value(k, sval)
+            if safe is None:
+                continue  # drop unsafe value
+            out[k] = safe
         return out
 
     @field_validator("logo_data_url", "favicon_data_url")

@@ -63,7 +63,12 @@ export const SECTION_KEYS: Record<string, readonly string[]> = {
     'risk_weights',
     'escalation_confidence',
     'critical_severity',
+    // Both the legacy `fp_auto_close` scalar AND the live `auto_close` policy block
+    // are owned by this section (Round-5 R1 moves the auto-close editor onto
+    // `prefs.auto_close`, the field `decide()` actually reads). Tracking both keeps
+    // the section's "unsaved" dot + the minimal PUT patch correct across the change.
     'fp_auto_close',
+    'auto_close',
     'cross_source_correlation',
   ],
   cases: ['case_id_format'],

@@ -1,4 +1,5 @@
 import tailwindcssAnimate from 'tailwindcss-animate';
+import containerQueries from '@tailwindcss/container-queries';
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -26,20 +27,92 @@ export default {
         secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
         accent: { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
-        destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
+        /** NOTE: the `--destructive` token is DEAD (W0-A §1.2) — deleted from
+            theme.css. Every `destructive` VARIANT (button/badge/alert) resolves to
+            `--critical` directly, so there is no `destructive` color entry here. */
         card: { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
         popover: { DEFAULT: 'hsl(var(--popover))', foreground: 'hsl(var(--popover-foreground))' },
-        /** Semantic SOC severity / status / verdict scale (light+dark aware). */
-        critical: 'hsl(var(--critical))',
-        high: 'hsl(var(--high))',
-        medium: 'hsl(var(--medium))',
-        low: 'hsl(var(--low))',
-        info: 'hsl(var(--info))',
-        success: 'hsl(var(--success))',
-        warning: 'hsl(var(--warning))',
         /** Optional secondary brand accent (login hero aurora). Falls back to the
             primary hue when `--accent2` is not set by branding. */
         accent2: 'hsl(var(--accent2, var(--primary)))',
+        /** Semantic SOC severity / status / verdict scale (light+dark aware).
+            NEW (W0-A §1.2): explicit sunken well + interactive hover + strong
+            (structural/interactive) border. `--accent` stays the NEUTRAL selected
+            surface; `--hover` is one notch below it for interactive hover; and
+            `--border-strong` (≥3:1) is used wherever a border is the ONLY thing
+            conveying a control/focus edge (form controls, focusable rows). */
+        'surface-sunken': 'hsl(var(--surface-sunken))',
+        hover: 'hsl(var(--hover))',
+        'border-strong': 'hsl(var(--border-strong))',
+        /** On-color / standalone-text companions for the 3 semantic axes (W0-A
+            §1.3). `<axis>` is the solid fill; `<axis>-foreground` is AA text ON that
+            fill; `<axis>-text` is the AA standalone text/tint color on a card. */
+        critical: {
+          DEFAULT: 'hsl(var(--critical))',
+          foreground: 'hsl(var(--critical-foreground))',
+          text: 'hsl(var(--critical-text))',
+        },
+        high: {
+          DEFAULT: 'hsl(var(--high))',
+          foreground: 'hsl(var(--high-foreground))',
+          text: 'hsl(var(--high-text))',
+        },
+        medium: {
+          DEFAULT: 'hsl(var(--medium))',
+          foreground: 'hsl(var(--medium-foreground))',
+          text: 'hsl(var(--medium-text))',
+        },
+        low: {
+          DEFAULT: 'hsl(var(--low))',
+          foreground: 'hsl(var(--low-foreground))',
+          text: 'hsl(var(--low-text))',
+        },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))',
+          text: 'hsl(var(--info-text))',
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+          text: 'hsl(var(--success-text))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
+          text: 'hsl(var(--warning-text))',
+        },
+        danger: {
+          DEFAULT: 'hsl(var(--danger))',
+          foreground: 'hsl(var(--danger-foreground))',
+          text: 'hsl(var(--danger-text))',
+        },
+        /** Colorblind-safe categorical chart ramp (Okabe-Ito; W0-A §1.4). Used for
+            IDENTITY-ARBITRARY series (per-model bars, cost). Semantic charts keep the
+            severity/status/verdict tokens above. */
+        'chart-1': 'hsl(var(--chart-1))',
+        'chart-2': 'hsl(var(--chart-2))',
+        'chart-3': 'hsl(var(--chart-3))',
+        'chart-4': 'hsl(var(--chart-4))',
+        'chart-5': 'hsl(var(--chart-5))',
+        'chart-6': 'hsl(var(--chart-6))',
+        'chart-7': 'hsl(var(--chart-7))',
+        'chart-8': 'hsl(var(--chart-8))',
+      },
+      /** The type scale (W0-A §2.3). Redefining what `xs`/`sm`/`base` resolve to
+          upgrades the whole app with zero JSX churn (806/855 usages are xs/sm).
+          Line-heights are fixed rem on 4px multiples (snap to the 8px grid). */
+      fontSize: {
+        '2xs': ['0.6875rem', { lineHeight: '0.875rem', letterSpacing: '0.02em' }], // 11/14 — badges/timestamps only
+        xs: ['0.75rem', { lineHeight: '1rem', letterSpacing: '0.01em' }], // 12/16 — labels, table meta, chips
+        sm: ['0.8125rem', { lineHeight: '1.125rem' }], // 13/18 — dense table cells
+        base: ['0.875rem', { lineHeight: '1.25rem' }], // 14/20 — PRIMARY body/UI default
+        md: ['0.9375rem', { lineHeight: '1.375rem' }], // 15/22 — comfortable reading panels
+        lg: ['1rem', { lineHeight: '1.5rem' }], // 16/24 — long-form / card titles
+        xl: ['1.125rem', { lineHeight: '1.5rem', fontWeight: '600' }], // 18/24 — H3
+        '2xl': ['1.25rem', { lineHeight: '1.625rem', letterSpacing: '-0.01em', fontWeight: '600' }], // 20/26 — H2 page heading
+        '3xl': ['1.5rem', { lineHeight: '1.875rem', letterSpacing: '-0.015em', fontWeight: '650' }], // 24/30 — H1
+        '4xl': ['1.875rem', { lineHeight: '2.25rem', letterSpacing: '-0.02em', fontWeight: '650' }], // 30/36 — hero/display
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -54,18 +127,40 @@ export default {
         'r-xl': 'var(--radius-xl)',
       },
       fontFamily: {
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        /* The family strings MUST match the shipped Fontsource exports (W0-A §2.1):
+           Inter variable exports 'Inter Variable'; JetBrains Mono exports
+           'JetBrains Mono'. 'Inter' stays as a fallback for any statically-installed
+           copy, then the OS stack. */
+        sans: [
+          '"Inter Variable"',
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'Roboto',
+          'sans-serif',
+        ],
         mono: ['"JetBrains Mono"', 'SFMono-Regular', 'Consolas', 'Menlo', 'monospace'],
         /** Operator-selectable display family for hero titles; falls back to the
             sans stack when `--font-display` is unset by branding. */
-        display: ['var(--font-display)', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', '"Inter Variable"', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        /* Quiet, border-first elevation. Light mode leans on hairline borders;
-           shadows are barely-there. A subtle ring replaces the old neon glow. */
+        /* Elevation tokens (W0-A §1.5). Per-theme `--shadow-color` + composed levels
+           live in theme.css so shadows are theme-correct (invisible fixed-navy on a
+           dark canvas is gone) and brandable. Rule: borders for tiled/scrolled
+           content; shadows only for detached floating portals.
+             - elev1 → resting tiles (optional; border-first)
+             - elev2 → the standard portal elevation
+             - menu  → dropdown/select/context menus
+             - overlay → dialog/sheet/popover portals
+           `glow` stays a primary-tinted focus/brand ring (opt-in). */
         glow: '0 0 0 1px hsl(var(--primary) / 0.18), 0 4px 16px -8px hsl(var(--primary) / 0.22)',
-        elev1: '0 1px 2px hsl(222 30% 12% / 0.06), 0 1px 3px hsl(222 30% 12% / 0.08)',
-        elev2: '0 4px 12px -4px hsl(222 30% 12% / 0.12), 0 8px 24px -10px hsl(222 30% 12% / 0.14)',
+        elev1: 'var(--elev-1)',
+        elev2: 'var(--elev-2)',
+        menu: 'var(--shadow-menu)',
+        overlay: 'var(--shadow-overlay)',
       },
       backgroundImage: {
         /* Whisper-soft hero wash — calm, not the old command-center glow. */
@@ -114,5 +209,5 @@ export default {
       },
     },
   },
-  plugins: [tailwindcssAnimate],
+  plugins: [tailwindcssAnimate, containerQueries],
 };

@@ -9,8 +9,37 @@
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { cn } from '@/lib/cn';
 import { DASH, humanizeToken, fmtPercent, toPercentValue } from '@/lib/format';
+import {
+  SEVERITY_COLOR,
+  STATUS_COLOR,
+  VERDICT_COLOR,
+  scoreBand,
+  type ScoreBand,
+} from './palette';
 
 type Variant = NonNullable<BadgeProps['variant']>;
+
+/**
+ * Bridge a palette.ts TOKEN NAME (the ONE authority, §1.6) to a Badge variant.
+ * palette.ts speaks in token names (`critical`/`high`/`primary`/`muted`/…); the
+ * Badge cva speaks in variant names. `primary` → the filled `default`; `muted` →
+ * the neutral `secondary`; every semantic token maps to its same-named variant.
+ */
+const TOKEN_VARIANT: Record<string, Variant> = {
+  critical: 'critical',
+  high: 'high',
+  medium: 'medium',
+  low: 'low',
+  info: 'info',
+  success: 'success',
+  warning: 'warning',
+  primary: 'default',
+  muted: 'secondary',
+};
+
+function tokenVariant(name: string): Variant {
+  return TOKEN_VARIANT[name] ?? 'secondary';
+}
 
 // --------------------------------------------------------------------------- //
 // Severity — accepts a number (0..100 or a 1..4/1..5 bucket) or a string label
@@ -18,15 +47,16 @@ type Variant = NonNullable<BadgeProps['variant']>;
 // --------------------------------------------------------------------------- //
 type SeverityBand = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-/** Normalise a numeric severity into a band. Handles 0..100 and small buckets. */
+/** Normalise a numeric severity into a band via the ONE 0-100 ladder (palette.ts
+ *  scoreBand: 0-21 low / 22-47 medium / 48-73 high / 74-100 critical). A value at
+ *  or below the low floor with no signal reads as `info`. */
 function severityBandFromNumber(n: number): SeverityBand {
   // Small-bucket scales (e.g. Wazuh-ish 0..15, or 1..5): scale up to 0..100.
   const scaled = n <= 5 ? (n / 5) * 100 : n <= 15 ? (n / 15) * 100 : n;
-  if (scaled >= 80) return 'critical';
-  if (scaled >= 60) return 'high';
-  if (scaled >= 35) return 'medium';
-  if (scaled >= 15) return 'low';
-  return 'info';
+  const band: ScoreBand = scoreBand(scaled);
+  // A genuinely-nil score reads as informational, not a "low" alert.
+  if (band === 'low' && scaled < 8) return 'info';
+  return band;
 }
 
 function severityBand(severity: number | string | null | undefined): SeverityBand | null {
@@ -46,12 +76,14 @@ function severityBand(severity: number | string | null | undefined): SeverityBan
   return null;
 }
 
+// Derived from the ONE SEVERITY_COLOR authority (palette.ts, §1.6) → Badge variants,
+// so the severity chip color can never drift from the chart/legend color.
 const SEVERITY_VARIANT: Record<SeverityBand, Variant> = {
-  critical: 'critical',
-  high: 'high',
-  medium: 'medium',
-  low: 'low',
-  info: 'info',
+  critical: tokenVariant(SEVERITY_COLOR.critical),
+  high: tokenVariant(SEVERITY_COLOR.high),
+  medium: tokenVariant(SEVERITY_COLOR.medium),
+  low: tokenVariant(SEVERITY_COLOR.low),
+  info: tokenVariant(SEVERITY_COLOR.info),
 };
 
 const SEVERITY_LABEL: Record<SeverityBand, string> = {
@@ -92,24 +124,17 @@ export function SeverityBadge({ severity, className, showValue }: SeverityBadgeP
 // --------------------------------------------------------------------------- //
 function statusVariant(status: string): Variant {
   const t = status.trim().toLowerCase();
+  // Route the canonical lifecycle statuses through the ONE STATUS_COLOR authority
+  // (palette.ts, §1.6) so the badge + charts never drift (fixes escalated→high).
+  if (t in STATUS_COLOR) return tokenVariant(STATUS_COLOR[t as keyof typeof STATUS_COLOR]);
   switch (t) {
-    case 'new':
-      return 'secondary';
+    // Legacy / non-lifecycle states not in the canonical STATUS_COLOR map.
     case 'open':
     case 'in_progress':
       return 'info';
-    case 'investigating':
-      return 'info';
     case 'needs_human':
-      // Legacy alias of "open · awaiting analyst" — treated as an open/attention state.
+      // Legacy alias of "open · awaiting analyst" — an open/attention state.
       return 'high';
-    case 'escalated':
-      return 'critical';
-    case 'on_hold':
-      return 'warning';
-    case 'resolved':
-      return 'success';
-    case 'closed':
     case 'auto_closed':
       return 'success';
     case 'reopened':
@@ -158,20 +183,11 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
 // --------------------------------------------------------------------------- //
 function dispositionVariant(disposition: string): Variant {
   const t = disposition.trim().toLowerCase();
-  switch (t) {
-    case 'true_positive':
-      return 'critical';
-    case 'false_positive':
-    case 'benign':
-      return 'success';
-    case 'suspicious':
-      return 'high';
-    case 'duplicate':
-    case 'undetermined':
-      return 'secondary';
-    default:
-      return 'secondary';
-  }
+  // Disposition shares the verdict value-space (the investigative OUTCOME axis), so
+  // it routes through the same VERDICT_COLOR authority (§1.6): TP→critical, FP/benign
+  // →info (neutral blue-grey), suspicious→high, duplicate/undetermined→neutral.
+  if (t in VERDICT_COLOR) return tokenVariant(VERDICT_COLOR[t as keyof typeof VERDICT_COLOR]);
+  return 'secondary';
 }
 
 export interface DispositionBadgeProps {
@@ -199,18 +215,11 @@ export function DispositionBadge({ disposition, className }: DispositionBadgePro
 // --------------------------------------------------------------------------- //
 function verdictVariant(verdict: string): Variant {
   const t = verdict.trim().toLowerCase();
-  switch (t) {
-    case 'true_positive':
-      return 'critical';
-    case 'false_positive':
-      return 'success';
-    case 'needs_human':
-      return 'high';
-    case 'benign':
-      return 'success';
-    default:
-      return 'secondary';
-  }
+  // Route through the ONE VERDICT_COLOR authority (palette.ts, §1.6). This applies
+  // the FP→info (neutral blue-grey, NOT green) fix by construction; unknown values
+  // degrade to the neutral secondary variant.
+  if (t in VERDICT_COLOR) return tokenVariant(VERDICT_COLOR[t as keyof typeof VERDICT_COLOR]);
+  return 'secondary';
 }
 
 export interface VerdictBadgeProps {
@@ -274,11 +283,9 @@ export function ConfidenceBadge({ confidence, threshold, note, className }: Conf
 // Risk — a normalised 0..100 score.
 // --------------------------------------------------------------------------- //
 function riskVariant(score: number): Variant {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  if (score >= 15) return 'low';
-  return 'info';
+  // The ONE 0-100 ladder (palette.ts scoreBand): 0-21 low / 22-47 medium /
+  // 48-73 high / 74-100 critical. Risk never reads as "info" (it is a real score).
+  return SEVERITY_VARIANT[scoreBand(score)];
 }
 
 export interface RiskBadgeProps {
@@ -311,10 +318,15 @@ export function RiskBadge({ score, className, label = 'Risk' }: RiskBadgeProps) 
 type PostureBand = 'critical' | 'elevated' | 'guarded' | 'stable';
 
 function postureFromScore(score: number): PostureBand {
-  if (score >= 75) return 'critical';
-  if (score >= 50) return 'elevated';
-  if (score >= 25) return 'guarded';
-  return 'stable';
+  // Reuse the ONE 0-100 ladder (palette.ts scoreBand) so posture shares cut-points
+  // with severity/risk; posture just relabels the four bands.
+  const BAND_TO_POSTURE: Record<ScoreBand, PostureBand> = {
+    critical: 'critical',
+    high: 'elevated',
+    medium: 'guarded',
+    low: 'stable',
+  };
+  return BAND_TO_POSTURE[scoreBand(score)];
 }
 
 function postureBand(posture: number | string | null | undefined): PostureBand | null {

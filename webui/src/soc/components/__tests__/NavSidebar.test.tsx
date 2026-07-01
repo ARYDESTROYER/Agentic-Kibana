@@ -42,6 +42,7 @@ vi.mock('@/lib/api', () => ({
 }));
 
 import { NavSidebar, useNavPrefs } from '../NavSidebar';
+import { navLabel } from '../../nav';
 
 /* ---- Helpers -------------------------------------------------------------- */
 
@@ -97,8 +98,11 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
     const panelId = toggle.getAttribute('aria-controls') as string;
     const panel = document.getElementById(panelId);
     expect(panel).not.toBeNull();
-    // The disclosed panel lists the child destinations.
-    expect(screen.getByRole('button', { name: 'Dashboard' })).toBeInTheDocument();
+    // The disclosed panel lists the child destinations. Anchor on the stable per-id
+    // testids (reword-proof) AND keep the accessible-name (label) assertion.
+    expect(screen.getByTestId('nav-dashboard')).toBeInTheDocument();
+    expect(screen.getByTestId('nav-standup')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: navLabel('dashboard') })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Standup' })).toBeInTheDocument();
   });
 
@@ -124,8 +128,9 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
 
   it('renders a childless item as a direct link with no disclosure toggle', () => {
     renderExpanded();
-    // Cases has no children → a single nav button, no expand/collapse control.
-    expect(screen.getByRole('button', { name: 'Cases' })).toBeInTheDocument();
+    // Cases has no children → a single nav button (testid-anchored), no expand/collapse.
+    expect(screen.getByTestId('nav-cases')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: navLabel('cases') })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /expand cases/i })).toBeNull();
   });
 

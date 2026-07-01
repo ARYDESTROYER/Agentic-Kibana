@@ -69,6 +69,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { fetchPosture, type PostureResponse } from './Metrics.posture.api';
 import { humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
 
+/**
+ * The Overview hero title — the app's white-screen boot guard anchors on it (the
+ * smoke test asserts the whole console boots to this string). Exported as a single
+ * constant so the title can be reworded here WITHOUT breaking the tests that check
+ * "the app booted" (they import this constant rather than hardcoding the copy).
+ */
+export const PAGE_TITLE = 'Security Posture Dashboard';
+
 // --------------------------------------------------------------------------- //
 // Window toggle
 // --------------------------------------------------------------------------- //
@@ -546,9 +554,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
         // `.hero-display` opts this hero's title into the distinctive display
         // typography (theme.css) without touching the shared HeroPanel component.
         className: 'hero-display',
+        // Stable test anchor for the Overview hero band (survives reword/restyle).
+        'data-testid': 'page-hero',
         eyebrow: 'Security Command Center',
         icon: Radar,
-        title: 'Security Posture Dashboard',
+        title: PAGE_TITLE,
         description:
           'Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases.',
         meta: lastRefresh ? `Last refresh ${formatTimestamp(lastRefresh)}` : undefined,

@@ -376,7 +376,9 @@ export default function MetricsPage({
     }
     return [
       { label: 'Human', value: human, color: token('primary') },
-      { label: 'Agent', value: agent, color: token('accent') },
+      // W0-A A4: was token('accent') — `--accent` is the NEUTRAL hover/selected
+      // surface, never a data-series color. Repoint to the CVD-safe chart ramp.
+      { label: 'Agent', value: agent, color: token('chart-2') },
       { label: 'Other', value: other, color: token('muted-foreground') },
     ].filter((s) => s.value > 0);
   }, [memoryEntries]);
@@ -872,19 +874,19 @@ export default function MetricsPage({
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as MetricsTab)}>
         <TabsList>
-          <TabsTrigger value="operational">
+          <TabsTrigger value="operational" data-testid="metrics-tab-operational">
             <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
             Operational
           </TabsTrigger>
-          <TabsTrigger value="performance">
+          <TabsTrigger value="performance" data-testid="metrics-tab-performance">
             <Activity className="mr-1.5 h-4 w-4" aria-hidden />
             Performance
           </TabsTrigger>
-          <TabsTrigger value="posture">
+          <TabsTrigger value="posture" data-testid="metrics-tab-posture">
             <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
             Posture
           </TabsTrigger>
-          <TabsTrigger value="cost">
+          <TabsTrigger value="cost" data-testid="metrics-tab-cost">
             <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
             Cost
           </TabsTrigger>

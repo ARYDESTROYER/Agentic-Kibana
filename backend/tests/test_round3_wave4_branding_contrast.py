@@ -219,3 +219,66 @@ def test_put_branding_default_accent_is_silent(client) -> None:
     body = r.json()
     assert body["auto_corrected"] == {}
     assert body["contrast_warnings"] == []
+
+
+# --------------------------------------------------------------------------- #
+# Round-5 W0-A A7 — server-side theme_tokens allow-list + sanitizer (mirror of
+# the webui theme-tokens.ts ALLOWED_TOKENS + sanitizeTokenValue, #9/#10).
+# --------------------------------------------------------------------------- #
+
+
+def _tokens(**tokens):
+    from app.config import BrandingConfig
+
+    return BrandingConfig(theme_tokens=dict(tokens)).theme_tokens
+
+
+def test_theme_tokens_keeps_allow_listed_and_drops_unknown() -> None:
+    out = _tokens(**{
+        "--primary": "210 90% 50%",   # allow-listed → kept
+        "--radius": "0.5rem",         # allow-listed → kept
+        "--background": "0 0% 0%",    # NOT allow-listed (only tints are) → dropped
+        "--evil": "red",              # unknown → dropped
+    })
+    assert out == {"--primary": "210 90% 50%", "--radius": "0.5rem"}
+
+
+def test_theme_tokens_normalises_bare_keys() -> None:
+    # A key without the leading '--' is normalised, then allow-list-checked.
+    assert _tokens(radius="0.625rem") == {"--radius": "0.625rem"}
+
+
+def test_theme_tokens_drops_derived_foreground_and_text_tokens() -> None:
+    # The AA-tuned companions are NOT operator-writable (preserve measured contrast).
+    out = _tokens(**{
+        "--critical": "358 75% 45%",           # the fill IS writable → kept
+        "--critical-foreground": "0 0% 0%",     # derived → dropped
+        "--critical-text": "358 75% 42%",       # derived → dropped
+    })
+    assert out == {"--critical": "358 75% 45%"}
+
+
+def test_theme_tokens_drops_unsafe_values() -> None:
+    out = _tokens(**{
+        "--primary": "red; } body { display:none",  # declaration break-out → dropped
+        "--ring": "url(javascript:alert(1))",        # url() → dropped
+        "--accent2": "expression(alert(1))",          # expression() → dropped
+        "--info": "blue /* x */",                    # comment marker → dropped
+        "--high": "22 90% 44%",                      # safe HSL → kept
+    })
+    assert out == {"--high": "22 90% 44%"}
+
+
+def test_theme_tokens_font_display_restricted_to_enum() -> None:
+    # A vetted enum KEY maps to the full stack; an arbitrary family is dropped.
+    ok = _tokens(**{"--font-display": "inter"})
+    assert "--font-display" in ok and "Inter" in ok["--font-display"]
+    assert _tokens(**{"--font-display": "Comic Sans, cursive"}) == {}
+
+
+def test_theme_tokens_still_raises_on_too_many() -> None:
+    import pytest
+    from app.config import BrandingConfig
+
+    with pytest.raises(ValueError):
+        BrandingConfig(theme_tokens={f"--k{i}": "x" for i in range(201)})

@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <!-- Preload the ONE primary sans face (Inter variable, latin subset). Vite
+         resolves + hashes the node_modules asset at build; `crossorigin` is
+         required for font preloads even same-origin (DESIGN_STANDARD §2.1). -->
+    <link
+      rel="preload"
+      href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
     <title>Agentic SOC Console</title>
   </head>
   <body>
