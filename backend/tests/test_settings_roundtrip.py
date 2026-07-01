@@ -182,3 +182,122 @@ def test_settings_schema_does_not_shadow_section_route(client):
     """The fixed /settings/schema route resolves to the schema, not the {section} catch-all."""
     body = client.get("/api/settings/schema").json()
     assert "sections" in body
+
+
+# --------------------------------------------------------------------------- #
+# Round-5 Sett-C / Rules R7 — element-model descent (rule collections).
+# --------------------------------------------------------------------------- #
+def _general_fields(client) -> dict:
+    body = client.get("/api/settings/schema").json()
+    by_key = {s["key"]: s for s in body["sections"]}
+    return {f["name"]: f for f in by_key["general"]["fields"]}
+
+
+def test_schema_descends_into_list_of_models(client):
+    """A ``list[Model]`` field (e.g. ``rule_catalog: list[RuleDefinition]``) now grows an
+    additive ``element`` descriptor describing the element model — the fix for the old
+    junk-``general``-bucket collapse that made rule collections undescribable."""
+    fields = _general_fields(client)
+    rc = fields["rule_catalog"]
+    # type stays "array" (byte-identical for old consumers)…
+    assert rc["type"] == "array"
+    # …but now carries the element descriptor.
+    assert "element" in rc
+    elem = rc["element"]
+    assert elem["container"] == "list"
+    assert elem["model"] == "RuleDefinition"
+    assert isinstance(elem["fields"], list) and elem["fields"]
+    # The element's own fields are described with types + JSON-safe defaults.
+    names = {f["name"] for f in elem["fields"]}
+    assert "name" in names
+    for f in elem["fields"]:
+        assert "type" in f
+        assert "default" in f
+
+
+def test_schema_descends_into_dict_of_models(client):
+    """A ``dict[str, Model]`` field (e.g. ``correlation_rules: dict[str, CorrelationRule]``)
+    grows a ``dict``-container element descriptor."""
+    fields = _general_fields(client)
+    cr = fields["correlation_rules"]
+    assert cr["type"] == "object"
+    assert "element" in cr
+    assert cr["element"]["container"] == "dict"
+    assert cr["element"]["model"] == "CorrelationRule"
+    assert cr["element"]["fields"]
+
+
+def test_schema_descends_into_nested_section_collections(client):
+    """Element descent also applies to a ``list[Model]`` on a NESTED section model —
+    e.g. ``AutomationConfig.rules: list[CaseAutomationRule]`` and
+    ``NotificationsConfig.channels: list[NotificationChannelConfig]``."""
+    body = client.get("/api/settings/schema").json()
+    by_key = {s["key"]: s for s in body["sections"]}
+
+    ta_fields = {f["name"]: f for f in by_key["threshold_automation"]["fields"]}
+    rules = ta_fields["rules"]
+    assert rules.get("element", {}).get("model") == "CaseAutomationRule"
+    assert rules["element"]["container"] == "list"
+
+    notif_fields = {f["name"]: f for f in by_key["notifications"]["fields"]}
+    channels = notif_fields["channels"]
+    assert channels.get("element", {}).get("model") == "NotificationChannelConfig"
+
+
+def test_schema_scalar_collections_do_not_grow_an_element(client):
+    """A scalar collection (``list[str]`` / ``dict[str, float]``) stays opaque — no
+    element descent (the element is not a Pydantic model)."""
+    fields = _general_fields(client)
+    assert "element" not in fields["excluded_rules"]       # list[str]
+    assert "element" not in fields["asset_criticality"]    # dict[str, float]
+    # And they keep their coarse container type tag.
+    assert fields["excluded_rules"]["type"] == "array"
+    assert fields["asset_criticality"]["type"] == "object"
+
+
+def test_schema_element_descent_is_bounded(client):
+    """Element descent must terminate — a nested element (e.g. RuleDefinition.model_override
+    → ModelConfig) is fine, but the nesting is depth-capped so a hypothetical self-referential
+    model can never recurse unbounded. Assert the returned schema is finite + JSON-serialisable
+    and that nesting never exceeds a small bound."""
+    import json
+
+    body = client.get("/api/settings/schema").json()
+    # Serialisable (a runaway recursion would blow the stack before we ever got here).
+    json.dumps(body)
+
+    def max_element_depth(fields, depth=0):
+        best = depth
+        for f in fields:
+            el = f.get("element")
+            if el:
+                best = max(best, max_element_depth(el["fields"], depth + 1))
+        return best
+
+    depths = [max_element_depth(s["fields"]) for s in body["sections"]]
+    # The real config needs 2 (rule_catalog → RuleDefinition → model_override → ModelConfig);
+    # the cap keeps it comfortably bounded.
+    assert max(depths) <= 4
+
+
+def test_schema_element_descent_carries_no_secret_values(client):
+    """Element descent must not surface any secret VALUE. The only secret-adjacent thing
+    that may appear is a field NAME like ``configured_secrets`` (a list of which keys are
+    configured — booleans/names, never values), consistent with #10."""
+    body = client.get("/api/settings/schema").json()
+    blob = repr(body).lower()
+    for forbidden in ("es_api_key", "anthropic_api_key", "connector_secrets",
+                      "auth_jwt_secret", "notification_secrets", "webhook_url_secret"):
+        assert forbidden not in blob
+    # Any element default that is a list/dict must be EMPTY (defaults only, no seeded
+    # values that could carry secrets).
+    for section in body["sections"]:
+        for f in section["fields"]:
+            elem = f.get("element")
+            if not elem:
+                continue
+            for ef in elem["fields"]:
+                # configured_secrets is the boolean-keyed configured map — allowed, but
+                # its default must be empty (no secret material).
+                if ef["name"] == "configured_secrets":
+                    assert ef["default"] in (None, [], {}), ef

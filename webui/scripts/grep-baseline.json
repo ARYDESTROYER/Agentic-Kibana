@@ -37,10 +37,11 @@
     "src/soc/pages/Roles.tsx": 2,
     "src/soc/pages/Security.tsx": 1,
     "src/soc/pages/Sessions.tsx": 2,
-    "src/soc/pages/Settings.tsx": 3,
+    "src/soc/pages/Settings.tsx": 1,
     "src/soc/pages/Sources.tsx": 3,
     "src/soc/pages/Standup.tsx": 1,
     "src/soc/pages/Users.tsx": 2,
+    "src/soc/pages/settings/automation.tsx": 2,
     "src/ui/avatar.tsx": 1,
     "src/ui/table.tsx": 1
   },

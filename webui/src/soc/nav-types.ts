@@ -11,5 +11,19 @@
  * Navigation options threaded through `Navigate` (router.tsx / App.tsx) so
  * deep-links / drill-throughs can pre-seed a destination page's filters/tab.
  * All fields optional and additive; carried in-memory (never persisted).
+ *
+ * `section`/`anchor` (Round-5 Sett-C) are the exception: for the `settings` page they
+ * are serialized into the URL hash (`#/settings?s=<section>&a=<anchor>`) so a Cmd-K
+ * jump / card-level deep-link survives a full hashchange. They are ignored for every
+ * other page.
  */
-export type NavOpts = { caseId?: string; status?: string; window?: number; tab?: string };
+export type NavOpts = {
+  caseId?: string;
+  status?: string;
+  window?: number;
+  tab?: string;
+  /** Settings section id — serialized to `#/settings?s=<section>`. */
+  section?: string;
+  /** In-section card anchor — serialized to `&a=<anchor>` for a scroll+highlight. */
+  anchor?: string;
+};

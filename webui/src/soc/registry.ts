@@ -304,15 +304,26 @@ export const FEATURES: FeatureNode[] = [
     perm: { resource: 'automation', action: 'read' },
   },
   {
+    // Round-5 Sett-B: the Settings rail item surfaces the two promoted, admin-only
+    // "Security & access" destinations (Users, Roles) as disclosure children. They keep
+    // their own PageIds (deep-link back-compat) but the router (SETTINGS_REDIRECTS)
+    // rewrites each `#/<id>` to `#/settings?s=<id>` so clicking a child lands INSIDE
+    // Settings — no separate standalone home. Each child gates on the SAME resolvable
+    // grant its Settings section + page require — bug #7 fix: the former `roles:view` /
+    // `users:view` gates were non-existent actions (`roles` = read|manage, `users` =
+    // manage) that hid the item from operators who actually held `manage`. Unified on
+    // `manage`. (SSO / Sessions / Active-sessions / Secret-keys stay reachable via the
+    // Settings rail itself; surfacing only the two highest-value admin tables keeps the
+    // sidebar to ≤2 nesting levels and avoids the `security` PageId ↔ section collision:
+    // the `security` PageId redirects to PERSONAL 2FA, while the org SSO Settings
+    // section is `?s=security`.)
     id: 'settings',
     label: 'Settings',
     icon: Settings,
     group: 'platform',
     children: [
-      { id: 'users', label: 'Users', icon: UsersIcon, perm: { resource: 'users', action: 'view' } },
-      { id: 'security', label: 'Security', icon: ShieldCheck },
-      { id: 'roles', label: 'Roles', icon: KeyRound, perm: { resource: 'roles', action: 'view' } },
-      { id: 'sessions', label: 'Sessions', icon: MonitorSmartphone },
+      { id: 'users', label: 'Users', icon: UsersIcon, perm: { resource: 'users', action: 'manage' } },
+      { id: 'roles', label: 'Roles', icon: KeyRound, perm: { resource: 'roles', action: 'manage' } },
     ],
   },
 
@@ -331,6 +342,12 @@ export const FEATURES: FeatureNode[] = [
   { id: 'memory', label: 'Memory', icon: Brain, group: 'intelligence', hidden: true },
   { id: 'catalog', label: 'Catalog', icon: Library, group: 'intelligence', hidden: true },
   { id: 'playbooks', label: 'Playbooks', icon: Workflow, group: 'intelligence', hidden: true },
+  // Round-5 Sett-B: the six formerly-standalone admin/account homes
+  // (account/sessions/security/roles/users/admin_sessions) collapsed INTO Settings
+  // sections. Their PageIds stay registered (deep-link back-compat) but the router
+  // (SETTINGS_REDIRECTS) rewrites `#/<id>` → `#/settings?s=<sectionId>` — the standalone
+  // App.renderPage arms are no longer the primary home. Keeping them here keeps
+  // `isPageId('roles')` true so the redirect fires instead of a 404-to-Overview.
   { id: 'account', label: 'Account', icon: Settings, group: 'platform', hidden: true },
   { id: 'sessions', label: 'Sessions', icon: MonitorSmartphone, group: 'platform', hidden: true },
   { id: 'security', label: 'Security', icon: ShieldCheck, group: 'platform', hidden: true },

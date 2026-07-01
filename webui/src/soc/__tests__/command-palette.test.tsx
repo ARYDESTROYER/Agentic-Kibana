@@ -83,9 +83,32 @@ describe('CommandPalette (W7c)', () => {
       ).toBeInTheDocument(),
     );
     // A rail nav target (Cases) and a quick action (Go to Settings) are present.
-    expect(screen.getByText('Cases')).toBeInTheDocument();
+    // ("Cases" also names a Settings SECTION jump target added in Round-5 Sett-C, so
+    // there can be >1 — assert at least one and target the nav one by value below.)
+    expect(screen.getAllByText('Cases').length).toBeGreaterThan(0);
     expect(screen.getByText('Go to Settings')).toBeInTheDocument();
     expect(screen.getByText('New chat')).toBeInTheDocument();
+  });
+
+  it('lists Settings section jump targets (Round-5 Sett-C)', async () => {
+    renderPalette();
+    await waitFor(() =>
+      expect(
+        screen.getByPlaceholderText(/jump to a page, search cases\/sources/i),
+      ).toBeInTheDocument(),
+    );
+    // The palette registers Settings sections as jump targets under a "Settings" group
+    // heading (there is also a "Go to Settings" quick action, so match the heading node).
+    const heading = document.querySelector('[cmdk-group-heading]');
+    expect(
+      Array.from(document.querySelectorAll('[cmdk-group-heading]')).some(
+        (el) => el.textContent === 'Settings',
+      ),
+    ).toBe(true);
+    expect(heading).toBeTruthy();
+    // A known section jump target (Data scope) is present (auth off → all perms granted).
+    const item = document.querySelector('[cmdk-item][data-value="set-general"]');
+    expect(item).toBeTruthy();
   });
 
   it('queries GET /api/search and renders the returned case + source hits', async () => {
@@ -110,8 +133,24 @@ describe('CommandPalette (W7c)', () => {
 
   it('routes a selected nav target through onNavigate', async () => {
     const { onNavigate } = renderPalette();
-    const casesItem = await screen.findByText('Cases');
+    // Target the RAIL nav "Cases" item explicitly by its cmdk value (`nav-cases`) — a
+    // Settings section also renders a "Cases" label now, so a bare text match is ambiguous.
+    await waitFor(() =>
+      expect(document.querySelector('[cmdk-item][data-value="nav-cases"]')).toBeTruthy(),
+    );
+    const casesItem = document.querySelector('[cmdk-item][data-value="nav-cases"]') as HTMLElement;
     fireEvent.click(casesItem);
     expect(onNavigate).toHaveBeenCalledWith('cases');
+  });
+
+  it('routes a Settings section jump through onNavigate with a section opt', async () => {
+    const { onNavigate } = renderPalette();
+    await waitFor(() =>
+      expect(document.querySelector('[cmdk-item][data-value="set-general"]')).toBeTruthy(),
+    );
+    const setItem = document.querySelector('[cmdk-item][data-value="set-general"]') as HTMLElement;
+    fireEvent.click(setItem);
+    // Jumps to the settings page carrying the section id (no anchor for a section head).
+    expect(onNavigate).toHaveBeenCalledWith('settings', { section: 'general', anchor: undefined });
   });
 });

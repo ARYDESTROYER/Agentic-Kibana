@@ -49,6 +49,7 @@ import { useTheme } from '@/soc/theme';
 import { useDemo } from '@/soc/demo';
 import { NAV_GROUPS, isPageId, type NavGroup, type PageId } from '@/soc/nav';
 import type { Navigate } from '@/soc/router';
+import { searchJumpTargets } from '@/soc/pages/settings/settings-sections';
 
 const RECENTS_KEY = 'tlsoc.cmdk.recents';
 const RECENTS_MAX = 6;
@@ -172,6 +173,16 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
   );
 
   const canManageSettings = hasPermission('settings', 'manage');
+
+  // Settings sections + setting-level cards as jump targets (Round-5 Sett-C), sourced
+  // from the ONE lifted registry with the SAME RBAC filter as the Settings rail. A blank
+  // query shows only section heads (no card noise); a term deepens to the matching card
+  // and jumps straight to it via #/settings?s=<section>&a=<anchor>. Capped so the palette
+  // stays scannable.
+  const settingsTargets = React.useMemo(
+    () => searchJumpTargets(query, hasPermission).slice(0, 8),
+    [query, hasPermission],
+  );
 
   // We run cmdk with shouldFilter=false so the SERVER ranking of remote (case/source)
   // hits is authoritative — cmdk's own fuzzy filter would otherwise hide a hit whose
@@ -319,6 +330,41 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
                 </CommandItem>
               ) : null}
             </CommandGroup>
+
+            {/* Settings sections + setting-level cards (RBAC-filtered, from the lifted
+                settings-sections registry). Jumps write the FULL hash
+                `#/settings?s=<section>&a=<anchor>` via the router's settings sub-target
+                path — the deep-link + card highlight survive the hashchange. */}
+            {settingsTargets.length > 0 ? (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Settings">
+                  {settingsTargets.map((t) => {
+                    const Icon = t.icon as LucideIcon;
+                    const key = t.anchor ? `set-${t.section}-${t.anchor}` : `set-${t.section}`;
+                    return (
+                      <CommandItem
+                        key={key}
+                        value={key}
+                        onSelect={() => {
+                          pushRecent({ page: 'settings', label: t.label });
+                          onNavigate('settings', { section: t.section, anchor: t.anchor });
+                          onOpenChange(false);
+                        }}
+                      >
+                        <Icon aria-hidden />
+                        <span className="truncate">{t.label}</span>
+                        {t.anchor ? (
+                          <CommandShortcut className="tracking-normal">
+                            {t.sectionTitle}
+                          </CommandShortcut>
+                        ) : null}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </>
+            ) : null}
 
             <CommandSeparator />
 

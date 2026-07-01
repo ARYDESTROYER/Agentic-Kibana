@@ -67,6 +67,8 @@ vi.mock('@/lib/api', () => {
       // The two calls the Settings load() fires in parallel.
       getSettings: ok({ prefs, configured: {}, read_only: false }),
       getModels: ok({ providers: { anthropic: ['claude-sonnet'] } }),
+      // Round-5 Sett-C — the schema-driven "All settings" section fetches this.
+      getSettingsSchema: ok({ sections: [] }),
       // Used by sub-sections that may lazily mount; harmless to provide.
       getPlaybooks: ok({ enabled: false, playbooks: [] }),
       getBranding: ok({}),
@@ -106,12 +108,12 @@ describe('Settings page — #310 render regression', () => {
     renderWithProviders(<Settings />);
 
     // Once getSettings() resolves, `loading` flips false and the (now-hoisted)
-    // section-rail hooks run. The known "General & data scope" section label
-    // appears BOTH as the rail nav button and as the rendered section title —
-    // its presence proves the rail rendered AND that React did not throw #310
-    // during the loading→ready transition.
+    // section-rail hooks run. The known "Data scope" section label (Round-5 Sett-B
+    // relabel of the former "General & data scope") appears BOTH as the rail nav
+    // button and as the rendered section title — its presence proves the rail
+    // rendered AND that React did not throw #310 during the loading→ready transition.
     await waitFor(
-      () => expect(screen.getAllByText('General & data scope').length).toBeGreaterThan(0),
+      () => expect(screen.getAllByText('Data scope').length).toBeGreaterThan(0),
       { timeout: 5000 },
     );
 
@@ -120,8 +122,8 @@ describe('Settings page — #310 render regression', () => {
   });
 });
 
-describe('Settings IA consolidation (Round-2 Wave 4)', () => {
-  it('shows the folded-in Account + Administration sections in the auth-off default', async () => {
+describe('Settings IA consolidation (Round-5 Sett-B: 5 groups, Security promoted)', () => {
+  it('shows the folded-in Account + Security & access sections in the auth-off default', async () => {
     renderWithProviders(<Settings />);
     await waitFor(
       () => expect(screen.getByTestId('settings-section-general')).toBeInTheDocument(),
@@ -129,21 +131,33 @@ describe('Settings IA consolidation (Round-2 Wave 4)', () => {
     );
     // Each rail entry is anchored by its stable section id (reword-proof), and we KEEP
     // the display-label assertion so a relabel that drops the concept still fails.
-    // Personal-account group (no perm → always visible).
+    // Personal Account group (no perm → always visible).
     expect(screen.getByTestId('settings-section-profile')).toBeInTheDocument();
     expect(screen.getByText('Profile')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-account_security')).toBeInTheDocument();
     expect(screen.getByText('Security & two-factor')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-sessions')).toBeInTheDocument();
     expect(screen.getByText('Sessions & activity')).toBeInTheDocument();
-    // Administration group — in the auth-off default, hasPermission() is true so the
-    // perm-gated sections still render in the rail (nothing hidden by default).
+    // Security & access group (NEW top-level, promoted) — in the auth-off default,
+    // hasPermission() is true so the perm-gated sections still render in the rail.
     expect(screen.getByTestId('settings-section-admin_users')).toBeInTheDocument();
-    expect(screen.getByText('Users & roles')).toBeInTheDocument();
+    expect(screen.getByText('Users')).toBeInTheDocument();
+    // Roles is split out of Users into its own Security & access section (Sett-B).
+    expect(screen.getByTestId('settings-section-roles')).toBeInTheDocument();
+    expect(screen.getByText('Roles & permissions')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-security')).toBeInTheDocument();
-    expect(screen.getByText('Security & SSO')).toBeInTheDocument();
+    expect(screen.getByText('Single sign-on & policy')).toBeInTheDocument();
     expect(screen.getByTestId('settings-section-admin_sessions')).toBeInTheDocument();
     expect(screen.getByText('Active sessions')).toBeInTheDocument();
+    // Secret keys moved into Security & access (high-blast-radius credentials).
+    expect(screen.getByTestId('settings-section-keys')).toBeInTheDocument();
+    // Organization group ends with the isolated Danger zone.
+    expect(screen.getByTestId('settings-section-danger')).toBeInTheDocument();
+    expect(screen.getByText('Danger zone')).toBeInTheDocument();
+    // The FIVE new group labels are present in the rail.
+    for (const label of ['Account', 'General', 'Integrations', 'Security & access', 'Organization']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
   });
 
   it('deep-links to an admin section via #/settings?s=admin_users', async () => {
@@ -153,6 +167,53 @@ describe('Settings IA consolidation (Round-2 Wave 4)', () => {
     await waitFor(() => expect(screen.getByText('Add user')).toBeInTheDocument(), {
       timeout: 5000,
     });
+    window.location.hash = '';
+  });
+
+  it('deep-links to the NEW Roles section via #/settings?s=roles', async () => {
+    window.location.hash = '#/settings?s=roles';
+    renderWithProviders(<Settings />);
+    // The active rail entry for roles is present (deep-link resolved to the section).
+    await waitFor(
+      () => expect(screen.getByTestId('settings-section-roles')).toHaveAttribute('aria-current', 'page'),
+      { timeout: 5000 },
+    );
+    window.location.hash = '';
+  });
+
+  it('Round-5 Sett-C: a `&a=<anchor>` card deep-link scrolls to + highlights the card', async () => {
+    // jsdom has no layout, but scrollIntoView is stubbed so the effect runs end-to-end.
+    const scrollSpy = vi.fn();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window.HTMLElement.prototype as any).scrollIntoView = scrollSpy;
+    window.location.hash = '#/settings?s=detection&a=detection-autoclose';
+    renderWithProviders(<Settings />);
+    // The detection section renders the auto-close card (id = the anchor).
+    await waitFor(
+      () => expect(document.getElementById('detection-autoclose')).toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    // The scroll+highlight effect fires: scrollIntoView called on the anchored card and
+    // the reduced-motion-safe highlight class is applied.
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled(), { timeout: 5000 });
+    await waitFor(
+      () =>
+        expect(
+          document.getElementById('detection-autoclose')?.classList.contains('animate-settings-highlight'),
+        ).toBe(true),
+      { timeout: 5000 },
+    );
+    window.location.hash = '';
+  });
+
+  it('Round-5 Sett-C: the schema-driven "All settings" section is deep-linkable', async () => {
+    window.location.hash = '#/settings?s=advanced_all';
+    renderWithProviders(<Settings />);
+    await waitFor(
+      () =>
+        expect(screen.getByTestId('settings-section-advanced_all')).toHaveAttribute('aria-current', 'page'),
+      { timeout: 5000 },
+    );
     window.location.hash = '';
   });
 });

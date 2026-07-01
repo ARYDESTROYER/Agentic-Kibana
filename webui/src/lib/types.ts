@@ -941,6 +941,60 @@ export interface SettingsResponse {
 }
 
 // --------------------------------------------------------------------------- //
+// Settings schema reflector (GET /api/settings/schema) — Round-5 Sett-C / Rules R7.
+// A best-effort, purely-descriptive JSON description of the Preferences model used by
+// the generic "Advanced (all settings)" renderer. Carries NO values beyond defaults and
+// NO secrets.
+// --------------------------------------------------------------------------- //
+/** A coarse, UI-friendly type tag for one settings field (mirrors `_type_name`). */
+export type SettingsFieldType =
+  | 'boolean'
+  | 'integer'
+  | 'number'
+  | 'string'
+  | 'enum'
+  | 'array'
+  | 'object'
+  | 'union';
+
+/** The element-model descriptor for a `list[Model]` / `dict[str, Model]` field. */
+export interface SettingsElementSchema {
+  /** `'list'` or `'dict'` container. */
+  container: 'list' | 'dict';
+  /** The element Pydantic model name. */
+  model: string;
+  /** The element model's own fields. */
+  fields: SettingsSchemaField[];
+}
+
+/** One field descriptor. `element` is present only for collections OF a model. */
+export interface SettingsSchemaField {
+  name: string;
+  type: SettingsFieldType;
+  /** JSON-safe default (may be null when not representable). */
+  default: unknown;
+  required: boolean;
+  /** Enumerated choices for an enum / Literal field, else null. */
+  choices: string[] | null;
+  description: string | null;
+  /** Additive (Sett-C): the element-model descriptor for list/dict-of-model fields. */
+  element?: SettingsElementSchema;
+}
+
+/** One section: an `object` (nested model) or the synthetic `general` scalar `group`. */
+export interface SettingsSchemaSection {
+  key: string;
+  title: string;
+  kind: 'object' | 'group';
+  model: string | null;
+  fields: SettingsSchemaField[];
+}
+
+export interface SettingsSchema {
+  sections: SettingsSchemaSection[];
+}
+
+// --------------------------------------------------------------------------- //
 // Notifications / alerting (F5 / Wave 4) — Preferences.notifications + endpoints.
 // --------------------------------------------------------------------------- //
 /** The kinds of delivery channel (mirrors backend `NotificationChannelConfig.type`). */

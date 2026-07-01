@@ -27,6 +27,27 @@ The shape is intentionally simple + stable:
 ``kind == "group"`` is the synthetic ``general`` bucket that collects the top-level
 SCALAR / list / dict preferences that are not themselves nested models, so the UI
 still has a home for ``data_view_pattern`` etc.
+
+Round-5 Sett-C / Rules R7 — ELEMENT-MODEL DESCENT
+-------------------------------------------------
+The original reflector treated ``list[Model]`` and ``dict[str, Model]`` fields as
+opaque ``array``/``object`` scalars that landed in the junk ``general`` bucket with no
+way to describe their element shape, so *rule collections* (``rule_catalog`` /
+``correlation_rules`` / ``suppression_rules`` / ``channels`` / ``asset_networks`` /
+``rule_model_override`` …) were undescribable by the generic renderer.
+
+We now DESCEND into element models WITHOUT changing the existing shape:
+  - a ``list[Model]`` / ``dict[str, Model]`` field grows an additive ``element``
+    descriptor ``{container, model, fields:[...]}`` (``container`` = ``"list"`` |
+    ``"dict"``); the ``type`` stays ``"array"``/``"object"`` (byte-identical for old
+    consumers), and the field STILL lands in ``general`` (its parent is
+    ``Preferences``, not a nested model) — so no existing section moves.
+  - a ``list[Model]`` / ``dict[str, Model]`` field on a NESTED section model
+    (e.g. ``AutomationConfig.rules: list[CaseAutomationRule]``) likewise grows the
+    ``element`` descriptor in place.
+
+This is purely additive metadata: no new sections, no values beyond defaults, no
+secrets, and it does NOT change ``PUT /api/settings`` deep-merge semantics.
 """
 
 from __future__ import annotations
@@ -132,6 +153,35 @@ def _choices(annotation: Any) -> list[str] | None:
     return None
 
 
+def _element_model(annotation: Any) -> tuple[str, type[BaseModel]] | None:
+    """For a ``list[Model]`` / ``set[Model]`` / ``tuple[Model, ...]`` or a
+    ``dict[K, Model]`` annotation, return ``(container, ElementModel)`` where
+    ``container`` is ``"list"`` or ``"dict"``; else ``None``.
+
+    Unwraps ``Optional[...]`` first so ``list[Model] | None`` still descends. The
+    element must be a concrete Pydantic model — ``list[str]`` / ``dict[str, float]``
+    (scalar collections) return ``None`` and stay opaque, exactly as before."""
+    origin = get_origin(annotation)
+    # Unwrap Optional[...]/X|None to its single non-None member.
+    if origin is typing.Union:
+        members = [a for a in get_args(annotation) if a is not type(None)]
+        if len(members) == 1:
+            return _element_model(members[0])
+        return None
+    if origin in (list, set, frozenset, tuple):
+        args = [a for a in get_args(annotation) if a is not Ellipsis]
+        if args and isinstance(args[0], type) and issubclass(args[0], BaseModel):
+            return ("list", args[0])
+        return None
+    if origin is dict:
+        args = get_args(annotation)
+        # dict value type is the second arg (dict[key, value]).
+        if len(args) == 2 and isinstance(args[1], type) and issubclass(args[1], BaseModel):
+            return ("dict", args[1])
+        return None
+    return None
+
+
 def _default_for(field: FieldInfo, value: Any) -> Any:
     """A JSON-safe default for a field (prefers the live default value)."""
     try:
@@ -148,9 +198,34 @@ def _default_for(field: FieldInfo, value: Any) -> Any:
         return None
 
 
-def _describe_field(name: str, field: FieldInfo, live_value: Any) -> dict[str, Any]:
+# Cap element-model descent so a hypothetical self-referential / cyclic model can never
+# recurse unbounded. The real config needs 2 (rule_catalog → RuleDefinition →
+# model_override → ModelConfig); we allow a little headroom. Beyond the cap the field is
+# still described (type + default) but its `element` is omitted.
+_MAX_ELEMENT_DEPTH = 4
+
+
+def _describe_model_fields(model: type[BaseModel], depth: int = 0) -> list[dict[str, Any]]:
+    """Describe every field of a Pydantic model, using a default instance for defaults
+    where possible (falls back to ``None`` when the model has required fields and can't
+    be default-constructed — the field descriptor's own ``default`` handles that).
+
+    ``depth`` tracks the element-descent nesting so a cyclic model self-terminates."""
+    try:
+        inst: BaseModel | None = model()
+    except Exception:  # noqa: BLE001 — required fields / validators; fall back to no live default
+        inst = None
+    return [
+        _describe_field(fn, ff, getattr(inst, fn, None) if inst is not None else None, depth)
+        for fn, ff in model.model_fields.items()
+    ]
+
+
+def _describe_field(
+    name: str, field: FieldInfo, live_value: Any, depth: int = 0
+) -> dict[str, Any]:
     ann = field.annotation
-    return {
+    desc: dict[str, Any] = {
         "name": name,
         "type": _type_name(ann),
         "default": _default_for(field, live_value),
@@ -158,6 +233,19 @@ def _describe_field(name: str, field: FieldInfo, live_value: Any) -> dict[str, A
         "choices": _choices(ann),
         "description": (field.description or "").strip() or None,
     }
+    # ELEMENT-MODEL DESCENT (additive): a list/dict OF a Pydantic model grows an
+    # `element` descriptor so the generic renderer can describe rule collections. The
+    # `type` above stays "array"/"object" (byte-identical for existing consumers).
+    # Bounded by _MAX_ELEMENT_DEPTH so a self-referential model can't recurse forever.
+    elem = _element_model(ann)
+    if elem is not None and depth < _MAX_ELEMENT_DEPTH:
+        container, elem_model = elem
+        desc["element"] = {
+            "container": container,
+            "model": elem_model.__name__,
+            "fields": _describe_model_fields(elem_model, depth + 1),
+        }
+    return desc
 
 
 def _is_object_section(annotation: Any) -> bool:
@@ -181,9 +269,16 @@ def settings_schema() -> dict[str, Any]:
         live_value = getattr(live, name, None)
         if _is_object_section(ann):
             sub_model: type[BaseModel] = ann  # type: ignore[assignment]
-            sub_live = live_value if isinstance(live_value, BaseModel) else sub_model()
+            sub_live = live_value if isinstance(live_value, BaseModel) else None
+            if sub_live is None:
+                try:
+                    sub_live = sub_model()
+                except Exception:  # noqa: BLE001
+                    sub_live = None
+            # Fields of a nested section model — element-model descent applies here too
+            # (e.g. AutomationConfig.rules: list[CaseAutomationRule]).
             fields = [
-                _describe_field(fn, ff, getattr(sub_live, fn, None))
+                _describe_field(fn, ff, getattr(sub_live, fn, None) if sub_live is not None else None)
                 for fn, ff in sub_model.model_fields.items()
             ]
             object_sections.append(

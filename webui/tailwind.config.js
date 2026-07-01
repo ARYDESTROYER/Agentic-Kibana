@@ -176,6 +176,15 @@ export default {
         'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'bar-indeterminate': { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'translateX(350%)' } },
         pulse: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.55' } },
+        /* Round-5 Sett-C — the deep-link (`&a=<anchor>`) card highlight: a brief ring
+           flash (color/box-shadow only, NO transform) so it is reduced-motion-safe. Under
+           `prefers-reduced-motion` the global reset collapses the duration to ~0 and the JS
+           driver instead paints a static ring for ~1.4s (see Settings.tsx). */
+        'settings-highlight': {
+          '0%': { boxShadow: '0 0 0 0 hsl(var(--ring) / 0)' },
+          '12%': { boxShadow: '0 0 0 3px hsl(var(--ring) / 0.55)' },
+          '100%': { boxShadow: '0 0 0 0 hsl(var(--ring) / 0)' },
+        },
         /* Login brand-hero entrances (CSS replacements for the former framer-motion
            pieces, so the login screen no longer pulls framer-motion onto first paint). */
         'hero-in-down': { from: { opacity: '0', transform: 'translateY(-8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
@@ -202,6 +211,7 @@ export default {
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'bar-indeterminate': 'bar-indeterminate 1.1s ease-in-out infinite',
+        'settings-highlight': 'settings-highlight 1.6s cubic-bezier(0.16,1,0.3,1) both',
         'hero-in-down': 'hero-in-down 0.5s cubic-bezier(0.16,1,0.3,1) both',
         'hero-in-up': 'hero-in-up 0.55s cubic-bezier(0.16,1,0.3,1) 0.08s both',
         'aurora-a': 'aurora-a 22s ease-in-out infinite alternate',

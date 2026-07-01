@@ -17,6 +17,8 @@
  * never appear in a patch.
  */
 
+import { SECTION_KEYS } from './settings/settings-sections';
+
 /** A loose Preferences view — we only ever index it by string key here. */
 export type PrefsRecord = Record<string, unknown>;
 
@@ -31,63 +33,13 @@ export const NON_EDITABLE_KEYS: ReadonlySet<string> = new Set(['sources', 'setup
  * A key may legitimately appear under more than one section (e.g. `rag` is edited from
  * both Knowledge › Retrieval and Advanced › Suppression) — both sections then light up,
  * which is the correct, honest signal.
+ *
+ * Round-5 Sett-A: this is no longer hand-maintained here — it is DERIVED from the
+ * single-source section registry (`settings/settings-sections.ts`, the `ownedKeys` of
+ * each section). Re-exported so the page + this module's spec keep importing it from
+ * `settings-dirty` unchanged (kills the former 3-file hand-sync).
  */
-export const SECTION_KEYS: Record<string, readonly string[]> = {
-  general: [
-    'data_view_pattern',
-    'time_field',
-    'source_ip_field',
-    'user_field',
-    'host_field',
-    'rule_field',
-    'rule_name_field',
-    'severity_field',
-    'severity_threshold',
-    'investigate_lookback',
-    'polling_enabled',
-    'poll_interval_seconds',
-    'poll_batch_size',
-    'cold_start_lookback_minutes',
-  ],
-  models: [
-    'router_model',
-    'investigator_model',
-    'formatter_model',
-    'standup_model',
-    'chat_model',
-    'overview_model',
-    'embedding_model',
-  ],
-  detection: [
-    'default_correlation',
-    'risk_weights',
-    'escalation_confidence',
-    'critical_severity',
-    // Both the legacy `fp_auto_close` scalar AND the live `auto_close` policy block
-    // are owned by this section (Round-5 R1 moves the auto-close editor onto
-    // `prefs.auto_close`, the field `decide()` actually reads). Tracking both keeps
-    // the section's "unsaved" dot + the minimal PUT patch correct across the change.
-    'fp_auto_close',
-    'auto_close',
-    'cross_source_correlation',
-  ],
-  cases: ['case_id_format'],
-  automation: ['threshold_automation'],
-  standup: ['standup'],
-  notifications: ['notifications'],
-  enrichment: ['enrichment'],
-  knowledge: ['rag', 'threat_context'],
-  security: ['sso', 'session_policy', 'mfa'],
-  advanced: [
-    'caps',
-    'auto_forward_allowlist',
-    'background_scan_enabled',
-    'rag',
-    'read_only_settings_mode',
-    'excluded_rules',
-    'in_scope_rules',
-  ],
-};
+export { SECTION_KEYS };
 
 /** Stable, order-insensitive structural equality for two JSON-able values. */
 export function deepEqual(a: unknown, b: unknown): boolean {

@@ -73,6 +73,7 @@ import type {
   SearchResult,
   SecretsUpdate,
   SettingsResponse,
+  SettingsSchema,
   SetupStatus,
   SourceInstance,
   SourceLogsQuery,
@@ -622,6 +623,10 @@ export const api = {
 
   // ---- Settings --------------------------------------------------------- //
   getSettings: () => request<SettingsResponse>('GET', 'settings'),
+  // The best-effort settings SCHEMA reflector (Round-5 Sett-C): a descriptive
+  // description of the Preferences model (types + defaults + element models), used by
+  // the generic "Advanced (all settings)" renderer. No values beyond defaults, no secrets.
+  getSettingsSchema: () => request<SettingsSchema>('GET', 'settings/schema'),
   putSettings: (patch: Partial<Preferences>) =>
     request<{ ok: boolean; prefs: Preferences }>('PUT', 'settings', { body: patch }),
   // Live-preview a CANDIDATE case-id template without persisting / consuming the
