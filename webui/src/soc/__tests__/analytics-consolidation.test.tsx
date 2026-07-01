@@ -17,7 +17,7 @@
  * Fully offline — only the data calls (posture + usage + metrics) are mocked.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const { fetchPostureMock, fetchMitreMock } = vi.hoisted(() => ({
@@ -126,8 +126,11 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     expect(screen.getByRole('tab', { name: /performance/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /posture/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^cost$/i })).toBeInTheDocument();
-    // Exactly four tabs — no double strip / phantom tab.
-    expect(screen.getAllByRole('tab')).toHaveLength(4);
+    // Exactly four SECTION tabs in the metrics strip — no double strip / phantom
+    // tab. Scoped to the metrics TabsList so the inline window/sort SegmentedControls
+    // (also Radix tabs) in the same row don't inflate the count.
+    const strip = screen.getByTestId('metrics-tabs');
+    expect(within(strip).getAllByRole('tab')).toHaveLength(4);
   });
 
   it('Cost tab is the single spend home — shows the ledger controls + breakdown', async () => {

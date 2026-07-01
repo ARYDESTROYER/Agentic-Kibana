@@ -24,9 +24,7 @@ import {
   Trash2,
   Check,
   UserPlus,
-  Layers,
   Clock,
-  Sparkles,
   AlertTriangle,
   Link2,
   Tag as TagIcon,
@@ -57,9 +55,9 @@ import {
   PopoverContent,
 } from '@/ui/popover';
 
+import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
-import { KpiTile } from '@/soc/components/KpiTile';
-import { Stagger } from '@/soc/components/Stagger';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import {
   DataTable,
   type DataTableColumn,
@@ -405,6 +403,57 @@ export interface CasesProps {
   initialStatus?: string;
 }
 
+/**
+ * Inline header pill count (replaces the old 4-tile KPI band — G4 density). Shows a
+ * label + tabular count; clickable ones deep-link/filter. `tone` tints only the
+ * count. All text is plain (UNTRUSTED-safe, #9).
+ */
+const CountPill: React.FC<{
+  label: string;
+  count: number | string;
+  tone?: 'default' | 'info' | 'high' | 'critical';
+  onClick?: () => void;
+  testId?: string;
+}> = ({ label, count, tone = 'default', onClick, testId }) => {
+  const toneCls =
+    tone === 'info'
+      ? 'text-info'
+      : tone === 'high'
+        ? 'text-high'
+        : tone === 'critical'
+          ? 'text-critical'
+          : 'text-foreground';
+  const body = (
+    <>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className={cn('text-sm font-semibold tabular-nums', toneCls)}>{count}</span>
+    </>
+  );
+  const base =
+    'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1';
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        data-testid={testId}
+        className={cn(
+          base,
+          'transition-colors hover:border-primary/40 hover:bg-accent/40',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        )}
+      >
+        {body}
+      </button>
+    );
+  }
+  return (
+    <span data-testid={testId} className={base}>
+      {body}
+    </span>
+  );
+};
+
 const CountLink: React.FC<{ count: number; onClick?: () => void }> = ({ count, onClick }) => {
   const enabled = count > 0 && !!onClick;
   return (
@@ -460,6 +509,11 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
 
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
+
+  // Bug #8: the one-click row "Close" is a destructive lifecycle action — gate it
+  // behind ConfirmDialog. The close still posts through the SAME analyst action
+  // endpoint (server-side decide()), never a client-side status write (#3).
+  const [closeTarget, setCloseTarget] = React.useState<Case | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -594,6 +648,22 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     },
     [selectedCases, bulkBusy, load],
   );
+
+  // Perform the confirmed row-close. Posts the SAME `close` analyst action as the
+  // bulk bar / CaseDetail close dialog — the backend's decide() adjudicates (#3).
+  const confirmClose = React.useCallback(async () => {
+    const target = closeTarget;
+    if (!target) return;
+    try {
+      await api.caseActionExec(target.case_id, {
+        action: 'close',
+        resolution: 'Closed by analyst',
+      });
+      await load();
+    } catch {
+      setBulkError(`Could not close ${target.case_id}.`);
+    }
+  }, [closeTarget, load]);
 
   const setFilter = <K extends keyof CaseFilters>(key: K, value: CaseFilters[K]) =>
     setFilters((f) => ({ ...f, [key]: value }));
@@ -818,10 +888,8 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
           aria-label={`Close case ${c.case_id}`}
           onClick={(e) => {
             e.stopPropagation();
-            void api
-              .caseActionExec(c.case_id, { action: 'close', resolution: 'Closed by analyst' })
-              .then(() => load())
-              .catch(() => setBulkError(`Could not close ${c.case_id}.`));
+            // Bug #8: confirm before this destructive one-click close.
+            setCloseTarget(c);
           }}
         >
           <Trash2 className="size-4" aria-hidden />
@@ -841,12 +909,43 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
 
   /* ------------------------------------------------------------- render ---- */
   return (
-    <div className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
-        eyebrow="Triage"
+        variant="dense"
+        breadcrumb={[{ label: 'Triage' }, { label: t('cases', 'Cases') }]}
         title={t('cases', 'Cases')}
-        description="Audited, human-reviewable triage cases."
         icon={Briefcase}
+        meta={
+          // Inline pill counts replace the old 4-tile KPI band (G4 density). They
+          // read against the IN-VIEW (filtered) list, matching what's shown.
+          <div className="flex flex-wrap items-center gap-1.5">
+            <CountPill
+              label={`Total ${t('cases', 'Cases')}`}
+              count={total.toLocaleString()}
+              testId="cases-count-total"
+            />
+            <CountPill
+              label="Open"
+              count={counts.open}
+              tone="info"
+              onClick={() => setFilter('status', 'open')}
+              testId="cases-count-open"
+            />
+            <CountPill
+              label="Needs human"
+              count={counts.needsHuman}
+              tone="high"
+              onClick={() => setFilter('status', 'needs_human')}
+              testId="cases-count-needs-human"
+            />
+            <CountPill
+              label="True positives"
+              count={counts.truePositive}
+              tone="critical"
+              testId="cases-count-tp"
+            />
+          </div>
+        }
         actions={
           <>
             <Button
@@ -867,57 +966,16 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         }
       />
 
-      {/* KPI row */}
-      <Stagger
-        className="grid grid-cols-2 gap-4 lg:grid-cols-4"
-        itemClassName="h-full"
-      >
-        <KpiTile
-          label={`Total ${t('cases', 'Cases')}`}
-          value={total.toLocaleString()}
-          icon={Briefcase}
-          accent="primary"
-          sub={truncated ? `${cases.length.toLocaleString()} loaded` : undefined}
-        />
-        <KpiTile
-          label="Open (in view)"
-          value={counts.open}
-          icon={Layers}
-          accent="info"
-          onClick={() => setFilter('status', 'open')}
-        />
-        <KpiTile
-          label="Needs human (in view)"
-          value={counts.needsHuman}
-          icon={AlertTriangle}
-          accent="high"
-          onClick={() => setFilter('status', 'needs_human')}
-        />
-        <KpiTile
-          label="True positives (in view)"
-          value={counts.truePositive}
-          icon={Sparkles}
-          accent="critical"
-        />
-      </Stagger>
-
-      {/* Saved views + column customization (Wave 7) */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Filter bar — saved views + column customization now live INLINE here
+          (reclaims the former standalone ~150px row above the table). */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
         <SavedViewsBar
           scope={CASES_VIEW_SCOPE}
           activeViewId={activeViewId}
           onApply={applySavedView}
           getCurrent={captureCurrent}
         />
-        <ColumnsMenu
-          columns={columnMenuItems}
-          state={columnState}
-          onChange={handleColumnState}
-        />
-      </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
         <div className="relative min-w-[16rem] flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -1062,6 +1120,13 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
           {cases.length}
           {total > cases.length ? ` (of ${total} total)` : ''}
         </span>
+
+        {/* Column customization — folded into the filter bar (formerly a standalone row). */}
+        <ColumnsMenu
+          columns={columnMenuItems}
+          state={columnState}
+          onChange={handleColumnState}
+        />
       </div>
 
       {/* Truncation note */}
@@ -1168,7 +1233,27 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         }}
         onNavigate={navigate}
       />
-    </div>
+
+      {/* Bug #8: destructive one-click close confirmation. The close still posts
+          through the analyst `close` action (server-side decide(), #3). */}
+      <ConfirmDialog
+        open={closeTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setCloseTarget(null);
+        }}
+        destructive
+        title="Close this case?"
+        description={
+          closeTarget
+            ? `Case ${closeTarget.case_number || closeTarget.case_id} will be closed. This is an analyst action; the resolution is adjudicated server-side.`
+            : undefined
+        }
+        confirmLabel="Close case"
+        onConfirm={() => {
+          void confirmClose();
+        }}
+      />
+    </PageContainer>
   );
 }
 

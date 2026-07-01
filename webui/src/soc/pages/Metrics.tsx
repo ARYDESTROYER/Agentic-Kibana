@@ -62,7 +62,9 @@ import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 
+import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
@@ -100,6 +102,13 @@ const WINDOWS = [
 type WindowId = (typeof WINDOWS)[number]['id'];
 type RankSort = 'count' | 'alpha';
 type MetricsTab = 'operational' | 'performance' | 'posture' | 'cost';
+
+// ONE responsive column formula per grid archetype (G4 density): KPI strips widen
+// by column COUNT up to 6 on ultrawide (`wide` container), and content-card grids
+// climb 1→2→3→4 across breakpoints. Reused everywhere so the page has a single,
+// consistent reflow rhythm instead of ad-hoc per-grid formulas.
+const KPI_GRID = 'grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6';
+const CARD_GRID = 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4';
 
 /** Humanize a minutes value to a compact "Xd Yh" / "Xh Ym" / "Xm" string. */
 function humanizeMinutes(mins?: number | null): string {
@@ -146,12 +155,12 @@ function tacticLabel(tacticId: string): string {
 // --------------------------------------------------------------------------- //
 const MetricsSkeleton: React.FC = () => (
   <div className="space-y-6" aria-busy="true" aria-label="Loading analytics">
-    <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
+    <div className={KPI_GRID}>
       {Array.from({ length: 6 }).map((_, i) => (
         <SkeletonCard key={i} lines={1} />
       ))}
     </div>
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
+    <div className={CARD_GRID}>
       {Array.from({ length: 4 }).map((_, i) => (
         <Skeleton key={i} className="h-[260px] w-full rounded-lg" />
       ))}
@@ -386,65 +395,32 @@ export default function MetricsPage({
   const hasKnowledge = rag !== null || memory !== null;
   const hasAny = (data?.total_cases ?? 0) > 0;
 
-  // ---- header actions --------------------------------------------------- //
-  // The Cost tab owns its OWN window + refresh controls (it reads a different
-  // endpoint on its own cadence), so the shared window/sort/refresh header is
-  // suppressed there to avoid two competing time selectors.
-  const headerActions = tab === 'cost' ? null : (
+  // ---- inline tab-row controls ------------------------------------------ //
+  // Density lever (G4): the window toggle + sort + refresh live in the SAME row as
+  // the TabsList — no separate control band. The Cost tab owns its OWN window +
+  // refresh controls (a different endpoint on its own cadence), so the shared
+  // window/sort/refresh row is suppressed there to avoid two competing selectors.
+  const tabRowControls = tab === 'cost' ? null : (
     <>
-      <div
-        className="inline-flex rounded-md border border-border bg-surface p-1"
-        role="group"
+      <SegmentedControl<WindowId>
         aria-label="Time window"
-      >
-        {WINDOWS.map((w) => (
-          <button
-            key={w.id}
-            type="button"
-            onClick={() => setWindowId(w.id)}
-            aria-pressed={windowId === w.id}
-            className={cn(
-              'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              windowId === w.id
-                ? 'bg-card text-foreground shadow-elev1'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {w.label}
-          </button>
-        ))}
-      </div>
+        size="sm"
+        value={windowId}
+        onValueChange={setWindowId}
+        options={WINDOWS.map((w) => ({ value: w.id, label: w.label }))}
+      />
 
       {tab === 'operational' ? (
-        <div
-          className="inline-flex rounded-md border border-border bg-surface p-1"
-          role="group"
+        <SegmentedControl<RankSort>
           aria-label="Sort ranked breakdowns"
-        >
-          {(
-            [
-              { id: 'count', label: 'Count' },
-              { id: 'alpha', label: 'A–Z' },
-            ] as const
-          ).map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              onClick={() => setRankSort(o.id)}
-              aria-pressed={rankSort === o.id}
-              className={cn(
-                'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                rankSort === o.id
-                  ? 'bg-card text-foreground shadow-elev1'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
+          size="sm"
+          value={rankSort}
+          onValueChange={setRankSort}
+          options={[
+            { value: 'count', label: 'Count' },
+            { value: 'alpha', label: 'A–Z' },
+          ]}
+        />
       ) : null}
 
       <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
@@ -454,15 +430,12 @@ export default function MetricsPage({
     </>
   );
 
-  const header = embedded ? (
-    <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
-  ) : (
+  const header = embedded ? null : (
     <PageHeader
-      eyebrow="Analytics"
+      variant="dense"
+      breadcrumb={[{ label: 'Analytics' }, { label: 'Metrics' }]}
       icon={BarChart3}
       title="Metrics"
-      description="Triage volume, lifecycle performance, and security posture."
-      actions={headerActions}
     />
   );
 
@@ -626,11 +599,7 @@ export default function MetricsPage({
       </div>
     ) : (
       <div className="space-y-8">
-        <Stagger
-          className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6"
-          step={40}
-          itemClassName="h-full"
-        >
+        <Stagger className={KPI_GRID} step={40} itemClassName="h-full">
           {kpis.map((k) => (
             <KpiTile
               key={k.key}
@@ -644,7 +613,7 @@ export default function MetricsPage({
           ))}
         </Stagger>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-4">
+        <div className={CARD_GRID}>
           <ChartCard title="Verdict mix" icon={BarChart3}>
             {verdictSegments.length ? (
               <div className="space-y-3">
@@ -858,7 +827,7 @@ export default function MetricsPage({
     );
 
   return (
-    <div className="animate-fade-in space-y-8">
+    <PageContainer variant="wide" className="animate-fade-in space-y-6">
       {header}
 
       {error ? (
@@ -873,24 +842,32 @@ export default function MetricsPage({
       ) : null}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as MetricsTab)}>
-        <TabsList>
-          <TabsTrigger value="operational" data-testid="metrics-tab-operational">
-            <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
-            Operational
-          </TabsTrigger>
-          <TabsTrigger value="performance" data-testid="metrics-tab-performance">
-            <Activity className="mr-1.5 h-4 w-4" aria-hidden />
-            Performance
-          </TabsTrigger>
-          <TabsTrigger value="posture" data-testid="metrics-tab-posture">
-            <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
-            Posture
-          </TabsTrigger>
-          <TabsTrigger value="cost" data-testid="metrics-tab-cost">
-            <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
-            Cost
-          </TabsTrigger>
-        </TabsList>
+        {/* ONE row: the section tabs on the left, the window/sort/refresh controls
+            on the right — the former standalone control band is gone (G4 density). */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList data-testid="metrics-tabs">
+            <TabsTrigger value="operational" data-testid="metrics-tab-operational">
+              <BarChart3 className="mr-1.5 h-4 w-4" aria-hidden />
+              Operational
+            </TabsTrigger>
+            <TabsTrigger value="performance" data-testid="metrics-tab-performance">
+              <Activity className="mr-1.5 h-4 w-4" aria-hidden />
+              Performance
+            </TabsTrigger>
+            <TabsTrigger value="posture" data-testid="metrics-tab-posture">
+              <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
+              Posture
+            </TabsTrigger>
+            <TabsTrigger value="cost" data-testid="metrics-tab-cost">
+              <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
+              Cost
+            </TabsTrigger>
+          </TabsList>
+
+          {tabRowControls ? (
+            <div className="flex flex-wrap items-center gap-2">{tabRowControls}</div>
+          ) : null}
+        </div>
 
         <TabsContent value="operational">{operationalBody}</TabsContent>
 
@@ -918,7 +895,7 @@ export default function MetricsPage({
           <Cost embedded onNavigate={onNavigate} />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageContainer>
   );
 }
 
