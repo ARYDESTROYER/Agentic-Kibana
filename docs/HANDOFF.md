@@ -5,14 +5,15 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-07-01
-- **Status:** Round 1 + Round 2 + Round 3 + **Round 4** overhauls **complete and committed** (local `Testing`, **not pushed**).
-- **Green baseline (verified 2026-07-01):** backend **1461 pytest** pass · webui **build clean** (tsc + vite) ·
-  **273 vitest** pass (counts rise each harden wave — see `Journal.md` for the exact current
-  totals) · **eslint 0 `react-hooks/rules-of-hooks` errors** (benign `exhaustive-deps`
-  warnings only) · `engine/case_manager.py` **byte-identical** to its pre-overhaul
-  decision logic · **zero new runtime dependencies** added across all four rounds. The 12
-  non-negotiables held throughout (incl. #6 — one LLM-gateway ledger write per call).
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-07-02
+- **Status:** Round 1 + Round 2 + Round 3 + Round 4 + **Round 5** overhauls **complete and committed** (local `Testing`, **not pushed**).
+- **Green baseline (verified 2026-07-02):** backend **1601 pytest** pass · webui **build clean** (tsc + vite,
+  entry chunk **264 kB**) · **625 vitest** pass (counts rise each harden wave — see `Journal.md` for the
+  exact current totals) · **eslint 0 errors** (4 benign warnings) · `route_auth_coverage` +
+  `design-gate` green · `engine/case_manager.py` `decide()` **byte-identical** to the pre-Round-5
+  baseline `27f0983` · **one added webui runtime dep** in Round 5 (`react-grid-layout`, lazy-loaded
+  in dashboard edit-mode only; backend added **zero**). The 12 non-negotiables held throughout (incl.
+  #3 — the deterministic decision; #6 — one LLM-gateway ledger write per call).
 
 ---
 
@@ -40,16 +41,16 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1461 passed (rises as harden-wave tests land; see Journal.md)
+python -m pytest -q                         # -> 1601 passed (rises as harden-wave tests land; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build  -> clean
-npx vitest run     # -> 273 passed (see Journal.md for the current count)
-npm run lint       # eslint; must be 0 react-hooks/rules-of-hooks ERRORS (exhaustive-deps warnings OK)
+npm run build      # tsc --noEmit && vite build  -> clean (entry chunk ~264 kB after Round-5 code-splitting)
+npx vitest run     # -> 625 passed (see Journal.md for the current count)
+npm run lint       # eslint; must be 0 ERRORS (a handful of benign warnings OK) — now also 20 jsx-a11y rules at error
 ```
 
 ### Run the demo locally (the fastest way to SEE everything)
@@ -83,6 +84,10 @@ backend/app/
                    routes_campaigns · routes_baseline · routes_batch · routes_reset ·
                    routes_setup — plus GET /api/logs (unified scatter-gather),
                    /api/cases/{id}/forwarding + /api/sources/health in routes.py
+                   Round 5 added routes_rules + routes_dashboards + POST /api/triage/
+                   preview-decision (pure what-if over decide() — never bills the LLM) +
+                   typed config endpoints (baseline/campaign/batch); routes.py was
+                   DECOMPOSED into domain routers with byte-identical paths
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
@@ -90,7 +95,9 @@ backend/app/
                    cases/usage/config/cursor · proposals · sql/ (SQLite/Postgres) +
                    Round-3: case_thread/case_activity/case_tasks · inbox · notif_prefs ·
                    custom_roles · price_overlay · shift_handoff +
-                   Round-4: tuning · campaigns · baseline · batch_jobs — NO new index/table needed
+                   Round-4: tuning · campaigns · baseline · batch_jobs +
+                   Round-5: dashboards (per-user custom-dashboard layouts) · rule_versions
+                   (detection-rule version ledger + rollback) — NO new index/table needed
   notifications/   channel SPI · email (SMTP+SES) · resend · webhook/slack/teams · templates · dispatch ·
                    InAppChannel (Round 3 — fan-out to InboxStore, no network)
   enrichment/      Round 3 — EnrichmentProvider SPI: base/registry/dispatch/aggregate +
@@ -110,14 +117,33 @@ backend/app/
   agents/          router · investigator · formatter · chat · standup · overview · personas · pipeline
   threat/          bundled compact MITRE ATT&CK technique map (+ refresh script)
 webui/src/
-  soc/pages/       Login, Cases, CaseDetail (Round-3 4 chips + TraceTimeline + collaboration),
-                   Settings (consolidated hub), Account, Sessions, Users, Security, Audit,
+  soc/pages/       Login, Cases, CaseDetail (Round-3 4 chips + TraceTimeline + collaboration;
+                   Round-5 split from a 4210-line god-file into ~1529 LOC + sub-components),
+                   Dashboards (Round-5 custom dashboards), Settings (Round-5 data-driven registry;
+                   the 2673-line hub -> a section-registry + pages/settings/* files, 5 groups,
+                   Security promoted to top-level), Account, Sessions, Users, Security, Audit,
                    Workspace(Chat+Investigate), Analytics(Metrics tabs+Cost), Home(Overview+Standup),
                    Intelligence(Knowledge+Memory+Catalog), Scans + Round-3 Models, Roles, Inbox, ...
+  soc/pages/settings/  Round-5 — one file per Settings section (general/security/models/detection/
+                   cases/automation/enrichment/knowledge/keys/standup/advanced/...) driven by
+                   settings-sections.ts (the registry) — replaces the old god-file
+  soc/rules/       Round-5 — Detection & Rules editor: DetectionRulesHome · RuleEditor (polymorphic
+                   over the 3 tiers) · ConditionBuilder (flat) · lifecycle/ (Test/Preview + version
+                   ledger) · adapter/api/types — Preview NEVER calls decide() and NEVER bills the LLM
+  soc/dashboard/   Round-5 — custom dashboards: WidgetGrid/EditableGrid (LAZY react-grid-layout) ·
+                   WidgetGallery/WidgetConfigSheet · registry (reuses existing tiles/charts) ·
+                   DashboardBuilder/DashboardDataProvider
+  soc/registry.tsx Round-5 — the SINGLE FEATURES[] registry that DERIVES nav + routes + the command
+                   palette (one source of truth; useNavigate() replaced the onNavigate prop-drill)
+  soc/hooks/       Round-5 — useAsync · useDirtyDraft · usePosture · useLiveAnnouncer (a11y) ·
+                   usePrefersReducedMotion · useMediaQuery
   soc/components/  RiskGauge, QRCode, CommandPalette, SavedViewsBar, DataTable, NotificationsEditor,
                    SourceEditor (feeds), DemoBanner, badges, charts, HelpTip + Round-3 NavSidebar,
                    NotificationBell, GlassSurface, SettingsGrid/Card, theme-tokens resolver,
-                   MitreHeatmap/BurnDownChart, CaseThread, EnrichmentProvidersEditor, BrandingEditor, ...
+                   MitreHeatmap/BurnDownChart, CaseThread, EnrichmentProvidersEditor, BrandingEditor +
+                   Round-5 ~15 shared primitives (Field, SegmentedControl, ConfirmDialog, NumberField,
+                   LabeledSlider, SecretField, TagInput, IconButton, PageContainer, TimeRangePicker,
+                   DashboardGroup, collapsible, typography), ...
   ui/              shadcn/radix primitives (button, dialog, command, table, ...)
   lib/             api.ts (client) · types.ts (keep in sync with backend models) · format · cn
 ```
@@ -139,9 +165,14 @@ Full text in `CLAUDE.md` §5. The ones that bite hardest:
 - **#1 read-only scoped log key**, **#2 append-only audit**, **#4 durable cursor (no skip/dup)**.
 
 ### Engineering conventions (how this codebase stays green)
-- **ZERO new runtime deps** — backend stdlib-first; webui composes the already-installed
-  radix/shadcn/framer/recharts/lucide/cmdk. (eslint is the only added *dev* dep.) If you think you
-  need a dep, look for an existing one first.
+- **Deps are added only by deliberate decision.** The backend stays **zero-new-runtime-dep**
+  (stdlib-first) through all five rounds. The webui composes the already-installed
+  radix/shadcn/recharts/lucide/cmdk; Round 5 added exactly ONE webui runtime dep
+  (`react-grid-layout`, lazy-loaded only in dashboard edit-mode) and **removed `framer-motion`**
+  (zero importers). New dev-only deps in Round 5: self-hosted fonts (`@fontsource-variable/inter`,
+  `@fontsource/jetbrains-mono`), `@tailwindcss/container-queries`, `openapi-typescript` (type
+  generation), and the a11y tooling (`eslint-plugin-jsx-a11y`, `jest-axe`/`@axe-core`). If you think
+  you need a dep, look for an existing one first.
 - **Additive + back-compatible.** New stores are KV-doc (no new index/table/migration). New model
   fields are defaulted so old persisted docs load unchanged.
 - **eslint `react-hooks/rules-of-hooks` is enforced as an error** (`npm run lint`). All hooks go
@@ -261,6 +292,66 @@ CAS claim-before-bill (#6).
 | `3c68cf5` | W5 | Webui: unified logs · tuning/campaigns/baseline/batch surfaces · cleaner CaseDetail · analytics declutter · login white-label + OOBE · Models cache/batch pricing · DangerZone reset |
 | `1df27ac` | W6 | 16-dimension adversarial audit (16 confirmed) + harden (+24 regression tests) |
 
+### Round 5 (commits `5ab7c05` → `05552c7`) — "UI/UX overhaul + rules customization + custom dashboards + loose coupling"
+9 delivered goals (G1–G9), additive, `engine/case_manager.py` `decide()` **byte-identical** to the
+pre-Round-5 baseline `27f0983`, +1 lazy webui runtime dep (`react-grid-layout`), `framer-motion`
+removed. Design + what-shipped: `docs/research/2026-07-round5/` (`PROPOSAL.md` · `DESIGN_STANDARD.md`
+· `IMPLEMENTATION.md` · the `RESEARCH_*.md` studies + `AUDIT_FINDINGS.md` + `understand/` maps).
+
+**The goals delivered:**
+- **G1 — a cohesive color scheme.** A Radix slate + blue base with **three orthogonal semantic axes**
+  (severity / status / verdict), each split into `token` / `-foreground` / `-text` with **measured
+  WCAG-AA contrast in both light and dark themes**; Okabe-Ito colour-blind-safe chart ramps + viridis;
+  self-hosted **Inter + JetBrains Mono**.
+- **G2 — ONE consistent design standard.** A single shadcn / Radix / Tailwind grammar enforced
+  end-to-end: shared primitives + one card grammar + a label→token authority + a **codemod** that
+  adopted the primitives across the pages. (Blueprint: `DESIGN_STANDARD.md`.)
+- **G3 — a decluttered Settings.** The **2673-line** Settings god-file became a **data-driven section
+  registry** + `pages/settings/*` section files; **6 → 5** nav groups; **Security promoted to
+  top-level**; ≤2 nesting levels; 33 redirect tests keep deep-links working.
+- **G4 — a dashboard that uses the real-estate.** A `PageContainer` (wide / fluid) killed the
+  `max-w-[1400px]` cap; a three-zone dashboard layout.
+- **G5 — a compact hero.** The old ~176 px HeroPanel merged into a ~52 px `PageHeader`.
+- **G6 — rules customization.** A **Detection & Rules** home over **3 rule tiers** (detection-match /
+  threshold · anomaly / baseline · case-automation); a polymorphic editor + a flat condition builder;
+  **Test/Preview against recent data that NEVER calls `decide()` and NEVER bills the LLM** (a pure
+  what-if via `POST /api/triage/preview-decision`); a version ledger + rollback; threshold
+  `NumberField` / `LabeledSlider`; asset / SLA / priority / suppression editors.
+- **G7 — custom dashboards.** A widget registry that **reuses the existing tiles/charts**; a per-user
+  drag/resize grid (LAZY `react-grid-layout`, edit-mode only); a zero-migration `DashboardStore`;
+  per-role defaults + clone-to-customize.
+- **G8 — loose coupling.** A single `FEATURES[]` registry (`soc/registry.tsx`) **derives nav + routes +
+  the command palette**; `useNavigate()` replaced the `onNavigate` prop-drill; `React.lazy`
+  code-splitting restored (**entry chunk 537 → 264 kB**); `routes.py` decomposed into domain routers
+  with **byte-identical paths**; a generic `EntryPointRegistry`; `Protocol` narrowing; and
+  `openapi-typescript` type generation.
+- **G9 — accessibility + audit.** A non-color signalling pass (`SEMANTIC_ICON`), WCAG-2.2 criteria,
+  `jest-axe`, **20 `jsx-a11y` rules at error (48 → 0 violations)**; plus a 16-dimension adversarial
+  audit (23 findings, **9 must-fix all resolved** with regression tests).
+
+**Bugs fixed** (from the subsystem maps + audit): the **auto-close dead-field** (the flagship
+auto-close toggle did nothing), KpiTile delta-by-sign, the cosmetic wizard demo toggle,
+clipboard-over-http, a misc-prefs clobber, an automation impossible-verdict, a roles perm mismatch, a
+no-confirm destructive close, a campaigns read-perm gate, the dead `initAdmin` stub, a
+`request_approval` dead-end, a tuning row always showing "Active", a SQL sort no-op, a
+`derive_priority` disagreement — plus audit **C1** (dashboards couldn't persist), **H2** (a rules
+verdict case-bug), **H3** (dashboards billed the LLM), **H4** (19 unnamed comboboxes), and **M1–M4**.
+
+| Commit | Wave | What |
+|---|---|---|
+| `5ab7c05` | docs | Round-5 research + plan: `understand/` maps + the `RESEARCH_*.md` studies + `PROPOSAL.md` / `DESIGN_STANDARD.md` / `IMPLEMENTATION.md` |
+| `0e99c76` | W0.1 | Foundations pt1 — test-anchoring + the color / token system (G1) |
+| `9854c36` | W0.2 | Foundations pt2 — primitives · shell width · compact header · coupling infra (G2/G4/G5/G8) |
+| `7c86706` | Settings | Settings IA overhaul (2673 → 575 LOC, 5 groups, Security promoted) + the **auto-close bug fix** (G3, bug #1/#7) |
+| `f50e0b2` | Dashboard | Dashboard density + hero compaction + three-zone + wide width (G4/G5) |
+| `3e447da` | Codemod | Codemod primitives across pages + split the CaseDetail god-file (4210 → 1529) (G2/G8) |
+| `b661bc8` | G6 | Rules customization — Detection & Rules home + polymorphic editor + Preview + versioning (bugs #6/#9/#12) |
+| `830e836` | G7 | Custom dashboards — widget registry + drag/resize grid + per-user persistence |
+| `d3801f9` | G8 | Loose coupling — registry routing + code-splitting (bundle 537 → 264 kB) + router decomposition (bugs #3/#11/#13/#14) |
+| `a9e2b49` | G9 | Accessibility pass — `jsx-a11y` 48 → 0, `Field` labels, `jest-axe`, flaky tests stabilized |
+| `8b91fc0` | G9 | Resolve all 9 adversarial-audit must-fix findings |
+| `05552c7` | Polish | Audit polish items P1–P18 + a page-consistency sweep |
+
 ---
 
 ## 6. Known issues / deferred (next-round candidates)
@@ -273,12 +364,10 @@ architectural decision). Full detail + file:line in `docs/research/2026-06-round
 - **Shared `CONFIG_INDEX` nested-type collision** (ES-only, speculative).
 - **Deep-link breadcrumb** for folded sub-pages shows "Overview" (cosmetic).
 
-**Round 4 deferred / known loose ends (low risk, next-round candidates):**
-- **Admin-page consolidation-redirects (#4)** — the standalone admin pages were NOT folded
-  into Settings with redirects (the map flagged that refactor as top-risk); they render
-  standalone today and deep-link fine, so it is cosmetic IA, not a functional gap.
-- **Dead `api.setup.initAdmin` webui stub** — a leftover client stub that is never called
-  (the live OOBE flow uses `POST /api/setup/account`); prune-later.
+**Round 4 loose ends — now CLOSED in Round 5:**
+- The **admin-page consolidation** landed with the Settings IA overhaul (data-driven registry +
+  redirect tests; Security promoted to top-level).
+- The **dead `api.setup.initAdmin` stub** was removed (one of the Round-5 bug fixes).
 
 **Round 3 follow-ups (still open):** the opt-in row-level data scope (`can_object()` hook
 shipped OFF) · OCSF classification/observables surfacing + the 1.4→1.8 version bump. (Live SSE
@@ -305,7 +394,9 @@ case linking/merge, an integrations marketplace.
 | Round-2 design intent (extend a feature) | `docs/research/2026-06-round2/ROUND2_DESIGN.md` |
 | Round-3 design + what-shipped (extend a feature) | `docs/research/2026-06-round3/PROPOSAL.md` · `IMPLEMENTATION.md` |
 | Round-4 design + what-shipped (extend a feature) | `docs/research/2026-07-round4/PROPOSAL.md` · `IMPLEMENTATION.md` |
-| Audit findings + dispositions | `docs/research/2026-06-round2/ROUND2_AUDIT.md` |
+| Round-5 design + what-shipped (UI/UX + rules + dashboards + coupling) | `docs/research/2026-07-round5/PROPOSAL.md` · `DESIGN_STANDARD.md` · `IMPLEMENTATION.md` |
+| The design standard (color tokens, primitives, card grammar) — READ before touching webui | `docs/research/2026-07-round5/DESIGN_STANDARD.md` |
+| Audit findings + dispositions | `docs/research/2026-06-round2/ROUND2_AUDIT.md` · `docs/research/2026-07-round5/AUDIT_FINDINGS.md` |
 | What's next | `ROADMAP.md` · `ROUND2_BEST_OF_BEST.md` |
 
 ---
@@ -315,8 +406,9 @@ case linking/merge, an integrations marketplace.
 1. `CLAUDE.md` is auto-loaded — it has the non-negotiables, the module map, and the status. Trust it,
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
 2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
-3. **Before committing anything:** `pytest -q` (1461) green, `npm run build` clean, `npx vitest run` (273)
-   green, `npm run lint` 0 rules-of-hooks errors, and `git diff backend/app/engine/case_manager.py`
-   **empty** (decision logic unchanged). Commit focused changes; **don't push** unless asked.
+3. **Before committing anything:** `pytest -q` (1601) green, `npm run build` clean (entry chunk ~264 kB),
+   `npx vitest run` (625) green, `npm run lint` 0 errors, and `git diff backend/app/engine/case_manager.py`
+   **empty** (decision logic unchanged — byte-identical to `27f0983`). The `route_auth_coverage` +
+   `design-gate` tests must also stay green. Commit focused changes; **don't push** unless asked.
 4. This repo was built with review-gated, self-verifying waves (research → implement → pytest/build/
    vitest/lint → fix-loop → independent re-verify → commit). Keep that rhythm.

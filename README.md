@@ -240,7 +240,35 @@ the deterministic close/escalate decision and never alter it. See
   appearance/terminology, advanced) plus the admin areas (Users, RBAC, MFA, SSO).
   Near-duplicate top-level pages were consolidated into tabbed surfaces and the rail
   grouped into a handful of areas, with RBAC hiding sections the signed-in role can't
-  see. Everything rides `GET/PUT /api/settings` (deep-merge + validate).
+  see. Everything rides `GET/PUT /api/settings` (deep-merge + validate). **Round 5**
+  replaced the old 2673-line Settings god-file with a **data-driven section registry**
+  (one file per section), collapsed **6 → 5** nav groups, **promoted Security to
+  top-level**, and capped nesting at two levels — deep-links preserved (redirect-tested).
+- **Rules customization — a Detection & Rules editor (Round 5).** A first-class home for
+  editing rules across **three tiers** — detection-match / threshold rules, anomaly /
+  baseline rules, and case-automation — behind a **polymorphic editor** with a flat
+  condition builder, threshold `NumberField` / slider controls, and asset / SLA / priority /
+  suppression editors. **Test / Preview a rule against recent data** without touching
+  production: preview is a **pure what-if** (`POST /api/triage/preview-decision`) that
+  **never calls `decide()` and never bills the LLM** (#3/#6). Every change is captured in a
+  **version ledger with one-click rollback** (a zero-migration `rule_versions` KV store).
+- **Custom dashboards (Round 5).** Build your own dashboards from a **widget registry that
+  reuses the existing tiles and charts** — a per-user **drag / resize grid**
+  (`react-grid-layout`, lazy-loaded only in edit-mode) persisted in a zero-migration
+  `DashboardStore` (`GET/PUT /api/dashboards`). Admins ship **per-role defaults**; any user
+  can **clone-to-customize** their own layout.
+- **A refreshed, accessible design system (Round 5).** One cohesive **shadcn / Radix /
+  Tailwind** standard end-to-end: a Radix slate + blue base with three orthogonal semantic
+  axes (severity / status / verdict) whose contrast is **measured WCAG-AA in both light and
+  dark themes**, Okabe-Ito colour-blind-safe chart ramps, and self-hosted **Inter +
+  JetBrains Mono**. A shared primitive set (`Field` / `SegmentedControl` / `NumberField` /
+  `LabeledSlider` / `PageContainer` / …) + one card grammar are enforced across the console
+  (adopted via a codemod). Dashboards use the full page width, the page header is compact
+  (~52 px), and an accessibility pass enforces **20 `jsx-a11y` lint rules at error** with
+  `jest-axe` coverage and non-color status signalling (WCAG 2.2). Under the hood a single
+  `FEATURES[]` registry derives the nav, routes, and command palette, and `React.lazy`
+  code-splitting brought the entry bundle to **264 kB** — none of which changes any API path
+  or the deterministic decision.
 
 ## Quick start (deploy)
 
@@ -311,10 +339,16 @@ backend/                FastAPI + LangGraph backend (all agentic logic) + tests
     notifications/      channel (ABC) · email · slack · teams · webhook · pagerduty ·
                         telegram · dispatch (dedup/rate-limit/digest) · templates
     threat/             bundled MITRE ATT&CK technique corpus (mitre_techniques.json)
-    stores/             cases · usage · config · cursor · users (+ audit)
+    stores/             cases · usage · config · cursor · users (+ audit) ·
+                        dashboards (per-user custom-dashboard layouts) ·
+                        rule_versions (detection-rule version ledger + rollback)
       sql/              SQL StateStore: engine · models · repositories · vectorstore
-    api/                routes (the backend contract) · deps   state.py · main.py
+    api/                routes (decomposed into domain routers, byte-identical paths) · deps ·
+                        routes_rules · routes_dashboards · … · state.py · main.py
 webui/                  standalone Vite + React + Tailwind + shadcn SPA (primary UI)
+  src/soc/rules/        Round-5 Detection & Rules editor (polymorphic editor + preview + versioning)
+  src/soc/dashboard/    Round-5 custom-dashboard builder (widget registry + drag/resize grid)
+  src/soc/registry.tsx  Round-5 the single FEATURES[] registry (derives nav + routes + palette)
 deploy/                 docker-compose.agnostic.yml (self-contained) ·
                         docker-compose.tlsoc.yml (legacy ELK) · mappings · dashboards
 docs/                   USAGE · INGESTION · AGNOSTIC_ARCHITECTURE · ENVIRONMENT ·
@@ -347,11 +381,20 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline this cycle: **1461 backend tests green** (fake/in-memory backends
-+ mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
-tests offline); the standalone **web UI builds clean** (`tsc` + Vite) with a dev-only
-Vitest harness (273 tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
-(Test counts rise each harden wave — see `Journal.md` for the exact current totals.)
+Verified offline this cycle (2026-07-02): **1601 backend tests green** (fake/in-memory
+backends + mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
+tests offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **264 kB**
+after Round-5 code-splitting) with a dev-only Vitest harness (**625 tests**); eslint clean
+(0 errors, incl. 20 `jsx-a11y` rules at error). (Test counts rise each harden wave — see
+`Journal.md` for the exact current totals.)
+**Round 5** ("UI/UX overhaul + rules customization + custom dashboards + loose coupling" — a
+cohesive WCAG-AA color system + one enforced shadcn/Radix/Tailwind design standard, a
+decluttered data-driven Settings, a wider dashboard + compact hero, a **Detection & Rules
+editor** with rule versioning + a **pure-what-if preview that never bills the LLM**,
+**custom per-user dashboards**, and a loose-coupling refactor — a single `FEATURES[]` registry,
+restored code-splitting to a 264 kB entry, and a domain-router decomposition with
+byte-identical API paths — plus an accessibility pass and a 16-dimension adversarial audit,
+9 must-fix all resolved) followed
 **Round 4** ("fix the logic, fine-tune the product" — the multi-source poller fix +
 2 more confirmed bugs, adaptive threshold auto-tuning, two-tier alert/event ingestion with
 campaign correlation + agent-driven event detection, an entity baseline, batch/flex + a
@@ -363,10 +406,13 @@ notifications, a standardized Models page, distinctive UI, a forward-looking Sta
 clearer cases + agent-work visualization), **Round 2** (login redesign + account self-service,
 sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources, Resend/SES +
 email templates, per-user customization, command palette + global search + bulk actions +
-audit viewer), and the seven-wave overhaul before it — was **additive, default-OFF, with zero
-new runtime dependencies** and left `case_manager.decide()` byte-identical (CI-verified); the
-12 non-negotiables held throughout, and a 16-dimension adversarial audit closed Round 4 (16
-confirmed issues, all fixed + regression-tested). A shipped security fix inverts RAG-knowledge
+audit viewer), and the seven-wave overhaul before it — was **additive** and left
+`case_manager.decide()` byte-identical (CI-verified: still identical to the pre-Round-5
+baseline). The backend stayed **zero-new-runtime-dep** through all five rounds; Round 5 added
+exactly **one** lazy webui runtime dep (`react-grid-layout`, dashboard edit-mode only) and
+removed `framer-motion`. The 12 non-negotiables held throughout, and a 16-dimension adversarial
+audit closed both Round 4 (16 confirmed, all fixed) and Round 5 (23 findings, 9 must-fix all
+fixed) with regression tests. A shipped security fix inverts RAG-knowledge
 fencing to a TRUSTED allowlist so operator-imported documents can no longer reach the model
 unfenced (OWASP LLM01). Live-stack validation against a real SIEM is a deploy step. New here?
 See [`docs/HANDOFF.md`](docs/HANDOFF.md). See

@@ -7,6 +7,125 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-02 — Round 5: UI/UX overhaul (cohesive color system + ONE shadcn/Radix design standard), Settings declutter, denser wide dashboard + compact hero, rules customization, custom dashboards, loose coupling, a11y + adversarial audit
+
+A fifth multi-wave round — **"UI/UX overhaul + rules customization + custom dashboards +
+loose coupling"** — delivering **9 goals (G1–G9)** plus a **16-dimension adversarial audit**
+across **12 commits** (`5ab7c05`…`05552c7`). The round is overwhelmingly a **webui**
+overhaul with a **surgical, path-byte-identical** backend surface for rules, dashboards, and a
+zero-bill decision-preview. Non-negotiables hold throughout — **`case_manager.decide()` is
+BYTE-IDENTICAL** vs the pre-Round-5 baseline `27f0983` (CI diff guard; G6's Test/Preview uses a
+NEW read-only wrapper over the pure `decide()` and NEVER re-implements it, NEVER bills the LLM);
+**#6** stays one ledger write per real LLM call (no preview/what-if/dashboard/widget path calls
+the model — `POST /api/triage/preview-decision` asserts zero `UsageDoc` writes); **#2** (append-
+only audit on every rule create/edit/enable/disable/rollback + auto-close change), **#9**
+(untrusted → plain text / SVG `<text>` / code block on every new rule/widget/dashboard/view
+name + value), and **#10** (secrets = booleans via the new `SecretField`) held on every new
+surface; **`PUT /api/settings` stays a deep-MERGE** (round-trip test proves no sibling block is
+wiped by any new section) and **all API paths are byte-identical** across the router
+decomposition. The webui shed a runtime dep on net (**removed `framer-motion`**, added
+**`react-grid-layout`** loaded LAZILY only in dashboard edit-mode); the backend adds **zero new
+runtime deps**. The backend offline suite grew **1461 → 1601 tests green**; the webui `tsc +
+vite build` is GREEN (entry chunk **537 kB → 264 kB** with `React.lazy` code-splitting restored)
+with the Vitest harness expanded **273 → 625 specs** (eslint clean — 0 errors, 4 warnings; the
+`jsx-a11y` findings driven **48 → 0**). New here? See [`docs/HANDOFF.md`](docs/HANDOFF.md) and
+`docs/research/2026-07-round5/` (`PROPOSAL.md` + `DESIGN_STANDARD.md` [the canonical spec] +
+the `understand/` maps + `RESEARCH_*.md` + `IMPLEMENTATION.md` + `AUDIT_FINDINGS.md`). Developed
+on the `Testing` branch.
+
+### Added — G1: cohesive color & type system (`0e99c76`)
+- A single **Radix slate + blue** foundation with **3 orthogonal semantic axes** — severity /
+  status / verdict — each split into `token` / `-foreground` / `-text` triples with **MEASURED
+  WCAG-AA contrast in both light and dark themes**; **Okabe-Ito** colour-blind-safe chart ramps
+  + a viridis sequential scale; self-hosted **Inter** (variable) + **JetBrains Mono** typefaces.
+- The token authority is `label → token`: a domain label (a severity/status/verdict) resolves
+  to its token, and components consume the token — never a raw hex.
+
+### Added — G2: ONE consistent design standard (`9854c36`, `3e447da`)
+- **shadcn/Radix/Tailwind** enforced end-to-end: shared low-level primitives + **ONE card
+  grammar** + the `label → token` authority, adopted across the pages by a **codemod** so every
+  surface speaks the same visual language. ~15 new shared components/primitives landed:
+  `Field` · `SegmentedControl` · `ConfirmDialog` · `NumberField` · `LabeledSlider` ·
+  `SecretField` · `TagInput` · `IconButton` · `PageContainer` · `TimeRangePicker` ·
+  `DashboardGroup` · `collapsible` · `typography`, plus the split-out CaseDetail parts.
+- **CaseDetail god-file split** — `4210 → 1529` LOC (extracted into focused subcomponents; no
+  behaviour or contract change; the unified Close-with-disposition still posts the existing
+  close → `decide()`, #3).
+
+### Changed — G3: Settings decluttered (`7c86706`)
+- The **2673-line Settings god-file** became a **data-driven registry + `pages/settings/*`
+  section files** — `575` LOC of shell over per-section modules; **6 → 5** nav groups with
+  **Security promoted to a top-level group**; **≤2 nesting levels**; **33 redirect tests**
+  preserving every deep link (`#/settings?s=<id>`, the standalone `#/users`/`#/security`, the
+  `detection-correlation` / `advanced-suppression` / `tuning-policy` anchors). `PUT /api/settings`
+  deep-MERGE intact (each section sends only its changed keys).
+
+### Changed — G4/G5: denser wide dashboard + compact hero (`f50e0b2`)
+- **G4** — the dashboard uses more real-estate: a `PageContainer` wide/fluid mode killed the
+  `max-w-[1400px]` cap and moved to a **three-zone layout**.
+- **G5** — the **compact hero**: the ~176px `HeroPanel` merged into a **~52px `PageHeader`**.
+- **KpiTile** delta rendering corrected to key off the delta's sign (bug).
+
+### Added — G6: rules customization (`b661bc8`)
+- A **Detection & Rules** home spanning **3 rule tiers** — detection-match / threshold ·
+  anomaly / baseline · case-automation — over a **polymorphic editor** with a **flat condition
+  builder**. A **Test / Preview vs. recent data** panel that **NEVER calls `decide()`** and
+  **NEVER bills the LLM** (backed by the new read-only `POST /api/triage/preview-decision`
+  wrapper over the pure `decide()`); a **version ledger + rollback** (`stores/rule_versions.py`);
+  threshold `NumberField` / `LabeledSlider`; asset / SLA / priority / suppression editors.
+- Backend `api/routes_rules.py` + `stores/rule_versions.py`; new webui `soc/rules/*`.
+
+### Added — G7: custom dashboards (`830e836`)
+- A **widget registry reusing the existing tiles/charts**, a **per-user drag/resize grid**
+  (`react-grid-layout`, loaded **LAZILY** only in edit-mode), a **zero-migration `DashboardStore`**
+  (`stores/dashboards.py`, KV-doc, no new index/table), **per-role defaults + clone-to-customize**.
+- `UserPrefs.dashboards` + `CustomizationConfig.default_dashboards`; backend
+  `api/routes_dashboards.py`; new webui `soc/dashboard/*` + `pages/Dashboards.tsx`.
+
+### Changed — G8: loose coupling (`d3801f9`)
+- A single **`FEATURES[]` registry** (`soc/registry.ts`) now derives **nav + routes + command
+  palette** from one source; `useNavigate()` replaces the `onNavigate` prop-drill; **`React.lazy`
+  code-splitting restored** (entry bundle **537 → 264 kB**). `routes.py` **decomposed into
+  domain routers** — **all API paths byte-identical**. A generic `EntryPointRegistry`, `Protocol`
+  narrowing, and **`openapi-typescript` type generation** for the client types. Typed config
+  endpoints added (baseline / campaign / batch). New `soc/hooks/*`.
+
+### Added / Fixed — G9: accessibility + adversarial audit (`a9e2b49`, `8b91fc0`, `05552c7`)
+- **Accessibility** — `SEMANTIC_ICON` non-color signalling (never colour alone), **WCAG-2.2**
+  criteria, **`jest-axe`** wired into the harness, **20 `jsx-a11y` rules at error** (findings
+  **48 → 0**), `Field` labels associated throughout, flaky tests stabilized.
+- **16-dimension adversarial audit** (`AUDIT_FINDINGS.md`) → **23 findings, 9 must-fix — all
+  resolved with regression tests:** **C1** (custom dashboards couldn't persist), **H2** (rules
+  verdict case-sensitivity bug), **H3** (a dashboards path billed the LLM), **H4** (19 unnamed
+  comboboxes → accessible-name), plus **M1–M4**.
+- **Polish (P1–P18)** — a page-consistency sweep across the surfaces.
+
+### Fixed — long-standing bugs surfaced by the understanding maps + the audit
+- **Auto-close dead-field** — the flagship auto-close toggle in Settings wrote a field
+  `decide()` never read (it did nothing); it now writes `prefs.auto_close`, the exact field
+  `decide()` already reads — so the toggle finally works, with `decide()` itself byte-identical.
+- **KpiTile** delta-by-sign; **wizard** cosmetic demo toggle; **clipboard-over-http**;
+  **misc-prefs clobber**; **automation** impossible-verdict; **roles** permission mismatch;
+  **no-confirm destructive close** (now `ConfirmDialog`-gated); **campaigns** read-permission
+  gate; the dead **`initAdmin`** stub; the **`request_approval`** dead-end; the **tuning** row
+  always showing "Active"; a **SQL sort** no-op; and a **`derive_priority`** disagreement.
+
+### Dependencies
+- **Removed** `framer-motion` (zero importers). **Added** `react-grid-layout ^2.2.3` (runtime,
+  loaded LAZILY in dashboard edit-mode only). Dev-only additions: `@fontsource-variable/inter`,
+  `@fontsource/jetbrains-mono`, `@tailwindcss/container-queries`, `openapi-typescript`,
+  `jest-axe`/`@axe-core`, `eslint-plugin-jsx-a11y`. **Backend: zero new runtime deps.**
+
+### Verification (2026-07-02)
+- Backend **1601 pytest** green (was 1461); webui `tsc + vite build` clean, **entry chunk
+  264 kB** (was 537); **625 Vitest** specs green (was 273); eslint **0 errors** (4 warnings);
+  `route_auth_coverage` green; the design-gate green; **`engine/case_manager.py` `decide()`
+  BYTE-IDENTICAL** vs `27f0983` (#3 held throughout); **#6 / #9 / #2 / #10 upheld**; `PUT
+  /api/settings` deep-MERGE intact; **all API paths byte-identical**. Developed on `Testing`
+  (LOCAL only, NOT pushed).
+
+---
+
 ## [Unreleased] — 2026-07-01 — Round 4: multi-source poller fix, adaptive threshold auto-tuning, two-tier alert/event ingestion + campaign correlation + entity baseline, batch/flex + corrected model catalog, unified logs, tiered reset + fresh OOBE, login white-label
 
 A fourth multi-wave round — **"fix the logic, fine-tune the product"** — delivering **3

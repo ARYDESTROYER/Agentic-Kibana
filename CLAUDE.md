@@ -234,7 +234,9 @@ backend/app/
                      pattern): tuning (per-rule FP tuning state + rollback) · campaigns ·
                      baseline (per-signature online stats) · batch_jobs (resume-safe,
                      per-`custom_id` retrieved-dedup → exactly-one UsageDoc/result #6) ·
-                     audit/audit_log (ES-backed) · sql/ (engine ·
+                     2 Round-5 KV stores (same zero-migration pattern): dashboards
+                     (per-user custom dashboards) · rule_versions (rule version ledger +
+                     rollback) · audit/audit_log (ES-backed) · sql/ (engine ·
                      models · repositories · vectorstore — SQLite/Postgres+pgvector)
   api/               routes (the big UI-contract router; incl. /sources, /auth+/users+
                      /auth/mfa+/auth/sso, /auth/refresh+/auth/reauth, /sessions+
@@ -249,7 +251,12 @@ backend/app/
                      routes_roles) + 6 Round-4 routers (routes_tuning · routes_campaigns ·
                      routes_baseline · routes_batch · routes_reset [admin + fresh-auth,
                      tiered, never wipes env secrets] · routes_setup [OOBE first-admin,
-                     strong-pw, self-locking])
+                     strong-pw, self-locking]) + Round-5 routers (routes_rules [Detection
+                     & Rules editor/versioning] · routes_dashboards [per-user custom
+                     dashboards] + routes.py decomposed into domain routers, paths
+                     byte-identical; +POST /api/triage/preview-decision [rule Test/Preview
+                     that NEVER calls decide()/bills the LLM #3/#6] + typed baseline/
+                     campaign/batch config endpoints)
                      mounted in main.py · deps (require_auth + require_permission +
                      require_fresh_auth + custom-role union enforcement + session check) ·
                      state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
@@ -259,15 +266,25 @@ backend/tests/       offline tests (fake ES + mock LLM; SQL store on SQLite) —
 webui/               PRIMARY surface: standalone Vite+React+TS+Tailwind+shadcn/Radix SPA
   package.json       Node 22; Tailwind + Radix primitives; build = tsc --noEmit && vite build
   src/               main.tsx · styles/theme.css (design tokens + Round-3 allow-listed
-                     theme tokens + material chrome vars) · ui/* (shadcn/Radix
-                     primitives) · soc/ (App/AppShell/router/nav/theme/auth; pages/*
-                     incl. Users/Security/Approvals/Settings/Knowledge/Memory + Round-3
-                     Models/Roles/Inbox + Metrics tabs + CaseDetail chips/trace/collab;
-                     components/* incl. Can RBAC guard, MfaSetupCard, QRCode,
-                     NotificationsEditor, RiskGauge, palette + Round-3 NavSidebar,
-                     NotificationBell, GlassSurface, SettingsGrid/Card, theme-tokens
-                     resolver, MitreHeatmap/BurnDownChart, TraceTimeline, CaseThread,
-                     EnrichmentProvidersEditor, BrandingEditor) · lib/ (api etc.) · test/
+                     theme tokens + material chrome vars + Round-5: Radix slate+blue base +
+                     3 orthogonal semantic axes severity/status/verdict each token/-fg/-text,
+                     MEASURED WCAG-AA both themes, Okabe-Ito+viridis chart ramps, self-hosted
+                     Inter+JetBrains Mono) · ui/* (shadcn/Radix primitives) · soc/
+                     (App/AppShell/router/nav/theme/auth; Round-5: registry.tsx [the single
+                     FEATURES[] registry deriving nav+routes+palette] · rules/* [Detection &
+                     Rules home + polymorphic editor + condition builder] · dashboard/*
+                     [custom-dashboard builder/grid/widget registry, LAZY react-grid-layout] ·
+                     hooks/*; pages/* incl. Users/Security/Approvals/Knowledge/Memory + Round-3
+                     Models/Roles/Inbox + Metrics tabs + CaseDetail chips/trace/collab +
+                     Round-5 Dashboards.tsx + settings/* data-driven section files [was a
+                     2673-line god-file, now a section registry]; components/* incl. Can RBAC
+                     guard, MfaSetupCard, QRCode, NotificationsEditor, RiskGauge, palette +
+                     Round-3 NavSidebar, NotificationBell, GlassSurface, SettingsGrid/Card,
+                     theme-tokens resolver, MitreHeatmap/BurnDownChart, TraceTimeline,
+                     CaseThread, EnrichmentProvidersEditor, BrandingEditor + ~15 Round-5
+                     shared primitives Field/SegmentedControl/ConfirmDialog/NumberField/
+                     LabeledSlider/SecretField/TagInput/IconButton/PageContainer/
+                     TimeRangePicker/collapsible/typography) · lib/ (api etc.) · test/
   Dockerfile         nginx image (tlsoc-webui) with the /api proxy
 archive/             FROZEN legacy code (not built/tested/shipped) — see archive/README.md
   kibana-plugin/     the retired Kibana plugin (tlsoc_agentic_triage/ + dist/ + BUILD.md)
@@ -277,7 +294,9 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
                      HANDOFF.md · research/2026-06-round2/ · research/2026-06-round3/
                      (PROPOSAL.md + IMPLEMENTATION.md) · research/2026-07-round4/
                      (PROPOSAL.md + RESEARCH-SYNTHESIS.md + understand/ maps +
-                     IMPLEMENTATION.md)
+                     IMPLEMENTATION.md) · research/2026-07-round5/ (PROPOSAL.md +
+                     DESIGN_STANDARD.md + IMPLEMENTATION.md + AUDIT_FINDINGS.md +
+                     RESEARCH_* + understand/ maps)
 .env.example  README.md  DEPLOY.md  COMPATIBILITY.md  CLAUDE.md  Journal.md  ROADMAP.md
 ```
 
@@ -358,17 +377,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1461 tests (see Journal for the exact per-wave count)
+# Backend tests (offline; MUST stay green) — currently 1601 tests (see Journal for the exact per-wave count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1461 passed (rises as harden-wave tests land; see Journal)
+python -m pytest -q                         # -> 1601 passed (rises as harden-wave tests land; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/
-npx vitest run                             # -> 273 passed (see Journal for the current count)
-npm run lint                               # 0 react-hooks/rules-of-hooks errors (2 exhaustive-deps warnings OK)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~264 kB)
+npx vitest run                             # -> 625 passed (see Journal for the current count)
+npm run lint                               # 0 errors (4 benign warnings OK; jsx-a11y at error)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
 ./scripts/run-demo.sh
@@ -410,8 +429,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1461) + `npm run build` clean
-  + `vitest run` (273) + `npm run lint` (no rules-of-hooks errors) before every commit.
+- **Tests:** add/keep offline tests; `pytest -q` green (1601) + `npm run build` clean
+  + `vitest run` (625) + `npm run lint` (0 errors, jsx-a11y at error) before every commit.
   (Counts rise each wave — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -429,16 +448,95 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: **Round 1 + Round 2 + Round 3 + Round 4 overhauls COMPLETE** (committed on
-`Testing`, local only — **not pushed**). Phase-1 spine + vendor-agnostic transition + the
-Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2**
-(account self-service, sessions + token policy, Settings-centric IA, Demo Mode, source
-multi-feed, Resend/SES + email templates, per-user customization, command palette /
-global search / bulk actions / audit viewer) + **Round 3** (12 requests across Waves
-0–4) + **Round 4** (12 requests + 3 confirmed bugs across Waves 0–6 — "fix the logic,
-fine-tune the product": multi-source poller fix, two-tier ALERT/EVENT ingestion,
-adaptive threshold auto-tuning, campaign correlation, entity baselining, LLM
-batch/flex + cache pricing, tiered reset + OOBE) all shipped.
+Current: **Round 1 + Round 2 + Round 3 + Round 4 + Round 5 overhauls COMPLETE**
+(committed on `Testing`, local only — **not pushed**). Phase-1 spine + vendor-agnostic
+transition + the Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul**
+(W1–W7) + **Round 2** (account self-service, sessions + token policy, Settings-centric
+IA, Demo Mode, source multi-feed, Resend/SES + email templates, per-user customization,
+command palette / global search / bulk actions / audit viewer) + **Round 3** (12
+requests across Waves 0–4) + **Round 4** (12 requests + 3 confirmed bugs across Waves
+0–6 — "fix the logic, fine-tune the product": multi-source poller fix, two-tier
+ALERT/EVENT ingestion, adaptive threshold auto-tuning, campaign correlation, entity
+baselining, LLM batch/flex + cache pricing, tiered reset + OOBE) + **Round 5**
+("UI/UX overhaul + rules customization + custom dashboards + loose coupling": one
+cohesive design standard, decluttered Settings + wider dashboard, a full rules-editor
+home, per-user custom dashboards, and a registry-driven loosely-coupled shell) all
+shipped.
+
+**Round 5 (commits `5ab7c05 → 0e99c76 → 9854c36 → 7c86706 → f50e0b2 → 3e447da →
+b661bc8 → 830e836 → d3801f9 → a9e2b49 → 8b91fc0 → 05552c7`) — "UI/UX overhaul + rules
+customization + custom dashboards + loose coupling": 9 goals (G1–G9) across Waves 0–9,
+additive, `engine/case_manager.py` `decide()` BYTE-IDENTICAL vs the pre-Round-5 baseline
+`27f0983` (#3 held throughout), all API paths byte-identical, the 12 non-negotiables
+held (esp. #2/#3/#6/#9/#10):**
+
+- **G1 cohesive color scheme** — a Radix slate+blue base + **3 orthogonal semantic axes**
+  (severity / status / verdict), each split into `token` / `-foreground` / `-text` with
+  **MEASURED WCAG-AA contrast in both light AND dark themes**; Okabe-Ito colour-blind-safe
+  chart ramps + viridis; self-hosted **Inter + JetBrains Mono** (no external font CDN).
+- **G2 ONE design standard** — a single shadcn/Radix/Tailwind standard enforced
+  end-to-end: shared primitives + ONE card grammar + a label→token authority + a
+  **codemod** that adopted the primitives across the pages (see `DESIGN_STANDARD.md`).
+- **G3 Settings decluttered** — the 2673-line Settings god-file replaced by a
+  data-driven **section registry** + per-section files under `soc/pages/settings/*`
+  (2673 → 575 LOC), **6 → 5 nav groups**, **Security promoted to top-level**, ≤2 nesting
+  levels, 33 redirect tests. Fixed the **auto-close dead-field** bug (the flagship
+  toggle did nothing).
+- **G4 dashboard uses more real-estate** — a new `PageContainer` (wide/fluid) that killed
+  the `max-w-[1400px]` cap; a three-zone dashboard layout.
+- **G5 compact hero** — the old ~176px `HeroPanel` merged into a ~52px `PageHeader`.
+- **G6 rules customization** — a **Detection & Rules** home with 3 tiers
+  (detection-match/threshold · anomaly/baseline · case-automation); a polymorphic rule
+  editor + a flat condition builder; **Test/Preview vs recent data that NEVER calls
+  `decide()` and NEVER bills the LLM** (`POST /api/triage/preview-decision`, #3/#6); a
+  version ledger + rollback (`stores/rule_versions.py`); threshold `NumberField` /
+  `LabeledSlider`; asset/SLA/priority/suppression editors. New `api/routes_rules.py`.
+- **G7 custom dashboards** — a widget registry reusing the existing tiles/charts; a
+  per-user **drag/resize grid** via **LAZY-loaded** `react-grid-layout` (edit-mode only);
+  a zero-migration `DashboardStore` (`stores/dashboards.py` over the KVStore) with
+  per-role defaults + clone-to-customize. New `api/routes_dashboards.py`,
+  `pages/Dashboards.tsx`, `UserPrefs.dashboards` + `CustomizationConfig.default_dashboards`.
+- **G8 loose coupling** — a single `FEATURES[]` registry (`soc/registry.tsx`) that derives
+  nav + routes + the command palette from one place; `useNavigate()` replaces the
+  `onNavigate` prop-drill; **`React.lazy` code-splitting restored** (entry chunk
+  537 → **264 kB**); `routes.py` decomposed into domain routers (paths byte-identical); a
+  generic `EntryPointRegistry`; Protocol narrowing; **openapi-typescript** type generation.
+- **G9 a11y + audit** — non-color `SEMANTIC_ICON` signaling, WCAG-2.2 criteria, `jest-axe`,
+  20 `jsx-a11y` rules at error (**48 → 0** violations); a 16-dimension adversarial audit
+  found **23 findings (9 must-fix)** — all resolved with regression tests.
+- **Bugs fixed (from the subsystem maps + audit):** the **auto-close dead-field** (G3
+  flagship toggle did nothing), `KpiTile` delta-by-sign, the wizard's cosmetic demo
+  toggle, clipboard-over-http, a misc-prefs clobber, an automation impossible-verdict, a
+  roles permission mismatch, no-confirm destructive close, a campaigns read-perm gate, a
+  dead `initAdmin` stub, a `request_approval` dead-end, a tuning row always-"Active", a
+  SQL sort no-op, a `derive_priority` disagreement, plus audit **C1** (dashboards
+  couldn't persist), **H2** (rules verdict case-bug), **H3** (dashboards billed the LLM),
+  **H4** (19 unnamed comboboxes), and **M1–M4**.
+
+New modules: webui `soc/rules/*` (Detection & Rules home + polymorphic editor + condition
+builder), `soc/dashboard/*` (custom-dashboard builder/grid/widget registry), `soc/registry.tsx`
+(the `FEATURES[]` registry), `soc/hooks/*`, ~15 new shared components/primitives
+(`Field` · `SegmentedControl` · `ConfirmDialog` · `NumberField` · `LabeledSlider` ·
+`SecretField` · `TagInput` · `IconButton` · `PageContainer` · `TimeRangePicker` ·
+`DashboardGroup` · `collapsible` · `typography` · …), `pages/settings/*` section files,
+`pages/Dashboards.tsx`; backend `api/routes_rules.py` + `api/routes_dashboards.py` + the
+extracted domain routers, `stores/dashboards.py` + `stores/rule_versions.py`,
+`POST /api/triage/preview-decision`, typed config endpoints (baseline/campaign/batch).
+
+**GREEN BASELINE (verified 2026-07-02):** backend **1601 pytest** pass (was 1461); the
+standalone **webui builds clean** (tsc+vite) with the **entry chunk 264 kB** (was 537) +
+**625 Vitest specs green** (was 273); eslint **0 errors** (4 benign warnings);
+`route_auth_coverage` green + a new **design-gate** green; `engine/case_manager.py`
+`decide()` **byte-identical** vs the pre-Round-5 baseline `27f0983`; **`PUT /api/settings`
+deep-MERGE intact** and **all API paths byte-identical**. **Deps:** ADDED
+`react-grid-layout ^2.2.3` (the ONE new runtime dep — LAZY, edit-mode only) + dev-only
+`@fontsource-variable/inter` · `@fontsource/jetbrains-mono` · `@tailwindcss/container-queries`
+· `openapi-typescript` · `jest-axe`/`@axe-core` · `eslint-plugin-jsx-a11y`; REMOVED
+`framer-motion` (zero importers); **backend ZERO new runtime deps**. Every wave was
+additive with #3 intact (rule Test/Preview and custom dashboards never call `decide()`
+and never bill the LLM), #6 preserved, and #2/#9/#10 upheld. See
+`docs/research/2026-07-round5/` (`PROPOSAL.md` + `DESIGN_STANDARD.md` +
+`IMPLEMENTATION.md` + the `understand/` maps) for the Round-5 design + what-shipped.
 
 **Round 4 (commits `068ede4 → 3aeab6c → 41ee54b → f7509a3 → b07f172 → 11ea46e →
 3c68cf5 → 1df27ac` + this docs wave) — "fix the logic, fine-tune the product": 12
@@ -566,7 +664,9 @@ uses a sandboxed policy copy; the Round-3 `BudgetGate` is a pure pre-flight that
 safe to NEEDS_HUMAN, never a silent close) and #6 (one ledger write per call) preserved.
 The legacy Kibana plugin is **archived** (`archive/`). Active branch: **`Testing`**.
 New here? Start with `docs/HANDOFF.md`. See `docs/VIGIL_STUDY.md` for the study +
-multi-wave plan, `docs/research/2026-07-round4/` (`PROPOSAL.md` + `RESEARCH-SYNTHESIS.md`
+multi-wave plan, `docs/research/2026-07-round5/` (`PROPOSAL.md` + `DESIGN_STANDARD.md` +
+`IMPLEMENTATION.md` + `AUDIT_FINDINGS.md` + `understand/`) for the Round 5 design +
+what-shipped, `docs/research/2026-07-round4/` (`PROPOSAL.md` + `RESEARCH-SYNTHESIS.md`
 + `understand/` + `IMPLEMENTATION.md`) for the Round 4 design + what-shipped,
 `docs/research/2026-06-round3/` (`PROPOSAL.md` + `IMPLEMENTATION.md`)
 for the Round 3 design + what-shipped, `docs/research/2026-06-round2/` for Round 2, and

@@ -9,16 +9,21 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`, local — NOT pushed):** backend **1461 pytest**
-green · webui build clean (tsc+vite) · **273 vitest** green · eslint **0
-`react-hooks/rules-of-hooks` errors** · `engine/case_manager.py` **byte-identical** ·
-**zero new runtime deps**. Round 1 + Round 2 (incl. the adversarial audit +
-remediation) + Round 3 (12 requests across Waves 0–4) + **Round 4** (3 confirmed bugs
-+ 12 requests + a 16-dimension audit/harden) are **complete and committed**.
+**Current baseline (branch `Testing`, local — NOT pushed):** backend **1601 pytest**
+green · webui build clean (tsc+vite, entry chunk **264 kB**) · **625 vitest** green ·
+eslint **0 errors** (4 warnings; `jsx-a11y` findings driven 48 → 0) ·
+`engine/case_manager.py` **`decide()` byte-identical vs `27f0983`** · backend **zero
+new runtime deps** (webui shed a dep on net: removed `framer-motion`, added
+LAZY-only `react-grid-layout`). Round 1 + Round 2 (incl. the adversarial audit +
+remediation) + Round 3 (12 requests across Waves 0–4) + Round 4 (3 confirmed bugs +
+12 requests + a 16-dimension audit/harden) + **Round 5** (9 goals G1–G9: UI/UX
+overhaul + rules customization + custom dashboards + loose coupling + a 16-dimension
+audit) are **complete and committed**.
 
-## Next — post-Round-4 backlog
+## Next — post-Round-5 backlog
 
-Round 4's 3 bug fixes + 12 requests are done (see "Progress" below). Remaining tracks:
+Round 5's 9 goals (G1–G9) + the audit's 9 must-fix are done (see "Progress" below).
+Round 4's 3 bug fixes + 12 requests remain done. Remaining tracks:
 
 **A. Round-4 deferred / known loose ends (low risk):** the **admin-page consolidation-
 redirects** (#4 — the standalone admin pages work + deep-link fine, so this is cosmetic IA,
@@ -50,9 +55,12 @@ order:
 - ☐ **Watchlists** (Tier-2 #10) — VIP users / crown-jewel assets / known-good IPs as
   TRUSTED operator context boosters in correlation/risk + a triage chip; matched log
   values stay UNTRUSTED (#9). Extends the HITL suppression/asset proposals.
-- ☐ **Dashboards builder** (Tier-3 #11) — user-composed shareable widget grid over
-  `/api/metrics` + the cost ledger; org publishes a default, users clone into
-  `UserPrefsStore` (W7b). `react-grid-layout` is a NEW dep — vet against no-new-deps.
+- ☑ **Dashboards builder** (Tier-3 #11) — DONE in **Round 5 (G7)**: a widget registry
+  reusing the existing tiles/charts, a per-user drag/resize grid, a zero-migration
+  `DashboardStore` (`stores/dashboards.py`, KV-doc), per-role defaults + clone-to-customize
+  (`UserPrefs.dashboards` + `CustomizationConfig.default_dashboards`). `react-grid-layout`
+  was the deliberate NEW runtime dep — loaded LAZILY in edit-mode only; on net the webui
+  shed a dep (removed `framer-motion`). See "Progress → Round 5" below.
 - ☐ **Scheduled reports** (Tier-3 #12) — cron MD/PDF digests via the standup
   aggregator → existing notification channels (reuses aggregate-then-summarise, #7).
 - ☐ **Hunting / saved-query builder** (Tier-3 #13) — named reusable read-only queries
@@ -69,6 +77,74 @@ possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 5 — "UI/UX overhaul + rules customization + custom dashboards + loose coupling"
+  (9 goals G1–G9 + a 16-dimension adversarial audit)** (branch `Testing`; backend **1461 →
+  1601 pytest** green + webui tsc/vite clean (entry chunk **537 → 264 kB**) + **273 → 625
+  Vitest** green; eslint **0 errors** (4 warnings; `jsx-a11y` 48 → 0); **`engine/case_manager.py`
+  `decide()` byte-identical vs the pre-Round-5 baseline `27f0983` (#3)**, #6 one-ledger-write-per-
+  call preserved (no preview/what-if/dashboard path bills the LLM), #2/#9/#10 upheld, `PUT
+  /api/settings` deep-MERGE intact, **all API paths byte-identical**; on net the webui shed a
+  runtime dep (removed `framer-motion`, added LAZY-only `react-grid-layout`) and the backend
+  added **zero new runtime deps**. Design + what-shipped: `docs/research/2026-07-round5/`
+  (`PROPOSAL.md` + `DESIGN_STANDARD.md` + the `understand/` maps + `RESEARCH_*.md` +
+  `IMPLEMENTATION.md` + `AUDIT_FINDINGS.md`). 12 commits `5ab7c05 → 0e99c76 → 9854c36 →
+  7c86706 → f50e0b2 → 3e447da → b661bc8 → 830e836 → d3801f9 → a9e2b49 → 8b91fc0 → 05552c7`.
+  LOCAL only, NOT pushed.
+  - ☑ **G1 cohesive color & type system** (`0e99c76`) — a single **Radix slate + blue**
+    foundation + **3 orthogonal semantic axes** (severity / status / verdict), each a
+    `token`/`-foreground`/`-text` triple with **MEASURED WCAG-AA in both themes**; Okabe-Ito
+    chart ramps + viridis; self-hosted **Inter** + **JetBrains Mono**. `label → token`
+    authority (components consume the token, never a raw hex).
+  - ☑ **G2 ONE design standard** (`9854c36`, `3e447da`) — shadcn/Radix/Tailwind enforced
+    end-to-end (shared primitives + ONE card grammar + the `label → token` authority) adopted
+    by a **codemod**; ~15 new shared components/primitives (`Field`/`SegmentedControl`/
+    `ConfirmDialog`/`NumberField`/`LabeledSlider`/`SecretField`/`TagInput`/`IconButton`/
+    `PageContainer`/`TimeRangePicker`/`DashboardGroup`/`collapsible`/`typography`); the
+    **CaseDetail god-file split 4210 → 1529** LOC (no contract change; the unified Close-with-
+    disposition still posts the existing close → `decide()`, #3).
+  - ☑ **G3 Settings decluttered** (`7c86706`) — the **2673-line god-file → a data-driven
+    registry + `pages/settings/*` section files** (**575** LOC of shell); **6 → 5** groups;
+    **Security promoted to top-level**; **≤2 nesting levels**; **33 redirect tests** preserving
+    every deep link + anchor; `PUT /api/settings` deep-MERGE intact. Fixed the **auto-close
+    dead-field** bug (the flagship toggle wrote a field `decide()` never read → now writes
+    `prefs.auto_close`, the exact field `decide()` reads; `decide()` byte-identical).
+  - ☑ **G4/G5 denser wide dashboard + compact hero** (`f50e0b2`) — a `PageContainer`
+    wide/fluid mode killed the `max-w-[1400px]` cap → a **three-zone** layout (G4); the ~176px
+    `HeroPanel` merged into a **~52px `PageHeader`** (G5); `KpiTile` delta-by-sign fix.
+  - ☑ **G6 rules customization** (`b661bc8`) — a **Detection & Rules** home over **3 tiers**
+    (detection-match/threshold · anomaly/baseline · case-automation), a **polymorphic editor**
+    + flat condition builder, a **Test/Preview vs. recent data** that **NEVER calls `decide()`
+    / NEVER bills the LLM** (backed by the new read-only `POST /api/triage/preview-decision`
+    wrapper over the pure `decide()`), a **version ledger + rollback** (`stores/rule_versions.py`),
+    threshold `NumberField`/`LabeledSlider`, asset/SLA/priority/suppression editors. Backend
+    `api/routes_rules.py`; new webui `soc/rules/*`.
+  - ☑ **G7 custom dashboards** (`830e836`) — a **widget registry reusing the existing
+    tiles/charts**, a per-user drag/resize grid (**`react-grid-layout`, LAZY edit-mode only**),
+    a **zero-migration `DashboardStore`** (`stores/dashboards.py`, KV-doc), per-role defaults +
+    clone-to-customize (`UserPrefs.dashboards` + `CustomizationConfig.default_dashboards`).
+    Backend `api/routes_dashboards.py`; new webui `soc/dashboard/*` + `pages/Dashboards.tsx`.
+    (Delivers the Tier-3 #11 "Dashboards builder" backlog item.)
+  - ☑ **G8 loose coupling** (`d3801f9`) — a single **`FEATURES[]` registry** (`soc/registry.ts`)
+    deriving **nav + routes + palette**; `useNavigate()` replaces the `onNavigate` prop-drill;
+    **`React.lazy` code-splitting restored** (entry **537 → 264 kB**); `routes.py` **decomposed
+    into domain routers — paths byte-identical**; a generic `EntryPointRegistry`, `Protocol`
+    narrowing, and **`openapi-typescript` type generation**; typed config endpoints (baseline/
+    campaign/batch); new `soc/hooks/*`.
+  - ☑ **G9 a11y + adversarial audit** (`a9e2b49`, `8b91fc0`, `05552c7`) — `SEMANTIC_ICON`
+    non-color signalling, **WCAG-2.2** criteria, **`jest-axe`**, **20 `jsx-a11y` rules at
+    error** (findings **48 → 0**), `Field` labels associated, flaky tests stabilized. A
+    **16-dimension adversarial audit → 23 findings, 9 must-fix, ALL resolved + regression-
+    tested** (C1 dashboards couldn't persist · H2 rules verdict case-bug · H3 a dashboards
+    path billed the LLM · H4 19 unnamed comboboxes · M1–M4) + a polish sweep (P1–P18).
+  - ☑ **Bugs fixed (from the maps + audit)** — beyond auto-close/KpiTile above: wizard
+    cosmetic demo toggle · clipboard-over-http · misc-prefs clobber · automation impossible-
+    verdict · roles perm mismatch · no-confirm destructive close (now `ConfirmDialog`-gated) ·
+    campaigns read-perm gate · dead `initAdmin` stub · `request_approval` dead-end · tuning
+    row always-"Active" · a SQL sort no-op · a `derive_priority` disagreement.
+  - ☑ **Deps** — **removed `framer-motion`** (zero importers); **added `react-grid-layout
+    ^2.2.3`** (runtime, LAZY edit-mode only); dev-only `@fontsource-variable/inter`,
+    `@fontsource/jetbrains-mono`, `@tailwindcss/container-queries`, `openapi-typescript`,
+    `jest-axe`/`@axe-core`, `eslint-plugin-jsx-a11y`. Backend **zero new runtime deps**.
 - ☑ **Round 4 — "fix the logic, fine-tune the product" (3 bugs + 12 requests, Waves 0–6)**
   (branch `Testing`; backend **1234 → 1461 pytest** green (W0 1235 · W1 1253 · W2 1263 ·
   W3 1371 · W4 1437 · W6 1461) + webui tsc/vite clean + **205 → 273 Vitest** green; eslint

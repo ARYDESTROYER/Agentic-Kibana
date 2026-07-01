@@ -391,3 +391,134 @@ UI bugs ship in the wave that touches their surface; backend/misc bugs ship in C
 DESIGN_STANDARD.md + understand/{EXECUTIVE_SUMMARY,AUDITS} + RESEARCH_SUMMARY + domain docs.
 Every wave additive + reversible; `case_manager.decide()` byte-identical; the 12
 non-negotiables held.*
+
+---
+
+## WHAT SHIPPED (verified 2026-07-02)
+
+> **Status:** ROUND 5 COMPLETE · **Branch:** `Testing` (local, **NOT pushed**) ·
+> **Baseline:** `27f0983` (pre-Round-5) → `05552c7` (Round-5 tip).
+>
+> A concise **plan-vs-shipped** record. The plan above stands; this section captures the
+> ACTUAL 12 commits, the per-goal outcomes, the green baseline, the bugs fixed (incl. the
+> 9 audit must-fix), and the dep ledger delta. Round 5 = "UI/UX overhaul + rules
+> customization + custom dashboards + loose coupling" — additive + reversible, with
+> `engine/case_manager.py` `decide()` **byte-identical** vs the pre-Round-5 baseline
+> (`git diff 27f0983..HEAD -- backend/app/engine/case_manager.py` is empty), so #3 held
+> throughout.
+
+### The 12 commits (in order)
+
+| # | Commit | What landed |
+|---|--------|-------------|
+| 1 | `5ab7c05` | docs — understanding maps + research + PROPOSAL/DESIGN_STANDARD/IMPLEMENTATION |
+| 2 | `0e99c76` | W0 foundations pt1 (G1) — test-anchoring (`data-testid` + `PAGE_TITLE` constant) + the color/token system |
+| 3 | `9854c36` | W0 foundations pt2 (G2/G4/G5/G8) — shared primitives, shell width, compact header, loose-coupling infra |
+| 4 | `7c86706` | Settings IA overhaul (G3, bugs #1/#7) — `Settings.tsx` **2673 → 575 LOC**, 6 → 5 groups, Security promoted to top-level, auto-close dead-field fixed |
+| 5 | `f50e0b2` | Dashboard density (G4/G5) — compact hero, three-zone layout, wide real-estate |
+| 6 | `3e447da` | Codemod + CaseDetail split (G2/G8) — primitive adoption across pages; `CaseDetail.tsx` **4210 → 1529 LOC** |
+| 7 | `b661bc8` | Rules customization (G6, bugs #6/#9/#12) — Detection & Rules home + polymorphic editor + preview + versioning |
+| 8 | `830e836` | Custom dashboards (G7) — widget registry + drag/resize grid + per-user persistence |
+| 9 | `d3801f9` | Loose coupling (G8, bugs #3/#11/#13/#14) — registry routing + code-splitting (bundle **537 → 264 kB**) + router decomposition |
+| 10 | `a9e2b49` | A11y pass (G9) — jsx-a11y **48 → 0**, `Field` labels, jest-axe, flaky tests stabilized |
+| 11 | `8b91fc0` | audit-fixes (G9) — all **9 adversarial-audit must-fix** findings resolved with regression tests |
+| 12 | `05552c7` | polish (G9) — audit polish items **P1–P18** + page-consistency sweep |
+
+### Per-goal outcomes
+
+- **G1 — cohesive color scheme (shipped `0e99c76`).** Radix slate+blue Tier-1 primitives;
+  **3 orthogonal semantic axes** (severity / status / verdict) each split into
+  `token` / `-foreground` / `-text` with **MEASURED WCAG-AA in both themes**; Okabe-Ito
+  categorical chart ramps + viridis sequential; self-hosted **Inter + JetBrains Mono**
+  (Fontsource). One label→token authority in `palette.ts`; runtime AA guard.
+- **G2 — ONE design standard end-to-end (shipped `9854c36` scaffold + `3e447da` codemod).**
+  Shared shadcn/Radix/Tailwind primitives + ONE card grammar + label→token authority,
+  adopted across pages via a mechanical codemod (raw cards/buttons/segmented strips/chips →
+  the primitives).
+- **G3 — Settings decluttered (shipped `7c86706`).** The **2673-line** god-file → a
+  data-driven section registry + `pages/settings/*` section files (`Settings.tsx` now
+  **575 LOC**); **6 → 5** groups; **Security promoted** to a top-level group;
+  ≤2 nesting levels; **33 redirect tests** prove old ids/routes still resolve.
+- **G4 — more real-estate (shipped `f50e0b2`).** `PageContainer` wide/fluid variants;
+  killed the `max-w-[1400px]` cap; three-zone dashboard layout.
+- **G5 — compact hero (shipped `f50e0b2`).** `HeroPanel` merged into a ~**52px**
+  `PageHeader` (was ~176px).
+- **G6 — rules customization (shipped `b661bc8`).** A **Detection & Rules** home over 3
+  tiers (detection-match/threshold · anomaly/baseline · case-automation); a polymorphic
+  editor; a flat condition builder; **Test/Preview vs recent data that NEVER calls
+  `decide()` and NEVER bills the LLM** (via `POST /api/triage/preview-decision`, a pure
+  read-only wrapper); an immutable version ledger + one-click rollback; threshold
+  `NumberField`/`LabeledSlider`; asset/SLA/priority/suppression editors.
+- **G7 — custom dashboards (shipped `830e836`).** A widget registry reusing the existing
+  tiles/charts; a per-user drag/resize grid via **lazy-loaded** `react-grid-layout`
+  (edit-mode only); a zero-migration `DashboardStore`; per-role defaults + clone-to-customize.
+- **G8 — loose coupling (shipped `9854c36` infra + `d3801f9`).** A single `FEATURES[]`
+  registry deriving nav + routes + palette; `useNavigate()` replaces `onNavigate`
+  prop-drilling; `React.lazy` code-splitting restored (**entry chunk 537 → 264 kB**);
+  `routes.py` decomposed into domain routers (`routes_rules` · `routes_dashboards` ·
+  `routes_notifications` · `routes_prefs` · `routes_rag` · `routes_search`) with **paths
+  byte-identical**; a generic `EntryPointRegistry`; Protocol narrowing;
+  `openapi-typescript` type generation.
+- **G9 — a11y + audit (shipped `a9e2b49` + `8b91fc0` + `05552c7`).** `SEMANTIC_ICON`
+  non-color signaling; WCAG-2.2 criteria; jest-axe on load-bearing surfaces; **20 jsx-a11y
+  rules at error** (jsx-a11y **48 → 0**). A **16-dimension adversarial audit** produced
+  **23 findings**; the **9 must-fix** were all resolved with regression tests; polish
+  items P1–P18 swept.
+
+### New modules (as built)
+
+- **webui:** `soc/rules/*` (Detection & Rules home + `RuleEditor` + `ConditionBuilder` +
+  adapter/lifecycle), `soc/dashboard/*` (`DashboardBuilder` · `WidgetGrid` ·
+  `EditableGrid` · `DashboardDataProvider` · widget registry + gallery + config sheet),
+  `soc/registry.ts` (`FEATURES[]`), `soc/hooks/*` (`useAsync` · `useDirtyDraft` ·
+  `usePosture` · `usePrefersReducedMotion` · `useMediaQuery` · `useLiveAnnouncer`), ~15
+  new shared components/primitives (`Field` · `SegmentedControl` · `ConfirmDialog` ·
+  `NumberField` · `LabeledSlider` · `SecretField` · `TagInput` · `IconButton` ·
+  `PageContainer` · `TimeRangePicker` · `DashboardGroup` · `collapsible` · `typography`),
+  `pages/settings/*` section files, `pages/Dashboards.tsx`.
+- **backend:** `api/routes_rules.py` + `api/routes_dashboards.py` + the extracted domain
+  routers; `stores/dashboards.py` + `stores/rule_versions.py`;
+  `POST /api/triage/preview-decision`; typed config endpoints (baseline/campaign/batch);
+  `UserPrefs.dashboards` (`models.py`) + `CustomizationConfig.default_dashboards`
+  (`config.py`) — additive, defaulted, zero-migration.
+
+### Bugs fixed (14 mapped + audit)
+
+The 14 confirmed pre-Round-5 bugs, each with a NET-NEW regression test: **auto-close
+dead-field** (the flagship toggle did nothing — now writes `prefs.auto_close`, the field
+`decide()` already reads), **KpiTile delta-by-sign**, **wizard cosmetic demo toggle**,
+**clipboard-over-HTTP**, **misc-prefs clobber** (now deep-merges), **automation
+impossible-verdict** (dropdown populated from the real 3-value `Verdict` enum),
+**roles perm mismatch**, **no-confirm destructive close** (now `ConfirmDialog`-gated,
+still closes via `decide()`), **campaigns read-perm gate**, **dead `initAdmin` stub**,
+**`request_approval` dead-end**, **tuning row always-Active**, **SQL sort no-op**,
+**`derive_priority` chip-vs-shift-report disagreement**.
+
+Plus the **9 adversarial-audit must-fix**: **C1** (custom dashboards couldn't persist),
+**H2** (rules verdict case-bug), **H3** (dashboards billed the LLM — now they don't),
+**H4** (19 unnamed comboboxes → labeled), and **M1–M4**.
+
+### Dependencies (ledger delta)
+
+- **Added — runtime:** `react-grid-layout ^2.2.3` (**lazy-loaded, edit-mode only**;
+  view/read path ships zero grid JS).
+- **Added — dev-only:** `@fontsource-variable/inter`, `@fontsource/jetbrains-mono`,
+  `@tailwindcss/container-queries`, `openapi-typescript`, `jest-axe` + `@axe-core`
+  (`@types/jest-axe`), `eslint-plugin-jsx-a11y`.
+- **Removed:** `framer-motion` (zero importers).
+- **Backend:** **ZERO** new runtime deps.
+
+### Green baseline (verified 2026-07-02)
+
+- **backend pytest: 1601 pass** (was 1461).
+- **webui vitest: 625 specs green** (was 273).
+- **`npm run build` clean** — entry chunk **264 kB** (was 537 kB).
+- **lint: 0 errors** (4 benign warnings).
+- `test_route_auth_coverage` green; the design-gate (token-existence + contrast + no-arbitrary-text/hex) green.
+- **`engine/case_manager.py` `decide()` BYTE-IDENTICAL** vs the pre-Round-5 baseline
+  `27f0983` (#3 held throughout).
+- **#6/#9/#2/#10 upheld**; `PUT /api/settings` deep-MERGE intact; **all API paths
+  byte-identical**.
+
+*Every wave was additive + reversible; `case_manager.decide()` stayed byte-identical; the
+12 non-negotiables held. Round 5 is COMPLETE on `Testing`, local only — not pushed.*
