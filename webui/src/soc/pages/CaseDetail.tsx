@@ -854,7 +854,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       </span>
                       <DemoBadge show={isDemoCase(c)} className="text-2xs" />
                     </div>
-                    <h2 className="mt-0.5 truncate text-lg font-bold tracking-tight text-foreground">
+                    <h2 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-foreground">
                       {/* UNTRUSTED title — plain text node. */}
                       {c.title || c.case_id}
                     </h2>

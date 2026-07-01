@@ -7,8 +7,9 @@
  *
  * Standup was previously a separate Automation rail item; it is a glanceable
  * summary that belongs next to the posture dashboard, so folding it in declutters
- * the rail without dropping functionality. Both sub-pages own a HeroPanel, so the
- * host renders NO unified PageHeader — just the segmented tab bar above the heroes.
+ * the rail without dropping functionality. Each sub-page owns its own compact
+ * PageHeader (hero variant) + PageContainer, so the host renders NO unified
+ * PageHeader — just the segmented tab bar above the sub-page headers.
  *
  * The active tab follows `NavOpts.tab` so `navigate('overview', { tab: 'standup' })`
  * and `#/overview` deep-links land on the right sub-view.

@@ -828,6 +828,7 @@ async def get_settings_schema(
 @router.put("/settings")
 async def put_settings(
     body: dict[str, Any],
+    request: Request,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("settings", "manage")),
 ) -> dict[str, Any]:
@@ -842,6 +843,22 @@ async def put_settings(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid settings: {exc}") from exc
     await state.update_prefs(prefs)
+    # P12 (#2 audit / #10 secrets): settings now carry the decision-critical auto-close
+    # policy (bug-#1 repointed the flagship toggle to ``prefs.auto_close.<verdict>``, the
+    # field ``decide()`` reads), so an operator changing which cases auto-close must leave
+    # an append-only who/when trail — like rule edits + reset already do. Record only the
+    # CHANGED top-level keys (never their values → never a secret, #10). Best-effort: an
+    # audit glitch must never fail the settings save (mirrors terminology_put).
+    changed = sorted(str(k) for k in body.keys()) if isinstance(body, dict) else []
+    try:
+        await state.audit.record(
+            action_type=ActionType.STATUS, surface="settings",
+            actor=current_username(request) or "",
+            result_summary=("updated settings: " + ", ".join(changed))[:500]
+            if changed else "updated settings",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort; never break the save
+        pass
     if prefs.setup_complete and prefs.polling_enabled and not prefs.caps.kill_switch:
         state.poller.start()
     return {"ok": True, "prefs": prefs.model_dump(mode="json")}
@@ -1265,7 +1282,7 @@ async def demo_enable(
         incident_rate=body.incident_rate,
     )
     # Audit the admin action on the REAL audit log (demo enable is a real action).
-    await state._real_audit.record(  # noqa: SLF001 — real-audit on a real admin action
+    await state.real_audit.record(
         action_type=ActionType.DECISION, surface="demo", actor="admin",
         result_summary=f"demo enabled mode={mode} run_id={status.get('run_id')}",
     )
@@ -2189,11 +2206,12 @@ async def mfa_disable(
 
 # --------------------------------------------------------------------------- #
 # SSO (OIDC) — Wave 2 / F4
+#
+# The single-use ``state``-token round-trip lives in ``app.auth.oidc.OidcStateStore``
+# (the namespace + TTL are owned there), reached through the PUBLIC
+# ``AppState.oidc_state`` accessor — the routes never touch ``state._kv`` directly
+# (Round 5 / Coupling-F / G8, P13).
 # --------------------------------------------------------------------------- #
-_OIDC_STATE_NS = "oidc_state"
-_OIDC_STATE_TTL_SECONDS = 600  # 10 minutes for the round-trip to the IdP + back.
-
-
 def _sso_redirect_uri(request: Request) -> str:
     """The absolute callback URL to hand the IdP — derived from THIS request's base
     URL so it matches whatever host the browser reached us on (proxy-aware)."""
@@ -2233,8 +2251,8 @@ async def sso_authorize(
     request: Request, provider: str = Query(...), state: AppState = Depends(get_state)
 ) -> dict[str, Any]:
     """PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
-    the KV (ns ``oidc_state``) with a short TTL, then returns ``{auth_url}`` for the
-    browser to follow."""
+    the KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``
+    store (P13), then returns ``{auth_url}`` for the browser to follow."""
     from ..auth import oidc as oidc_mod
 
     prov = _build_oidc_provider(state, provider)
@@ -2247,34 +2265,13 @@ async def sso_authorize(
         )
     except oidc_mod.OidcError as exc:
         raise HTTPException(status_code=502, detail=f"SSO unavailable: {exc}") from exc
-    await state._kv.put(_OIDC_STATE_NS, state_tok, {
+    await state.oidc_state.stash(state_tok, {
         "provider": provider,
         "nonce": nonce,
         "redirect_uri": redirect_uri,
         "expires_at": iso_now(),
-        "expires_epoch": int(__import__("time").time()) + _OIDC_STATE_TTL_SECONDS,
     })
     return {"auth_url": auth_url}
-
-
-async def _consume_oidc_state(state: AppState, state_tok: str) -> dict[str, Any] | None:
-    """Validate + SINGLE-USE consume a stored state token. Returns the stored record
-    when valid + unexpired, else ``None``. Consumption is best-effort overwrite (the
-    KV has no delete): the record is marked ``used`` so a replay finds it consumed."""
-    import time as _t
-
-    if not state_tok:
-        return None
-    rec = await state._kv.get(_OIDC_STATE_NS, state_tok)
-    if not isinstance(rec, dict) or rec.get("used"):
-        return None
-    if int(rec.get("expires_epoch", 0) or 0) < int(_t.time()):
-        return None
-    try:
-        await state._kv.put(_OIDC_STATE_NS, state_tok, {**rec, "used": True})
-    except Exception:  # noqa: BLE001 — single-use marking is best-effort
-        pass
-    return rec
 
 
 @router.get("/auth/sso/callback")
@@ -2298,7 +2295,7 @@ async def sso_callback(
 
     if not code or not state_param:
         return _fail("missing_code_or_state")
-    rec = await _consume_oidc_state(state, state_param)
+    rec = await state.oidc_state.consume(state_param)
     if rec is None:
         return _fail("invalid_state")
     provider_id = str(rec.get("provider") or "")

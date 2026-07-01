@@ -94,7 +94,7 @@ export function AutonomousVsHumanWidget(props: WidgetProps) {
     <WidgetShell
       title={title}
       icon={Bot}
-      accentClass="text-accent"
+      accentClass="text-primary"
       loading={loading && !data}
       emptyMessage={empty}
     >

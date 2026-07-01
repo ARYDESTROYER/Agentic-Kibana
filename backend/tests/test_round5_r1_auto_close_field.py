@@ -45,9 +45,23 @@ pytestmark = pytest.mark.asyncio
 # --------------------------------------------------------------------------- #
 # helpers — drive the REAL settings write + the REAL preview-over-decide()
 # --------------------------------------------------------------------------- #
+def _fake_request(state):
+    """A minimal Starlette Request wired to ``state`` so the P12 audit actor lookup
+    (``current_username`` → ``get_state(request)``) resolves in a direct-coroutine call.
+    Auth is off in tests, so the actor resolves to ``""`` — the audit row is still
+    written (surface + changed keys), just unattributed."""
+    from starlette.applications import Starlette
+    from starlette.requests import Request
+
+    app = Starlette()
+    app.state.tlsoc = state
+    scope = {"type": "http", "app": app, "headers": [], "method": "PUT", "path": "/api/settings"}
+    return Request(scope)
+
+
 async def _put(state, patch: dict) -> dict:
     """PATCH the live prefs through the REAL deep-merge ``PUT /api/settings`` path."""
-    return await put_settings(patch, state=state, _=None)
+    return await put_settings(patch, request=_fake_request(state), state=state, _=None)
 
 
 async def _preview(state, *, verdict, confidence, risk_score) -> dict:

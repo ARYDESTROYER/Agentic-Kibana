@@ -48,6 +48,19 @@ export interface PageHeaderProps {
   'data-testid'?: string;
 }
 
+/**
+ * Only http(s), root-relative, or in-page fragment hrefs may become links (#9,
+ * defense-in-depth). A `javascript:`/`data:` crumb href — React does NOT sanitize
+ * href — would execute on click, so any other scheme is dropped to a plain `<span>`.
+ * Mirrors `ThreatContextPanel.mitreUrl()`'s `^https?://` guard. Returns `undefined`
+ * for an unsafe/absent href so the caller renders a non-interactive crumb.
+ */
+function safeHref(href: string | undefined): string | undefined {
+  if (!href) return undefined;
+  if (/^\s*javascript:/i.test(href) || /^\s*data:/i.test(href)) return undefined;
+  return /^(https?:|\/|#)/i.test(href.trim()) ? href : undefined;
+}
+
 /** Breadcrumb trail — plain text crumbs joined by chevrons (UNTRUSTED-safe, #9). */
 function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
   return (
@@ -55,18 +68,21 @@ function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
       aria-label="Breadcrumb"
       className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
     >
-      {crumbs.map((c, i) => (
-        <React.Fragment key={`${c.label}-${i}`}>
-          {i > 0 ? <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden /> : null}
-          {c.href ? (
-            <a href={c.href} className="truncate hover:text-foreground">
-              {c.label}
-            </a>
-          ) : (
-            <span className="truncate">{c.label}</span>
-          )}
-        </React.Fragment>
-      ))}
+      {crumbs.map((c, i) => {
+        const href = safeHref(c.href);
+        return (
+          <React.Fragment key={`${c.label}-${i}`}>
+            {i > 0 ? <ChevronRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden /> : null}
+            {href ? (
+              <a href={href} className="truncate hover:text-foreground">
+                {c.label}
+              </a>
+            ) : (
+              <span className="truncate">{c.label}</span>
+            )}
+          </React.Fragment>
+        );
+      })}
     </nav>
   );
 }

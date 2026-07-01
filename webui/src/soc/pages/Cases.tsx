@@ -40,6 +40,7 @@ import { humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
+import { Card } from '@/ui/card';
 import { Input } from '@/ui/input';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import {
@@ -729,7 +730,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
               {c.case_number || c.case_id}
             </button>
           </CaseHoverCard>
-          <DemoBadge show={isDemoCase(c)} iconless className="px-1 py-0 text-[10px]" />
+          <DemoBadge show={isDemoCase(c)} iconless className="px-1 py-0 text-2xs" />
         </div>
       ),
     },
@@ -967,8 +968,9 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
       />
 
       {/* Filter bar — saved views + column customization now live INLINE here
-          (reclaims the former standalone ~150px row above the table). */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
+          (reclaims the former standalone ~150px row above the table). Border-first
+          inline toolbar (no resting shadow) via the ONE card grammar. */}
+      <Card elevation="none" className="flex flex-wrap items-center gap-2 p-3">
         <SavedViewsBar
           scope={CASES_VIEW_SCOPE}
           activeViewId={activeViewId}
@@ -1127,7 +1129,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
           state={columnState}
           onChange={handleColumnState}
         />
-      </div>
+      </Card>
 
       {/* Truncation note */}
       {truncated ? (
@@ -1322,7 +1324,10 @@ const BulkActionBar: React.FC<{
       aria-label="Bulk actions"
       className="fixed bottom-5 left-1/2 z-50 max-w-[94vw] -translate-x-1/2 animate-rise-in"
     >
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5 shadow-elev2">
+      <Card
+        elevation="none"
+        className="flex flex-wrap items-center gap-2 px-3 py-2.5 shadow-elev2"
+      >
         <span className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
           {count} selected
         </span>
@@ -1461,7 +1466,7 @@ const BulkActionBar: React.FC<{
         <Button size="sm" variant="ghost" onClick={onClear} disabled={busy}>
           Clear
         </Button>
-      </div>
+      </Card>
     </div>
   );
 };

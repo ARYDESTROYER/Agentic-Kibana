@@ -105,6 +105,54 @@ def test_read_only_mode_rejects_writes_except_the_unlock(client):
     _put(client, {"rag": {"top_k": 9}})
 
 
+def _settings_audit_rows(client) -> list[dict]:
+    """The append-only audit rows on the ``settings`` surface (P12), NEWEST first."""
+    r = client.get("/api/audit", params={"surface": "settings"})
+    assert r.status_code == 200, r.text
+    return r.json()["records"]
+
+
+def test_put_settings_writes_an_append_only_audit_row(client):
+    """P12 (#2 audit / #10 secrets): a settings PUT — which now carries the
+    decision-critical ``auto_close`` policy ``decide()`` reads — must leave an
+    append-only who/when trail recording the CHANGED top-level keys (never their
+    VALUES → never a secret)."""
+    before = _settings_audit_rows(client)
+
+    # Flip the flagship auto-close policy (the exact field bug-#1 repointed here — the
+    # ``prefs.auto_close.false_positive.enabled`` that ``decide()`` reads) so a change to
+    # WHICH cases auto-close is provably audited.
+    prefs = _get_prefs(client)
+    patch_val = not bool(prefs["auto_close"]["false_positive"]["enabled"])
+    _put(client, {"auto_close": {"false_positive": {"enabled": patch_val}}})
+
+    after = _settings_audit_rows(client)
+    assert len(after) == len(before) + 1, "settings PUT must append exactly one audit row"
+    row = after[0]  # NEWEST first
+    assert row["surface"] == "settings"
+    assert row["action_type"] == "status"
+    summary = row.get("result_summary") or ""
+    # Records the CHANGED top-level key by NAME…
+    assert "updated settings" in summary
+    assert "auto_close" in summary
+    # …and never the VALUE / any secret marker (#10).
+    assert str(patch_val).lower() not in summary.lower()
+    for forbidden in ("es_api_key", "anthropic_api_key", "auth_jwt_secret", "bearer "):
+        assert forbidden not in summary.lower()
+
+
+def test_put_settings_audit_never_leaks_a_value(client):
+    """The audit summary lists only key NAMES, even for a block whose values change —
+    it must never serialise the block's contents (defence for #10)."""
+    before = _settings_audit_rows(client)
+    _put(client, {"branding": {"org_name": "Umbrella-Corp-SECRET-MARKER"}})
+    after = _settings_audit_rows(client)
+    assert len(after) == len(before) + 1
+    summary = (after[0].get("result_summary") or "")
+    assert "branding" in summary            # the key NAME is recorded…
+    assert "Umbrella-Corp-SECRET-MARKER" not in summary  # …never the VALUE
+
+
 def test_secrets_never_appear_in_settings_dump(client):
     """The settings dump exposes only the non-secret tier + configured booleans."""
     body = client.get("/api/settings").json()

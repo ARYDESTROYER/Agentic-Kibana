@@ -88,9 +88,10 @@ function toHistogramData(
   return Array.from(sums.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([ms, count]) => ({
+      // Bar color comes from the ONE token authority via the chart's `colorToken`
+      // prop (DESIGN_STANDARD §1.6/§5.4) — not an inlined `hsl(var(--…))` literal.
       label: bucketLabel(new Date(ms).toISOString(), displayMinutes),
       value: count,
-      color: 'hsl(var(--primary))',
     }));
 }
 
@@ -240,6 +241,7 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
                 <HBarChart
                   data={histogram}
                   labelWidth={96}
+                  colorToken="primary"
                   ariaLabel={`Match-count histogram, ${result.matched} matches across ${histogram.length} buckets`}
                 />
               </div>

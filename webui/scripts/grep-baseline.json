@@ -26,7 +26,6 @@
     "src/soc/components/TraceTimeline.tsx": 2,
     "src/soc/components/UnifiedLogsSheet.tsx": 1,
     "src/soc/components/charts-soc.tsx": 4,
-    "src/soc/pages/Cases.tsx": 1,
     "src/soc/pages/Metrics.tsx": 2,
     "src/soc/pages/Settings.tsx": 1,
     "src/ui/avatar.tsx": 1,

@@ -47,6 +47,7 @@ import { cn } from '@/lib/cn';
 import { useAuth } from '@/soc/auth';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 
+import { PageContainer } from '@/soc/components/PageContainer';
 import { HeroPanel } from '@/soc/components/HeroPanel';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -295,7 +296,7 @@ export default function Standup({ onNavigate }: StandupProps) {
 
   /* ------------------------------------------------------------------ body */
   return (
-    <div className="animate-fade-in space-y-8">
+    <PageContainer variant="wide" className="animate-fade-in space-y-6">
       <HeroPanel
         eyebrow="Shift handoff"
         title="Standup"
@@ -349,9 +350,9 @@ export default function Standup({ onNavigate }: StandupProps) {
 
       {/* Loading skeleton. */}
       {loading ? (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <Skeleton className="h-[320px] rounded-lg" />
-          <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid gap-6 lg:grid-cols-3">
             {[0, 1, 2].map((i) => (
               <Skeleton key={i} className="h-[200px] rounded-lg" />
             ))}
@@ -366,13 +367,13 @@ export default function Standup({ onNavigate }: StandupProps) {
           <AttentionQueueCard attention={attention} onNavigate={navigate} />
 
           {/* SLA + workload. */}
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             <SlaCard sla={sla} onNavigate={navigate} />
             <WorkloadCard workload={workload} />
           </div>
 
           {/* Action items + acknowledge. */}
-          <div className="grid gap-5 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             <ActionItemsCard
               items={report.action_items}
               onChanged={() => void load()}
@@ -404,7 +405,7 @@ export default function Standup({ onNavigate }: StandupProps) {
           ) : null}
         </>
       ) : null}
-    </div>
+    </PageContainer>
   );
 }
 

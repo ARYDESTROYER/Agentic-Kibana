@@ -195,11 +195,10 @@ export const CollaborationThreadTab: React.FC<{
   return (
     <div className="grid gap-6 p-6 lg:grid-cols-[1fr_20rem]">
       {/* -------------------------------------------------- main: the thread */}
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-6">
         <PanelCard>
           <SectionHeading
             icon={MessageSquare}
-            tone="info"
             actions={(() => {
               // Count the SAME set CaseThread renders (drop tombstoned roots with no
               // replies) so the badge can never over-count vs the visible list.
@@ -252,8 +251,8 @@ export const CollaborationThreadTab: React.FC<{
 
       {/* -------------------------------------------------- aside: ownership */}
       <aside className="space-y-6">
-        <PanelCard className="p-5">
-          <SectionHeading icon={Users} tone="info">
+        <PanelCard className="p-4">
+          <SectionHeading icon={Users}>
             Ownership
           </SectionHeading>
           <Label className="mb-1.5 block text-xs uppercase tracking-wide text-muted-foreground">
@@ -262,7 +261,7 @@ export const CollaborationThreadTab: React.FC<{
           <AssigneePicker c={c} users={users} canWrite={canWrite} onAssigned={onAssigned} />
         </PanelCard>
 
-        <PanelCard className="p-5">
+        <PanelCard className="p-4">
           <CaseTasks
             tasks={tasks || []}
             canWrite={canWrite}
@@ -273,8 +272,8 @@ export const CollaborationThreadTab: React.FC<{
           />
         </PanelCard>
 
-        <PanelCard className="p-5">
-          <SectionHeading icon={History} tone="info">
+        <PanelCard className="p-4">
+          <SectionHeading icon={History}>
             Activity
           </SectionHeading>
           <CaseActivityFeed

@@ -107,7 +107,19 @@ async def _write_prefs(state: AppState, prefs: Preferences) -> Preferences:
     """Persist a rebuilt ``Preferences`` (the caller changed exactly ONE rule
     collection via ``model_copy(update=...)``, so every sibling block is preserved
     byte-identically — this is the deep-MERGE semantics, done at the model level rather
-    than by JSON patch). Returns the stored prefs."""
+    than by JSON patch). Returns the stored prefs.
+
+    TODO (P11 — concurrency, pre-existing app-wide, NOT Round-5-introduced): every CRUD
+    handler snapshots ``state.prefs`` then writes the whole doc back through
+    ``update_prefs`` with no ``_rev``/CAS/lock (``state.update_prefs`` is a plain full-doc
+    ``config_store.save``). Two concurrent edits — or a rule edit racing the nightly
+    ``threshold_tuner`` — each snapshot the same base, so the last writer clobbers the
+    other block. The correct fix is a CAS/locked read-modify-write in the store seam
+    (per-block merge under a prefs lock with an ``_rev`` compare-and-set), applied once for
+    the WHOLE app (settings PUT + terminology + tuner all share this exact pattern). A
+    lock inside ``update_prefs`` alone would NOT close the race here — the read+copy
+    happens in the handler ABOVE the lock — so it is deliberately left as a store-layer
+    task rather than a risky per-handler restructure. Not done in this polish pass."""
     return await state.update_prefs(prefs)
 
 
@@ -585,7 +597,10 @@ class _PreviewIn(BaseModel):
 
     match: list[dict[str, Any]] = Field(default_factory=list)
     source_id: str | None = None       # scope to one source; None = all browse-capable
-    limit: int = Field(default=200, ge=1, le=1000)
+    # P1: hard-capped at the SAME 200-row ceiling ``GET /api/logs`` uses
+    # (``min(limit or 100, 200)``) so the preview is a byte-for-byte-parity read-only
+    # scatter-gather, never a larger read than the audited logs surface (#1/#6).
+    limit: int = Field(default=200, ge=1, le=200)
     from_: str | None = Field(default=None, alias="from")
     to: str | None = None
     bucket_minutes: int = Field(default=60, ge=1, le=1440)  # histogram bucket width

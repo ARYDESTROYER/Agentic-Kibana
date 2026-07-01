@@ -209,9 +209,10 @@ async def test_authorize_stashes_single_use_state(monkeypatch, sso_state):
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
-    rec1 = await routes_mod._consume_oidc_state(sso_state, st)
+    # Consume via the SAME public store the route uses (P13: no private _kv reach).
+    rec1 = await sso_state.oidc_state.consume(st)
     assert rec1 is not None and rec1["provider"] == "corp"
-    rec2 = await routes_mod._consume_oidc_state(sso_state, st)
+    rec2 = await sso_state.oidc_state.consume(st)
     assert rec2 is None  # single-use
 
 

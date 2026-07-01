@@ -108,10 +108,10 @@ export const WhyPanel: React.FC<{
   const playbook = r.playbook || null;
 
   return (
-    <div className="space-y-7 p-6">
+    <div className="space-y-6 p-6">
       {/* ------------------------------------------- decision summary */}
       <PanelCard>
-        <SectionHeading icon={Brain} tone="info">
+        <SectionHeading icon={Brain}>
           Decision
         </SectionHeading>
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -145,7 +145,7 @@ export const WhyPanel: React.FC<{
 
       {/* ------------------------------------------- agent reasoning */}
       <PanelCard>
-        <SectionHeading icon={Activity} tone="info">
+        <SectionHeading icon={Activity}>
           Agent reasoning
         </SectionHeading>
         {r.reasoning && r.reasoning.trim() ? (
@@ -160,7 +160,7 @@ export const WhyPanel: React.FC<{
 
       {/* ------------------------------------------- knowledge used */}
       <PanelCard>
-        <SectionHeading icon={BookOpen} tone="low">
+        <SectionHeading icon={BookOpen}>
           Knowledge used
         </SectionHeading>
         <p className="mb-3 text-xs text-muted-foreground">
@@ -193,7 +193,7 @@ export const WhyPanel: React.FC<{
 
       {/* ------------------------------------------- commands the agent ran */}
       <PanelCard>
-        <SectionHeading icon={Terminal} tone="info">
+        <SectionHeading icon={Terminal}>
           Commands the agent ran
         </SectionHeading>
         <p className="mb-3 text-xs text-muted-foreground">
@@ -232,7 +232,7 @@ export const WhyPanel: React.FC<{
       {/* ------------------------------------------- operator memory */}
       {memory.length ? (
         <PanelCard>
-          <SectionHeading icon={Brain} tone="medium">
+          <SectionHeading icon={Brain}>
             Operator memory applied
           </SectionHeading>
           <p className="mb-3 text-xs text-muted-foreground">
@@ -257,14 +257,14 @@ export const WhyPanel: React.FC<{
         <div className="grid gap-6 lg:grid-cols-2">
           {enr ? (
             <PanelCard>
-              <SectionHeading icon={Globe} tone="critical">
+              <SectionHeading icon={Globe}>
                 Enrichment
               </SectionHeading>
               <div className="grid grid-cols-2 gap-3">
                 {typeof enr.reputation_score === 'number' ? (
                   <div className="rounded-md border border-border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Reputation score</div>
-                    <div className="mt-1 text-xl font-bold text-foreground">
+                    <div className="mt-1 text-xl font-semibold text-foreground">
                       {Math.round(enr.reputation_score)}
                     </div>
                   </div>
@@ -274,7 +274,7 @@ export const WhyPanel: React.FC<{
                     <div className="text-xs text-muted-foreground">Threat verdict</div>
                     <div
                       className={cn(
-                        'mt-1 text-xl font-bold',
+                        'mt-1 text-xl font-semibold',
                         enr.is_malicious ? 'text-critical' : 'text-success',
                       )}
                     >
@@ -286,7 +286,7 @@ export const WhyPanel: React.FC<{
                   <div className="rounded-md border border-border bg-muted/30 p-3">
                     <div className="text-xs text-muted-foreground">Country</div>
                     {/* UNTRUSTED — plain text. */}
-                    <div className="mt-1 text-xl font-bold text-foreground">{enr.country}</div>
+                    <div className="mt-1 text-xl font-semibold text-foreground">{enr.country}</div>
                   </div>
                 ) : null}
               </div>
@@ -294,7 +294,7 @@ export const WhyPanel: React.FC<{
           ) : null}
           {playbook && playbook.id ? (
             <PanelCard>
-              <SectionHeading icon={BookOpen} tone="low">
+              <SectionHeading icon={BookOpen}>
                 Playbook
               </SectionHeading>
               <Badge variant="info" className="font-mono">
@@ -314,7 +314,7 @@ export const WhyPanel: React.FC<{
       {/* ------------------------------------------- MITRE */}
       {mitre.length ? (
         <PanelCard>
-          <SectionHeading icon={Shield} tone="medium">
+          <SectionHeading icon={Shield}>
             MITRE ATT&amp;CK techniques
           </SectionHeading>
           <div className="flex flex-wrap gap-2">

@@ -726,7 +726,12 @@ export interface CorrelationRule {
   mode?: 'every' | 'threshold' | 'never';
   n?: number;
   window_seconds?: number;
-  group_by?: 'ip' | 'user' | 'host';
+  /**
+   * The entity dimension this rule groups on. Mirrors the full backend `EntityType`
+   * (see {@link EntityTypeFull}: ip/user/host/file_hash/domain/rule) so the rules
+   * editor's wider selection round-trips without a cast. Absent → the backend default.
+   */
+  group_by?: EntityTypeFull;
 }
 
 export interface CapsConfig {
@@ -1273,6 +1278,13 @@ export interface OrgCustomization {
   default_saved_views?: SavedView[];
   default_theme?: ThemeMode;
   default_pinned_view_ids?: string[];
+  /**
+   * Per-role immutable default custom-dashboard layouts (Round-5 / G7). Mirrors
+   * backend `CustomizationConfig.default_dashboards` (`config.py:626`); the
+   * `/api/prefs/org` route projects this field, so it is typed here (not only on the
+   * superset {@link CustomizationConfig}). Defaulted + additive.
+   */
+  default_dashboards?: Record<string, DashboardLayout>;
   [key: string]: unknown;
 }
 

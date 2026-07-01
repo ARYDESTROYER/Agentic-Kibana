@@ -41,6 +41,7 @@ import {
 } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
+import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
@@ -597,7 +598,8 @@ export default function Cost({ embedded = false }: CostProps = {}) {
     <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
   ) : (
     <PageHeader
-      eyebrow="Spend"
+      variant="dense"
+      breadcrumb={[{ label: 'Analytics' }, { label: 'Cost' }]}
       icon={CircleDollarSign}
       title="Cost & usage"
       description="LLM spend metered through the single gateway cost ledger."
@@ -605,10 +607,30 @@ export default function Cost({ embedded = false }: CostProps = {}) {
     />
   );
 
+  // Width authority (DESIGN_STANDARD §4.1/§4.5): Cost is an OPERATIONAL page → `wide`
+  // when routed standalone (`#/cost`). When EMBEDDED as the Metrics "Cost" tab, the host
+  // already provides `PageContainer variant="wide"`, so we render a bare section there to
+  // avoid double-wrapping (a nested container would double the gutters/caps).
+  //
+  // `wrap` returns a STABLE element type (a plain `<div>` or the module-level
+  // `PageContainer`) rather than a locally-defined component, so the wrapped subtree is
+  // never remounted between renders (no focus/sort-state loss on the DataTable).
+  const wrap = (rest: React.HTMLAttributes<HTMLElement>, children: React.ReactNode) =>
+    embedded ? (
+      <div className="space-y-6" {...rest}>
+        {children}
+      </div>
+    ) : (
+      <PageContainer variant="wide" className="space-y-6" {...rest}>
+        {children}
+      </PageContainer>
+    );
+
   // ----- States ---------------------------------------------------------- //
   if (loading) {
-    return (
-      <div className="space-y-6" aria-busy="true" aria-label="Loading cost data">
+    return wrap(
+      { 'aria-busy': true, 'aria-label': 'Loading cost data' },
+      <>
         {header}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -622,12 +644,13 @@ export default function Cost({ embedded = false }: CostProps = {}) {
           ))}
         </div>
         <Skeleton className="h-80 w-full rounded-lg" />
-      </div>
+      </>,
     );
   }
 
-  return (
-    <div className="space-y-6">
+  return wrap(
+    {},
+    <>
       {header}
 
       {error ? (
@@ -889,6 +912,6 @@ export default function Cost({ embedded = false }: CostProps = {}) {
           ) : null}
         </>
       )}
-    </div>
+    </>,
   );
 }

@@ -47,7 +47,6 @@ vi.mock('@/lib/api', () => {
       del: vi.fn().mockResolvedValue({}),
       setup: {
         status: () => setupStatusMock(),
-        initAdmin: vi.fn().mockResolvedValue({ ok: true, username: 'admin' }),
       },
       auth: {
         login: (u: string, p: string) => loginMock(u, p),

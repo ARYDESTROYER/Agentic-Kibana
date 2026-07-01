@@ -640,8 +640,10 @@ class CustomizationConfig(BaseModel):
         layer allowlist-validates the widget shape; this only bounds cardinality)."""
         if not v:
             return {}
-        if len(v) > 32:
-            raise ValueError("too many default dashboards (max 32)")
+        if len(v) > cls._MAX_DEFAULT_DASHBOARDS:
+            raise ValueError(
+                f"too many default dashboards (max {cls._MAX_DEFAULT_DASHBOARDS})"
+            )
         return v
 
     @field_validator("terminology")

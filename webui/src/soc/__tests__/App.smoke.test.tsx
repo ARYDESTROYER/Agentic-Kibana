@@ -58,7 +58,6 @@ vi.mock('@/lib/api', () => {
       },
       setup: {
         status: ok({ setup_complete: true }),
-        initAdmin: ok({ ok: true, username: 'x' }),
       },
       roles: {
         get: ok({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} }),

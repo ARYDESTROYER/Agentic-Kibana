@@ -46,6 +46,7 @@ import { Skeleton } from '@/ui/skeleton';
 import { Card, CardContent } from '@/ui/card';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { Can } from '@/soc/components/Can';
 import { StickySaveBar } from '@/soc/components/SettingsGrid';
@@ -319,7 +320,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
 
   if (loading) {
     return (
-      <div className="space-y-6">
+      <PageContainer variant="fixed" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
         <div className="grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
           <div className="space-y-1.5">
@@ -329,13 +330,13 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
           </div>
           <Skeleton className="h-96 w-full rounded-lg" />
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   if (!prefs) {
     return (
-      <div className="space-y-6">
+      <PageContainer variant="fixed" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -354,7 +355,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
             </Button>
           }
         />
-      </div>
+      </PageContainer>
     );
   }
 
@@ -406,7 +407,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const isGrid = GRID_SECTIONS.has(activeDef.id);
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant="fixed" className="space-y-6">
       <PageHeader
         icon={SettingsIcon}
         eyebrow="Platform"
@@ -464,7 +465,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
               <div className="space-y-4">
                 {visibleGroups.map((g) => (
                   <div key={g.id} className="space-y-1">
-                    <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                    <p className="px-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground/80">
                       {g.label}
                     </p>
                     <div className="flex flex-col gap-0.5">
@@ -570,6 +571,6 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
         Changes to preferences take effect after Save. Secret keys are stored write-only — the
         console only ever knows whether a key is configured.
       </p>
-    </div>
+    </PageContainer>
   );
 }

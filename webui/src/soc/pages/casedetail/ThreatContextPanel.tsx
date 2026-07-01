@@ -131,10 +131,10 @@ export const ThreatContextPanel: React.FC<{
   };
 
   return (
-    <div className="space-y-7 p-6">
+    <div className="space-y-6 p-6">
       {/* ---------------------------------------------- threat banner */}
       <PanelCard>
-        <SectionHeading icon={Shield} tone="critical">
+        <SectionHeading icon={Shield}>
           Threat summary
         </SectionHeading>
         {panel.summary ? (
@@ -166,7 +166,7 @@ export const ThreatContextPanel: React.FC<{
 
       {/* ---------------------------------------------- IOC reputation */}
       <PanelCard>
-        <SectionHeading icon={Target} tone="critical">
+        <SectionHeading icon={Target}>
           IOC reputation
         </SectionHeading>
         {iocs.length === 0 ? (
@@ -217,7 +217,7 @@ export const ThreatContextPanel: React.FC<{
 
       {/* ---------------------------------------------- MITRE techniques */}
       <PanelCard>
-        <SectionHeading icon={Shield} tone="medium">
+        <SectionHeading icon={Shield}>
           MITRE ATT&amp;CK techniques
         </SectionHeading>
         {techniques.length === 0 ? (
@@ -270,7 +270,7 @@ export const ThreatContextPanel: React.FC<{
 
       {/* ---------------------------------------------- related cases */}
       <PanelCard>
-        <SectionHeading icon={GitBranch} tone="info">
+        <SectionHeading icon={GitBranch}>
           Related cases
         </SectionHeading>
         {related.length === 0 ? (
@@ -317,7 +317,7 @@ export const ThreatContextPanel: React.FC<{
 
       {/* ---------------------------------------------- asset context */}
       <PanelCard>
-        <SectionHeading icon={Crosshair} tone="info">
+        <SectionHeading icon={Crosshair}>
           Asset context
         </SectionHeading>
         {!asset || (!asset.entity && assetAttrs.length === 0) ? (
@@ -371,7 +371,7 @@ export const ThreatContextPanel: React.FC<{
       {/* ---------------------------------------------- evidence */}
       {evidence.length ? (
         <PanelCard>
-          <SectionHeading icon={Search} tone="info">
+          <SectionHeading icon={Search}>
             Evidence
           </SectionHeading>
           <div className="space-y-3">

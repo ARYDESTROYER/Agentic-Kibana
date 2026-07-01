@@ -59,6 +59,7 @@ import { Skeleton } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 
+import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
@@ -203,7 +204,7 @@ function ProposalCard({
   return (
     <Card
       className={cn(
-        'relative overflow-hidden p-5 transition-shadow hover:shadow-elev2',
+        'relative overflow-hidden p-6 transition-shadow hover:shadow-elev2',
         'before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:content-[""]',
         accentClass,
         selected && 'ring-1 ring-primary',
@@ -242,7 +243,7 @@ function ProposalCard({
       </div>
 
       {/* the candidate rule / fact (UNTRUSTED → InlineCode / plain text) */}
-      <div className="mt-5 pl-3">
+      <div className="mt-4 pl-3">
         {band === 'suppression' ? (
           <div>
             <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -286,7 +287,7 @@ function ProposalCard({
 
       {/* rationale (UNTRUSTED → plain text) */}
       {proposal.rationale ? (
-        <div className="mt-5 pl-3">
+        <div className="mt-4 pl-3">
           <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
             Why the agent drafted this
           </div>
@@ -298,7 +299,7 @@ function ProposalCard({
 
       {/* linked source case(s) */}
       {cases.length ? (
-        <div className="mt-5 flex flex-wrap items-center gap-2 pl-3">
+        <div className="mt-4 flex flex-wrap items-center gap-2 pl-3">
           <span className="text-xs text-muted-foreground">
             Source {cases.length === 1 ? 'case' : 'cases'}:
           </span>
@@ -326,7 +327,7 @@ function ProposalCard({
         </div>
       ) : null}
 
-      <Separator className="my-5" />
+      <Separator className="my-4" />
 
       {/* actions */}
       <div className="flex flex-wrap items-center justify-end gap-2 pl-3">
@@ -601,7 +602,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
     body = (
       <div className="flex flex-col gap-4">
         {[0, 1, 2].map((i) => (
-          <Card key={i} className="flex flex-col gap-3 p-5">
+          <Card key={i} className="flex flex-col gap-3 p-6">
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-3/4" />
             <Skeleton className="h-4 w-2/3" />
@@ -624,7 +625,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
     );
   } else if (groups) {
     body = (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         {groups.map(([label, rows]) => (
           <div key={label}>
             <div className="mb-3 flex items-center gap-2">
@@ -646,10 +647,11 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
   }
 
   return (
-    <div className="animate-fade-in space-y-8">
+    <PageContainer variant="wide" className="animate-fade-in space-y-6">
       <PageHeader
+        variant="dense"
         icon={Flag}
-        eyebrow="Automation"
+        breadcrumb={[{ label: 'Automation' }, { label: 'Approvals' }]}
         title="Approvals"
         description="Agent-drafted recommendations awaiting human approval — suppression rules and durable memories."
         actions={headerActions}
@@ -735,6 +737,6 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         saved once approved. Rejected proposals are discarded. Proposal fields, values and rationale
         derive from log events and are rendered as plain text. {DASH}
       </p>
-    </div>
+    </PageContainer>
   );
 }

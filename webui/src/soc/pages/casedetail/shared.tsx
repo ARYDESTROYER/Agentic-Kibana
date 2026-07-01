@@ -401,7 +401,7 @@ export const HeadlinePanel: React.FC<{
   value: string;
   tone: ScoreTone;
 }> = ({ label, value, tone }) => (
-  <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-lg border border-border bg-card px-4 py-3.5 text-center">
+  <div className="relative flex flex-col items-center justify-center overflow-hidden rounded-lg border border-border bg-card px-4 py-3 text-center">
     <span
       aria-hidden="true"
       className={cn('absolute inset-x-0 top-0 h-0.5', TONE_ACCENT[tone])}
@@ -437,10 +437,8 @@ export const MetaItem: React.FC<{ label: string; value: string }> = ({ label, va
 export const SectionHeading: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
   children: React.ReactNode;
-  tone?: ScoreTone;
   actions?: React.ReactNode;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-}> = ({ icon: Icon, children, tone: _tone = 'info', actions }) => (
+}> = ({ icon: Icon, children, actions }) => (
   <div className="mb-4 flex items-center justify-between gap-3">
     <div className="flex items-center gap-2">
       <Icon className="h-4 w-4 text-muted-foreground" />

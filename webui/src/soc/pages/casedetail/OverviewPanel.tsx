@@ -91,7 +91,7 @@ const StatusTimeline: React.FC<{
   const ordered = [...entries].reverse();
   return (
     <PanelCard>
-      <SectionHeading icon={History} tone="info">
+      <SectionHeading icon={History}>
         Status timeline
       </SectionHeading>
       {statusReason ? (
@@ -189,7 +189,7 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, o
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <PanelCard>
-        <SectionHeading icon={GitBranch} tone="info">
+        <SectionHeading icon={GitBranch}>
           Related cases
         </SectionHeading>
         {relatedIds.length ? (
@@ -234,7 +234,7 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, o
       </PanelCard>
 
       <PanelCard>
-        <SectionHeading icon={Globe} tone="info">
+        <SectionHeading icon={Globe}>
           Source breakdown
         </SectionHeading>
         {breakdown.length ? (
@@ -290,7 +290,7 @@ const AutomationApplied: React.FC<{ c: Case }> = ({ c }) => {
   if (!actions.length) return null;
   return (
     <PanelCard>
-      <SectionHeading icon={Zap} tone="info">
+      <SectionHeading icon={Zap}>
         Automation applied
       </SectionHeading>
       <p className="mb-3 text-xs text-muted-foreground">
@@ -437,9 +437,9 @@ export const OverviewPanel: React.FC<{
   }
 
   return (
-    <div className="space-y-7 p-6">
+    <div className="space-y-6 p-6">
       {/* ----------------------------------------------- run-meta strip */}
-      <div className="flex flex-wrap items-center gap-x-10 gap-y-3 rounded-lg border border-border bg-muted/30 px-5 py-3.5">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
         <MetaItem label="Started" value={startedAt ? formatTimestamp(startedAt) : DASH} />
         <MetaItem label="Completed" value={completedAt ? formatTimestamp(completedAt) : DASH} />
         {ruleIds.length ? <MetaItem label="Trigger" value={ruleIds[0]} /> : null}
@@ -490,7 +490,7 @@ export const OverviewPanel: React.FC<{
       {/* ----------------------------------------------- incident digest */}
       {c.summary || triggerSentence ? (
         <PanelCard>
-          <SectionHeading icon={FileText} tone="info">
+          <SectionHeading icon={FileText}>
             Incident Digest
           </SectionHeading>
           {triggerSentence ? (
@@ -519,7 +519,7 @@ export const OverviewPanel: React.FC<{
       {/* ------------------------------- affected assets + IOC indicators */}
       <div className="grid gap-6 lg:grid-cols-2">
         <PanelCard>
-          <SectionHeading icon={Crosshair} tone="info">
+          <SectionHeading icon={Crosshair}>
             Affected Assets
           </SectionHeading>
           {assetRows.length ? (
@@ -545,7 +545,7 @@ export const OverviewPanel: React.FC<{
         </PanelCard>
 
         <PanelCard>
-          <SectionHeading icon={Target} tone="critical">
+          <SectionHeading icon={Target}>
             IOC Indicators
           </SectionHeading>
           {evidence.some((e) => e.query) || c.reproduce_query ? (
@@ -586,7 +586,7 @@ export const OverviewPanel: React.FC<{
 
       {/* ------------------------------------------- evidence findings */}
       <div>
-        <SectionHeading icon={Search} tone="info">
+        <SectionHeading icon={Search}>
           Evidence Findings
         </SectionHeading>
         {evidence.length === 0 ? (
@@ -654,7 +654,7 @@ export const OverviewPanel: React.FC<{
       {/* ------------------------------------------- ruled out / clean */}
       {ruledOut.length ? (
         <PanelCard>
-          <SectionHeading icon={CheckCircle2} tone="low">
+          <SectionHeading icon={CheckCircle2}>
             Ruled out / Checked &amp; clean
           </SectionHeading>
           <p className="mb-3 text-xs text-muted-foreground">
@@ -677,7 +677,7 @@ export const OverviewPanel: React.FC<{
       {/* ------------------------------- recommended action + risk breakdown */}
       <div className="grid gap-6 lg:grid-cols-2">
         <PanelCard>
-          <SectionHeading icon={Activity} tone="info">
+          <SectionHeading icon={Activity}>
             Recommended action
           </SectionHeading>
           {/* UNTRUSTED — plain text. */}
@@ -686,7 +686,7 @@ export const OverviewPanel: React.FC<{
           </p>
         </PanelCard>
         <PanelCard>
-          <SectionHeading icon={Gauge} tone="critical">
+          <SectionHeading icon={Gauge}>
             Risk breakdown
           </SectionHeading>
           {riskItems.length ? (
@@ -709,7 +709,7 @@ export const OverviewPanel: React.FC<{
       {/* ------------------------------------------- MITRE */}
       {mitre.length ? (
         <PanelCard>
-          <SectionHeading icon={Shield} tone="medium">
+          <SectionHeading icon={Shield}>
             MITRE ATT&amp;CK techniques
           </SectionHeading>
           <div className="flex flex-wrap gap-2">

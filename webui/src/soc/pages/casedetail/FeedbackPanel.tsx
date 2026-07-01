@@ -185,12 +185,11 @@ export const FeedbackTab: React.FC<{
     !!fbComment.trim();
 
   return (
-    <div className="space-y-7 p-6">
+    <div className="space-y-6 p-6">
       {/* ------------------------------------------- AI-decision feedback */}
       <PanelCard>
         <SectionHeading
           icon={Brain}
-          tone="medium"
           actions={
             priorFeedback.length ? (
               <Badge variant="medium">
