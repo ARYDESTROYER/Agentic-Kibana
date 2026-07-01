@@ -1,0 +1,70 @@
+/*
+ * react-grid-layout theme overrides (Round 5 / G7, CD3).
+ *
+ * Imported LAZILY, EDIT-MODE ONLY (via `EditableGrid.tsx`, itself `React.lazy`d) so
+ * neither the RGL base CSS nor these overrides ship on first paint / in view mode.
+ * They repaint RGL's drag/resize affordances with the command-center design tokens
+ * (`theme.css` custom properties) so the grid matches the console in both themes and
+ * holds the WCAG-AA bar. Load order: `react-grid-layout/css/styles.css` +
+ * `react-resizable/css/styles.css` FIRST (in EditableGrid), then this file.
+ */
+
+/* The grid item itself — CSS-transform positioning is RGL's job; we only theme the
+   transition + placeholder + resize handle. Do not animate during drag (RGL owns it). */
+.react-grid-item {
+  transition: transform var(--motion-base, 200ms) var(--motion-ease-standard, ease),
+    width var(--motion-base, 200ms) var(--motion-ease-standard, ease),
+    height var(--motion-base, 200ms) var(--motion-ease-standard, ease);
+}
+.react-grid-item.react-grid-item--dragging,
+.react-grid-item.react-grid-item--resizing {
+  /* Suppress the transition while actively dragging/resizing for a crisp follow. */
+  transition: none;
+  z-index: 3;
+  will-change: transform;
+}
+
+/* The drop-target placeholder shown under a dragged widget — themed accent wash. */
+.react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.18);
+  border: 1px dashed hsl(var(--primary) / 0.55);
+  border-radius: var(--radius-md, 0.5rem);
+  opacity: 1;
+  z-index: 2;
+  transition-duration: var(--motion-fast, 120ms);
+}
+
+/* The SE resize handle — a small, calm corner grip using the strong border token so
+   it clears the 3:1 non-text contrast bar. */
+.react-grid-item > .react-resizable-handle {
+  width: 16px;
+  height: 16px;
+  bottom: 2px;
+  right: 2px;
+  /* Replace the default background-image chevron with a token-driven corner. */
+  background: none;
+  padding: 0;
+}
+.react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid hsl(var(--border-strong, var(--input)));
+  border-bottom: 2px solid hsl(var(--border-strong, var(--input)));
+  border-bottom-right-radius: 2px;
+}
+.react-grid-item:hover > .react-resizable-handle::after,
+.react-grid-item:focus-within > .react-resizable-handle::after {
+  border-color: hsl(var(--primary));
+}
+
+/* When reduced motion is requested, drop the position transition (RGL still moves the
+   item; we just don't tween it). Opacity crossfades stay per the a11y policy. */
+@media (prefers-reduced-motion: reduce) {
+  .react-grid-item {
+    transition: none;
+  }
+}

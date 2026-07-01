@@ -33,6 +33,11 @@ import { PageSkeleton } from './components/PageSkeleton';
 // All target pages are DEFAULT exports (verified), so the bare import() resolves
 // directly to a `{ default }` module that React.lazy expects.
 const Home = React.lazy(() => import('./pages/Home'));
+// Round-5 G7 (CD5): the custom-dashboards builder. Lazy-loaded like every other page;
+// the drag/resize grid (react-grid-layout) is loaded ONLY in Edit mode, deeper still
+// (WidgetGrid's own lazy boundary), so this route's view mode + first paint ship ZERO
+// grid JS (the bundle-first-paint guardrail).
+const Dashboards = React.lazy(() => import('./pages/Dashboards'));
 const Cases = React.lazy(() => import('./pages/Cases'));
 const Workspace = React.lazy(() => import('./pages/Workspace'));
 const Investigate = React.lazy(() => import('./pages/Investigate'));
@@ -99,6 +104,10 @@ function renderPage(
     case 'dashboard':
       // The dashboard IS the Overview/Home posture view (no standalone page).
       return <Home onNavigate={navigate} tab="dashboard" />;
+    case 'dashboards':
+      // Round-5 G7 (CD5): the build-your-own custom-dashboards surface (distinct from
+      // the fixed `dashboard` posture view). Self-contained page; no props needed.
+      return <Dashboards />;
     case 'playbooks':
       // "Playbooks & Agents" is the Catalog tab of the Intelligence host.
       return <Intelligence onNavigate={navigate} tab="catalog" />;

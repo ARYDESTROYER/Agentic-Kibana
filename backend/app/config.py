@@ -605,6 +605,14 @@ class CustomizationConfig(BaseModel):
     * ``default_theme`` — the org default colour mode for a user who has not chosen
       their own (a user's ``UserPrefs.theme_mode`` overrides this).
     * ``default_pinned_view_ids`` — org-default pinned (quick-access) saved-view ids.
+    * ``default_dashboards`` — org/role default custom-dashboard layouts (Round 5 / G7),
+      keyed by role (or ``"default"``). Each value is a ``DashboardLayout`` serialised as
+      a plain dict (kept loose here to avoid a config→models import cycle — the same
+      pattern ``default_saved_views`` uses). The FE clone-to-customize flow copies the
+      caller's role default into their PERSONAL set on first edit. A dashboard layout is
+      ADVISORY presentation state only — it never feeds ``case_manager.decide()`` (#3),
+      and every dashboard/widget ``name``/``title`` is PLAIN data the UI render-escapes
+      (#9), never interpolated unfenced into a prompt.
     """
 
     model_config = {"protected_namespaces": ()}
@@ -613,11 +621,28 @@ class CustomizationConfig(BaseModel):
     default_saved_views: list[dict[str, Any]] = Field(default_factory=list)
     default_theme: Literal["light", "dark", "system"] = "system"
     default_pinned_view_ids: list[str] = Field(default_factory=list)
+    # Role → default DashboardLayout (serialised as a plain dict; validated into a real
+    # DashboardLayout at the API boundary, never here — avoids the config→models cycle).
+    default_dashboards: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     # Caps so the config doc stays small + a terminology label can't smuggle a huge
     # blob (it is plain data, but still bounded — #9/#10 discipline).
     _MAX_TERM_KEYS: ClassVar[int] = 200
     _MAX_TERM_LEN: ClassVar[int] = 120
+    _MAX_DEFAULT_DASHBOARDS: ClassVar[int] = 32
+
+    @field_validator("default_dashboards")
+    @classmethod
+    def _bound_default_dashboards(
+        cls, v: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Backstop the org-default dashboard map so a config doc stays small (the API
+        layer allowlist-validates the widget shape; this only bounds cardinality)."""
+        if not v:
+            return {}
+        if len(v) > 32:
+            raise ValueError("too many default dashboards (max 32)")
+        return v
 
     @field_validator("terminology")
     @classmethod

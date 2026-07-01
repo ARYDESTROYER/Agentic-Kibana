@@ -16,6 +16,7 @@ from .api.routes_baseline import router as baseline_router
 from .api.routes_batch import router as batch_router
 from .api.routes_campaigns import router as campaigns_router
 from .api.routes_cases_collab import router as cases_collab_router
+from .api.routes_dashboards import router as dashboards_router
 from .api.routes_enrichment import router as enrichment_router
 from .api.routes_inapp import router as inapp_router
 from .api.routes_metrics import router as metrics_router
@@ -97,6 +98,7 @@ for _feature_router in (
     baseline_router,      # R4 W4 — per-signature seasonal baseline stats (read-only)
     reset_router,         # R4 W4 — double-gated admin reset (users:manage + step-up)
     rules_router,         # R5 G6 — rules customization CRUD + version ledger + preview
+    dashboards_router,    # R5 G7 — per-user custom-dashboard persistence (CD5)
 ):
     app.include_router(_feature_router, dependencies=[Depends(require_auth)])
 

@@ -55,7 +55,7 @@ import {
 } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
+import { Card, CardContent } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
@@ -64,6 +64,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { ChartCard, ChartEmpty } from '@/soc/components/ChartCard';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
@@ -169,49 +170,10 @@ const MetricsSkeleton: React.FC = () => (
 );
 
 // --------------------------------------------------------------------------- //
-// Small section card with an icon + title.
+// Small section card with an icon + title — promoted to `soc/components/ChartCard`
+// (Round 5 / G7) so the custom-dashboard widgets and Metrics share ONE card chrome.
+// `ChartCard` + `ChartEmpty` are imported above; behaviour is byte-identical.
 // --------------------------------------------------------------------------- //
-interface ChartCardProps {
-  title: string;
-  icon: LucideIcon;
-  accentClass?: string;
-  children: React.ReactNode;
-  className?: string;
-  action?: React.ReactNode;
-}
-
-function ChartCard({
-  title,
-  icon: Icon,
-  accentClass = 'text-primary',
-  children,
-  className,
-  action,
-}: ChartCardProps) {
-  return (
-    <Card className={cn('flex flex-col', className)}>
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2.5 text-[0.8125rem] font-semibold">
-          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
-            <Icon className={cn('h-3.5 w-3.5', accentClass)} aria-hidden />
-          </span>
-          {title}
-          {action ? <span className="ml-auto">{action}</span> : null}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1">{children}</CardContent>
-    </Card>
-  );
-}
-
-/** Inline empty hint for a chart card (no data in the active window). */
-function ChartEmpty({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full min-h-[120px] items-center justify-center px-2 text-center text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
 
 // --------------------------------------------------------------------------- //
 // Page

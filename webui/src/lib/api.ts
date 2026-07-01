@@ -322,6 +322,66 @@ export interface DashboardsResponse {
   count?: number;
 }
 
+// --------------------------------------------------------------------------- //
+// Custom-dashboards CLIENT-side write debounce (G7 / CD5).
+//
+// A drag/resize settle can fire several `PUT /api/dashboards/{id}` in quick
+// succession (RGL `onLayoutChange` ticks, autosave-on-edit). We COALESCE rapid
+// successive updates to the SAME dashboard id into one trailing PUT ~500ms after the
+// last call, so a fast interaction persists exactly once instead of thrashing the
+// backend. Every caller that awaited an update during the window resolves with (or
+// rejects from) that single final request — the awaitable contract the builder relies
+// on (it commits the server echo) is preserved; only the network chatter is collapsed.
+// Keyed per dashboard id so two different boards never share a timer.
+// --------------------------------------------------------------------------- //
+
+/** Client debounce window for dashboard writes (ms). Kept small so a save feels instant. */
+const DASHBOARD_UPDATE_DEBOUNCE_MS = 500;
+
+interface PendingDashboardUpdate {
+  timer: ReturnType<typeof setTimeout>;
+  /** The most recent payload wins (last-write-wins for the coalesced settle). */
+  body: DashboardLayout;
+  /** Every awaiting caller in this window resolves/rejects together. */
+  resolvers: Array<(v: DashboardLayout) => void>;
+  rejecters: Array<(e: unknown) => void>;
+}
+
+const pendingDashboardUpdates = new Map<string, PendingDashboardUpdate>();
+
+/**
+ * Debounced `PUT /api/dashboards/{id}`. Collapses rapid successive updates to the same
+ * id into ONE trailing request. Returns a promise that settles when the coalesced
+ * request completes; callers made within the same window share that outcome.
+ */
+function debouncedDashboardUpdate(id: string, body: DashboardLayout): Promise<DashboardLayout> {
+  return new Promise<DashboardLayout>((resolve, reject) => {
+    const existing = pendingDashboardUpdates.get(id);
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.body = body; // last write wins
+      existing.resolvers.push(resolve);
+      existing.rejecters.push(reject);
+    }
+    const entry: PendingDashboardUpdate = existing ?? {
+      timer: null as unknown as ReturnType<typeof setTimeout>,
+      body,
+      resolvers: [resolve],
+      rejecters: [reject],
+    };
+    entry.timer = setTimeout(() => {
+      // Detach this entry BEFORE firing so a new call during the flight starts a fresh
+      // window (rather than joining an in-flight request that already left the map).
+      pendingDashboardUpdates.delete(id);
+      const { body: finalBody, resolvers, rejecters } = entry;
+      request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, { body: finalBody })
+        .then((res) => resolvers.forEach((r) => r(res)))
+        .catch((err) => rejecters.forEach((r) => r(err)));
+    }, DASHBOARD_UPDATE_DEBOUNCE_MS);
+    if (!existing) pendingDashboardUpdates.set(id, entry);
+  });
+}
+
 /** Error thrown for any non-2xx backend response. */
 export class ApiError extends Error {
   constructor(
@@ -1023,10 +1083,12 @@ export const api = {
     list: () => request<DashboardsResponse>('GET', 'dashboards'),
     create: (dashboard: DashboardLayout) =>
       request<DashboardLayout>('POST', 'dashboards', { body: dashboard }),
+    // Debounced ~500ms client-side (CD5): rapid successive edits to the SAME id
+    // coalesce into ONE trailing PUT so a drag/resize settle persists exactly once.
+    // The returned promise still resolves with the stored dashboard, so callers that
+    // commit the server echo (the builder) keep working.
     update: (id: string, dashboard: DashboardLayout) =>
-      request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, {
-        body: dashboard,
-      }),
+      debouncedDashboardUpdate(id, dashboard),
     remove: (id: string) =>
       request<{ ok: boolean; id: string }>(
         'DELETE',

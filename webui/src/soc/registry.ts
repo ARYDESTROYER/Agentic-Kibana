@@ -68,6 +68,7 @@ import {
 export type PageId =
   | 'overview'
   | 'dashboard'
+  | 'dashboards'
   | 'cases'
   | 'investigate'
   | 'chat'
@@ -207,6 +208,17 @@ export const FEATURES: FeatureNode[] = [
     group: 'overview',
     children: [
       { id: 'dashboard', label: 'Dashboard', icon: Gauge },
+      // Round-5 G7 (CD5): the build-your-own custom dashboards surface. Ships ON by
+      // default (a read-only per-role default layout; Edit mode to customize) and is
+      // gated on the SAME `metrics:view` grant the backend routes_dashboards.py
+      // require, so it never appears for a principal who can't read the metrics it
+      // renders. RBAC off → always visible (back-compat).
+      {
+        id: 'dashboards',
+        label: 'Dashboards',
+        icon: LayoutDashboard,
+        perm: { resource: 'metrics', action: 'view' },
+      },
       { id: 'standup', label: 'Standup', icon: CalendarDays },
     ],
   },
