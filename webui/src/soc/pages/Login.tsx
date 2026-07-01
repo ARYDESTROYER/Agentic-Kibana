@@ -657,17 +657,19 @@ export default function Login({ onAuthenticated }: LoginProps) {
                     {busy ? 'Verifying…' : 'Verify & continue'}
                   </Button>
                   <div className="flex items-center justify-between text-xs">
-                    <button
+                    <Button
                       type="button"
-                      className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      variant="link"
+                      className="h-auto p-0 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                       onClick={() => { setUseRecovery((v) => !v); setMfaCode(''); setError(null); }}
                       disabled={busy}
                     >
                       {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      variant="link"
+                      className="h-auto p-0 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                       onClick={() => {
                         setMode('signin');
                         setMfaCode('');
@@ -678,7 +680,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       disabled={busy}
                     >
                       Back to sign in
-                    </button>
+                    </Button>
                   </div>
                 </form>
               ) : null}

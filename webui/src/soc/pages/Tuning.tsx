@@ -33,8 +33,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { ApiError } from '@/lib/api';
 import { humanizeToken, fmtPercent, fmtNumber, humanizeAge } from '@/lib/format';
+import { errorMessage } from '@/lib/errorMessage';
 import type { Navigate } from '@/soc/router';
 
 import { Button } from '@/ui/button';
@@ -55,6 +55,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { ProtectedRoute, Can, useCan } from '@/soc/components/Can';
@@ -77,10 +78,6 @@ import {
   type TuningLedgerRow,
 } from './Tuning.api';
 
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof ApiError && e.message ? e.message : fallback;
-}
-
 const CADENCES: TuningCadence[] = ['hourly', 'nightly', 'weekly', 'manual'];
 
 export interface TuningProps {
@@ -100,7 +97,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
   const [data, setData] = React.useState<TuningRecommendationsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
   const [busyRule, setBusyRule] = React.useState<string | null>(null);
 
   // Config panel: `saved` is the persisted policy; `draft` is the editing copy.
@@ -121,7 +118,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
       setSaved(c);
       setDraft(c);
     } catch (e) {
-      setError(errMsg(e, 'Could not load tuning data.'));
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -145,7 +142,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
       setDraft(c);
       toast.success('Tuning policy saved.');
     } catch (e) {
-      toast.error(errMsg(e, 'Could not save the tuning policy.'));
+      toast.error(errorMessage(e, 'Could not save the tuning policy.'));
     } finally {
       setSavingCfg(false);
     }
@@ -171,7 +168,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
         }
         await load();
       } catch (e) {
-        toast.error(errMsg(e, 'Could not apply this recommendation.'));
+        toast.error(errorMessage(e, 'Could not apply this recommendation.'));
       } finally {
         setBusyRule(null);
       }
@@ -187,7 +184,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
         toast.success(`Rolled back ${ruleId}.`);
         await load();
       } catch (e) {
-        toast.error(errMsg(e, 'Could not roll back this change.'));
+        toast.error(errorMessage(e, 'Could not roll back this change.'));
       } finally {
         setBusyRule(null);
       }
@@ -413,16 +410,11 @@ export function TuningInner({ onNavigate }: TuningProps) {
       </Alert>
 
       {error ? (
-        <EmptyState
-          variant="error"
-          icon={ShieldAlert}
+        <LoadError
+          error={error}
           title="Could not load tuning data"
-          description={error}
-          action={
-            <Button variant="outline" size="sm" onClick={() => void load()}>
-              Retry
-            </Button>
-          }
+          fallback="Could not load tuning data."
+          onRetry={() => void load()}
         />
       ) : null}
 

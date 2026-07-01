@@ -61,6 +61,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import type { Navigate } from '@/soc/router';
 import type { LucideIcon } from 'lucide-react';
@@ -244,7 +245,7 @@ function ProposalCard({
       <div className="mt-5 pl-3">
         {band === 'suppression' ? (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               Candidate suppression rule
             </div>
             <div className="mt-1.5">
@@ -261,7 +262,7 @@ function ProposalCard({
           </div>
         ) : band === 'memory' ? (
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               Candidate memory
             </div>
             <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
@@ -286,7 +287,7 @@ function ProposalCard({
       {/* rationale (UNTRUSTED → plain text) */}
       {proposal.rationale ? (
         <div className="mt-5 pl-3">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
             Why the agent drafted this
           </div>
           <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
@@ -560,24 +561,16 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
           <TooltipContent>Pending proposals awaiting a decision</TooltipContent>
         </Tooltip>
       ) : null}
-      <div className="inline-flex overflow-hidden rounded-md border border-border bg-muted p-0.5" role="group" aria-label="Filter by status">
-        {(['pending', 'all'] as StatusFilter[]).map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setStatusFilter(id)}
-            aria-pressed={statusFilter === id}
-            className={cn(
-              'rounded-[5px] px-3 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              statusFilter === id
-                ? 'bg-card text-foreground shadow-elev1'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {id === 'pending' ? 'Pending' : 'All'}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl<StatusFilter>
+        aria-label="Filter by status"
+        size="sm"
+        value={statusFilter}
+        onValueChange={setStatusFilter}
+        options={[
+          { value: 'pending', label: 'Pending' },
+          { value: 'all', label: 'All' },
+        ]}
+      />
       <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
         <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
         Refresh

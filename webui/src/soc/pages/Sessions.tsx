@@ -131,12 +131,12 @@ export function SessionsTable({
             <div className="flex items-center gap-1.5">
               <span className="truncate text-sm text-foreground">{sessionDevice(s)}</span>
               {s.current ? (
-                <Badge variant="success" className="text-[10px]">
+                <Badge variant="success" className="text-2xs">
                   This device
                 </Badge>
               ) : null}
               {s.revoked ? (
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge variant="secondary" className="text-2xs">
                   Revoked
                 </Badge>
               ) : null}

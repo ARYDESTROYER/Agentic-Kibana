@@ -19,7 +19,6 @@
  */
 import * as React from 'react';
 import {
-  AlertTriangle,
   Bug,
   Crosshair,
   FileText,
@@ -28,7 +27,6 @@ import {
   Key,
   Library,
   Play,
-  RefreshCw,
   ScrollText,
   Search,
   Tag,
@@ -45,30 +43,18 @@ import { humanizeToken } from '@/lib/format';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 
 import { Card, CardContent, CardHeader } from '@/ui/card';
 import { Badge } from '@/ui/badge';
-import { Button } from '@/ui/button';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 
 /** Max badges shown inline before collapsing the remainder into a "+N" pill. */
 const BADGE_CAP = 8;
-
-/** Coerce an unknown caught value into a readable message. */
-function errMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === 'string') return e;
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return 'Unknown error';
-  }
-}
 
 /* ------------------------------------------------------------- persona style -- */
 
@@ -120,7 +106,7 @@ const BadgeRow: React.FC<{
 
   return (
     <div className="mt-4">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
       {items.length ? (
@@ -174,24 +160,6 @@ const GridSkeleton: React.FC = () => (
       </Card>
     ))}
   </div>
-);
-
-const LoadError: React.FC<{ error: unknown; title: string; onRetry: () => void }> = ({
-  error,
-  title,
-  onRetry,
-}) => (
-  <Alert variant="destructive">
-    <AlertTriangle aria-hidden />
-    <AlertTitle>{title}</AlertTitle>
-    <AlertDescription className="space-y-2">
-      <p className="break-words">{errMessage(error)}</p>
-      <Button size="sm" variant="outline" onClick={onRetry}>
-        <RefreshCw aria-hidden />
-        Retry
-      </Button>
-    </AlertDescription>
-  </Alert>
 );
 
 /** Calm explanatory note above each catalog grid. */
@@ -326,7 +294,7 @@ const MatchCriteria: React.FC<{ match: PlaybookMatch }> = ({ match }) => {
 
   return (
     <div className="mt-4">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
         Match criteria
       </div>
       {hasAny ? (
@@ -445,7 +413,7 @@ const PlaybookCard: React.FC<{ playbook: Playbook; automationCount: number }> = 
 
         {ragQueries.length ? (
           <div className="mt-4">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
               RAG queries
             </div>
             <CodeBlock

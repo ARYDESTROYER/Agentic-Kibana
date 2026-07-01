@@ -180,7 +180,7 @@ function ProviderEditor({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <Label className="text-xs">Client secret</Label>
-            <Badge variant={configuredSecret ? 'default' : 'outline'} className="text-[10px]">
+            <Badge variant={configuredSecret ? 'default' : 'outline'} className="text-2xs">
               {configuredSecret ? 'configured' : 'not set'}
             </Badge>
           </div>

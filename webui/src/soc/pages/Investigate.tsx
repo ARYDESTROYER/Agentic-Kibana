@@ -51,6 +51,7 @@ import { Skeleton } from '@/ui/skeleton';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { CodeBlock, InlineCode } from '@/soc/components/CodeBlock';
 import {
@@ -475,8 +476,6 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
 
   const isLastLookback =
     lookback === LOOKBACK_OPTIONS[LOOKBACK_OPTIONS.length - 1].value;
-  const errMessage =
-    error instanceof Error ? error.message : 'Something went wrong.';
 
   const viewCasesAction = onNavigate ? (
     <Button variant="outline" size="sm" onClick={() => onNavigate('cases')}>
@@ -615,10 +614,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
 
       {/* Hard error */}
       {!loading && error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Investigation failed</AlertTitle>
-          <AlertDescription>{errMessage}</AlertDescription>
-        </Alert>
+        <LoadError error={error} title="Investigation failed" onRetry={() => void run()} />
       ) : null}
 
       {/* Neutral no-events empty state */}
@@ -677,7 +673,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
               const Icon = entityIcon(r.entity.type);
               return (
                 <li key={r.id}>
-                  <div
+                  <Card
                     role="button"
                     tabIndex={0}
                     onClick={() => replayRecent(r)}
@@ -688,7 +684,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
                       }
                     }}
                     className={cn(
-                      'flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-3.5 py-3 transition-colors',
+                      'flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors',
                       'hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     )}
                   >
@@ -720,7 +716,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
                         Open
                       </Button>
                     ) : null}
-                  </div>
+                  </Card>
                 </li>
               );
             })}

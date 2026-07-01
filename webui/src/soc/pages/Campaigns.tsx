@@ -28,11 +28,9 @@ import {
   Loader2,
   ArrowRight,
   Layers,
-  ShieldAlert,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { ApiError } from '@/lib/api';
 import { humanizeToken, humanizeAge, fmtNumber } from '@/lib/format';
 import type { Navigate } from '@/soc/router';
 
@@ -51,6 +49,8 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
+import { errorMessage } from '@/lib/errorMessage';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { SeverityBadge } from '@/soc/components/badges';
 import { ProtectedRoute, Can } from '@/soc/components/Can';
@@ -59,10 +59,6 @@ import {
   CAMPAIGN_STATUS_LABELS,
   type Campaign,
 } from './Campaigns.api';
-
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof ApiError && e.message ? e.message : fallback;
-}
 
 /** Map a campaign status to a Badge variant. */
 function statusVariant(status: string): 'success' | 'info' | 'secondary' {
@@ -87,7 +83,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
   const [enabled, setEnabled] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
   const [recorrelating, setRecorrelating] = React.useState(false);
   const [detail, setDetail] = React.useState<Campaign | null>(null);
 
@@ -99,7 +95,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
       setCampaigns(res.campaigns ?? []);
       setEnabled(Boolean(res.enabled));
     } catch (e) {
-      setError(errMsg(e, 'Could not load campaigns.'));
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -118,7 +114,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
         `Re-correlated: ${fmtNumber(res.count)} campaign${res.count === 1 ? '' : 's'}.`,
       );
     } catch (e) {
-      toast.error(errMsg(e, 'Could not re-correlate campaigns.'));
+      toast.error(errorMessage(e, 'Could not re-correlate campaigns.'));
     } finally {
       setRecorrelating(false);
     }
@@ -244,16 +240,11 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
       ) : null}
 
       {error ? (
-        <EmptyState
-          variant="error"
-          icon={ShieldAlert}
+        <LoadError
+          error={error}
           title="Could not load campaigns"
-          description={error}
-          action={
-            <Button variant="outline" size="sm" onClick={() => void load()}>
-              Retry
-            </Button>
-          }
+          fallback="Could not load campaigns."
+          onRetry={() => void load()}
         />
       ) : (
         <DataTable

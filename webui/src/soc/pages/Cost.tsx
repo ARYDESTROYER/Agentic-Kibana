@@ -48,6 +48,8 @@ import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { DonutChart, TrendArea, type DonutSegment } from '@/soc/components/charts';
 import { DataTable, type DataTableColumn, type SortState } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Stagger } from '@/soc/components/Stagger';
 import { categorical } from '@/soc/components/palette';
 import { InlineCode } from '@/soc/components/CodeBlock';
@@ -55,7 +57,6 @@ import { InlineCode } from '@/soc/components/CodeBlock';
 import { Card, CardContent, CardHeader, CardTitle } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 
 // --------------------------------------------------------------------------- //
 // Local types + constants
@@ -196,48 +197,6 @@ function toLedger(rows: UsageRow[], totalCost: number): LedgerRow[] {
 // --------------------------------------------------------------------------- //
 // Small UI helpers
 // --------------------------------------------------------------------------- //
-/** Segmented pill toggle (calm OpenSearch-style filter control). */
-function SegmentedToggle<T extends string>({
-  value,
-  options,
-  onChange,
-  ariaLabel,
-}: {
-  value: T;
-  options: { id: T; label: string }[];
-  onChange: (id: T) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <div
-      role="group"
-      aria-label={ariaLabel}
-      className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
-    >
-      {options.map((o) => {
-        const active = o.id === value;
-        return (
-          <button
-            key={o.id}
-            type="button"
-            onClick={() => onChange(o.id)}
-            aria-pressed={active}
-            className={cn(
-              'rounded-[5px] px-3 py-1 text-xs font-medium transition-colors',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              active
-                ? 'bg-card text-foreground shadow-elev1'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 /**
  * A quiet, consistent card section title — muted lucide icon + plain label,
  * with an optional right-aligned meta slot. Calmer than a colored icon per card.
@@ -607,17 +566,19 @@ export default function Cost({ embedded = false }: CostProps = {}) {
   // ----- Header actions -------------------------------------------------- //
   const headerActions = (
     <>
-      <SegmentedToggle
+      <SegmentedControl<WindowKey>
+        size="sm"
         value={windowKey}
-        options={WINDOWS.map((w) => ({ id: w.key, label: w.label }))}
-        onChange={setWindowKey}
-        ariaLabel="Time window"
+        options={WINDOWS.map((w) => ({ value: w.key, label: w.label }))}
+        onValueChange={setWindowKey}
+        aria-label="Time window"
       />
-      <SegmentedToggle
+      <SegmentedControl<Metric>
+        size="sm"
         value={metric}
-        options={METRICS}
-        onChange={setMetric}
-        ariaLabel="Rank breakdowns by"
+        options={METRICS.map((m) => ({ value: m.id, label: m.label }))}
+        onValueChange={setMetric}
+        aria-label="Rank breakdowns by"
       />
       <Button
         variant="outline"
@@ -670,19 +631,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
       {header}
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load usage</AlertTitle>
-          <AlertDescription>
-            {error}{' '}
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="font-semibold underline underline-offset-2"
-            >
-              Retry
-            </button>
-          </AlertDescription>
-        </Alert>
+        <LoadError error={error} title="Could not load usage" onRetry={() => void load()} />
       ) : null}
 
       {!hasAny ? (
@@ -821,11 +770,12 @@ export default function Cost({ embedded = false }: CostProps = {}) {
                   <Coins className="h-4 w-4 text-muted-foreground" aria-hidden />
                   Detailed cost ledger
                 </CardTitle>
-                <SegmentedToggle
+                <SegmentedControl<Dimension>
+                  size="sm"
                   value={dimension}
-                  options={DIMENSIONS.map((d) => ({ id: d.id, label: d.label }))}
-                  onChange={setDimension}
-                  ariaLabel="Breakdown dimension"
+                  options={DIMENSIONS.map((d) => ({ value: d.id, label: d.label }))}
+                  onValueChange={setDimension}
+                  aria-label="Breakdown dimension"
                 />
               </CardHeader>
               <CardContent>

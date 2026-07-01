@@ -53,6 +53,8 @@ import {
 } from '@/ui/select';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { Card, CardContent } from '@/ui/card';
 import { ProtectedRoute, useCan } from '@/soc/components/Can';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import {
@@ -123,6 +125,7 @@ export function RolesInner() {
   const [editor, setEditor] = React.useState<{ draft: RoleDraft; mode: 'create' | 'edit' } | null>(
     null,
   );
+  const [deleteRow, setDeleteRow] = React.useState<RoleRow | null>(null);
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -213,8 +216,6 @@ export function RolesInner() {
   };
 
   const remove = async (row: RoleRow) => {
-    if (!window.confirm(`Delete custom role "${row.name}"? Users still holding it fall back to the default role.`))
-      return;
     setBusy(true);
     try {
       await rolesApi.remove(row.name);
@@ -251,11 +252,11 @@ export function RolesInner() {
           )}
           <span className="font-medium text-foreground">{roleLabel(r.name)}</span>
           {r.builtin ? (
-            <Badge variant="secondary" className="text-[10px]">
+            <Badge variant="secondary" className="text-2xs">
               Built-in
             </Badge>
           ) : (
-            <Badge variant="info" className="text-[10px]">
+            <Badge variant="info" className="text-2xs">
               Custom
             </Badge>
           )}
@@ -311,7 +312,7 @@ export function RolesInner() {
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-critical hover:text-critical"
-                onClick={() => void remove(r)}
+                onClick={() => setDeleteRow(r)}
                 disabled={busy || !canManage}
                 aria-label={`Delete ${r.name}`}
                 title="Delete"
@@ -391,6 +392,22 @@ export function RolesInner() {
           onSaved={onSaved}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={!!deleteRow}
+        onOpenChange={(open) => {
+          if (!open) setDeleteRow(null);
+        }}
+        destructive
+        title={deleteRow ? `Delete custom role "${deleteRow.name}"?` : 'Delete custom role?'}
+        description="Users still holding it fall back to the default role."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          const r = deleteRow;
+          setDeleteRow(null);
+          if (r) void remove(r);
+        }}
+      />
     </div>
   );
 }
@@ -621,7 +638,8 @@ function SimulatePanel({
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-5">
+    <Card padding="md">
+      <CardContent className="space-y-4 pt-6">
       <div className="flex items-center gap-2">
         <FlaskConical className="h-4 w-4 text-primary" aria-hidden />
         <h2 className="text-sm font-semibold text-foreground">Permission spot-check</h2>
@@ -703,6 +721,7 @@ function SimulatePanel({
           </span>
         </div>
       ) : null}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

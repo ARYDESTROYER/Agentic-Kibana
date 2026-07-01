@@ -18,13 +18,13 @@
  */
 import * as React from 'react';
 import { Layers, RefreshCw, Loader2, Percent } from 'lucide-react';
-import { ApiError } from '@/lib/api';
 import { fmtNumber, humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { StatCard } from '@/soc/components/StatCard';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { ProtectedRoute } from '@/soc/components/Can';
@@ -34,10 +34,6 @@ import {
   BATCH_STATE_ORDER,
   type BatchJobRow,
 } from '@/soc/Batch.api';
-
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof ApiError && e.message ? e.message : fallback;
-}
 
 /** A controlled, colour-coded state badge (plain-text label, #9). */
 function StateBadge({ state }: { state: string }) {
@@ -70,7 +66,7 @@ export default function BatchJobs() {
 export function BatchJobsInner() {
   const [rows, setRows] = React.useState<BatchJobRow[]>([]);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -79,7 +75,7 @@ export function BatchJobsInner() {
       const res = await batchApi.jobs();
       setRows(res?.jobs ?? []);
     } catch (e) {
-      setError(errMsg(e, 'Could not load batch jobs.'));
+      setError(e);
       setRows([]);
     } finally {
       setLoading(false);
@@ -209,16 +205,11 @@ export function BatchJobsInner() {
       </div>
 
       {error ? (
-        <EmptyState
-          variant="error"
+        <LoadError
+          error={error}
           title="Could not load batch jobs"
-          description={error}
-          action={
-            <Button variant="outline" size="sm" onClick={() => void load()}>
-              <RefreshCw className="h-4 w-4" aria-hidden />
-              Retry
-            </Button>
-          }
+          fallback="Could not load batch jobs."
+          onRetry={() => void load()}
         />
       ) : (
         <DataTable

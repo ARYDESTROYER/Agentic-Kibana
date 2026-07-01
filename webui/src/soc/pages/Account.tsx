@@ -43,6 +43,7 @@ import { Card, CardContent } from '@/ui/card';
 import { Separator } from '@/ui/separator';
 import { Skeleton } from '@/ui/skeleton';
 import { Alert, AlertDescription } from '@/ui/alert';
+import { LoadError } from '@/soc/components/LoadError';
 import {
   Select,
   SelectContent,
@@ -342,19 +343,12 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
           </CardContent>
         </Card>
       ) : loadError ? (
-        <Alert variant="destructive">
-          <AlertCircleIcon />
-          <AlertDescription>
-            {errMsg(loadError, 'Could not load your profile.')}{' '}
-            <button
-              type="button"
-              className="font-medium underline underline-offset-2"
-              onClick={() => void load()}
-            >
-              Retry
-            </button>
-          </AlertDescription>
-        </Alert>
+        <LoadError
+          error={loadError}
+          title="Couldn't load your profile"
+          fallback="Could not load your profile."
+          onRetry={() => void load()}
+        />
       ) : (
         <>
           {!authEnabled ? (
@@ -592,16 +586,5 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
         </>
       )}
     </div>
-  );
-}
-
-/** Tiny inline icon for the load-error alert (keeps the lucide import list tidy). */
-function AlertCircleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden className="h-4 w-4">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="12" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
   );
 }

@@ -135,10 +135,14 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
 
   it('Cost tab is the single spend home — shows the ledger controls + breakdown', async () => {
     render(<Metrics embedded />);
-    await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /^cost$/i })).toBeInTheDocument(),
-    );
-    await userEvent.click(screen.getByRole('tab', { name: /^cost$/i }));
+    // Scope the section-tab lookup to the metrics strip: the embedded Cost ledger's
+    // own window/rank SegmentedControls are also Radix tabs (one labelled "Cost"),
+    // so a global role query would be ambiguous once the ledger mounts.
+    await waitFor(() => expect(screen.getByTestId('metrics-tabs')).toBeInTheDocument());
+    const costTabTrigger = () =>
+      within(screen.getByTestId('metrics-tabs')).getByRole('tab', { name: /^cost$/i });
+    await waitFor(() => expect(costTabTrigger()).toBeInTheDocument());
+    await userEvent.click(costTabTrigger());
 
     // The embedded Cost ledger renders its own breakdowns (single cost home).
     await waitFor(() => expect(screen.getByText(/detailed cost ledger/i)).toBeInTheDocument());
@@ -176,8 +180,11 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     render(<Metrics embedded tab="cost" />);
     // With tab='cost' the Cost ledger is active on first paint.
     await waitFor(() => expect(screen.getByText(/detailed cost ledger/i)).toBeInTheDocument());
-    // Sanity: the Cost tab is selected.
-    const costTab = screen.getByRole('tab', { name: /^cost$/i });
+    // Sanity: the Cost SECTION tab is selected. Scope to the metrics strip so the
+    // embedded ledger's own "Cost"-labelled SegmentedControl segment isn't matched.
+    const costTab = within(screen.getByTestId('metrics-tabs')).getByRole('tab', {
+      name: /^cost$/i,
+    });
     expect(costTab).toHaveAttribute('aria-selected', 'true');
   });
 });

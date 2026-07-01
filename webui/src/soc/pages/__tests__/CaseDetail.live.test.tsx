@@ -109,18 +109,25 @@ describe('CaseDetail live SSE wiring (Wave 4 dead-code fix)', () => {
     expect(onLiveActivity).toHaveBeenCalledTimes(1);
   });
 
-  it('STATIC: CaseDetail.tsx forwards liveCaseId + live handlers to both surfaces', () => {
+  it('STATIC: CaseDetail forwards liveCaseId + live handlers to both surfaces', () => {
+    // COUPLING-D: the mount site (orchestrator) forwards the live props to the
+    // Collaboration panel; the panel (CollaborationPanel.tsx) threads them into BOTH
+    // <CaseThread> and <CaseActivityFeed>. Assert each half against its file.
     const src = readFileSync(
       path.resolve(__dirname, '..', 'CaseDetail.tsx'),
       'utf8',
     );
-    // The collaboration tab must receive the live props from the mount site…
+    const collabSrc = readFileSync(
+      path.resolve(__dirname, '..', 'casedetail', 'CollaborationPanel.tsx'),
+      'utf8',
+    );
+    // The orchestrator mount site must pass the live props from the CaseDetail state…
     expect(src).toMatch(/liveCaseId=\{id\}/);
     expect(src).toMatch(/onLiveThread=\{liveRefreshThread\}/);
     expect(src).toMatch(/onLiveActivity=\{liveRefreshActivity\}/);
-    // …and thread them into BOTH the thread and the activity feed.
-    expect(src).toMatch(/onLiveActivity=\{onLiveThread\}/); // → <CaseThread>
-    expect(src).toMatch(/onLiveActivity=\{onLiveActivity\}/); // → <CaseActivityFeed>
-    expect((src.match(/liveCaseId=\{liveCaseId\}/g) || []).length).toBeGreaterThanOrEqual(2);
+    // …and the Collaboration panel threads them into BOTH the thread and the feed.
+    expect(collabSrc).toMatch(/onLiveActivity=\{onLiveThread\}/); // → <CaseThread>
+    expect(collabSrc).toMatch(/onLiveActivity=\{onLiveActivity\}/); // → <CaseActivityFeed>
+    expect((collabSrc.match(/liveCaseId=\{liveCaseId\}/g) || []).length).toBeGreaterThanOrEqual(2);
   });
 });

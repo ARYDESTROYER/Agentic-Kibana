@@ -34,6 +34,7 @@ import {
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api';
 import { fmtMoney, humanizeToken } from '@/lib/format';
+import { Card } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Input } from '@/ui/input';
@@ -387,7 +388,7 @@ function TestCallDialog({ model, onClose }: { model: ModelCatalogRow; onClose: (
                         variant={
                           PRICING_SOURCE_META[String(result.pricing_source)]?.variant ?? 'secondary'
                         }
-                        className="text-[10px]"
+                        className="text-2xs"
                       >
                         {PRICING_SOURCE_META[String(result.pricing_source)]?.label ??
                           result.pricing_source}
@@ -461,7 +462,7 @@ function CostEstimator({
   };
 
   return (
-    <div className="space-y-4 rounded-lg border border-border bg-card p-5">
+    <Card className="space-y-4 p-6">
       <div className="flex items-center gap-2">
         <Calculator className="h-4 w-4 text-primary" aria-hidden />
         <h2 className="text-sm font-semibold text-foreground">Cost estimator</h2>
@@ -530,13 +531,13 @@ function CostEstimator({
           </span>
           <Badge
             variant={PRICING_SOURCE_META[String(result.pricing_source)]?.variant ?? 'secondary'}
-            className="text-[10px]"
+            className="text-2xs"
           >
             {PRICING_SOURCE_META[String(result.pricing_source)]?.label ?? result.pricing_source}
           </Badge>
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -560,7 +561,7 @@ function ProvidersGrid({
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {rows.map((p) => (
-        <div key={p.name} className="space-y-2 rounded-lg border border-border bg-card p-4">
+        <Card key={p.name} className="space-y-2 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-muted-foreground" aria-hidden />
@@ -582,7 +583,7 @@ function ProvidersGrid({
             <span className="tabular-nums">{p.models.length} models</span>
             {p.supports_base_url ? <Badge variant="outline">Custom base URL</Badge> : null}
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   );

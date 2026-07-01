@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 import { api, type MemoryPatch } from '@/lib/api';
 import type { MemoryEntry } from '@/lib/types';
 import { DASH, fmtNumber, formatTimestamp, humanizeAge, humanizeToken } from '@/lib/format';
+import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
@@ -100,10 +101,6 @@ const ACTIVE_OPTIONS: Array<{ value: ActiveFilter; label: string }> = [
 
 function isAgentEntry(e: MemoryEntry): boolean {
   return (e.source || '').toLowerCase() === 'agent';
-}
-
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof Error ? e.message : fallback;
 }
 
 /* --------------------------------------------------------------- source badge -- */
@@ -173,7 +170,7 @@ function AddMemoryCard({
       setTagInput('');
       toast.success('Memory saved.');
     } catch (e) {
-      toast.error(errMsg(e, 'Could not save memory.'));
+      toast.error(errorMessage(e, 'Could not save memory.'));
     } finally {
       setSubmitting(false);
     }
@@ -561,7 +558,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         upsertLocal(next);
         toast.success('Memory updated.');
       } catch (e) {
-        toast.error(errMsg(e, 'Could not update memory.'));
+        toast.error(errorMessage(e, 'Could not update memory.'));
         throw e;
       } finally {
         setBusyId(null);
@@ -577,7 +574,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         const next = await api.updateMemory(entry.id, { active: !entry.active });
         upsertLocal(next);
       } catch (e) {
-        toast.error(errMsg(e, 'Could not update memory.'));
+        toast.error(errorMessage(e, 'Could not update memory.'));
       } finally {
         setBusyId(null);
       }
@@ -594,7 +591,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       toast.success('Memory deleted.');
       setPendingDelete(null);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not delete memory.'));
+      toast.error(errorMessage(e, 'Could not delete memory.'));
       setPendingDelete(null);
     } finally {
       setDeleting(false);
@@ -874,7 +871,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Could not load memory</AlertTitle>
-          <AlertDescription>{errMsg(error, 'An unexpected error occurred.')}</AlertDescription>
+          <AlertDescription>{errorMessage(error, 'An unexpected error occurred.')}</AlertDescription>
         </Alert>
       ) : loading && entries.length === 0 ? (
         <div className="space-y-2">

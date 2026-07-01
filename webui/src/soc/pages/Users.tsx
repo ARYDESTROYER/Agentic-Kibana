@@ -47,6 +47,7 @@ import {
 } from '@/ui/select';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { Can, ProtectedRoute } from '@/soc/components/Can';
 import { useAuth } from '@/soc/auth';
 
@@ -99,6 +100,7 @@ export function UsersInner() {
   const [addOpen, setAddOpen] = React.useState(false);
   const [resetFor, setResetFor] = React.useState<User | null>(null);
   const [rolesFor, setRolesFor] = React.useState<User | null>(null);
+  const [deleteFor, setDeleteFor] = React.useState<User | null>(null);
   const [busyUser, setBusyUser] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -150,7 +152,6 @@ export function UsersInner() {
   };
 
   const remove = async (user: User) => {
-    if (!window.confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
     setBusyUser(user.username);
     try {
       await api.users.remove(user.username);
@@ -172,12 +173,12 @@ export function UsersInner() {
         <div className="flex items-center gap-2">
           <span className="font-medium text-foreground">{u.username}</span>
           {u.username === me ? (
-            <Badge variant="secondary" className="text-[10px]">
+            <Badge variant="secondary" className="text-2xs">
               You
             </Badge>
           ) : null}
           {u.must_change_password ? (
-            <Badge variant="warning" className="text-[10px]">
+            <Badge variant="warning" className="text-2xs">
               Must reset
             </Badge>
           ) : null}
@@ -269,7 +270,7 @@ export function UsersInner() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 text-critical hover:text-critical"
-            onClick={() => void remove(u)}
+            onClick={() => setDeleteFor(u)}
             disabled={busyUser === u.username}
             aria-label={`Delete ${u.username}`}
             title="Delete user"
@@ -345,6 +346,22 @@ export function UsersInner() {
         onDone={() => {
           setRolesFor(null);
           void load();
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!deleteFor}
+        onOpenChange={(open) => {
+          if (!open) setDeleteFor(null);
+        }}
+        destructive
+        title={deleteFor ? `Delete user "${deleteFor.username}"?` : 'Delete user?'}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => {
+          const u = deleteFor;
+          setDeleteFor(null);
+          if (u) void remove(u);
         }}
       />
     </div>
@@ -449,20 +466,22 @@ function AssignRolesDialog({
                 {customRoleNames.map((name) => {
                   const on = assigned.has(name);
                   return (
-                    <button
+                    <Button
                       key={name}
                       type="button"
+                      variant="outline"
+                      size="sm"
                       disabled={busy}
                       onClick={() => toggle(name)}
                       aria-pressed={on}
                       className={
                         on
-                          ? 'rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
-                          : 'rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground'
+                          ? 'h-auto rounded-md border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary'
+                          : 'h-auto rounded-md border-border bg-surface px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground'
                       }
                     >
                       {name}
-                    </button>
+                    </Button>
                   );
                 })}
               </div>

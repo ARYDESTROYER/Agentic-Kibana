@@ -43,7 +43,7 @@ import { cn } from '@/lib/cn';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
+import { Card } from '@/ui/card';
 import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
@@ -56,6 +56,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
@@ -404,13 +405,12 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
       />
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not load scan cases</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Something went wrong loading scans.'}
-          </AlertDescription>
-        </Alert>
+        <LoadError
+          error={error}
+          title="Could not load scan cases"
+          fallback="Something went wrong loading scans."
+          onRetry={() => void load()}
+        />
       ) : null}
 
       {/* ---------------------------------------------------------- KPIs */}
@@ -455,7 +455,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
       </div>
 
       {/* ----------------------------------------------- controls toolbar */}
-      <div className="space-y-4 rounded-lg border border-border bg-card p-4">
+      <Card className="space-y-4 p-4">
         {/* status tab pills + result count */}
         <div
           className="flex flex-wrap items-center gap-2"
@@ -567,7 +567,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
             </Select>
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* --------------------------------------------------- card grid */}
       {loading ? (
@@ -666,14 +666,14 @@ const ScanCard: React.FC<{
   };
 
   return (
-    <div
+    <Card
       role="button"
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={onKeyDown}
       aria-label={`Open case ${c.title || c.case_id}`}
       className={cn(
-        'group relative flex w-full cursor-pointer flex-col gap-3 rounded-lg border border-l-4 border-border bg-card p-5 text-left transition-colors',
+        'group relative flex w-full cursor-pointer flex-col gap-3 border-l-4 p-6 text-left transition-colors',
         'hover:border-primary/40 hover:bg-accent/30',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         ACCENT_BORDER[accent],
@@ -746,6 +746,6 @@ const ScanCard: React.FC<{
           ) : null}
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 };

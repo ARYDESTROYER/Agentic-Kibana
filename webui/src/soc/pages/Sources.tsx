@@ -22,7 +22,6 @@ import {
   Tags,
   ShieldAlert,
   KeyRound,
-  AlertTriangle,
   Loader2,
   Plug,
   Link2,
@@ -42,6 +41,7 @@ import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { SourceLogsSheet } from '@/soc/components/SourceLogsSheet';
@@ -90,11 +90,6 @@ function summarisePatterns(cfg: Record<string, unknown> | undefined): IndexPatte
       .map((pattern): IndexPattern => ({ pattern, role: 'events' }));
   }
   return [];
-}
-
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message || 'Something went wrong.';
-  return 'Something went wrong.';
 }
 
 type EditorState = { mode: 'add' } | { mode: 'edit'; source: SourceInstance } | null;
@@ -197,11 +192,7 @@ export default function Sources(_props: SourcesProps) {
       />
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" aria-hidden />
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{errorMessage(error)}</AlertDescription>
-        </Alert>
+        <LoadError error={error} title="Something went wrong" onRetry={() => void load()} />
       ) : null}
 
       {loading ? (
@@ -253,7 +244,7 @@ export default function Sources(_props: SourcesProps) {
             const busy = busyId === s.id;
 
             return (
-              <Card key={s.id} className="p-5">
+              <Card key={s.id} className="p-6">
                 <div className="flex flex-wrap items-start gap-4">
                   <span
                     className={cn(
@@ -266,7 +257,7 @@ export default function Sources(_props: SourcesProps) {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-[0.95rem] font-semibold text-foreground">
+                      <span className="truncate text-md font-semibold text-foreground">
                         {s.display_name || meta?.display_name || s.source_type}
                       </span>
                       {s.is_primary ? <Badge variant="default">Primary</Badge> : null}
@@ -287,7 +278,7 @@ export default function Sources(_props: SourcesProps) {
                           <Badge
                             key={`${p.pattern}-${i}`}
                             variant={p.role === 'alerts' ? 'warning' : 'outline'}
-                            className="gap-1 font-mono text-[0.7rem]"
+                            className="gap-1 font-mono text-2xs"
                             title={`${p.role === 'alerts' ? 'Alerts' : 'Events'} pattern`}
                           >
                             {p.role === 'alerts' ? (
@@ -307,7 +298,7 @@ export default function Sources(_props: SourcesProps) {
                           </Badge>
                         ) : null}
                         {messageField ? (
-                          <Badge variant="secondary" className="gap-1 font-mono text-[0.7rem]" title="Message field">
+                          <Badge variant="secondary" className="gap-1 font-mono text-2xs" title="Message field">
                             <Tags className="h-3 w-3" aria-hidden />
                             {messageField}
                           </Badge>

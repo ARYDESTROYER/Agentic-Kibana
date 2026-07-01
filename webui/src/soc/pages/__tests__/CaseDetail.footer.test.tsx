@@ -77,7 +77,15 @@ function renderWithProviders(node: React.ReactNode) {
   );
 }
 
+// COUPLING-D: the action model (`ALL_ACTIONS`, incl. the `close_disposition` →
+// `close` wire mapping) now lives in `casedetail/shared.tsx`; the `runAction` POST
+// (which posts `pending.wireAction ?? pending.key`) stays in the orchestrator
+// `CaseDetail.tsx`. Read both so the never-invent-a-verb #3 guarantee is pinned.
 const src = readFileSync(path.resolve(__dirname, '..', 'CaseDetail.tsx'), 'utf8');
+const sharedSrc = readFileSync(
+  path.resolve(__dirname, '..', 'casedetail', 'shared.tsx'),
+  'utf8',
+);
 
 describe('CaseDetail footer — single CTA + unified Close-with-disposition', () => {
   beforeEach(() => {
@@ -144,9 +152,10 @@ describe('CaseDetail footer — single CTA + unified Close-with-disposition', ()
   });
 
   it('never invents a new action verb — close_disposition maps to the wire `close`', () => {
-    // The UI-only unified kind carries wireAction: 'close', and runAction posts
-    // `pending.wireAction ?? pending.key`.
-    expect(src).toMatch(/close_disposition:\s*\{[\s\S]*?wireAction:\s*'close'/);
+    // The UI-only unified kind carries wireAction: 'close' (in the shared action
+    // model), and runAction (in the orchestrator) posts `pending.wireAction ??
+    // pending.key`.
+    expect(sharedSrc).toMatch(/close_disposition:\s*\{[\s\S]*?wireAction:\s*'close'/);
     expect(src).toMatch(/action:\s*pending\.wireAction\s*\?\?\s*pending\.key/);
   });
 });

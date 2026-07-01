@@ -11,18 +11,15 @@
  * value renders as plain text via the overview component.
  */
 import * as React from 'react';
-import { Activity, RefreshCw, Loader2 } from 'lucide-react';
-import { ApiError } from '@/lib/api';
+import { Activity, RefreshCw } from 'lucide-react';
 import { Button } from '@/ui/button';
+import { Skeleton } from '@/ui/skeleton';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { ProtectedRoute } from '@/soc/components/Can';
 import { BaselineStatsOverview } from '@/soc/components/BaselineGauge';
 import { fetchBaselineStats, type BaselineStats } from '@/soc/Baseline.api';
-
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof ApiError && e.message ? e.message : fallback;
-}
 
 export default function Baseline() {
   return (
@@ -35,7 +32,7 @@ export default function Baseline() {
 export function BaselineInner() {
   const [stats, setStats] = React.useState<BaselineStats | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -43,7 +40,7 @@ export function BaselineInner() {
     try {
       setStats(await fetchBaselineStats());
     } catch (e) {
-      setError(errMsg(e, 'Could not load baseline stats.'));
+      setError(e);
       setStats(null);
     } finally {
       setLoading(false);
@@ -68,11 +65,17 @@ export function BaselineInner() {
         }
       />
       {loading && !stats ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading baseline…
+        <div className="space-y-3" aria-busy="true">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-64 w-full" />
         </div>
       ) : error ? (
-        <EmptyState icon={Activity} title="Baseline unavailable" description={error} />
+        <LoadError
+          error={error}
+          title="Baseline unavailable"
+          fallback="Could not load baseline stats."
+          onRetry={() => void load()}
+        />
       ) : stats ? (
         <BaselineStatsOverview stats={stats} />
       ) : (

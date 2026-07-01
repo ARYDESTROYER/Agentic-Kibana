@@ -58,6 +58,7 @@ import type {
 } from '@/lib/types';
 import { api } from '@/lib/api';
 import { humanizeToken } from '@/lib/format';
+import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
 
 import { Button } from '@/ui/button';
@@ -76,13 +77,6 @@ import { SourceEditor } from '@/soc/components/SourceEditor';
 import { LoadingBar } from '@/soc/components/LoadingBar';
 
 /* ----------------------------------------------------------------- helpers - */
-
-/** Best-effort human message from an unknown thrown value. */
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message || 'Something went wrong.';
-  if (typeof e === 'string') return e;
-  return 'Something went wrong.';
-}
 
 const STEPS: Array<{ key: string; title: string; icon: LucideIcon }> = [
   { key: 'welcome', title: 'Welcome', icon: ShieldCheck },
@@ -636,7 +630,7 @@ function SourcesStep({
       ) : null}
 
       {adding || editing ? (
-        <div className="rounded-lg border border-border bg-card p-4 sm:p-6">
+        <Card className="p-4 sm:p-6">
           <SourceEditor
             connectors={connectors}
             existing={editing || undefined}
@@ -644,7 +638,7 @@ function SourcesStep({
             onSaved={reload}
             onCancel={sources.length > 0 ? () => reload() : undefined}
           />
-        </div>
+        </Card>
       ) : null}
     </div>
   );

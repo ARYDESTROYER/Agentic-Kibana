@@ -49,6 +49,7 @@ import type { Navigate } from '@/soc/router';
 
 import { HeroPanel } from '@/soc/components/HeroPanel';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
 import { RiskBadge, SeverityBadge, StatusBadge } from '@/soc/components/badges';
 import { Can } from '@/soc/components/Can';
@@ -299,11 +300,12 @@ export default function Standup({ onNavigate }: StandupProps) {
         actions={<div className="flex flex-wrap items-center gap-2">{actions}</div>}
       >
         {error ? (
-          <Alert variant="destructive">
-            <AlertTriangle aria-hidden />
-            <AlertTitle>Could not reach the standup service</AlertTitle>
-            <AlertDescription>The backend may be unreachable. Try refreshing in a moment.</AlertDescription>
-          </Alert>
+          <LoadError
+            error={error}
+            title="Could not reach the standup service"
+            fallback="The backend may be unreachable. Try refreshing in a moment."
+            onRetry={() => void load()}
+          />
         ) : loading ? (
           <div className="space-y-3">
             <Skeleton className="h-5 w-2/5" />
@@ -420,11 +422,7 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
             <ArrowDownRight className="h-3.5 w-3.5" aria-hidden />
           );
         return (
-          <div
-            key={m.key}
-            className="rounded-lg border border-border bg-card/70 p-4"
-            data-testid={`delta-tile-${m.key}`}
-          >
+          <Card key={m.key} className="p-4" data-testid={`delta-tile-${m.key}`}>
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {m.label}
             </div>
@@ -447,7 +445,7 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
               )}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">was {fmtNumber(cell.prior)}</div>
-          </div>
+          </Card>
         );
       })}
     </Stagger>
@@ -523,14 +521,14 @@ function AttentionRowItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {go ? (
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={go}
-              className="truncate font-mono text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-auto truncate p-0 font-mono text-sm font-medium"
               aria-label={`Open ${display} in the cases list`}
             >
               {display}
-            </button>
+            </Button>
           ) : (
             <span className="truncate font-mono text-sm font-medium text-foreground">{display}</span>
           )}
@@ -584,13 +582,13 @@ function SlaCard({
           {/* This card is the SHIFT-scoped breach pressure; the full SLA attainment +
               lifecycle timing rollup lives in ONE place — Analytics → Posture (#10). */}
           {onNavigate ? (
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={() => onNavigate('metrics', { tab: 'posture' })}
-              className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-auto p-0 text-xs font-medium"
             >
               Full posture →
-            </button>
+            </Button>
           ) : null}
         </CardTitle>
       </CardHeader>
@@ -617,14 +615,14 @@ function SlaCard({
                     <li key={b.case_id} className="flex items-center gap-2 py-2 text-xs">
                       <Badge variant="critical">Breached</Badge>
                       {go ? (
-                        <button
-                          type="button"
+                        <Button
+                          variant="link"
                           onClick={go}
-                          className="truncate font-mono text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="h-auto truncate p-0 font-mono text-xs"
                           aria-label={`Open ${b.display_id || b.case_id}`}
                         >
                           {b.display_id || b.case_id}
-                        </button>
+                        </Button>
                       ) : (
                         <span className="truncate font-mono text-foreground">
                           {b.display_id || b.case_id}
@@ -655,7 +653,7 @@ function SlaCard({
 function MiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
     <div className="rounded-md border border-border bg-surface px-3 py-2.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={cn('mt-1 font-mono text-xl font-semibold tabular-nums', accent)}>{value}</div>
     </div>
   );

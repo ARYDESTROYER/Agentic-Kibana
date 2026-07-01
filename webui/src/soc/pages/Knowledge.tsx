@@ -50,10 +50,12 @@ import type {
   RagStats,
 } from '@/lib/types';
 import { DASH, fmtNumber, humanizeAge, humanizeToken } from '@/lib/format';
+import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Can, useCan } from '@/soc/components/Can';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
@@ -176,11 +178,6 @@ function readDensity(): Density {
   } catch {
     return 'normal';
   }
-}
-
-function errMessage(e: unknown, fallback: string): string {
-  if (e instanceof Error) return e.message || fallback;
-  return fallback;
 }
 
 /** A soft tinted icon chip for card headers (matches PageHeader/KpiTile calm look). */
@@ -349,7 +346,7 @@ const DocumentSheet: React.FC<{
             <Alert variant="destructive">
               <AlertCircle aria-hidden />
               <AlertTitle>Could not load document</AlertTitle>
-              <AlertDescription>{errMessage(error, 'Request failed.')}</AlertDescription>
+              <AlertDescription>{errorMessage(error, 'Request failed.')}</AlertDescription>
             </Alert>
           ) : loading ? (
             <div className="space-y-3">
@@ -467,7 +464,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
           setTitle((prev) => prev.trim() || list[0].name.replace(/\.[^.]+$/, ''));
           setQueue([]);
         } catch (e) {
-          setFileError(errMessage(e, 'Could not read file.'));
+          setFileError(errorMessage(e, 'Could not read file.'));
         }
         return;
       }
@@ -475,7 +472,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
         const read = await Promise.all(list.map(readFile));
         setQueue(read);
       } catch (e) {
-        setFileError(errMessage(e, 'Could not read files.'));
+        setFileError(errorMessage(e, 'Could not read files.'));
       }
     },
     [text],
@@ -539,7 +536,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
       reset();
       onImported();
     } catch (e) {
-      toast.error(errMessage(e, 'Import failed.'));
+      toast.error(errorMessage(e, 'Import failed.'));
     } finally {
       setSubmitting(false);
       setProgress(null);
@@ -760,7 +757,7 @@ const ThreatIntelImportCard: React.FC<{ onImported: () => void }> = ({ onImporte
       setTagInput('');
       onImported();
     } catch (e) {
-      toast.error(errMessage(e, 'Threat-intel import failed.'));
+      toast.error(errorMessage(e, 'Threat-intel import failed.'));
     } finally {
       setSubmitting(false);
     }
@@ -1033,7 +1030,7 @@ const SearchCard: React.FC = () => {
             <Alert variant="destructive">
               <AlertCircle aria-hidden />
               <AlertTitle>Search failed</AlertTitle>
-              <AlertDescription>{errMessage(error, 'Request failed.')}</AlertDescription>
+              <AlertDescription>{errorMessage(error, 'Request failed.')}</AlertDescription>
             </Alert>
           ) : loading ? (
             <div className="space-y-3">
@@ -1299,29 +1296,17 @@ const DocumentsSection: React.FC<{
           </div>
         </div>
         {/* density toggle */}
-        <div
-          role="group"
+        <SegmentedControl<Density>
           aria-label="Table density"
-          className="inline-flex shrink-0 rounded-md border border-border bg-surface p-0.5"
-        >
-          {(['normal', 'compact'] as Density[]).map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => changeDensity(d)}
-              aria-pressed={density === d}
-              className={cn(
-                'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                density === d
-                  ? 'bg-card text-foreground shadow-elev1'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {d === 'normal' ? 'Comfortable' : 'Compact'}
-            </button>
-          ))}
-        </div>
+          size="sm"
+          className="shrink-0"
+          value={density}
+          onValueChange={changeDensity}
+          options={[
+            { value: 'normal', label: 'Comfortable' },
+            { value: 'compact', label: 'Compact' },
+          ]}
+        />
       </div>
 
       {/* filter toolbar */}
@@ -1536,7 +1521,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
           guard: e.message || 'This document is a guarded seed source.',
         });
       } else {
-        toast.error(errMessage(e, 'Delete failed.'));
+        toast.error(errorMessage(e, 'Delete failed.'));
         setPending(null);
       }
     } finally {
@@ -1592,7 +1577,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
         <Alert variant="destructive">
           <AlertCircle aria-hidden />
           <AlertTitle>Could not load the knowledge corpus</AlertTitle>
-          <AlertDescription>{errMessage(error, 'Request failed.')}</AlertDescription>
+          <AlertDescription>{errorMessage(error, 'Request failed.')}</AlertDescription>
         </Alert>
       ) : null}
 

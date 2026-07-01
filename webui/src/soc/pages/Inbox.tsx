@@ -18,7 +18,6 @@
  */
 import * as React from 'react';
 import {
-  AlertCircle,
   ArrowRight,
   Bell,
   BellOff,
@@ -34,6 +33,7 @@ import { toast } from 'sonner';
 
 import type { Navigate } from '@/soc/router';
 import { humanizeAge, humanizeToken } from '@/lib/format';
+import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
 import {
   inboxApi,
@@ -44,12 +44,13 @@ import {
 
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 
 import { Button } from '@/ui/button';
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { Card, CardContent } from '@/ui/card';
 import { Skeleton } from '@/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
 import {
   Sheet,
@@ -68,10 +69,6 @@ const PAGE_SIZE = 50;
 type GroupMode = 'category' | 'feed';
 
 /* ----------------------------------------------------------------- helpers -- */
-
-function errMsg(e: unknown, fallback: string): string {
-  return e instanceof Error && e.message ? e.message : fallback;
-}
 
 function isUnread(item: InboxItem): boolean {
   return item.state === 'unseen' || item.state === 'seen';
@@ -151,7 +148,7 @@ const InboxRow: React.FC<{
             </Badge>
           ) : null}
           {unread ? (
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+            <span className="text-2xs font-semibold uppercase tracking-wide text-primary">
               New
             </span>
           ) : null}
@@ -300,7 +297,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
       setItems((prev) => [...prev, ...(res.items ?? [])]);
       setTotal(res.total ?? total);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load more.'));
+      toast.error(errorMessage(e, 'Could not load more.'));
     } finally {
       setLoadingMore(false);
     }
@@ -336,7 +333,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
           );
           if (unreadOnly) setTotal((t) => Math.max(0, t - 1));
         } catch (e) {
-          toast.error(errMsg(e, 'Could not mark read.'));
+          toast.error(errorMessage(e, 'Could not mark read.'));
         }
       }),
     [unreadOnly, withBusy],
@@ -354,7 +351,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
           setItems((prev) => prev.filter((n) => n.id !== item.id));
           setTotal((t) => Math.max(0, t - 1));
         } catch (e) {
-          toast.error(errMsg(e, 'Could not dismiss.'));
+          toast.error(errorMessage(e, 'Could not dismiss.'));
         }
       }),
     [withBusy],
@@ -374,7 +371,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
       );
       if (unreadOnly) setTotal(0);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not mark all read.'));
+      toast.error(errorMessage(e, 'Could not mark all read.'));
     }
   }, [unreadOnly]);
 
@@ -407,29 +404,16 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
   const actions = (
     <>
       {/* group toggle */}
-      <div
-        role="group"
+      <SegmentedControl<GroupMode>
         aria-label="Group inbox"
-        className="inline-flex rounded-md border border-border bg-surface p-0.5"
-      >
-        {(['feed', 'category'] as GroupMode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setGroupMode(m)}
-            aria-pressed={groupMode === m}
-            className={cn(
-              'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
-              'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              groupMode === m
-                ? 'bg-card text-foreground shadow-elev1'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {m === 'feed' ? 'Feed' : 'By category'}
-          </button>
-        ))}
-      </div>
+        size="sm"
+        value={groupMode}
+        onValueChange={setGroupMode}
+        options={[
+          { value: 'feed', label: 'Feed' },
+          { value: 'category', label: 'By category' },
+        ]}
+      />
       <Button
         variant="outline"
         size="sm"
@@ -469,17 +453,12 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
       />
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertCircle aria-hidden />
-          <AlertTitle>Could not load your inbox</AlertTitle>
-          <AlertDescription className="flex items-center gap-3">
-            <span>{errMsg(error, 'Request failed.')}</span>
-            <Button size="sm" variant="outline" onClick={() => void load()}>
-              <RefreshCw className="size-3.5" aria-hidden />
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
+        <LoadError
+          error={error}
+          title="Could not load your inbox"
+          fallback="Request failed."
+          onRetry={() => void load()}
+        />
       ) : null}
 
       {loading ? (

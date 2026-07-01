@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const { listMock, markReadMock, markAllReadMock, dismissMock, getPrefsMock, putPrefsMock } =
   vi.hoisted(() => ({
@@ -171,8 +172,10 @@ describe('Inbox page (read-state)', () => {
     renderInbox();
     await screen.findByText('Case escalated: brute force');
 
-    const byCat = screen.getByRole('button', { name: /by category/i });
-    fireEvent.click(byCat);
+    // The group toggle is now a SegmentedControl (Radix Tabs → role="tab").
+    // Radix Tabs activate on pointer events, so drive it with userEvent.
+    const byCat = screen.getByRole('tab', { name: /by category/i });
+    await userEvent.click(byCat);
     // The category group heading appears (curated label for case_escalated).
     const heading = await screen.findByRole('heading', { name: /escalations/i });
     expect(within(heading.parentElement as HTMLElement).getByText(/escalations/i)).toBeInTheDocument();
