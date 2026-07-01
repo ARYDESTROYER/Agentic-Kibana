@@ -26,9 +26,12 @@ logger = logging.getLogger("tlsoc.llm.pricing")
 
 # model -> (input_usd_per_million, output_usd_per_million)
 PRICES: dict[str, tuple[float, float]] = {
-    # --- Anthropic ---
-    "claude-opus-4-8": (15.0, 75.0),
+    # --- Anthropic (authoritative per-MTok in/out; see model_registry.json) ---
+    "claude-fable-5": (10.0, 50.0),
+    "claude-opus-4-8": (5.0, 25.0),
+    "claude-opus-4-7": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (1.0, 5.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     # --- OpenAI ---
     "gpt-4o": (2.5, 10.0),
@@ -56,7 +59,8 @@ _DEFAULT_PRICE = (1.0, 3.0)
 # the ledger/UI can distinguish an estimate from a verified rate. Checked in order;
 # first prefix match wins.
 _TIER_HEURISTIC: tuple[tuple[str, tuple[float, float]], ...] = (
-    ("claude-opus", (15.0, 75.0)),
+    ("claude-fable", (10.0, 50.0)),
+    ("claude-opus", (5.0, 25.0)),
     ("claude-sonnet", (3.0, 15.0)),
     ("claude-haiku", (1.0, 5.0)),
     ("gpt-5-mini", (0.25, 2.0)),

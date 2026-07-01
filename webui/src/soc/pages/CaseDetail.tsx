@@ -128,7 +128,6 @@ import {
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 import { Slider } from '@/ui/slider';
 import { Separator } from '@/ui/separator';
-import { Avatar, AvatarFallback } from '@/ui/avatar';
 
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -557,7 +556,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'why' | 'threat' | 'trace' | 'thread' | 'collab' | 'chat'
+    'overview' | 'why' | 'threat' | 'trace' | 'collab' | 'feedback' | 'chat'
   >('overview');
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
@@ -786,7 +785,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   );
 
   React.useEffect(() => {
-    if (open && tab === 'thread') {
+    if (open && tab === 'collab') {
       if (thread === null && !threadLoading) void loadThread();
       if (tasks === null) void loadTasks();
       if (activity === null && !activityLoading) void loadActivity();
@@ -1612,10 +1611,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="trace" className="gap-1.5 text-xs">
                         <GitBranch className="h-3.5 w-3.5" /> Trace
                       </TabsTrigger>
-                      <TabsTrigger value="thread" className="gap-1.5 text-xs">
+                      <TabsTrigger value="collab" className="gap-1.5 text-xs">
                         <Users className="h-3.5 w-3.5" /> Collaboration
                       </TabsTrigger>
-                      <TabsTrigger value="collab" className="gap-1.5 text-xs">
+                      <TabsTrigger value="feedback" className="gap-1.5 text-xs">
                         <Star className="h-3.5 w-3.5" /> Feedback
                       </TabsTrigger>
                       <TabsTrigger value="chat" className="gap-1.5 text-xs">
@@ -1661,7 +1660,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onRetry={loadTimeline}
                       />
                     </TabsContent>
-                    <TabsContent value="thread" className="mt-0 animate-fade-in">
+                    <TabsContent value="collab" className="mt-0 animate-fade-in">
                       <CollaborationThreadTab
                         c={c}
                         thread={thread}
@@ -1694,8 +1693,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onLiveActivity={liveRefreshActivity}
                       />
                     </TabsContent>
-                    <TabsContent value="collab" className="mt-0 animate-fade-in">
-                      <CollaborationTab c={c} onUpdated={(next) => setC(next)} />
+                    <TabsContent value="feedback" className="mt-0 animate-fade-in">
+                      <FeedbackTab c={c} onUpdated={(next) => setC(next)} />
                     </TabsContent>
                     <TabsContent value="chat" className="mt-0 animate-fade-in">
                       <ChatTab c={c} onNavigate={onNavigate} onClose={onClose} />
@@ -3680,39 +3679,7 @@ function starsToScore(n: number): number | undefined {
   return Math.max(0, Math.min(1, n / 5));
 }
 
-/** One comment in the thread — avatar + author + time over a body card. UNTRUSTED. */
-const CommentRow: React.FC<{ author?: string; ts?: string; body?: string }> = ({
-  author,
-  ts,
-  body,
-}) => {
-  const name = (author || '').trim() || 'Analyst';
-  const initials = name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() || '')
-    .join('');
-  return (
-    <div className="flex items-start gap-3">
-      <Avatar className="h-8 w-8">
-        <AvatarFallback>{initials || 'A'}</AvatarFallback>
-      </Avatar>
-      <div className="min-w-0 flex-1 rounded-lg border border-border bg-card p-3">
-        <div className="flex items-baseline justify-between gap-2">
-          {/* UNTRUSTED — plain text. */}
-          <span className="truncate text-sm font-semibold text-foreground">{name}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {ts ? humanizeAge(ts) : DASH}
-          </span>
-        </div>
-        {/* UNTRUSTED — plain text, preserve newlines. */}
-        <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">{body || DASH}</p>
-      </div>
-    </div>
-  );
-};
-
-const CollaborationTab: React.FC<{
+const FeedbackTab: React.FC<{
   c: Case;
   onUpdated: (next: Case) => void;
 }> = ({ c, onUpdated }) => {
@@ -3776,87 +3743,9 @@ const CollaborationTab: React.FC<{
     [c.feedback],
   );
 
-  /* ------------------------------------------------------------ comments */
-  const [commentAuthor, setCommentAuthor] = React.useState('');
-  const [commentBody, setCommentBody] = React.useState('');
-  const [submittingComment, setSubmittingComment] = React.useState(false);
-  const [commentError, setCommentError] = React.useState<unknown>(null);
-
-  const submitComment = React.useCallback(async () => {
-    const body = commentBody.trim();
-    if (!body) return;
-    setSubmittingComment(true);
-    setCommentError(null);
-    try {
-      const next = await api.caseComment(caseId, {
-        author: commentAuthor.trim() || undefined,
-        body,
-      });
-      onUpdated(next);
-      setCommentBody('');
-    } catch (e) {
-      setCommentError(e);
-    } finally {
-      setSubmittingComment(false);
-    }
-  }, [commentBody, commentAuthor, caseId, onUpdated]);
-
-  const comments = React.useMemo(
-    () => [...(c.comments || [])].sort((x, y) => tsValue(x.ts) - tsValue(y.ts)),
-    [c.comments],
-  );
-
-  /* ---------------------------------------------------------------- tags */
-  const [tags, setTags] = React.useState<string[]>(c.tags || []);
-  const [tagDraft, setTagDraft] = React.useState('');
-  const [savingTags, setSavingTags] = React.useState(false);
-  const [tagsError, setTagsError] = React.useState<unknown>(null);
-
-  React.useEffect(() => {
-    setTags(c.tags || []);
-  }, [c.tags]);
-
-  const persistTags = React.useCallback(
-    async (next: string[]) => {
-      const clean = Array.from(new Set(next.map((t) => t.trim()).filter(Boolean)));
-      setTags(clean);
-      setSavingTags(true);
-      setTagsError(null);
-      try {
-        const updated = await api.caseTags(caseId, clean);
-        onUpdated(updated);
-      } catch (e) {
-        setTagsError(e);
-      } finally {
-        setSavingTags(false);
-      }
-    },
-    [caseId, onUpdated],
-  );
-
-  /* ------------------------------------------------------------ assignee */
-  const [assignee, setAssignee] = React.useState(c.assignee || '');
-  const [savingAssignee, setSavingAssignee] = React.useState(false);
-  const [assigneeError, setAssigneeError] = React.useState<unknown>(null);
-
-  React.useEffect(() => {
-    setAssignee(c.assignee || '');
-  }, [c.assignee]);
-
-  const saveAssignee = React.useCallback(async () => {
-    setSavingAssignee(true);
-    setAssigneeError(null);
-    try {
-      const next = await api.caseAssign(caseId, assignee.trim());
-      onUpdated(next);
-    } catch (e) {
-      setAssigneeError(e);
-    } finally {
-      setSavingAssignee(false);
-    }
-  }, [caseId, assignee, onUpdated]);
-
-  const assigneeDirty = assignee.trim() !== (c.assignee || '').trim();
+  // NOTE: ownership (assignee + tags) and the discussion/notes thread live on the
+  // sibling Collaboration tab (CollaborationThreadTab). This Feedback tab is
+  // intentionally scoped to grading the AI decision ONLY — no duplication.
 
   const gradingDirty =
     accuracy > 0 ||
@@ -3868,58 +3757,6 @@ const CollaborationTab: React.FC<{
 
   return (
     <div className="space-y-7 p-6">
-      {/* ------------------------------------------- ownership */}
-      <div className="rounded-lg border border-border bg-card p-6">
-        <SectionHeading icon={Users} tone="info">
-          Ownership
-        </SectionHeading>
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-              Owning analyst
-            </Label>
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Unassigned — type to assign…"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && assigneeDirty) void saveAssignee();
-                }}
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!assigneeDirty || savingAssignee}
-                onClick={() => void saveAssignee()}
-              >
-                {savingAssignee ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save
-              </Button>
-            </div>
-            {assigneeError ? (
-              <p className="text-xs text-critical">Could not save assignee.</p>
-            ) : null}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wide text-muted-foreground">
-              Tags {savingTags ? <span className="text-muted-foreground">· saving…</span> : null}
-            </Label>
-            <TagInput
-              tags={tags}
-              draft={tagDraft}
-              onDraftChange={setTagDraft}
-              onTagsChange={(next) => void persistTags(next)}
-            />
-            <p className="text-xs text-muted-foreground">
-              {tagsError
-                ? 'Could not save tags.'
-                : 'Press enter to add a tag · click ✕ to remove. Saved automatically.'}
-            </p>
-          </div>
-        </div>
-      </div>
-
       {/* ------------------------------------------- AI-decision feedback */}
       <div className="rounded-lg border border-border bg-card p-6">
         <SectionHeading
@@ -4092,73 +3929,6 @@ const CollaborationTab: React.FC<{
             </div>
           </>
         ) : null}
-      </div>
-
-      {/* ------------------------------------------- comment thread */}
-      <div className="rounded-lg border border-border bg-card p-6">
-        <SectionHeading
-          icon={MessageSquare}
-          tone="info"
-          actions={
-            comments.length ? (
-              <Badge variant="info">
-                {comments.length} note{comments.length === 1 ? '' : 's'}
-              </Badge>
-            ) : undefined
-          }
-        >
-          Notes
-        </SectionHeading>
-        {comments.length === 0 ? (
-          <EmptyState
-            icon={MessageSquare}
-            compact
-            title="No notes yet"
-            description="Leave a hand-off note for the next analyst on this case."
-          />
-        ) : (
-          <div className="space-y-3">
-            {comments.map((cm, i) => (
-              <CommentRow key={i} author={cm.author} ts={cm.ts} body={cm.body} />
-            ))}
-          </div>
-        )}
-
-        {/* composer */}
-        <div className="mt-4 rounded-md border border-border bg-muted/30 p-4">
-          <Input
-            className="mb-2"
-            placeholder="Your name (optional)"
-            value={commentAuthor}
-            onChange={(e) => setCommentAuthor(e.target.value)}
-          />
-          <Textarea
-            rows={3}
-            placeholder="Share context, findings, or a hand-off note…"
-            value={commentBody}
-            onChange={(e) => setCommentBody(e.target.value)}
-          />
-          {commentError ? (
-            <Alert variant="destructive" className="mt-2">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertTitle>Could not post comment</AlertTitle>
-            </Alert>
-          ) : null}
-          <div className="mt-2 flex justify-end">
-            <Button
-              size="sm"
-              disabled={submittingComment || !commentBody.trim()}
-              onClick={() => void submitComment()}
-            >
-              {submittingComment ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <MessageSquare className="h-4 w-4" />
-              )}
-              Add note
-            </Button>
-          </div>
-        </div>
       </div>
     </div>
   );

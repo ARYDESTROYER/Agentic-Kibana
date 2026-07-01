@@ -158,16 +158,21 @@ class AnthropicProvider(BaseProvider):
         }
         if system_parts:
             payload["system"] = "\n\n".join(system_parts)
-        resp = await self._client.post(
-            "/v1/messages",
-            headers={
-                "x-api-key": self._key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json=payload,
-        )
-        resp.raise_for_status()
+
+        async def _post():
+            resp = await self._client.post(
+                "/v1/messages",
+                headers={
+                    "x-api-key": self._key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await with_retry(_post)
         data = resp.json()
         text = "".join(block.get("text", "") for block in data.get("content", []) if block.get("type") == "text")
         usage = data.get("usage", {})
@@ -202,12 +207,17 @@ class OpenAIProvider(BaseProvider):
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
-        resp = await self._client.post(
-            "/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self._key}", "content-type": "application/json"},
-            json=payload,
-        )
-        resp.raise_for_status()
+
+        async def _post():
+            resp = await self._client.post(
+                "/v1/chat/completions",
+                headers={"Authorization": f"Bearer {self._key}", "content-type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await with_retry(_post)
         data = resp.json()
         text = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage", {})
@@ -219,12 +229,16 @@ class OpenAIProvider(BaseProvider):
         )
 
     async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
-        resp = await self._client.post(
-            "/v1/embeddings",
-            headers={"Authorization": f"Bearer {self._key}", "content-type": "application/json"},
-            json={"model": model, "input": texts},
-        )
-        resp.raise_for_status()
+        async def _post():
+            resp = await self._client.post(
+                "/v1/embeddings",
+                headers={"Authorization": f"Bearer {self._key}", "content-type": "application/json"},
+                json={"model": model, "input": texts},
+            )
+            resp.raise_for_status()
+            return resp
+
+        resp = await with_retry(_post)
         data = resp.json()
         vectors = [item["embedding"] for item in data["data"]]
         tokens = int(data.get("usage", {}).get("prompt_tokens", sum(_estimate_tokens(t) for t in texts)))

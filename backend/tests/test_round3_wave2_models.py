@@ -141,10 +141,13 @@ async def test_gateway_uses_registry_base_url(monkeypatch):
 def test_resolve_price_precedence():
     # PRICES exact wins over the registry (operator can still edit the table).
     assert pricing.resolve_price("gpt-4o") == (2.5, 10.0)
+    # claude-opus-4-8 is the corrected $5/$25 per-MTok rate (the bug #2 fix).
+    assert pricing.resolve_price("claude-opus-4-8") == (5.0, 25.0)
+    assert pricing.PRICES["claude-opus-4-8"] == (5.0, 25.0)
     # an overlay tuple wins over everything.
     assert pricing.resolve_price("gpt-4o", (1.0, 2.0)) == (1.0, 2.0)
     # an unknown-but-heuristic model is priced from its family prefix, not default.
-    assert pricing.resolve_price("claude-opus-4-99-future") == (15.0, 75.0)
+    assert pricing.resolve_price("claude-opus-4-99-future") == (5.0, 25.0)
     # a truly unknown model falls back to the conservative default.
     assert pricing.resolve_price("zzz-unknown") == pricing._DEFAULT_PRICE
 
@@ -213,6 +216,61 @@ async def test_with_retry_does_not_retry_permanent():
     with pytest.raises(ProviderError):
         await with_retry(_factory, attempts=3, base_delay=0.0, max_delay=0.0)
     assert calls["n"] == 1
+
+
+async def test_provider_complete_is_wired_through_with_retry(monkeypatch):
+    """The providers actually call with_retry: a transient 503 on the first POST is
+    retried and the second attempt succeeds (proves the raw post() is wrapped, not
+    just that with_retry works in isolation)."""
+    import httpx
+
+    from app.llm import providers as providers_mod
+    from app.llm.providers import AnthropicProvider
+
+    # Make backoff instant so the test doesn't sleep.
+    monkeypatch.setattr(providers_mod.asyncio, "sleep", lambda *_a, **_k: _noop())
+
+    class _Resp:
+        def __init__(self, status: int) -> None:
+            self._status = status
+            self._req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+        def raise_for_status(self) -> None:
+            if self._status >= 400:
+                raise httpx.HTTPStatusError(
+                    "boom", request=self._req,
+                    response=httpx.Response(self._status, request=self._req, text="overloaded"),
+                )
+
+        def json(self) -> dict:
+            return {"content": [{"type": "text", "text": "ok"}],
+                    "usage": {"input_tokens": 5, "output_tokens": 3}}
+
+    class _FlakyClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def post(self, *_a, **_k):
+            self.calls += 1
+            return _Resp(503 if self.calls == 1 else 200)
+
+        async def aclose(self) -> None:
+            return None
+
+    provider = AnthropicProvider(api_key="sk-ant")
+    flaky = _FlakyClient()
+    provider._client = flaky  # type: ignore[assignment]
+
+    res = await provider.complete(
+        "router", [{"role": "user", "content": "hi"}], "claude-opus-4-8",
+        temperature=0.1, max_tokens=16,
+    )
+    assert res.text == "ok"
+    assert flaky.calls == 2  # first 503 was retried, second attempt returned 200
+
+
+async def _noop() -> None:
+    return None
 
 
 # --------------------------------------------------------------------------- #

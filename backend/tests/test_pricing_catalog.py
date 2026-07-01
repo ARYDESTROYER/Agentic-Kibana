@@ -38,7 +38,7 @@ def test_new_openai_models_are_priced():
 def test_existing_prices_unchanged():
     assert PRICES["gpt-4o"] == (2.5, 10.0)
     assert PRICES["gpt-4o-mini"] == (0.15, 0.60)
-    assert PRICES["claude-opus-4-8"] == (15.0, 75.0)
+    assert PRICES["claude-opus-4-8"] == (5.0, 25.0)
 
 
 def test_unknown_model_still_falls_back_to_default():

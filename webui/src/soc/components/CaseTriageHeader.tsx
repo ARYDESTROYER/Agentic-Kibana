@@ -144,6 +144,33 @@ const RISK_COMPONENTS: Array<{ key: string; label: string }> = [
   { key: 'asset_criticality', label: 'Asset' },
 ];
 
+/**
+ * The canonical, authored help for the deterministic risk score — the ONE source of
+ * truth for the per-factor definitions + default weights (25/20/30/15/10) + the honest
+ * caveat. Authored VERBATIM from `backend/app/engine/risk.py` (Reputation is the
+ * HEAVIEST factor at 0.30). Kept in sync with the backend copy in
+ * `backend/app/engine/priority.py` (`risk_chip.inputs.definition`). Plain text (#9);
+ * shown in the RiskCard HelpTip and used as the fallback when the backend omits the
+ * `inputs.definition` string.
+ */
+export const RISK_HELP_TEXT =
+  'Deterministic 0-100 risk score — a weighted blend of 5 factors (default weights ' +
+  'shown). It only RANKS what an analyst looks at first; it never closes or escalates ' +
+  'a case on its own.';
+
+export const RISK_FACTOR_HELP =
+  'Volume (25%) — how many events fired (log-normalised, so it levels off around 50 ' +
+  "and huge clusters don't dominate).\n" +
+  'Velocity (20%) — events per minute (full near 10/min); reads 0 below 3 events or a ' +
+  "sub-second window so a millisecond burst can't fake a 100.\n" +
+  'Reputation (30%, heaviest) — the worst threat-intel reputation among the cluster’s ' +
+  'IPs; IP-only, 0 when there is no IP.\n' +
+  'Diversity (15%) — how many distinct rule types fired (maxes out at 5).\n' +
+  'Asset criticality (10%) — how important the targeted asset is (CIDR/exact map; 0 if ' +
+  'uncatalogued).\n\n' +
+  "The risk score only ranks what's investigated first — it never closes or escalates a " +
+  'case on its own.';
+
 /** A compact horizontal breakdown of the risk components (each 0-100). Plain data. */
 const RiskBreakdownBars: React.FC<{ breakdown: Record<string, number | undefined> }> = ({
   breakdown,
@@ -155,6 +182,13 @@ const RiskBreakdownBars: React.FC<{ breakdown: Record<string, number | undefined
   if (rows.every((r) => r.value === 0)) return null;
   return (
     <div className="space-y-1.5">
+      <div
+        data-testid="risk-factors-help"
+        className="flex items-center gap-1 text-[0.6rem] font-semibold uppercase tracking-widest text-muted-foreground"
+      >
+        <span>Factors</span>
+        <HelpTip text={RISK_FACTOR_HELP} label="How the 5 risk factors are weighted" />
+      </div>
       {rows.map((r) => {
         const tone = toneForScore(r.value);
         return (
@@ -198,9 +232,7 @@ function inputsCode(inputs: Record<string, unknown> | undefined, keys: string[])
 const RiskCard: React.FC<{ risk: RiskChip }> = ({ risk }) => {
   const score = Math.max(0, Math.min(100, Number(risk?.value ?? 0)));
   const tone = toneForScore(score);
-  const help =
-    risk.inputs?.definition ||
-    'Deterministic 0-100 risk: a weighted blend of event volume, velocity, entity reputation, rule diversity and asset criticality.';
+  const help = risk.inputs?.definition || RISK_HELP_TEXT;
   return (
     <div className="relative flex min-h-[7.5rem] flex-col overflow-hidden rounded-lg border border-border bg-card p-4">
       <span aria-hidden="true" className={cn('absolute inset-x-0 top-0 h-0.5', TONE_ACCENT[tone])} />

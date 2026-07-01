@@ -8,12 +8,13 @@ const HoverCardTrigger = HoverCardPrimitive.Trigger;
 const HoverCardContent = React.forwardRef<
   React.ElementRef<typeof HoverCardPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof HoverCardPrimitive.Content>
->(({ className, align = 'center', sideOffset = 8, ...props }, ref) => (
+>(({ className, align = 'center', sideOffset = 8, collisionPadding = 8, ...props }, ref) => (
   <HoverCardPrimitive.Portal>
     <HoverCardPrimitive.Content
       ref={ref}
       align={align}
       sideOffset={sideOffset}
+      collisionPadding={collisionPadding}
       className={cn(
         'z-50 w-80 rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-elev2 outline-none',
         'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',

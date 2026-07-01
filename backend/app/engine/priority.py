@@ -260,8 +260,15 @@ def derive_triage(case: Case, prefs: Preferences) -> dict[str, Any]:
         "breakdown": rb,
         "inputs": {
             "definition": (
-                "Deterministic 0-100 risk: a weighted blend of event volume, velocity, "
-                "entity reputation, rule diversity and asset criticality."
+                "Deterministic 0-100 risk score — a weighted blend of 5 factors: "
+                "Volume (25%, how many events, log-normalised so it levels off ~50), "
+                "Velocity (20%, events/min, full near 10/min, 0 below 3 events or a "
+                "sub-second window), Reputation (30%, heaviest — worst threat-intel "
+                "reputation among the cluster's IPs, 0 if no IP), Diversity (15%, "
+                "distinct rule types, maxes at 5) and Asset criticality (10%, how "
+                "important the targeted asset is; 0 if uncatalogued). The risk score "
+                "only ranks what's investigated first — it never closes or escalates a "
+                "case on its own."
             ),
         },
     }

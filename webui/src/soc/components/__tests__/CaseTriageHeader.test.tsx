@@ -7,9 +7,9 @@
  * when a source never asserted a severity.
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { CaseTriageHeader } from '../CaseTriageHeader';
+import { CaseTriageHeader, RISK_FACTOR_HELP, RISK_HELP_TEXT } from '../CaseTriageHeader';
 import type { TriageChips } from '@/soc/pages/CaseDetail.api';
 
 /** A fully-populated chip set where every signal is deliberately DIFFERENT. */
@@ -103,5 +103,43 @@ describe('CaseTriageHeader (#12 four honest chips)', () => {
     const { container } = render(<CaseTriageHeader chips={null} />);
     expect(container).toBeTruthy();
     expect(screen.queryByTestId('triage-chip-priority')).toBeNull();
+  });
+});
+
+describe('CaseTriageHeader risk-factor help (#8)', () => {
+  // The authored copy is the load-bearing artefact — pin it directly so it can never
+  // silently drift from backend/app/engine/risk.py's weights or the honest caveat.
+  it('exports the canonical risk-factor help naming all 5 factors, weights and caveat', () => {
+    for (const factor of ['Volume', 'Velocity', 'Reputation', 'Diversity', 'Asset criticality']) {
+      expect(RISK_FACTOR_HELP).toContain(factor);
+    }
+    // The default weights 25/20/30/15/10 (Reputation heaviest at 30%).
+    expect(RISK_FACTOR_HELP).toContain('25%');
+    expect(RISK_FACTOR_HELP).toContain('20%');
+    expect(RISK_FACTOR_HELP).toContain('30%');
+    expect(RISK_FACTOR_HELP).toContain('15%');
+    expect(RISK_FACTOR_HELP).toContain('10%');
+    expect(RISK_FACTOR_HELP).toContain('heaviest');
+    // The HONEST CAVEAT (both the factor help and the short risk help carry it).
+    expect(RISK_FACTOR_HELP).toContain('never closes or escalates');
+    expect(RISK_HELP_TEXT).toContain('never closes or escalates');
+  });
+
+  it('renders a (?) HelpTip in the risk breakdown whose popover shows the 5 factors + caveat', () => {
+    render(<CaseTriageHeader chips={CHIPS} />);
+    const helpRegion = screen.getByTestId('risk-factors-help');
+    // The (?) affordance is present and accessibly labelled.
+    const trigger = within(helpRegion).getByRole('button', {
+      name: /how the 5 risk factors are weighted/i,
+    });
+    expect(trigger).toBeInTheDocument();
+
+    // Opening the popover reveals the authored per-factor copy (long text → popover).
+    fireEvent.click(trigger);
+    const body = document.body.textContent || '';
+    for (const factor of ['Volume', 'Velocity', 'Reputation', 'Diversity', 'Asset criticality']) {
+      expect(body).toContain(factor);
+    }
+    expect(body).toContain('never closes or escalates');
   });
 });
