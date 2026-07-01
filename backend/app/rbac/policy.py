@@ -71,6 +71,16 @@ RESOURCES: dict[str, list[str]] = {
     "models": ["read", "manage"],          # LLM model catalog / routing config
     "enrichment": ["read", "manage"],      # enrichment provider config
     "inapp": ["read", "manage"],           # in-app notification prefs / admin broadcast
+    # --- Round-5 G6 R9 unification --- #
+    # ONE coherent "rules" grant for the rules-customization surface (detection /
+    # correlation-threshold / case-automation rule CRUD + version rollback + read-only
+    # preview). This replaces the fragmented grants each rules-adjacent read used to
+    # borrow (baseline→settings:read, campaigns→cases:read, batch→models:read,
+    # tuning→automation:read). Derived like the other settings-split resources so each
+    # role's ``rules`` access mirrors its ``settings`` access exactly (back-compat: the
+    # legacy routers keep their original grants; the new rules API is the ONE place
+    # ``rules`` is enforced).
+    "rules": ["read", "manage"],
 }
 
 ALL = "*"  # wildcard action grant
@@ -80,6 +90,9 @@ ALL = "*"  # wildcard action grant
 _SETTINGS_SPLIT: tuple[str, ...] = (
     "notifications", "branding", "sessions", "demo", "terminology",
     "automation", "roles", "models", "enrichment", "inapp",
+    # Round-5 G6 R9: the unified rules-customization grant, derived to mirror each
+    # role's ``settings`` access (whoever could tune settings can manage rules).
+    "rules",
 )
 
 

@@ -210,6 +210,108 @@ export interface RulesResponse {
   count?: number;
 }
 
+/* --------------------------------------------------------------------------- //
+ * Rule lifecycle (G6 R5) — version ledger + rollback + read-only preview.
+ * Mirrors `backend/app/api/routes_rules.py` (the RB router) +
+ * `backend/app/stores/rule_versions.py`. Every id/name/field is UNTRUSTED,
+ * operator-authored / log-adjacent → plain text (#9). The PREVIEW never bills the
+ * LLM (#6, zero UsageDoc) and never calls `decide()` (#3).
+ * --------------------------------------------------------------------------- */
+
+/** The three rule families the version ledger + rules router are config-writers over. */
+export type RuleKind = 'detection' | 'correlation' | 'case_automation';
+
+/**
+ * One immutable version snapshot of a rule's WHOLE config at a point in time
+ * (mirrors `RuleVersion.to_json()`). `config` is the full plain-JSON rule snapshot a
+ * rollback restores verbatim. `action` is what produced the version; `rolled_back_to`
+ * is set only on a `rollback` version.
+ */
+export interface RuleVersion {
+  id: string;
+  kind: RuleKind;
+  rule_id: string;
+  /** Full plain-JSON snapshot of the rule config at this version (#9 — render escaped). */
+  config: Record<string, unknown>;
+  action: 'create' | 'update' | 'enable' | 'disable' | 'delete' | 'rollback' | string;
+  /** The authenticated username that made the change ("" when auth off). */
+  actor: string;
+  /** Short, plain, length-bounded human note. */
+  summary: string;
+  created_at: string;
+  /** When `action === 'rollback'`, the version id this restored. */
+  rolled_back_to?: string | null;
+}
+
+/** Response of GET /api/rules/{kind}/{rule_id}/versions — newest first. */
+export interface RuleVersionsResponse {
+  kind: string;
+  rule_id: string;
+  versions: RuleVersion[];
+}
+
+/** Response of POST /api/rules/{kind}/{rule_id}/rollback/{version_id}. */
+export interface RuleRollbackResult {
+  ok: boolean;
+  kind: string;
+  rule_id: string;
+  restored_from: string;
+  rule: Record<string, unknown>;
+}
+
+/**
+ * Input for POST /api/rules/preview — a read-only, hard-capped what-if over RECENT
+ * events. `match` is the flat predicate list a detection rule carries (`RuleMatch`);
+ * the backend counts how many recent events WOULD match. It NEVER calls `decide()`,
+ * NEVER creates a case, NEVER bills the LLM (#6). Window + count are hard-capped.
+ */
+export interface RulePreviewInput {
+  /** The flat predicate rows (`{field, op, value}`); an empty list matches nothing. */
+  match: Array<{ field: string; op: string; value?: string }>;
+  /** Scope to one source; omit for all browse-capable sources. */
+  source_id?: string;
+  /** Hard-capped result size (1..1000; default 200). */
+  limit?: number;
+  /** Relative/absolute time window bounds (ES date-math friendly). */
+  from?: string;
+  to?: string;
+  /** Histogram bucket width in minutes (1..1440; default 60). */
+  bucket_minutes?: number;
+}
+
+/** One time-bucket in the preview histogram (`{bucket_start_iso, count}`). */
+export interface RulePreviewBucket {
+  bucket: string;
+  count: number;
+}
+
+/** A trimmed, plain, render-safe matched log row for the preview sample (#9). */
+export interface RulePreviewSampleRow {
+  id: string;
+  ts: string;
+  source_ip?: string | null;
+  user?: string | null;
+  host?: string | null;
+  rule?: string | null;
+  severity?: number | null;
+  message: string;
+}
+
+/**
+ * Result of POST /api/rules/preview. `matched` of `scanned` recent events would have
+ * matched; `histogram` buckets those matches over time; `sample` is a small plain-data
+ * projection. `hard_capped` warns the scan hit the cap (results may under-count).
+ */
+export interface RulePreviewResult {
+  scanned: number;
+  matched: number;
+  match_rate: number;
+  histogram: RulePreviewBucket[];
+  sample: RulePreviewSampleRow[];
+  predicates: number;
+  hard_capped: boolean;
+}
+
 /**
  * Response of GET /api/dashboards (G7). The caller's saved custom dashboards
  * (persisted per-user under `UserPrefs.dashboards`). Every dashboard/widget name is
@@ -884,6 +986,32 @@ export const api = {
     list: () => request<RulesResponse>('GET', 'rules'),
     save: (rules: RuleDefinition[]) =>
       request<RulesResponse>('PUT', 'rules', { body: { rules } }),
+
+    // ---- Lifecycle: version ledger + rollback (G6 R5) ------------------- //
+    // The immutable per-rule version history + one-click rollback. Rollback rides
+    // the SAME deep-merge config-writer path a normal edit uses (never a full-doc
+    // replace), then APPENDS a `rollback` version — history is append-only (#2).
+    // NEVER calls `decide()` (#3). `kind` is detection|correlation|case_automation.
+    versions: (kind: RuleKind, ruleId: string) =>
+      request<RuleVersionsResponse>(
+        'GET',
+        `rules/${encodeURIComponent(kind)}/${encodeURIComponent(ruleId)}/versions`,
+      ),
+    rollback: (kind: RuleKind, ruleId: string, versionId: string) =>
+      request<RuleRollbackResult>(
+        'POST',
+        `rules/${encodeURIComponent(kind)}/${encodeURIComponent(ruleId)}/rollback/${encodeURIComponent(
+          versionId,
+        )}`,
+      ),
+
+    // ---- Lifecycle: read-only rule PREVIEW over recent data (G6 R5) ----- //
+    // How many recent events WOULD this predicate match? Reads through the scoped,
+    // read-only, hard-capped scatter-gather (#1) and evaluates the pure predicate
+    // in-process. ZERO gateway calls → ZERO UsageDoc (#6); NEVER calls `decide()`,
+    // NEVER creates a case, NEVER escalates (#3).
+    preview: (input: RulePreviewInput) =>
+      request<RulePreviewResult>('POST', 'rules/preview', { body: input }),
   },
 
   // ---- Custom dashboards (G7) ------------------------------------------ //

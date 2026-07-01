@@ -12,7 +12,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 
-const { jobsMock } = vi.hoisted(() => ({ jobsMock: vi.fn() }));
+const { jobsMock, getConfigMock, putConfigMock } = vi.hoisted(() => ({
+  jobsMock: vi.fn(),
+  getConfigMock: vi.fn(),
+  putConfigMock: vi.fn(),
+}));
 
 vi.mock('@/soc/Batch.api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../Batch.api')>();
@@ -22,6 +26,20 @@ vi.mock('@/soc/Batch.api', async (importOriginal) => {
     fetchBatchJobs: jobsMock,
   };
 });
+
+// The page now also loads the batch config via api.batch.getConfig (R6 editor).
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...actual,
+    api: { ...actual.api, batch: { getConfig: getConfigMock, putConfig: putConfigMock } },
+  };
+});
+
+// The R6 config editor uses useCan → AuthProvider; grant everything for the render test.
+vi.mock('@/soc/auth', () => ({
+  useAuth: () => ({ username: 'tester', authEnabled: false, hasPermission: () => true }),
+}));
 
 import { TooltipProvider } from '@/ui/tooltip';
 import { BatchJobsInner } from '../BatchJobs';
@@ -65,6 +83,10 @@ function renderPage() {
 describe('BatchJobs', () => {
   beforeEach(() => {
     jobsMock.mockReset();
+    getConfigMock.mockReset();
+    getConfigMock.mockResolvedValue({
+      config: { enabled: false, severity_floor: 3, providers: ['anthropic', 'openai'], flex: false },
+    });
   });
 
   it('renders batch jobs with provider, state, discount and retrieved counts', async () => {

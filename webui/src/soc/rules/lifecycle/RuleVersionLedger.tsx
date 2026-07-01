@@ -1,0 +1,239 @@
+/**
+ * RuleVersionLedger (Round-5 G6 · R5) — the immutable per-rule VERSION history +
+ * red/green inline diff + one-click rollback.
+ *
+ * ┌─ WHAT IT DOES ──────────────────────────────────────────────────────────────┐
+ * │ - Lists every recorded version of ONE rule, NEWEST first (author + when + why).│
+ * │ - Selecting a version shows a red/green FIELD DIFF vs the current (newest)      │
+ * │   config, computed dep-free (`diffConfigs`, NO diff library).                   │
+ * │ - "Restore this version" rolls the rule back via the RB rollback endpoint — a   │
+ * │   deep-merge config write that APPENDS a `rollback` version (history is         │
+ * │   append-only, #2) and NEVER calls `decide()` (#3). Gated by a ConfirmDialog.   │
+ * └────────────────────────────────────────────────────────────────────────────────┘
+ *
+ * Bug #12: each row renders its REAL state — the NEWEST version is the live baseline
+ * ("Current"), a version produced by a rollback is tagged, and older versions are
+ * "Superseded". Never a hardcoded "Active" on every row.
+ *
+ * Every id / actor / summary / config value is operator-authored, log-adjacent data →
+ * renders PLAIN text (#9). Rollback is gated on the caller's `canManage` grant (RBAC).
+ */
+import * as React from 'react';
+import { History, RotateCcw } from 'lucide-react';
+
+import { Badge, type BadgeProps } from '@/ui/badge';
+import { Button } from '@/ui/button';
+import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { useAsync } from '@/soc/hooks/useAsync';
+import { cn } from '@/lib/cn';
+
+import { listRuleVersions, rollbackRule } from '../api';
+import { DiffView } from './DiffView';
+import type { RuleKind, RuleVersion } from './types';
+
+export interface RuleVersionLedgerProps {
+  kind: RuleKind;
+  ruleId: string;
+  /** RBAC: only a manager may roll back. Read-only viewers see history but no restore. */
+  canManage?: boolean;
+  /** Called after a successful rollback so the parent can refetch the rule config. */
+  onRolledBack?: (restoredFrom: string) => void;
+}
+
+/** Humanize the version `action` for a plain-text chip. */
+const ACTION_LABEL: Record<string, string> = {
+  create: 'Created',
+  update: 'Edited',
+  enable: 'Enabled',
+  disable: 'Disabled',
+  delete: 'Deleted',
+  rollback: 'Rolled back',
+};
+
+/** A compact, locale-agnostic timestamp (UTC) for the row meta. */
+function whenLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 19);
+  return d.toISOString().slice(0, 19).replace('T', ' ') + 'Z';
+}
+
+export function RuleVersionLedger({
+  kind,
+  ruleId,
+  canManage = false,
+  onRolledBack,
+}: RuleVersionLedgerProps) {
+  const { data, loading, error, reload } = useAsync(
+    () => listRuleVersions(kind, ruleId),
+    [kind, ruleId],
+  );
+  // Memoize the list so it is a stable reference across renders (keeps the derived
+  // `selected` useMemo honest — the ledger returns newest-first).
+  const versions: RuleVersion[] = React.useMemo(() => data?.versions ?? [], [data]);
+
+  // The current baseline = the newest version.
+  const current = versions[0] ?? null;
+
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const selected = React.useMemo(
+    () => versions.find((v) => v.id === selectedId) ?? null,
+    [versions, selectedId],
+  );
+
+  const [confirmVersion, setConfirmVersion] = React.useState<RuleVersion | null>(null);
+  const [rolling, setRolling] = React.useState(false);
+  const [rollbackError, setRollbackError] = React.useState<unknown>(null);
+
+  const doRollback = React.useCallback(
+    async (version: RuleVersion) => {
+      setRolling(true);
+      setRollbackError(null);
+      try {
+        const res = await rollbackRule(kind, ruleId, version.id);
+        setConfirmVersion(null);
+        setSelectedId(null);
+        await reload();
+        onRolledBack?.(res.restored_from);
+      } catch (e) {
+        setRollbackError(e);
+      } finally {
+        setRolling(false);
+      }
+    },
+    [kind, ruleId, reload, onRolledBack],
+  );
+
+  if (loading && versions.length === 0) {
+    return <p className="py-6 text-center text-sm text-muted-foreground">Loading history…</p>;
+  }
+  if (error && versions.length === 0) {
+    return <LoadError error={error} title="Couldn't load version history" onRetry={reload} />;
+  }
+  if (versions.length === 0) {
+    return (
+      <EmptyState
+        icon={History}
+        compact
+        title="No version history yet"
+        description="Every create, edit, enable/disable and rollback of this rule will be recorded here as an immutable version you can diff and restore."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {rollbackError ? (
+        <LoadError
+          error={rollbackError}
+          title="Rollback failed"
+          fallback="Could not restore that version."
+        />
+      ) : null}
+
+      <ol className="space-y-2" data-testid="rule-version-ledger">
+        {versions.map((v, idx) => {
+          const isCurrent = current !== null && v.id === current.id;
+          const isSelected = v.id === selectedId;
+          const stateLabel = isCurrent
+            ? 'Current'
+            : v.action === 'rollback'
+              ? 'Rollback'
+              : 'Superseded';
+          const stateVariant: NonNullable<BadgeProps['variant']> = isCurrent
+            ? 'success'
+            : v.action === 'rollback'
+              ? 'info'
+              : 'secondary';
+          return (
+            <li
+              key={v.id}
+              className={cn(
+                'rounded-md border border-border bg-card p-3 transition-colors',
+                isSelected && 'ring-1 ring-primary/50',
+              )}
+              data-testid={`rule-version-${v.id}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={stateVariant}>{stateLabel}</Badge>
+                <span className="text-sm font-medium text-foreground">
+                  {ACTION_LABEL[v.action] ?? v.action}
+                </span>
+                {v.rolled_back_to ? (
+                  <span className="text-xs text-muted-foreground">
+                    → restored {v.rolled_back_to}
+                  </span>
+                ) : null}
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+                  {whenLabel(v.created_at)}
+                </span>
+              </div>
+
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {v.actor ? <span>by {v.actor}</span> : <span>by system</span>}
+                {v.summary ? <span className="break-words">{v.summary}</span> : null}
+              </div>
+
+              <div className="mt-2 flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedId(isSelected ? null : v.id)}
+                  aria-expanded={isSelected}
+                >
+                  {isSelected ? 'Hide diff' : 'Diff vs current'}
+                </Button>
+                {canManage && !isCurrent ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setConfirmVersion(v)}
+                    disabled={rolling}
+                  >
+                    <RotateCcw className="h-4 w-4" aria-hidden />
+                    Restore this version
+                  </Button>
+                ) : null}
+                {idx === 0 ? (
+                  <span className="text-xs text-muted-foreground">This is the live config.</span>
+                ) : null}
+              </div>
+
+              {isSelected ? (
+                <div className="mt-3 border-t border-border pt-3">
+                  <div className="mb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Changes to restore (this version → current)
+                  </div>
+                  <DiffView before={v.config} after={current?.config} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+
+      <ConfirmDialog
+        open={confirmVersion !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmVersion(null);
+        }}
+        title="Restore this version?"
+        description={
+          selected || confirmVersion
+            ? `This replaces the live rule config with the ${ACTION_LABEL[
+                (confirmVersion?.action ?? '') as string
+              ]?.toLowerCase() ?? 'selected'} version from ${
+                confirmVersion ? whenLabel(confirmVersion.created_at) : ''
+              }. It writes configuration only — it never changes a case decision, and it is recorded as a new version you can undo.`
+            : undefined
+        }
+        confirmLabel={rolling ? 'Restoring…' : 'Restore'}
+        onConfirm={() => {
+          if (confirmVersion) void doRollback(confirmVersion);
+        }}
+      />
+    </div>
+  );
+}
+RuleVersionLedger.displayName = 'RuleVersionLedger';

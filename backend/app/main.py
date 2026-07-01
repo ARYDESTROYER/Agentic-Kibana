@@ -22,6 +22,7 @@ from .api.routes_metrics import router as metrics_router
 from .api.routes_models import router as models_router
 from .api.routes_reset import router as reset_router
 from .api.routes_roles import router as roles_router
+from .api.routes_rules import router as rules_router
 from .api.routes_setup import router as setup_router
 from .api.routes_standup import router as standup_router
 from .api.routes_triage import router as triage_router
@@ -95,6 +96,7 @@ for _feature_router in (
     campaigns_router,     # R4 W4 — campaign cross-case correlation views + recorrelate
     baseline_router,      # R4 W4 — per-signature seasonal baseline stats (read-only)
     reset_router,         # R4 W4 — double-gated admin reset (users:manage + step-up)
+    rules_router,         # R5 G6 — rules customization CRUD + version ledger + preview
 ):
     app.include_router(_feature_router, dependencies=[Depends(require_auth)])
 

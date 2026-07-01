@@ -35,6 +35,7 @@ import {
   Globe,
   Hash,
   KeyRound,
+  ListChecks,
   ListTree,
   MonitorSmartphone,
   Network,
@@ -63,6 +64,7 @@ import { GeneralSection } from './general';
 import { ModelsSection } from './models';
 import { KeysSection } from './keys';
 import { DetectionSection } from './detection';
+import { DetectionRulesSection } from './detection-rules';
 import { CaseIdSection } from './cases';
 import { AutomationSection } from './automation';
 import { StandupSection } from './standup';
@@ -299,6 +301,43 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       'cross_source_correlation',
     ],
     Component: (ctx) => h(DetectionSection, { prefs: ctx.prefs, update: ctx.update }),
+  },
+  {
+    // Round-5 G6 (R2) — the unified "Detection & rules" HOME. Authors detection rules
+    // (`rule_catalog`) + case-automation rules (`threshold_automation.rules`) through
+    // the four-section polymorphic editor. ON BY DEFAULT. The SECTION is visible to
+    // anyone with the unified `automation:read` grant (so a read-only viewer still SEES
+    // the catalog), while every MUTATION inside `DetectionRulesHome` gates on
+    // `automation:manage` via `useCan` (R9 — one unified rules permission). It renders
+    // full-width (its editor cards are self-bordered, so `grid: true` avoids a
+    // card-in-a-card). Editing is a pure config write via the shared `{prefs, update}`
+    // deep-merge buffer — never `decide()` (#3).
+    id: 'detection_rules',
+    group: 'general',
+    title: 'Detection & rules',
+    blurb: 'Author detection rules (match/threshold, anomaly) and case-automation rules in one place.',
+    icon: ListChecks,
+    perm: { resource: 'automation', action: 'read' },
+    grid: true,
+    keywords: [
+      'rules',
+      'detection rule',
+      'detection & rules',
+      'match',
+      'threshold',
+      'correlation',
+      'suppression',
+      'anomaly',
+      'baseline',
+      'case automation',
+      'automation',
+      'rule catalog',
+      'condition',
+      'predicate',
+      'mitre',
+    ],
+    ownedKeys: ['rule_catalog', 'threshold_automation'],
+    Component: (ctx) => h(DetectionRulesSection, { prefs: ctx.prefs, update: ctx.update }),
   },
   {
     id: 'cases',
@@ -579,6 +618,7 @@ export type SectionId =
   | 'models'
   | 'keys'
   | 'detection'
+  | 'detection_rules'
   | 'cases'
   | 'automation'
   | 'standup'

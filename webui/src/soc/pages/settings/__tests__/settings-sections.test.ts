@@ -35,6 +35,7 @@ const EXPECTED_IDS = [
   'models',
   'keys',
   'detection',
+  'detection_rules', // NEW (Round-5 G6 R2: unified "Detection & rules" home)
   'cases',
   'automation',
   'standup',
@@ -105,6 +106,7 @@ describe('grouped rail derivation (Round-5 Sett-B: 5 groups, Security promoted)'
       'general',
       'models',
       'detection',
+      'detection_rules',
       'cases',
       'automation',
       'standup',

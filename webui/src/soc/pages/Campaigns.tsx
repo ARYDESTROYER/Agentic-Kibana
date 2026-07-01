@@ -27,17 +27,30 @@ import {
   RefreshCw,
   Loader2,
   ArrowRight,
+  Info,
   Layers,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { api } from '@/lib/api';
 import { humanizeToken, humanizeAge, fmtNumber } from '@/lib/format';
 import type { Navigate } from '@/soc/router';
+import type { CampaignConfig } from '@/lib/types';
 
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
+import { Label } from '@/ui/label';
+import { Switch } from '@/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/ui/select';
 import {
   Sheet,
   SheetContent,
@@ -53,12 +66,46 @@ import { LoadError } from '@/soc/components/LoadError';
 import { errorMessage } from '@/lib/errorMessage';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { SeverityBadge } from '@/soc/components/badges';
-import { ProtectedRoute, Can } from '@/soc/components/Can';
+import { ProtectedRoute, useCan } from '@/soc/components/Can';
+import { Field } from '@/soc/components/Field';
+import {
+  SettingsGrid,
+  SettingsCard,
+  StickySaveBar,
+} from '@/soc/components/SettingsGrid';
+import { useConfigEditor } from '@/soc/components/rules';
 import {
   campaignsApi,
   CAMPAIGN_STATUS_LABELS,
   type Campaign,
 } from './Campaigns.api';
+
+/**
+ * Local campaign-config client. The shared `api.campaign` scaffold points at the
+ * SINGULAR `campaign/config`, but the backend route (`routes_campaigns.py`) is the
+ * PLURAL `campaigns/config` — so we call the correct path via the low-level verbs
+ * (mirroring the co-located Tuning.api pattern) rather than editing the shared client.
+ * Config edits deep-merge server-side (audited, admin-gated, #2) and never touch
+ * `decide()` (#3) or a `cluster_signature` (#4).
+ */
+const campaignConfigApi = {
+  getConfig: () => api.get<{ config: CampaignConfig }>('campaigns/config'),
+  putConfig: (config: Partial<CampaignConfig>) =>
+    api.put<{ ok: boolean; config: CampaignConfig }>('campaigns/config', config),
+};
+
+/** Backend defaults (mirror `config.CampaignConfig`). */
+const DEFAULT_CAMPAIGN_CONFIG: Required<CampaignConfig> = {
+  enabled: false,
+  cadence: 'daily',
+};
+
+const CAMPAIGN_CADENCES: NonNullable<CampaignConfig['cadence']>[] = [
+  'hourly',
+  'daily',
+  'weekly',
+  'manual',
+];
 
 /** Map a campaign status to a Badge variant. */
 function statusVariant(status: string): 'success' | 'info' | 'secondary' {
@@ -80,12 +127,30 @@ export default function Campaigns({ onNavigate }: CampaignsProps) {
 }
 
 export function CampaignsInner({ onNavigate }: CampaignsProps) {
+  // BUG #9: "Recorrelate" is admin-gated server-side (require_admin == users:manage).
+  // A `cases:read` user must not see an enabled button that 403s — gate it on the
+  // SAME grant and disable-with-tooltip for everyone else. The campaign config editor
+  // is likewise an admin action.
+  const canManage = useCan('users', 'manage');
   const [campaigns, setCampaigns] = React.useState<Campaign[]>([]);
   const [enabled, setEnabled] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [recorrelating, setRecorrelating] = React.useState(false);
   const [detail, setDetail] = React.useState<Campaign | null>(null);
+
+  const cfg = useConfigEditor<CampaignConfig>(campaignConfigApi, DEFAULT_CAMPAIGN_CONFIG);
+  const cfgDraft = { ...DEFAULT_CAMPAIGN_CONFIG, ...cfg.draft };
+
+  const saveConfig = React.useCallback(async () => {
+    try {
+      const saved = await cfg.save();
+      setEnabled(Boolean(saved.enabled));
+      toast.success('Campaign policy saved.');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Could not save the campaign policy.'));
+    }
+  }, [cfg]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -206,23 +271,48 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
         description="Related cases grouped by shared entities and overlapping MITRE techniques."
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                void load();
+                void cfg.reload();
+              }}
+              disabled={loading}
+            >
               <RefreshCw
                 className={loading ? 'mr-1.5 h-4 w-4 animate-spin' : 'mr-1.5 h-4 w-4'}
                 aria-hidden
               />
               Refresh
             </Button>
-            <Can resource="cases" action="read">
-              <Button size="sm" onClick={() => void recorrelate()} disabled={recorrelating}>
-                {recorrelating ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Layers className="mr-1.5 h-4 w-4" aria-hidden />
-                )}
-                Recorrelate
-              </Button>
-            </Can>
+            {/* BUG #9: gate Recorrelate on the admin grant; disable-with-tooltip for
+                read-only users so the button never 403s silently. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* span wrapper so the tooltip still fires on a disabled button */}
+                <span tabIndex={canManage ? undefined : 0}>
+                  <Button
+                    size="sm"
+                    onClick={() => void recorrelate()}
+                    disabled={recorrelating || !canManage}
+                    aria-disabled={!canManage || undefined}
+                  >
+                    {recorrelating ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Layers className="mr-1.5 h-4 w-4" aria-hidden />
+                    )}
+                    Recorrelate
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!canManage ? (
+                <TooltipContent>
+                  Recorrelate is an administrator action. Ask a SOC administrator to run it.
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
           </div>
         }
       />
@@ -232,9 +322,9 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           <Network className="h-4 w-4" aria-hidden />
           <AlertTitle>Campaign clustering is off.</AlertTitle>
           <AlertDescription>
-            Enable it in Settings to run the pass on a cadence, or use Recorrelate to
-            build campaigns on demand. Campaigns are advisory — they group related cases
-            for context and never change how a case is decided.
+            Enable it in the policy below to run the pass on a cadence, or use
+            Recorrelate to build campaigns on demand. Campaigns are advisory — they
+            group related cases for context and never change how a case is decided.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -269,6 +359,98 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
         onClose={() => setDetail(null)}
         onNavigate={onNavigate}
       />
+
+      <Separator />
+
+      {/* ── Config editor (R6) ───────────────────────────────────────────── */}
+      {cfg.error ? (
+        <LoadError
+          error={cfg.error}
+          title="Could not load campaign policy"
+          fallback="Could not load the campaign policy."
+          onRetry={() => void cfg.reload()}
+        />
+      ) : (
+        <SettingsGrid>
+          <SettingsCard
+            anchor="campaign-policy"
+            icon={Network}
+            title="Campaign policy"
+            description="Run the deterministic cross-case clustering pass on a cadence. Default off — clustering only builds a reporting grouping and never merges or decides cases."
+            wide
+          >
+            <fieldset disabled={!canManage} className="space-y-6">
+              <Alert>
+                <Info className="h-4 w-4" aria-hidden />
+                <AlertTitle>Campaigns are advisory</AlertTitle>
+                <AlertDescription>
+                  Clustering groups related cases for context; it never force-merges a
+                  case, recomputes a cluster signature, or feeds the deterministic
+                  decision.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="campaign-enabled" className="text-sm font-medium">
+                    Enable campaign clustering
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    When on, the deterministic pass runs on the cadence below.
+                  </p>
+                </div>
+                <Switch
+                  id="campaign-enabled"
+                  checked={cfgDraft.enabled}
+                  onCheckedChange={(v) => cfg.update({ enabled: v })}
+                />
+              </div>
+
+              <div className="max-w-xs">
+                <Field label="Cadence" description="How often the clustering pass runs.">
+                  {({ id, describedBy }) => (
+                    <Select
+                      value={cfgDraft.cadence ?? 'daily'}
+                      disabled={!canManage}
+                      onValueChange={(v) =>
+                        cfg.update({ cadence: v as CampaignConfig['cadence'] })
+                      }
+                    >
+                      <SelectTrigger id={id} aria-describedby={describedBy}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CAMPAIGN_CADENCES.map((c) => (
+                          <SelectItem key={c} value={c as string}>
+                            {humanizeToken(c as string)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </Field>
+              </div>
+
+              {!canManage ? (
+                <p className="text-xs text-muted-foreground">
+                  Campaign policy is an administrator setting. Ask a SOC administrator to
+                  change it.
+                </p>
+              ) : null}
+            </fieldset>
+          </SettingsCard>
+        </SettingsGrid>
+      )}
+
+      {canManage ? (
+        <StickySaveBar
+          visible={cfg.dirty}
+          busy={cfg.saving}
+          message="Unsaved campaign-policy changes."
+          onSave={() => void saveConfig()}
+          onDiscard={cfg.discard}
+        />
+      ) : null}
     </div>
   );
 }

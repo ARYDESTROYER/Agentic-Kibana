@@ -9,7 +9,7 @@
  * auto-closes it. Every outside-world write goes through the approval queue.
  */
 import * as React from 'react';
-import { Info, Plus, Trash2, Zap } from 'lucide-react';
+import { AlertTriangle, Info, Plus, Trash2, Wrench, Zap } from 'lucide-react';
 
 import { api } from '@/lib/api';
 import type { AutomationRule, Playbook, ThresholdAutomationConfig } from '@/lib/types';
@@ -58,14 +58,43 @@ const AUTOMATION_ACTIONS: Array<{ value: AutomationRule['action']; text: string;
   },
 ];
 
+/**
+ * A case-automation rule's `verdict` condition is compared against the case's
+ * LLM `Verdict` — which is ONLY ever one of these three values (see backend
+ * `constants.Verdict`; `engine/threshold_automation._rule_matches` does a
+ * case-insensitive equality against `case.verdict.value`). `suspicious` / `benign`
+ * are `Disposition` values (the investigative OUTCOME axis) and can NEVER equal a
+ * `Verdict`, so a rule conditioned on them silently never fires. The dropdown is
+ * therefore populated ONLY from the real `Verdict` enum. (Fix: Rules-FE bug #6.)
+ */
+const VERDICT_ENUM_VALUES = ['true_positive', 'false_positive', 'needs_human'] as const;
+
+/** The canonical `{value → label}` map for a valid verdict condition. */
+const VERDICT_LABELS: Record<string, string> = {
+  true_positive: 'True positive',
+  false_positive: 'False positive',
+  needs_human: 'Needs human',
+};
+
 const VERDICT_CONDITION_OPTIONS: Array<{ value: string; text: string }> = [
   { value: '', text: 'Any verdict' },
-  { value: 'true_positive', text: 'True positive' },
-  { value: 'false_positive', text: 'False positive' },
-  { value: 'needs_human', text: 'Needs human' },
-  { value: 'suspicious', text: 'Suspicious' },
-  { value: 'benign', text: 'Benign' },
+  ...VERDICT_ENUM_VALUES.map((v) => ({ value: v, text: VERDICT_LABELS[v] })),
 ];
+
+const VALID_VERDICT_SET = new Set<string>(VERDICT_ENUM_VALUES);
+
+/**
+ * True when a rule's `verdict` condition can NEVER match a real `Verdict` — i.e. it
+ * is set to a non-empty value outside the enum (e.g. a legacy `suspicious`/`benign`
+ * `Disposition` value). Such a rule is inert and never fires; the editor surfaces an
+ * "inactive — invalid condition" badge + a one-click migrate. Comparison is
+ * case-insensitive to mirror the backend matcher.
+ */
+function hasImpossibleVerdict(rule: AutomationRule): boolean {
+  const v = rule.conditions?.verdict;
+  if (typeof v !== 'string' || v === '') return false;
+  return !VALID_VERDICT_SET.has(v.toLowerCase());
+}
 
 const STATUS_CONDITION_OPTIONS: Array<{ value: string; text: string }> = [
   { value: '', text: 'Any status' },
@@ -107,6 +136,7 @@ function AutomationRuleEditor({
   const cond = rule.conditions || {};
   const setCond = (patch: Partial<typeof cond>) =>
     onChange({ ...rule, conditions: { ...cond, ...patch } });
+  const invalidVerdict = hasImpossibleVerdict(rule);
   const payload = rule.payload || {};
   const setPayload = (patch: Record<string, unknown>) =>
     onChange({ ...rule, payload: { ...payload, ...patch } });
@@ -120,9 +150,14 @@ function AutomationRuleEditor({
   const approvalKind = typeof payload.kind === 'string' ? payload.kind : '';
 
   return (
-    <div className="rounded-md border border-border bg-surface p-4 space-y-4">
+    <div
+      className={cn(
+        'rounded-md border border-border bg-surface p-4 space-y-4',
+        invalidVerdict && 'border-warning/40',
+      )}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="font-mono">
             {rule.id}
           </Badge>
@@ -134,6 +169,12 @@ function AutomationRuleEditor({
           <span className="text-xs text-muted-foreground">
             {rule.enabled ?? true ? 'Enabled' : 'Disabled'}
           </span>
+          {invalidVerdict ? (
+            <Badge variant="warning" className="gap-1">
+              <AlertTriangle className="h-3 w-3" aria-hidden />
+              Inactive — invalid condition
+            </Badge>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -172,7 +213,11 @@ function AutomationRuleEditor({
               value={cond.verdict || '__any__'}
               onValueChange={(v) => setCond({ verdict: v === '__any__' ? undefined : v })}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger
+                className={cn('h-9', invalidVerdict && 'border-warning/60')}
+                aria-label="Verdict"
+                aria-invalid={invalidVerdict || undefined}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -181,8 +226,37 @@ function AutomationRuleEditor({
                     {o.text}
                   </SelectItem>
                 ))}
+                {/* Surface a legacy invalid value (e.g. a `suspicious`/`benign`
+                    Disposition) so the operator can SEE what is set — it renders
+                    plain (#9) and cannot be re-selected once migrated away. */}
+                {invalidVerdict && typeof cond.verdict === 'string' ? (
+                  <SelectItem value={cond.verdict} disabled>
+                    {cond.verdict} (invalid)
+                  </SelectItem>
+                ) : null}
               </SelectContent>
             </Select>
+            {invalidVerdict ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-warning-text">
+                  This rule will never fire: a case verdict is only ever{' '}
+                  <span className="font-medium">true positive</span>,{' '}
+                  <span className="font-medium">false positive</span>, or{' '}
+                  <span className="font-medium">needs human</span>. Migrate to clear the
+                  invalid condition (the rule&apos;s other conditions are kept).
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 gap-1"
+                  onClick={() => setCond({ verdict: undefined })}
+                >
+                  <Wrench className="h-3.5 w-3.5" aria-hidden />
+                  Migrate
+                </Button>
+              </div>
+            ) : null}
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Status</Label>

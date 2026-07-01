@@ -95,19 +95,46 @@ export interface TuningRecommendation {
   reason: string;
 }
 
-/** One applied/rolled-back ledger row (from `TuningStore.list()`). */
+/**
+ * One applied/rolled-back ledger row (from `TuningStore.list()` → `TuningRecord.to_json()`).
+ *
+ * ⚠ BUG #12 CONTRACT: the backend serializes `rolled_back` (bool) + `rolled_back_at`
+ * — it does NOT emit an `active` field. The prior UI read a non-existent `row.active`,
+ * so EVERY row rendered the same state. Consumers MUST derive the real state from
+ * `rolled_back` (see {@link isLedgerRowActive}); a row without `rolled_back:true` is
+ * still active. `active` is kept OPTIONAL only for the apply-response shape (which does
+ * echo it in tests) and is never trusted for the ledger render.
+ */
 export interface TuningLedgerRow {
   id: string;
   rule_id: string;
   target: string;
   before: unknown;
   after: unknown;
-  active: boolean;
-  applied_at?: string;
+  /** True once the change has been reversed (the authoritative state field, #12). */
+  rolled_back?: boolean;
   rolled_back_at?: string | null;
+  applied_at?: string;
+  /** Optional; only some producers set it. NOT authoritative — use {@link isLedgerRowActive}. */
+  active?: boolean;
   actor?: string;
   reason?: string;
+  rationale?: string;
   [k: string]: unknown;
+}
+
+/**
+ * BUG #12: the real per-row lifecycle state. A ledger row is ACTIVE unless it has been
+ * rolled back. We honour an explicit `rolled_back` flag / `rolled_back_at` timestamp
+ * first (the authoritative backend fields), then fall back to an `active` flag if a
+ * producer happens to set one. A row that carries none of these defaults to ACTIVE
+ * (it was just applied).
+ */
+export function isLedgerRowActive(row: TuningLedgerRow): boolean {
+  if (row.rolled_back === true) return false;
+  if (row.rolled_back_at) return false;
+  if (typeof row.active === 'boolean') return row.active;
+  return true;
 }
 
 /** GET /api/tuning/recommendations — the whole dry-run picture + ledger. */

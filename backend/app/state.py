@@ -500,17 +500,25 @@ class AppState:
         self.batch_job_store = BatchJobStore(kv)
 
     def _build_round5_stores(self) -> None:
-        """Construct the Round-5 (G7) per-user custom-dashboard store over the active
-        backend's KV (the SAME shared ``self._kv`` the Round-3/4 stores use — works on
-        ES + SQL, no new index/table/migration). Takes only ``self._kv`` so it survives
-        every ``_wire()`` rebuild, exactly like ``_build_round4_stores`` above.
+        """Construct the Round-5 KV-backed stores over the active backend's KV (the SAME
+        shared ``self._kv`` the Round-3/4 stores use — works on ES + SQL, no new
+        index/table/migration). Each takes only ``self._kv`` so it survives every
+        ``_wire()`` rebuild, exactly like ``_build_round4_stores`` above.
 
-        The store holds ONLY advisory presentation state (a user's saved dashboard
-        layouts). NONE of it feeds the deterministic ``case_manager.decide()`` (#3);
-        every dashboard/widget name is PLAIN data the UI render-escapes (#9)."""
+        * ``dashboards``   — G7 per-user custom-dashboard layouts (advisory presentation
+                             state only).
+        * ``rule_versions`` — G6 per-rule immutable version ledger + rollback (a
+                             config-adjacent audit ledger; it never writes ``Preferences``
+                             itself, never touches a case/verdict/signature, and NEVER
+                             imports ``case_manager.decide()`` #3).
+
+        NONE of these feeds the deterministic ``case_manager.decide()`` (#3); every
+        dashboard/widget/rule name is PLAIN data the UI render-escapes (#9)."""
         from .stores.dashboards import DashboardStore
+        from .stores.rule_versions import RuleVersionStore
 
         self.dashboards = DashboardStore(self._kv)
+        self.rule_versions = RuleVersionStore(self._kv)
 
     @property
     def enrichment_registry(self):

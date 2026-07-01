@@ -40,7 +40,6 @@ import type { Navigate } from '@/soc/router';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Label } from '@/ui/label';
-import { Input } from '@/ui/input';
 import { Switch } from '@/ui/switch';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
@@ -59,6 +58,10 @@ import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { ProtectedRoute, Can, useCan } from '@/soc/components/Can';
+import { Field } from '@/soc/components/Field';
+import { NumberField } from '@/soc/components/NumberField';
+import { LabeledSlider } from '@/soc/components/LabeledSlider';
+import { EffectiveConfigPreview } from '@/soc/components/rules/EffectiveConfigPreview';
 import {
   SettingsGrid,
   SettingsCard,
@@ -71,6 +74,7 @@ import {
   KIND_LABELS,
   REASON_LABELS,
   tuneValue,
+  isLedgerRowActive,
   type TuningConfig,
   type TuningCadence,
   type TuningRecommendationsResponse,
@@ -79,6 +83,13 @@ import {
 } from './Tuning.api';
 
 const CADENCES: TuningCadence[] = ['hourly', 'nightly', 'weekly', 'manual'];
+
+const CADENCE_LABEL: Record<TuningCadence, string> = {
+  hourly: 'every hour',
+  nightly: 'every night',
+  weekly: 'every week',
+  manual: 'only when run manually',
+};
 
 export interface TuningProps {
   onNavigate?: Navigate;
@@ -333,9 +344,12 @@ export function TuningInner({ onNavigate }: TuningProps) {
       },
       {
         id: 'state',
+        // BUG #12: derive the REAL per-row state from the ledger record
+        // (`rolled_back`/`rolled_back_at`) — the backend never emits an `active` field,
+        // so the old `r.active` read was undefined for every row.
         header: 'State',
         cell: (r) =>
-          r.active ? (
+          isLedgerRowActive(r) ? (
             <Badge variant="info">Active</Badge>
           ) : (
             <Badge variant="secondary">Rolled back</Badge>
@@ -355,8 +369,9 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'actions',
         header: '',
         align: 'right',
+        // Only an ACTIVE (not-yet-rolled-back) change offers a rollback (#12).
         cell: (r) =>
-          r.active ? (
+          isLedgerRowActive(r) ? (
             <Can resource="automation" action="manage">
               <Button
                 size="sm"
@@ -470,7 +485,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
       <Separator />
 
-      {/* Config panel */}
+      {/* Config panel — NumberField/LabeledSlider threshold UX (R4). */}
       <SettingsGrid>
         <SettingsCard
           anchor="tuning-policy"
@@ -479,7 +494,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
           description="Controls when the nightly tuner runs and how conservative it is. Default off — leaving it off keeps behaviour unchanged."
           wide
         >
-          <fieldset disabled={!canManage} className="space-y-5">
+          <fieldset disabled={!canManage} className="space-y-6">
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
                 <Label htmlFor="tuning-enabled" className="text-sm font-medium">
@@ -497,75 +512,95 @@ export function TuningInner({ onNavigate }: TuningProps) {
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="tuning-min-samples" className="text-sm">
-                  Minimum samples
-                </Label>
-                <Input
-                  id="tuning-min-samples"
-                  type="number"
-                  min={1}
-                  value={draft.min_samples}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      min_samples: Math.max(1, Number(e.target.value) || 1),
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Observations required before a rule is eligible for a change.
-                </p>
-              </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <NumberField
+                label="Minimum samples"
+                description="Observations required before a rule is eligible for a change."
+                value={draft.min_samples}
+                min={1}
+                max={100000}
+                step={1}
+                defaultValue={DEFAULT_TUNING_CONFIG.min_samples}
+                disabled={!canManage}
+                onChange={(v) => setDraft((d) => ({ ...d, min_samples: v }))}
+              />
 
-              <div className="space-y-1.5">
-                <Label htmlFor="tuning-fp-target" className="text-sm">
-                  Target false-positive rate
-                </Label>
-                <Input
-                  id="tuning-fp-target"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={draft.fp_rate_target}
-                  onChange={(e) => {
-                    const raw = Number(e.target.value);
-                    const clamped = Number.isNaN(raw) ? 0 : Math.min(1, Math.max(0, raw));
-                    setDraft((d) => ({ ...d, fp_rate_target: clamped }));
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  A rule above this rate (0–1) becomes a tuning candidate.
-                </p>
-              </div>
+              <LabeledSlider
+                label="Target false-positive rate"
+                description="A rule whose Wilson-LB FP rate exceeds this becomes a tuning candidate."
+                value={Math.round(draft.fp_rate_target * 100)}
+                min={0}
+                max={100}
+                step={1}
+                disabled={!canManage}
+                formatValue={(v) => `${v}%`}
+                onChange={(v) => setDraft((d) => ({ ...d, fp_rate_target: v / 100 }))}
+              />
 
-              <div className="space-y-1.5">
-                <Label htmlFor="tuning-cadence" className="text-sm">
-                  Cadence
-                </Label>
-                <Select
-                  value={draft.cadence}
-                  onValueChange={(v) =>
-                    setDraft((d) => ({ ...d, cadence: v as TuningCadence }))
-                  }
-                >
-                  <SelectTrigger id="tuning-cadence">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CADENCES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {humanizeToken(c)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">How often the tuner runs.</p>
-              </div>
+              {/* R4: the 3 previously-missing tuner knobs. */}
+              <NumberField
+                label="Max correlation-n step"
+                description="Caps how far a correlation threshold (n) may move per cadence. 1 keeps every change to a single, bounded +1."
+                value={draft.max_n_step}
+                min={0}
+                max={10}
+                step={1}
+                defaultValue={DEFAULT_TUNING_CONFIG.max_n_step}
+                disabled={!canManage}
+                onChange={(v) => setDraft((d) => ({ ...d, max_n_step: v }))}
+              />
 
-              <div className="flex items-start justify-between gap-4">
+              <NumberField
+                label="Wilson z-score"
+                description="Confidence z for the Wilson lower-bound on the observed FP rate. Higher is more conservative (1.96 ≈ 95%)."
+                value={draft.wilson_z}
+                min={0}
+                max={5}
+                step={0.01}
+                defaultValue={DEFAULT_TUNING_CONFIG.wilson_z}
+                disabled={!canManage}
+                onChange={(v) => setDraft((d) => ({ ...d, wilson_z: v }))}
+              />
+
+              <LabeledSlider
+                label="EWMA smoothing (alpha)"
+                description="Smoothing factor for the running FP-rate estimate. Lower reacts slower; higher reacts faster."
+                value={draft.ewma_alpha}
+                min={0.01}
+                max={1}
+                step={0.01}
+                disabled={!canManage}
+                formatValue={(v) => v.toFixed(2)}
+                onChange={(v) => setDraft((d) => ({ ...d, ewma_alpha: v }))}
+              />
+
+              <Field
+                label="Cadence"
+                description="How often the tuner runs."
+              >
+                {({ id, describedBy }) => (
+                  <Select
+                    value={draft.cadence}
+                    disabled={!canManage}
+                    onValueChange={(v) =>
+                      setDraft((d) => ({ ...d, cadence: v as TuningCadence }))
+                    }
+                  >
+                    <SelectTrigger id={id} aria-describedby={describedBy}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CADENCES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {humanizeToken(c)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </Field>
+
+              <div className="flex items-start justify-between gap-4 sm:col-span-2">
                 <div className="space-y-0.5">
                   <Label htmlFor="tuning-shadow" className="text-sm">
                     Shadow-evaluate first
@@ -581,6 +616,25 @@ export function TuningInner({ onNavigate }: TuningProps) {
                 />
               </div>
             </div>
+
+            {/* Live "effective config" preview (R4). Advisory presentation only —
+                never calls decide(), never bills an LLM. */}
+            <EffectiveConfigPreview
+              summary={
+                draft.enabled
+                  ? `Auto-tune noisy rules ${CADENCE_LABEL[draft.cadence]}: any rule above a ${Math.round(draft.fp_rate_target * 100)}% false-positive rate (≥ ${fmtNumber(draft.min_samples)} samples) gets a bounded +${fmtNumber(draft.max_n_step)} threshold nudge${draft.shadow_eval ? ', shadow-checked first' : ''}.`
+                  : 'Auto-tuning is off — recommendations below are dry-run only until you enable it or Apply one manually.'
+              }
+              lines={[
+                { label: 'FP-rate target', value: `${Math.round(draft.fp_rate_target * 100)}%` },
+                { label: 'Min samples', value: fmtNumber(draft.min_samples) },
+                { label: 'Max n step', value: `+${fmtNumber(draft.max_n_step)}` },
+                { label: 'Wilson z', value: draft.wilson_z.toFixed(2) },
+                { label: 'EWMA alpha', value: draft.ewma_alpha.toFixed(2) },
+              ]}
+              belowFloorNote
+              noteText="A suppression (drop) proposal is never auto-applied — it routes to Approvals. A severity-floor change blocks auto-forward but never drops the candidate (#4)."
+            />
 
             {!canManage ? (
               <p className="text-xs text-muted-foreground">

@@ -310,7 +310,16 @@ CaseDetail.tsx, config.py, models.py, routes.py.
 - 7c86706 feat(round5): Settings IA overhaul + auto-close fix (G3, bug#1, bug#7). Settings.tsx 2673→575;
   registry + pages/settings/*; 5 groups + Security promoted; 33 redirect tests; schema fallback.
   Baseline now: 1518 pytest / 414 vitest / build clean / 0 lint errors.
+- f50e0b2 feat(round5): dashboard density + hero compaction + three-zone (G4/G5). Overview compact hero,
+  three-zone, PageContainer wide, Metrics/Cases density. 446 vitest.
+- 3e447da feat(round5): codemod primitives across pages + split CaseDetail (G2/G8). CaseDetail 4210→1529.
 - NOTE: 1 FLAKY vitest test (async render timeout under CPU load; passes 2/3 runs). Stabilize in P6 polish.
+- NOTE: index bundle chunk grew ~248→489kB (recharts still split). Restore code-splitting in Coupling wave
+  (likely settings-sections registry / dashboard eagerly pulled into entry). Check bundle-first-paint stays green.
+- WAVE STATUS: W0 done; Settings done; Dashboard done; Codemod+CaseDetail done; RULES G6 running (wf_fa238eab-20e);
+  next: Custom-Dash G7 → Coupling G8 (+restore code-splitting, remaining bugs #3,#9,#11,#13,#14) → A11y → P5 → P6 → P7.
+- CONTENTION for remaining waves: Rules+CustomDash both touch registry/nav (running Rules FIRST, then CustomDash).
+  Coupling-A (useNavigate) touches ALL pages → run LAST after all page edits. routes.py split = one-slice serial.
 
 ## VERIFIED BASELINE NOW: backend 1505 pytest, webui 348 vitest, build clean, 0 lint errors (jsx-a11y
 ## warnings acceptable), case_manager.py byte-identical. W0 FOUNDATIONS COMPLETE.

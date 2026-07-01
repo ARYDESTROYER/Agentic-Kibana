@@ -14,12 +14,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
-const { listMock, getMock, forCaseMock, recorrelateMock } = vi.hoisted(() => ({
-  listMock: vi.fn(),
-  getMock: vi.fn(),
-  forCaseMock: vi.fn(),
-  recorrelateMock: vi.fn(),
-}));
+const { listMock, getMock, forCaseMock, recorrelateMock, apiGetMock, apiPutMock } = vi.hoisted(
+  () => ({
+    listMock: vi.fn(),
+    getMock: vi.fn(),
+    forCaseMock: vi.fn(),
+    recorrelateMock: vi.fn(),
+    apiGetMock: vi.fn(),
+    apiPutMock: vi.fn(),
+  }),
+);
 
 vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../Campaigns.api')>();
@@ -33,6 +37,11 @@ vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
     },
   };
 });
+
+// The page loads the campaign config via the low-level api.get('campaigns/config').
+vi.mock('@/lib/api', () => ({
+  api: { get: apiGetMock, put: apiPutMock, post: vi.fn() },
+}));
 
 vi.mock('@/soc/auth', () => ({
   useAuth: () => ({
@@ -80,8 +89,12 @@ describe('Campaigns page', () => {
   beforeEach(() => {
     listMock.mockReset();
     recorrelateMock.mockReset();
+    apiGetMock.mockReset();
+    apiPutMock.mockReset();
     listMock.mockResolvedValue({ campaigns: [CAMPAIGN], total: 1, enabled: true });
     recorrelateMock.mockResolvedValue({ ok: true, count: 1, campaigns: [CAMPAIGN] });
+    // The campaign config load (useConfigEditor → api.get('campaigns/config')).
+    apiGetMock.mockResolvedValue({ config: { enabled: true, cadence: 'daily' } });
   });
 
   it('renders campaigns with name, case count and shared entities as plain text', async () => {
