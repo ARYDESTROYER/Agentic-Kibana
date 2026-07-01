@@ -6,7 +6,8 @@
  *  - a config edit (delete) flows through the deep-merge `update` buffer, writing the
  *    exact wire key — never a `decide()` call,
  *  - the "Detection & rules" section is REGISTERED in the settings registry under the
- *    General group, ON BY DEFAULT, gated on the unified `automation:manage` grant.
+ *    General group, ON BY DEFAULT, gated on the unified `rules` resource (M2 / R9) —
+ *    the SAME resource the backend `routes_rules.py` enforces, end-to-end.
  *
  * `useCan` is mocked to grant manage (auth-off back-compat) so the table + actions render.
  */
@@ -21,7 +22,7 @@ vi.mock('@/soc/components/Can', async () => {
 });
 
 import { DetectionRulesHome } from '../DetectionRulesHome';
-import { RULES_PERM } from '../types';
+import { RULES_PERM, RULES_READ_PERM } from '../types';
 import type { Preferences } from '@/lib/types';
 
 import {
@@ -107,12 +108,22 @@ describe('Detection & rules section registration', () => {
     expect(general.sections.map((s) => s.id)).toContain('detection_rules');
   });
 
-  it('is visible on the unified automation:read grant; mutations gate on automation:manage (R9)', () => {
+  it('gates the section + mutations on the UNIFIED `rules` resource, matching the backend (M2 / R9)', () => {
     const def = SECTION_BY_ID.detection_rules;
-    // Section VISIBILITY uses the read grant so a read-only viewer still sees the catalog.
-    expect(def.perm).toEqual({ resource: 'automation', action: 'read' });
-    // In-component mutations gate on the manage action (the RULES_PERM constant).
-    expect(RULES_PERM).toEqual({ resource: 'automation', action: 'manage' });
+    // M2 fix: the backend `routes_rules.py` enforces `rules:read`/`rules:manage` on the
+    // WHOLE surface (nav → ledger → rollback → preview). The FE MUST gate on the SAME
+    // resource end-to-end — NOT the legacy `automation` resource — so a custom role
+    // granted the advertised unified `rules:*` can actually see/use the editor (and a
+    // role without it is honestly blocked instead of seeing 403-ing buttons). For every
+    // built-in role `rules`/`automation`/`settings` derive identically, so this is
+    // behaviour-preserving for them and correct for custom roles.
+    expect(def.perm).toEqual({ resource: 'rules', action: 'read' });
+    expect(RULES_PERM).toEqual({ resource: 'rules', action: 'manage' });
+    expect(RULES_READ_PERM).toEqual({ resource: 'rules', action: 'read' });
+    // The section-visibility gate and the mutation gate agree on the resource (one
+    // surface, one resource) — the exact drift M2 fixes.
+    expect(def.perm?.resource).toBe(RULES_PERM.resource);
+    expect(def.perm?.resource).toBe(RULES_READ_PERM.resource);
   });
 
   it('owns the rule_catalog + threshold_automation keys (dirty-map)', () => {

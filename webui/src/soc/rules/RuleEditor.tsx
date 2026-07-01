@@ -176,22 +176,24 @@ function DefineMatch({ value, onChange, readOnly }: RuleEditorProps & { value: E
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Group by">
-            <Select
-              value={th.groupBy}
-              disabled={readOnly}
-              onValueChange={(v) => setThreshold({ groupBy: v as typeof th.groupBy })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ENTITY_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {({ id, labelledBy }) => (
+              <Select
+                value={th.groupBy}
+                disabled={readOnly}
+                onValueChange={(v) => setThreshold({ groupBy: v as typeof th.groupBy })}
+              >
+                <SelectTrigger id={id} aria-labelledby={labelledBy}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ENTITY_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </Field>
           <NumberField
             label="Trigger after N"
@@ -341,22 +343,24 @@ function DefineAnomaly({ value, onChange, readOnly }: RuleEditorProps & { value:
       </Alert>
 
       <Field label="Group by" description="The signature whose hour-of-week baseline is learned.">
-        <Select
-          value={an.groupBy}
-          disabled={readOnly}
-          onValueChange={(v) => setAnomaly({ groupBy: v as typeof an.groupBy })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ENTITY_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {({ id, labelledBy, describedBy }) => (
+          <Select
+            value={an.groupBy}
+            disabled={readOnly}
+            onValueChange={(v) => setAnomaly({ groupBy: v as typeof an.groupBy })}
+          >
+            <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ENTITY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </Field>
 
       <LabeledSlider
@@ -389,22 +393,24 @@ function DefineAnomaly({ value, onChange, readOnly }: RuleEditorProps & { value:
       />
 
       <Field label="Seasonality" description="How observations are bucketed for the baseline.">
-        <Select
-          value={an.seasonality}
-          disabled={readOnly}
-          onValueChange={(v) => setAnomaly({ seasonality: v as typeof an.seasonality })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {SEASONALITY_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {({ id, labelledBy, describedBy }) => (
+          <Select
+            value={an.seasonality}
+            disabled={readOnly}
+            onValueChange={(v) => setAnomaly({ seasonality: v as typeof an.seasonality })}
+          >
+            <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEASONALITY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </Field>
     </div>
   );
@@ -447,48 +453,57 @@ function DefineCaseAutomation({
                 : undefined
             }
           >
-            <Select
-              value={cond.verdict || ANY}
-              disabled={readOnly}
-              onValueChange={(v) => setCond({ verdict: v === ANY ? undefined : v })}
-            >
-              <SelectTrigger aria-invalid={invalidVerdict || undefined}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY}>Any verdict</SelectItem>
-                {VERDICT_CONDITION_VALUES.map((v) => (
-                  <SelectItem key={v} value={v}>
-                    {VERDICT_CONDITION_LABELS[v]}
-                  </SelectItem>
-                ))}
-                {invalidVerdict && typeof cond.verdict === 'string' ? (
-                  <SelectItem value={cond.verdict} disabled>
-                    {cond.verdict} (invalid)
-                  </SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
+            {({ id, labelledBy, describedBy, invalid }) => (
+              <Select
+                value={cond.verdict || ANY}
+                disabled={readOnly}
+                onValueChange={(v) => setCond({ verdict: v === ANY ? undefined : v })}
+              >
+                <SelectTrigger
+                  id={id}
+                  aria-labelledby={labelledBy}
+                  aria-describedby={describedBy}
+                  aria-invalid={invalid}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any verdict</SelectItem>
+                  {VERDICT_CONDITION_VALUES.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {VERDICT_CONDITION_LABELS[v]}
+                    </SelectItem>
+                  ))}
+                  {invalidVerdict && typeof cond.verdict === 'string' ? (
+                    <SelectItem value={cond.verdict} disabled>
+                      {cond.verdict} (invalid)
+                    </SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            )}
           </Field>
 
           <Field label="Status">
-            <Select
-              value={cond.status || ANY}
-              disabled={readOnly}
-              onValueChange={(v) => setCond({ status: v === ANY ? undefined : v })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ANY}>Any status</SelectItem>
-                {STATUS_CONDITION_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {({ id, labelledBy }) => (
+              <Select
+                value={cond.status || ANY}
+                disabled={readOnly}
+                onValueChange={(v) => setCond({ status: v === ANY ? undefined : v })}
+              >
+                <SelectTrigger id={id} aria-labelledby={labelledBy}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any status</SelectItem>
+                  {STATUS_CONDITION_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </Field>
 
           <NumberField
@@ -636,22 +651,24 @@ function ActionsTab({ value, onChange, readOnly }: RuleEditorProps) {
   return (
     <div className="space-y-4">
       <Field label="Action" description={actionMeta?.help}>
-        <Select
-          value={String(auto.action)}
-          disabled={readOnly}
-          onValueChange={(v) => onChange({ ...value, automation: { ...auto, action: v, payload: {} } })}
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {AUTOMATION_ACTIONS.map((a) => (
-              <SelectItem key={String(a.value)} value={String(a.value)}>
-                {a.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {({ id, labelledBy, describedBy }) => (
+          <Select
+            value={String(auto.action)}
+            disabled={readOnly}
+            onValueChange={(v) => onChange({ ...value, automation: { ...auto, action: v, payload: {} } })}
+          >
+            <SelectTrigger id={id} aria-labelledby={labelledBy} aria-describedby={describedBy}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AUTOMATION_ACTIONS.map((a) => (
+                <SelectItem key={String(a.value)} value={String(a.value)}>
+                  {a.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </Field>
 
       <Badge variant="warning" className="gap-1">

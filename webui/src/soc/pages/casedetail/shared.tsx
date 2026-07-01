@@ -406,7 +406,7 @@ export const HeadlinePanel: React.FC<{
       aria-hidden="true"
       className={cn('absolute inset-x-0 top-0 h-0.5', TONE_ACCENT[tone])}
     />
-    <span className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+    <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
       {label}
     </span>
     <span
@@ -425,7 +425,7 @@ export const HeadlinePanel: React.FC<{
 /** One quiet label/value pair for the run-meta strip. `value` is UNTRUSTED. */
 export const MetaItem: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="flex flex-col gap-0.5">
-    <span className="text-[0.625rem] font-semibold uppercase tracking-widest text-muted-foreground">
+    <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
       {label}
     </span>
     <span className="font-mono text-xs text-foreground">{value}</span>
@@ -444,7 +444,7 @@ export const SectionHeading: React.FC<{
   <div className="mb-4 flex items-center justify-between gap-3">
     <div className="flex items-center gap-2">
       <Icon className="h-4 w-4 text-muted-foreground" />
-      <h3 className="text-[0.8125rem] font-semibold tracking-tight text-foreground">
+      <h3 className="text-sm font-semibold tracking-tight text-foreground">
         {children}
       </h3>
     </div>

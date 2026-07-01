@@ -20,7 +20,7 @@ import { describe, it, expect } from 'vitest';
 import { checkTokenExistence } from '../../../scripts/gate-tokens.mjs';
 import { checkContrast } from '../../../scripts/gate-contrast.mjs';
 import { checkCvd } from '../../../scripts/gate-cvd.mjs';
-import { checkGrepGuards } from '../../../scripts/lib/grep-guard.mjs';
+import { checkGrepGuards, loadBaseline } from '../../../scripts/lib/grep-guard.mjs';
 
 describe('design gate: token existence (theme.css ⇄ ALLOWED_TOKENS ⇄ palette)', () => {
   it('every ALLOWED_TOKENS + palette token() name exists in :root AND .dark', () => {
@@ -67,5 +67,45 @@ describe('design gate: no NEW arbitrary text sizes / raw hex in .tsx', () => {
     const { ok, violations } = checkGrepGuards();
     expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
     expect(ok).toBe(true);
+  });
+});
+
+/**
+ * Round-5 audit M1 regression. The grep guard passes green whenever every file is at
+ * or below its committed baseline — so it can be neutered by REGENERATING the baseline
+ * UP after a violation is added (exactly what commit 3e447da did, grandfathering the
+ * split-out CaseDetail files' arbitrary text sizes). `checkGrepGuards()` alone can
+ * never catch that, because the regenerated baseline makes the new count "allowed".
+ *
+ * These assertions pin the baseline itself so a future up-regeneration fails CI:
+ *   - files known to be fully on the type scale must be grandfathered at ZERO, and
+ *   - the total grandfathered ceiling must only ratchet DOWN, never back up.
+ * This block would have FAILED on 3e447da (baseline grandfathered the split files at
+ * 2 and 3), catching the design regression the guard was meant to catch.
+ */
+describe('design gate: grep baseline only ratchets DOWN (M1 anti-grandfather)', () => {
+  const baseline = loadBaseline();
+  const textBase: Record<string, number> = baseline['arbitrary-text-size'] || {};
+
+  // Files migrated to the type scale in the M1 fix. The baseline must NOT grandfather
+  // any arbitrary text size for them — a nonzero entry means a violation was re-baselined
+  // up instead of migrated to a scale step (DESIGN_STANDARD §2.3).
+  const MUST_BE_ZERO = [
+    'src/soc/pages/CaseDetail.tsx',
+    'src/soc/pages/casedetail/FeedbackPanel.tsx',
+    'src/soc/pages/casedetail/shared.tsx',
+    'src/soc/pages/settings/automation.tsx',
+  ];
+
+  it.each(MUST_BE_ZERO)('grandfathers zero arbitrary text sizes for %s', (file) => {
+    expect(textBase[file] ?? 0).toBe(0);
+  });
+
+  it('total grandfathered arbitrary text sizes never exceed the ratcheted ceiling', () => {
+    // The pre-Round-5 baseline grandfathered 105 occurrences; the M1 fix ratcheted it
+    // down to 75. This ceiling must only ever DROP — raising it re-grandfathers new
+    // violations (the M1 defect), so the assertion is deliberately a hard `<=`.
+    const total = Object.values(textBase).reduce((a, b) => a + b, 0);
+    expect(total).toBeLessThanOrEqual(75);
   });
 });

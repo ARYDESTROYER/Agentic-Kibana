@@ -6,7 +6,13 @@
  * Wiring (done for you):
  *  - a `useId()`-derived control id is passed to the child via a render-prop
  *    (`children(ids)`) OR auto-injected when `children` is a single element.
- *  - `<label htmlFor={id}>` (Radix Label) — clicking the label focuses the control.
+ *  - `<label htmlFor={id} id={labelId}>` (Radix Label) — clicking the label focuses
+ *    the control.
+ *  - for controls whose real focusable node is NOT the element Field clones (Radix
+ *    `<Select>` renders its `role="combobox"` on the DESCENDANT `<SelectTrigger>`, not
+ *    on the `<Select>` Root that Field would clone), use the render-prop and spread
+ *    `labelledBy` onto `<SelectTrigger>` (`id={id} aria-labelledby={labelledBy}`) so the
+ *    trigger — not the DOM-less Root — carries the accessible name. See H4.
  *  - `aria-describedby` points at BOTH the description and (when present) the
  *    error node, so screen readers announce them.
  *  - `aria-invalid` + `aria-errormessage` are set on the control when `error` is
@@ -33,6 +39,12 @@ import { cn } from '@/lib/cn';
 export interface FieldControlProps {
   /** Stable control id — set on the control's `id`. */
   id: string;
+  /**
+   * Stable id of the visible `<label>` — set on the control's `aria-labelledby`.
+   * REQUIRED for controls whose focusable node is a descendant Field cannot clone
+   * (e.g. a Radix `<SelectTrigger>`), where `htmlFor` alone cannot name the control.
+   */
+  labelledBy: string;
   /** Space-joined ids for `aria-describedby` (description + error, present ones only). */
   describedBy: string | undefined;
   /** `aria-invalid` — true when `error` is set. */
@@ -65,12 +77,19 @@ export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
   ({ label, description, error, required, labelAction, hideLabel, className, children, ...rest }, ref) => {
     const base = React.useId();
     const id = `${base}-control`;
+    const labelId = `${base}-label`;
     const descId = description ? `${base}-desc` : undefined;
     const errId = error ? `${base}-err` : undefined;
     const describedBy = [descId, errId].filter(Boolean).join(' ') || undefined;
     const invalid = error ? true : undefined;
 
-    const controlProps: FieldControlProps = { id, describedBy, invalid, required: required || undefined };
+    const controlProps: FieldControlProps = {
+      id,
+      labelledBy: labelId,
+      describedBy,
+      invalid,
+      required: required || undefined,
+    };
 
     let control: React.ReactNode;
     if (typeof children === 'function') {
@@ -92,7 +111,7 @@ export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
     return (
       <div ref={ref} className={cn('space-y-1.5', className)} {...rest}>
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={id} className={cn(hideLabel && 'sr-only')}>
+          <Label htmlFor={id} id={labelId} className={cn(hideLabel && 'sr-only')}>
             {label}
             {required ? (
               <span className="ml-0.5 text-critical-text" aria-hidden="true">

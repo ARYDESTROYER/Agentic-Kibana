@@ -164,29 +164,46 @@ def test_case_automation_crud_and_deep_merge(state_and_client) -> None:
 
 def test_bug6_invalid_verdict_rejected_and_flagged(state_and_client) -> None:
     state, client = state_and_client
-    # BUG #6: 'suspicious'/'benign' are Dispositions, not Verdicts — a rule storing one
-    # could never fire, so the write is REJECTED (400).
-    for bad in ("suspicious", "benign", "false_positive"):  # lowercase disposition values
+    # BUG #6: 'suspicious'/'benign' are DISPOSITIONS, not Verdicts — a rule storing one
+    # could never fire, so the write is REJECTED (400) regardless of case.
+    for bad in ("suspicious", "benign", "SUSPICIOUS", "Benign"):
         r = client.put("/api/rules/case-automation/badrule", json={
             "id": "badrule", "action": "tag", "conditions": {"verdict": bad}})
         assert r.status_code == 400, f"{bad} must be rejected"
         assert "verdict" in r.json()["detail"].lower()
-    # A real verdict is accepted.
-    assert client.put("/api/rules/case-automation/goodrule", json={
-        "id": "goodrule", "action": "tag", "conditions": {"verdict": "FALSE_POSITIVE"}}).status_code == 200
+
+    # H2 REGRESSION GUARD: the verdict check is CASE-INSENSITIVE (it mirrors the engine
+    # matcher, which `.upper()`s both sides). BOTH editors emit LOWERCASE verdicts
+    # (`constants.ts:132` → true_positive/false_positive/needs_human) and `adapter.ts`
+    # passes them verbatim, so the router's own CRUD path MUST accept them. Before the
+    # fix, a lowercase `false_positive` 400'd — the exact bug this test now pins shut.
+    for good in ("false_positive", "true_positive", "needs_human",   # the UI-emitted case
+                 "FALSE_POSITIVE", "TRUE_POSITIVE", "NEEDS_HUMAN"):   # the enum/canonical case
+        r = client.put("/api/rules/case-automation/goodrule", json={
+            "id": "goodrule", "action": "tag", "conditions": {"verdict": good}})
+        assert r.status_code == 200, f"{good} is a REAL verdict and must be accepted: {r.text}"
 
     # A LEGACY impossible-verdict rule injected directly into prefs is FLAGGED on read
-    # so the UI can migrate it (bug #6 migration signal).
+    # so the UI can migrate it (bug #6 migration signal) — but a lowercase REAL verdict is
+    # NOT flagged (it is valid, just in the case the UI sends).
     from app.config import CaseAutomationRule
     legacy = CaseAutomationRule(id="legacy", action="tag", conditions={"verdict": "suspicious"})
+    lower_ok = CaseAutomationRule(id="lower_ok", action="tag",
+                                  conditions={"verdict": "false_positive"})
     cfg = state.prefs.threshold_automation.model_copy(
-        update={"rules": [*state.prefs.threshold_automation.rules, legacy]})
+        update={"rules": [*state.prefs.threshold_automation.rules, legacy, lower_ok]})
     client.portal.call(lambda: state.update_prefs(
         state.prefs.model_copy(update={"threshold_automation": cfg})))
     body = client.get("/api/rules").json()
     flags = {row["id"]: row["invalid_verdict"] for row in body["case_automation"]}
-    assert flags["legacy"] is True and flags["goodrule"] is False
+    assert flags["legacy"] is True, "a Disposition stored as a verdict is flagged for migration"
+    assert flags["goodrule"] is False
+    # The crux of H2: a lowercase REAL verdict must NOT be falsely flagged invalid.
+    assert flags["lower_ok"] is False, "a lowercase real verdict is valid, not 'invalid_verdict'"
+    # The canonical (enum-case) set is unchanged for display; the lowercase set the editors
+    # use is also returned (additive), so the FE need not case-fold.
     assert body["valid_verdicts"] == ["FALSE_POSITIVE", "NEEDS_HUMAN", "TRUE_POSITIVE"]
+    assert body["valid_verdicts_lower"] == ["false_positive", "needs_human", "true_positive"]
 
 
 # --------------------------------------------------------------------------- #
@@ -278,6 +295,32 @@ def test_preview_empty_predicate_matches_nothing(state_and_client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert body["scanned"] >= 1 and body["matched"] == 0 and body["match_rate"] == 0.0
+
+
+def test_preview_evaluates_only_first_predicate_row_matching_deploy(state_and_client) -> None:
+    """M3: the save adapter keeps only the FIRST predicate row (``RuleDefinition.match``
+    is a single ``RuleMatch``; nested AND/OR is deferred). The preview MUST evaluate the
+    SAME first row the deployed rule fires on — ANDing every row would UNDER-count vs. the
+    real rule and mis-calibrate the operator. This pins that parity."""
+    state, client = state_and_client
+    assert client.post("/api/sources", json={
+        "id": "elk-a", "source_type": "elasticsearch", "is_primary": True,
+        "config": {"data_view_pattern": INDEX_A}}).status_code == 200
+
+    # Row 1 matches the 6 brute_force rows. Row 2 can NEVER be true for those rows — if the
+    # preview ANDed all rows it would report 0; the deployed rule (first row only) fires on
+    # 6. A correct preview reports 6 (what actually deploys) + says it evaluated only 1 row.
+    r = client.post("/api/rules/preview", json={
+        "match": [
+            {"field": "rule.name", "op": "equals", "value": "brute_force"},   # first (saved) row
+            {"field": "rule.name", "op": "equals", "value": "does_not_exist"},  # extra, dropped on save
+        ],
+        "limit": 200, "bucket_minutes": 60})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["matched"] == 6, "preview must count the FIRST row only (what deploys), not the AND"
+    assert body["predicates"] == 2, "both supplied rows are reported"
+    assert body["predicates_evaluated"] == 1, "only the first row is evaluated (matches the adapter)"
 
 
 # --------------------------------------------------------------------------- #
@@ -413,3 +456,91 @@ def test_underprivileged_role_is_forbidden_from_managing_rules() -> None:
             "name": "aud_try", "match": {"field": "f", "op": "exists"}})
         assert r.status_code == 403, r.text
         assert "rules:manage" in r.json()["detail"]
+
+
+def test_custom_role_with_only_rules_grant_can_read_ledger_and_rollback() -> None:
+    """M2 (bug-#7 class): a CUSTOM role granted ONLY the unified ``rules`` resource —
+    NOT ``automation`` and NOT ``settings`` — must be able to use the whole rules-native
+    surface the FE now gates on ``rules``: read the catalog, load the version ledger, and
+    ROLL BACK. This is exactly the case where the OLD FE (gating on ``automation``/
+    ``settings``) diverged from the backend (enforcing ``rules``): the role could not see
+    the editor / saw buttons that then 403'd. The backend proves the ``rules`` grant is
+    the single coherent one; the FE unification (RULES_PERM → ``rules``) matches it."""
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=app.state._secrets, es=InMemoryESClient(),
+                                provider_overrides=app.state._ov)
+        await state.startup(start_poller=False)
+        # A custom role whose ONLY grants are the unified ``rules`` read+manage. Base
+        # ``auditor`` starts read-only across the board and carries NO settings/automation
+        # MANAGE — so if the router mistakenly required ``automation``/``settings`` the
+        # ledger/rollback would 403, catching an FE↔BE resource drift.
+        rbac = state.prefs.rbac.model_copy(update={
+            "enabled": True,
+            "custom_roles": [{
+                "name": "rules_only",
+                "inherits": ["auditor"],
+                "grants": {"rules": ["read", "manage"]},
+            }],
+        })
+        prefs = state.prefs.model_copy(update={"setup_complete": True, "rbac": rbac})
+        await state.update_prefs(prefs)
+        app.state.tlsoc = state
+        app.state._st = state
+        yield
+        await state.shutdown()
+
+    secrets = Secrets(_env_file=None, es_store_enabled=False, redis_url="",
+                      anthropic_api_key=None, openai_api_key=None,
+                      auth_enabled=True, auth_jwt_secret="r5-rules-custom",
+                      auth_seed_admin=True)
+    mock = MockProvider()
+    overrides = {"anthropic": mock, "openai": mock, "mock": mock}
+    api = FastAPI(lifespan=lifespan)
+    api.state._secrets = secrets
+    api.state._ov = overrides
+    api.include_router(monolith_router, dependencies=[Depends(require_auth)])
+    api.include_router(rules_router, dependencies=[Depends(require_auth)])
+    with TestClient(api) as c:
+        state = c.app.state._st
+
+        def _login(u, p):
+            c.cookies.clear()
+            r = c.post("/api/auth/login", json={"username": u, "password": p})
+            assert r.status_code == 200, r.text
+
+        _login("Admin", "Admin@123")
+        # Seed a versioned detection rule as Admin so there is a ledger to roll back.
+        assert c.put("/api/rules/detection/vr", json={
+            "name": "vr", "description": "v1",
+            "match": {"field": "rule.name", "op": "equals", "value": "x"}}).status_code == 200
+        assert c.put("/api/rules/detection/vr", json={
+            "name": "vr", "description": "v2",
+            "match": {"field": "rule.name", "op": "equals", "value": "y"}}).status_code == 200
+
+        # Create the user and ASSIGN the custom role (persisted in User.prefs.custom_roles,
+        # where the RBAC enforcement path reads it).
+        assert c.post("/api/users", json={
+            "username": "ru", "password": "ru-pass-1",
+            "role": UserRole.AUDITOR.value}).status_code == 200
+        c.portal.call(lambda: state.users.update("ru", prefs={"custom_roles": ["rules_only"]}))
+
+        _login("ru", "ru-pass-1")
+        # rules:read → the catalog + the version ledger both load.
+        assert c.get("/api/rules").status_code == 200
+        versions = c.get("/api/rules/detection/vr/versions")
+        assert versions.status_code == 200, versions.text
+        vlist = versions.json()["versions"]
+        v1_id = vlist[-1]["id"]  # oldest = the v1 create
+        # rules:manage → rollback (a rules-native endpoint, NOT the Settings buffer) works
+        # for this role even though it has NO settings:manage grant. This is the crux: the
+        # unified ``rules`` grant is sufficient for the rules-native surface (M2).
+        rb = c.post(f"/api/rules/detection/vr/rollback/{v1_id}")
+        assert rb.status_code == 200, rb.text
+        live = next(rd for rd in state.prefs.rule_catalog if rd.name == "vr")
+        assert live.description == "v1"
+
+        # Sanity: the SAME role is still denied a resource it was NOT granted (settings),
+        # proving the grant is scoped to ``rules`` and not accidentally broadened.
+        denied = c.put("/api/settings", json={"escalation_confidence": 0.5})
+        assert denied.status_code == 403, denied.text

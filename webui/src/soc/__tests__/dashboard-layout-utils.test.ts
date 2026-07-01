@@ -115,3 +115,61 @@ describe('layout-utils — normalizeWidget + freshId', () => {
     expect(a.startsWith('w-')).toBe(true);
   });
 });
+
+/**
+ * M4 (type sync): the wire contract is `i`/`options`, NOT the legacy registry-side
+ * `id`/`config`. `normalizeWidget()` is the mandatory serialization boundary that
+ * upgrades a registry-shaped widget (`id`/`config`) to the wire shape (`i`/`options`)
+ * — WITHOUT it, a widget built against the declared type would be silently re-keyed by
+ * the backend (fresh `i`, dropped config). These lock that boundary so the type can't
+ * lie about the wire again.
+ */
+describe('layout-utils — M4: id/config → wire i/options round-trip', () => {
+  it('normalizeWidget maps registry-side `id` → wire `i` and `config` → `options`', () => {
+    const registryShape: DashboardWidget = {
+      id: 'w-from-registry',
+      type: 'kpi.needs_human',
+      x: 1,
+      y: 2,
+      w: 3,
+      h: 3,
+      config: { title: 'My tile', metric: 'needs_human' },
+    };
+    const wire = normalizeWidget(registryShape) as Record<string, unknown>;
+
+    // The wire keys are present and carry the identity + config.
+    expect(wire.i).toBe('w-from-registry');
+    expect(wire.options).toEqual({ title: 'My tile', metric: 'needs_human' });
+    // The stable-id/options readers agree with the wire shape.
+    expect(widgetId(wire as DashboardWidget)).toBe('w-from-registry');
+    expect(widgetOptions(wire as DashboardWidget)).toEqual({
+      title: 'My tile',
+      metric: 'needs_human',
+    });
+  });
+
+  it('a widget already in the wire shape (`i`/`options`) round-trips unchanged', () => {
+    const wireShape: DashboardWidget = {
+      i: 'w-wire',
+      type: 'gauge.active_risk',
+      x: 0,
+      y: 0,
+      w: 3,
+      h: 4,
+      options: { title: 'Risk' },
+    };
+    const out = normalizeWidget(wireShape) as Record<string, unknown>;
+    expect(out.i).toBe('w-wire');
+    expect(out.options).toEqual({ title: 'Risk' });
+  });
+
+  it('config is NOT lost when only the legacy key is set (would silently drop pre-fix)', () => {
+    // The declared type now exposes BOTH keys; a dev writing `.config` still round-trips
+    // through normalizeWidget to the wire `options` the backend reads.
+    const out = normalizeWidget(w({ type: 'kpi.cost_budget', config: { keep: 1 } })) as Record<
+      string,
+      unknown
+    >;
+    expect(out.options).toEqual({ keep: 1 });
+  });
+});

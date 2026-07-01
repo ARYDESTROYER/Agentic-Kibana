@@ -852,7 +852,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <span className="shrink-0 font-mono text-xs font-semibold text-primary">
                         {c.case_number || c.case_id}
                       </span>
-                      <DemoBadge show={isDemoCase(c)} className="text-[10px]" />
+                      <DemoBadge show={isDemoCase(c)} className="text-2xs" />
                     </div>
                     <h2 className="mt-0.5 truncate text-lg font-bold tracking-tight text-foreground">
                       {/* UNTRUSTED title — plain text node. */}
@@ -936,7 +936,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                           }
                           disabled={reinvesting}
                         >
-                          <SelectTrigger className="h-8 text-xs">
+                          <SelectTrigger className="h-8 text-xs" aria-label="Model">
                             <SelectValue placeholder="Use configured model" />
                           </SelectTrigger>
                           <SelectContent>
@@ -1034,7 +1034,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                               onValueChange={setRunPlaybookId}
                               disabled={runningPlaybook}
                             >
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-8 text-xs" aria-label="Playbook">
                                 <SelectValue placeholder="Select a playbook…" />
                               </SelectTrigger>
                               <SelectContent>

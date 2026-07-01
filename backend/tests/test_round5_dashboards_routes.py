@@ -41,7 +41,10 @@ from app.state import AppState
 # --------------------------------------------------------------------------- #
 # Payload helpers
 # --------------------------------------------------------------------------- #
-def _widget(i: str = "w1", type: str = "kpi.open_cases", **kw: Any) -> dict[str, Any]:
+def _widget(i: str = "w1", type: str = "kpi.needs_human", **kw: Any) -> dict[str, Any]:
+    # Default to a REAL client-registry widget type (the ones the UI actually emits).
+    # Using a server-only type here would pass the allowlist but never exercise a widget
+    # the client can build — the exact gap that hid audit C1.
     w = {"i": i, "type": type, "x": 0, "y": 0, "w": 4, "h": 4}
     w.update(kw)
     return w
@@ -102,7 +105,7 @@ def test_create_list_update_remove_roundtrip(client) -> None:
     did = created["id"]
     assert created["name"] == "Board A"
     assert len(created["widgets"]) == 1
-    assert created["widgets"][0]["type"] == "kpi.open_cases"
+    assert created["widgets"][0]["type"] == "kpi.needs_human"
     assert created["schema_version"] == 1
 
     # List reflects the create.
@@ -111,7 +114,7 @@ def test_create_list_update_remove_roundtrip(client) -> None:
 
     # Update (PUT, path id authoritative) — rename + add a widget.
     upd = _layout("Board A renamed", id=did, widgets=[
-        _widget("w1"), _widget("w2", "chart.cases_per_day", x=4),
+        _widget("w1"), _widget("w2", "chart.verdict_mix", x=4),
     ])
     r2 = client.put(f"/api/dashboards/{did}", json=upd)
     assert r2.status_code == 200, r2.text
@@ -173,7 +176,7 @@ def test_clone_from_org_role_default(client) -> None:
     default_layout = {
         "id": "dash-role-default", "name": "Role default", "schema_version": 1,
         "columns": 12,
-        "widgets": [_widget("w1", "kpi.mtta"), _widget("w2", "barlist.top_mitre", x=4)],
+        "widgets": [_widget("w1", "kpi.lifecycle_timing"), _widget("w2", "mitre.heatmap", x=4)],
     }
     cust = CustomizationConfig(default_dashboards={"analyst": default_layout})
     client.portal.call(  # type: ignore[attr-defined]
@@ -188,7 +191,7 @@ def test_clone_from_org_role_default(client) -> None:
     clone = r.json()
     assert clone["id"] != "dash-role-default"
     assert clone["name"] == "Role default (copy)"
-    assert {w["type"] for w in clone["widgets"]} == {"kpi.mtta", "barlist.top_mitre"}
+    assert {w["type"] for w in clone["widgets"]} == {"kpi.lifecycle_timing", "mitre.heatmap"}
     assert len(client.get("/api/dashboards").json()["dashboards"]) == 1
 
 
@@ -196,7 +199,7 @@ def test_clone_from_org_role_default(client) -> None:
 # Widget-type ALLOWLIST — an unknown type is a hard 400 (#9)
 # --------------------------------------------------------------------------- #
 def test_unknown_widget_type_rejected_on_create(client) -> None:
-    bad = _layout("Bad", widgets=[_widget("w1", "kpi.open_cases"), _widget("w2", "evil.exfil")])
+    bad = _layout("Bad", widgets=[_widget("w1", "kpi.needs_human"), _widget("w2", "evil.exfil")])
     r = client.post("/api/dashboards", json=bad)
     assert r.status_code == 400, r.text
     assert "unknown widget type" in r.json()["detail"].lower()
@@ -211,7 +214,7 @@ def test_unknown_widget_type_rejected_on_update(client) -> None:
     assert "unknown widget type" in r.json()["detail"].lower()
     # The original dashboard is untouched (still 1 good widget).
     stored = client.get("/api/dashboards").json()["dashboards"][0]
-    assert stored["widgets"][0]["type"] == "kpi.open_cases"
+    assert stored["widgets"][0]["type"] == "kpi.needs_human"
 
 
 # --------------------------------------------------------------------------- #
@@ -241,7 +244,7 @@ def test_widget_title_control_char_rejected(client) -> None:
 # Coord clamp — an out-of-grid placement is clamped into the 12-column grid
 # --------------------------------------------------------------------------- #
 def test_out_of_grid_coords_are_clamped(client) -> None:
-    wide = _layout("wide", widgets=[_widget("w1", "kpi.open_cases", x=99, y=-5, w=99, h=-3)])
+    wide = _layout("wide", widgets=[_widget("w1", "kpi.needs_human", x=99, y=-5, w=99, h=-3)])
     r = client.post("/api/dashboards", json=wide)
     assert r.status_code == 200, r.text
     w = r.json()["widgets"][0]
@@ -256,7 +259,7 @@ def test_out_of_grid_coords_are_clamped(client) -> None:
 # Caps — per-user dashboard limit + widgets/dashboard cap
 # --------------------------------------------------------------------------- #
 def test_widgets_per_dashboard_cap(client) -> None:
-    too_many = [_widget(f"w{n}", "kpi.open_cases") for n in range(_MAX_WIDGETS_PER_DASHBOARD + 1)]
+    too_many = [_widget(f"w{n}", "kpi.needs_human") for n in range(_MAX_WIDGETS_PER_DASHBOARD + 1)]
     r = client.post("/api/dashboards", json=_layout("huge", widgets=too_many))
     assert r.status_code == 400
     assert "too many widgets" in r.json()["detail"].lower()

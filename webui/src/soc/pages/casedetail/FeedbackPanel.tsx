@@ -232,7 +232,7 @@ export const FeedbackTab: React.FC<{
         </div>
 
         <div className="mt-4 rounded-md border border-border bg-muted/30 p-4">
-          <div className="mb-3 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="mb-3 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
             Quality (optional)
           </div>
           <div className="space-y-2">
@@ -253,7 +253,7 @@ export const FeedbackTab: React.FC<{
               value={outcome || '__unknown__'}
               onValueChange={(v) => setOutcome(v === '__unknown__' ? '' : v)}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" aria-label="Actual outcome">
                 <SelectValue placeholder="Unknown" />
               </SelectTrigger>
               <SelectContent>
@@ -318,7 +318,7 @@ export const FeedbackTab: React.FC<{
         {priorFeedback.length ? (
           <>
             <Separator className="my-4" />
-            <div className="mb-3 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+            <div className="mb-3 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
               Previous gradings
             </div>
             <div className="space-y-2">

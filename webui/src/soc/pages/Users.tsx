@@ -195,7 +195,7 @@ export function UsersInner() {
             onValueChange={(v) => void changeRole(u, v)}
             disabled={busyUser === u.username}
           >
-            <SelectTrigger className="h-8 w-[11rem]">
+            <SelectTrigger className="h-8 w-[11rem]" aria-label={`Role for ${u.username}`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

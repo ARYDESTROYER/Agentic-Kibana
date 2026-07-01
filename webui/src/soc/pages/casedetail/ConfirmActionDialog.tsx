@@ -121,7 +121,7 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
             <div className="space-y-1.5">
               <Label className="text-xs">Disposition (required)</Label>
               <Select value={disposition} onValueChange={onDispositionChange}>
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Disposition (required)">
                   <SelectValue placeholder="Select an outcome…" />
                 </SelectTrigger>
                 <SelectContent>
@@ -142,7 +142,7 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
                 value={resolution || '__none__'}
                 onValueChange={(v) => onResolutionChange(v === '__none__' ? '' : v)}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Resolution (optional)">
                   <SelectValue placeholder="— No resolution —" />
                 </SelectTrigger>
                 <SelectContent>
@@ -187,7 +187,7 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
                 value={priority || '__none__'}
                 onValueChange={(v) => onPriorityChange(v === '__none__' ? '' : v)}
               >
-                <SelectTrigger className="h-9">
+                <SelectTrigger className="h-9" aria-label="Priority (optional)">
                   <SelectValue placeholder="— No priority —" />
                 </SelectTrigger>
                 <SelectContent>

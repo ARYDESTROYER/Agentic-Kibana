@@ -513,7 +513,7 @@ export function DataTable<T>({
                   value={String(pageSize)}
                   onValueChange={(v) => onPageSizeChange(Number(v))}
                 >
-                  <SelectTrigger className="h-7 w-[4.5rem] text-xs">
+                  <SelectTrigger className="h-7 w-[4.5rem] text-xs" aria-label="Rows per page">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

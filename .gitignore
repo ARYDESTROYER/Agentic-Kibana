@@ -42,3 +42,9 @@ chroma/
 # ---- OS ----
 .DS_Store
 Thumbs.db
+
+# ---- Round-5 temp / caches (do not commit) ----
+WORK_TRACKER.md
+.vite/
+webui/.vite/
+**/vitest/results.json

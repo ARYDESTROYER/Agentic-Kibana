@@ -2390,14 +2390,31 @@ export interface CustomizationConfig {
 // TYPE is server-allowlisted on PUT; `title`/`name` are UNTRUSTED → plain text/SVG
 // (#9), never `dangerouslySetInnerHTML`. Layout is ADVISORY, never feeds #3. ------ //
 /**
- * One widget placed on a custom dashboard (mirrors backend `DashboardWidget`). The
- * grid geometry `{x,y,w,h,minW,minH,static}` doubles as the react-grid-layout item
- * (the widget `id` is RGL's `i`). `type` is a `WidgetType` from the widget registry
- * (server-allowlisted on PUT). `config` is declarative per-widget settings.
+ * One widget placed on a custom dashboard (mirrors backend `DashboardWidget` —
+ * `models.py:648`). The grid geometry `{x,y,w,h,minW,minH,static}` doubles as the
+ * react-grid-layout item shape.
+ *
+ * WIRE CONTRACT (the source of truth is the backend): the stable id is **`i`** and the
+ * declarative config bag is **`options`** — these are what every route reads/writes
+ * verbatim (`routes_dashboards.py`). Serialize a widget through
+ * `layout-utils.normalizeWidget()` (the mandatory serialization boundary) before it
+ * crosses the wire so it always carries a concrete `i`/`options`.
+ *
+ * `id`/`config` are LEGACY registry-side aliases (`registry.ts` `buildDefaultWidgets` /
+ * `reconcileWidgets` produce `id`); `layout-utils.widgetId()` / `widgetOptions()` read
+ * EITHER, and `normalizeWidget()` upgrades the registry shape to the wire `i`/`options`.
+ * Prefer `i`/`options` in NEW code — a widget written with only `id`/`config` and sent
+ * WITHOUT `normalizeWidget` would be silently re-keyed by the backend (fresh `i`, dropped
+ * config). `type` is a `WidgetType` from the widget registry (server-allowlisted on PUT).
  */
 export interface DashboardWidget {
-  /** Stable per-widget id (also the react-grid-layout `i`). */
-  id: string;
+  /** Stable per-widget id AND the react-grid-layout `i` — the WIRE key (preferred). */
+  i?: string;
+  /**
+   * LEGACY registry-side id alias (`registry.ts` writes this). Read via
+   * `layout-utils.widgetId()`; upgraded to `i` by `normalizeWidget()`. Prefer `i`.
+   */
+  id?: string;
   /** Widget kind — a key from the widget registry (server-allowlisted). */
   type: string;
   /** Grid position + size (react-grid-layout units). */
@@ -2411,8 +2428,14 @@ export interface DashboardWidget {
   /** When true the widget is pinned (not draggable/resizable). */
   static?: boolean;
   /**
-   * Declarative per-widget config (title, time-range, metric key, …). Values are
-   * operator-authored → render plain text / SVG `<text>` (#9), never markup.
+   * Declarative per-widget options bag (title, time-range, metric key, …) — the WIRE
+   * key (preferred). Values are operator-authored → render plain text / SVG `<text>`
+   * (#9), never markup.
+   */
+  options?: Record<string, unknown>;
+  /**
+   * LEGACY registry-side alias of `options`. Read via `layout-utils.widgetOptions()`;
+   * upgraded to `options` by `normalizeWidget()`. Prefer `options`.
    */
   config?: Record<string, unknown>;
   [key: string]: unknown;

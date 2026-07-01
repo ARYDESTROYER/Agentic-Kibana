@@ -11,17 +11,14 @@
  * The editor is a pure config-writer (edits flow through `onChange`, never `decide()`),
  * so asserting on its static markup touches no runtime / #3 behaviour.
  *
- * ── Scoped rule (documented) ────────────────────────────────────────────────────────
- * `button-name` is DISABLED for this smoke. It fires on ONE node: a Radix `<Select>`
- * wrapped by the `Field` primitive (e.g. "Group by"). `Field` injects its generated
- * `id` onto the `<Select>` *root* (a context provider), not onto the underlying
- * `role="combobox"` trigger button, so the `<label htmlFor>` never names the trigger
- * and axe reports it as a nameless button. The ConditionBuilder Selects (which set an
- * explicit `aria-label`) do NOT trip this — proving the finding is the Field+Select
- * wiring, a SOURCE-side fix (out of scope for this test-only task; the Field primitive
- * should forward its id to the trigger or the caller should aria-label the trigger).
- * We scope OUT just that one rule so the smoke still guards every OTHER a11y regression
- * (labels, roles, contrast, tab semantics) on this surface. Tracked for a source fix.
+ * ── H4 FIXED — full ruleset, nothing scoped out ─────────────────────────────────────
+ * Previously `button-name` was scoped out here: `Field` injected its generated `id` onto
+ * the Radix `<Select>` *root* (a context provider that renders no DOM), not the underlying
+ * `role="combobox"` trigger, so `<label htmlFor>` never named the trigger and axe reported
+ * a nameless button. H4's fix makes every Field-wrapped Select use the render-prop and
+ * forward `id` + `aria-labelledby` to its `<SelectTrigger>`. We now run the FULL axe
+ * ruleset (no scoped exceptions) so the whole surface — including combobox naming — is
+ * guarded against regression.
  */
 import * as React from 'react';
 import { describe, it, expect } from 'vitest';
@@ -36,10 +33,6 @@ import { RuleEditor } from '../RuleEditor';
 import { newRuleForm } from '../constants';
 import type { RuleForm } from '../types';
 
-// See the header block: `Field`-wrapped Radix Select does not name its trigger button.
-// Documented, source-side, out of scope for a test-only change.
-const AXE_OPTS = { rules: { 'button-name': { enabled: false } } };
-
 describe('RuleEditor — a11y smoke (jest-axe)', () => {
   it('has no axe violations on the detection-match Define surface', async () => {
     const form = newRuleForm('detection_match') as Extract<RuleForm, { tier: 'detection_match' }>;
@@ -51,6 +44,36 @@ describe('RuleEditor — a11y smoke (jest-axe)', () => {
       </TooltipProvider>,
     );
 
-    expect(await axe(container, AXE_OPTS)).toHaveNoViolations();
+    // Full axe ruleset — H4 named every combobox trigger, so nothing is scoped out.
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it('names every combobox trigger — the anomaly Group-by / Seasonality Selects (H4 regression guard)', async () => {
+    // The anomaly tier renders the Field-wrapped "Group by" + "Seasonality" Selects whose
+    // triggers used to be nameless (Field cloned its id onto the DOM-less Radix Root).
+    // Assert the accessible name now resolves via the forwarded aria-labelledby.
+    const form = newRuleForm('detection_anomaly') as Extract<RuleForm, { tier: 'detection_anomaly' }>;
+
+    const { getAllByRole } = render(
+      <TooltipProvider>
+        <RuleEditor value={form} onChange={() => {}} />
+      </TooltipProvider>,
+    );
+
+    const combos = getAllByRole('combobox');
+    expect(combos.length).toBeGreaterThan(0);
+    for (const c of combos) {
+      // Every combobox must expose a non-empty accessible name (aria-label OR the
+      // aria-labelledby target Field wires up).
+      const label = c.getAttribute('aria-label');
+      const labelledBy = c.getAttribute('aria-labelledby');
+      const named =
+        (label && label.trim().length > 0) ||
+        (labelledBy != null &&
+          labelledBy
+            .split(/\s+/)
+            .some((id) => (document.getElementById(id)?.textContent || '').trim().length > 0));
+      expect(named).toBe(true);
+    }
   });
 });

@@ -70,7 +70,22 @@ router = APIRouter(prefix="/api")
 # The real Verdict values a case-automation ``conditions.verdict`` may take (bug #6).
 # ``suspicious``/``benign`` are Dispositions, NOT verdicts — a rule storing one can
 # never match a case, so we reject it on write and flag it on read.
+#
+# CASE-INSENSITIVE membership (bug #6 fix). The engine matcher
+# (``threshold_automation._rule_matches``) ``.upper()``s BOTH sides, so a rule stored as
+# ``false_positive`` (what both editors emit — ``constants.ts:132``, ``automation.tsx``)
+# fires exactly like ``FALSE_POSITIVE``. Both are therefore VALID. We keep the canonical
+# (uppercase enum) values for display + the migration flag, and compare case-folded so
+# the router's own CRUD path accepts the lowercase verdicts the UI actually sends.
 _VALID_VERDICTS: frozenset[str] = frozenset(v.value for v in Verdict)
+_VALID_VERDICTS_UPPER: frozenset[str] = frozenset(v.value.upper() for v in Verdict)
+
+
+def _is_valid_verdict(verdict: Any) -> bool:
+    """True iff ``verdict`` names a real :class:`Verdict`, CASE-INSENSITIVELY (mirrors
+    the engine matcher, which ``.upper()``s both sides). ``suspicious``/``benign`` are
+    Dispositions → never a Verdict → False regardless of case."""
+    return str(verdict).upper() in _VALID_VERDICTS_UPPER
 
 
 class _EnabledIn(BaseModel):
@@ -148,7 +163,7 @@ def _validate_automation_verdict(rule: CaseAutomationRule) -> None:
     verdict = (rule.conditions or {}).get("verdict")
     if verdict is None:
         return
-    if str(verdict) not in _VALID_VERDICTS:
+    if not _is_valid_verdict(verdict):  # case-insensitive (mirrors the engine matcher)
         raise HTTPException(
             status_code=400,
             detail=(
@@ -189,9 +204,9 @@ async def list_rules(
     for r in automation_rules:
         row = r.model_dump(mode="json")
         verdict = (r.conditions or {}).get("verdict")
-        row["invalid_verdict"] = (
-            verdict is not None and str(verdict) not in _VALID_VERDICTS
-        )
+        # Case-insensitive (bug #6): a lowercase ``false_positive`` (what the UI emits)
+        # is a REAL verdict, not "invalid" — only a true Disposition trips this flag.
+        row["invalid_verdict"] = verdict is not None and not _is_valid_verdict(verdict)
         case_automation.append(row)
     return {
         "detection": detection,
@@ -199,7 +214,13 @@ async def list_rules(
         "default_correlation": prefs.default_correlation.model_dump(mode="json"),
         "case_automation": case_automation,
         "automation_enabled": bool(getattr(automation_cfg, "enabled", False)),
+        # Canonical (enum-case) verdicts for display. Verdict matching is CASE-INSENSITIVE
+        # (bug #6) — a rule may store either case and fire identically. ``valid_verdicts``
+        # keeps the historical uppercase form; ``valid_verdicts_lower`` is the same set in
+        # the case the editors emit (``true_positive``/``false_positive``/``needs_human``,
+        # ``constants.ts:132``) so the UI need not case-fold.
         "valid_verdicts": sorted(_VALID_VERDICTS),
+        "valid_verdicts_lower": sorted(v.lower() for v in _VALID_VERDICTS),
     }
 
 
@@ -592,7 +613,15 @@ async def preview_rule(
 
     A malformed predicate row is skipped leniently. An empty ``match`` matches nothing
     (returns count 0) rather than everything — a preview must never imply a rule fires on
-    all traffic. RBAC: ``rules:read``."""
+    all traffic. RBAC: ``rules:read``.
+
+    ⚠ MULTI-ROW PARITY (M3). The save adapter (``adapter.ts detectionMatchToWire``) keeps
+    ONLY the FIRST predicate row — ``RuleDefinition.match`` is a single ``RuleMatch``, and
+    nested AND/OR is the gated Phase-3 wave. So the preview MUST evaluate the SAME first
+    row the deployed rule fires on; ANDing every row here would under-count vs. reality
+    and mis-calibrate the operator. We therefore evaluate ``predicates[0]`` only, and
+    return ``predicates`` (the total supplied) + ``predicates_evaluated`` (always ≤ 1) so
+    the UI can label a multi-row preview "only the first condition is saved / previewed"."""
     from ..config import RuleMatch
 
     # Build the predicate list defensively (skip malformed rows; #9 values stay plain).
@@ -603,14 +632,18 @@ async def preview_rule(
         except ValidationError:
             continue  # skip a malformed row rather than 400 the whole preview
 
+    # M3: match ONLY the first predicate row — exactly what the adapter deploys. (Nested
+    # AND/OR is deferred; ANDing every row here would diverge from the saved rule.)
+    active = predicates[0] if predicates else None
+
     rows = await _read_recent_events(state, body)
     scanned = len(rows)
 
     matched: list[dict[str, Any]] = []
-    if predicates:  # empty predicate → matches nothing (never "all traffic")
+    if active is not None:  # no predicate → matches nothing (never "all traffic")
         for row in rows:
             src = row.get("_raw") if isinstance(row.get("_raw"), dict) else row
-            if all(p.matches(src) for p in predicates):
+            if active.matches(src):
                 matched.append(row)
 
     histogram = _bucket_histogram(matched, body.bucket_minutes)
@@ -622,6 +655,9 @@ async def preview_rule(
         # A small plain-data sample for the UI (never the full set; log data only, #9).
         "sample": [_preview_row(r) for r in matched[:25]],
         "predicates": len(predicates),
+        # How many rows the preview ACTUALLY evaluated (≤1 until nested AND/OR ships) — so
+        # the UI can note that additional rows are neither saved nor previewed (M3).
+        "predicates_evaluated": 1 if active is not None else 0,
         "hard_capped": scanned >= body.limit,
     }
 

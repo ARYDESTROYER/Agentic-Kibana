@@ -96,7 +96,20 @@ type EditTarget =
   | { kind: 'automation'; index: number };
 
 export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
-  const canManage = useCan(RULES_PERM.resource, RULES_PERM.action);
+  // The unified `rules` grant (G6 R9 / M2) gates the rules-native actions — the version
+  // ledger, one-click rollback, and the read-only preview all call `routes_rules.py`,
+  // which enforces `rules:read`/`rules:manage`. This surface is REACHED via the `rules`
+  // section gate (`settings-sections-meta.ts`, now `rules:read`).
+  const canManageRules = useCan(RULES_PERM.resource, RULES_PERM.action);
+  // ⚠ M2 write-path reality: this Settings SECTION persists edits through the shared
+  // Settings buffer (a deep-merge `PUT /api/settings`), which the backend enforces on
+  // `settings:manage` — NOT the rules-native CRUD endpoints. So a WRITE here needs BOTH
+  // the unified `rules:manage` grant AND `settings:manage`. Gating the write affordances
+  // on both means a custom role missing either never sees an enabled Save/Delete that
+  // would then 403. For every BUILT-IN role `rules`/`settings` derive identically from
+  // `settings` (`rbac/policy._settings_like`), so this is behaviour-preserving for them.
+  const canWriteSettings = useCan('settings', 'manage');
+  const canManage = canManageRules && canWriteSettings;
   // `useCan` returns true when auth/RBAC is off (back-compat), so read is implicit.
   void RULES_READ_PERM;
 
@@ -414,7 +427,11 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
           kind={lifecycle.kind}
           ruleId={lifecycle.ruleId}
           state={lifecycle.state}
+          // Lifecycle-STATE changes ride the Settings buffer (→ `settings:manage`), so
+          // they gate on the combined `canManage`. ROLLBACK hits the rules-native
+          // endpoint (`rules:manage` only), so it gates on `canManageRules` alone (M2).
           canManage={canManage}
+          canRollback={canManageRules}
           onLifecycleChange={canManage ? (next) => setLifecycleState(lifecycle.item, next) : undefined}
           onTune={() => {
             const item = lifecycle.item;

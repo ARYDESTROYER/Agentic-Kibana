@@ -26,5 +26,6 @@ export const PATTERNS: Record<string, RegExp>;
 
 export function collectTsx(dir?: string): string[];
 export function countAll(): Record<string, Record<string, number>>;
+/** Load the committed per-pattern per-file baseline (empty structure if absent). */
 export function loadBaseline(): Record<string, Record<string, number>>;
 export function checkGrepGuards(): GrepGuardResult;

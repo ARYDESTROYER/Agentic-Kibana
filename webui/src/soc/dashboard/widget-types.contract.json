@@ -1,0 +1,14 @@
+{
+  "_comment": "CANONICAL custom-dashboard widget-type allowlist (Round 5 / G7). The SINGLE source of truth both the client widget registry (webui/src/soc/dashboard/registry.ts -> WIDGET_TYPES) and the server allowlist (backend/app/api/routes_dashboards.py -> WIDGET_TYPES) MUST equal. Two contract tests pin to this file and FAIL CI if either side drifts: webui dashboard-widget-types.contract.test.ts + backend test_round5_dashboards_widget_type_contract.py. Add a widget = add ONE value here + one registry entry + one lazy body + (only if a new rollup) one DashboardDataProvider source. See audit C1/H1.",
+  "widget_types": [
+    "kpi.needs_human",
+    "kpi.cost_budget",
+    "chart.verdict_mix",
+    "chart.autonomous_vs_human",
+    "kpi.lifecycle_timing",
+    "table.connector_health",
+    "table.recent_cases",
+    "mitre.heatmap",
+    "gauge.active_risk"
+  ]
+}

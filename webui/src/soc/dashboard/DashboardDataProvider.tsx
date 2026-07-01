@@ -4,11 +4,16 @@
  *
  * WHY: a dashboard renders N widgets, but most widgets read from a SMALL set of
  * shared server rollups (`/api/metrics`, `/api/metrics/posture`, `/api/sources/health`,
- * `/api/cases`, `/api/standup`). If every widget fetched its own copy we'd fan out to
- * dozens of duplicate round-trips on every load/refresh. This provider fetches each
- * underlying source EXACTLY ONCE per (window × refresh) and hands the shared result to
- * every widget through context. The acceptance bar (CD2): read-only default = one
- * provider fetch, no per-widget round-trips.
+ * `/api/cases`). If every widget fetched its own copy we'd fan out to dozens of
+ * duplicate round-trips on every load/refresh. This provider fetches each underlying
+ * source EXACTLY ONCE per (window × refresh) and hands the shared result to every widget
+ * through context. The acceptance bar (CD2): read-only default = one provider fetch, no
+ * per-widget round-trips.
+ *
+ * BILLING (#6/#7): every dashboard source is a READ-ONLY, NON-billing rollup. In
+ * particular there is NO `standup` source here — `GET /api/standup` runs the LLM
+ * (`gateway.complete()` → a UsageDoc), and no widget consumes it, so surfacing a
+ * dashboard must NEVER trigger it (audit H3). Do not add a billing source to this table.
  *
  * DESIGN:
  *   - Sources are declared in {@link DASHBOARD_SOURCES}. Each has a stable `key`, a
@@ -33,7 +38,7 @@ import * as React from 'react';
 
 import { api } from '@/lib/api';
 import { DASH } from '@/lib/format';
-import type { Metrics, StandupResponse, CasesResponse } from '@/lib/types';
+import type { Metrics, CasesResponse } from '@/lib/types';
 import {
   fetchPosture,
   fetchMitreCoverage,
@@ -74,8 +79,7 @@ export type DashboardSourceKey =
   | 'posture'
   | 'mitre'
   | 'sourcesHealth'
-  | 'cases'
-  | 'standup';
+  | 'cases';
 
 /** Discriminated payload shape per source key (widgets narrow on the key). */
 export interface DashboardSourcePayloads {
@@ -84,7 +88,6 @@ export interface DashboardSourcePayloads {
   mitre: MitreCoverageResponse;
   sourcesHealth: SourcesHealthResponse;
   cases: CasesResponse;
-  standup: StandupResponse;
 }
 
 /** Fetch context handed to each source thunk (the active window, cases page size). */
@@ -129,10 +132,8 @@ const DASHBOARD_SOURCES: {
     key: 'cases',
     fetch: (ctx) => api.listCases({ limit: ctx.caseLimit }),
   },
-  standup: {
-    key: 'standup',
-    fetch: (ctx) => api.standup(ctx.windowHours),
-  },
+  // NOTE: NO `standup` source. `GET /api/standup` bills an LLM call and no widget reads
+  // it — surfacing a dashboard must stay zero-UsageDoc (#6/#7, audit H3).
 };
 
 /** All declared source keys (stable order — drives the single fetch batch). */
@@ -157,10 +158,19 @@ type SourceStateMap = {
   [K in DashboardSourceKey]: DashboardSourceState<K>;
 };
 
-function initialSourceState(): SourceStateMap {
+/**
+ * Seed the per-source state. A key that WILL be fetched this pass starts `loading:true`;
+ * a key OUTSIDE the requested subset (`activeKeys`) starts SETTLED
+ * (`loading:false,data:null,error:null`) so a widget that (mis)reads an un-requested
+ * source renders an EmptyState instead of a permanent skeleton (P7). When `activeKeys`
+ * is omitted, ALL keys are treated as active (the whole-dashboard default).
+ */
+function initialSourceState(activeKeys?: readonly DashboardSourceKey[]): SourceStateMap {
+  const active = activeKeys ? new Set(activeKeys) : null;
   const out = {} as SourceStateMap;
   for (const key of DASHBOARD_SOURCE_KEYS) {
-    (out[key] as DashboardSourceState) = { loading: true, data: null, error: null };
+    const isActive = active === null || active.has(key);
+    (out[key] as DashboardSourceState) = { loading: isActive, data: null, error: null };
   }
   return out;
 }
@@ -209,14 +219,19 @@ export function DashboardDataProvider({
   sourceKeys = DASHBOARD_SOURCE_KEYS,
   children,
 }: DashboardDataProviderProps) {
-  const [state, setState] = React.useState<SourceStateMap>(initialSourceState);
-  const [refreshToken, setRefreshToken] = React.useState(0);
-
   // Stable, deduped list of the keys to fetch this pass.
   const activeKeys = React.useMemo<DashboardSourceKey[]>(
     () => DASHBOARD_SOURCE_KEYS.filter((k) => sourceKeys.includes(k)),
     [sourceKeys],
   );
+
+  // Seed only the active keys as loading; un-requested keys start SETTLED so a widget
+  // reading outside the subset never sticks on a skeleton (P7). Computed once from the
+  // initial subset; the fetch effect keeps it in sync as the SET changes.
+  const [state, setState] = React.useState<SourceStateMap>(() =>
+    initialSourceState(activeKeys),
+  );
+  const [refreshToken, setRefreshToken] = React.useState(0);
   // A stable dependency signature so the effect re-runs only when the SET changes,
   // not when a new array literal is passed with the same members.
   const activeKeysSig = activeKeys.join(',');
@@ -227,15 +242,20 @@ export function DashboardDataProvider({
     let cancelled = false;
     const ctx: DashboardFetchContext = { windowHours, caseLimit };
 
-    // Mark exactly the active sources as loading (leave un-requested sources as-is).
+    // Mark exactly the active sources as loading; SETTLE any source no longer in the
+    // active subset (so a narrowed `sourceKeys` never leaves a dropped key stuck
+    // `loading:true`, P7). An un-requested key reads as settled-with-no-data.
+    const activeSet = new Set(activeKeys);
     setState((prev) => {
       const next = { ...prev };
-      for (const key of activeKeys) {
-        (next[key] as DashboardSourceState) = {
-          ...(next[key] as DashboardSourceState),
-          loading: true,
-          error: null,
-        };
+      for (const key of DASHBOARD_SOURCE_KEYS) {
+        const cur = next[key] as DashboardSourceState;
+        if (activeSet.has(key)) {
+          (next[key] as DashboardSourceState) = { ...cur, loading: true, error: null };
+        } else if (cur.loading) {
+          // Dropped out of the subset while still loading → settle it (no fetch coming).
+          (next[key] as DashboardSourceState) = { ...cur, loading: false };
+        }
       }
       return next;
     });

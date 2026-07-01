@@ -242,7 +242,7 @@ function ProviderEditor({
           <div className="space-y-1.5">
             <Label className="text-xs">Default role</Label>
             <Select value={provider.default_role ?? 'analyst_tier1'} onValueChange={(v) => set({ default_role: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Default role"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
               </SelectContent>

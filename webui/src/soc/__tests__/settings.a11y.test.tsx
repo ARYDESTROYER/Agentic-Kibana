@@ -17,9 +17,10 @@
  *    applies no media queries, so BOTH navs are present and collide on identical
  *    role+name. Verified by dumping landmarks: two identical `NAV[al="Settings
  *    sections"]`. Not something a test-only change should paper over in source.
- *  - `button-name` is DISABLED defensively — Radix `<Select>`s wrapped by the `Field`
- *    primitive don't name their `role="combobox"` trigger (same root cause documented
- *    in RuleEditor.a11y.test.tsx). Source-side, out of scope for a test change.
+ *  - `button-name` / `select-name` are ENABLED (H4 fixed): every Field-wrapped Radix
+ *    Select now forwards the Field id + `aria-labelledby` to its `<SelectTrigger>`, and
+ *    the non-Field Selects carry an explicit `aria-label`, so every `role="combobox"`
+ *    trigger has an accessible name. These rules guard against the regression returning.
  */
 import type * as React from 'react';
 import { describe, it, expect, vi } from 'vitest';
@@ -79,12 +80,12 @@ import { RouterProvider } from '../router';
 import { TooltipProvider } from '@/ui/tooltip';
 import Settings from '../pages/Settings';
 
-// See header: `landmark-unique` is a jsdom responsive-duplicate artifact; `button-name`
-// is the documented Field+Select source-side pattern. Both scoped out.
+// See header: `landmark-unique` is a jsdom responsive-duplicate artifact (the ONLY
+// scoped-out rule). `button-name`/`select-name` are ENABLED — H4's Field→SelectTrigger
+// wiring names every combobox, so this smoke now guards that regression too.
 const AXE_OPTS = {
   rules: {
     'landmark-unique': { enabled: false },
-    'button-name': { enabled: false },
   },
 };
 

@@ -122,7 +122,9 @@ describe('DashboardDataProvider — fetch once, share to all', () => {
     expect(fetchPostureMock).toHaveBeenCalledTimes(1);
     expect(fetchMitreMock).toHaveBeenCalledTimes(1);
     expect(apiMocks.listCases).toHaveBeenCalledTimes(1);
-    expect(apiMocks.standup).toHaveBeenCalledTimes(1);
+    // #6/#7 (H3): the LLM-billing `standup` source is NOT part of the dashboard source
+    // table — surfacing a dashboard must NEVER call it (zero UsageDoc).
+    expect(apiMocks.standup).not.toHaveBeenCalled();
     // sources/health goes through the low-level api.get once.
     expect(apiMocks.get).toHaveBeenCalledTimes(1);
     expect(apiMocks.get).toHaveBeenCalledWith('sources/health');
@@ -144,6 +146,47 @@ describe('DashboardDataProvider — fetch once, share to all', () => {
     expect(apiMocks.listCases).not.toHaveBeenCalled();
     expect(apiMocks.standup).not.toHaveBeenCalled();
     expect(apiMocks.get).not.toHaveBeenCalled();
+  });
+
+  it('NEVER fetches the LLM-billing `standup` source under any subset (#6/#7, H3)', async () => {
+    // Default (all declared sources) — standup is not even in the table.
+    const { unmount } = render(
+      <DashboardDataProvider>
+        <MetricsConsumer testid="all" />
+      </DashboardDataProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('all')).toHaveTextContent('needs=1'));
+    expect(apiMocks.standup).not.toHaveBeenCalled();
+    unmount();
+
+    // Every real dashboard source, explicitly requested — still no standup.
+    render(
+      <DashboardDataProvider
+        sourceKeys={['metrics', 'posture', 'mitre', 'sourcesHealth', 'cases']}
+      >
+        <MetricsConsumer testid="subset" />
+      </DashboardDataProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('subset')).toHaveTextContent('needs=1'));
+    expect(apiMocks.standup).not.toHaveBeenCalled();
+  });
+
+  it('an un-requested source resolves SETTLED (loading:false) — never a stuck skeleton (P7)', async () => {
+    // Fetch ONLY metrics; a consumer reading `cases` (outside the subset) must not hang.
+    function CasesConsumer() {
+      const { loading } = useDashboardSource('cases');
+      return <div data-testid="cases-loading">{loading ? 'loading' : 'settled'}</div>;
+    }
+    render(
+      <DashboardDataProvider sourceKeys={['metrics']}>
+        <MetricsConsumer testid="m" />
+        <CasesConsumer />
+      </DashboardDataProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('m')).toHaveTextContent('needs=1'));
+    // `cases` was never requested → it is settled-with-no-data, not a permanent skeleton.
+    expect(screen.getByTestId('cases-loading')).toHaveTextContent('settled');
+    expect(apiMocks.listCases).not.toHaveBeenCalled();
   });
 
   it('one failing source never blocks its peers', async () => {

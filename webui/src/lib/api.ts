@@ -308,7 +308,17 @@ export interface RulePreviewResult {
   match_rate: number;
   histogram: RulePreviewBucket[];
   sample: RulePreviewSampleRow[];
+  /** How many predicate rows were SUPPLIED. */
   predicates: number;
+  /**
+   * How many predicate rows the preview ACTUALLY evaluated. The save adapter keeps only
+   * the FIRST row (`RuleDefinition.match` is a single `RuleMatch`; nested AND/OR is a
+   * gated Phase-3 wave), so the preview matches the deployed rule by evaluating only the
+   * first row too — this is ≤ 1 until nested logic ships (M3). When
+   * `predicates > predicates_evaluated` the extra rows are neither saved nor previewed.
+   * Optional for back-compat with an older server that omitted it.
+   */
+  predicates_evaluated?: number;
   hard_capped: boolean;
 }
 

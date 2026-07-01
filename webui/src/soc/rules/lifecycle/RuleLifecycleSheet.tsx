@@ -57,8 +57,21 @@ export interface RuleLifecycleSheetProps {
   ruleId: string;
   /** Current lifecycle state (enabled/disabled/shadow). */
   state: RuleLifecycleState;
-  /** RBAC: only a manager may change state or roll back. */
+  /**
+   * RBAC for the LIFECYCLE-STATE control (enabled/disabled/shadow). That change is
+   * persisted by the parent through the shared Settings buffer (`PUT /api/settings`),
+   * which the backend enforces on `settings:manage`, so this gate must reflect the
+   * combined `rules:manage` + `settings:manage` capability (M2).
+   */
   canManage?: boolean;
+  /**
+   * RBAC for the version-ledger ROLLBACK. Rollback calls the rules-native endpoint
+   * (`POST /api/rules/{kind}/{id}/rollback`), which the backend enforces on `rules:manage`
+   * ONLY — it does NOT ride the Settings buffer. Kept SEPARATE so a role with the unified
+   * `rules:manage` grant (but not `settings:manage`) can still roll back a rule (M2).
+   * Defaults to `canManage` for back-compat when the caller doesn't distinguish them.
+   */
+  canRollback?: boolean;
   /**
    * A lifecycle state change (enabled/disabled/shadow). The PARENT maps this to a
    * deep-merge config write (never `decide()`), so this component stays a pure
@@ -79,6 +92,7 @@ export function RuleLifecycleSheet({
   ruleId,
   state,
   canManage = false,
+  canRollback = canManage,
   onLifecycleChange,
   onTune,
   onRolledBack,
@@ -186,7 +200,7 @@ export function RuleLifecycleSheet({
               <RuleVersionLedger
                 kind={kind}
                 ruleId={ruleId}
-                canManage={canManage}
+                canManage={canRollback}
                 onRolledBack={onRolledBack}
               />
             </TabsContent>

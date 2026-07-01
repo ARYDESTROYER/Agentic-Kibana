@@ -43,7 +43,10 @@ import { useDirtyDraft, useUnsavedChanges } from '@/soc/hooks/useDirtyDraft';
 import { WidgetGrid, type WidgetEditActions } from './WidgetGrid';
 import { WidgetGallery } from './WidgetGallery';
 import { WidgetConfigSheet } from './WidgetConfigSheet';
-import { DashboardDataProvider } from './DashboardDataProvider';
+import {
+  DashboardDataProvider,
+  type DashboardSourceKey,
+} from './DashboardDataProvider';
 import {
   applyLayout,
   moveWidget,
@@ -56,7 +59,7 @@ import {
   type MoveDir,
   type ResizeDir,
 } from './layout-utils';
-import type { PermissionCheck } from './registry';
+import { getWidgetDef, type PermissionCheck } from './registry';
 
 /** The RBAC resource/action that gates EDITING a dashboard (personal customization). */
 const EDIT_RESOURCE = 'metrics';
@@ -248,6 +251,21 @@ export function DashboardBuilder({
   // live draft. (Discard restores the saved snapshot exactly.)
   const shownWidgets = draft.widgets;
 
+  // The union of data sources the PLACED widgets actually read — narrows the provider
+  // so it fetches ONLY what a widget consumes. This drops billing/unconsumed sources
+  // (notably `standup`, which no widget declares) so the dashboards view NEVER triggers
+  // an LLM call for data nothing displays (#6/#7 — dashboards never bill the LLM, H3).
+  // An empty dashboard needs zero sources → zero round-trips.
+  const neededSources = React.useMemo<DashboardSourceKey[]>(() => {
+    const set = new Set<DashboardSourceKey>();
+    for (const w of shownWidgets) {
+      const def = getWidgetDef((w as { type?: string }).type ?? '');
+      if (!def) continue; // unknown/legacy type contributes no sources
+      for (const s of def.sources) set.add(s);
+    }
+    return [...set];
+  }, [shownWidgets]);
+
   return (
     <div className={className}>
       {/* Header action row: view = single "Edit" CTA; edit = Add-widget. */}
@@ -272,8 +290,10 @@ export function DashboardBuilder({
         )}
       </div>
 
-      {/* The grid — wrapped in ONE data provider so widgets fetch each source once. */}
-      <DashboardDataProvider>
+      {/* The grid — wrapped in ONE data provider so widgets fetch each source once,
+          NARROWED to only the sources the placed widgets read (never `standup`, so the
+          page bills zero LLM calls — #6/#7, H3). */}
+      <DashboardDataProvider sourceKeys={neededSources}>
         <WidgetGrid
           widgets={shownWidgets}
           editing={editing}

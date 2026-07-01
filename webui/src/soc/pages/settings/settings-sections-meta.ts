@@ -226,7 +226,10 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     title: 'Detection & rules',
     blurb: 'Author detection rules (match/threshold, anomaly) and case-automation rules in one place.',
     icon: ListChecks,
-    perm: { resource: 'automation', action: 'read' },
+    // Gate on the UNIFIED `rules` resource the router enforces (G6 R9 / M2), NOT the
+    // legacy `automation` resource — so a custom role granted `rules:read` sees this
+    // section (and the editor loads / ledger / rollback all resolve on the same grant).
+    perm: { resource: 'rules', action: 'read' },
     grid: true,
     keywords: [
       'rules',

@@ -51,14 +51,19 @@ export type {
 
 /**
  * The ONE grant every rules MUTATION gates on (R9 unification). The backend RBAC
- * vocabulary (`rbac/policy.py RESOURCES`) exposes a narrow `automation` resource
- * with `read` / `manage`; the rules home/editors read on `automation:read` and
- * write on `automation:manage`. Surfacing this as a constant keeps the nav gate,
- * the section gate, and every in-editor `<Can>` on the SAME resolvable grant.
+ * vocabulary (`rbac/policy.py RESOURCES`) exposes a unified `rules` resource with
+ * `read` / `manage`, and the whole rules-customization router (`routes_rules.py`)
+ * enforces `rules:read` on every read and `rules:manage` on every mutation. The FE
+ * MUST gate on the SAME resource end-to-end — the nav/section gate, every in-editor
+ * `<Can>`, the version-ledger Restore, and the Save — so a custom role granted the
+ * advertised unified `rules:*` can actually use the editor (and a role WITHOUT it is
+ * honestly blocked rather than seeing enabled buttons that then 403). Built-in roles
+ * derive `rules` from `settings` (`_settings_like`), so this is behaviour-preserving
+ * for them and correct for custom roles (M2 / bug-#7 class).
  */
-export const RULES_PERM = { resource: 'automation', action: 'manage' } as const;
+export const RULES_PERM = { resource: 'rules', action: 'manage' } as const;
 /** The read-only grant (view the catalog / open the read-only editor). */
-export const RULES_READ_PERM = { resource: 'automation', action: 'read' } as const;
+export const RULES_READ_PERM = { resource: 'rules', action: 'read' } as const;
 
 /* --------------------------------------------------------- tier taxonomy --- */
 

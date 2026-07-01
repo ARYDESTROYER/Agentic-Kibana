@@ -202,7 +202,7 @@ function AutomationRuleEditor({
 
       {/* conditions */}
       <div>
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-2 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           When a case matches
           <HelpTip text="All set conditions must hold (ANDed). Leave a field at 'Any' to ignore it." />
         </div>
@@ -264,7 +264,7 @@ function AutomationRuleEditor({
               value={cond.status || '__any__'}
               onValueChange={(v) => setCond({ status: v === '__any__' ? undefined : v })}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" aria-label="Status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -313,7 +313,7 @@ function AutomationRuleEditor({
               value={cond.entity_type || '__any__'}
               onValueChange={(v) => setCond({ entity_type: v === '__any__' ? undefined : v })}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" aria-label="Entity type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -348,7 +348,7 @@ function AutomationRuleEditor({
 
       {/* action */}
       <div>
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <div className="mb-2 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
           Then
           <HelpTip text="The action automation takes. It can only recommend / queue / propose — it never closes a case or sets its status." />
         </div>
@@ -359,7 +359,7 @@ function AutomationRuleEditor({
               value={rule.action}
               onValueChange={(v) => onChange({ ...rule, action: v as AutomationRule['action'], payload: {} })}
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9" aria-label="Action">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -425,7 +425,7 @@ function AutomationRuleEditor({
                     value={playbookId || undefined}
                     onValueChange={(v) => setPayload({ playbook_id: v })}
                   >
-                    <SelectTrigger className="h-9">
+                    <SelectTrigger className="h-9" aria-label="Playbook">
                       <SelectValue placeholder="Select a playbook…" />
                     </SelectTrigger>
                     <SelectContent>

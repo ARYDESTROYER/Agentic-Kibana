@@ -57,21 +57,26 @@ logger = logging.getLogger("tlsoc.api.dashboards")
 router = APIRouter(prefix="/api")
 
 # --------------------------------------------------------------------------- #
-# Server-side widget-type ALLOWLIST (#9). The canonical set the client widget
-# registry (``webui/src/soc/dashboard/registry.ts`` / ``RESEARCH_CUSTOM_DASHBOARDS``)
-# defines. A ``type`` outside this set is rejected on write so a tampered prefs doc /
-# rogue client can never inject an unknown widget kind. Kept a plain frozenset so it
-# stays in lockstep with the FE union; extend BOTH together when a widget lands.
+# Server-side widget-type ALLOWLIST (#9). This MUST equal the client widget
+# registry's ``WidgetType`` union (the authoritative source of truth in
+# ``webui/src/soc/dashboard/registry.ts`` — the ``WIDGET_TYPES`` export there). The
+# client can only build widgets from its own registry (role defaults + gallery), so
+# every real Edit→Save sends one of exactly these types; a ``type`` outside this set is
+# rejected on write so a tampered prefs doc / rogue client can never inject an unknown
+# widget kind. Kept a plain frozenset so it stays in lockstep with the FE union; extend
+# BOTH together when a widget lands. The contract test
+# ``webui/src/soc/__tests__/dashboard-widget-types.contract.test.ts`` asserts these two
+# sets are byte-for-byte equal and FAILS CI the moment they drift again (see H1/C1).
 # --------------------------------------------------------------------------- #
 WIDGET_TYPES: frozenset[str] = frozenset({
     # KPI tiles (KpiTile / StatCard bodies)
-    "kpi.open_cases", "kpi.mtta", "kpi.mttr", "kpi.budget",
-    # Timeseries / mix charts (charts.tsx bodies)
-    "chart.cases_per_day", "chart.verdict_mix", "chart.cost_per_day",
-    # Top-N lists (BarList bodies)
-    "barlist.top_mitre", "barlist.top_sources", "barlist.top_verdicts",
-    # Coverage / tables / triage queue
-    "mitre.heatmap", "table.recent_cases", "table.campaigns", "queue.attention",
+    "kpi.needs_human", "kpi.cost_budget", "kpi.lifecycle_timing",
+    # Mix / split charts (charts.tsx bodies)
+    "chart.verdict_mix", "chart.autonomous_vs_human",
+    # Tables
+    "table.connector_health", "table.recent_cases",
+    # Coverage / gauge
+    "mitre.heatmap", "gauge.active_risk",
 })
 
 # Bounds (the API policy; the store keeps its own looser last-line backstop). MVP is a
@@ -247,6 +252,19 @@ async def list_dashboards(
         logger.warning("list dashboards soft-failed (%s); returning empty", exc)
         boards = []
     return {"dashboards": [_dash_json(b) for b in boards]}
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/dashboards/widget-types — the server allowlist (the canonical set)
+# --------------------------------------------------------------------------- #
+@router.get("/dashboards/widget-types")
+async def dashboard_widget_types(
+    _=Depends(require_permission("metrics", "view")),
+) -> dict[str, Any]:
+    """The server widget-type ALLOWLIST, exposed so the client (and its contract test)
+    can cross-reference the two sets at runtime and catch any drift (H1). Read-only;
+    static; returns the sorted canonical set."""
+    return {"widget_types": sorted(WIDGET_TYPES)}
 
 
 # --------------------------------------------------------------------------- #

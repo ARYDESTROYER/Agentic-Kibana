@@ -151,3 +151,38 @@ describe('DashboardBuilder — persistence (#3: layout is advisory, never decide
     await waitFor(() => expect(onReset).toHaveBeenCalled());
   });
 });
+
+describe('DashboardBuilder — #6/#7: the dashboards view bills ZERO LLM calls (H3)', () => {
+  it('NEVER calls api.standup, and fetches ONLY the sources the placed widgets read', async () => {
+    // The fixture has one `kpi.needs_human` widget → it reads only the `metrics` source.
+    renderBuilder();
+    // Let the (narrowed) provider settle its single fetch batch.
+    await waitFor(() => expect(apiMocks.getMetrics).toHaveBeenCalledTimes(1));
+
+    // The billing standup call is never made (it isn't even in the source table now).
+    expect(apiMocks.standup).not.toHaveBeenCalled();
+    // And only the metrics source the widget declares is fetched — no fan-out to
+    // posture/mitre/cases/sources-health that no placed widget consumes.
+    expect(fetchPostureMock).not.toHaveBeenCalled();
+    expect(fetchMitreMock).not.toHaveBeenCalled();
+    expect(apiMocks.listCases).not.toHaveBeenCalled();
+    expect(apiMocks.get).not.toHaveBeenCalledWith('sources/health');
+  });
+
+  it('an EMPTY dashboard fetches NOTHING (zero round-trips, zero UsageDoc)', async () => {
+    const empty: DashboardLayout = { ...DASHBOARD, widgets: [] };
+    render(
+      <AuthProvider>
+        <DashboardBuilder dashboard={empty} />
+      </AuthProvider>,
+    );
+    // Give any (erroneous) fetch a chance to fire.
+    await screen.findByTestId('dashboard-edit-btn');
+    expect(apiMocks.standup).not.toHaveBeenCalled();
+    expect(apiMocks.getMetrics).not.toHaveBeenCalled();
+    expect(fetchPostureMock).not.toHaveBeenCalled();
+    expect(fetchMitreMock).not.toHaveBeenCalled();
+    expect(apiMocks.listCases).not.toHaveBeenCalled();
+    expect(apiMocks.get).not.toHaveBeenCalledWith('sources/health');
+  });
+});

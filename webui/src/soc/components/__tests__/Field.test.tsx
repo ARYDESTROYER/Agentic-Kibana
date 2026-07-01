@@ -10,6 +10,7 @@ import { render, screen } from '@testing-library/react';
 
 import { Field } from '../Field';
 import { Input } from '@/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/ui/select';
 
 describe('Field', () => {
   it('associates the label with an auto-injected single child control', () => {
@@ -52,5 +53,50 @@ describe('Field', () => {
     const control = screen.getByLabelText('Name');
     expect(control).toHaveAttribute('aria-invalid', 'true');
     expect(control.getAttribute('aria-describedby')).toBeTruthy();
+  });
+
+  // ── H4 — the visible label must have a stable id the render-prop can point at ──────
+  it('exposes a labelledBy id that resolves to the visible label text', () => {
+    let captured: { labelledBy: string } | null = null;
+    render(
+      <Field label="Group by">
+        {(props) => {
+          captured = props;
+          return <input id={props.id} aria-labelledby={props.labelledBy} />;
+        }}
+      </Field>,
+    );
+    expect(captured).not.toBeNull();
+    const labelledBy = captured!.labelledBy;
+    expect(labelledBy).toBeTruthy();
+    // The id must resolve to a DOM node carrying the visible label text.
+    const labelNode = document.getElementById(labelledBy);
+    expect(labelNode).not.toBeNull();
+    expect(labelNode?.textContent).toContain('Group by');
+  });
+
+  // ── H4 regression — a Field-wrapped Radix Select trigger gets an accessible name ──
+  // BEFORE the fix, Field cloned its id onto the DOM-less <Select> Root, so the real
+  // role="combobox" trigger was nameless. The render-prop forwards id + aria-labelledby
+  // to <SelectTrigger>, so the trigger now resolves via the label.
+  it('names a Field-wrapped Radix Select trigger (the H4 bug)', () => {
+    render(
+      <Field label="Group by">
+        {({ id, labelledBy }) => (
+          <Select defaultValue="ip">
+            <SelectTrigger id={id} aria-labelledby={labelledBy}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ip">Source IP</SelectItem>
+              <SelectItem value="host">Host</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
+      </Field>,
+    );
+    // getByRole with an accessible name only resolves when the trigger is truly named.
+    const trigger = screen.getByRole('combobox', { name: 'Group by' });
+    expect(trigger).toBeInTheDocument();
   });
 });
