@@ -7,6 +7,150 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-01 — Round 4: multi-source poller fix, adaptive threshold auto-tuning, two-tier alert/event ingestion + campaign correlation + entity baseline, batch/flex + corrected model catalog, unified logs, tiered reset + fresh OOBE, login white-label
+
+A fourth multi-wave round — **"fix the logic, fine-tune the product"** — delivering **3
+confirmed bug fixes + 12 user requests** across 7 waves (W0–W6). Every wave was **additive**
+and **default-OFF** with **zero new runtime dependencies** (the poller manager, threshold
+tuner, campaign/baseline engines, event-detection funnel, batch providers, reset engine, and
+all new KV stores are Python standard library; the webui composes the already-vendored
+radix/shadcn stack). New stores are KV-doc (no new index/table/migration); new model fields
+default so old persisted docs load unchanged. The non-negotiables hold throughout — in
+particular **`case_manager.decide()` / `apply()` is byte-identical** (guard test): every new
+capability that produces a case (the batched EVENT-detection funnel, the multi-source poller,
+campaign correlation) re-enters the **same** correlate → decide pipeline and NEVER calls
+`decide()` itself or reassigns a `cluster_signature` (#3/#4); the threshold tuner is a
+config-writer that never imports `decide()` / risk weights / signatures (#3); **#6** stays one
+LLM-gateway ledger write per real call (batch results are billed exactly-once via an atomic
+claim-before-bill); **#7** (aggregate-then-summarise) and **#9** (untrusted fencing) held on
+every new source/AI-influenceable value. The backend offline suite grew **1234 → 1461 tests
+green** (W0 1235 · W1 1253 · W2 1263 · W3 1371 · W4 1437 · W6 1461); the webui `tsc + vite
+build` is GREEN with the Vitest harness expanded **205 → 273 specs** (eslint clean, 0
+`react-hooks/rules-of-hooks` errors). New here? See [`docs/HANDOFF.md`](docs/HANDOFF.md) and
+`docs/research/2026-07-round4/`. Developed on the `Testing` branch (commits `3aeab6c`…`1df27ac`).
+
+### Fixed — the 3 confirmed bugs
+- **Single-source poller** — the poller only ever polled the primary source. NEW
+  `engine/poller_manager.py` (`PollerManager` *is* `state.poller`) fans out over **every**
+  enabled PULL source, each with its own connector (`es_client_for_source`, mgmt key forced
+  `None`, #1), its own `{source.id}:{feed.id}` durable cursor (plus a legacy-`"primary"`-cursor-
+  collision guard so two un-fed sources never stomp the shared cursor), its own entity strategy,
+  and owned-client cleanup on rebuild/stop. The 0/1-source path is byte-identical. (#4)
+- **`claude-opus-4-8` mispriced** — corrected **$15/$75 → $5/$25** across `llm/pricing.py` +
+  `llm/model_registry.json` (incl. cache tiers + a 200K → 1M context bump), and broadened the
+  Anthropic family; prompt-cache pricing is now applied (cache read 0.1× / write 1.25× 5m /
+  2× 1h) and batch 0.5×; wired the previously-dead `providers.with_retry()` around the raw
+  Anthropic/OpenAI HTTP calls.
+- **`acknowledge`** — now transitions a case to `CaseStatus.INVESTIGATING` (a non-terminal
+  status, not a close) and stamps `acknowledged_at`; previously it set the status to `None`.
+
+### Added — Wave 1: hot-file contracts (`41ee54b`)
+- Additive `UsageDoc` cache/batch fields; new `Campaign` / `CampaignEntity` / `BaselineState`
+  (Welford + EWMA + t-digest) / `BatchJob` / `DetectionRule` models; `ActionType.{TUNING,RESET}`
+  + 4 enums (`CampaignStatus` / `BatchJobState` / `DetectionSource` / `ResetScope`) + 4 KV
+  namespaces (campaigns / baseline / batch_jobs / tuning). `Preferences.{threshold_tuning,batch,
+  baseline,campaign}` + `caps.max_concurrent` + `BrandingConfig.login_*` (bounded plain-text,
+  a validator rejecting any `<`, #9), all defaulted. `AutomationRule` → **`CaseAutomationRule`**
+  with a module alias (wire key `threshold_automation` round-trips verbatim). `Case` gains
+  advisory `campaign_id` / `detection_source` kept OUT of `case_manager.py`.
+
+### Added — Wave 2: PollerManager (`f7509a3`)
+- The multi-source poller bug fix above, with a per-manager fan-out under a
+  `caps.max_concurrent` semaphore and a per-tick in-flight guard keyed on `cluster.signature`;
+  `state.poller` becomes a `PollerManager` owning N per-source `Poller` children while still
+  exposing `start` / `stop` / `poll_once` / `_source`.
+
+### Added — Wave 3: engine capabilities (`b07f172`)
+- **Adaptive threshold auto-tuning** — `engine/threshold_tuner.py` + `stores/tuning.py`: a
+  nightly deterministic observer (per-rule FP via Wilson lower-bound + min-samples + EWMA) that
+  bounded-bumps a correlation rule's `n` / a feed's `severity_floor` with an `ActionType.TUNING`
+  audit + one-step rollback + a shadow-eval that blocks any change which would have hidden a
+  confirmed TP; suppression DROPs route to a HITL Proposal. It is a config-writer only and
+  **never** imports `case_manager` / `decide` / risk weights / signatures. **Default OFF.**
+- **Daily campaign correlation** — `engine/campaigns.py` + `stores/campaigns.py`: a
+  deterministic shared-entity graph of cases (≥2 cases + ≥1 shared entity → an idempotent
+  `Campaign`) that only *references* `case_ids` — never re-clusters or closes (#3/#4).
+- **Entity baseline** — `engine/baseline.py` + `stores/baseline.py`: online EWMA mean + EWMV
+  variance per `cluster_signature` over 168 hour-of-week buckets (α from a 14-day half-life),
+  a bounded t-digest (p50/p95/p99), robust modified-z |M|>3.5, warm-up 3× period; a pure
+  deterministic producer that never reads `decide()` / risk weights.
+- **Two-tier alert/event ingestion** — `engine/event_detection.py`: a cheap-first EVENT-feed
+  funnel (pre-aggregate → deterministic rules → anomaly [baseline] → batched Haiku detection,
+  #7 aggregate-only, #9 fenced) whose survivors **re-enter the same correlate pipeline** and
+  reach the same `cluster_signature` (#4) + the unchanged `decide()` (#3) + `engine/forwarding.py`
+  (`explain_forwarding`, a read-only forwarding explainer).
+- **Batch/flex + cache economics** — `pricing.cost_for` applies cache/batch rates (non-cache
+  path byte-identical); `providers.py` extracts Anthropic/OpenAI cache tokens + an OpenAI
+  `service_tier='flex'` opt-in; NEW `llm/batch.py` `BatchProvider` SPI (Anthropic
+  `/v1/messages/batches` + OpenAI `/v1/batches`, results UNORDERED → keyed by `custom_id`) +
+  `stores/batch_jobs.py` (resume-safe, exactly-one UsageDoc/result at 0.5× batch, #6).
+
+### Added — Wave 4: API surface + runtime wiring (`11ea46e`)
+- **6 new routers** mounted under `require_auth`: `routes_tuning` (recommendations dry-run +
+  config + apply/rollback, `ActionType.TUNING` audited, shadow-blocked → HITL Proposal),
+  `routes_campaigns`, `routes_baseline`, `routes_batch` (read-only, secret-free), `routes_reset`,
+  and the public-allowlisted `routes_setup`.
+- **Tiered reset** — `engine/reset.py` + `POST /api/admin/reset {scope,confirm}` (admin +
+  `require_fresh_auth`, type-to-confirm): a cases tier clears cases/campaigns/baseline/inbox/
+  collab/batch-jobs/live-tail but **keeps the cost ledger + audit**; sources tier adds
+  sources/cursors; factory tier adds users/sessions/prefs/roles/proposals/memory/branding and
+  flips `setup_complete=false` → OOBE. **Env secrets are byte-identical across every tier**
+  (airtight test); audited before acting (#2).
+- **Fresh OOBE** — `routes_setup.py`: `GET /api/setup/status` + `POST /api/setup/account`
+  (public, self-locking first-super_admin, forced strong password ≥12 / ≠ username / not-common,
+  MFA prompted-optional).
+- **Unified logs** — `GET /api/logs` scatter-gathers browse-capable sources
+  (`asyncio.gather` + per-source `wait_for`, mandatory source provenance, secrets never
+  returned, read-only #1) + `GET /api/cases/{id}/forwarding` + `GET /api/sources/health`.
+- **Gated schedulers** — nightly tuner / daily campaign / batch-jobs poller spawn-but-sleep
+  when disabled (byte-identical default-off boot); EVENT-feed routing to the funnel engages
+  only when batch + baseline are both enabled (default-off = the existing realtime path,
+  byte-identical); demo / kill-switch gate it off.
+
+### Added — Wave 5: webui surfaces + consolidation (`3c68cf5`)
+- A `UnifiedLogsSheet` (10s live-tail + partial-failure strip, #9 plain-text); a **Tuning**
+  page (recommendations + apply/rollback + config, honest "only changes what's investigated,
+  never closes" framing, DROP → Approvals) + **Campaigns** page + `CampaignChip`; **Baseline**
+  warm-up gauges (n/target + p50/p95/p99) + a **Batch jobs** viewer; a cleaner **CaseDetail**
+  (single primary CTA + a unified Close-with-disposition dialog that posts the existing
+  close → `decide()`, #3); an **analytics declutter** (Cost as the single home); a **login
+  white-label** (`BrandHero` renders `BrandingConfig.login_*` bounded plain-text + curated
+  layouts, no raw HTML/SVG, #9) + an OOBE account-setup step; **Models** catalog cache/batch
+  pricing columns; a **DangerZone** reset panel (3 tiered type-to-confirm cards, super_admin,
+  env-secrets-preserved copy). (`vitest 214 → 273`; lint 0 rules-of-hooks; backend untouched.)
+
+### Fixed / Security — Wave 6: adversarial audit + harden (`1df27ac`)
+- A **16-dimension adversarial audit** found **16 confirmed / 4 refuted** findings (2 HIGH, 6
+  MEDIUM, 8 LOW), all fixed + regression-tested (+24 tests):
+  - **HIGH (poller concurrency, #4)** — a per-`cluster_signature` `asyncio.Lock` on the ONE
+    pipeline now serialises `find_open_by_signature` → save across the fan-out, so concurrent
+    sources/ticks create **exactly one** case; the fragile in-flight monkeypatch was deleted for
+    a per-manager `_poll_lock` serialising whole ticks (loop vs manual `/api/poll`).
+  - **MEDIUM** — batched EVENT-detection now **really** creates cases (survivors persist as
+    `BatchJob.candidates` and re-enter via `register_candidate` + `investigate_cluster` → same
+    `cluster_signature` #4, unchanged `decide()` #3); the tuner shadow-eval now pages
+    CLOSED + RESOLVED so it isn't blind to RESOLVED TPs, and is cadence-gated (bumps once/window);
+    the OpenAI prompt-cache is no longer double-billed; the legacy public `/api/setup/init-admin`
+    (which bypassed the strong-pw policy) was **removed** — the sole first-admin writer is now the
+    policy-enforced `/api/setup/account`.
+  - **LOW** — batch `process_results` dedup is now an atomic CAS claim-before-bill (#6
+    exactly-once under concurrency); setup self-lock fails safe + is race-safe; the t-digest
+    centroid count is bounded (~O(compression)).
+
+### Notes
+- **Terminology cleanup (UI/docs only; wire keys + aliases kept)** — event / detection / alert /
+  case / campaign; "correlate" → Auto-investigate / clustering / campaign-correlation; "rule" →
+  detection-rule / case-automation (`AutomationRule` → `CaseAutomationRule` alias; the stored
+  `threshold_automation` wire key is unchanged and round-trips verbatim).
+- **Two-tier ingestion, in one line:** ALERT feeds = realtime per-alert (+ daily campaign
+  correlation); EVENT feeds = batched agent-driven detection creating candidate cases that
+  re-enter the same deterministic pipeline. Both new subsystems are **default OFF**.
+- **Deferred / known:** admin-page consolidation-redirects (#4 — the pages work + deep-link
+  standalone) and a dead `api.setup.initAdmin` webui stub (never called; live OOBE uses
+  `/api/setup/account`).
+
+---
+
 ## [Unreleased] — 2026-06-30 — Round 3: shared KV substrate, EnrichmentProvider SPI, custom-role/deny RBAC, SSE EventBus, posture/MITRE-coverage metrics, shift report, in-app notifications, Models page + BudgetGate, case collaboration, triage chips + trace
 
 A third multi-wave round delivering **12 user requests** ("useful, distinctive, fine-grained")

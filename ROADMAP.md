@@ -9,29 +9,34 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`, local — NOT pushed):** backend **1109 pytest**
-green · webui build clean (tsc+vite) · **175 vitest** green · eslint **0
+**Current baseline (branch `Testing`, local — NOT pushed):** backend **1461 pytest**
+green · webui build clean (tsc+vite) · **273 vitest** green · eslint **0
 `react-hooks/rules-of-hooks` errors** · `engine/case_manager.py` **byte-identical** ·
 **zero new runtime deps**. Round 1 + Round 2 (incl. the adversarial audit +
-remediation) + **Round 3** (12 requests across Waves 0–4) are **complete and committed**.
+remediation) + Round 3 (12 requests across Waves 0–4) + **Round 4** (3 confirmed bugs
++ 12 requests + a 16-dimension audit/harden) are **complete and committed**.
 
-## Next — post-Round-3 backlog
+## Next — post-Round-4 backlog
 
-Round 3's 12 requests are done (see "Progress" below). Remaining tracks:
+Round 4's 3 bug fixes + 12 requests are done (see "Progress" below). Remaining tracks:
 
-**A. Round-3 follow-ups (Wave 4 / next):** live SSE wiring end-to-end (publish from
-poller/dispatch/pipeline → `EventBus`, webui `EventSource` w/ polling fallback for the
-bell / case-activity / agent-step stream) · `PUT /api/branding` server-side
-contrast-warning computation · the opt-in row-level data scope (the `can_object()` hook
-shipped OFF) · the OCSF classification/observables surfacing + the 1.4→1.8 version bump.
+**A. Round-4 deferred / known loose ends (low risk):** the **admin-page consolidation-
+redirects** (#4 — the standalone admin pages work + deep-link fine, so this is cosmetic IA,
+not a functional gap) · a dead **`api.setup.initAdmin` webui stub** (never called; live OOBE
+uses `POST /api/setup/account`) — prune-later.
 
-**B. Pre-Round-3 backlog still open (scoped in `docs/research/2026-06-round2/`):**
+**B. Round-3 follow-ups (still open):** the opt-in row-level data scope (the `can_object()`
+hook shipped OFF) · the OCSF classification/observables surfacing + the 1.4→1.8 version bump.
+(Live SSE wiring end-to-end + `PUT /api/branding` server-side contrast computation shipped in
+the Round-3 W4 wave.)
 
-**B-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
+**C. Pre-Round-3 backlog still open (scoped in `docs/research/2026-06-round2/`):**
+
+**C-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
 concurrency · multi-generation refresh-reuse detection · ES-only `CONFIG_INDEX`
 nested-type collision · deep-link breadcrumb (cosmetic).
 
-**B-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
+**C-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
 whole Tier-1 productivity tier EXCEPT API keys: **saved views** (W7b), **bulk case
 actions** (W7c), **Cmd-K command palette** (W7c), **global search** `GET /api/search`
 (W7c), and the **audit-log viewer** `GET /api/audit` (W7c). Remaining, in recommended
@@ -64,6 +69,65 @@ possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 4 — "fix the logic, fine-tune the product" (3 bugs + 12 requests, Waves 0–6)**
+  (branch `Testing`; backend **1234 → 1461 pytest** green (W0 1235 · W1 1253 · W2 1263 ·
+  W3 1371 · W4 1437 · W6 1461) + webui tsc/vite clean + **205 → 273 Vitest** green; eslint
+  **0 `react-hooks/rules-of-hooks` errors**; **additive + default-OFF, zero new runtime deps,
+  `engine/case_manager.py` byte-identical throughout (#3)**, #6 one-ledger-write-per-call
+  preserved, the 12 non-negotiables held. Design + what-shipped:
+  `docs/research/2026-07-round4/`. Commits `3aeab6c → 41ee54b → f7509a3 → b07f172 →
+  11ea46e → 3c68cf5 → 1df27ac` (+ the docs wave `068ede4`). LOCAL only, NOT pushed.
+  - ☑ **3 bug fixes** — (1) **single-source poller** → NEW `engine/poller_manager.py`
+    fans out over EVERY enabled PULL source (per `{source.id}:{feed.id}` cursor + legacy-
+    `"primary"`-cursor-collision guard + per-`cluster_signature` in-flight lock so concurrent
+    sources never duplicate a case, #4); (2) `claude-opus-4-8` mispriced $15/$75 → **$5/$25**
+    + cache/batch rates now applied + wired the dead `providers.with_retry()`; (3) `acknowledge`
+    → `CaseStatus.INVESTIGATING` (was `None`).
+  - ☑ **Adaptive threshold auto-tuning** — `engine/threshold_tuner.py` + `stores/tuning.py`:
+    nightly deterministic observer (Wilson-LB + min-samples + EWMA + shadow-eval), bounded +1
+    rule-`n` / feed `severity_floor` with `ActionType.TUNING` audit + rollback; DROPs → HITL
+    Proposal; config-writer only, NEVER imports `decide()`/risk/signature; **default OFF**.
+  - ☑ **Two-tier alert/event ingestion** — `engine/event_detection.py` (EVENT-feed cheap-first
+    funnel: pre-aggregate → rules → anomaly → batched Haiku detection) whose survivors re-enter
+    the SAME correlate/decide pipeline (#3/#4), #9-fenced, #7 aggregate-only; ALERT feeds stay
+    realtime per-alert. Gated default-OFF (engages only when batch + baseline both enabled).
+  - ☑ **Daily campaign correlation** — `engine/campaigns.py` + `stores/campaigns.py`:
+    deterministic shared-entity graph → `Campaign` objects that only REFERENCE `case_ids`,
+    never re-clusters/closes (#4).
+  - ☑ **Entity baseline** — `engine/baseline.py` + `stores/baseline.py`: online EWMA/EWMV +
+    168 hour-of-week buckets + bounded t-digest + modified-z |M|>3.5 (warm-up 3× period,
+    H=14d); pure producer, never reads `decide()`.
+  - ☑ **Batch/flex + broadened model catalog** — `llm/batch.py` (`BatchProvider` SPI:
+    Anthropic Message Batches + OpenAI Batch + `flex`; custom_id-keyed idempotent) +
+    `stores/batch_jobs.py`; cache-rate application in `pricing.cost_for` + provider cache-token
+    extraction (one UsageDoc/result, #6); corrected pricing + cache/batch columns in Models.
+  - ☑ **Unified logs** — `GET /api/logs` scatter-gather over browse-capable sources
+    (per-source provenance, secret-free, read-only #1) + a webui `UnifiedLogsSheet`.
+  - ☑ **Reset + OOBE** — `engine/reset.py` + `routes_reset.py` (tiered cases/sources/factory,
+    admin + fresh-auth, type-to-confirm; env secrets byte-identical across ALL tiers,
+    airtight-tested; ledger + audit survive the cases tier) + `routes_setup.py` OOBE
+    first-super_admin (strong-pw, self-locking).
+  - ☑ **Login white-label** — `BrandingConfig.login_*` bounded plain-text hero/illustration
+    (no raw HTML/SVG, #9) + a webui `BrandHero`.
+  - ☑ **Terminology cleanup** (UI/docs only; wire keys + aliases kept) — event/detection/
+    alert/case/campaign; "correlate" → Auto-investigate/clustering/campaign-correlation;
+    "rule" → detection-rule/case-automation (`AutomationRule` → `CaseAutomationRule` alias,
+    wire key `threshold_automation` unchanged).
+  - ☑ **UI consolidation + surfaces** — cleaner CaseDetail (single primary CTA + unified
+    Close-with-disposition, posts the existing close → `decide()`, #3); analytics declutter
+    (Cost as the single home); new tuning/campaigns/baseline/batch surfaces + a DangerZone
+    reset panel. 6 new API routers mounted under `require_auth` (routes_tuning/campaigns/
+    baseline/batch/reset/setup); gated background schedulers (nightly tuner / daily campaign /
+    batch poller) spawn-but-sleep when disabled (byte-identical default-off boot).
+  - ☑ **W6 adversarial audit + harden** — a 16-dimension audit → **16 confirmed / 4 refuted**,
+    all fixed + regression-tested (+24 tests). 2 HIGH: a per-`cluster_signature` `asyncio.Lock`
+    on the ONE pipeline serialises find-open→save so concurrent sources create exactly one
+    case (#4); the EVENT-detection funnel now REALLY creates cases (survivors persist as
+    `BatchJob.candidates` and re-enter via `register_candidate` + `investigate_cluster`).
+    Others: OpenAI prompt-cache no longer double-billed; legacy public `/api/setup/init-admin`
+    removed (bypassed the strong-pw policy); batch dedup made an atomic CAS claim-before-bill
+    (#6); t-digest centroid count bounded. **Deferred:** admin-page consolidation-redirects (#4)
+    + the dead `api.setup.initAdmin` webui stub.
 - ☑ **Round 3 — "useful, distinctive, fine-grained" overhaul (12 requests, Waves 0–4)**
   (branch `Testing`; **1109 backend tests green** (794→802→900→1074→1109 across the
   waves) + webui tsc/vite clean + **175 Vitest** green (86→175); **additive, zero new

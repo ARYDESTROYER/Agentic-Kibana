@@ -88,8 +88,12 @@ the deterministic close/escalate decision and never alter it. See
   gate, and the close/escalate decision are deterministic code; only the verdict
   comes from the LLM, and investigation is tiered (cheap router → strong
   investigator) to control spend.
-- **Cost ledger.** 100% of LLM calls pass through one gateway that records token
-  usage and cost on every call.
+- **Cost ledger + batch/flex.** 100% of LLM calls pass through one gateway that records
+  token usage and cost on every call (exactly one ledger write per call, #6). Round 4
+  applies prompt-cache and batch pricing (cache read 0.1× / write 1.25×–2×; Batch 0.5×) and
+  adds a `BatchProvider` SPI (Anthropic Message Batches + OpenAI Batch, plus OpenAI `flex`)
+  keyed idempotently by `custom_id`, with a broadened, correctly-priced model catalog
+  (`claude-opus-4-8` fixed to $5/$25).
 - **RAG with management & visibility.** Resolved cases are indexed as retrievable
   baseline memory so future investigations learn from prior analyst decisions
   (backed by pgvector or an ES dense-vector store, depending on the state backend).
@@ -127,10 +131,12 @@ the deterministic close/escalate decision and never alter it. See
   **OIDC SSO** for Google / Microsoft / generic providers via server-side code
   exchange + `userinfo` (no `id_token`-verify dependency), with group→role
   auto-provisioning.
-- **Account self-service + a redesigned login.** A two-column (brand hero + form)
-  login, and a self-service profile (display name, avatar, alternate email, timezone,
-  locale, personal prefs) on the user model via `GET/PUT /api/account/me` (env-managed
-  single-admin is read-only). Secrets stay excluded from the public projection.
+- **Account self-service + a white-label login.** A two-column (brand hero + form) login
+  whose hero is **white-labelable** (`BrandingConfig.login_*` — bounded plain-text
+  headline / subtext / illustration, no raw HTML/SVG, #9), and a self-service profile
+  (display name, avatar, alternate email, timezone, locale, personal prefs) on the user
+  model via `GET/PUT /api/account/me` (env-managed single-admin is read-only). Secrets stay
+  excluded from the public projection.
 - **Sessions & access policy.** Short-lived access tokens carry a session id (`sid`)
   + token version (`tv`); a backend-agnostic `SessionStore` (over the existing KV
   layer, survives restarts) enforces idle / absolute / revocation in `require_auth`,
@@ -165,12 +171,14 @@ the deterministic close/escalate decision and never alter it. See
   and a personal light / dark / system **theme**, resolved through a merged cascade
   (`GET /api/prefs/effective`). Routes: `GET/PUT /api/prefs/{user,org}`,
   `GET/POST/PUT/DELETE /api/views` (+ `/clone`), `GET/PUT /api/terminology` (PUT admin).
-- **Command palette, global search, bulk actions, audit viewer.** A Cmd/Ctrl-K
-  command palette; a cross-entity **global search** (`GET /api/search`) over cases /
-  sources / pages; **bulk case actions** (`POST /api/cases/bulk`) that run each id
-  through the EXACT single-case human action path (`_perform_case_action`) — never
-  `decide()` — audited per id and partial-failure tolerant; and an **audit viewer**
-  (`GET /api/audit`) over the append-only trail.
+- **Command palette, global search, unified logs, bulk actions, audit viewer.** A
+  Cmd/Ctrl-K command palette; a cross-entity **global search** (`GET /api/search`) over
+  cases / sources / pages; a **unified log view** (`GET /api/logs`) that scatter-gathers
+  read-only, secret-free rows across every browse-capable source with mandatory
+  per-source provenance and graceful partial-failure handling; **bulk case actions**
+  (`POST /api/cases/bulk`) that run each id through the EXACT single-case human action path
+  (`_perform_case_action`) — never `decide()` — audited per id and partial-failure
+  tolerant; and an **audit viewer** (`GET /api/audit`) over the append-only trail.
 - **Two-axis case taxonomy + custom case IDs.** Lifecycle **status**
   (`new` / `investigating` / `escalated` / `on_hold` / `resolved`, plus the retained
   `open` / `needs_human` / `closed`) and analyst **disposition**
@@ -179,16 +187,44 @@ the deterministic close/escalate decision and never alter it. See
   `case_manager.decide()` is **byte-identical** — the taxonomy is an additive layer.
   A configurable `case_id_format` template (e.g. `CASE-2026-000123`) with a KV
   sequence and a live preview gives human-facing case numbers.
-- **Multi-source correlation + per-feed source config.** An opt-in **cross-source
-  correlation** pass links RELATED cases that share an entity (IP / host / user /
-  file hash / domain) without forcing a merge (1:1 cluster→case preserved). Each
-  pull source can declare multiple **feeds** (index patterns) with a role —
+- **Multi-source polling + per-feed source config.** The poller fans out over **every
+  enabled PULL source** (not just the primary) — a `PollerManager` gives each source its
+  own connector, its own per-feed durable cursor (`{source.id}:{feed.id}`), and a
+  per-`cluster_signature` in-flight lock so concurrent sources never skip or duplicate a
+  case (#4). An opt-in **cross-source correlation** pass links RELATED cases that share an
+  entity (IP / host / user / file hash / domain) without forcing a merge (1:1 cluster→case
+  preserved). Each pull source can declare multiple **feeds** (index patterns) with a role —
   `events` (correlate then triage), `alerts` (auto-investigate), or `ignore` (skip) —
   plus per-feed `correlate` / `auto_investigate` switches, a connector-native query
   filter, a field-mapping override, a severity floor, and an **independent durable
   cursor** so a fast alerts feed and a slow events feed never skip each other (#4).
   A severity floor demotes auto-forwarding but **never drops events** (#4). Plus
   per-connector contextual setup help.
+- **Two-tier alert/event ingestion (Round 4, default OFF).** **ALERT** feeds run realtime,
+  per-alert; **EVENT** feeds run a cheap-first agent-driven **detection funnel**
+  (`engine/event_detection.py`: pre-aggregate → deterministic rules → anomaly →
+  batched-LLM detection) whose survivors **re-enter the exact same correlate → decide
+  pipeline** — so nothing bypasses the deterministic close/escalate (#3/#4), log values stay
+  UNTRUSTED (#9), and the LLM only ever sees fenced aggregates (#7).
+- **Daily campaign correlation + entity baseline (Round 4, default OFF).** A deterministic
+  daily **campaign** pass builds a shared-entity graph over recent cases and emits
+  `Campaign` objects that only *reference* case ids (never re-clusters or closes, #4). An
+  online **entity baseline** (EWMA/EWMV over 168 hour-of-week buckets + a bounded t-digest +
+  robust modified-z) turns "improves over time" into a real signal that feeds the
+  event-detection anomaly stage — a pure producer that never touches `decide()`.
+- **Adaptive threshold auto-tuning (Round 4, default OFF).** A nightly **deterministic**
+  observer (`engine/threshold_tuner.py`) measures per-rule false-positive noise (Wilson
+  lower-bound + min-samples + EWMA), and bounded-bumps a correlation rule's `n` or a feed's
+  `severity_floor` with an audit record + one-step rollback + a shadow-eval that blocks any
+  change which would have hidden a confirmed true positive. Suppression drops route to a HITL
+  approval instead of applying silently. It is a config-writer only — it **never** imports
+  `decide()` / risk weights / signatures (#3).
+- **Tiered reset + fresh OOBE (Round 4).** A gated danger-zone reset (`engine/reset.py`,
+  admin + fresh-auth, type-to-confirm) clears **cases** / **sources** / a full **factory**
+  reset — but **env secrets are byte-identical across every tier** (airtight-tested) and the
+  cost ledger + audit trail survive the cases tier. A factory reset flips back to a fresh
+  first-run OOBE (`POST /api/setup/account`) that provisions the first super-admin with a
+  forced strong password (self-locking so it can only be used once).
 - **Playbook automation + threat context.** A **run-a-playbook** action
   re-investigates a case with a chosen playbook injected as context (recommend-only,
   #3-safe); **threshold automation** matches cases after the decision and may tag /
@@ -250,13 +286,14 @@ the backend API (`GET /api/connectors`, `GET|POST|DELETE /api/sources`, per-sour
 secrets via `POST /api/sources/{id}/secrets`). Full reference:
 [`docs/INGESTION.md`](docs/INGESTION.md).
 
-**Current limits (be aware):** the PULL path targets **one** ES-API-compatible
-cluster today (Elastic / OpenSearch / Wazuh) via `ES_URL` + a read-only
-`ES_API_KEY`. Multiple distinct pull clusters and **native** Splunk / Sentinel /
-QRadar / Chronicle / CrowdStrike / Defender pull connectors are on the roadmap
-(the `SourceType` enum already reserves their names). **Push / queue / object-store
-ingestion is unlimited** — run as many receivers of as many types as you like, in
-parallel with the pull source.
+**Current limits (be aware):** the poller now fans out over **every enabled PULL source**
+you configure in the wizard (each with its own connector, TLS, and durable per-feed
+cursor). The bootstrap `ES_URL` + read-only `ES_API_KEY` seed the primary ES-API-compatible
+cluster (Elastic / OpenSearch / Wazuh); additional pull sources are added through the
+wizard. **Native** Splunk / Sentinel / QRadar / Chronicle / CrowdStrike / Defender pull
+connectors are still on the roadmap (the `SourceType` enum already reserves their names).
+**Push / queue / object-store ingestion is unlimited** — run as many receivers of as many
+types as you like, in parallel with the pull sources.
 
 ## Repository layout
 
@@ -310,23 +347,28 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline this cycle: **1142+ backend tests green** (fake/in-memory backends
+Verified offline this cycle: **1461 backend tests green** (fake/in-memory backends
 + mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
 tests offline); the standalone **web UI builds clean** (`tsc` + Vite) with a dev-only
-Vitest harness (181+ tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
+Vitest harness (273 tests); eslint clean (0 `react-hooks/rules-of-hooks` errors).
 (Test counts rise each harden wave — see `Journal.md` for the exact current totals.)
-**Round 3** (12 requests across Waves 0–4: expandable nav, richer Settings real-estate,
-deeper branding/material, per-case human+AI collaboration, a posture dashboard +
+**Round 4** ("fix the logic, fine-tune the product" — the multi-source poller fix +
+2 more confirmed bugs, adaptive threshold auto-tuning, two-tier alert/event ingestion with
+campaign correlation + agent-driven event detection, an entity baseline, batch/flex + a
+broadened correctly-priced model catalog, a unified log view, tiered reset + fresh OOBE, and
+a white-label login) — like **Round 3** (12 requests: expandable nav, richer Settings
+real-estate, deeper branding/material, per-case human+AI collaboration, a posture dashboard +
 MITRE-coverage, fine-grained custom-role RBAC, +17 new enrichment providers (19 total), in-app
-notifications, a standardized Models page, distinctive UI, a forward-looking Standup,
-and clearer cases + agent-work visualization) — like Round 2 (login redesign + account
-self-service, sessions + token policy, the Settings-centric IA, Demo Mode, per-feed
-sources, Resend/SES + email templates, per-user customization, command palette + global
-search + bulk actions + audit viewer) and the seven-wave overhaul before it — was
-**additive with zero new runtime dependencies** and left `case_manager.decide()`
-byte-identical (CI-verified); the 12 non-negotiables held throughout. A shipped security
-fix inverts RAG-knowledge fencing to a TRUSTED allowlist so operator-imported documents
-can no longer reach the model unfenced (OWASP LLM01). Live-stack validation against a
-real SIEM is a deploy step. New here? See [`docs/HANDOFF.md`](docs/HANDOFF.md). See
+notifications, a standardized Models page, distinctive UI, a forward-looking Standup, and
+clearer cases + agent-work visualization), **Round 2** (login redesign + account self-service,
+sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources, Resend/SES +
+email templates, per-user customization, command palette + global search + bulk actions +
+audit viewer), and the seven-wave overhaul before it — was **additive, default-OFF, with zero
+new runtime dependencies** and left `case_manager.decide()` byte-identical (CI-verified); the
+12 non-negotiables held throughout, and a 16-dimension adversarial audit closed Round 4 (16
+confirmed issues, all fixed + regression-tested). A shipped security fix inverts RAG-knowledge
+fencing to a TRUSTED allowlist so operator-imported documents can no longer reach the model
+unfenced (OWASP LLM01). Live-stack validation against a real SIEM is a deploy step. New here?
+See [`docs/HANDOFF.md`](docs/HANDOFF.md). See
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
 status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.

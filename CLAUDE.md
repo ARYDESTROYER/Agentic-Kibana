@@ -113,7 +113,12 @@ proxy change.**
 backend/app/
   config.py          Secrets (env-only; incl. STATE_BACKEND/STATE_DB_URL +
                      per-source connector_secrets) + Preferences (UI-editable,
-                     incl. sources[] SourceInstance list)
+                     incl. sources[] SourceInstance list; Round-4:
+                     {threshold_tuning,batch,baseline,campaign} config blocks (all
+                     default OFF) + caps.max_concurrent + BrandingConfig.login_*
+                     bounded plain-text white-label [validator rejects any `<`, #9];
+                     AutomationRule → CaseAutomationRule (alias kept, wire key
+                     `threshold_automation` unchanged))
   constants.py       enums (incl. SourceType/IngestMode/CursorKind + OCSF_VERSION),
                      index names, verdict/role/action types, untrusted fences
   models.py          Pydantic data contracts (Case/AuditDoc/UsageDoc/Cursor/
@@ -128,7 +133,14 @@ backend/app/
                      syslog · queues · objectstore · formats · common) — 16 push receivers
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
-  llm/               gateway (THE cost-ledger choke point) · providers · pricing
+  llm/               gateway (THE cost-ledger choke point) · providers (Round-4:
+                     cache-token extraction + OpenAI `service_tier='flex'` opt-in +
+                     wired `with_retry`) · pricing (Round-4: `claude-opus-4-8`
+                     corrected $15/$75 → $5/$25 ctx→1M; cache rates applied — read
+                     0.1× / write 1.25×[5m]/2×[1h], batch 0.5×; non-cache math
+                     byte-identical) · batch (Round-4: `BatchProvider` SPI — Anthropic
+                     Message Batches + OpenAI Batch + flex; results UNORDERED → keyed
+                     by `custom_id`, one UsageDoc/result at 0.5× #6)
   tools/             base (MCP-shaped, + ToolTier safety tier) · es_query · enrich ·
                      rag (hybrid BM25+vector retrieval; import/list/get/delete +
                      stats; Round-3 TRUSTED-allowlist fencing — only built-in/verified
@@ -150,7 +162,12 @@ backend/app/
                      frames published AFTER save, never before decide()
   engine/            correlation (multi-strategy + opt-in cross-source linking) ·
                      risk · cost_gate · case_manager (AutoClosePolicy; decide() pure) ·
-                     signatures · poller · ingest (push/queue → OCSF) · runbooks
+                     signatures · poller · poller_manager (Round-4: PollerManager IS
+                     state.poller — fans out over EVERY enabled PULL source, per
+                     {source.id}:{feed.id} cursor + legacy-"primary"-collision guard +
+                     per-signature in-flight lock so concurrent sources never dup a
+                     case #4; single/zero-source path byte-identical) ·
+                     ingest (push/queue → OCSF) · runbooks
                      (RAG-knowledge loader) · chunking · case_id (customizable
                      case-XXXX nomenclature; KV sequence + template) ·
                      metrics (verdict/status mix + Round-3 posture: MTTA/MTTR/dwell
@@ -166,7 +183,21 @@ backend/app/
                      threat_context (IOC reputation + MITRE + related cases, fail-open) ·
                      mitre (bundled ATT&CK technique lookup) ·
                      demo_generator (seeded OCSF org+baseline+MITRE storylines) ·
-                     demo_runtime (deterministic mock LLM + sandboxed policy — Demo Mode)
+                     demo_runtime (deterministic mock LLM + sandboxed policy — Demo Mode) ·
+                     threshold_tuner (Round-4: nightly deterministic auto-tuner —
+                     per-rule FP via Wilson-LB + min-samples + EWMA + shadow-eval +
+                     bounded +1 correlation-n/severity_floor + audit/rollback; DROPs →
+                     HITL Proposal; NEVER imports decide()/risk/signature; default OFF) ·
+                     campaigns (Round-4: daily deterministic shared-entity graph →
+                     `Campaign` objects, references case_ids only, never re-clusters #4) ·
+                     baseline (Round-4: online EWMA/EWMV + 168 hour-of-week buckets +
+                     bounded t-digest + modified-z |M|>3.5 + 3×-period warm-up, H=14d;
+                     pure producer) · event_detection (Round-4: EVENT-feed cheap-first
+                     funnel pre-aggregate→rules→anomaly→batched Haiku detection →
+                     candidates re-enter the SAME correlate/decide pipeline #3/#4,
+                     #9-fenced, #7 aggregate-only) · forwarding (Round-4: explain_forwarding
+                     — read-only auto-forward-gate explainer) · reset (Round-4: tiered
+                     cases/sources/factory reset, NEVER wipes env secrets)
   threat/            mitre_techniques.json (bundled ATT&CK, 697 techniques) +
                      refresh_mitre.py + SOURCE.md (data corpus, not live fetch)
   runbooks/          plain-text Markdown runbooks (RAG knowledge corpus)
@@ -199,16 +230,26 @@ backend/app/
                      collaboration #4) · inbox (per-user fan-out, ~200/user ring) ·
                      notif_prefs (in-app #8) · custom_roles (#6) · price_overlay
                      (per-model price overrides #9) · shift_handoff (Standup acks +
-                     action items #11) · audit/audit_log (ES-backed) · sql/ (engine ·
+                     action items #11) · 4 Round-4 KV stores (same zero-migration
+                     pattern): tuning (per-rule FP tuning state + rollback) · campaigns ·
+                     baseline (per-signature online stats) · batch_jobs (resume-safe,
+                     per-`custom_id` retrieved-dedup → exactly-one UsageDoc/result #6) ·
+                     audit/audit_log (ES-backed) · sql/ (engine ·
                      models · repositories · vectorstore — SQLite/Postgres+pgvector)
   api/               routes (the big UI-contract router; incl. /sources, /auth+/users+
                      /auth/mfa+/auth/sso, /auth/refresh+/auth/reauth, /sessions+
                      /admin/sessions, /account/me+/me/avatar, /demo/*, /prefs/{user,org,
                      effective}+/views+/terminology, /notifications+/notifications/
                      preview, /proposals, /settings/schema, /search, /audit, /branding+
-                     /branding/presets) + 8 Round-3 per-feature routers
-                     (routes_metrics · routes_standup · routes_enrichment · routes_models
-                     · routes_inapp · routes_cases_collab · routes_triage · routes_roles)
+                     /branding/presets; Round-4: acknowledge → INVESTIGATING +
+                     GET /api/logs [unified scatter-gather over browse-capable sources] +
+                     /cases/{id}/forwarding + /sources/health) + 8 Round-3 per-feature
+                     routers (routes_metrics · routes_standup · routes_enrichment ·
+                     routes_models · routes_inapp · routes_cases_collab · routes_triage ·
+                     routes_roles) + 6 Round-4 routers (routes_tuning · routes_campaigns ·
+                     routes_baseline · routes_batch · routes_reset [admin + fresh-auth,
+                     tiered, never wipes env secrets] · routes_setup [OOBE first-admin,
+                     strong-pw, self-locking])
                      mounted in main.py · deps (require_auth + require_permission +
                      require_fresh_auth + custom-role union enforcement + session check) ·
                      state.py (DI hub; exposes enrichment_registry + event_bus) · main.py
@@ -234,7 +275,9 @@ deploy/              docker-compose.agnostic.yml (Postgres+Redis+backend+webui) 
                      docker-compose.tlsoc.yml (legacy ELK merge) · mappings/ · dashboards/
 docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_STUDY.md ·
                      HANDOFF.md · research/2026-06-round2/ · research/2026-06-round3/
-                     (PROPOSAL.md + IMPLEMENTATION.md)
+                     (PROPOSAL.md + IMPLEMENTATION.md) · research/2026-07-round4/
+                     (PROPOSAL.md + RESEARCH-SYNTHESIS.md + understand/ maps +
+                     IMPLEMENTATION.md)
 .env.example  README.md  DEPLOY.md  COMPATIBILITY.md  CLAUDE.md  Journal.md  ROADMAP.md
 ```
 
@@ -315,16 +358,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1142+ tests (see Journal for the exact per-wave count)
+# Backend tests (offline; MUST stay green) — currently 1461 tests (see Journal for the exact per-wave count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1142 passed (rises as harden-wave tests land; see Journal)
+python -m pytest -q                         # -> 1461 passed (rises as harden-wave tests land; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
 cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/
-npx vitest run                             # -> 181 passed (see Journal for the current count)
+npx vitest run                             # -> 273 passed (see Journal for the current count)
 npm run lint                               # 0 react-hooks/rules-of-hooks errors (2 exhaustive-deps warnings OK)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -367,8 +410,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1142+) + `npm run build` clean
-  + `vitest run` (181+) + `npm run lint` (no rules-of-hooks errors) before every commit.
+- **Tests:** add/keep offline tests; `pytest -q` green (1461) + `npm run build` clean
+  + `vitest run` (273) + `npm run lint` (no rules-of-hooks errors) before every commit.
   (Counts rise each wave — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -386,13 +429,102 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: **Round 1 + Round 2 + Round 3 overhauls COMPLETE** (committed on `Testing`,
-local only — **not pushed**). Phase-1 spine + vendor-agnostic transition + the
+Current: **Round 1 + Round 2 + Round 3 + Round 4 overhauls COMPLETE** (committed on
+`Testing`, local only — **not pushed**). Phase-1 spine + vendor-agnostic transition + the
 Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul** (W1–W7) + **Round 2**
 (account self-service, sessions + token policy, Settings-centric IA, Demo Mode, source
 multi-feed, Resend/SES + email templates, per-user customization, command palette /
 global search / bulk actions / audit viewer) + **Round 3** (12 requests across Waves
-0–4) all shipped.
+0–4) + **Round 4** (12 requests + 3 confirmed bugs across Waves 0–6 — "fix the logic,
+fine-tune the product": multi-source poller fix, two-tier ALERT/EVENT ingestion,
+adaptive threshold auto-tuning, campaign correlation, entity baselining, LLM
+batch/flex + cache pricing, tiered reset + OOBE) all shipped.
+
+**Round 4 (commits `068ede4 → 3aeab6c → 41ee54b → f7509a3 → b07f172 → 11ea46e →
+3c68cf5 → 1df27ac` + this docs wave) — "fix the logic, fine-tune the product": 12
+user requests + 3 confirmed bugs across 7 waves (W0–W6), additive + default-OFF, ZERO
+new runtime deps, `engine/case_manager.py` BYTE-IDENTICAL throughout (#3), the 12
+non-negotiables held (esp. #1/#3/#4/#6/#9):**
+
+- **The 3 bugs fixed:** (1) **single-source poller** — new `engine/poller_manager.py`
+  fans out over EVERY enabled PULL source (per `{source.id}:{feed.id}` cursor +
+  legacy-`"primary"`-cursor-collision guard + a per-signature in-flight lock so
+  concurrent sources never duplicate a case #4; single/zero-source path
+  byte-identical). (2) **`claude-opus-4-8` mispriced** $15/$75 → **$5/$25** (ctx→1M) +
+  cache rates now APPLIED (read 0.1× / write 1.25×[5m]/2×[1h]) + batch 0.5× + wired the
+  previously-dead `providers.with_retry()`. (3) **acknowledge** now sets
+  `CaseStatus.INVESTIGATING` (was `None`; non-terminal, not a close #3).
+- **Two-tier ingestion** — **ALERT feeds** = realtime per-alert triage + a daily
+  **campaign correlation** pass; **EVENT feeds** = a cheap-first, batched
+  agent-driven **detection** funnel (pre-aggregate → deterministic rules → anomaly
+  vs. baseline → batched Haiku detection) whose survivors re-enter the SAME
+  correlate/decide pipeline as candidate cases (#3/#4, #9-fenced, #7 aggregate-only).
+  Both tiers default OFF; the existing realtime path is byte-identical when disabled.
+- **Adaptive threshold auto-tuning** (`engine/threshold_tuner.py` + `stores/tuning.py`)
+  — a nightly deterministic observer that measures per-rule FP noise (Wilson lower-bound
+  + min-samples + EWMA), auto-applies a **bounded +1** correlation-`n` / feed
+  `severity_floor` bump with `ActionType.TUNING` audit + rollback + shadow-eval (never
+  hides a confirmed TP), routes suppression DROPs to a **HITL Proposal**, and **never
+  imports `decide()`/risk/signature** — a config-writer only, default OFF.
+- **Campaign correlation** (`engine/campaigns.py` + `stores/campaigns.py`) — a daily
+  deterministic shared-entity graph that groups RELATED cases into `Campaign` objects;
+  references `case_ids` only, never re-clusters or closes (#3/#4).
+- **Entity baselining** (`engine/baseline.py` + `stores/baseline.py`) — online
+  EWMA/EWMV per cluster-signature across 168 hour-of-week buckets + a bounded t-digest
+  (p50/p95/p99) + robust modified-z |M|>3.5 + a 3×-period warm-up (H=14d slow); a pure
+  producer that never reads `decide()`/risk-weights.
+- **LLM batch/flex + cache economics** — new `llm/batch.py` `BatchProvider` SPI
+  (Anthropic Message Batches + OpenAI Batch + `service_tier='flex'`; results UNORDERED
+  → keyed by `custom_id`) + `stores/batch_jobs.py` (resume-safe, per-`custom_id`
+  retrieved-dedup → **exactly one** UsageDoc/result at 0.5× batch, #6); cache-token
+  extraction in `providers.py` + cache rates applied in `pricing.cost_for`
+  (non-cache math byte-identical).
+- **Tiered reset + fresh OOBE** — `engine/reset.py` + `api/routes_reset.py`
+  (admin + `require_fresh_auth`, type-to-confirm cases/sources/factory tiers; the cost
+  ledger + audit survive the cases tier; **env secrets are byte-identical across ALL
+  tiers**, airtight-tested #1/#10) + `api/routes_setup.py` (OOBE first-super_admin,
+  strong-password-enforced, self-locking; the legacy public `init-admin` was removed in
+  the audit).
+- **6 new routers** (`routes_tuning · routes_campaigns · routes_baseline · routes_batch
+  · routes_reset · routes_setup`) + on `routes.py`: `GET /api/logs` (unified
+  scatter-gather over browse-capable sources), `/cases/{id}/forwarding`
+  (`explain_forwarding`), `/sources/health`. **config.py:**
+  `Preferences.{threshold_tuning,batch,baseline,campaign}` (default OFF) +
+  `caps.max_concurrent` + `BrandingConfig.login_*` (bounded plain-text white-label,
+  `<`-rejecting validator #9); `AutomationRule → CaseAutomationRule` (alias kept, wire
+  key `threshold_automation` unchanged).
+- **webui** — unified logs sheet · tuning/campaigns/baseline/batch surfaces · cleaner
+  CaseDetail (single primary CTA + a unified Close-with-disposition dialog that still
+  posts through `decide()` #3) · analytics declutter (Cost as the single home) · login
+  white-label + OOBE account-setup · Models cache/batch pricing columns · a DangerZone
+  reset panel.
+- **Terminology cleanup (UI/docs only — wire keys + aliases kept):**
+  event / detection / alert / case / campaign; "correlate" → auto-investigate /
+  clustering / campaign-correlation; "rule" → detection-rule / case-automation.
+- **Audit + harden (W6):** a 16-dimension adversarial audit found **16 confirmed
+  issues** (2 HIGH poller-concurrency, event-detection now REALLY creates cases,
+  OpenAI cache double-bill, the OOBE `init-admin` bypass, t-digest unbounded growth,
+  …) — all fixed + regression-tested.
+- **Deferred/known:** the admin-page consolidation-REDIRECTS (#4 — the pages work +
+  deep-link standalone) and a dead `webui api.setup.initAdmin` stub (never called; the
+  live flow uses `/setup/account`).
+
+New modules: `engine/{poller_manager,threshold_tuner,campaigns,baseline,event_detection,
+forwarding,reset}.py`, `llm/batch.py`, `stores/{tuning,campaigns,baseline,batch_jobs}.py`,
+and 6 `api/routes_{tuning,campaigns,baseline,batch,reset,setup}.py` routers.
+
+**GREEN BASELINE (verified 2026-07-01):** backend **1461 pytest** pass (Round 4:
+1234 → 1235 W0 → 1253 W1 → 1263 W2 → 1371 W3 → 1437 W4 → 1461 W6); the standalone
+**webui builds clean** (tsc+vite) + **273 Vitest specs green** (205 → 273); eslint
+**0 `react-hooks/rules-of-hooks` errors** (3 benign `exhaustive-deps` warnings);
+`engine/case_manager.py` **byte-identical**; **ZERO new runtime deps**. Every wave was
+additive + default-OFF, with #3 intact (event-detection candidates re-enter the normal
+pipeline and never call `decide()`; the tuner is a config-writer that never imports
+`decide()`; reset never closes a case outside `decide()`) and #6 preserved (batch is
+exactly-one UsageDoc/result under an atomic claim-before-bill). See
+`docs/research/2026-07-round4/` (`PROPOSAL.md` + `RESEARCH-SYNTHESIS.md` + the
+`understand/` subsystem maps + `IMPLEMENTATION.md`) for the Round-4 design +
+what-shipped.
 
 **Round 3 (commits `bffe4b8 → 59c2999 → 2295363 → 8b25ca2 → 3610147` + this docs/live
 wave) — 12 user requests, additive, zero new deps, #3 byte-identical, the 12
@@ -423,7 +555,8 @@ shift_handoff), `engine/{shift_report,priority,budget,mitre_coverage}.py`, and 8
 per-feature `api/routes_*.py` routers (metrics/standup/enrichment/models/inapp/
 cases_collab/triage/roles).
 
-**GREEN BASELINE (verified 2026-06-30):** backend **1142+ pytest** pass (395 → 772 → 794
+**Round-3 GREEN BASELINE (verified 2026-06-30 — superseded by the Round-4 baseline
+above):** backend **1142+ pytest** pass (395 → 772 → 794
 → 1142; rises as the harden-wave regression tests land — see `Journal.md` for the exact
 per-wave count); the standalone **webui builds clean** (tsc+vite) + **181+ Vitest specs
 green** (86 → 181); eslint **0 `react-hooks/rules-of-hooks` errors** (2 benign `exhaustive-deps`
@@ -433,7 +566,9 @@ uses a sandboxed policy copy; the Round-3 `BudgetGate` is a pure pre-flight that
 safe to NEEDS_HUMAN, never a silent close) and #6 (one ledger write per call) preserved.
 The legacy Kibana plugin is **archived** (`archive/`). Active branch: **`Testing`**.
 New here? Start with `docs/HANDOFF.md`. See `docs/VIGIL_STUDY.md` for the study +
-multi-wave plan, `docs/research/2026-06-round3/` (`PROPOSAL.md` + `IMPLEMENTATION.md`)
+multi-wave plan, `docs/research/2026-07-round4/` (`PROPOSAL.md` + `RESEARCH-SYNTHESIS.md`
++ `understand/` + `IMPLEMENTATION.md`) for the Round 4 design + what-shipped,
+`docs/research/2026-06-round3/` (`PROPOSAL.md` + `IMPLEMENTATION.md`)
 for the Round 3 design + what-shipped, `docs/research/2026-06-round2/` for Round 2, and
 `ROADMAP.md` for live status.
 
