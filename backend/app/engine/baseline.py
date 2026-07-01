@@ -1,0 +1,462 @@
+"""Entity BASELINE — an anomaly baseline that IMPROVES OVER TIME (Round 4 Wave 3).
+
+This module is the precise, sourced answer to "how does the base improve": a set of
+**online, single-pass streaming statistics** that update **recursively, once per
+observation**, keyed per ``cluster_signature`` and per **168 hour-of-week bucket**
+(day-of-week × hour). Old data is continuously down-weighted (EWMA) so the baseline
+*tracks drift* instead of rescanning history or ossifying, and it self-corrects as
+``n`` grows. Every update is a fixed recursion over the ordered stream, so identical
+inputs in identical order yield **byte-identical state** — which is exactly why the
+baseline can live entirely OUTSIDE the deterministic decision.
+
+The four streaming primitives per bucket (all from ``docs/research/2026-07-round4``):
+
+* **EWMA mean + EWMV variance** (drift-tracking). Two parallel EWMAs — of ``x`` and
+  ``x²`` — with ``Var = E[x²] − (E[x])²``. Decay is exposed as a **half-life ``H`` in
+  DAYS** (``half_life_days``, default 14 — deliberately SLOW so a sustained attack is
+  not silently absorbed into "normal"), converted internally to
+  ``alpha = 1 − exp(−ln2 / H)`` and applied ONE decay-step per observation. Seeded
+  ``s₁ = x₁`` (pandas ``adjust=False`` form).
+* **Welford** running mean/variance (numerically-stable unbounded-history reference):
+  ``M_k = M_{k−1} + (x_k − M_{k−1})/k``;
+  ``S_k = S_{k−1} + (x_k − M_{k−1})·(x_k − M_k)``; ``var = S_k/(k−1)``. Error ~1/n.
+* **t-digest** (one per bucket, ``compression`` pinned, default 100) for robust
+  p50/p95/p99 on heavy-tailed volume/rate. Deterministic insertion + a fixed merge
+  order so replay is byte-identical.
+* **Modified-z / MAD** robust threshold: ``M = 0.6745·(x − median)/MAD`` (median +
+  MAD read robustly from the t-digest), flag when ``|M| > modified_z_threshold``
+  (default 3.5). Robust so the very outliers we hunt can't inflate the dispersion.
+
+**Warm-up gate.** Baseline-derived candidates are suppressed until a bucket has at
+least ``warmup_multiplier × seasonal_period`` observations (3 × 168 = 504 for weekly
+buckets, i.e. ~3 weeks of matching-hour history). ``warmup_target()`` exposes
+``(n, target)`` for a UI warm-up gauge, so "improves over time" is visible + auditable.
+
+**Non-negotiables held.**
+
+* **#3** — a PURE PRODUCER. It NEVER imports ``case_manager``, NEVER calls / reads
+  ``decide()``, and NEVER reads risk weights. It only ranks/emits candidate signals
+  that feed the SAME deterministic pipeline; NEEDS_HUMAN still never auto-closes.
+* **#4** — the baseline state is versioned SEPARATELY (``BaselineState.version``) and
+  can never mutate / recompute ``cluster_signature`` — it only *references* it as a
+  bucket key.
+* **#6** — pure math, no LLM call → no ``UsageDoc``.
+* Determinism — stable observation order (the caller sorts by timestamp/custom_id),
+  fixed float summation order, pinned t-digest compression, versioned sketch state.
+
+DEFAULTS OFF (``Preferences.baseline.enabled`` is False out of the box), so nothing
+changes until an operator opts in.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+from ..config import BaselineConfig
+from ..models import BaselineState
+
+# The sketch layout version stamped onto every produced :class:`BaselineState`. Bump
+# this if the persisted shape changes so a later wave can migrate-on-read. It is
+# entirely separate from the byte-identical ``cluster_signature`` (#4).
+SKETCH_VERSION = 1
+
+# Seasonal periods (number of buckets in one cycle) per seasonality mode. Weekly =
+# 168 hour-of-week buckets (7 days × 24 h); the warm-up target scales off this.
+SEASONAL_PERIODS: dict[str, int] = {
+    "none": 1,
+    "hour_of_day": 24,
+    "day_of_week": 7,
+    "hour_of_week": 168,
+}
+
+# The modified-z rescale constant: MAD ≈ 0.6745·σ for a normal distribution, so
+# 0.6745·(x−median)/MAD is on the same scale as a standard z-score.
+_MODIFIED_Z_K = 0.6745
+
+
+def half_life_to_alpha(half_life_days: float) -> float:
+    """Convert a decay HALF-LIFE ``H`` (in days) to the EWMA smoothing ``alpha``.
+
+    ``alpha = 1 − exp(−ln2 / H)`` (pandas / RiskMetrics). A larger ``H`` (slower
+    forgetting) yields a smaller ``alpha`` (more weight on history) — the deliberate
+    slow-adapt choice so a sustained attack is not absorbed into "normal". Guarded to
+    a valid ``(0, 1]`` even for degenerate inputs."""
+    try:
+        h = float(half_life_days)
+    except (TypeError, ValueError):
+        h = 14.0
+    if not math.isfinite(h) or h <= 0.0:
+        return 1.0
+    return 1.0 - math.exp(-math.log(2.0) / h)
+
+
+def hour_of_week(day_of_week: int, hour: int) -> int:
+    """Fold ``(day_of_week 0–6, hour 0–23)`` into a single 0–167 hour-of-week bucket.
+
+    ``day_of_week`` follows Python's ``datetime.weekday()`` (Mon=0 … Sun=6). Inputs
+    are clamped into range so a malformed timestamp can never index out of the 168
+    buckets (it lands in a nearby bucket rather than raising)."""
+    d = max(0, min(6, int(day_of_week)))
+    h = max(0, min(23, int(hour)))
+    return d * 24 + h
+
+
+def bucket_for(seasonality: str, day_of_week: int, hour: int) -> int:
+    """The seasonal bucket index for the given seasonality mode.
+
+    * ``hour_of_week`` → 0–167 (day × 24 + hour)
+    * ``hour_of_day``  → 0–23  (hour)
+    * ``day_of_week``  → 0–6   (day)
+    * ``none``         → 0     (a single global bucket)
+    """
+    if seasonality == "hour_of_week":
+        return hour_of_week(day_of_week, hour)
+    if seasonality == "hour_of_day":
+        return max(0, min(23, int(hour)))
+    if seasonality == "day_of_week":
+        return max(0, min(6, int(day_of_week)))
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# t-digest — a compact, deterministic quantile sketch (Ted Dunning), stored as a
+# list of [mean, weight] centroids. Single-pass, mergeable; accuracy is proportional
+# to q(1−q) so it is most accurate at the tails (p95/p99). Insertion is a buffered
+# batch-merge: values are appended then, once the buffer + centroids exceed a bound,
+# folded in with a FIXED sort/merge order so replay is byte-identical.
+# --------------------------------------------------------------------------- #
+@dataclass
+class _TDigest:
+    """A minimal deterministic t-digest over ``[mean, weight]`` centroids.
+
+    Determinism guarantees: centroids are kept sorted by mean; the compress step
+    merges in ascending-mean order with a size cap of ``compression`` bounding each
+    centroid's weight by ``q(1−q)``. No randomness, no hashing — the same ordered
+    input always yields the same centroid list."""
+
+    compression: float = 100.0
+    centroids: list[list[float]] = None  # type: ignore[assignment]  # [[mean, weight], ...]
+
+    def __post_init__(self) -> None:
+        if self.centroids is None:
+            self.centroids = []
+
+    @property
+    def total_weight(self) -> float:
+        return math.fsum(w for _, w in self.centroids)
+
+    def add(self, x: float, weight: float = 1.0) -> None:
+        """Add one observation, then compress if the centroid count grew past bound."""
+        # Insert as its own centroid keeping the list sorted by mean (stable order).
+        cs = self.centroids
+        lo, hi = 0, len(cs)
+        while lo < hi:  # binary search for the insertion point (deterministic)
+            mid = (lo + hi) // 2
+            if cs[mid][0] < x:
+                lo = mid + 1
+            else:
+                hi = mid
+        cs.insert(lo, [float(x), float(weight)])
+        # Compress once we exceed a generous factor of the compression bound so the
+        # amortised cost is low but the count stays O(compression).
+        if len(cs) > max(16, int(self.compression) * 2):
+            self._compress()
+
+    def _compress(self) -> None:
+        """Fold adjacent centroids while each merged weight stays under the
+        size-varying bound ``q(1−q)·4·δ·total`` (δ = 1/compression). A single
+        left-to-right pass over the mean-sorted centroids — fully deterministic."""
+        cs = self.centroids
+        total = math.fsum(w for _, w in cs)
+        if total <= 0 or len(cs) <= 1:
+            return
+        delta = 1.0 / float(self.compression)
+        merged: list[list[float]] = []
+        cum = 0.0
+        cur_mean, cur_w = cs[0]
+        cur_mean = float(cur_mean)
+        cur_w = float(cur_w)
+        for mean, w in cs[1:]:
+            # q at the CENTRE of the (current + candidate) merged mass.
+            q = (cum + (cur_w + w) / 2.0) / total
+            bound = 4.0 * total * delta * q * (1.0 - q)
+            if cur_w + w <= max(bound, 1.0):
+                # Merge: weighted-mean update (fixed arithmetic order).
+                new_w = cur_w + w
+                cur_mean = cur_mean + (float(mean) - cur_mean) * (float(w) / new_w)
+                cur_w = new_w
+            else:
+                merged.append([cur_mean, cur_w])
+                cum += cur_w
+                cur_mean, cur_w = float(mean), float(w)
+        merged.append([cur_mean, cur_w])
+        self.centroids = merged
+
+    def quantile(self, q: float) -> float:
+        """The value at quantile ``q`` (0..1) by linear interpolation across the
+        centroid means at their cumulative-weight midpoints. Empty digest → 0.0."""
+        cs = self.centroids
+        if not cs:
+            return 0.0
+        if len(cs) == 1:
+            return cs[0][0]
+        total = math.fsum(w for _, w in cs)
+        if total <= 0:
+            return cs[0][0]
+        target = q * total
+        cum = 0.0
+        prev_mean = cs[0][0]
+        prev_center = 0.0
+        for mean, w in cs:
+            center = cum + w / 2.0
+            if target <= center:
+                if center == prev_center:
+                    return mean
+                frac = (target - prev_center) / (center - prev_center)
+                frac = max(0.0, min(1.0, frac))
+                return prev_mean + (mean - prev_mean) * frac
+            prev_mean = mean
+            prev_center = center
+            cum += w
+        return cs[-1][0]
+
+    def median(self) -> float:
+        return self.quantile(0.5)
+
+    def to_list(self) -> list[list[float]]:
+        return [[float(m), float(w)] for m, w in self.centroids]
+
+    @classmethod
+    def from_list(cls, centroids: list[list[float]] | None, compression: float) -> "_TDigest":
+        td = cls(compression=float(compression), centroids=[])
+        for c in centroids or []:
+            try:
+                td.centroids.append([float(c[0]), float(c[1])])
+            except (TypeError, ValueError, IndexError):
+                continue
+        # Keep the invariant: sorted by mean (loads of a persisted, already-sorted
+        # list are a no-op; a hand-edited list is normalised).
+        td.centroids.sort(key=lambda c: c[0])
+        return td
+
+
+# --------------------------------------------------------------------------- #
+# The candidate signal + the baseline engine.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class BaselineSignal:
+    """One advisory anomaly candidate the baseline emits for a bucket.
+
+    PURE DATA — it carries the robust modified-z, the observed value, the bucket
+    percentiles and the warm-up state so a downstream funnel can rank/decide whether
+    to escalate it. It NEVER carries a verdict or a status; it can never close a case
+    (#3). ``is_anomaly`` is True only when the bucket is warm AND ``|modified_z|``
+    exceeds the configured threshold."""
+
+    signature: str
+    bucket: int
+    value: float
+    modified_z: float
+    is_anomaly: bool
+    warm: bool
+    n: int
+    p50: float
+    p95: float
+    p99: float
+
+
+class BaselineEngine:
+    """Streaming, per-(signature, bucket) baseline — a pure advisory PRODUCER.
+
+    Holds the small sketch state per bucket in memory; the persistence layer
+    (:mod:`app.stores.baseline`) snapshots/restores it as a compact JSON dict keyed by
+    ``cluster_signature``. NOTHING in this class reads risk weights, imports
+    ``case_manager``, or calls ``decide()``.
+    """
+
+    def __init__(self, config: BaselineConfig | None = None) -> None:
+        self._cfg = config or BaselineConfig()
+        self._alpha = half_life_to_alpha(self._cfg.half_life_days)
+        self._compression = float(self._cfg.tdigest_compression)
+        self._seasonality = self._cfg.seasonality
+        self._period = SEASONAL_PERIODS.get(self._seasonality, 168)
+        # {signature: {bucket: BaselineState}}
+        self._series: dict[str, dict[int, BaselineState]] = {}
+
+    # ---- config-derived constants (exposed for tests/UI) ----------------- #
+    @property
+    def alpha(self) -> float:
+        """The EWMA smoothing derived from ``half_life_days`` (``1 − exp(−ln2/H)``)."""
+        return self._alpha
+
+    @property
+    def seasonal_period(self) -> int:
+        """Buckets in one seasonal cycle (168 for weekly)."""
+        return self._period
+
+    def warmup_target(self) -> int:
+        """Samples a bucket needs before it is WARM: ``warmup_multiplier × period``
+        (3 × 168 = 504 for weekly). Exposed for the UI warm-up gauge."""
+        return int(self._cfg.warmup_multiplier) * self._period
+
+    # ---- core update recursion ------------------------------------------- #
+    def _state(self, signature: str, bucket: int) -> BaselineState:
+        buckets = self._series.setdefault(signature, {})
+        st = buckets.get(bucket)
+        if st is None:
+            st = BaselineState(version=SKETCH_VERSION)
+            buckets[bucket] = st
+        return st
+
+    def update(self, signature: str, bucket: int, value: float) -> BaselineState:
+        """Fold ONE observation into the (signature, bucket) sketches, recursively.
+
+        Updates, in a FIXED order (so replay is byte-identical):
+          1. Welford running mean/variance,
+          2. EWMA of ``x`` and of ``x²`` (seeded on the first observation),
+          3. the bucket t-digest,
+        then re-evaluates the warm-up gate. Returns the updated
+        :class:`BaselineState`. Pure recursion — never reads decide()/risk (#3)."""
+        x = float(value)
+        st = self._state(signature, int(bucket))
+
+        # 1) Welford (numerically-stable unbounded running mean/variance).
+        n = st.n + 1
+        delta = x - st.welford_m
+        new_m = st.welford_m + delta / n
+        new_s = st.welford_s + delta * (x - new_m)
+
+        # 2) EWMA of x and of x² (drift-tracking). Seed on the first observation
+        #    (pandas adjust=False form: s₁ = x₁), else s_t = α·x + (1−α)·s_{t−1}.
+        a = self._alpha
+        if st.ewma is None:
+            new_ewma = x
+            new_ewma_sq = x * x
+        else:
+            new_ewma = a * x + (1.0 - a) * st.ewma
+            prev_sq = st.ewma_sq if st.ewma_sq is not None else (st.ewma * st.ewma)
+            new_ewma_sq = a * (x * x) + (1.0 - a) * prev_sq
+
+        # 3) t-digest (robust percentiles for the modified-z / MAD estimate).
+        td = _TDigest.from_list(st.tdigest, self._compression)
+        td.add(x)
+
+        n_samples = st.n_samples + 1
+        warm = n_samples >= self.warmup_target()
+
+        st.welford_m = new_m
+        st.welford_s = new_s
+        st.n = n
+        st.ewma = new_ewma
+        st.ewma_sq = new_ewma_sq
+        st.tdigest = td.to_list()
+        st.n_samples = n_samples
+        st.warm = warm
+        st.version = SKETCH_VERSION
+        return st
+
+    # ---- robust threshold ------------------------------------------------- #
+    def modified_z(self, signature: str, bucket: int, value: float) -> float:
+        """Robust modified z-score of ``value`` against the (signature, bucket)
+        baseline: ``M = 0.6745·(value − median)/MAD`` with the median + MAD read from
+        the bucket t-digest. Returns 0.0 for an empty/degenerate bucket (no MAD).
+
+        MAD is estimated robustly from the digest as ``max(median−p25, p75−median)`` —
+        a symmetric-half spread that, unlike a full ``median(|x−median|)`` (which needs
+        raw history), is available from the streaming quantiles and equals the true MAD
+        for a symmetric distribution. Falls back to a small quantile spread when the
+        IQR is degenerate so a spike against a near-constant baseline still flags."""
+        st = self._series.get(signature, {}).get(int(bucket))
+        if st is None or not st.tdigest:
+            return 0.0
+        td = _TDigest.from_list(st.tdigest, self._compression)
+        median = td.median()
+        p25 = td.quantile(0.25)
+        p75 = td.quantile(0.75)
+        # Robust dispersion: the larger half-spread from the median (≈ MAD for a
+        # symmetric spread; for the true normal, MAD = 0.6745·σ and IQR/2 = 0.6745·σ).
+        mad = max(median - p25, p75 - median)
+        if mad <= 0.0:
+            # Degenerate IQR (near-constant history): fall back to a wider spread so a
+            # genuine spike still registers; if THAT is also zero the bucket is a flat
+            # constant and any different value is trivially an outlier.
+            mad = max(td.quantile(0.99) - median, median - td.quantile(0.01))
+            if mad <= 0.0:
+                return 0.0 if float(value) == median else math.inf
+        return _MODIFIED_Z_K * (float(value) - median) / mad
+
+    def is_anomaly(self, signature: str, bucket: int, value: float) -> bool:
+        """True when the bucket is WARM and ``|modified_z| > modified_z_threshold``.
+
+        Cold buckets NEVER flag (the warm-up gate), so a candidate is only produced
+        once the baseline has earned trust for that hour-of-week. Advisory only."""
+        if not self.is_warm(signature, bucket):
+            return False
+        return abs(self.modified_z(signature, bucket, value)) > float(self._cfg.modified_z_threshold)
+
+    # ---- warm-up gate ----------------------------------------------------- #
+    def is_warm(self, signature: str, bucket: int) -> bool:
+        """Whether the (signature, bucket) baseline has enough history to be trusted:
+        ``n_samples ≥ warmup_multiplier × seasonal_period``. Missing bucket → cold."""
+        st = self._series.get(signature, {}).get(int(bucket))
+        if st is None:
+            return False
+        return st.n_samples >= self.warmup_target()
+
+    def warmup(self, signature: str, bucket: int) -> tuple[int, int]:
+        """``(n, target)`` for a UI warm-up gauge — how many observations the bucket
+        has vs how many it needs to become warm."""
+        st = self._series.get(signature, {}).get(int(bucket))
+        n = st.n_samples if st is not None else 0
+        return n, self.warmup_target()
+
+    # ---- percentiles (UI: live p50/p95/p99) ------------------------------ #
+    def percentiles(self, signature: str, bucket: int) -> tuple[float, float, float]:
+        """Robust ``(p50, p95, p99)`` for the (signature, bucket) t-digest (all 0.0
+        when the bucket is empty). Read-only — never mutates the sketch."""
+        st = self._series.get(signature, {}).get(int(bucket))
+        if st is None or not st.tdigest:
+            return 0.0, 0.0, 0.0
+        td = _TDigest.from_list(st.tdigest, self._compression)
+        return td.quantile(0.5), td.quantile(0.95), td.quantile(0.99)
+
+    # ---- the producer: observe → maybe-emit a candidate signal ----------- #
+    def observe(self, signature: str, bucket: int, value: float) -> BaselineSignal:
+        """Fold ``value`` in AND return the advisory :class:`BaselineSignal` for it.
+
+        The modified-z is computed on the state INCLUDING this observation (the value
+        is folded before scoring, so the sketch always reflects everything seen — the
+        anomaly is judged against the baseline it is now part of). The candidate is a
+        pure signal: it feeds the SAME deterministic pipeline downstream and can never
+        close a case (#3)."""
+        self.update(signature, bucket, value)
+        b = int(bucket)
+        mz = self.modified_z(signature, b, value)
+        warm = self.is_warm(signature, b)
+        p50, p95, p99 = self.percentiles(signature, b)
+        n, _target = self.warmup(signature, b)
+        anomalous = warm and abs(mz) > float(self._cfg.modified_z_threshold)
+        return BaselineSignal(
+            signature=signature, bucket=b, value=float(value), modified_z=mz,
+            is_anomaly=anomalous, warm=warm, n=n, p50=p50, p95=p95, p99=p99,
+        )
+
+    # ---- snapshot / restore (persistence bridge) ------------------------- #
+    def snapshot(self, signature: str) -> dict[int, BaselineState]:
+        """The per-bucket sketch states for one signature (empty dict when unseen).
+        Returned by reference — the caller serialises via ``model_dump``."""
+        return dict(self._series.get(signature, {}))
+
+    def restore(self, signature: str, buckets: dict[int, BaselineState]) -> None:
+        """Load persisted per-bucket sketch states for one signature (replaces any
+        in-memory state for it). The store owns (de)serialisation; this just seats the
+        typed states so subsequent ``update``/``observe`` calls continue the stream."""
+        self._series[signature] = {int(b): st for b, st in (buckets or {}).items()}
+
+    def clear(self, signature: str | None = None) -> None:
+        """Drop in-memory sketches (one signature, or all when ``signature`` is None)."""
+        if signature is None:
+            self._series.clear()
+        else:
+            self._series.pop(signature, None)

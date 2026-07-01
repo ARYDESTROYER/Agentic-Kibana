@@ -93,6 +93,15 @@ class CompletionResult:
     completion_tokens: int = 0
     model: str = ""
     cost: float = 0.0  # populated by the gateway after metering (per-case cost rollup)
+    # Prompt-cache accounting (Round 4). Anthropic returns
+    # ``usage.cache_read_input_tokens`` / ``cache_creation_input_tokens``; OpenAI
+    # returns ``usage.prompt_tokens_details.cached_tokens`` (read-only — it has no
+    # cache-write counter). Defaulted 0 so every existing constructor is unchanged;
+    # the gateway threads these onto the UsageDoc + into cost_for's cache pricing.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # True when the result was served via a provider BATCH API (0.5× discounted).
+    batch: bool = False
 
 
 @dataclass
@@ -181,6 +190,11 @@ class AnthropicProvider(BaseProvider):
             prompt_tokens=int(usage.get("input_tokens", _estimate_tokens(str(messages)))),
             completion_tokens=int(usage.get("output_tokens", _estimate_tokens(text))),
             model=model,
+            # Prompt-cache counters (absent → 0). Anthropic bills cache-READ tokens at
+            # 0.1× input and the one-time cache-WRITE (creation) at 1.25×/2× input; the
+            # gateway prices them via cost_for's cache dimension.
+            cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+            cache_write_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
         )
 
     async def aclose(self) -> None:
@@ -191,9 +205,14 @@ class AnthropicProvider(BaseProvider):
 # OpenAI (chat + embeddings)
 # --------------------------------------------------------------------------- #
 class OpenAIProvider(BaseProvider):
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com") -> None:
+    def __init__(self, api_key: str, base_url: str = "https://api.openai.com",
+                 service_tier: str | None = None) -> None:
         self._key = api_key
         self._client = httpx.AsyncClient(base_url=base_url, timeout=60.0)
+        # Optional real-time ``service_tier`` (Round 4). ``"flex"`` opts a live
+        # completion into OpenAI's cheaper best-effort tier (higher latency, discounted);
+        # ``None`` keeps the request shape byte-identical for the default path.
+        self._service_tier = (service_tier or "").strip() or None
 
     async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
         payload: dict[str, Any] = {
@@ -207,6 +226,8 @@ class OpenAIProvider(BaseProvider):
         else:
             payload["temperature"] = temperature
             payload["max_tokens"] = max_tokens
+        if self._service_tier:
+            payload["service_tier"] = self._service_tier
 
         async def _post():
             resp = await self._client.post(
@@ -221,11 +242,20 @@ class OpenAIProvider(BaseProvider):
         data = resp.json()
         text = data["choices"][0]["message"]["content"] or ""
         usage = data.get("usage", {})
+        # OpenAI prompt caching is READ-only (automatic, no write surcharge): the cached
+        # prefix count is nested under ``prompt_tokens_details.cached_tokens``. The
+        # cached tokens are INCLUDED in ``prompt_tokens``; we surface them so the ledger
+        # can re-price the cached slice at 0.1× (cost_for subtracts nothing here — the
+        # cache term is additive-at-a-cheaper-rate, so we keep prompt_tokens as the full
+        # billed input and let the UI show the cached breakdown).
+        details = usage.get("prompt_tokens_details") or {}
+        cached = int(details.get("cached_tokens", 0) or 0) if isinstance(details, dict) else 0
         return CompletionResult(
             text=text,
             prompt_tokens=int(usage.get("prompt_tokens", _estimate_tokens(str(messages)))),
             completion_tokens=int(usage.get("completion_tokens", _estimate_tokens(text))),
             model=model,
+            cache_read_tokens=cached,
         )
 
     async def embed(self, texts: list[str], model: str) -> EmbeddingResult:
@@ -632,8 +662,10 @@ def _make_anthropic(*, api_key: str = "", base_url: str | None = None, **_: Any)
     return AnthropicProvider(api_key, base_url=base_url or "https://api.anthropic.com")
 
 
-def _make_openai(*, api_key: str = "", base_url: str | None = None, **_: Any) -> BaseProvider:
-    return OpenAIProvider(api_key, base_url=base_url or "https://api.openai.com")
+def _make_openai(*, api_key: str = "", base_url: str | None = None,
+                 service_tier: str | None = None, **_: Any) -> BaseProvider:
+    return OpenAIProvider(api_key, base_url=base_url or "https://api.openai.com",
+                          service_tier=service_tier)
 
 
 def _make_mock(**_: Any) -> BaseProvider:

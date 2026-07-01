@@ -67,6 +67,9 @@ class AppState:
         # state returns intact.
         self._demo = None
         self._demo_sim = None
+        # Round-4 Wave-3: the lazily-built batch service is memoised here; _wire()
+        # clears it so a credential/store rebuild re-binds it to the fresh gateway/store.
+        self._batch_service = None
         self._wire()
 
     # ------------------------------------------------------------------ #
@@ -132,6 +135,14 @@ class AppState:
         # above), so building them here is safe and they are NOT rebuilt later — the
         # later _build_wave1_stores() call below is removed in favour of this one.
         self._build_wave1_stores()
+        # Round-4 Wave-3: the 4 new default-OFF KV stores (tuning ledger / campaign list /
+        # anomaly-baseline sketch / batch-job registry) over the SAME shared KV. Built here
+        # so a live handle survives every _wire() rebuild (same rationale as the Round-3
+        # stores). Their engines/schedulers/API are Wave-4 and do NOT run at boot.
+        self._build_round4_stores()
+        # Drop any memoised batch service so it re-binds to the freshly-built store +
+        # gateway on the next access (a credential change rebuilds both).
+        self._batch_service = None
         from .engine.budget import BudgetGate
 
         # Read-only pre-flight ceiling: reads the live BudgetConfig + usage ledger. A
@@ -429,6 +440,32 @@ class AppState:
         # Shift-handoff action items + acknowledgements (org-scoped).
         self.shift_handoff = ShiftHandoffStore(kv)
 
+    def _build_round4_stores(self) -> None:
+        """Construct the 4 Round-4 Wave-3 KV-backed stores over the active backend's KV
+        (the SAME shared ``self._kv`` the Round-3 stores use — works on ES + SQL, no new
+        index/table/migration). Each takes only ``self._kv`` so it survives every
+        ``_wire()`` rebuild, exactly like ``_build_wave1_stores`` above.
+
+        ALL FOUR ARE ADVISORY / PLUMBING and DEFAULT-OFF (their engines only run when the
+        matching ``Preferences.{threshold_tuning,campaign,baseline,batch}.enabled`` flag
+        is set — the schedulers + feed-routing + API are Wave 4, NOT wired here):
+          * tuning_store    — the auto-tuning audit/rollback ledger (never writes a case).
+          * campaign_store  — the cross-case campaign list (references case ids only, #4).
+          * baseline_store  — the anomaly-baseline sketch state (pure math, #3-safe).
+          * batch_job_store — durable async LLM batch-job tracking (exactly-once #6).
+        None feeds the deterministic ``case_manager.decide()`` (#3); none recomputes a
+        ``cluster_signature`` (#4)."""
+        from .stores.baseline import BaselineStore
+        from .stores.batch_jobs import BatchJobStore
+        from .stores.campaigns import CampaignStore
+        from .stores.tuning import TuningStore
+
+        kv = self._kv
+        self.tuning_store = TuningStore(kv)
+        self.campaign_store = CampaignStore(kv)
+        self.baseline_store = BaselineStore(kv)
+        self.batch_job_store = BatchJobStore(kv)
+
     @property
     def enrichment_registry(self):
         """The process-wide :class:`app.enrichment.registry.ProviderRegistry`
@@ -448,6 +485,103 @@ class AppState:
         from .realtime import get_event_bus
 
         return get_event_bus()
+
+    # ------------------------------------------------------------------ #
+    # Round-4 Wave-3 services — LAZY, default-OFF, wired for Wave-4 to drive.
+    #
+    # Each is a thin, constructable/lazy accessor over the Wave-3 KV stores +
+    # engine modules. NOTHING here starts a scheduler loop, reroutes an EVENT feed,
+    # or makes an LLM call at construction — they are inert until a Wave-4 caller
+    # (a route or a nightly loop) explicitly invokes them, AND each engine itself
+    # no-ops unless its ``Preferences.{threshold_tuning,campaign,baseline,batch}``
+    # block is enabled. None imports ``case_manager`` / calls ``decide()`` (#3) or
+    # recomputes a ``cluster_signature`` (#4).
+    # ------------------------------------------------------------------ #
+    @property
+    def threshold_tuner(self):
+        """The deterministic nightly threshold-tuning observer, exposed as a bound
+        ``run_once`` callable Wave-4 schedules. It reads CLOSED cases + the live
+        ``Preferences.threshold_tuning`` block (default OFF → immediate no-op), writes
+        only to the ``tuning_store`` ledger + the HITL Proposal queue, and persists any
+        auto-applied config change through ``update_prefs`` (config-writer only). It
+        NEVER runs at boot; a caller must invoke ``state.threshold_tuner(...)``.
+
+        Signature mirrors ``engine.threshold_tuner.run_once`` with this AppState's
+        stores/writer pre-bound: ``await state.threshold_tuner(prefs, cases, **kw)``."""
+        from functools import partial
+
+        from .engine.threshold_tuner import run_once as _run_once
+
+        return partial(
+            _run_once,
+            proposals=self.proposals,
+            audit=self._real_audit,
+            tuning_store=self.tuning_store,
+            write_prefs=self.update_prefs,
+        )
+
+    @property
+    def campaign_correlator(self):
+        """The deterministic cross-case CAMPAIGN pass, exposed as a bound
+        ``correlate_campaigns`` callable Wave-4 schedules. It is a read-time aggregator
+        over already-persisted cases (default OFF via ``Preferences.campaign`` — the
+        Wave-4 caller gates on it), upserted into ``campaign_store``. It NEVER
+        investigates, mutates a case, calls an LLM (#6), or touches ``decide()`` (#3).
+
+        Call as ``await state.campaign_correlator(cases, prefs)`` (pass ``cases=None``
+        + this AppState's case store to page the trailing window)."""
+        from functools import partial
+
+        from .engine.campaigns import correlate_campaigns
+
+        return partial(correlate_campaigns, cases_store=self.cases)
+
+    def build_baseline_engine(self):
+        """Construct a fresh streaming anomaly-BASELINE model from the live
+        ``Preferences.baseline`` config (default OFF). Pure math advisory PRODUCER — it
+        holds per-(signature, bucket) sketches in memory and is warmed/flushed via the
+        ``baseline_store`` snapshot/restore bridge by the Wave-4 caller. NOTHING runs at
+        construction; #3/#4/#6-safe. A fresh instance per call (the caller owns warming
+        it from ``baseline_store.snapshot()``)."""
+        from .engine.baseline import BaselineEngine
+
+        return BaselineEngine(getattr(self.prefs, "baseline", None))
+
+    def build_batch_provider(self, name: str):
+        """Construct a batch-inference provider (``anthropic`` | ``openai``) with this
+        deployment's API key + any ``base_url`` override, for the Wave-4 batch service to
+        submit/poll. Reads ``self.secrets`` live; makes NO network call at construction.
+        Raises ``KeyError`` on an unknown provider name."""
+        from .llm.batch import make_batch_provider
+
+        key = ""
+        base_url = None
+        if name == "anthropic":
+            key = self.secrets.anthropic_api_key or ""
+        elif name == "openai":
+            key = self.secrets.openai_api_key or ""
+            base_url = getattr(self.secrets, "openai_base_url", None) or None
+        return make_batch_provider(name, api_key=key, base_url=base_url)
+
+    @property
+    def batch_service(self):
+        """The durable BATCH-inference service (submit / poll / process), lazily built
+        over the ``batch_job_store`` + the batch-provider factory + the ONE LLM gateway
+        ledger (#6 — exactly one UsageDoc per result, deduped by ``custom_id``). Default
+        OFF via ``Preferences.batch``; the Wave-4 caller gates + drives it. Nothing runs
+        at boot; the service holds no open connections until ``submit``/``poll`` is
+        called. Memoised on the AppState (rebuilt on ``_wire()`` since it references the
+        rebuilt store/gateway)."""
+        svc = getattr(self, "_batch_service", None)
+        if svc is None:
+            svc = _BatchJobService(
+                store=self.batch_job_store,
+                gateway=self.gateway,
+                make_provider=self.build_batch_provider,
+                get_prefs=self.get_prefs,
+            )
+            self._batch_service = svc
+        return svc
 
     def _build_users(self):
         """Construct the multi-USER store over the active backend's KV (the same KV
@@ -1215,6 +1349,67 @@ def geo_for_ip(ip: str) -> dict[str, str]:
     except ValueError:
         pass
     return {"ip_city": "", "ip_country": ""}
+
+
+class _BatchJobService:
+    """Durable BATCH-inference service (Round-4 Wave-3 — submit / poll / process).
+
+    A THIN orchestrator that ties the batch-provider SPI (``llm/batch.py``) to the
+    durable :class:`app.stores.batch_jobs.BatchJobStore` + the ONE LLM gateway ledger.
+    It is INERT until Wave-4 calls it: constructing it opens no connection and reads no
+    network; each provider is built on demand and closed after use.
+
+    Ledger invariant (#6): result folding is delegated to
+    ``BatchJobStore.process_results`` which writes EXACTLY ONE ``UsageDoc`` per result
+    (deduped by ``custom_id``, at the 0.5× batch rate) — so a re-poll/restart never
+    double-writes. It NEVER imports ``case_manager`` / calls ``decide()`` (#3) — folding
+    verdict text into cases is the pipeline's job downstream."""
+
+    def __init__(self, *, store, gateway, make_provider, get_prefs) -> None:
+        self._store = store
+        self._gateway = gateway
+        self._make_provider = make_provider
+        self._get_prefs = get_prefs
+
+    @property
+    def store(self):
+        return self._store
+
+    def enabled(self) -> bool:
+        """Whether batch inference is turned on (``Preferences.batch.enabled``). Wave-4
+        gates on this; default OFF so nothing routes to batch out of the box."""
+        return bool(getattr(getattr(self._get_prefs(), "batch", None), "enabled", False))
+
+    async def submit(self, provider: str, model: str, requests: list[dict]):
+        """Submit a batch to ``provider`` and PERSIST the resulting job (resume-safe).
+        Returns the stored :class:`app.models.BatchJob`."""
+        prov = self._make_provider(provider)
+        try:
+            job = await prov.submit(model, requests)
+        finally:
+            await prov.aclose()
+        return await self._store.save(job)
+
+    async def poll(self, job):
+        """Refresh one job's state from its provider and persist it. Returns the job."""
+        prov = self._make_provider(job.provider)
+        try:
+            job = await prov.poll(job)
+        finally:
+            await prov.aclose()
+        return await self._store.save(job)
+
+    async def process(self, job, *, role: str = "investigator", surface: str = "batch"):
+        """Stream a completed job's results and fold them through the ONE gateway ledger
+        EXACTLY once (deduped by ``custom_id``). Returns the newly-recorded results."""
+        prov = self._make_provider(job.provider)
+        try:
+            results = list(await prov.results(job))
+        finally:
+            await prov.aclose()
+        return await self._store.process_results(
+            job, results, self._gateway, role=role, surface=surface
+        )
 
 
 def _build_es_client(secrets: Secrets) -> BaseESClient:

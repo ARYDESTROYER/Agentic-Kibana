@@ -128,6 +128,34 @@ def registry_price(model: str) -> tuple[float, float] | None:
         return None
 
 
+def cache_rates(model: str, input_rate: float) -> tuple[float, float, float]:
+    """The per-1M ``(cache_read_rate, cache_write_5m_rate, cache_write_1h_rate)`` for
+    ``model``, in USD/1M tokens.
+
+    Prompt-caching billing (Anthropic + OpenAI): a cache READ is ``0.1×`` the input
+    rate; a 5-minute cache WRITE is ``1.25×`` input; a 1-hour cache WRITE is ``2.0×``
+    input. When the bundled registry declares an explicit ``cache_read_per_million`` /
+    ``cache_write_per_million`` we honour it (the write field being the 5-minute rate);
+    the 1-hour write is always derived as ``2.0×`` the input rate (registries carry only
+    the default 5-minute write). Absent a registry row we fall back to the standard
+    ``0.1× / 1.25× / 2.0×`` of the resolved input rate — so an operator never has to
+    hand-fill the cache columns for the multiplier to apply."""
+    read_default = 0.1 * input_rate
+    write_5m_default = 1.25 * input_rate
+    write_1h = 2.0 * input_rate
+    entry = registry_entry(model)
+    if not entry:
+        return (read_default, write_5m_default, write_1h)
+    try:
+        cr = entry.get("cache_read_per_million")
+        cw = entry.get("cache_write_per_million")
+        read_rate = float(cr) if cr is not None else read_default
+        write_5m = float(cw) if cw is not None else write_5m_default
+    except (TypeError, ValueError):
+        return (read_default, write_5m_default, write_1h)
+    return (read_rate, write_5m, write_1h)
+
+
 def base_url_for(model: str) -> str | None:
     """The optional OpenAI-compatible ``base_url`` for ``model`` from the registry —
     lets a self-hosted/aggregator endpoint (vLLM/Ollama/OpenRouter/Together/Groq) be
@@ -162,6 +190,7 @@ def model_catalog() -> list[dict[str, Any]]:
             "output_per_million": out_p,
             "cache_write_per_million": meta.get("cache_write_per_million"),
             "cache_read_per_million": meta.get("cache_read_per_million"),
+            "batch_multiplier": 0.5,
             "base_url": base_url_for(mid),
             "pricing_source": pricing_source(mid),
         })
@@ -175,6 +204,7 @@ def model_catalog() -> list[dict[str, Any]]:
             "context_window": 0, "max_output": 0, "modalities": [], "capabilities": [],
             "input_per_million": in_p, "output_per_million": out_p,
             "cache_write_per_million": None, "cache_read_per_million": None,
+            "batch_multiplier": 0.5,
             "base_url": None, "pricing_source": pricing_source(mid),
         })
     rows.sort(key=lambda r: (r["provider"], r["id"]))
@@ -257,12 +287,38 @@ def resolve_price(model: str, overlay: tuple[float, float] | None = None) -> tup
 
 
 def cost_for(model: str, prompt_tokens: int, completion_tokens: int,
-             overlay: tuple[float, float] | None = None) -> float:
+             overlay: tuple[float, float] | None = None,
+             *,
+             cache_read_tokens: int = 0,
+             cache_write_tokens: int = 0,
+             cache_write_ttl: str = "5m",
+             batch: bool = False) -> float:
+    """The metered cost of ONE call, USD, rounded ONCE at the end (8 dp).
+
+    Non-cache, non-batch calls (``cache_read_tokens == cache_write_tokens == 0`` and
+    ``batch is False``) are BYTE-IDENTICAL to the historical two-term formula
+    ``round((prompt/1e6)*in + (completion/1e6)*out, 8)`` — the cache/batch dimensions
+    are keyword-only, defaulted, additive extensions (contract §5.1/§5.2).
+
+    Prompt-cache billing: cache-READ tokens bill at ``0.1×`` input, cache-WRITE tokens
+    at ``1.25×`` input for a 5-minute TTL or ``2.0×`` input for a 1-hour TTL (or the
+    registry's declared per-1M cache rates). ``batch=True`` (a provider async batch API
+    call) halves the WHOLE cost (``0.5×``). Everything is summed in per-1M units and
+    rounded once."""
     if model.startswith("mock"):
         return 0.0
     in_price, out_price = resolve_price(model, overlay)
-    return round(
+    total = (
         (prompt_tokens / 1_000_000.0) * in_price
-        + (completion_tokens / 1_000_000.0) * out_price,
-        8,
+        + (completion_tokens / 1_000_000.0) * out_price
     )
+    if cache_read_tokens or cache_write_tokens:
+        read_rate, write_5m, write_1h = cache_rates(model, in_price)
+        write_rate = write_1h if str(cache_write_ttl) == "1h" else write_5m
+        total += (
+            (cache_read_tokens / 1_000_000.0) * read_rate
+            + (cache_write_tokens / 1_000_000.0) * write_rate
+        )
+    if batch:
+        total *= 0.5
+    return round(total, 8)

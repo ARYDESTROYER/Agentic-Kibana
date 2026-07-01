@@ -188,16 +188,22 @@ class LLMGateway:
 
         latency = int((time.perf_counter() - started) * 1000)
         model_used = result.model or model_cfg.model
+        cache_read = int(getattr(result, "cache_read_tokens", 0) or 0)
+        cache_write = int(getattr(result, "cache_write_tokens", 0) or 0)
+        is_batch = bool(getattr(result, "batch", False))
         if self._demo:
             # $0 mock run, but stamp a small PLAUSIBLE synthetic cost for the cost page.
             cost = _demo_synthetic_cost(result.prompt_tokens, result.completion_tokens)
         else:
             cost = cost_for(model_used, result.prompt_tokens, result.completion_tokens,
-                            await self._overlay_tuple(model_used))
+                            await self._overlay_tuple(model_used),
+                            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+                            batch=is_batch)
         result.cost = cost  # let callers roll up per-case cost (Case.token_cost)
         await self._record(
             role_str, surface, case_id, model_used,
             result.prompt_tokens, result.completion_tokens, latency, UsageOutcome.OK, cost,
+            cache_read_tokens=cache_read, cache_write_tokens=cache_write, batch=is_batch,
         )
         return result
 
@@ -302,6 +308,10 @@ class LLMGateway:
         latency_ms: int,
         outcome: UsageOutcome,
         cost: float | None = None,
+        *,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        batch: bool = False,
     ) -> None:
         total = prompt_tokens + completion_tokens
         # Demo Mode: a $0 mock run — pricing_source is ALWAYS 'zero' (the cost is
@@ -319,7 +329,9 @@ class LLMGateway:
                 _demo_synthetic_cost(prompt_tokens, completion_tokens)
                 if self._demo
                 else cost_for(model, prompt_tokens, completion_tokens,
-                              await self._overlay_tuple(model))
+                              await self._overlay_tuple(model),
+                              cache_read_tokens=cache_read_tokens,
+                              cache_write_tokens=cache_write_tokens, batch=batch)
             )
         doc = UsageDoc(
             surface=surface,
@@ -333,6 +345,9 @@ class LLMGateway:
             latency_ms=latency_ms,
             outcome=outcome,
             pricing_source=price_src,
+            cache_read_tokens=int(cache_read_tokens or 0),
+            cache_write_tokens=int(cache_write_tokens or 0),
+            batch=bool(batch),
         )
         await self._usage.write(doc)
 
