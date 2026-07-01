@@ -58,6 +58,12 @@ const AdminSessions = React.lazy(() => import('./pages/AdminSessions'));
 const Models = React.lazy(() => import('./pages/Models'));
 const Roles = React.lazy(() => import('./pages/Roles'));
 const Inbox = React.lazy(() => import('./pages/Inbox'));
+// Round-4 surfaces: unified logs, campaigns, auto-tuning, batch jobs, baseline stats.
+const UnifiedLogs = React.lazy(() => import('./components/UnifiedLogsSheet'));
+const Campaigns = React.lazy(() => import('./pages/Campaigns'));
+const Tuning = React.lazy(() => import('./pages/Tuning'));
+const BatchJobs = React.lazy(() => import('./pages/BatchJobs'));
+const BaselineStats = React.lazy(() => import('./pages/Baseline'));
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -117,6 +123,18 @@ function renderPage(
       return <Approvals onNavigate={navigate} />;
     case 'sources':
       return <Sources onNavigate={navigate} />;
+
+    // ---- Round-4 surfaces ---- //
+    case 'logs':
+      return <UnifiedLogs />;
+    case 'campaigns':
+      return <Campaigns onNavigate={navigate} />;
+    case 'tuning':
+      return <Tuning onNavigate={navigate} />;
+    case 'batchjobs':
+      return <BatchJobs />;
+    case 'baseline':
+      return <BaselineStats />;
 
     // ---- Hidden-but-routable consolidated sub-pages (deep-link fallbacks; the
     //      host pages above are the primary entry, but bare `#/cost` etc. still

@@ -118,6 +118,7 @@ import { AdminSessionsInner } from '@/soc/pages/AdminSessions';
 import { SecurityMfaInner, SecuritySsoInner } from '@/soc/pages/Security';
 // Round-2 Wave 5 — the Experimental › Demo Mode control.
 import { DemoModeSection } from '@/soc/components/DemoModeSection';
+import { DangerZone } from '@/soc/components/DangerZone';
 // Round-3 Wave 2 — the full enrichment-provider catalog (manifests + write-only
 // secrets + try-a-lookup). Self-contained: fetches its own provider manifests and
 // writes prefs.enrichment.use_* through the shared settings PUT.
@@ -2516,6 +2517,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
         return (
           <Can resource="settings" action="manage" fallback={restricted(FlaskConical, 'Demo mode')}>
             <DemoModeSection />
+            <DangerZone className="mt-6" />
           </Can>
         );
       default:

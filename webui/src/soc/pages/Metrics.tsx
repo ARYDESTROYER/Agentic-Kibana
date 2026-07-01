@@ -1,20 +1,24 @@
 /**
- * Metrics — the triage analytics dashboard, split into three tabs (Round 3 / #5):
+ * Metrics — the consolidated analytics surface (Round 4 / #10 declutter). ONE tab
+ * strip owns every reporting view so analytics is no longer split across pages:
  *
  *   - Operational : verdict/disposition mix, persona/playbook routing, cases-per-day,
- *                   feedback quality, LLM cost, knowledge-base + memory health — the
- *                   classic windowed `/api/metrics` view (unchanged).
+ *                   feedback quality, and knowledge-base + memory health — the classic
+ *                   windowed `/api/metrics` view (LLM cost moved to the Cost tab).
  *   - Performance : the REAL server-side lifecycle rollup from `/api/metrics/posture`
  *                   (MTTA/MTTR/dwell p50/p90 with honest labelled DASH), triage
  *                   QUALITY rates, and period-over-period delta tiles (▲/▼ delta%).
  *   - Posture     : aging buckets + SLA breach/at-risk + the MITRE ATT&CK coverage
- *                   heatmap (with the Navigator-layer export note).
+ *                   heatmap (with the Navigator-layer export note). This is the SINGLE
+ *                   home for lifecycle timing + SLA (Overview/Standup link here).
+ *   - Cost        : the LLM spend ledger — the SINGLE cost home. Every scattered cost
+ *                   tile/view folds in here (the former standalone Cost page, hosted).
  *
  * The client-side 200-case derivations are GONE — Performance + Posture read the
  * deterministic server rollup. Built entirely from the shared SOC primitives + tokens.
  *
  * SECURITY (#9): every backend-derived label/value (verdict labels, case numbers,
- * technique names, analyst names) renders as PLAIN text — never markup.
+ * technique names, analyst names, model ids) renders as PLAIN text — never markup.
  */
 import * as React from 'react';
 import {
@@ -22,6 +26,7 @@ import {
   BarChart3,
   Bot,
   CheckCircle2,
+  CircleDollarSign,
   Clock,
   Crosshair,
   Database,
@@ -67,7 +72,6 @@ import { InlineCode } from '@/soc/components/CodeBlock';
 import {
   DonutChart,
   MiniBars,
-  TrendArea,
   type DonutSegment,
 } from '@/soc/components/charts';
 import { BurnDownChart, MitreHeatmap } from '@/soc/components/charts-soc';
@@ -82,6 +86,7 @@ import {
   type PostureResponse,
 } from './Metrics.posture.api';
 import { deltaView, humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
+import Cost from './Cost';
 
 // --------------------------------------------------------------------------- //
 // Constants + helpers
@@ -94,7 +99,7 @@ const WINDOWS = [
 
 type WindowId = (typeof WINDOWS)[number]['id'];
 type RankSort = 'count' | 'alpha';
-type MetricsTab = 'operational' | 'performance' | 'posture';
+type MetricsTab = 'operational' | 'performance' | 'posture' | 'cost';
 
 /** Humanize a minutes value to a compact "Xd Yh" / "Xh Ym" / "Xm" string. */
 function humanizeMinutes(mins?: number | null): string {
@@ -202,15 +207,47 @@ function ChartEmpty({ children }: { children: React.ReactNode }) {
 // --------------------------------------------------------------------------- //
 // Page
 // --------------------------------------------------------------------------- //
+const METRICS_TABS: readonly MetricsTab[] = ['operational', 'performance', 'posture', 'cost'];
+
+/** Resolve a possibly-undefined route tab into a known MetricsTab (default operational). */
+function coerceTab(v: string | undefined): MetricsTab {
+  return (METRICS_TABS as readonly string[]).includes(v ?? '')
+    ? (v as MetricsTab)
+    : 'operational';
+}
+
 export interface MetricsProps {
   onNavigate?: Navigate;
   embedded?: boolean;
+  /**
+   * Active sub-tab from the route opts. The consolidated Analytics host passes
+   * `NavOpts.tab` through so `#/metrics` (operational) and `#/cost` (cost) deep-links
+   * land on the right view. Falls through to a local state fallback when absent.
+   */
+  tab?: string;
+  /** Fires when the user switches tabs — the host mirrors it into the route opts. */
+  onTabChange?: (tab: MetricsTab) => void;
 }
 
-export default function MetricsPage({ onNavigate, embedded = false }: MetricsProps) {
+export default function MetricsPage({
+  onNavigate,
+  embedded = false,
+  tab: tabProp,
+  onTabChange,
+}: MetricsProps) {
   const [windowId, setWindowId] = React.useState<WindowId>('168');
   const [rankSort, setRankSort] = React.useState<RankSort>('count');
-  const [tab, setTab] = React.useState<MetricsTab>('operational');
+  // The tab is deep-link driven when the host supplies `tabProp`; otherwise a local
+  // fallback keeps the strip interactive (e.g. the direct #/metrics standalone route).
+  const [localTab, setLocalTab] = React.useState<MetricsTab>(() => coerceTab(tabProp));
+  const tab = tabProp !== undefined ? coerceTab(tabProp) : localTab;
+  const setTab = React.useCallback(
+    (next: MetricsTab) => {
+      setLocalTab(next);
+      onTabChange?.(next);
+    },
+    [onTabChange],
+  );
 
   const [data, setData] = React.useState<Metrics | null>(null);
   const [rag, setRag] = React.useState<RagStats | null>(null);
@@ -318,12 +355,6 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
 
   const outcomeItems = React.useMemo(() => recordItems(fb?.outcome_distribution), [fb]);
 
-  const costTrend = React.useMemo(() => {
-    const series = cost?.cost_over_time;
-    if (!Array.isArray(series)) return [];
-    return series.map((p) => ({ x: '', y: Number((p as { cost?: number }).cost) || 0 }));
-  }, [cost]);
-
   // ---- knowledge base & memory (point-in-time) -------------------------- //
   const corpusItems = React.useMemo(
     () => recordItems(rag?.by_source, rankSort),
@@ -354,7 +385,10 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
   const hasAny = (data?.total_cases ?? 0) > 0;
 
   // ---- header actions --------------------------------------------------- //
-  const headerActions = (
+  // The Cost tab owns its OWN window + refresh controls (it reads a different
+  // endpoint on its own cadence), so the shared window/sort/refresh header is
+  // suppressed there to avoid two competing time selectors.
+  const headerActions = tab === 'cost' ? null : (
     <>
       <div
         className="inline-flex rounded-md border border-border bg-surface p-1"
@@ -728,8 +762,16 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
           </ChartCard>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <ChartCard title="Analyst feedback quality" icon={ThumbsUp} accentClass="text-success">
+        {/* Analyst feedback quality — LLM cost moved to the dedicated Cost tab so
+            spend lives in ONE place (the designated single cost home). A compact
+            "LLM spend" pointer sits alongside for at-a-glance context + a jump. */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <ChartCard
+            title="Analyst feedback quality"
+            icon={ThumbsUp}
+            accentClass="text-success"
+            className="lg:col-span-2"
+          >
             {fb && fb.graded_cases > 0 ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -773,14 +815,27 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
             )}
           </ChartCard>
 
-          <ChartCard title={`LLM cost (${windowLabel})`} icon={Timer} accentClass="text-medium">
+          <ChartCard
+            title={`LLM spend (${windowLabel})`}
+            icon={CircleDollarSign}
+            accentClass="text-medium"
+            action={
+              <button
+                type="button"
+                onClick={() => setTab('cost')}
+                className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Cost tab →
+              </button>
+            }
+          >
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <StatCard
-                  label="Total cost"
-                  value={fmtMoney(cost?.total_cost as number | undefined, currency)}
-                  accent="medium"
-                />
+              <StatCard
+                label="Total cost"
+                value={fmtMoney(cost?.total_cost as number | undefined, currency)}
+                accent="medium"
+              />
+              <div className="grid grid-cols-2 gap-3">
                 <StatCard label="Tokens" value={fmtTokens(cost?.total_tokens as number | undefined)} accent="info" />
                 <StatCard
                   label="LLM calls"
@@ -788,21 +843,10 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
                   accent="primary"
                 />
               </div>
-              {costTrend.length > 1 ? (
-                <div className="space-y-1">
-                  <TrendArea
-                    data={costTrend}
-                    colorToken="medium"
-                    height={120}
-                    showXAxis={false}
-                    format={(n) => fmtMoney(n, currency)}
-                    ariaLabel="LLM spend over time"
-                  />
-                  <p className="text-xs text-muted-foreground">LLM spend over the selected window.</p>
-                </div>
-              ) : (
-                <ChartEmpty>Not enough spend data points to chart a trend.</ChartEmpty>
-              )}
+              <p className="text-xs text-muted-foreground">
+                The full spend ledger — trend, breakdowns by model/role/surface, and top
+                drivers — lives in the Cost tab.
+              </p>
             </div>
           </ChartCard>
         </div>
@@ -840,6 +884,10 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
             <Crosshair className="mr-1.5 h-4 w-4" aria-hidden />
             Posture
           </TabsTrigger>
+          <TabsTrigger value="cost">
+            <CircleDollarSign className="mr-1.5 h-4 w-4" aria-hidden />
+            Cost
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="operational">{operationalBody}</TabsContent>
@@ -860,6 +908,12 @@ export default function MetricsPage({ onNavigate, embedded = false }: MetricsPro
             windowLabel={windowLabel}
             onNavigate={onNavigate}
           />
+        </TabsContent>
+
+        {/* Cost — the SINGLE cost home. The standalone Cost page renders embedded so
+            it owns its own window/refresh controls + spend ledger; no page header. */}
+        <TabsContent value="cost">
+          <Cost embedded onNavigate={onNavigate} />
         </TabsContent>
       </Tabs>
     </div>

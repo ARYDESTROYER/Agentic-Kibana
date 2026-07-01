@@ -45,6 +45,7 @@ import {
   Link2,
   Lock,
   MessageSquare,
+  MoreHorizontal,
   PauseCircle,
   Play,
   PlayCircle,
@@ -193,7 +194,12 @@ type ActionKind =
   | 'hold'
   | 'resume'
   | 'resolve'
-  | 'set_disposition';
+  | 'set_disposition'
+  // UI-only unified verb. Merges the old close / confirm-FP / set-disposition
+  // controls into ONE "Close with disposition" flow. It maps to the EXISTING
+  // backend `close` verb via `ActionDef.wireAction` (never a new verb) and always
+  // carries a disposition, so `decide()`/`apply()` still run server-side (#3).
+  | 'close_disposition';
 type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority' | 'disposition' | 'reason';
 
 /** The RBAC grant an action needs: close-class moves need cases:close, the rest
@@ -201,6 +207,7 @@ type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority' | 'dispositio
 const ACTION_PERMISSION: Record<ActionKind, { resource: 'cases'; action: 'close' | 'write' }> = {
   close: { resource: 'cases', action: 'close' },
   confirm_fp: { resource: 'cases', action: 'close' },
+  close_disposition: { resource: 'cases', action: 'close' },
   resolve: { resource: 'cases', action: 'close' },
   reopen: { resource: 'cases', action: 'close' },
   escalate: { resource: 'cases', action: 'write' },
@@ -229,6 +236,9 @@ interface ActionDef {
   variant: 'default' | 'secondary' | 'outline' | 'destructive';
   /** Whether this is the primary action of the current state (filled). */
   fill?: boolean;
+  /** The EXISTING backend action verb to POST. Defaults to `key` when unset; the
+   *  UI-only `close_disposition` maps here to `'close'` so we never invent a verb. */
+  wireAction?: ActionKind;
   confirmTitle: string;
   confirmBody: string;
   help: string;
@@ -257,6 +267,22 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     help: 'Close as FALSE_POSITIVE; also feeds the resolved case into RAG baseline memory.',
     fields: ['resolution', 'tags'],
   },
+  // ONE unified close flow: pick the investigative disposition (true/false
+  // positive, benign, …) + an optional note, then close. Posts the EXISTING
+  // `close` verb with a `disposition` — the backend still runs decide()/apply()
+  // (#3). Replaces the separate close / confirm-FP / set-disposition buttons.
+  close_disposition: {
+    key: 'close_disposition',
+    wireAction: 'close',
+    label: 'Close case',
+    icon: Check,
+    variant: 'default',
+    confirmTitle: 'Close with a disposition',
+    confirmBody:
+      'Choose the investigative outcome, then close this case. The close/escalate decision is still made by deterministic code — this records your disposition and closes the case.',
+    help: 'Pick a disposition and close the case.',
+    fields: ['disposition', 'resolution', 'tags'],
+  },
   escalate: {
     key: 'escalate',
     label: 'Escalate',
@@ -280,12 +306,13 @@ const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
   },
   acknowledge: {
     key: 'acknowledge',
-    label: 'Acknowledge',
+    label: 'Acknowledge & investigate',
     icon: Eye,
-    variant: 'outline',
-    confirmTitle: 'Acknowledge this case?',
-    confirmBody: 'Mark this case as seen / being worked, without closing it.',
-    help: 'Mark as seen / being worked, without closing.',
+    variant: 'default',
+    confirmTitle: 'Acknowledge and start investigating?',
+    confirmBody:
+      'Take ownership of this case and move it to INVESTIGATING. It stays open — nothing is closed.',
+    help: 'Take the case and move it to INVESTIGATING.',
     fields: [],
   },
   hold: {
@@ -356,50 +383,76 @@ const PRIORITY_OPTIONS: Array<{ value: string; text: string }> = [
   { value: 'critical', text: 'Critical' },
 ];
 
-/** Lifecycle buttons appropriate to the current status (left→right priority).
- *  Extended for the F8 taxonomy — hold/resume/resolve/de-escalate/set-disposition
- *  surface contextually; close-class moves only from non-terminal states. */
-function actionsForStatus(status?: string): ActionDef[] {
+/**
+ * The lifecycle action plan for a status: ONE clear primary CTA, ONE always-visible
+ * "Close with disposition" (except where close is itself the primary), and the rest
+ * folded into an overflow menu — instead of a row of equally-weighted buttons.
+ *
+ *   - `primary`  — the single filled CTA for the current state (context-dependent:
+ *                  Acknowledge when new, Escalate/Resolve when working, Resume when
+ *                  held, Reopen when terminal). Never null for a loaded case.
+ *   - `close`    — the unified Close-with-disposition action, shown as a secondary
+ *                  button, UNLESS it is already the primary (resolved cases).
+ *   - `overflow` — the remaining contextual actions, in a "More" menu.
+ *
+ * Every entry is one of the existing `ALL_ACTIONS` records, so the confirm dialog +
+ * `runAction` wire keys are unchanged. Terminal states expose no close (only reopen).
+ */
+interface ActionPlan {
+  primary: ActionDef;
+  close: ActionDef | null;
+  overflow: ActionDef[];
+}
+
+function actionPlanForStatus(status?: string): ActionPlan {
   const s = (status || '').toLowerCase();
-  // Terminal states: only reopen (and re-classify) is legal.
+  const close = ALL_ACTIONS.close_disposition;
+
+  // Terminal states: only reopen (and re-classify) is legal — no close.
   if (s === 'closed' || s === 'auto_closed') {
-    return [{ ...ALL_ACTIONS.reopen, fill: true }, ALL_ACTIONS.set_disposition];
+    return {
+      primary: { ...ALL_ACTIONS.reopen, fill: true },
+      close: null,
+      overflow: [ALL_ACTIONS.set_disposition],
+    };
   }
   if (s === 'resolved') {
-    return [
-      { ...ALL_ACTIONS.close, fill: true },
-      ALL_ACTIONS.reopen,
-      ALL_ACTIONS.set_disposition,
-    ];
+    // Close IS the primary here; don't duplicate it as a secondary button.
+    return {
+      primary: { ...close, fill: true },
+      close: null,
+      overflow: [ALL_ACTIONS.reopen],
+    };
   }
   if (s === 'on_hold') {
-    return [
-      { ...ALL_ACTIONS.resume, fill: true },
-      ALL_ACTIONS.resolve,
-      ALL_ACTIONS.close,
-      ALL_ACTIONS.set_disposition,
-    ];
+    return {
+      primary: { ...ALL_ACTIONS.resume, fill: true },
+      close,
+      overflow: [ALL_ACTIONS.resolve, ALL_ACTIONS.escalate],
+    };
   }
   if (s === 'escalated') {
-    return [
-      { ...ALL_ACTIONS.resolve, fill: true },
-      ALL_ACTIONS.deescalate,
-      ALL_ACTIONS.close,
-      ALL_ACTIONS.confirm_fp,
-      ALL_ACTIONS.hold,
-      ALL_ACTIONS.set_disposition,
-    ];
+    return {
+      primary: { ...ALL_ACTIONS.resolve, fill: true },
+      close,
+      overflow: [ALL_ACTIONS.deescalate, ALL_ACTIONS.hold],
+    };
   }
-  // Open-ish states (new / open / needs_human / investigating).
-  return [
-    { ...ALL_ACTIONS.escalate, fill: true },
-    ALL_ACTIONS.resolve,
-    ALL_ACTIONS.close,
-    ALL_ACTIONS.confirm_fp,
-    ALL_ACTIONS.hold,
-    ALL_ACTIONS.set_disposition,
-    ALL_ACTIONS.acknowledge,
-  ];
+  // New — Acknowledge is the natural first move (now sets INVESTIGATING).
+  if (s === 'new' || s === '') {
+    return {
+      primary: { ...ALL_ACTIONS.acknowledge, fill: true },
+      close,
+      overflow: [ALL_ACTIONS.escalate, ALL_ACTIONS.resolve, ALL_ACTIONS.hold],
+    };
+  }
+  // Working states (open / investigating / needs_human) — Escalate is the primary
+  // path to a human; the rest fold into the overflow.
+  return {
+    primary: { ...ALL_ACTIONS.escalate, fill: true },
+    close,
+    overflow: [ALL_ACTIONS.acknowledge, ALL_ACTIONS.resolve, ALL_ACTIONS.hold],
+  };
 }
 
 /* ------------------------------------------------------------------ helpers -- */
@@ -583,7 +636,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // Users for the assignee picker + @mention autocomplete (best-effort).
   const [pickUsers, setPickUsers] = React.useState<PickableUser[]>([]);
 
-  const { username: currentUser } = useAuth();
+  const { username: currentUser, hasPermission } = useAuth();
   const canComment = useCan('cases', 'comment');
   const canWriteCase = useCan('cases', 'write');
 
@@ -1098,7 +1151,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     if (!pending) return;
     setActing(true);
     try {
-      const input: CaseActionInput = { action: pending.key };
+      // Always POST an EXISTING backend verb: `close_disposition` maps to `close`
+      // via wireAction, so the server still runs the real decide()/apply() (#3).
+      const input: CaseActionInput = { action: pending.wireAction ?? pending.key };
       const trimmedNote = note.trim();
       if (trimmedNote) input.note = trimmedNote;
       if (pending.fields.includes('resolution') && resolution) input.resolution = resolution;
@@ -1202,7 +1257,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
 
   if (!open) return null;
 
-  const headerActions = actionsForStatus(c?.status);
+  const actionPlan = actionPlanForStatus(c?.status);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -1704,36 +1759,106 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
               )}
             </div>
 
-            {/* ----------------------------------------------------- footer */}
+            {/* ----------------------------------------------------- footer
+                ONE clear primary CTA (context-dependent on status) + a secondary
+                "Close case" (unified Close-with-disposition) + an overflow "More"
+                menu for the rest — instead of a row of equally-weighted buttons.
+                Every control is <Can>-gated by its action's grant. */}
             {c ? (
               <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-6 py-3">
                 <Button variant="ghost" size="sm" onClick={onClose}>
                   <X className="h-4 w-4" /> Dismiss
                 </Button>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {headerActions.map((a) => {
-                    const Icon = a.icon;
-                    const perm = ACTION_PERMISSION[a.key];
+                  {/* Overflow — the remaining contextual actions. */}
+                  {(() => {
+                    const overflow = actionPlan.overflow.filter((a) =>
+                      hasPermission(ACTION_PERMISSION[a.key].resource, ACTION_PERMISSION[a.key].action),
+                    );
+                    if (overflow.length === 0) return null;
                     return (
-                      <Can key={a.key} resource={perm.resource} action={perm.action}>
+                      <DropdownMenu>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button
-                              size="sm"
-                              variant={a.fill ? a.variant : 'outline'}
-                              disabled={loading || acting}
-                              onClick={() => openAction(a)}
-                              aria-label={`${a.label} — ${a.help}`}
-                            >
-                              <Icon className="h-4 w-4" />
-                              {a.label}
-                            </Button>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={loading || acting}
+                                aria-label="More actions"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                                More
+                              </Button>
+                            </DropdownMenuTrigger>
                           </TooltipTrigger>
-                          <TooltipContent>{a.help}</TooltipContent>
+                          <TooltipContent>More actions</TooltipContent>
                         </Tooltip>
-                      </Can>
+                        <DropdownMenuContent align="end" className="w-56">
+                          {overflow.map((a) => {
+                            const Icon = a.icon;
+                            return (
+                              <DropdownMenuItem
+                                key={a.key}
+                                disabled={loading || acting}
+                                onSelect={() => openAction(a)}
+                              >
+                                <Icon className="h-4 w-4" />
+                                <span className="flex-1">{a.label}</span>
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     );
-                  })}
+                  })()}
+
+                  {/* Unified Close-with-disposition — secondary (unless it's the
+                      primary, i.e. resolved cases, where actionPlan.close is null). */}
+                  {actionPlan.close ? (
+                    <Can
+                      resource={ACTION_PERMISSION[actionPlan.close.key].resource}
+                      action={ACTION_PERMISSION[actionPlan.close.key].action}
+                    >
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={loading || acting}
+                            onClick={() => openAction(actionPlan.close!)}
+                            aria-label={`${actionPlan.close.label} — ${actionPlan.close.help}`}
+                          >
+                            <Check className="h-4 w-4" />
+                            {actionPlan.close.label}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{actionPlan.close.help}</TooltipContent>
+                      </Tooltip>
+                    </Can>
+                  ) : null}
+
+                  {/* Primary CTA — the single filled, context-dependent action. */}
+                  <Can
+                    resource={ACTION_PERMISSION[actionPlan.primary.key].resource}
+                    action={ACTION_PERMISSION[actionPlan.primary.key].action}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant={actionPlan.primary.variant === 'outline' ? 'default' : actionPlan.primary.variant}
+                          disabled={loading || acting}
+                          onClick={() => openAction(actionPlan.primary)}
+                          aria-label={`${actionPlan.primary.label} — ${actionPlan.primary.help}`}
+                        >
+                          {React.createElement(actionPlan.primary.icon, { className: 'h-4 w-4' })}
+                          {actionPlan.primary.label}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{actionPlan.primary.help}</TooltipContent>
+                    </Tooltip>
+                  </Can>
                 </div>
               </footer>
             ) : null}
@@ -1759,6 +1884,26 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
             </DialogHeader>
 
             <div className="space-y-4">
+              {/* Disposition first: it's the REQUIRED outcome for the unified close
+                  flow, and the primary Close button is disabled until one is picked. */}
+              {pending.fields.includes('disposition') ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Disposition (required)</Label>
+                  <Select value={actionDisposition} onValueChange={setActionDisposition}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue placeholder="Select an outcome…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DISPOSITION_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.text}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
               {pending.fields.includes('resolution') ? (
                 <div className="space-y-1.5">
                   <Label className="text-xs">Resolution (optional)</Label>
@@ -1817,24 +1962,6 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                     <SelectContent>
                       <SelectItem value="__none__">— No priority —</SelectItem>
                       {PRIORITY_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>
-                          {o.text}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-
-              {pending.fields.includes('disposition') ? (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Disposition</Label>
-                  <Select value={actionDisposition} onValueChange={setActionDisposition}>
-                    <SelectTrigger className="h-9">
-                      <SelectValue placeholder="Select an outcome…" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DISPOSITION_OPTIONS.map((o) => (
                         <SelectItem key={o.value} value={o.value}>
                           {o.text}
                         </SelectItem>

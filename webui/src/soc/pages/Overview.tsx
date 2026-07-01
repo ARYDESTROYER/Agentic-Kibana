@@ -660,28 +660,43 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </div>
           </div>
 
-          {/* ---- Timing StatCards (server posture lifecycle, honest DASH) ---- */}
+          {/* ---- Timing summary (server posture lifecycle, honest DASH) ----
+              A COMPACT at-a-glance MTTD/MTTA/MTTR + SLA read; the FULL lifecycle
+              (p50/p90 percentiles, quality rates, aging, SLA breach list, MITRE) lives
+              in ONE place — Analytics → Posture/Performance — so posture isn't
+              re-derived across pages (#10 declutter). This row links there. */}
           <section className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Response timing
               </h2>
-              {slaPosture ? (
-                <span
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium',
-                    slaPosture.breached > 0
-                      ? 'border-critical/40 bg-critical/10 text-critical'
-                      : slaPosture.atRisk > 0
-                        ? 'border-high/40 bg-high/10 text-high'
-                        : 'border-success/40 bg-success/10 text-success',
-                  )}
-                  title="SLA attainment vs the per-priority response/resolve targets"
-                >
-                  SLA {ratioPct(slaPosture.attainment / 100)} ·{' '}
-                  {fmtNumber(slaPosture.breached)} breached · {fmtNumber(slaPosture.atRisk)} at risk
-                </span>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {slaPosture ? (
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium',
+                      slaPosture.breached > 0
+                        ? 'border-critical/40 bg-critical/10 text-critical'
+                        : slaPosture.atRisk > 0
+                          ? 'border-high/40 bg-high/10 text-high'
+                          : 'border-success/40 bg-success/10 text-success',
+                    )}
+                    title="SLA attainment vs the per-priority response/resolve targets"
+                  >
+                    SLA {ratioPct(slaPosture.attainment / 100)} ·{' '}
+                    {fmtNumber(slaPosture.breached)} breached · {fmtNumber(slaPosture.atRisk)} at risk
+                  </span>
+                ) : null}
+                {onNavigate ? (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('metrics', { tab: 'posture' })}
+                    className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    View posture &amp; SLA detail →
+                  </button>
+                ) : null}
+              </div>
             </div>
             <div className="grid gap-5 md:grid-cols-3">
             {timing.map((s) => (

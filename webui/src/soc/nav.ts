@@ -42,6 +42,11 @@ import {
   ShieldCheck,
   KeyRound,
   MonitorSmartphone,
+  List,
+  Network,
+  SlidersHorizontal,
+  Layers,
+  Activity,
 } from 'lucide-react';
 
 /** Stable page ids — the router validates the hash against these. */
@@ -71,7 +76,12 @@ export type PageId =
   | 'roles'
   | 'users'
   | 'audit'
-  | 'admin_sessions';
+  | 'admin_sessions'
+  | 'logs'
+  | 'campaigns'
+  | 'tuning'
+  | 'batchjobs'
+  | 'baseline';
 
 export type NavGroupId =
   | 'overview'
@@ -79,9 +89,7 @@ export type NavGroupId =
   | 'intelligence'
   | 'analytics'
   | 'notifications'
-  | 'platform'
-  | 'automation'
-  | 'admin';
+  | 'platform';
 
 /**
  * A permission requirement (`resource:action`) gating a nav item. When present,
@@ -155,6 +163,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Triage',
     items: [
       { id: 'cases', label: 'Cases', icon: ShieldAlert, group: 'triage' },
+      { id: 'campaigns', label: 'Campaigns', icon: Network, group: 'triage', perm: { resource: 'cases', action: 'read' } },
+      { id: 'logs', label: 'Logs', icon: List, group: 'triage', perm: { resource: 'sources', action: 'read' } },
       // Host page: Workspace = Chat | Investigate (ONE chat engine, CLAUDE.md).
       {
         id: 'chat',
@@ -202,6 +212,8 @@ export const NAV_GROUPS: NavGroup[] = [
           { id: 'metrics', label: 'Metrics', icon: BarChart3 },
           { id: 'cost', label: 'Cost', icon: DollarSign },
           { id: 'models', label: 'Models', icon: Cpu },
+          { id: 'baseline', label: 'Baseline', icon: Activity, perm: { resource: 'settings', action: 'read' } },
+          { id: 'batchjobs', label: 'Batch jobs', icon: Layers, perm: { resource: 'models', action: 'read' } },
         ],
       },
     ],
@@ -234,6 +246,13 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: ScrollText,
         group: 'platform',
         perm: { resource: 'audit', action: 'view' },
+      },
+      {
+        id: 'tuning',
+        label: 'Auto-tuning',
+        icon: SlidersHorizontal,
+        group: 'platform',
+        perm: { resource: 'automation', action: 'read' },
       },
       // Settings host: the disclosure surfaces the high-traffic admin sections
       // (Users / Security / Roles / Sessions). Each child is RBAC-gated; with auth

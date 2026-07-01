@@ -57,11 +57,22 @@ import {
   accentContrastAdvisory,
   type BrandingDoc,
 } from './branding.api';
+import {
+  asLoginIllustration,
+  asLoginLayout,
+  BrandHero,
+  LOGIN_ILLUSTRATION_LABELS,
+  LOGIN_ILLUSTRATIONS,
+  LOGIN_LAYOUT_LABELS,
+  LOGIN_LAYOUTS,
+} from './auth/loginParts';
+import { LOGIN_BRANDING_DEFAULTS } from './auth/login.api';
 
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
+import { Textarea } from '@/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
 import {
@@ -91,10 +102,17 @@ const FAVICON_ACCEPT = '.ico,.png,.svg,image/png,image/svg+xml,image/x-icon';
 const MAX_TEXT_LEN = 400;
 const MAX_URL_LEN = 2000;
 
+// Login white-label caps — mirror the backend BrandingConfig login-copy validators
+// (`login_headline` ≤120, `login_body` ≤600, `login_chips` ≤6 × ≤60). Plain text only.
+const MAX_LOGIN_HEADLINE_LEN = 120;
+const MAX_LOGIN_BODY_LEN = 600;
+const MAX_LOGIN_CHIPS = 6;
+const MAX_LOGIN_CHIP_LEN = 60;
+
 const DEFAULT_ACCENT = '#6c5ce7';
 const DEFAULT_ACCENT2 = '#00b894';
 
-/** Built-in defaults — reproduce the no-branding experience (Round-3 superset). */
+/** Built-in defaults — reproduce the no-branding experience (Round-3/4 superset). */
 const DEFAULT_BRANDING: BrandingDoc = {
   org_name: '',
   product_name: '',
@@ -111,6 +129,7 @@ const DEFAULT_BRANDING: BrandingDoc = {
   default_theme: 'system',
   theme_tokens: {},
   presets: [],
+  ...LOGIN_BRANDING_DEFAULTS,
 };
 
 const THEME_OPTIONS: Array<{ id: ThemeMode; label: string; icon: typeof Sun }> = [
@@ -576,6 +595,32 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
     }
   };
 
+  /* ---------------------------------------------------- login white-label -- */
+
+  // Round-4 login copy + curated layout/illustration keys. All are bounded PLAIN TEXT
+  // (headline/body/chips) or a curated ENUM key (layout/illustration) — never markup
+  // or a URL (#6/#9). The BrandHero live preview renders every string as plain text.
+  const loginLayout = asLoginLayout(draft.login_layout);
+  const loginIllustration = asLoginIllustration(draft.login_illustration);
+  const loginChips: string[] = Array.isArray(draft.login_chips)
+    ? draft.login_chips.map((c) => String(c))
+    : [];
+
+  const setChip = (index: number, value: string) => {
+    const next = loginChips.slice();
+    next[index] = value.slice(0, MAX_LOGIN_CHIP_LEN);
+    set({ login_chips: next });
+  };
+  const addChip = () => {
+    if (loginChips.length >= MAX_LOGIN_CHIPS) return;
+    set({ login_chips: [...loginChips, ''] });
+  };
+  const removeChip = (index: number) => {
+    set({ login_chips: loginChips.filter((_, i) => i !== index) });
+  };
+  // The chips actually shown on the login screen (blank chips are dropped there).
+  const previewChips = loginChips.map((c) => c.trim()).filter((c) => c.length > 0);
+
   /* --------------------------------------------------------------- persist -- */
 
   const dirty = React.useMemo(() => {
@@ -1010,6 +1055,10 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             maxLength={MAX_TEXT_LEN}
             onChange={(e) => set({ login_subtitle: e.target.value })}
           />
+          <p className="text-xs text-muted-foreground">
+            Shown as the sign-in form description (and used as the hero headline only when
+            no headline is set below).
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="brand-footer">Footer text</Label>
@@ -1040,6 +1089,149 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           {!supportUrlValid ? (
             <p className="text-xs text-critical">Enter an http(s):// URL or leave blank.</p>
           ) : null}
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Login screen — bounded plain-text hero copy + curated layout/illustration. */}
+      <div className="space-y-4">
+        <Heading
+          title="Login screen"
+          sub="The sign-in hero copy, arrangement, and backdrop. All text is plain (no markup); the arrangement and backdrop are picked from a curated set."
+        />
+
+        {/* Live preview of the chosen hero (uses the SAME BrandHero the login renders). */}
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Login preview
+          </p>
+          <div className="relative h-56 overflow-hidden rounded-lg border border-border shadow-elev1">
+            <BrandHero
+              wordmark={wordmark}
+              tagline={tagline}
+              logoUrl={draft.logo_data_url || ''}
+              headline={draft.login_headline || ''}
+              body={draft.login_body || ''}
+              chips={previewChips}
+              subtitle={draft.login_subtitle || ''}
+              footerText={draft.footer_text || ''}
+              illustration={loginIllustration}
+              variant="full"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="brand-login-headline">Headline</Label>
+          <Input
+            id="brand-login-headline"
+            value={draft.login_headline || ''}
+            placeholder="Triage at machine speed, with a human in the loop."
+            disabled={readOnly}
+            maxLength={MAX_LOGIN_HEADLINE_LEN}
+            onChange={(e) => set({ login_headline: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            The big line on the hero. Blank uses the built-in headline.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="brand-login-body">Body copy</Label>
+          <Textarea
+            id="brand-login-body"
+            value={draft.login_body || ''}
+            placeholder="Audited, cost-metered agentic triage — every alert turned into a reviewable, explainable case."
+            disabled={readOnly}
+            maxLength={MAX_LOGIN_BODY_LEN}
+            rows={3}
+            onChange={(e) => set({ login_body: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            A short paragraph under the headline. Blank uses the built-in copy.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Feature chips</Label>
+          <p className="text-xs text-muted-foreground">
+            Up to {MAX_LOGIN_CHIPS} short bullets shown as pills. Leave empty for the
+            built-in set.
+          </p>
+          <div className="space-y-2">
+            {loginChips.map((chip, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  aria-label={`Login chip ${i + 1}`}
+                  value={chip}
+                  placeholder="e.g. Audited"
+                  disabled={readOnly}
+                  maxLength={MAX_LOGIN_CHIP_LEN}
+                  onChange={(e) => setChip(i, e.target.value)}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={readOnly}
+                  className="shrink-0 text-critical hover:text-critical"
+                  onClick={() => removeChip(i)}
+                  aria-label={`Remove login chip ${i + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </div>
+            ))}
+          </div>
+          {loginChips.length < MAX_LOGIN_CHIPS ? (
+            <Button variant="outline" size="sm" type="button" disabled={readOnly} onClick={addChip}>
+              Add chip
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="brand-login-layout">Layout</Label>
+            <Select
+              value={loginLayout}
+              disabled={readOnly}
+              onValueChange={(v) => set({ login_layout: asLoginLayout(v) })}
+            >
+              <SelectTrigger id="brand-login-layout" aria-label="Login layout">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOGIN_LAYOUTS.map((l) => (
+                  <SelectItem key={l} value={l}>
+                    {LOGIN_LAYOUT_LABELS[l]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="brand-login-illustration">Illustration</Label>
+            <Select
+              value={loginIllustration || '__none__'}
+              disabled={readOnly}
+              onValueChange={(v) =>
+                set({ login_illustration: asLoginIllustration(v === '__none__' ? '' : v) })
+              }
+            >
+              <SelectTrigger id="brand-login-illustration" aria-label="Login illustration">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOGIN_ILLUSTRATIONS.map((key) => (
+                  <SelectItem key={key || '__none__'} value={key || '__none__'}>
+                    {LOGIN_ILLUSTRATION_LABELS[key]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 

@@ -11,21 +11,22 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ModelsCatalog, capabilityChips } from '../components/ModelsCatalog';
-import type { ModelCatalogRow } from '../pages/Models.api';
+import { batchRates, type ModelCatalogRow } from '../pages/Models.api';
 
 const ROWS: ModelCatalogRow[] = [
   {
-    id: 'claude-opus-4',
-    label: 'Claude Opus 4',
+    id: 'claude-opus-4-8',
+    label: 'Claude Opus 4.8',
     provider: 'anthropic',
-    context_window: 200000,
-    max_output: 32000,
+    context_window: 1000000,
+    max_output: 128000,
     modalities: ['text', 'vision'],
     capabilities: ['tools', 'cache'],
-    input_per_million: 15,
-    output_per_million: 75,
-    cache_write_per_million: 18.75,
-    cache_read_per_million: 1.5,
+    input_per_million: 5,
+    output_per_million: 25,
+    cache_write_per_million: 6.25,
+    cache_read_per_million: 0.5,
+    batch_multiplier: 0.5,
     base_url: null,
     pricing_source: 'exact',
     assigned_roles: ['investigator', 'chat'],
@@ -43,6 +44,7 @@ const ROWS: ModelCatalogRow[] = [
     output_per_million: 0.6,
     cache_write_per_million: null,
     cache_read_per_million: null,
+    batch_multiplier: null,
     base_url: null,
     pricing_source: 'heuristic',
     assigned_roles: [],
@@ -61,8 +63,8 @@ function renderCatalog(props: Partial<React.ComponentProps<typeof ModelsCatalog>
 describe('capabilityChips', () => {
   it('derives context/output/modality/tool/cache chips', () => {
     const chips = capabilityChips(ROWS[0]).map((c) => c.label);
-    expect(chips).toContain('200K ctx');
-    expect(chips).toContain('32K out');
+    expect(chips).toContain('1000K ctx');
+    expect(chips).toContain('128K out');
     expect(chips).toContain('Vision');
     expect(chips).toContain('Tool JSON');
     expect(chips).toContain('Cache');
@@ -78,10 +80,29 @@ describe('capabilityChips', () => {
   });
 });
 
+describe('batchRates', () => {
+  it('halves both rates for a 0.5 multiplier', () => {
+    const b = batchRates(ROWS[0]);
+    expect(b).not.toBeNull();
+    expect(b?.multiplier).toBe(0.5);
+    expect(b?.input).toBeCloseTo(2.5); // 5 * 0.5
+    expect(b?.output).toBeCloseTo(12.5); // 25 * 0.5
+  });
+
+  it('returns null when there is no real discount', () => {
+    expect(batchRates(ROWS[1])).toBeNull(); // null multiplier
+    expect(batchRates({ input_per_million: 1, output_per_million: 2, batch_multiplier: 1 })).toBeNull();
+    expect(batchRates({ input_per_million: 1, output_per_million: 2, batch_multiplier: 0 })).toBeNull();
+    expect(
+      batchRates({ input_per_million: 1, output_per_million: 2, batch_multiplier: NaN }),
+    ).toBeNull();
+  });
+});
+
 describe('ModelsCatalog render', () => {
   it('renders both models with labels, pricing and provenance', () => {
     renderCatalog();
-    expect(screen.getByText('Claude Opus 4')).toBeInTheDocument();
+    expect(screen.getByText('Claude Opus 4.8')).toBeInTheDocument();
     expect(screen.getByText('GPT-4o mini')).toBeInTheDocument();
     // Provenance badges.
     expect(screen.getByText('Exact')).toBeInTheDocument();
@@ -91,18 +112,36 @@ describe('ModelsCatalog render', () => {
     expect(screen.getByText('Chat')).toBeInTheDocument();
   });
 
+  it('renders cache-write, cache-read and batch pricing rows for a cached model', () => {
+    renderCatalog();
+    // Cache-write + cache-read on one line for the Anthropic row.
+    expect(screen.getByText(/cache-write \$6\.25/)).toBeInTheDocument();
+    expect(screen.getByText(/cache-read \$0\.5000/)).toBeInTheDocument();
+    // Batch (0.5×) derived input/output on its own line: 2.5 / 12.5.
+    expect(screen.getByText(/batch 50% · in \$2\.50 · out \$12\.50/)).toBeInTheDocument();
+  });
+
+  it('omits cache + batch rows for a model with none', () => {
+    renderCatalog({ providerFilter: 'openai' });
+    // GPT-4o mini has null cache + null batch multiplier → no extra pricing lines.
+    expect(screen.queryByText(/cache-/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/batch/)).not.toBeInTheDocument();
+    // The list rate still renders.
+    expect(screen.getByText(/in \$0\.1500 · out \$0\.6000/)).toBeInTheDocument();
+  });
+
   it('filters by provider', () => {
     renderCatalog({ providerFilter: 'openai' });
     expect(screen.getByText('GPT-4o mini')).toBeInTheDocument();
-    expect(screen.queryByText('Claude Opus 4')).not.toBeInTheDocument();
+    expect(screen.queryByText('Claude Opus 4.8')).not.toBeInTheDocument();
   });
 
   it('fires onTest and onEditPrice for a row', () => {
     const onTest = vi.fn();
     const onEditPrice = vi.fn();
     renderCatalog({ onTest, onEditPrice });
-    fireEvent.click(screen.getByLabelText('Test claude-opus-4'));
-    fireEvent.click(screen.getByLabelText('Override price for claude-opus-4'));
+    fireEvent.click(screen.getByLabelText('Test claude-opus-4-8'));
+    fireEvent.click(screen.getByLabelText('Override price for claude-opus-4-8'));
     expect(onTest).toHaveBeenCalledWith(ROWS[0]);
     expect(onEditPrice).toHaveBeenCalledWith(ROWS[0]);
   });
@@ -110,7 +149,7 @@ describe('ModelsCatalog render', () => {
   it('disables actions when the user cannot manage models', () => {
     const onTest = vi.fn();
     renderCatalog({ onTest, canManage: false });
-    const btn = screen.getByLabelText('Test claude-opus-4');
+    const btn = screen.getByLabelText('Test claude-opus-4-8');
     expect(btn).toBeDisabled();
     fireEvent.click(btn);
     expect(onTest).not.toHaveBeenCalled();

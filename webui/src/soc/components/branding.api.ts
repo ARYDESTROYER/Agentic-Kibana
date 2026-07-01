@@ -18,11 +18,16 @@
  * does not compute one.
  */
 import { api } from '@/lib/api';
-import type { Branding } from '@/lib/types';
 import type { Material, ThemeMode, ThemePreset } from '@/soc/theme-tokens';
+import type { LoginBranding } from './auth/login.api';
 
-/** The Round-3 superset of the wire branding doc (additive fields, all optional). */
-export interface BrandingDoc extends Branding {
+/**
+ * The Round-3/4 superset of the wire branding doc (additive fields, all optional).
+ * Extends `LoginBranding` (itself a superset of the shared `Branding`) so the
+ * Round-4 bounded plain-text `login_*` white-label fields round-trip through the
+ * editor without touching `lib/types.ts`.
+ */
+export interface BrandingDoc extends LoginBranding {
   /** Shell density/contrast surface pack. */
   material?: Material | string;
   /** Org default colour mode (supersedes the legacy `theme`/`dark_mode_default`). */

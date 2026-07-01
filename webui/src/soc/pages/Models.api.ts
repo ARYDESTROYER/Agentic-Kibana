@@ -34,10 +34,34 @@ export interface ModelCatalogRow {
   output_per_million: number;
   cache_write_per_million: number | null;
   cache_read_per_million: number | null;
+  /**
+   * The batch-API discount multiplier (default 0.5 = half list price) applied to BOTH
+   * the input and output rate for a batched (async, non-interactive) call. Additive —
+   * older backends omit it; treat an absent/invalid value as "no batch discount" (1×).
+   */
+  batch_multiplier: number | null;
   base_url: string | null;
   pricing_source: PricingSource | string;
   assigned_roles: string[];
   price_overridden: boolean;
+}
+
+/**
+ * The batched (async) input + output rate for a catalog row, derived from the
+ * per-model ``batch_multiplier`` (default 0.5). Returns ``null`` when there is no real
+ * discount (multiplier absent, ≥1, or non-finite) so the UI can show a dash rather than
+ * a misleading "same as list" batch column. Pure — no I/O, safe to call per-render.
+ */
+export function batchRates(
+  row: Pick<ModelCatalogRow, 'input_per_million' | 'output_per_million' | 'batch_multiplier'>,
+): { input: number; output: number; multiplier: number } | null {
+  const m = row.batch_multiplier;
+  if (typeof m !== 'number' || !Number.isFinite(m) || m <= 0 || m >= 1) return null;
+  return {
+    input: row.input_per_million * m,
+    output: row.output_per_million * m,
+    multiplier: m,
+  };
 }
 
 /** GET /api/llm/models. */

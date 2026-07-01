@@ -20,6 +20,7 @@ import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { fmtMoney, fmtTokens, humanizeToken } from '@/lib/format';
 import {
   PRICING_SOURCE_META,
+  batchRates,
   type ModelCatalogRow,
 } from '@/soc/pages/Models.api';
 
@@ -66,6 +67,44 @@ export function capabilityChips(row: ModelCatalogRow): { key: string; label: str
   if (caps.has('vision')) chips.push({ key: 'vision', label: 'Vision' });
   if (caps.has('reasoning')) chips.push({ key: 'reasoning', label: 'Reasoning' });
   return chips;
+}
+
+/**
+ * The full per-1M pricing breakdown for a catalog row: the list input/output rate, the
+ * optional prompt-cache write/read rates, and the derived batch (async) input/output
+ * rate. All values go through `fmtMoney` (dash-guarded) and render as plain text (#9);
+ * cache/batch lines are omitted entirely when the model has no such rate.
+ */
+function PricingCell({ row }: { row: ModelCatalogRow }) {
+  const batch = batchRates(row);
+  const hasCache =
+    row.cache_write_per_million != null || row.cache_read_per_million != null;
+  return (
+    <div className="flex flex-col items-end gap-0.5 tabular-nums">
+      <span className="text-sm text-foreground">
+        in {fmtMoney(row.input_per_million)} · out {fmtMoney(row.output_per_million)}
+      </span>
+      {hasCache ? (
+        <span className="text-[0.7rem] text-muted-foreground">
+          {row.cache_write_per_million != null
+            ? `cache-write ${fmtMoney(row.cache_write_per_million)}`
+            : ''}
+          {row.cache_write_per_million != null && row.cache_read_per_million != null
+            ? ' · '
+            : ''}
+          {row.cache_read_per_million != null
+            ? `cache-read ${fmtMoney(row.cache_read_per_million)}`
+            : ''}
+        </span>
+      ) : null}
+      {batch ? (
+        <span className="text-[0.7rem] text-muted-foreground">
+          batch {Math.round(batch.multiplier * 100)}% · in {fmtMoney(batch.input)} · out{' '}
+          {fmtMoney(batch.output)}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 function ProvenanceBadge({ source }: { source: string }) {
@@ -146,18 +185,7 @@ export function ModelsCatalog({
       id: 'pricing',
       header: 'Price / 1M',
       align: 'right',
-      cell: (r) => (
-        <div className="flex flex-col items-end gap-0.5 tabular-nums">
-          <span className="text-sm text-foreground">
-            in {fmtMoney(r.input_per_million)} · out {fmtMoney(r.output_per_million)}
-          </span>
-          {r.cache_read_per_million != null ? (
-            <span className="text-[0.7rem] text-muted-foreground">
-              cache-read {fmtMoney(r.cache_read_per_million)}
-            </span>
-          ) : null}
-        </div>
-      ),
+      cell: (r) => <PricingCell row={r} />,
     },
     {
       id: 'provenance',

@@ -299,16 +299,67 @@ export const OtpInput: React.FC<OtpInputProps> = ({
 };
 
 // --------------------------------------------------------------------------- //
-// Brand hero — the left split panel (dark command-center aesthetic).
+// Login white-label (#6/#9) — the CURATED layout + illustration sets.
+//
+// Everything an operator can pick from is DEFINED HERE IN CODE. The branding doc
+// only ever carries: bounded PLAIN-TEXT copy (headline/body/chips) + an enum
+// LAYOUT key + an enum ILLUSTRATION key. It never carries HTML, SVG markup, or a
+// URL, so nothing operator-supplied is ever interpolated as markup (BrandHero
+// renders text as plain React text nodes; the illustrations are code-authored SVG
+// with no operator input). This is the whole security boundary for the login page.
 // --------------------------------------------------------------------------- //
-export interface BrandHeroProps {
-  wordmark: string;
-  tagline: string;
-  logoUrl: string;
-  /** Optional welcome line (operator-set login subtitle). */
-  subtitle?: string;
-  /** Optional classification / footer line. */
-  footerText?: string;
+
+/** The three curated login arrangements (mirror `login_layout` on the backend). */
+export type LoginLayout = 'split' | 'centered' | 'full';
+export const LOGIN_LAYOUTS: readonly LoginLayout[] = ['split', 'centered', 'full'] as const;
+
+/**
+ * The curated login-illustration keys (mirror `login_illustration` +
+ * `_LOGIN_ILLUSTRATIONS` on the backend). `''` selects the default aurora glow.
+ * Each key maps to a code-defined, PURE-CSS/SVG decorative backdrop below — never a
+ * URL or operator-supplied asset.
+ */
+export const LOGIN_ILLUSTRATIONS = [
+  '',
+  'shield',
+  'radar',
+  'grid',
+  'waves',
+  'aurora',
+  'constellation',
+  'mesh',
+] as const;
+export type LoginIllustration = (typeof LOGIN_ILLUSTRATIONS)[number];
+
+/** Human labels for the illustration picker (BrandingEditor consumes this). */
+export const LOGIN_ILLUSTRATION_LABELS: Record<LoginIllustration, string> = {
+  '': 'Aurora (default)',
+  shield: 'Shield',
+  radar: 'Radar sweep',
+  grid: 'Grid',
+  waves: 'Waves',
+  aurora: 'Aurora bloom',
+  constellation: 'Constellation',
+  mesh: 'Mesh',
+};
+
+/** Human labels for the layout picker (BrandingEditor consumes this). */
+export const LOGIN_LAYOUT_LABELS: Record<LoginLayout, string> = {
+  split: 'Split (brand hero + form)',
+  centered: 'Centered card',
+  full: 'Full-bleed hero',
+};
+
+/** Coerce an arbitrary string to a known layout (defensive; unknown → 'split'). */
+export function asLoginLayout(v: string | undefined | null): LoginLayout {
+  return v === 'centered' || v === 'full' ? v : 'split';
+}
+
+/** Coerce an arbitrary string to a known illustration key (unknown → ''). */
+export function asLoginIllustration(v: string | undefined | null): LoginIllustration {
+  return (LOGIN_ILLUSTRATIONS as readonly string[]).includes(v ?? '')
+    ? ((v ?? '') as LoginIllustration)
+    : '';
 }
 
 /**
@@ -329,22 +380,36 @@ const AuroraBlob: React.FC<{
 );
 
 /**
- * The brand hero panel. A deep slate base with a faint grid + a slow two-blob
- * aurora glow tinted by the primary accent + the secondary accent
- * (`--accent2`, falling back to the primary). All motion is pure CSS and respects
- * prefers-reduced-motion (global rule in styles/theme.css). Hidden below `lg`; the
- * form column carries a compact brand header on small screens.
+ * The curated decorative backdrop for a login-illustration key. PURE code-authored
+ * CSS/SVG — no operator input reaches these (the branding doc only carries the KEY).
+ * All layers are `aria-hidden` and pointer-events:none; every one tints from the
+ * `--primary` / `--accent2` brand vars so it still tracks the org accent. The `''`
+ * (default) key renders the two-blob aurora glow the login has always used.
  */
-export const BrandHero: React.FC<BrandHeroProps> = ({
-  wordmark,
-  tagline,
-  logoUrl,
-  subtitle,
-  footerText,
+export const LoginIllustration: React.FC<{ variant?: LoginIllustration }> = ({
+  variant = '',
 }) => {
-  return (
-    <div className="relative hidden overflow-hidden bg-[hsl(222_28%_9%)] lg:flex lg:flex-col">
-      {/* Aurora glow — two slow-drifting brand blobs (CSS-animated). */}
+  const key = asLoginIllustration(variant);
+
+  // A faint square grid + top-vignette mask, shared by several variants.
+  const gridLayer = (size = 40, opacity = 0.18) => (
+    <div
+      aria-hidden
+      className="absolute inset-0"
+      style={{
+        opacity,
+        backgroundImage:
+          'linear-gradient(hsl(0 0% 100% / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.06) 1px, transparent 1px)',
+        backgroundSize: `${size}px ${size}px`,
+        maskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
+        WebkitMaskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
+      }}
+    />
+  );
+
+  // The default aurora — two brand-tinted drifting blobs + grid + vignette.
+  const auroraLayers = (
+    <>
       <AuroraBlob
         className="-left-24 -top-24 h-[28rem] w-[28rem] opacity-50"
         color="hsl(var(--primary) / 0.55)"
@@ -355,20 +420,7 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
         color="hsl(var(--accent2, var(--primary)) / 0.5)"
         animationClass="animate-aurora-b"
       />
-
-      {/* Faint grid + noise texture (pure CSS; no asset). */}
-      <div
-        aria-hidden
-        className="absolute inset-0 opacity-[0.18]"
-        style={{
-          backgroundImage:
-            'linear-gradient(hsl(0 0% 100% / 0.06) 1px, transparent 1px), linear-gradient(90deg, hsl(0 0% 100% / 0.06) 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
-          maskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
-          WebkitMaskImage: 'radial-gradient(120% 100% at 50% 0%, #000 30%, transparent 85%)',
-        }}
-      />
-      {/* A soft vignette + top accent sheen. */}
+      {gridLayer(40, 0.18)}
       <div
         aria-hidden
         className="absolute inset-0"
@@ -377,9 +429,258 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
             'radial-gradient(80% 60% at 50% -10%, hsl(var(--primary) / 0.16) 0%, transparent 60%)',
         }}
       />
+    </>
+  );
+
+  if (key === 'shield') {
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {auroraLayers}
+        <ShieldCheck
+          className="absolute right-[-3rem] top-1/2 h-[36rem] w-[36rem] -translate-y-1/2 animate-aurora-a text-white/[0.05]"
+          aria-hidden
+        />
+      </div>
+    );
+  }
+
+  if (key === 'radar') {
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {gridLayer(48, 0.14)}
+        <svg
+          className="absolute left-1/2 top-1/2 h-[42rem] w-[42rem] -translate-x-1/2 -translate-y-1/2 text-white/10"
+          viewBox="0 0 200 200"
+          fill="none"
+          aria-hidden
+        >
+          {[30, 55, 80].map((r) => (
+            <circle key={r} cx="100" cy="100" r={r} stroke="currentColor" strokeWidth="0.5" />
+          ))}
+          <line x1="100" y1="100" x2="100" y2="20" stroke="currentColor" strokeWidth="0.5" />
+          <line x1="100" y1="100" x2="180" y2="100" stroke="currentColor" strokeWidth="0.5" />
+        </svg>
+        <div
+          aria-hidden
+          className="absolute left-1/2 top-1/2 h-[42rem] w-[42rem] origin-center -translate-x-1/2 -translate-y-1/2 animate-aurora-a"
+          style={{
+            background:
+              'conic-gradient(from 200deg, hsl(var(--primary) / 0.28) 0deg, transparent 60deg)',
+            borderRadius: '9999px',
+            maskImage: 'radial-gradient(circle, #000 0%, #000 40%, transparent 41%)',
+            WebkitMaskImage: 'radial-gradient(circle, #000 0%, #000 40%, transparent 41%)',
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (key === 'grid') {
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {gridLayer(32, 0.28)}
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(70% 55% at 50% 0%, hsl(var(--primary) / 0.22) 0%, transparent 60%)',
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (key === 'waves') {
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <svg
+          className="absolute inset-x-0 bottom-0 h-2/3 w-full text-white/[0.07]"
+          viewBox="0 0 400 200"
+          preserveAspectRatio="none"
+          fill="none"
+          aria-hidden
+        >
+          {[0, 24, 48, 72].map((dy) => (
+            <path
+              key={dy}
+              d={`M0 ${120 + dy} C 80 ${90 + dy}, 160 ${150 + dy}, 240 ${120 + dy} S 400 ${100 + dy}, 400 ${120 + dy}`}
+              stroke="currentColor"
+              strokeWidth="1"
+            />
+          ))}
+        </svg>
+        <div
+          aria-hidden
+          className="absolute inset-0"
+          style={{
+            background:
+              'radial-gradient(90% 60% at 50% 110%, hsl(var(--accent2, var(--primary)) / 0.28) 0%, transparent 60%)',
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (key === 'constellation') {
+    // A small, fixed set of code-defined nodes/edges — deterministic, no operator data.
+    const nodes = [
+      [40, 50], [90, 30], [140, 70], [70, 110], [150, 130],
+      [30, 140], [120, 160], [180, 60],
+    ];
+    const edges: Array<[number, number]> = [
+      [0, 1], [1, 2], [2, 7], [0, 3], [3, 6], [2, 4], [4, 6], [3, 5],
+    ];
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {gridLayer(48, 0.1)}
+        <svg
+          className="absolute left-1/2 top-1/2 h-[40rem] w-[40rem] -translate-x-1/2 -translate-y-1/2 text-white/12"
+          viewBox="0 0 210 190"
+          fill="none"
+          aria-hidden
+        >
+          {edges.map(([a, b], i) => (
+            <line
+              key={i}
+              x1={nodes[a][0]}
+              y1={nodes[a][1]}
+              x2={nodes[b][0]}
+              y2={nodes[b][1]}
+              stroke="currentColor"
+              strokeWidth="0.5"
+            />
+          ))}
+          {nodes.map(([x, y], i) => (
+            <circle key={i} cx={x} cy={y} r="2" fill="hsl(var(--primary) / 0.9)" />
+          ))}
+        </svg>
+      </div>
+    );
+  }
+
+  if (key === 'mesh') {
+    return (
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <AuroraBlob
+          className="left-[10%] top-[-6rem] h-[24rem] w-[24rem] opacity-40"
+          color="hsl(var(--primary) / 0.5)"
+          animationClass="animate-aurora-a"
+        />
+        <AuroraBlob
+          className="right-[-4rem] top-[30%] h-[22rem] w-[22rem] opacity-35"
+          color="hsl(var(--accent2, var(--primary)) / 0.45)"
+          animationClass="animate-aurora-b"
+        />
+        <AuroraBlob
+          className="bottom-[-8rem] left-[20%] h-[26rem] w-[26rem] opacity-30"
+          color="hsl(var(--primary) / 0.4)"
+          animationClass="animate-aurora-a"
+        />
+      </div>
+    );
+  }
+
+  // '' (default) and 'aurora' both render the classic two-blob aurora glow.
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      {auroraLayers}
+    </div>
+  );
+};
+
+// --------------------------------------------------------------------------- //
+// Brand hero — the left split panel (dark command-center aesthetic).
+// --------------------------------------------------------------------------- //
+export interface BrandHeroProps {
+  wordmark: string;
+  tagline: string;
+  logoUrl: string;
+  /**
+   * The hero HEADLINE (operator-set `login_headline`, plain text). Falls back to a
+   * built-in line when blank. NOTE: distinct from `subtitle` — the headline is the
+   * big line; `subtitle` is the legacy welcome line reused as the form description.
+   */
+  headline?: string;
+  /** The hero BODY copy (operator-set `login_body`, plain text). Blank → built-in. */
+  body?: string;
+  /** The feature chips (operator-set `login_chips`, plain text). Empty → built-in. */
+  chips?: string[];
+  /** Legacy welcome line — kept for back-compat; only used when `headline` is blank. */
+  subtitle?: string;
+  /** Optional classification / footer line. */
+  footerText?: string;
+  /** The curated backdrop illustration key. */
+  illustration?: LoginIllustration;
+  /**
+   * How the hero fills its container:
+   *  - 'panel'    — the left column of the split layout (default).
+   *  - 'full'     — a full-bleed backdrop the form floats over ('full' layout).
+   *  - 'backdrop' — a decorative-only band behind the centered card (no copy).
+   */
+  variant?: 'panel' | 'full' | 'backdrop';
+}
+
+const DEFAULT_HEADLINE = 'Triage at machine speed, with a human in the loop.';
+const DEFAULT_BODY =
+  'Audited, cost-metered agentic triage — every alert turned into a reviewable, explainable case.';
+const DEFAULT_CHIPS = ['Audited', 'Cost-metered', 'Human-reviewable'];
+
+/**
+ * The brand hero panel. A deep slate base with a curated illustration backdrop
+ * tinted by the primary accent + the secondary accent (`--accent2`, falling back to
+ * the primary). All motion is pure CSS and respects prefers-reduced-motion (global
+ * rule in styles/theme.css).
+ *
+ * SECURITY (#6/#9): every text field (wordmark/tagline/headline/body/chips/footer)
+ * is operator-set → rendered as a PLAIN React text node (never dangerouslySetInnerHTML).
+ * The illustration is a CODE key selecting a code-authored backdrop — no operator
+ * markup/URL ever reaches the DOM.
+ */
+export const BrandHero: React.FC<BrandHeroProps> = ({
+  wordmark,
+  tagline,
+  logoUrl,
+  headline,
+  body,
+  chips,
+  subtitle,
+  footerText,
+  illustration = '',
+  variant = 'panel',
+}) => {
+  const heroHeadline = (headline || '').trim() || (subtitle || '').trim() || DEFAULT_HEADLINE;
+  const heroBody = (body || '').trim() || DEFAULT_BODY;
+  const heroChips = chips && chips.length > 0 ? chips : DEFAULT_CHIPS;
+
+  // 'backdrop' is decoration only — no copy, no logo, just the illustration band.
+  if (variant === 'backdrop') {
+    return (
+      <div
+        aria-hidden
+        className="absolute inset-0 overflow-hidden bg-[hsl(222_28%_9%)]"
+      >
+        <LoginIllustration variant={illustration} />
+      </div>
+    );
+  }
+
+  const isFull = variant === 'full';
+  const rootClass = isFull
+    ? 'absolute inset-0 flex flex-col overflow-hidden bg-[hsl(222_28%_9%)]'
+    : 'relative hidden overflow-hidden bg-[hsl(222_28%_9%)] lg:flex lg:flex-col';
+
+  return (
+    <div className={rootClass}>
+      <LoginIllustration variant={illustration} />
 
       {/* Content (z-10 over the glow). */}
-      <div className="relative z-10 flex h-full flex-col justify-between p-12 text-white">
+      <div
+        className={cn(
+          'relative z-10 flex h-full flex-col justify-between p-12 text-white',
+          isFull && 'mx-auto w-full max-w-4xl',
+        )}
+      >
         <div className="flex animate-hero-in-down items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 shadow-lg backdrop-blur">
             {logoUrl ? (
@@ -395,23 +696,24 @@ export const BrandHero: React.FC<BrandHeroProps> = ({
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
             {tagline}
           </p>
-          <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-tight">
-            {subtitle || 'Triage at machine speed, with a human in the loop.'}
+          <h2 className="mt-3 whitespace-pre-line text-3xl font-semibold leading-tight tracking-tight">
+            {heroHeadline}
           </h2>
-          <p className="mt-4 text-sm leading-relaxed text-white/65">
-            Audited, cost-metered agentic triage — every alert turned into a
-            reviewable, explainable case.
+          <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-white/65">
+            {heroBody}
           </p>
-          <div className="mt-7 flex flex-wrap gap-2">
-            {['Audited', 'Cost-metered', 'Human-reviewable'].map((chip) => (
-              <span
-                key={chip}
-                className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs font-medium text-white/75 backdrop-blur"
-              >
-                {chip}
-              </span>
-            ))}
-          </div>
+          {heroChips.length > 0 ? (
+            <div className="mt-7 flex flex-wrap gap-2">
+              {heroChips.map((chip, i) => (
+                <span
+                  key={`${chip}-${i}`}
+                  className="rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs font-medium text-white/75 backdrop-blur"
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="text-xs text-white/40">

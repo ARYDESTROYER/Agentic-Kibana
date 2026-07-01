@@ -25,10 +25,18 @@ import {
   type BrandingLike,
   type Material,
 } from './theme-tokens';
+import { LOGIN_BRANDING_DEFAULTS } from './components/auth/login.api';
 
 type ThemeMode = 'light' | 'dark' | 'system';
 
-/** Built-in branding defaults — reproduce the no-branding experience. */
+/**
+ * Built-in branding defaults — reproduce the no-branding experience. The additive
+ * Round-4 login white-label fields (`login_headline`/`login_body`/`login_chips`/
+ * `login_layout`/`login_illustration`) default to blank copy + the 'split' layout via
+ * `LOGIN_BRANDING_DEFAULTS`, so a legacy backend that omits them renders the built-in
+ * hero. Typed structurally as a `Branding` (the login fields are extra, additive keys
+ * the context forwards verbatim; login-facing consumers read them as `LoginBranding`).
+ */
 const DEFAULT_BRANDING: Branding = {
   org_name: '',
   product_name: '',
@@ -41,7 +49,8 @@ const DEFAULT_BRANDING: Branding = {
   footer_text: '',
   support_url: '',
   dark_mode_default: false,
-};
+  ...LOGIN_BRANDING_DEFAULTS,
+} as Branding;
 
 const STORAGE_KEY = 'soc.theme';
 

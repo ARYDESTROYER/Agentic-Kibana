@@ -576,9 +576,22 @@ function SlaCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldAlert className="h-4 w-4 text-high" aria-hidden />
-          SLA pressure
+        <CardTitle className="flex items-center justify-between gap-2 text-sm font-semibold">
+          <span className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 text-high" aria-hidden />
+            SLA pressure
+          </span>
+          {/* This card is the SHIFT-scoped breach pressure; the full SLA attainment +
+              lifecycle timing rollup lives in ONE place — Analytics → Posture (#10). */}
+          {onNavigate ? (
+            <button
+              type="button"
+              onClick={() => onNavigate('metrics', { tab: 'posture' })}
+              className="text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Full posture →
+            </button>
+          ) : null}
         </CardTitle>
       </CardHeader>
       <CardContent>

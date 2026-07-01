@@ -30,6 +30,7 @@ import {
   UserPlus,
   KeyRound,
   ShieldCheck,
+  IdCard,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import type { LoginResult, SetupStatus, SsoProviderPublic } from '@/lib/types';
@@ -47,21 +48,65 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription } from '@/ui/alert';
 import {
+  asLoginIllustration,
+  asLoginLayout,
   BrandHero,
   OtpInput,
   PasswordStrengthMeter,
   SsoBrandIcon,
 } from '@/soc/components/auth/loginParts';
+import { setupAccount, type LoginBranding } from '@/soc/components/auth/login.api';
+import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
 
 export interface LoginProps {
   /** Called after a fully-successful login so the app can re-fetch the session. */
   onAuthenticated: () => void;
 }
 
-type Mode = 'signin' | 'setup' | 'change' | 'mfa';
+// `setup` is the OOBE create-first-admin flow; `mfa-enroll` is the optional
+// prompted MFA step shown AFTER the admin account is created (never forced).
+type Mode = 'signin' | 'setup' | 'change' | 'mfa' | 'mfa-enroll';
+
+// The OOBE password policy MIRRORS the server-side gate in routes_setup.py
+// (min length + not equal to the username + not a trivially-common password) so the
+// button-disable + inline hint match what the backend will accept. This is a UX
+// nicety; the server remains authoritative (#9 — never client-trusted).
+const OOBE_MIN_PASSWORD_LEN = 12;
+const OOBE_COMMON_PASSWORDS = new Set(
+  [
+    'password', 'password1', 'password123', 'passw0rd', 'p@ssw0rd', 'p@ssword',
+    '123456', '12345678', '123456789', '1234567890', '111111', '000000',
+    'qwerty', 'qwerty123', 'qwertyuiop', 'abc123', 'abc12345', 'a1b2c3d4',
+    'letmein', 'welcome', 'welcome1', 'welcome123', 'admin', 'admin123',
+    'administrator', 'root', 'toor', 'changeme', 'changeme1', 'changeme123',
+    'iloveyou', 'monkey', 'dragon', 'sunshine', 'princess', 'football',
+    'trustno1', 'master', 'superman', 'starwars', 'whatever', 'secret',
+    'default', 'temp1234', 'test1234', 'passw0rd1', 'adminadmin', 'rootroot',
+    'soc12345678', 'tlsoc123456', 'admin@123', 'admin12345678',
+  ].map((p) => p.toLowerCase()),
+);
+
+/** The client mirror of the server strong-password policy — reason string or null. */
+function oobePasswordPolicyError(password: string, username: string): string | null {
+  const pw = password || '';
+  if (pw.length < OOBE_MIN_PASSWORD_LEN) {
+    return `Password must be at least ${OOBE_MIN_PASSWORD_LEN} characters.`;
+  }
+  if (pw.trim().toLowerCase() === (username || '').trim().toLowerCase()) {
+    return 'Password must not be the same as the username.';
+  }
+  if (OOBE_COMMON_PASSWORDS.has(pw.trim().toLowerCase())) {
+    return 'That password is too common — choose a less predictable one.';
+  }
+  return null;
+}
 
 export default function Login({ onAuthenticated }: LoginProps) {
-  const { branding } = useTheme();
+  const { branding: brandingBase } = useTheme();
+  // Read the additive Round-4 login white-label fields structurally (they are not in
+  // the shared `Branding` interface yet; see login.api.ts). All are operator-set →
+  // rendered as PLAIN text / mapped to CODE-defined layouts (#6/#9).
+  const branding = brandingBase as LoginBranding;
 
   const wordmark = branding.org_name?.trim() || 'Agentic SOC';
   const tagline = branding.product_name?.trim() || 'Triage console';
@@ -71,9 +116,19 @@ export default function Login({ onAuthenticated }: LoginProps) {
   const rawSupport = branding.support_url?.trim() || '';
   const supportUrl = /^https?:\/\//i.test(rawSupport) ? rawSupport : '';
 
+  // Login white-label (bounded plain-text copy + curated enum layout/illustration).
+  const loginHeadline = branding.login_headline?.trim() || '';
+  const loginBody = branding.login_body?.trim() || '';
+  const loginChips = Array.isArray(branding.login_chips)
+    ? branding.login_chips.map((c) => String(c)).filter((c) => c.trim().length > 0)
+    : [];
+  const loginLayout = asLoginLayout(branding.login_layout);
+  const loginIllustration = asLoginIllustration(branding.login_illustration);
+
   const [status, setStatus] = React.useState<SetupStatus | null>(null);
   const [mode, setMode] = React.useState<Mode>('signin');
   const [username, setUsername] = React.useState('');
+  const [displayName, setDisplayName] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [confirm, setConfirm] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
@@ -151,12 +206,18 @@ export default function Login({ onAuthenticated }: LoginProps) {
 
   const seededHint = Boolean(status?.seeded_default) && mode === 'signin';
 
-  // --- Mode 1: first-run create admin --------------------------------------- //
+  // --- Mode 1: first-run create admin (OOBE account-setup) ------------------ //
+  // Round-4 Wave-5: the OOBE step now calls POST /api/setup/account (the force-set,
+  // strong-password writer that REPLACES init-admin) with a client-mirrored policy
+  // gate, then signs the new admin in and — when the server prompts — offers an
+  // OPTIONAL (never forced) MFA-enrollment step before continuing.
   const submitSetup = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (busy) return;
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    const uname = username.trim();
+    const policyErr = oobePasswordPolicyError(password, uname);
+    if (policyErr) {
+      setError(policyErr);
       return;
     }
     if (password !== confirm) {
@@ -166,9 +227,15 @@ export default function Login({ onAuthenticated }: LoginProps) {
     setBusy(true);
     setError(null);
     try {
-      await api.setup.initAdmin(username.trim(), password);
-      // Immediately sign the new admin in.
-      await api.auth.login(username.trim(), password);
+      const res = await setupAccount(uname, password, displayName);
+      // The account writer does NOT mint a session — sign the new admin in now.
+      await api.auth.login(uname, password);
+      if (res.mfa_prompt) {
+        // Offer (prompted-optional) two-factor enrollment before entering the console.
+        setMode('mfa-enroll');
+        setBusy(false);
+        return;
+      }
       onAuthenticated();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not create the admin account.');
@@ -267,15 +334,32 @@ export default function Login({ onAuthenticated }: LoginProps) {
     setup: 'Create your admin account',
     change: 'Set a new password',
     mfa: 'Two-factor authentication',
+    'mfa-enroll': 'Secure your account',
   };
   const descByMode: Record<Mode, string> = {
     signin: loginSubtitle || 'Enter your credentials to access the console.',
-    setup: 'No accounts exist yet. Create the first administrator to get started.',
+    setup:
+      'No accounts exist yet. Create the first administrator to get started — pick a strong, unique password.',
     change: 'Your password must be changed before you can continue.',
     mfa: useRecovery
       ? 'Enter one of your single-use recovery codes.'
       : 'Enter the 6-digit code from your authenticator app.',
+    'mfa-enroll':
+      'Optional but recommended: add a second factor now. You can skip and set it up later.',
   };
+
+  // OOBE submit guard — mirror the server policy so the button reflects acceptance.
+  const setupPolicyError = React.useMemo(
+    () => oobePasswordPolicyError(password, username.trim()),
+    [password, username],
+  );
+  const canSubmitSetup =
+    !busy &&
+    username.trim().length > 0 &&
+    password.length > 0 &&
+    confirm.length > 0 &&
+    setupPolicyError === null &&
+    password === confirm;
 
   const ssoLabel = (p: SsoProviderPublic): string => {
     if (p.display_name && p.display_name.trim()) return p.display_name.trim();
@@ -284,27 +368,34 @@ export default function Login({ onAuthenticated }: LoginProps) {
     return p.id;
   };
 
-  return (
-    <div className="grid min-h-screen lg:grid-cols-2">
-      {/* ---- Left: brand hero (lg+ only) --------------------------------- */}
-      <BrandHero
-        wordmark={wordmark}
-        tagline={tagline}
-        logoUrl={logoUrl}
-        subtitle={loginSubtitle}
-        footerText={footerText}
-      />
+  // The brand hero copy/backdrop, shared across every layout (split hero panel,
+  // full-bleed hero, centered backdrop band). Every text field is operator-set →
+  // rendered as plain text by BrandHero (#6/#9).
+  const heroProps = {
+    wordmark,
+    tagline,
+    logoUrl,
+    headline: loginHeadline,
+    body: loginBody,
+    chips: loginChips,
+    subtitle: loginSubtitle,
+    footerText,
+    illustration: loginIllustration,
+  };
 
-      {/* ---- Right: the form column (vertically centered) ---------------- */}
-      <div className="relative flex items-center justify-center overflow-hidden bg-canvas px-6 py-12">
-        <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow lg:hidden"
-          aria-hidden
-        />
-
-        <div className="relative z-10 w-full max-w-sm animate-rise-in">
-          {/* Compact brand header — only when the hero is hidden (below lg). */}
-          <div className="mb-8 flex flex-col items-center text-center lg:hidden">
+  // The form CARD + support/footer — identical across layouts. On the 'full' and
+  // 'centered' layouts the compact brand header is ALWAYS shown (there is no side
+  // hero on small screens); on 'split' it is shown only below lg (the hero covers lg+).
+  const formInner = (
+    <div className="relative z-10 w-full max-w-sm animate-rise-in">
+      {/* Compact brand header — hidden on lg for 'split' (the side hero carries it),
+          always shown for 'centered'/'full'. */}
+      <div
+        className={cn(
+          'mb-8 flex flex-col items-center text-center',
+          loginLayout === 'split' && 'lg:hidden',
+        )}
+      >
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card shadow-elev1">
               {logoUrl ? (
                 <img src={logoUrl} alt="" className="h-9 w-9 rounded-md object-contain" />
@@ -341,7 +432,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
                 </Alert>
               ) : null}
 
-              {/* ---- Mode: create first admin -------------------------------- */}
+              {/* ---- Mode: create first admin (OOBE account-setup) ----------- */}
               {mode === 'setup' ? (
                 <form onSubmit={submitSetup} className="space-y-4" noValidate>
                   <div className="space-y-1.5">
@@ -360,6 +451,23 @@ export default function Login({ onAuthenticated }: LoginProps) {
                     </div>
                   </div>
                   <div className="space-y-1.5">
+                    <Label htmlFor="setup-display">
+                      Display name <span className="text-muted-foreground">(optional)</span>
+                    </Label>
+                    <div className="relative">
+                      <IdCard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                      <Input
+                        id="setup-display"
+                        className="pl-9"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        autoComplete="name"
+                        placeholder="e.g. Alex Morgan"
+                        disabled={busy}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
                     <Label htmlFor="setup-password">Password</Label>
                     <div className="relative">
                       <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -370,10 +478,23 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         autoComplete="new-password"
+                        aria-describedby="setup-password-help"
                         disabled={busy}
                       />
                     </div>
                     <PasswordStrengthMeter password={password} className="pt-0.5" />
+                    {/* Policy hint mirrors the server gate (min 12, ≠ username, not common). */}
+                    <p
+                      id="setup-password-help"
+                      className={cn(
+                        'text-xs',
+                        password && setupPolicyError ? 'text-critical' : 'text-muted-foreground',
+                      )}
+                    >
+                      {password && setupPolicyError
+                        ? setupPolicyError
+                        : `Use at least ${OOBE_MIN_PASSWORD_LEN} characters — not your username or a common password.`}
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="setup-confirm">Confirm password</Label>
@@ -389,16 +510,30 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         disabled={busy}
                       />
                     </div>
+                    {confirm && password !== confirm ? (
+                      <p className="text-xs text-critical">Passwords do not match.</p>
+                    ) : null}
                   </div>
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={busy || username.trim().length === 0 || password.length === 0}
-                  >
+                  <Button type="submit" className="w-full" disabled={!canSubmitSetup}>
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
                     {busy ? 'Creating…' : 'Create admin & sign in'}
                   </Button>
                 </form>
+              ) : null}
+
+              {/* ---- Mode: OPTIONAL MFA enrollment after account creation ---- */}
+              {mode === 'mfa-enroll' ? (
+                <div className="space-y-4">
+                  <MfaSetupCard enabled={false} onChanged={onAuthenticated} />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={onAuthenticated}
+                  >
+                    Skip for now &amp; continue
+                  </Button>
+                </div>
               ) : null}
 
               {/* ---- Mode: normal sign-in ------------------------------------ */}
@@ -612,12 +747,60 @@ export default function Login({ onAuthenticated }: LoginProps) {
             </div>
           ) : null}
 
-          {/* Footer line — shown here only when the hero (which also carries it) is
-              hidden, to avoid duplicating it on large screens. */}
-          {footerText ? (
-            <p className="mt-3 text-center text-xs text-muted-foreground lg:hidden">{footerText}</p>
-          ) : null}
+        {/* Footer line — shown near the form only when NO hero carries it: always for
+            'centered', and below lg for 'split' (the side hero carries it on lg+).
+            'full' shows it inside the hero, so suppress it here. */}
+        {footerText && loginLayout !== 'full' ? (
+          <p
+            className={cn(
+              'mt-3 text-center text-xs text-muted-foreground',
+              loginLayout === 'split' && 'lg:hidden',
+            )}
+          >
+            {footerText}
+          </p>
+        ) : null}
+    </div>
+  );
+
+  // ---- Layout shells ------------------------------------------------------ //
+  // 'centered': a single centred column over a decorative backdrop band (no copy).
+  if (loginLayout === 'centered') {
+    return (
+      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+        <BrandHero {...heroProps} variant="backdrop" />
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-canvas/60 to-canvas"
+          aria-hidden
+        />
+        {formInner}
+      </div>
+    );
+  }
+
+  // 'full': a full-bleed brand hero with the form floating over it (top-right on lg+).
+  if (loginLayout === 'full') {
+    return (
+      <div className="relative min-h-screen overflow-hidden bg-canvas">
+        <BrandHero {...heroProps} variant="full" />
+        <div className="pointer-events-none absolute inset-0 bg-black/30" aria-hidden />
+        <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12 lg:justify-end lg:pr-[8vw]">
+          {formInner}
         </div>
+      </div>
+    );
+  }
+
+  // 'split' (default): the brand hero panel (lg+) beside the form column.
+  return (
+    <div className="grid min-h-screen lg:grid-cols-2">
+      <BrandHero {...heroProps} variant="panel" />
+      <div className="relative flex items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow lg:hidden"
+          aria-hidden
+        />
+        {formInner}
       </div>
     </div>
   );
