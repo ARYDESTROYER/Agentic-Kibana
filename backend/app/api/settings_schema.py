@@ -70,6 +70,11 @@ _SECTION_TITLES: dict[str, str] = {
     "budget": "Cost Budget",
     "realtime": "Realtime Updates",
     "customization": "Customization",
+    # Round 4 additions.
+    "threshold_tuning": "Threshold Tuning",
+    "batch": "Batch Inference",
+    "baseline": "Anomaly Baseline",
+    "campaign": "Campaign Clustering",
 }
 
 

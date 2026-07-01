@@ -21,6 +21,8 @@ if TYPE_CHECKING:  # avoid an import cycle (ocsf imports config/constants, not m
     from .ocsf import OCSFEvent
 from .constants import (
     ActionType,
+    BatchJobState,
+    CampaignStatus,
     CaseStatus,
     DecisionBy,
     Disposition,
@@ -846,6 +848,144 @@ class TraceSpan(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Round 4 scaffolding — cross-case campaigns / anomaly-baseline sketch state /
+# batch-inference jobs / a unified detection-rule carrier. ALL of these are NEW
+# additive contracts with sane defaults; later waves add the BEHAVIOUR (clustering,
+# the streaming baseline detector, the batch submit/poll/retrieve loop, and the
+# migrate-on-read rule unifier). They are NOT wired into the pipeline here and NONE
+# of them is read by ``engine/case_manager.decide()`` (#3). Every free-text field that
+# can carry source-influenceable text (an entity ``value``, a MITRE id) is PLAIN DATA:
+# the UI render-escapes it and it is never interpolated UNFENCED into a prompt (#9).
+# --------------------------------------------------------------------------- #
+class CampaignEntity(BaseModel):
+    """One entity that ties cases together within a campaign (Round 4). A compact
+    ``{entity_type, value}`` pair — the SAME shape as :class:`Entity` but kept as a
+    plain typed pair (loose ``entity_type`` str) so cross-source/unknown kinds
+    round-trip. ``value`` is source-derived (UNTRUSTED — plain data, never a prompt
+    instruction, #9)."""
+
+    entity_type: str = ""
+    value: str = ""
+
+
+class Campaign(BaseModel):
+    """A cross-case CAMPAIGN — a running group of related cases (Round 4 campaign
+    clustering). Cases are grouped by shared ``entities`` + overlapping ``mitre``
+    techniques into one incident narrative the UI surfaces above the case list.
+
+    IDENTITY: a campaign's identity is the hash of its members' sorted
+    ``cluster_signature`` values (so the SAME set of member clusters always resolves
+    to the SAME campaign id, idempotently). The hash is NOT implemented here — this
+    model only CARRIES the data; a later wave computes + assigns ``id``.
+
+    ADVISORY: a campaign is presentation/reporting only. It NEVER force-merges cases
+    (each case keeps its 1:1 cluster signature, #4) and NEVER feeds the deterministic
+    case decision (#3). All free-text is plain data (#9)."""
+
+    id: str = ""
+    name: str = ""
+    case_ids: list[str] = Field(default_factory=list)
+    entities: list[CampaignEntity] = Field(default_factory=list)
+    mitre: list[str] = Field(default_factory=list)
+    first_seen: str | None = None
+    last_seen: str | None = None
+    # A rolled-up severity label for the campaign (e.g. "critical"/"high"/…) a later
+    # wave derives from its member cases. Plain data — never feeds #3.
+    severity_rollup: str | None = None
+    status: CampaignStatus = CampaignStatus.OPEN
+    created_at: str = Field(default_factory=iso_now)
+
+
+class BaselineState(BaseModel):
+    """Compact, JSON-serialisable ANOMALY-BASELINE sketch state (Round 4 anomaly
+    detection). One instance holds the streaming summary statistics for ONE keyed
+    series (e.g. per-source event volume per hour-of-week bucket) so the detector can
+    flag a modified-z-score deviation WITHOUT storing raw history — it stays small
+    enough to live in the BASELINE KV document.
+
+    * ``welford_m``/``welford_s``/``n`` — Welford's online mean (``m``) + sum-of-
+      squared-deviations (``s``) + count, for a numerically-stable running variance.
+    * ``ewma``/``ewma_sq`` — exponentially-weighted moving average of the value and of
+      its square (for a decaying variance), or ``None`` until the first observation.
+    * ``tdigest`` — a compact serialisable t-digest quantile sketch as a list of
+      ``[mean, weight]`` centroids (empty until warmed).
+    * ``n_samples`` — total observations folded in; ``warm`` flips True once enough
+      samples accumulate for the estimate to be trusted. ``version`` tags the sketch
+      layout for forward-compatible migration.
+
+    ADVISORY: baselines surface anomaly candidates for triage; they NEVER feed the
+    deterministic case decision (#3)."""
+
+    welford_m: float = 0.0
+    welford_s: float = 0.0
+    n: int = 0
+    ewma: float | None = None
+    ewma_sq: float | None = None
+    tdigest: list[list[float]] = Field(default_factory=list)  # [[mean, weight], ...] centroids
+    n_samples: int = 0
+    warm: bool = False
+    version: int = 1
+
+
+class BatchJob(BaseModel):
+    """One async BATCH-inference job (Round 4 batch LLM). Tracks a batch of LLM calls
+    submitted to a provider's async batch API (Anthropic/OpenAI ~50% discounted) so a
+    later wave can submit → poll → retrieve results out-of-band.
+
+    * ``provider``/``provider_batch_id`` — which provider + its returned batch id.
+    * ``state`` — a :class:`app.constants.BatchJobState` value (submit→poll→retrieve).
+    * ``custom_ids`` — per-request tracking keyed by our ``custom_id``; each value is
+      ``{retrieved: bool, result_state: str|None}`` so partial retrieval is safe.
+    * ``model`` — the model the batch runs; ``discount`` the applied price multiplier
+      (0.5 == 50% off) a later wave threads onto the resulting :class:`UsageDoc`.
+
+    ADVISORY plumbing — a batch job never touches the deterministic decision (#3), and
+    #6 is preserved (one UsageDoc per resolved call when results are folded back in)."""
+
+    id: str = Field(default_factory=lambda: new_id("batch-"))
+    provider: str = ""
+    provider_batch_id: str | None = None
+    state: BatchJobState = BatchJobState.SUBMITTED
+    custom_ids: dict[str, dict[str, Any]] = Field(default_factory=dict)  # custom_id -> {retrieved, result_state}
+    model: str = ""
+    discount: float = 0.5
+    submitted_at: str | None = None
+    polled_at: str | None = None
+
+
+class DetectionRule(BaseModel):
+    """A COMPOSITE detection rule carrier (Round 4) — the migrate-on-read seam that a
+    later wave uses to UNIFY the two halves of a detection into one shape:
+
+    * the CLASSIFY half — a match spec (which raw events belong to this rule), today
+      carried by :class:`app.config.RuleDefinition`; and
+    * the FIRE half — a trigger/correlation spec (when a group of matched events fires
+      a case), today carried by :class:`app.config.CorrelationRule`.
+
+    This model REFERENCES those two halves as loose dicts (``match`` + ``trigger``) so
+    it can be assembled from — and migrated back to — the existing config models
+    without a config↔config import cycle. It is a DEFAULTED CARRIER ONLY: correlation
+    is NOT rewired to consume it this wave. ``source`` is a
+    :class:`app.constants.DetectionSource` value (detection|anomaly|rule). ADVISORY —
+    never feeds the deterministic decision (#3)."""
+
+    model_config = {"protected_namespaces": ()}
+
+    id: str = Field(default_factory=lambda: new_id("det-"))
+    name: str = ""
+    enabled: bool = True
+    description: str = ""
+    source: str = "detection"             # DetectionSource value
+    # The CLASSIFY half — a RuleMatch/RuleDefinition-shaped dict (field/op/value). Loose
+    # dict to avoid a config import cycle; a later wave validates it into RuleDefinition.
+    match: dict[str, Any] = Field(default_factory=dict)
+    # The FIRE half — a CorrelationRule-shaped dict (mode/n/window_seconds/group_by).
+    trigger: dict[str, Any] = Field(default_factory=dict)
+    priority: int = 100
+    tags: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
 # Section 7.1 — tlsoc-agent-cases-*
 # --------------------------------------------------------------------------- #
 class Case(BaseModel):
@@ -932,6 +1072,15 @@ class Case(BaseModel):
     detected_at: datetime | None = None
     acknowledged_at: datetime | None = None
     first_response_at: datetime | None = None
+    # --- Round 4 ADVISORY provenance (campaign membership + detection source). BOTH
+    # optional + defaulted None so old stored cases load unchanged. ⚠ NON-NEGOTIABLE #3:
+    # these are PRESENTATION/REPORTING ONLY — they are NEVER read by
+    # ``engine/case_manager.decide()`` and their names MUST stay OUT of case_manager.py.
+    # ``campaign_id`` links this case into a cross-case :class:`Campaign` (never a
+    # force-merge — the 1:1 cluster signature is untouched, #4); ``detection_source`` is
+    # a :class:`app.constants.DetectionSource` value (detection|anomaly|rule). ---
+    campaign_id: str | None = None
+    detection_source: str | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
     # Append-only verdict trail: {ts, verdict, confidence, risk_score} on each
     # investigation. Lets the UI show how a case's verdict evolved (P1).
@@ -1022,6 +1171,16 @@ class UsageDoc(BaseModel):
     # Provenance of the price used: exact | heuristic | zero | default (Vigil-
     # inspired). Lets the cost surface badge an approximate cost vs a verified one.
     pricing_source: str = "exact"
+    # --- Round 4 (ALL additive + defaulted → old stored usage docs load unchanged, and
+    # ``cost`` is NOT changed this wave: these only CARRY the counts/flag; a later wave
+    # (W3) applies the prompt-caching + batch-discount rates when computing ``cost``).
+    # ⚠ NON-NEGOTIABLE #6 is preserved: still ONE UsageDoc per LLM call. ---
+    # Prompt-cache accounting (Anthropic/OpenAI prompt caching): tokens READ from the
+    # cache (cheaper) and tokens WRITTEN to the cache (a one-time surcharge).
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # True when this call was served via a provider BATCH API (discounted, async).
+    batch: bool = False
 
 
 # --------------------------------------------------------------------------- #

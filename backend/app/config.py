@@ -474,6 +474,10 @@ class CapsConfig(BaseModel):
     max_tokens: int = 20000
     timeout_seconds: int = 120
     kill_switch: bool = False  # global emergency stop for all investigations
+    # Round 4 (additive): the fan-out concurrency ceiling — how many investigations may
+    # run in parallel behind the pipeline semaphore. Default 3 preserves a modest
+    # bound; a later wave applies it. Advisory to throughput only — never feeds #3.
+    max_concurrent: int = Field(default=3, ge=1)
 
 
 class FpAutoCloseConfig(BaseModel):
@@ -672,6 +676,18 @@ class BrandingConfig(BaseModel):
     # ``presets`` is an operator-curated list of named theme presets the UI offers
     # (each ``{name, material?, default_theme?, theme_tokens?, ...}``), plain data.
     presets: list[dict[str, Any]] = Field(default_factory=list)
+    # --- Round 4 login white-label (ALL additive + defaulted → older docs load
+    # unchanged). These are BOUNDED PLAIN-TEXT ONLY (NO raw HTML/SVG): the UI renders
+    # them as text, and the validator below REJECTS any '<' so no markup can smuggle in
+    # (#9). ``login_headline``/``login_body`` are the hero copy; ``login_chips`` are a
+    # few short feature bullets; ``login_layout`` picks a login arrangement; and
+    # ``login_illustration`` is a KEY from a small curated set (validated), never a URL
+    # or inline asset. ---
+    login_headline: str = ""          # login hero headline (plain text, bounded)
+    login_body: str = ""              # login hero body copy (plain text, bounded)
+    login_chips: list[str] = Field(default_factory=list)  # short feature bullets (plain text)
+    login_layout: Literal["split", "centered", "full"] = "split"
+    login_illustration: str = ""      # a key from _LOGIN_ILLUSTRATIONS ("" = none/default)
     # Max accepted logo/favicon data-URL length (~1MB image). Keeps the config doc small.
     _MAX_LOGO_LEN: int = 1_400_000
     # Caps for the free-text branding strings (rendered as plain text; bound prefs size).
@@ -680,6 +696,15 @@ class BrandingConfig(BaseModel):
     # Caps for the theme-token override map (plain data, but bounded — #9/#10).
     _MAX_THEME_TOKENS: ClassVar[int] = 200
     _MAX_THEME_TOKEN_LEN: ClassVar[int] = 200
+    # Caps for the Round-4 login white-label copy (plain text, bounded — #9/#10).
+    _MAX_LOGIN_HEADLINE_LEN: ClassVar[int] = 120
+    _MAX_LOGIN_BODY_LEN: ClassVar[int] = 600
+    _MAX_LOGIN_CHIPS: ClassVar[int] = 6
+    _MAX_LOGIN_CHIP_LEN: ClassVar[int] = 60
+    # The curated set of built-in login-illustration keys (validated). "" == none.
+    _LOGIN_ILLUSTRATIONS: ClassVar[tuple[str, ...]] = (
+        "", "shield", "radar", "grid", "waves", "aurora", "constellation", "mesh",
+    )
 
     def effective_theme(self) -> str:
         """The org default colour mode, reconciling new + legacy fields. Prefers the
@@ -779,6 +804,51 @@ class BrandingConfig(BaseModel):
             raise ValueError("support_url too long")
         if not re.match(r"^https?://", v):
             raise ValueError("support_url must be an empty string or an http(s) URL")
+        return v
+
+    @field_validator("login_headline")
+    @classmethod
+    def _check_login_headline(cls, v: str) -> str:
+        # Plain text only — reject any markup (#9). Bounded length.
+        if "<" in v:
+            raise ValueError("login_headline must be plain text (no markup / '<')")
+        if len(v) > 120:
+            raise ValueError("login_headline too long (max 120 characters)")
+        return v
+
+    @field_validator("login_body")
+    @classmethod
+    def _check_login_body(cls, v: str) -> str:
+        if "<" in v:
+            raise ValueError("login_body must be plain text (no markup / '<')")
+        if len(v) > 600:
+            raise ValueError("login_body too long (max 600 characters)")
+        return v
+
+    @field_validator("login_chips")
+    @classmethod
+    def _check_login_chips(cls, v: list[str]) -> list[str]:
+        if not v:
+            return []
+        if len(v) > 6:
+            raise ValueError("too many login chips (max 6)")
+        out: list[str] = []
+        for chip in v:
+            s = str(chip)
+            if "<" in s:
+                raise ValueError("login chip must be plain text (no markup / '<')")
+            if len(s) > 60:
+                raise ValueError("login chip too long (max 60 characters)")
+            out.append(s)
+        return out
+
+    @field_validator("login_illustration")
+    @classmethod
+    def _check_login_illustration(cls, v: str) -> str:
+        # A KEY from the small curated set only — never a URL / inline asset (#9).
+        allowed = ("", "shield", "radar", "grid", "waves", "aurora", "constellation", "mesh")
+        if v not in allowed:
+            raise ValueError(f"login_illustration must be one of {allowed}")
         return v
 
 
@@ -884,8 +954,14 @@ class ThreatContextConfig(BaseModel):
     ioc_malicious_threshold: int = Field(default=50, ge=0, le=100)
 
 
-class AutomationRule(BaseModel):
+class CaseAutomationRule(BaseModel):
     """One post-decision threshold-automation rule (Wave 6 / F10).
+
+    RENAMED in Round 4 from ``AutomationRule`` → ``CaseAutomationRule`` to free the
+    ``AutomationRule`` name for a future unified rule shape; a module-level
+    ``AutomationRule = CaseAutomationRule`` alias (below ``ThresholdAutomationConfig``)
+    keeps every existing import + the stored ``threshold_automation`` config
+    round-tripping BYTE-IDENTICALLY (the wire key and ALL field names are unchanged).
 
     Evaluated AFTER the deterministic ``case_manager.decide()`` + save. A rule
     MATCHES a case when ALL of its present (non-empty) ``conditions`` hold, and
@@ -918,7 +994,15 @@ class ThresholdAutomationConfig(BaseModel):
     NEVER set the case status or close a case (#3)."""
 
     enabled: bool = False
-    rules: list[AutomationRule] = Field(default_factory=list)
+    rules: list[CaseAutomationRule] = Field(default_factory=list)
+
+
+# Back-compat alias: the class was renamed ``AutomationRule`` → ``CaseAutomationRule``
+# in Round 4 (freeing the ``AutomationRule`` name for a future unified rule). Every
+# existing import (``from app.config import AutomationRule``) + the approve/reject
+# branch in ``api/routes.py`` + the stored ``threshold_automation`` config keep working
+# UNCHANGED through this alias — the wire key and all field names are byte-identical.
+AutomationRule = CaseAutomationRule
 
 
 class TraceConfig(BaseModel):
@@ -1025,6 +1109,81 @@ class StandupConfig(BaseModel):
     attention_queue: bool = False
     shift_handoff: bool = False
     include_action_items: bool = True
+
+
+# --------------------------------------------------------------------------- #
+# Round 4 — threshold tuning / batch inference / anomaly baseline / campaign
+# clustering config blocks. ALL additive + defaulted OFF/safe so an existing stored
+# config loads unchanged. ⚠ NON-NEGOTIABLE #3: NONE of these feeds
+# ``engine/case_manager.decide()`` — a threshold-tuning suggestion, a batch job, an
+# anomaly baseline or a campaign are all ADVISORY / plumbing (they surface candidates,
+# govern cost, or drive presentation); the deterministic close/escalate decision stays
+# a pure fn of verdict/confidence/risk_score/policy. #6 (one UsageDoc per call) holds.
+# --------------------------------------------------------------------------- #
+class ThresholdTuningConfig(BaseModel):
+    """Nightly threshold auto-TUNING policy (Round 4). Default OFF so today's behaviour
+    is byte-identical. When ``enabled`` a later wave observes per-rule FP rates and
+    PROPOSES bounded threshold adjustments (never applies them silently — the decision
+    stays deterministic, #3). ``min_samples`` is the minimum observations before a
+    suggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move
+    per cadence; ``fp_rate_target`` is the target false-positive rate; ``wilson_z`` is
+    the z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``
+    smooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and
+    ``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data
+    before it can be applied."""
+
+    enabled: bool = False
+    min_samples: int = Field(default=25, ge=1)
+    max_n_step: int = Field(default=1, ge=0)
+    fp_rate_target: float = Field(default=0.30, ge=0.0, le=1.0)
+    wilson_z: float = Field(default=1.96, ge=0.0)
+    ewma_alpha: float = Field(default=0.2, gt=0.0, le=1.0)
+    cadence: Literal["hourly", "nightly", "weekly", "manual"] = "nightly"
+    shadow_eval: bool = True
+
+
+class BatchConfig(BaseModel):
+    """BATCH-inference policy (Round 4 cost governance). Default OFF so today's
+    synchronous behaviour is byte-identical. When ``enabled`` a later wave routes
+    LOW-URGENCY investigations (at/below ``severity_floor``, an OCSF severity_id 1-6)
+    through a provider's async, discounted batch API instead of a live call. #6 is
+    preserved (one UsageDoc per resolved call). ``providers`` lists the providers whose
+    batch APIs may be used; ``flex`` opts into a provider's flexible/best-effort tier."""
+
+    enabled: bool = False
+    # OCSF severity_id (1-6): a candidate AT/BELOW this floor is eligible for batch
+    # (slow, discounted) processing; above it stays synchronous. 3 == medium.
+    severity_floor: int = Field(default=3, ge=1, le=6)
+    providers: list[str] = Field(default_factory=lambda: ["anthropic", "openai"])
+    flex: bool = False
+
+
+class BaselineConfig(BaseModel):
+    """Anomaly-detection BASELINE policy (Round 4). Default OFF so nothing changes out
+    of the box. When ``enabled`` a later wave warms per-series streaming sketches
+    (:class:`app.models.BaselineState`) and flags modified-z-score deviations as
+    ANOMALY candidates for triage (advisory — never feeds #3). ``half_life_days`` sets
+    the EWMA decay; ``warmup_multiplier`` × ``min_samples`` guards a cold series;
+    ``modified_z_threshold`` is the deviation bar; ``tdigest_compression`` bounds the
+    quantile sketch size; ``seasonality`` buckets observations (e.g. hour-of-week)."""
+
+    enabled: bool = False
+    half_life_days: float = Field(default=14.0, gt=0.0)
+    warmup_multiplier: int = Field(default=3, ge=1)
+    modified_z_threshold: float = Field(default=3.5, ge=0.0)
+    tdigest_compression: int = Field(default=100, ge=1)
+    seasonality: Literal["none", "hour_of_day", "hour_of_week", "day_of_week"] = "hour_of_week"
+
+
+class CampaignConfig(BaseModel):
+    """Cross-case CAMPAIGN-clustering policy (Round 4). Default OFF so today's behaviour
+    is byte-identical. When ``enabled`` a later wave groups related cases (shared
+    entities / overlapping MITRE) into a running :class:`app.models.Campaign` for the UI
+    (advisory — it NEVER force-merges cases or feeds #3). ``cadence`` is how often the
+    clustering pass runs."""
+
+    enabled: bool = False
+    cadence: Literal["hourly", "daily", "weekly", "manual"] = "daily"
 
 
 class SuppressionRule(BaseModel):
@@ -1827,6 +1986,16 @@ class Preferences(BaseModel):
     priority_matrix: PriorityMatrix = Field(default_factory=PriorityMatrix)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
+
+    # --- Round 4 (ALL additive, defaulted OFF/safe → today's behaviour byte-identical;
+    # NONE feeds case_manager.decide(), #3; #6 preserved). Nightly threshold auto-tuning
+    # (proposes, never applies silently), batch-inference routing (cost governance —
+    # gates HOW work runs, never alters a decision), streaming anomaly baselines
+    # (surface candidates), and cross-case campaign clustering (presentation). ---
+    threshold_tuning: ThresholdTuningConfig = Field(default_factory=ThresholdTuningConfig)
+    batch: BatchConfig = Field(default_factory=BatchConfig)
+    baseline: BaselineConfig = Field(default_factory=BaselineConfig)
+    campaign: CampaignConfig = Field(default_factory=CampaignConfig)
 
     # --- Misc ---
     setup_complete: bool = False

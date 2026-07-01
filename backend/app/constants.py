@@ -143,6 +143,38 @@ SHIFT_HANDOFF_NS = "shift_handoff"
 SHIFT_HANDOFF_KEY = "handoff"
 SHIFT_HANDOFF_DOC_ID = "shift_handoff"  # ES doc id within CONFIG_INDEX
 
+# --------------------------------------------------------------------------- #
+# Round 4 KV-store namespaces (campaign clustering / anomaly baseline sketches /
+# batch-inference jobs / threshold tuning). Every one follows the SAME single-KV-
+# document pattern as the Wave-1..7 + Round-3 namespaces above: one JSON document
+# under ``<NS>/<KEY>`` so each needs NO new ES index / SQL table / migration. The ES
+# backend stores each as a doc in the existing CONFIG_INDEX; the SQL backend uses the
+# shared KV table. Later waves OWN the store classes over these.
+# --------------------------------------------------------------------------- #
+# Cross-case CAMPAIGN clustering (Campaign list) — related cases grouped by shared
+# entities/MITRE into a running campaign.
+CAMPAIGNS_NS = "campaigns"
+CAMPAIGNS_KEY = "campaigns"
+CAMPAIGNS_DOC_ID = "campaigns"          # ES doc id within CONFIG_INDEX
+
+# Anomaly-detection BASELINE sketch state (BaselineState per keyed series) — the
+# compact Welford/EWMA/t-digest sketches the detection engine warms over time.
+BASELINE_NS = "baseline"
+BASELINE_KEY = "baseline"
+BASELINE_DOC_ID = "baseline"            # ES doc id within CONFIG_INDEX
+
+# BATCH-inference jobs (BatchJob list) — submitted/polling/retrieving provider batch
+# jobs (Anthropic/OpenAI batch APIs) awaiting async result retrieval.
+BATCH_JOBS_NS = "batch_jobs"
+BATCH_JOBS_KEY = "jobs"
+BATCH_JOBS_DOC_ID = "batch_jobs"        # ES doc id within CONFIG_INDEX
+
+# Threshold TUNING state (per-rule tuning suggestions + counters) — the nightly
+# auto-tuner's proposed threshold adjustments awaiting apply/shadow-eval.
+TUNING_NS = "tuning"
+TUNING_KEY = "tuning"
+TUNING_DOC_ID = "tuning"                # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""
@@ -261,6 +293,10 @@ class ActionType(str, Enum):
     REACTION = "reaction"          # a reaction added/removed on a case message
     TASK_UPDATE = "task_update"    # a case task created / reassigned / status-changed
     INAPP_NOTIFY = "inapp_notify"  # an in-app notification delivered to a user inbox
+    # --- Round 4 (additive; both ADVISORY audit rows — neither ever feeds the
+    # deterministic case decision, #3). ---
+    TUNING = "tuning"              # a threshold-tuning suggestion applied / shadow-evaluated
+    RESET = "reset"                # an operator reset of cases/sources/factory state
 
 
 class UserRole(str, Enum):
@@ -372,6 +408,46 @@ class NotificationCategory(str, Enum):
 class Material(str, Enum):
     QUIET = "quiet"
     COMMAND = "command"
+
+
+# Lifecycle of a cross-case CAMPAIGN (Round 4 campaign clustering). A campaign groups
+# related cases (shared entities / MITRE) into a running incident: ``open`` while
+# active, ``monitoring`` once contained but still watched, ``resolved`` when closed.
+# Carried as plain data; ADVISORY — never feeds the deterministic case decision (#3).
+class CampaignStatus(str, Enum):
+    OPEN = "open"
+    MONITORING = "monitoring"
+    RESOLVED = "resolved"
+
+
+# State of an async BATCH-inference job (Round 4 batch LLM). A job is ``submitted`` to
+# a provider batch API, then ``polling`` for completion, ``retrieving``/``retrieved``
+# as results come back, ``errored`` on provider failure, or ``expired`` past its TTL.
+class BatchJobState(str, Enum):
+    SUBMITTED = "submitted"
+    POLLING = "polling"
+    RETRIEVING = "retrieving"
+    RETRIEVED = "retrieved"
+    ERRORED = "errored"
+    EXPIRED = "expired"
+
+
+# How a candidate case was surfaced for triage (Round 4 detection sources). ``detection``
+# is a signature/correlation match; ``anomaly`` is a statistical baseline deviation;
+# ``rule`` is an explicit operator rule. ADVISORY provenance only — never feeds #3.
+class DetectionSource(str, Enum):
+    DETECTION = "detection"
+    ANOMALY = "anomaly"
+    RULE = "rule"
+
+
+# Scope of an operator RESET action (Round 4). ``cases`` clears the case store only;
+# ``sources`` clears configured sources/feeds; ``factory`` is a full reset to defaults.
+# Carried as plain data; the action itself is audited (:attr:`ActionType.RESET`).
+class ResetScope(str, Enum):
+    CASES = "cases"
+    SOURCES = "sources"
+    FACTORY = "factory"
 
 
 # Per-source entity-resolution strategy for correlation (Preferences.entity_strategy
