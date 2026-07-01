@@ -50,7 +50,7 @@ from ..models import (
 from ..state import AppState
 from ..stores.user_prefs import resolve_effective_prefs
 from ..tools.enrich import EnrichTool
-from ..utils import iso_now, relative_to_millis
+from ..utils import iso_now, now_utc, relative_to_millis
 from .deps import (
     _audit_session,
     _bearer,
@@ -584,6 +584,205 @@ async def source_logs(
                     pass
 
     raise HTTPException(status_code=501, detail="Browsing logs is not supported for this source")
+
+
+# --------------------------------------------------------------------------- #
+# Unified logs (Round 4 Wave 4) — scatter-gather browse across EVERY enabled,
+# browse-capable source, merged newest-first with a MANDATORY source provenance
+# column on each row. Read-only; secrets never returned; bounded (hard cap). One
+# slow/failing source can never block the others (per-source timeout + gather with
+# return_exceptions), so a partial result is served (#11 graceful degradation).
+# --------------------------------------------------------------------------- #
+def _source_can_browse(reg, src) -> bool:
+    """True when a source advertises the ``browse`` capability (registry augments every
+    push receiver with it; pull manifests declare it explicitly). Defensive — a missing
+    manifest / odd capabilities list is treated as NOT browsable rather than raising."""
+    try:
+        manifest = reg.manifest(src.source_type)
+    except Exception:  # noqa: BLE001 — one bad manifest never breaks the scan
+        return False
+    return bool(manifest) and "browse" in (manifest.capabilities or [])
+
+
+@router.get("/logs")
+async def unified_logs(
+    limit: int = 100,
+    query: str | None = None,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = None,
+    per_source_timeout: float = 8.0,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "read")),
+) -> dict[str, Any]:
+    """Browse recent logs across ALL enabled, browse-capable sources at once.
+
+    Fans out the EXACT per-source read that ``GET /sources/{id}/logs`` does — a bounded
+    scoped read-only search per PULL source (via ``es_client_for_source`` so per-source
+    TLS + mgmt-key-dropped, #1) and the live-tail buffer for each PUSH source — then
+    merges the rows newest-first. Every row carries a MANDATORY ``source_id`` +
+    ``source_name`` provenance column. Read-only, hard-capped, and secrets are never
+    returned (rows are the same ``_log_row`` log-data shape).
+
+    Resilient by design: each source runs under ``asyncio.wait_for`` and the whole set
+    under ``gather(return_exceptions=True)``, so one slow or failing source degrades to
+    a per-source error entry and NEVER blocks the rest (partial success)."""
+    import asyncio
+
+    limit = max(1, min(int(limit or 100), 200))  # hard cap (per source AND on the merge)
+    timeout = max(0.5, min(float(per_source_timeout or 8.0), 30.0))
+    reg = get_registry()
+
+    async def _read_pull(src) -> list[dict[str, Any]]:
+        es_client, owned = state.es_client_for_source(src)
+        try:
+            from ..connectors.base import StructuredQuery
+            from ..connectors.elastic import ElasticConnector
+            from ..connectors.opensearch import OpenSearchConnector
+            from ..connectors.wazuh import WazuhConnector
+            if src.source_type == SourceType.OPENSEARCH:
+                conn = OpenSearchConnector(es_client, config=src.config, connector_id=src.id)
+            elif src.source_type == SourceType.WAZUH:
+                conn = WazuhConnector(es_client, config=src.config, connector_id=src.id)
+            else:
+                conn = ElasticConnector(es_client, config=src.config, connector_id=src.id)
+            sq = StructuredQuery(
+                contains=(query or None), time_from=from_, time_to=to,
+                size=limit, sort_desc=True,
+            )
+            result = await conn.search(state.prefs, sq)
+            return [_log_row(ev) for ev in result.events]
+        finally:
+            if owned:
+                try:
+                    await es_client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    async def _read_push(src) -> list[dict[str, Any]]:
+        return [_log_row(ev)
+                for ev in state.ingest_service.recent_events_for_source(src.id, limit)]
+
+    # Select the enabled + browse-capable sources and pair each read coroutine with its
+    # source (for provenance + error attribution). Unsupported sources are skipped.
+    targets: list[tuple[Any, Any]] = []
+    for src in state.prefs.sources:
+        if not src.enabled or not _source_can_browse(reg, src):
+            continue
+        cls = reg.get(src.source_type)
+        if cls is None:
+            continue
+        if reg.is_receiver(src.source_type):
+            targets.append((src, _read_push(src)))
+        elif reg.is_pull(src.source_type):
+            targets.append((src, _read_pull(src)))
+
+    async def _guarded(coro):
+        return await asyncio.wait_for(coro, timeout=timeout)
+
+    results = await asyncio.gather(
+        *[_guarded(coro) for _, coro in targets], return_exceptions=True
+    )
+
+    merged: list[dict[str, Any]] = []
+    source_status: list[dict[str, Any]] = []
+    for (src, _coro), outcome in zip(targets, results):
+        if isinstance(outcome, Exception):
+            source_status.append({
+                "source_id": src.id, "source_name": src.display_name or src.id,
+                "ok": False,
+                "error": ("timeout" if isinstance(outcome, asyncio.TimeoutError)
+                          else str(outcome)),
+                "count": 0,
+            })
+            continue
+        rows = outcome or []
+        for row in rows:
+            # MANDATORY provenance — overwrite (never trust a per-source row to self-label).
+            row["source_id"] = src.id
+            row["source_name"] = src.display_name or src.id
+        merged.extend(rows)
+        source_status.append({
+            "source_id": src.id, "source_name": src.display_name or src.id,
+            "ok": True, "count": len(rows),
+        })
+
+    # Merge newest-first by ts (ISO strings sort lexicographically for UTC; empty ts
+    # sorts last). Then hard-cap the merged view.
+    merged.sort(key=lambda r: (r.get("ts") or ""), reverse=True)
+    merged = merged[:limit]
+    return {
+        "logs": merged,
+        "count": len(merged),
+        "sources": source_status,
+        "partial": any(not s["ok"] for s in source_status),
+    }
+
+
+@router.get("/sources/health")
+async def sources_health(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "read")),
+) -> dict[str, Any]:
+    """Per-source health for the sources dashboard (Round 4 Wave 4).
+
+    Read-only, NO secrets. For every configured source it reports: enabled state,
+    ingest mode, whether it is a PULL/PUSH connector and browse-capable, and — where
+    available — its durable poll position (the newest cursor timestamp across the
+    source's feeds, from the read-only cursor store) and PUSH live-tail buffer depth.
+    A missing/legacy cursor reads as ``last_poll_millis: 0`` (never polled yet).
+    Never mutates anything (#2 append-only elsewhere; this endpoint only reads)."""
+    reg = get_registry()
+
+    async def _cursor_millis(src) -> int:
+        """Newest processed timestamp across this source's feeds (0 = never polled).
+
+        Mirrors the poller's durable cursor key ``f'{source.id}:{feed.id}'`` (falling
+        back to the legacy single-source cursor). Read-only; a store hiccup fails soft
+        to 0 rather than breaking the whole health view."""
+        best = 0
+        try:
+            feeds = src.feeds()
+            keys: list[str] = []
+            if feeds:
+                keys = [f"{src.id}:{f.id}" for f in feeds]
+            else:
+                # Un-fed source: the primary uses the legacy 'primary' key; a non-primary
+                # un-fed source uses a distinct 'f{id}:primary' key (see PollerManager).
+                keys = ["primary" if src.is_primary else f"{src.id}:primary"]
+            for key in keys:
+                try:
+                    cur = await state.cursor_store.load_keyed(key)
+                except Exception:  # noqa: BLE001
+                    continue
+                best = max(best, int(getattr(cur, "timestamp_millis", 0) or 0))
+        except Exception:  # noqa: BLE001 — health is best-effort, never raises
+            return best
+        return best
+
+    out: list[dict[str, Any]] = []
+    for src in state.prefs.sources:
+        is_receiver = reg.is_receiver(src.source_type)
+        is_pull = (not is_receiver) and reg.is_pull(src.source_type)
+        row: dict[str, Any] = {
+            "source_id": src.id,
+            "source_name": src.display_name or src.id,
+            "source_type": src.source_type.value,
+            "enabled": src.enabled,
+            "is_primary": src.is_primary,
+            "ingest_mode": src.ingest_mode.value,
+            "kind": "push" if is_receiver else ("pull" if is_pull else "unknown"),
+            "can_browse": _source_can_browse(reg, src),
+            "buffer_depth": 0,
+            "last_poll_millis": 0,
+        }
+        if is_receiver:
+            row["buffer_depth"] = len(
+                state.ingest_service.recent_events_for_source(src.id, 500)
+            )
+        elif is_pull and src.enabled:
+            row["last_poll_millis"] = await _cursor_millis(src)
+        out.append(row)
+    return {"sources": out}
 
 
 @router.get("/sources/{source_id}/feeds")
@@ -3133,7 +3332,11 @@ _ACTION_STATUS: dict[str, CaseStatus | None] = {
     "hold": CaseStatus.ON_HOLD,
     "resume": CaseStatus.OPEN,
     "resolve": CaseStatus.RESOLVED,
-    "acknowledge": None,
+    # BUG #3 fix (R4W4): acknowledge moves a case to INVESTIGATING — a non-terminal
+    # analyst status ("I've picked this up"). It is deliberately NOT in _CLOSE_ACTIONS
+    # or _TERMINAL (RBAC stays cases:write), and this analyst layer never calls
+    # decide() (#3): the deterministic close-axis is untouched.
+    "acknowledge": CaseStatus.INVESTIGATING,
     "set_disposition": None,
     "set_status": None,                    # target carried in body.status
 }
@@ -3262,6 +3465,12 @@ async def _perform_case_action(
         case.escalation_level = max(case.escalation_level, 1)
     elif body.action == "deescalate":
         case.escalation_level = 0
+    # BUG #3 (R4W4): stamp the acknowledgement instant for SLA/MTTA derivation. Note
+    # the Case model asymmetry — created_at/updated_at are ISO STRINGS, but
+    # acknowledged_at is a ``datetime | None`` (the SLA-interval anchors), so use a
+    # datetime here, only on the first acknowledge (idempotent).
+    if body.action == "acknowledge" and case.acknowledged_at is None:
+        case.acknowledged_at = now_utc()
 
     _guard_transition(body.action, prev_status, target)
 
@@ -3905,6 +4114,46 @@ async def case_rationale(case_id: str, state: AppState = Depends(get_state)) -> 
     case = await state.cases.get(case_id)
     rows = await state.audit.records_for_case(case_id)
     return _build_rationale(case_id, case, rows)
+
+
+@router.get("/cases/{case_id}/forwarding")
+async def case_forwarding(
+    case_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Explain, READ-ONLY, WHY this case's cluster did/didn't auto-forward to the LLM
+    investigator (Round 4 Wave 4).
+
+    Rebuilds the case's cluster from its stored member events (the same read-only
+    reconstruction the re-investigate path uses) and asks
+    ``engine.forwarding.explain_forwarding`` which deterministic auto-forward GATE
+    decided the outcome, returning a plain-English ``sentence`` + the deciding
+    ``gate``. Pure narrator: it NEVER calls ``decide()`` (#3), makes NO LLM call (#6),
+    and never mutates the cluster signature (#4) — it only describes the gate the
+    ingest pipeline walks BEFORE any verdict exists."""
+    from ..engine.forwarding import explain_forwarding
+
+    case = await state.cases.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    cluster = await _cluster_for_case(state, case)
+    if cluster is None:
+        # No member events retrievable (e.g. purged logs) — return an honest,
+        # non-erroring "unknown" gate rather than fabricating a decision.
+        return {
+            "case_id": case_id,
+            "gate": "unknown",
+            "forwarded": False,
+            "dropped": False,
+            "sentence": "The originating events for this case are no longer retrievable, "
+                        "so the forwarding decision cannot be reconstructed.",
+            "source_id": case.source_id,
+            "is_alert": False,
+            "notes": [],
+        }
+    explanation = explain_forwarding(cluster, state.prefs)
+    return {"case_id": case_id, **explanation.to_dict()}
 
 
 # --------------------------------------------------------------------------- #

@@ -12,14 +12,20 @@ from fastapi import Depends, FastAPI
 
 from .api.deps import require_auth
 from .api.routes import router
+from .api.routes_baseline import router as baseline_router
+from .api.routes_batch import router as batch_router
+from .api.routes_campaigns import router as campaigns_router
 from .api.routes_cases_collab import router as cases_collab_router
 from .api.routes_enrichment import router as enrichment_router
 from .api.routes_inapp import router as inapp_router
 from .api.routes_metrics import router as metrics_router
 from .api.routes_models import router as models_router
+from .api.routes_reset import router as reset_router
 from .api.routes_roles import router as roles_router
+from .api.routes_setup import router as setup_router
 from .api.routes_standup import router as standup_router
 from .api.routes_triage import router as triage_router
+from .api.routes_tuning import router as tuning_router
 from .config import Secrets
 from .logging_setup import configure_logging
 from .middleware import CSRFMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
@@ -83,6 +89,12 @@ for _feature_router in (
     cases_collab_router,  # F4 — per-case threaded collaboration + tasks
     triage_router,        # F12 — triage chips + ReAct timeline
     roles_router,         # F6 — RBAC custom-role CRUD + permission UX
+    setup_router,         # R4 W4 — OOBE first-admin account setup (POST /api/setup/account)
+    tuning_router,        # R4 W4 — threshold-tuning recommendations + HITL apply/rollback
+    batch_router,         # R4 W4 — batch reprocessing job status (read-only)
+    campaigns_router,     # R4 W4 — campaign cross-case correlation views + recorrelate
+    baseline_router,      # R4 W4 — per-signature seasonal baseline stats (read-only)
+    reset_router,         # R4 W4 — double-gated admin reset (users:manage + step-up)
 ):
     app.include_router(_feature_router, dependencies=[Depends(require_auth)])
 

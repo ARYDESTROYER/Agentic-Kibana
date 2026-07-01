@@ -110,6 +110,10 @@ _AUTHZ_EXEMPT_AUTH_FLOW = frozenset({
     "/api/auth/mfa/setup", "/api/auth/mfa/confirm", "/api/auth/mfa/verify",
     "/api/auth/mfa/disable",
     "/api/setup/init-admin", "/api/setup/complete", "/api/setup/secrets",
+    # Round-4 Wave-4 — OOBE "create admin account" writer (routes_setup.py). Pre-auth
+    # + self-locking (403 once setup complete / 409 once an admin exists), NOT an RBAC
+    # grant. Also in PUBLIC_API_PATHS (reachable before a session exists).
+    "/api/setup/account",
 })
 # Bucket 2 — SELF-SERVICE: any signed-in principal edits ONLY their OWN bucket
 # (profile / avatar / personal prefs / saved views / their own sessions / their own
@@ -199,8 +203,10 @@ def test_authz_exempt_allowlist_is_minimal_and_disjoint() -> None:
     for b in buckets:
         assert not (seen & b), f"overlapping allowlist entries: {seen & b}"
         seen |= b
-    # Bound the total so a future PR can't quietly balloon the exemptions.
-    assert len(_AUTHZ_EXEMPT) <= 30, "authZ exemption allowlist grew unexpectedly"
+    # Bound the total so a future PR can't quietly balloon the exemptions. Bumped to 31
+    # in Round-4 Wave-4 for the one new pre-auth OOBE writer /api/setup/account (a
+    # self-locking first-run account bootstrap, guarded by first-run state not RBAC).
+    assert len(_AUTHZ_EXEMPT) <= 31, "authZ exemption allowlist grew unexpectedly"
     # Every exempt path must correspond to a real non-GET /api route.
     non_get_paths = {
         r.path for r in app.routes
@@ -348,7 +354,7 @@ def test_public_paths_are_minimal_and_known() -> None:
     # A small, deliberate allowlist — guard against accidental growth.
     assert PUBLIC_API_PATHS <= {
         "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
-        "/api/setup/status", "/api/setup/init-admin",
+        "/api/setup/status", "/api/setup/init-admin", "/api/setup/account",
         # Wave 2 — each guarded by a single-use token/state, not a session.
         "/api/auth/mfa/verify",
         "/api/auth/sso/providers", "/api/auth/sso/authorize", "/api/auth/sso/callback",

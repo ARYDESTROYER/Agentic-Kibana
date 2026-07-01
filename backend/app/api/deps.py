@@ -19,10 +19,13 @@ PUBLIC_API_PATHS = frozenset(
         "/api/auth/logout",
         "/api/auth/me",
         # OOBE first-run: status is needed to render the login/setup screen before a
-        # session exists; init-admin is the ONLY way to create the first user and is
-        # itself guarded (it 409s once any user exists).
+        # session exists; init-admin + account are the ONLY ways to create the first
+        # user and are themselves guarded (they 409/403 once any user exists / setup is
+        # complete). ``/api/setup/account`` (Round-4 Wave-4) is the OOBE "create admin
+        # account" writer served by routes_setup.py — pre-auth, self-locking.
         "/api/setup/status",
         "/api/setup/init-admin",
+        "/api/setup/account",
         # Wave 2 — login-phase-2 + SSO bootstrap. Each is itself guarded by a
         # single-use token/state (NOT a full session), so they are reachable before a
         # session exists WITHOUT weakening deny-by-default:

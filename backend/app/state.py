@@ -70,6 +70,17 @@ class AppState:
         # Round-4 Wave-3: the lazily-built batch service is memoised here; _wire()
         # clears it so a credential/store rebuild re-binds it to the fresh gateway/store.
         self._batch_service = None
+        # Round-4 Wave-4: the gated background schedulers (threshold-tuner / campaign /
+        # batch-jobs). Started in startup() (behind start_poller), cancelled in
+        # shutdown(). All default-OFF: each loop is a NO-OP until its Preferences block is
+        # enabled, so a byte-identical boot spawns tasks that immediately go back to sleep.
+        self._scheduler_tasks: list[asyncio.Task] = []
+        self._scheduler_running = False
+        # The single, long-lived streaming baseline model behind the EVENT-feed detection
+        # funnel (Wave-4). Warmed from baseline_store on first use; None until built. It
+        # holds per-(signature, bucket) sketches in memory so the funnel's anomaly pass
+        # improves across polls. Rebuilt on _wire() (fresh prefs/store handles).
+        self._funnel_baseline = None
         self._wire()
 
     # ------------------------------------------------------------------ #
@@ -266,6 +277,18 @@ class AppState:
         # publishing is best-effort, post-save, #3/#11-safe — and a cheap no-op when
         # realtime is disabled / nobody is subscribed.
         self._real_pipeline.event_bus = self.event_bus
+
+        # Round-4 Wave-4: wire the EVENT-feed detection-funnel hook onto the poller so a
+        # ``role=events`` feed is routed to the funnel (aggregate→rules→anomaly→batched
+        # detection) INSTEAD OF the realtime correlate — but ONLY when batch + baseline
+        # are BOTH enabled (checked live inside the poller). Default OFF → the poller
+        # never calls the hook and the realtime path is byte-identical. Rebuilt on _wire()
+        # (fresh baseline model). Best-effort — a rewire never breaks on this assignment.
+        self._funnel_baseline = None
+        try:
+            self.poller._event_funnel = self._route_event_feed
+        except Exception as exc:  # noqa: BLE001 — funnel wiring must never break a rewire
+            logger.warning("event-funnel hook wiring failed (%s); routing disabled", exc)
 
     async def _automation_notify(self, case, trigger: str) -> None:
         """Automation NOTIFY action → dispatch through the existing notification
@@ -583,6 +606,209 @@ class AppState:
             self._batch_service = svc
         return svc
 
+    # ------------------------------------------------------------------ #
+    # Round-4 Wave-4 — EVENT-feed detection-funnel driver + gated schedulers.
+    # ------------------------------------------------------------------ #
+    async def _route_event_feed(self, events: list, prefs: Preferences) -> None:
+        """Route one EVENT feed's batch through the detection funnel (Wave-4).
+
+        The poller calls this ONLY when batch + baseline are both enabled (it gates
+        before calling). We run the cheap-first funnel (aggregate→rules→anomaly) over a
+        long-lived, warmed baseline model, turn the survivors into an aggregate-only,
+        fenced BATCH request set (#7/#9), and SUBMIT it out-of-band to the batch service
+        (the batch-jobs scheduler later polls + folds the confirmations back into the
+        SAME correlate→pipeline path, #4). Best-effort + never raises — a funnel/batch
+        glitch degrades to "nothing routed" (the events were already correlated out of
+        the realtime path by design; a missed batch just means no anomaly candidate this
+        tick, never a dropped/duplicated case)."""
+        if not events:
+            return
+        from .engine import event_detection as evdet
+
+        try:
+            baseline = await self._ensure_funnel_baseline()
+            candidates = evdet.funnel(events, prefs, baseline)
+            # Persist the warmed sketches back so the baseline keeps improving across
+            # polls/restarts (the funnel folded EVERY bucket's observation in above).
+            await self._flush_funnel_baseline(baseline, candidates, events)
+            if not candidates:
+                return
+            requests = evdet.build_batch(candidates, prefs)
+            if not requests:
+                return
+            model = evdet.model_for_funnel(prefs)
+            provider = self._funnel_batch_provider(prefs)
+            await self.batch_service.submit(provider, model, requests)
+        except Exception as exc:  # noqa: BLE001 — the funnel must never break a poll cycle
+            logger.warning("event-detection funnel run failed: %s", exc)
+
+    async def _ensure_funnel_baseline(self):
+        """The single long-lived streaming baseline behind the funnel, warmed from the
+        persistent baseline_store on first build so the anomaly pass carries history
+        across restarts. Built lazily; rebuilt (None) on _wire()."""
+        if self._funnel_baseline is None:
+            engine = self.build_baseline_engine()
+            try:
+                series = await self.baseline_store.snapshot()
+                for sig, buckets in (series or {}).items():
+                    engine.restore(sig, buckets)
+            except Exception as exc:  # noqa: BLE001 — a cold baseline is fine
+                logger.debug("funnel baseline warm-from-store failed (%s); cold start", exc)
+            self._funnel_baseline = engine
+        return self._funnel_baseline
+
+    async def _flush_funnel_baseline(self, baseline, candidates, events) -> None:
+        """Persist the sketches the funnel just touched back to the baseline_store so
+        the base improves over time (#4-safe: the store only keys by signature, never a
+        cluster_signature recompute). Best-effort; only the signatures observed this
+        tick are re-written."""
+        try:
+            seen: set[str] = set()
+            for c in candidates:
+                seen.add(c.signature)
+            # Also flush any signature the pre-aggregate observed (candidates are a
+            # subset; the full observed set warms the base even for benign buckets).
+            for sig in seen:
+                snap = baseline.snapshot(sig)
+                if snap:
+                    await self.baseline_store.put(sig, snap)
+        except Exception as exc:  # noqa: BLE001 — persistence is best-effort
+            logger.debug("funnel baseline flush failed (%s)", exc)
+
+    def _funnel_batch_provider(self, prefs: Preferences) -> str:
+        """Pick the batch provider for the funnel: the first configured
+        ``prefs.batch.providers`` entry this deployment has a key for, else 'anthropic'
+        (the locked default). Read-only; makes no network call."""
+        providers = list(getattr(getattr(prefs, "batch", None), "providers", []) or [])
+        for name in providers:
+            if name == "anthropic" and (self.secrets.anthropic_api_key or self._provider_overrides):
+                return "anthropic"
+            if name == "openai" and (self.secrets.openai_api_key or self._provider_overrides):
+                return "openai"
+        return providers[0] if providers else "anthropic"
+
+    async def _run_schedulers(self) -> None:
+        """Start the gated Wave-4 background schedulers (idempotent).
+
+        Three loops modelled on the poller lifecycle: a nightly threshold-tuner pass, a
+        daily campaign-correlation pass, and a batch-jobs poller loop. Each is a
+        long-running task that, per tick, re-checks its gate flags (feature enabled +
+        polling context + not kill_switch + not demo-active) and NO-OPs when its config is
+        disabled — so with every toggle OFF (the default) all three sleep, byte-identical
+        to a boot with no schedulers. Started once; cancelled in shutdown()."""
+        if self._scheduler_running:
+            return
+        self._scheduler_running = True
+        self._scheduler_tasks = [
+            asyncio.create_task(self._tuner_scheduler_loop()),
+            asyncio.create_task(self._campaign_scheduler_loop()),
+            asyncio.create_task(self._batch_scheduler_loop()),
+        ]
+        logger.info("Round-4 Wave-4 schedulers started (all gated OFF by default)")
+
+    def _schedulers_gated_off(self) -> bool:
+        """The shared gate every scheduler tick honours BEFORE doing any real work:
+        never run while polling is paused / setup incomplete / the kill-switch is on /
+        demo mode is engaged (so no real scheduler ever fires against demo data or a
+        half-configured tenant). Demo keeps ALL real schedulers OFF."""
+        prefs = self.prefs
+        demo_active = bool(getattr(getattr(prefs, "demo", None), "active", False))
+        return (
+            not prefs.polling_enabled
+            or not prefs.setup_complete
+            or bool(getattr(prefs.caps, "kill_switch", False))
+            or demo_active
+        )
+
+    async def _tuner_scheduler_loop(self) -> None:
+        """Nightly threshold-tuning pass. Gated on ``prefs.threshold_tuning.enabled``;
+        a disabled config makes this a pure sleep loop (NO-OP). Calls the bound
+        ``threshold_tuner`` run_once (which itself never calls decide() and only writes
+        the tuning ledger / HITL proposals / bounded config knobs). Never closes a case."""
+        # A generous fixed cadence keeps the loop cheap; run_once's own window covers the
+        # trailing days, so we do not need a precise wall-clock nightly trigger here.
+        interval = 6 * 3600
+        while self._scheduler_running:
+            try:
+                cfg = getattr(self.prefs, "threshold_tuning", None)
+                if cfg is not None and cfg.enabled and not self._schedulers_gated_off():
+                    await self.threshold_tuner(
+                        self.prefs, self._closed_case_reader(),
+                    )
+            except Exception as exc:  # noqa: BLE001 — the loop must never die
+                logger.warning("threshold-tuner scheduler tick failed: %s", exc)
+            await asyncio.sleep(interval)
+
+    async def _campaign_scheduler_loop(self) -> None:
+        """Daily cross-case campaign-correlation pass. Gated on ``prefs.campaign.enabled``;
+        disabled → a pure sleep loop (NO-OP). Runs the DETERMINISTIC read-time aggregator
+        and upserts the campaign list; it NEVER investigates, mutates a case, or calls
+        decide()/an LLM."""
+        interval = 6 * 3600
+        while self._scheduler_running:
+            try:
+                cfg = getattr(self.prefs, "campaign", None)
+                if cfg is not None and cfg.enabled and not self._schedulers_gated_off():
+                    campaigns = await self.campaign_correlator(None, self.prefs)
+                    if campaigns:
+                        await self.campaign_store.upsert_many(campaigns)
+            except Exception as exc:  # noqa: BLE001 — the loop must never die
+                logger.warning("campaign scheduler tick failed: %s", exc)
+            await asyncio.sleep(interval)
+
+    async def _batch_scheduler_loop(self) -> None:
+        """Batch-jobs poller loop. Gated on ``prefs.batch.enabled``; disabled → a pure
+        sleep loop (NO-OP). Polls every OPEN durable BatchJob, processes any completed
+        results through the ONE gateway ledger (exactly-once #6), and re-enters each
+        LLM-CONFIRMED detection as a candidate cluster on the SAME correlate→pipeline
+        path (which runs the unchanged decide()); it never closes a case here."""
+        interval = 120
+        while self._scheduler_running:
+            try:
+                svc = self.batch_service
+                if svc.enabled() and not self._schedulers_gated_off():
+                    open_jobs = await svc.store.load_open_jobs()
+                    for job in open_jobs:
+                        try:
+                            polled = await svc.poll(job)
+                            await svc.process(polled)
+                        except Exception as exc:  # noqa: BLE001 — isolate one job
+                            logger.debug("batch job %s poll/process failed: %s", job.id, exc)
+            except Exception as exc:  # noqa: BLE001 — the loop must never die
+                logger.warning("batch-jobs scheduler tick failed: %s", exc)
+            await asyncio.sleep(interval)
+
+    def _closed_case_reader(self):
+        """An async ``read(limit, offset) -> list[Case]`` pager over CLOSED cases for the
+        threshold-tuner (which pages it, never a naive 200-cap). Best-effort: a store
+        glitch yields an empty page (the tuner then no-ops for the window)."""
+        from .constants import CaseStatus
+
+        async def _read(limit: int, offset: int):
+            try:
+                page, _total = await self.cases.list(
+                    status=CaseStatus.CLOSED.value, limit=limit, offset=offset,
+                    sort_field="updated_at", sort_order="desc",
+                )
+                return page
+            except Exception:  # noqa: BLE001
+                return []
+
+        return _read
+
+    async def _stop_schedulers(self) -> None:
+        """Cancel the Wave-4 schedulers cleanly (shutdown). Idempotent."""
+        self._scheduler_running = False
+        tasks = self._scheduler_tasks
+        self._scheduler_tasks = []
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+
     def _build_users(self):
         """Construct the multi-USER store over the active backend's KV (the same KV
         the MEMORY/PROPOSAL stores use — works on ES + SQL, no new index/table)."""
@@ -843,6 +1069,14 @@ class AppState:
             self.poller.rebuild()
         except Exception as exc:  # noqa: BLE001 — fan-out rebuild must never break a source edit
             logger.warning("Poller fan-out rebuild failed (%s); continuing", exc)
+        # Round-4 Wave-4: rebuild() minted a FRESH primary Poller (via _build_primary),
+        # which does not carry the EVENT-feed funnel hook — re-attach it so a source edit
+        # keeps EVENT-feed routing wired. Best-effort; a missing hook only means routing
+        # stays off (byte-identical realtime path).
+        try:
+            self.poller._primary._event_funnel = self._route_event_feed
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("re-attaching event-funnel hook after rebuild failed (%s)", exc)
 
     def get_prefs(self) -> Preferences:
         return self.prefs
@@ -912,6 +1146,12 @@ class AppState:
         if start_poller:
             self.poller.start()
             await self._start_receivers()
+            # Round-4 Wave-4: start the gated background schedulers alongside the poller.
+            # All three loops are NO-OPs until their Preferences block is enabled (default
+            # OFF), so this is byte-identical to a boot with no schedulers. Started under
+            # the SAME ``start_poller`` guard the offline tests already use to skip
+            # background tasks, so the test suite never spawns them unless asked.
+            await self._run_schedulers()
         logger.info(
             "AppState started (es=%s, setup_complete=%s, polling_enabled=%s)",
             type(self.es).__name__, self.prefs.setup_complete, self.prefs.polling_enabled,
@@ -1214,6 +1454,10 @@ class AppState:
     async def shutdown(self) -> None:
         try:
             await self.disable_demo()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await self._stop_schedulers()
         except Exception:  # noqa: BLE001
             pass
         try:
