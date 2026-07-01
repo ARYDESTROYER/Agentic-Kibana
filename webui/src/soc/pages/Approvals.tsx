@@ -63,7 +63,7 @@ import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { InlineCode } from '@/soc/components/CodeBlock';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import type { LucideIcon } from 'lucide-react';
 
 /* ----------------------------------------------------------------- helpers -- */
@@ -370,6 +370,10 @@ export interface ApprovalsProps {
 }
 
 export default function Approvals({ onNavigate }: ApprovalsProps) {
+  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   const [proposals, setProposals] = React.useState<Proposal[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
@@ -381,8 +385,8 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
   const [bulkBusy, setBulkBusy] = React.useState(false);
 
   const openCase = React.useCallback(
-    (caseId: string) => onNavigate?.('cases', { caseId }),
-    [onNavigate],
+    (caseId: string) => navigate('cases', { caseId }),
+    [navigate],
   );
 
   const load = React.useCallback(async () => {
@@ -543,7 +547,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       onToggleSelect={toggleSelect}
       onApprove={(pr) => void decide(pr, 'approve')}
       onReject={(pr) => void decide(pr, 'reject')}
-      onOpenCase={onNavigate ? openCase : undefined}
+      onOpenCase={openCase}
     />
   );
 

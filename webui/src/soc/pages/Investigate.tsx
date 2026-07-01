@@ -62,7 +62,7 @@ import {
 } from '@/soc/components/badges';
 
 import { CaseDetail } from '@/soc/pages/CaseDetail';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 
 /* ---------------------------------------------------------------- consts --- */
 
@@ -349,6 +349,10 @@ export interface InvestigateProps {
 }
 
 export default function Investigate({ onNavigate, embedded = false }: InvestigateProps = {}) {
+  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   const [entityType, setEntityType] = React.useState<EntityType>('ip');
   const [entityValue, setEntityValue] = React.useState('');
   const [lookback, setLookback] = React.useState<string>('now-24h');
@@ -477,11 +481,11 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
   const isLastLookback =
     lookback === LOOKBACK_OPTIONS[LOOKBACK_OPTIONS.length - 1].value;
 
-  const viewCasesAction = onNavigate ? (
-    <Button variant="outline" size="sm" onClick={() => onNavigate('cases')}>
+  const viewCasesAction = (
+    <Button variant="outline" size="sm" onClick={() => navigate('cases')}>
       View cases
     </Button>
-  ) : undefined;
+  );
 
   return (
     <div className="animate-fade-in space-y-7">
@@ -728,7 +732,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
       <CaseDetail
         caseId={openCaseId}
         onClose={() => setOpenCaseId(null)}
-        onNavigate={onNavigate}
+        onNavigate={navigate}
       />
     </div>
   );

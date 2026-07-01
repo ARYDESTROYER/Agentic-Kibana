@@ -43,7 +43,7 @@ import {
   Workflow,
 } from 'lucide-react';
 
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
 import type {
   Case,
@@ -96,7 +96,11 @@ import { humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
 export const PAGE_TITLE = 'Security Posture Dashboard';
 
 interface OverviewProps {
-  /** Drill-through navigation (KPI / workload rows seed a status filter + the window). */
+  /**
+   * Optional drill-through navigation (KPI / workload rows seed a status filter + the
+   * window). When omitted (App renders it without a nav prop), it resolves from the
+   * router context via `useNavigateOptional()` — no prop-drilling (Round-5 Coupling-A).
+   */
   onNavigate?: Navigate;
 }
 
@@ -158,6 +162,11 @@ function statusBar(status: string): string {
 }
 
 export default function Overview({ onNavigate }: OverviewProps) {
+  // Navigation seam: an explicit prop (host/test) wins; otherwise resolve from the
+  // router context (no-op when rendered provider-less in a unit test). Coupling-A.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   // ----- Time range + auto-refresh (the CONTROL BAR state) ---------------- //
   const [range, setRange] = React.useState<TimeRange>(DEFAULT_RANGE);
   const [refresh, setRefresh] = React.useState<RefreshValue>('off');
@@ -391,8 +400,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: Inbox,
         accent: 'critical',
         goodDirection: 'down', // fewer open cases is better
-        onClick: onNavigate
-          ? () => onNavigate('cases', { status: 'open', window: navWindow })
+        onClick: navigate
+          ? () => navigate('cases', { status: 'open', window: navWindow })
           : undefined,
       },
       {
@@ -402,7 +411,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: LayoutDashboard,
         accent: 'info',
         goodDirection: 'none',
-        onClick: onNavigate ? () => onNavigate('cases', { window: navWindow }) : undefined,
+        onClick: navigate ? () => navigate('cases', { window: navWindow }) : undefined,
       },
       {
         label: 'Critical / High',
@@ -411,8 +420,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: ShieldAlert,
         accent: 'high',
         goodDirection: 'down', // fewer high-severity is better
-        onClick: onNavigate
-          ? () => onNavigate('cases', { status: 'needs_human', window: navWindow })
+        onClick: navigate
+          ? () => navigate('cases', { status: 'needs_human', window: navWindow })
           : undefined,
       },
       {
@@ -422,8 +431,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: Workflow,
         accent: 'low',
         goodDirection: 'down',
-        onClick: onNavigate
-          ? () => onNavigate('cases', { status: 'needs_human', window: navWindow })
+        onClick: navigate
+          ? () => navigate('cases', { status: 'needs_human', window: navWindow })
           : undefined,
       },
       {
@@ -441,8 +450,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: Database,
         accent: 'success',
         goodDirection: 'up',
-        onClick: onNavigate
-          ? () => onNavigate('intelligence', { tab: 'knowledge' })
+        onClick: navigate
+          ? () => navigate('intelligence', { tab: 'knowledge' })
           : undefined,
       },
       {
@@ -455,10 +464,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: CircleDollarSign,
         accent: 'primary',
         goodDirection: 'down', // lower spend is better
-        onClick: onNavigate ? () => onNavigate('metrics', { tab: 'cost' }) : undefined,
+        onClick: navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined,
       },
     ],
-    [derived, metrics, cases.length, rag, usage, range.label, navWindow, autonomy.escalated, onNavigate],
+    [derived, metrics, cases.length, rag, usage, range.label, navWindow, autonomy.escalated, navigate],
   );
 
   // ----- The compact control bar (shared across all three-zone dashboards) - //
@@ -578,8 +587,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
               title="No triage activity yet"
               description="Once sources are connected and cases start flowing, your posture, risk index, and timing metrics will appear here."
               action={
-                onNavigate ? (
-                  <Button onClick={() => onNavigate('sources')}>Connect a source</Button>
+                navigate ? (
+                  <Button onClick={() => navigate('sources')}>Connect a source</Button>
                 ) : undefined
               }
             />
@@ -651,7 +660,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                     {SEV_ORDER.map((sev) => {
                       const value = derived.sevCounts[sev];
                       const pct = Math.round((value / totalCases) * 100);
-                      const clickable = !!onNavigate;
+                      const clickable = !!navigate;
                       return (
                         <li key={sev}>
                           <button
@@ -659,7 +668,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                             disabled={!clickable}
                             onClick={
                               clickable
-                                ? () => onNavigate?.('cases', { window: navWindow })
+                                ? () => navigate?.('cases', { window: navWindow })
                                 : undefined
                             }
                             className={cn(
@@ -747,13 +756,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
                       aging vs. target here.
                     </p>
                   )}
-                  {onNavigate ? (
+                  {navigate ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="w-full"
                       onClick={() =>
-                        onNavigate('cases', { status: 'needs_human', window: navWindow })
+                        navigate('cases', { status: 'needs_human', window: navWindow })
                       }
                     >
                       Review escalations
@@ -828,11 +837,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
               title="Response timing"
               description="p50, server-computed"
               actions={
-                onNavigate ? (
+                navigate ? (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => onNavigate('metrics', { tab: 'posture' })}
+                    onClick={() => navigate('metrics', { tab: 'posture' })}
                   >
                     Detail →
                   </Button>
@@ -874,12 +883,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
                     </div>
                     <CircleDollarSign className="h-8 w-8 text-primary/60" aria-hidden />
                   </div>
-                  {onNavigate ? (
+                  {navigate ? (
                     <Button
                       variant="outline"
                       size="sm"
                       className="w-full"
-                      onClick={() => onNavigate('metrics', { tab: 'cost' })}
+                      onClick={() => navigate('metrics', { tab: 'cost' })}
                     >
                       Open cost ledger
                     </Button>
@@ -923,7 +932,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                         const total =
                           workloadItems.reduce((a, w) => a + w.value, 0) || 1;
                         const pct = Math.round((value / total) * 100);
-                        const clickable = !!onNavigate;
+                        const clickable = !!navigate;
                         return (
                           <li key={status}>
                             <button
@@ -931,7 +940,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                               disabled={!clickable}
                               onClick={
                                 clickable
-                                  ? () => onNavigate?.('cases', { status, window: navWindow })
+                                  ? () => navigate?.('cases', { status, window: navWindow })
                                   : undefined
                               }
                               className={cn(

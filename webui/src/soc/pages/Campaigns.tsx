@@ -34,7 +34,7 @@ import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import { humanizeToken, humanizeAge, fmtNumber } from '@/lib/format';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import type { CampaignConfig } from '@/lib/types';
 
 import { Button } from '@/ui/button';
@@ -127,6 +127,10 @@ export default function Campaigns({ onNavigate }: CampaignsProps) {
 }
 
 export function CampaignsInner({ onNavigate }: CampaignsProps) {
+  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   // BUG #9: "Recorrelate" is admin-gated server-side (require_admin == users:manage).
   // A `cases:read` user must not see an enabled button that 403s — gate it on the
   // SAME grant and disable-with-tooltip for everyone else. The campaign config editor
@@ -357,7 +361,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
       <CampaignDetailSheet
         campaign={detail}
         onClose={() => setDetail(null)}
-        onNavigate={onNavigate}
+        onNavigate={navigate}
       />
 
       <Separator />

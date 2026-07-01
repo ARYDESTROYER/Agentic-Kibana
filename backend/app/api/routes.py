@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -11,8 +11,6 @@ from pydantic import BaseModel, Field
 
 from .. import __version__
 from ..config import (
-    BrandingConfig,
-    CustomizationConfig,
     Preferences,
     SourceInstance,
     SuppressionRule,
@@ -34,21 +32,19 @@ from ..engine.metrics import compute_metrics, feedback_stats
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
 from ..models import (
+    Case,
     CaseComment,
     ChatRequest,
     Cluster,
-    ColumnState,
     FeedbackEntry,
     InvestigateRequest,
     RawEvent,
-    SavedView,
     StatusHistoryEntry,
     TraceStep,
     TriggerReason,
     validate_avatar,
 )
 from ..state import AppState
-from ..stores.user_prefs import resolve_effective_prefs
 from ..tools.enrich import EnrichTool
 from ..utils import iso_now, now_utc, relative_to_millis
 from .deps import (
@@ -70,15 +66,27 @@ router = APIRouter(prefix="/api")
 # --------------------------------------------------------------------------- #
 # Health
 # --------------------------------------------------------------------------- #
-@router.get("/health")
-async def health(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    return {
-        "status": "ok",
-        "version": __version__,
-        "es_connected": await state.es.ping(),
-        "store_type": type(state.es).__name__,
-        "setup_complete": state.prefs.setup_complete,
-    }
+class HealthResponse(BaseModel):
+    """The public health envelope (also read by the webui to detect an in-memory
+    store, ``store_type``). Exact shape — keys are stable and the webui depends on
+    ``status``/``version``/``es_connected``/``store_type``/``setup_complete``."""
+
+    status: str
+    version: str
+    es_connected: bool
+    store_type: str
+    setup_complete: bool
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health(state: AppState = Depends(get_state)) -> HealthResponse:
+    return HealthResponse(
+        status="ok",
+        version=__version__,
+        es_connected=await state.es.ping(),
+        store_type=type(state.es).__name__,
+        setup_complete=state.prefs.setup_complete,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1039,180 +1047,6 @@ async def runbooks(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# RAG knowledge base — see + manage the corpus the investigator/chat retrieve
-# from. Imports take effect immediately (same in-process corpus as retrieve()).
-# --------------------------------------------------------------------------- #
-class RagImportRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=512)
-    text: str = Field(..., min_length=1)
-    source: str = "imported"
-    tags: list[str] = Field(default_factory=list)
-
-
-_RAG_MAX_TEXT = 1_000_000  # ~1MB cap on a single imported document body
-
-
-@router.get("/rag/stats")
-async def rag_stats(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """Corpus stats: total chunks, count by source, embedding model/dim, doc count."""
-    return await state.rag.rag_stats()
-
-
-@router.get("/rag/documents")
-async def rag_documents(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """List all documents in the RAG corpus (seeds grouped as seed:<source>)."""
-    docs = await state.rag.list_documents()
-    return {"documents": docs, "count": len(docs)}
-
-
-@router.get("/rag/documents/{document_id}")
-async def rag_document(document_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """A single document + its chunks. 404 if no such document."""
-    doc = await state.rag.get_document(document_id)
-    if doc is None:
-        raise HTTPException(status_code=404, detail="document not found")
-    return doc
-
-
-@router.post("/rag/import")
-async def rag_import(
-    body: RagImportRequest,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("rag", "manage")),
-) -> dict[str, Any]:
-    """Import a free-text document into the RAG corpus. Chunked + embedded; takes
-    effect immediately for retrieval. 400 on empty/oversized text."""
-    title = (body.title or "").strip()
-    text = body.text or ""
-    if not title or not text.strip():
-        raise HTTPException(status_code=400, detail="title and text are required")
-    if len(text) > _RAG_MAX_TEXT:
-        raise HTTPException(status_code=400, detail="text too large (max ~1MB)")
-    result = await state.rag.import_document(
-        title, text, source=(body.source or "imported").strip() or "imported", tags=body.tags
-    )
-    if not result.get("chunk_count"):
-        raise HTTPException(status_code=400, detail="document produced no indexable chunks")
-    return result
-
-
-@router.delete("/rag/documents/{document_id}")
-async def rag_delete_document(
-    document_id: str,
-    force: bool = False,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("rag", "manage")),
-) -> dict[str, Any]:
-    """Delete an imported document. 404 if missing; 400 if a guarded seed source
-    (runbook/mitre/suppression/resolved_case) unless ``?force=true``."""
-    result = await state.rag.delete_document(document_id, force=force)
-    if not result.get("found"):
-        raise HTTPException(status_code=404, detail="document not found")
-    if result.get("guarded"):
-        raise HTTPException(
-            status_code=400,
-            detail="built-in seed corpus is protected; pass force=true to delete",
-        )
-    return {"document_id": document_id, "deleted": result.get("deleted", 0)}
-
-
-@router.get("/rag/search")
-async def rag_search(
-    q: str,
-    top_k: int = 5,
-    state: AppState = Depends(get_state),
-) -> dict[str, Any]:
-    """Run a retrieval against the live corpus and return the chunks RAG would feed
-    an investigation — so an operator can SEE what the knowledge base returns."""
-    query = (q or "").strip()
-    if not query:
-        return {"query": "", "chunks": [], "count": 0}
-    await state.rag.ensure_seeded()
-    chunks = await state.rag.retrieve(query, top_k=max(1, min(int(top_k or 5), 50)))
-    return {
-        "query": query,
-        "count": len(chunks),
-        "chunks": [c.model_dump() for c in chunks],
-    }
-
-
-# --------------------------------------------------------------------------- #
-# Operator MEMORY — durable facts the agents remember (auto-injected as TRUSTED
-# operator context into BOTH automated investigations and chat). Editing is
-# EXPLICIT (here, source="human") or via chat ("remember:"/"forget", source="agent").
-# Memory NEVER overrides the deterministic case_manager — it only informs the LLM.
-# --------------------------------------------------------------------------- #
-class MemoryCreate(BaseModel):
-    text: str = Field(..., min_length=1, max_length=2000)
-    category: str = ""
-    tags: list[str] = Field(default_factory=list)
-
-
-class MemoryUpdate(BaseModel):
-    text: str | None = None
-    category: str | None = None
-    tags: list[str] | None = None
-    active: bool | None = None
-
-
-@router.get("/memory")
-async def list_memory(
-    active_only: bool = False, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """List operator memory entries (newest first). ``?active_only=true`` hides
-    de-activated facts."""
-    entries = await state.memory.list(active_only=active_only)
-    return {
-        "entries": [e.model_dump(mode="json") for e in entries],
-        "count": len(entries),
-    }
-
-
-@router.post("/memory")
-async def add_memory(
-    body: MemoryCreate,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("memory", "manage")),
-) -> dict[str, Any]:
-    """Add an operator fact (source='human'). Auto-injected into future
-    investigations + chat as TRUSTED context."""
-    text = (body.text or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-    entry = await state.memory.add(
-        text, category=body.category, tags=body.tags, source="human",
-    )
-    return entry.model_dump(mode="json")
-
-
-@router.put("/memory/{entry_id}")
-async def update_memory(
-    entry_id: str,
-    body: MemoryUpdate,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("memory", "manage")),
-) -> dict[str, Any]:
-    """Edit a memory entry (text/category/tags) or toggle ``active``."""
-    updated = await state.memory.update(entry_id, **body.model_dump(exclude_none=True))
-    if updated is None:
-        raise HTTPException(status_code=404, detail="memory entry not found")
-    return updated.model_dump(mode="json")
-
-
-@router.delete("/memory/{entry_id}")
-async def delete_memory(
-    entry_id: str,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("memory", "manage")),
-) -> dict[str, Any]:
-    """Permanently delete a memory entry. 404 if missing."""
-    ok = await state.memory.delete(entry_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="memory entry not found")
-    return {"ok": True, "id": entry_id}
-
-
-# --------------------------------------------------------------------------- #
 # Agent PROPOSALS (HITL — agent drafts, human approves/rejects)
 # --------------------------------------------------------------------------- #
 @router.get("/proposals")
@@ -1452,303 +1286,6 @@ async def demo_disable(
     _admin=Depends(require_admin),
 ) -> dict[str, Any]:
     return await state.disable_demo()
-
-
-# --------------------------------------------------------------------------- #
-# Branding (GET is PUBLIC so the login screen can render the org brand; PUT is
-# protected). Persisted in Preferences — survives restart.
-# --------------------------------------------------------------------------- #
-@router.get("/branding")
-async def branding_get(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    return state.prefs.branding.model_dump(mode="json")
-
-
-@router.put("/branding")
-async def branding_put(
-    body: BrandingConfig,
-    state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),  # ADMIN-ONLY: org-wide branding is an admin surface
-) -> dict[str, Any]:
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.branding = body
-    await state.update_prefs(prefs)
-    # Persist exactly as before, then ADDITIVELY annotate the response with a WCAG-AA
-    # contrast advisory (Wave-4): derived black/white *-foreground per operator accent
-    # (auto_corrected) + plain-text warnings for pairs that still can't reach AA. This
-    # WARNS, it does not block — the save above already succeeded. Operator hex is
-    # already bounded by BrandingConfig (#9); the helper is pure + fail-open.
-    from ..engine.contrast import evaluate_branding_contrast
-
-    saved = prefs.branding.model_dump(mode="json")
-    advisory = evaluate_branding_contrast(saved)
-    saved["auto_corrected"] = advisory["auto_corrected"]
-    saved["contrast_warnings"] = advisory["contrast_warnings"]
-    return saved
-
-
-# --------------------------------------------------------------------------- #
-# Pervasive customization (Wave 7) — two-store model: ORG defaults on
-# Preferences.customization (admin-only PUT) + PERSONAL prefs in the per-user
-# UserPrefsStore (keyed by user_id; the 'default' bucket when auth is off). The
-# cascade resolver merges ORG ← USER. ALL terminology/view text is plain DATA
-# rendered by the UI (#9) — never markup, never an LLM prompt input.
-# --------------------------------------------------------------------------- #
-def _prefs_user_id(request: Request, state: AppState) -> str | None:
-    """The bucket key for the caller's personal prefs: their username when auth is
-    on + a session is present, else None → the store's shared ``default`` bucket
-    (so the no-auth profile still has real, persisted personal prefs)."""
-    auth = getattr(state, "auth", None)
-    if auth is None or not auth.is_enabled:
-        return None
-    principal = current_user(request)
-    return principal.username if principal else None
-
-
-class UserPrefsPatchBody(BaseModel):
-    """Partial update of the caller's PERSONAL prefs bucket. Every field optional —
-    only provided (non-None) fields are written. ``saved_views``/``tables`` accept
-    the full replacement lists/maps (use the dedicated /views + /tables routes for
-    granular edits)."""
-
-    saved_views: list[SavedView] | None = None
-    tables: dict[str, ColumnState] | None = None
-    theme_mode: Literal["light", "dark", "system"] | None = None
-    last_list_state: dict[str, dict[str, Any]] | None = None
-    pinned_view_ids: list[str] | None = None
-    misc: dict[str, Any] | None = None
-
-
-class SavedViewBody(BaseModel):
-    """Create/clone a personal saved view. ``id`` is server-assigned on create. All
-    free-text is plain data (#9)."""
-
-    name: str = ""
-    scope: str = "cases"
-    shared: bool = False
-    filters: dict[str, Any] = Field(default_factory=dict)
-    sort: str = ""
-    columns: list[str] | None = None
-
-
-class SavedViewPatchBody(BaseModel):
-    """Partial edit of a personal saved view (only provided fields change)."""
-
-    name: str | None = None
-    scope: str | None = None
-    shared: bool | None = None
-    filters: dict[str, Any] | None = None
-    sort: str | None = None
-    columns: list[str] | None = None
-
-
-class TerminologyBody(BaseModel):
-    """The ORG terminology label-override map (admin-only). Every value is plain DATA
-    rendered as text by the UI (#9). Validated/bounded by CustomizationConfig."""
-
-    terminology: dict[str, str] = Field(default_factory=dict)
-
-
-@router.get("/prefs/effective")
-async def prefs_effective(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """The MERGED customization cascade (ORG defaults ← USER overrides) for the
-    caller. Hydrated once by the webui PrefsContext on mount. Plain data (#9)."""
-    uid = _prefs_user_id(request, state)
-    user_prefs = await state.user_prefs.get(uid)
-    return resolve_effective_prefs(state.prefs.customization, user_prefs)
-
-
-@router.get("/prefs/user")
-async def prefs_user_get(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """The caller's raw PERSONAL prefs bucket (an empty default when none stored)."""
-    uid = _prefs_user_id(request, state)
-    prefs = await state.user_prefs.get(uid)
-    return prefs.model_dump(mode="json")
-
-
-@router.put("/prefs/user")
-async def prefs_user_put(
-    body: UserPrefsPatchBody, request: Request, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """Patch the caller's PERSONAL prefs (theme, pins, last-list-state, …). Only the
-    provided fields change. NOT admin-gated — every user edits only their own bucket."""
-    uid = _prefs_user_id(request, state)
-    updated = await state.user_prefs.patch(uid, **body.model_dump(exclude_none=True))
-    return updated.model_dump(mode="json")
-
-
-@router.get("/prefs/org")
-async def prefs_org_get(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """The ORG customization defaults (terminology + org saved views + default
-    theme). Readable by any signed-in user (the cascade needs them); writing is
-    admin-only via PUT."""
-    return state.prefs.customization.model_dump(mode="json")
-
-
-@router.put("/prefs/org")
-async def prefs_org_put(
-    body: CustomizationConfig,
-    request: Request,
-    state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),  # ADMIN-ONLY: org defaults are an admin surface
-) -> dict[str, Any]:
-    """Replace the ORG customization defaults (admin-only). Validated/bounded by
-    CustomizationConfig. All free-text is plain data (#9)."""
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.customization = body
-    await state.update_prefs(prefs)
-    await state.audit.record(
-        action_type=ActionType.USER_MGMT, surface="settings",
-        actor=current_username(request) or "admin",
-        result_summary="updated org customization defaults",
-    )
-    return prefs.customization.model_dump(mode="json")
-
-
-@router.get("/terminology")
-async def terminology_get(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """The ORG terminology label-override map. Readable by any signed-in user (the
-    UI ``t(key)`` helper needs it); writing is admin-only via PUT."""
-    return {"terminology": dict(state.prefs.customization.terminology)}
-
-
-@router.put("/terminology")
-async def terminology_put(
-    body: TerminologyBody,
-    request: Request,
-    state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),  # ADMIN-ONLY: terminology is an org surface
-) -> dict[str, Any]:
-    """Replace the ORG terminology map (admin-only). Bounded/validated by
-    CustomizationConfig. Plain data (#9)."""
-    if state.prefs.read_only_settings_mode:
-        raise HTTPException(status_code=403, detail="settings are read-only")
-    custom = state.prefs.customization.model_copy(update={"terminology": dict(body.terminology)})
-    # Round-trip through the model so the field validator bounds it.
-    custom = CustomizationConfig.model_validate(custom.model_dump())
-    prefs = state.prefs.model_copy(deep=True)
-    prefs.customization = custom
-    await state.update_prefs(prefs)
-    await state.audit.record(
-        action_type=ActionType.USER_MGMT, surface="settings",
-        actor=current_username(request) or "admin",
-        result_summary="updated terminology",
-    )
-    return {"terminology": dict(custom.terminology)}
-
-
-@router.get("/views")
-async def views_list(request: Request, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    """The caller's PERSONAL saved views PLUS the ORG-shared views (the cascade
-    surfaces both; org views carry ``shared:true``)."""
-    uid = _prefs_user_id(request, state)
-    user_prefs = await state.user_prefs.get(uid)
-    merged = resolve_effective_prefs(state.prefs.customization, user_prefs)
-    return {"views": merged.get("saved_views", []), "count": len(merged.get("saved_views", []))}
-
-
-@router.post("/views")
-async def views_create(
-    body: SavedViewBody, request: Request, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """Create a PERSONAL saved view from the current filter/sort/columns. ``owner``
-    is stamped to the caller; ``id`` is server-assigned."""
-    uid = _prefs_user_id(request, state)
-    view = SavedView(
-        name=(body.name or "").strip() or "Untitled view",
-        scope=(body.scope or "cases").strip() or "cases",
-        owner=uid or "",
-        shared=bool(body.shared),
-        filters=dict(body.filters or {}),
-        sort=body.sort or "",
-        columns=body.columns,
-    )
-    created = await state.user_prefs.add_view(uid, view)
-    return created.model_dump(mode="json")
-
-
-@router.put("/views/{view_id}")
-async def views_update(
-    view_id: str,
-    body: SavedViewPatchBody,
-    request: Request,
-    state: AppState = Depends(get_state),
-) -> dict[str, Any]:
-    """Edit a PERSONAL saved view (only provided fields change). 404 if missing."""
-    uid = _prefs_user_id(request, state)
-    updated = await state.user_prefs.update_view(
-        uid, view_id, **body.model_dump(exclude_none=True)
-    )
-    if updated is None:
-        raise HTTPException(status_code=404, detail="saved view not found")
-    return updated.model_dump(mode="json")
-
-
-@router.delete("/views/{view_id}")
-async def views_delete(
-    view_id: str, request: Request, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """Delete a PERSONAL saved view. 404 if missing (org-shared views can't be
-    deleted here — they are managed via the org defaults)."""
-    uid = _prefs_user_id(request, state)
-    ok = await state.user_prefs.delete_view(uid, view_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="saved view not found")
-    return {"ok": True, "id": view_id}
-
-
-@router.post("/views/{view_id}/clone")
-async def views_clone(
-    view_id: str, request: Request, state: AppState = Depends(get_state)
-) -> dict[str, Any]:
-    """Clone a view (an org-shared OR personal one) into the caller's PERSONAL set as
-    a fresh, owned, non-shared copy. The new view gets a new id + a "(copy)" name."""
-    uid = _prefs_user_id(request, state)
-    user_prefs = await state.user_prefs.get(uid)
-    merged = resolve_effective_prefs(state.prefs.customization, user_prefs)
-    src = next((v for v in merged.get("saved_views", []) if v.get("id") == view_id), None)
-    if src is None:
-        raise HTTPException(status_code=404, detail="saved view not found")
-    clone = SavedView(
-        name=f"{str(src.get('name') or 'View')} (copy)",
-        scope=str(src.get("scope") or "cases"),
-        owner=uid or "",
-        shared=False,
-        filters=dict(src.get("filters") or {}),
-        sort=str(src.get("sort") or ""),
-        columns=src.get("columns"),
-    )
-    created = await state.user_prefs.add_view(uid, clone)
-    return created.model_dump(mode="json")
-
-
-class TableStateBody(BaseModel):
-    """One table's column state (order / hidden / widths). An empty body clears it
-    (the table reverts to its built-in default columns)."""
-
-    order: list[str] = Field(default_factory=list)
-    hidden: list[str] = Field(default_factory=list)
-    widths: dict[str, int] = Field(default_factory=dict)
-
-
-@router.put("/prefs/user/tables/{table_id}")
-async def prefs_user_table_put(
-    table_id: str,
-    body: TableStateBody,
-    request: Request,
-    state: AppState = Depends(get_state),
-) -> dict[str, Any]:
-    """Persist ONE table's column state (show/hide/reorder/width) for the caller. An
-    all-empty body clears the override (reverts to the table's default columns)."""
-    uid = _prefs_user_id(request, state)
-    has_state = bool(body.order or body.hidden or body.widths)
-    cs = await state.user_prefs.set_table_state(
-        uid, table_id, body.model_dump() if has_state else None
-    )
-    return {"table_id": table_id, "state": cs.model_dump(mode="json")}
 
 
 # --------------------------------------------------------------------------- #
@@ -3087,7 +2624,15 @@ async def delete_user(
 # --------------------------------------------------------------------------- #
 # Cases
 # --------------------------------------------------------------------------- #
-@router.get("/cases")
+class CaseListResponse(BaseModel):
+    """The paged case-list envelope. ``cases`` is the full ``Case`` model list (the
+    same shape ``Case.model_dump(mode='json')`` produced before typing)."""
+
+    cases: list[Case]
+    total: int
+
+
+@router.get("/cases", response_model=CaseListResponse)
 async def list_cases(
     status: str | None = None,
     surface: str | None = None,
@@ -3096,173 +2641,24 @@ async def list_cases(
     offset: int = 0,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
-) -> dict[str, Any]:
+) -> CaseListResponse:
     cases, total = await state.cases.list(
         status=status, source_surface=surface, entity_value=entity,
         limit=min(limit, 200), offset=offset,
     )
-    return {"cases": [c.model_dump(mode="json") for c in cases], "total": total}
+    return CaseListResponse(cases=cases, total=total)
 
 
-@router.get("/cases/{case_id}")
+@router.get("/cases/{case_id}", response_model=Case)
 async def get_case(
     case_id: str,
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
-) -> dict[str, Any]:
+) -> Case:
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return case.model_dump(mode="json")
-
-
-# --------------------------------------------------------------------------- #
-# Global search (W7c) — the command-palette / top-bar fuzzy jump.
-# --------------------------------------------------------------------------- #
-
-# Static jump targets the command palette can navigate to. ``page`` is the webui
-# route id (#/<page>); ``settings`` rows deep-link into a settings section. Kept in
-# the backend so the palette gets a consistent result set; matched case-insensitively
-# against the query over the searchable text.
-_NAV_TARGETS: list[dict[str, str]] = [
-    {"type": "page", "id": "overview", "label": "Overview", "keywords": "home dashboard posture"},
-    {"type": "page", "id": "cases", "label": "Cases", "keywords": "triage queue alerts incidents"},
-    {"type": "page", "id": "chat", "label": "Workspace", "keywords": "chat investigate assistant"},
-    {"type": "page", "id": "investigate", "label": "Investigate", "keywords": "entity hunt"},
-    {"type": "page", "id": "scans", "label": "Automated scans", "keywords": "auto scan queue"},
-    {"type": "page", "id": "approvals", "label": "Approvals", "keywords": "proposals hitl pending"},
-    {"type": "page", "id": "intelligence", "label": "Intelligence", "keywords": "knowledge memory rag playbooks agents"},
-    {"type": "page", "id": "knowledge", "label": "Knowledge", "keywords": "rag corpus documents runbooks"},
-    {"type": "page", "id": "memory", "label": "Memory", "keywords": "agent memory facts"},
-    {"type": "page", "id": "metrics", "label": "Analytics", "keywords": "metrics dashboard charts"},
-    {"type": "page", "id": "cost", "label": "Cost & usage", "keywords": "cost ledger tokens spend budget"},
-    {"type": "page", "id": "standup", "label": "Standup", "keywords": "daily summary digest"},
-    {"type": "page", "id": "sources", "label": "Sources", "keywords": "connectors siem edr ingest data"},
-    {"type": "page", "id": "catalog", "label": "Integrations", "keywords": "catalog connectors marketplace"},
-    {"type": "page", "id": "settings", "label": "Settings", "keywords": "preferences configuration"},
-    {"type": "settings", "id": "account", "label": "Account", "keywords": "settings profile me"},
-    {"type": "settings", "id": "security", "label": "Security", "keywords": "settings auth mfa password"},
-    {"type": "settings", "id": "sessions", "label": "Sessions", "keywords": "settings devices logout"},
-    {"type": "settings", "id": "users", "label": "Users & roles", "keywords": "settings rbac members"},
-]
-
-
-@router.get("/search")
-async def global_search(
-    q: str = Query("", description="free-text query"),
-    limit: int = 20,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("cases", "read")),
-) -> dict[str, Any]:
-    """Lightweight global search for the command palette / top-bar jump (W7c).
-
-    Returns typed results — ``cases`` (matched on case_id / case_number / title /
-    entity value / tags / source_name), ``sources`` (name/type), and static ``nav``
-    targets (pages + settings sections) — so the palette can jump ANYWHERE.
-
-    Reuses the ACTIVE case store (``state.cases``), so it works in demo mode too.
-    Bounded (``limit`` default ~20, hard-capped). All matched text is operator/log
-    data and is returned verbatim for the UI to render as PLAIN text (#9)."""
-    term = (q or "").strip().lower()
-    cap = max(1, min(int(limit or 20), 50))
-
-    # --- cases: pull a bounded recent window from the ACTIVE store, filter in code.
-    case_hits: list[dict[str, Any]] = []
-    try:
-        cases, _total = await state.cases.list(limit=200, offset=0)
-    except Exception as exc:  # noqa: BLE001 — search must degrade gracefully
-        logger.warning("search: case listing failed: %s", exc)
-        cases = []
-    for c in cases:
-        hay = " ".join(
-            str(x or "").lower()
-            for x in (
-                c.case_id, c.case_number, c.title,
-                getattr(c.entity, "value", ""),
-                c.source_name, c.source_id,
-                " ".join(c.tags or []),
-            )
-        )
-        if not term or term in hay:
-            case_hits.append({
-                "type": "case",
-                "id": c.case_id,
-                "case_number": c.case_number,
-                "title": c.title,
-                "status": c.status.value if c.status else "",
-                "verdict": c.verdict.value if c.verdict else "",
-                "entity": getattr(c.entity, "value", ""),
-                "source_name": c.source_name or "",
-            })
-            if len(case_hits) >= cap:
-                break
-
-    # --- sources: match name / type over the operator-configured source list.
-    source_hits: list[dict[str, Any]] = []
-    for s in state.prefs.sources:
-        st = s.source_type.value if hasattr(s.source_type, "value") else str(s.source_type)
-        hay = f"{s.display_name} {st} {s.id}".lower()
-        if not term or term in hay:
-            source_hits.append({
-                "type": "source", "id": s.id,
-                "label": s.display_name or s.id, "source_type": st,
-            })
-        if len(source_hits) >= cap:
-            break
-
-    # --- nav targets: static pages + settings sections.
-    nav_hits: list[dict[str, Any]] = []
-    for t in _NAV_TARGETS:
-        hay = f"{t['label']} {t['id']} {t.get('keywords', '')}".lower()
-        if not term or term in hay:
-            nav_hits.append({
-                "type": t["type"], "id": t["id"], "label": t["label"],
-            })
-        if len(nav_hits) >= cap:
-            break
-
-    return {
-        "query": q or "",
-        "cases": case_hits,
-        "sources": source_hits,
-        "nav": nav_hits,
-    }
-
-
-# --------------------------------------------------------------------------- #
-# Audit viewer (W7c) — bounded, read-only listing of the append-only audit (#2).
-# --------------------------------------------------------------------------- #
-@router.get("/audit")
-async def list_audit(
-    actor: str | None = None,
-    action: str | None = None,
-    surface: str | None = None,
-    case_id: str | None = None,
-    from_: str | None = Query(None, alias="from"),
-    to: str | None = None,
-    limit: int = 100,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("audit", "view")),
-) -> dict[str, Any]:
-    """Bounded, READ-ONLY list of the append-only audit records for the admin audit
-    viewer (W7c). Gated on ``audit:view`` (the auditor/admin grant). Reads the audit
-    repository's ``records(...)`` (#2 — never mutates; the index has no update/delete
-    path). NEWEST first, hard-capped. All text is returned verbatim for the UI to
-    render as PLAIN (#9 — audit rows carry fenced UNTRUSTED log excerpts)."""
-    cap = max(1, min(int(limit or 100), 500))
-    audit = getattr(state, "audit", None)
-    if audit is None:  # pragma: no cover — audit is always wired in real app/startup
-        return {"records": [], "total": 0}
-    rows = await audit.records(
-        actor=actor or None,
-        action_type=action or None,
-        surface=surface or None,
-        case_id=case_id or None,
-        ts_from=from_ or None,
-        ts_to=to or None,
-        limit=cap,
-    )
-    return {"records": rows, "total": len(rows)}
+    return case
 
 
 class CaseAction(BaseModel):
@@ -4583,169 +3979,3 @@ def _trace_step(row: dict[str, Any], include_prompts: bool) -> TraceStep:
         result_summary=row.get("result_summary"),
         prompt_excerpt=(row.get("prompt_excerpt") if include_prompts else None),
     )
-
-
-# --------------------------------------------------------------------------- #
-# Notifications (F5 / Wave 4) — providers catalog, test-send, manual case notify,
-# and per-channel secret. Config rides PUT /api/settings (notifications subtree).
-# Notification SENDS are fire-and-forget and never block/alter a case decision (#3).
-# --------------------------------------------------------------------------- #
-@router.get("/notifications/providers")
-async def notification_providers(
-    _=Depends(require_permission("notifications", "read")),
-) -> dict[str, Any]:
-    """The email provider presets + the available channel types + the built-in
-    template ids (for the Settings notification editor). No secrets; notifications:read.
-    ``resend`` + ``ses`` (SMTP preset) both appear in the surfaced lists."""
-    from ..notifications.channel import channel_types, ensure_registered
-    from ..notifications.email import preset_list
-    from ..notifications.templates import builtin_template_ids
-
-    ensure_registered()
-    return {
-        "email_presets": preset_list(),
-        "channel_types": channel_types(),
-        "template_ids": builtin_template_ids(),
-    }
-
-
-class NotificationPreviewBody(BaseModel):
-    # Optional per-trigger {subject, html, text} override to preview UNSAVED edits.
-    subject: str | None = None
-    html: str | None = None
-    text: str | None = None
-
-
-@router.post("/notifications/preview")
-async def notification_preview(
-    trigger: str = "case_created",
-    body: NotificationPreviewBody | None = None,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("notifications", "manage")),
-) -> dict[str, Any]:
-    """Server-side render of a SAMPLE case for ``trigger`` → ``{subject, html, text}``
-    (notifications:manage). The escaping/fencing is AUTHORITATIVE here — the UI shows
-    exactly what would ship. An optional unsaved per-trigger override in the body is
-    layered on top of the live operator templates so the editor can preview edits.
-    No real case data, no real send, never leaks a secret."""
-    from ..notifications.dispatch import _sample_case
-    from ..notifications import templates as _tpl
-    from ..config import NotificationTemplates, NotificationTemplateOverride
-
-    cfg = getattr(state.prefs, "notifications", None)
-    base_url = (getattr(cfg, "base_url", "") or "") if cfg else ""
-    tpl = getattr(cfg, "templates", None) if cfg else None
-    branding = getattr(state.prefs, "branding", None)
-    org_name = (getattr(branding, "org_name", "") or "TLSOC") if branding else "TLSOC"
-
-    # Layer an UNSAVED override (from the editor) over the live templates for preview.
-    if body is not None and (body.subject or body.html or body.text):
-        merged = dict(getattr(tpl, "overrides", {}) or {})
-        merged[trigger] = NotificationTemplateOverride(
-            subject=body.subject or "", html=body.html or "", text=body.text or "",
-        )
-        tpl = NotificationTemplates(overrides=merged)
-
-    rendered = _tpl.render(
-        _sample_case(), trigger, base_url=base_url, org_name=org_name,
-        templates=tpl, branding=branding,
-    )
-    return {
-        "trigger": trigger,
-        "subject": rendered["subject"],
-        "html": rendered["html"],
-        "text": rendered["text"],
-        "headers": rendered.get("headers") or {},
-    }
-
-
-class NotificationTestBody(BaseModel):
-    channel_id: str
-
-
-@router.post("/notifications/test")
-async def notification_test(
-    body: NotificationTestBody,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("notifications", "manage")),
-) -> dict[str, Any]:
-    """Send a SAMPLE notification to one configured channel (notifications:manage). The
-    returned detail never leaks a secret."""
-    # Demo Mode (Wave 5): a real outbound send is refused while demo is engaged — the
-    # showcase must never deliver a real notification. (Demo cases already carry
-    # synthetic notifications_sent records.)
-    if state.demo_active:
-        return {"ok": False, "channel_id": body.channel_id,
-                "detail": "Demo mode is active — real notifications are disabled (simulated)."}
-    return await state.notifications.test_channel(body.channel_id)
-
-
-class NotificationChannelSecretBody(BaseModel):
-    field: str = "secret"
-    value: str | None = None
-
-
-@router.post("/notifications/channels/{channel_id}/secret")
-async def set_notification_channel_secret(
-    channel_id: str,
-    body: NotificationChannelSecretBody,
-    request: Request,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("notifications", "manage")),
-) -> dict[str, Any]:
-    """Set/clear one notification channel's secret field (notifications:manage). The value
-    goes to the SECRET tier (in memory), NEVER to Preferences; only a configured-
-    boolean is returned. Also stamps the channel's ``configured_secrets`` (names only)."""
-    state.secrets.set_notification_secret(channel_id, body.field or "secret", body.value)
-    configured = sorted(state.secrets.notification_channel_secrets(channel_id).keys())
-    # Reflect the configured field NAMES (not values) onto the channel config so the
-    # UI can show ✓ across reloads. Best-effort — never blocks the secret write.
-    try:
-        cfg = getattr(state.prefs, "notifications", None)
-        if cfg is not None:
-            channels = list(cfg.channels)
-            for i, ch in enumerate(channels):
-                if ch.id == channel_id:
-                    channels[i] = ch.model_copy(update={"configured_secrets": configured})
-                    new_notif = cfg.model_copy(update={"channels": channels})
-                    await state.update_prefs(
-                        state.prefs.model_copy(update={"notifications": new_notif})
-                    )
-                    break
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("notification configured_secrets stamp failed for %s: %s", channel_id, exc)
-    await state.audit.record(
-        action_type=ActionType.NOTIFICATION, surface="notification",
-        actor=current_username(request),
-        result_summary=(
-            f"channel secret '{body.field or 'secret'}' "
-            f"{'set' if body.value else 'cleared'} for '{channel_id}'"
-        ),
-    )
-    return {"ok": True, "configured": bool(configured), "configured_secrets": configured}
-
-
-class NotifyCaseBody(BaseModel):
-    channel_id: str | None = None
-
-
-@router.post("/cases/{case_id}/notify")
-async def notify_case(
-    case_id: str,
-    body: NotifyCaseBody,
-    state: AppState = Depends(get_state),
-    _=Depends(require_permission("cases", "write")),
-) -> dict[str, Any]:
-    """Manually send a case notification to one channel (or all enabled when no
-    channel_id). cases:write. Fire-and-forget semantics still apply (the send can
-    never alter the case)."""
-    case = await state.cases.get(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-    from ..notifications.dispatch import TRIGGER_MANUAL
-
-    channel_ids = [body.channel_id] if body.channel_id else None
-    sent = await state.notifications.dispatch(
-        case, TRIGGER_MANUAL, channel_ids=channel_ids, check_triggers=False
-    )
-    return {"ok": True, "sent": sent}

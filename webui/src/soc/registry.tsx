@@ -27,7 +27,9 @@
  *     item + child order the old `NAV_GROUPS` array had, so the derived rail is
  *     pixel-identical.
  */
+import * as React from 'react';
 import type { LucideIcon } from 'lucide-react';
+import type { NavOpts } from '@/lib/types';
 import {
   LayoutDashboard,
   ShieldAlert,
@@ -380,3 +382,145 @@ export const FEATURE_GROUPS: { id: NavGroupId; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'platform', label: 'Platform' },
 ];
+
+/* -------------------------------------------------------------------------- */
+/* The route table — the SINGLE lazy page registry (Round-5 Coupling-A).       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * EVERY page component is `React.lazy()`, so the first-paint (entry) chunk ships ONLY
+ * the shell + this thin table of import thunks — never a page body. A route renders its
+ * chunk only when navigated to; `App.tsx`'s single `<Suspense>` covers the fetch, and
+ * its `<ErrorBoundary>` catches a failed chunk load instead of white-screening. All
+ * targets are DEFAULT exports (verified) so the bare `import()` resolves to the
+ * `{ default }` module `React.lazy` expects; the two component-directory pages
+ * (`UnifiedLogsSheet`, and — historically — others) are named-export-adapted below.
+ *
+ * NOTE: Login + the first-run Wizard are intentionally NOT here — they own first paint
+ * (the login gate + OOBE) and stay EAGERLY imported in `App.tsx`, framer-motion-free.
+ */
+const Home = React.lazy(() => import('./pages/Home'));
+const Dashboards = React.lazy(() => import('./pages/Dashboards'));
+const Cases = React.lazy(() => import('./pages/Cases'));
+const Investigate = React.lazy(() => import('./pages/Investigate'));
+const Workspace = React.lazy(() => import('./pages/Workspace'));
+const Scans = React.lazy(() => import('./pages/Scans'));
+const Standup = React.lazy(() => import('./pages/Standup'));
+const Analytics = React.lazy(() => import('./pages/Analytics'));
+const Cost = React.lazy(() => import('./pages/Cost'));
+const Intelligence = React.lazy(() => import('./pages/Intelligence'));
+const Knowledge = React.lazy(() => import('./pages/Knowledge'));
+const Memory = React.lazy(() => import('./pages/Memory'));
+const Sources = React.lazy(() => import('./pages/Sources'));
+const Catalog = React.lazy(() => import('./pages/Catalog'));
+// NB: several page names collide with the lucide icon imports at the top of this file
+// (Settings, Inbox, Users, …) — the lazy page consts are `*Page`-suffixed to avoid it.
+const SettingsPage = React.lazy(() => import('./pages/Settings'));
+const SecurityPage = React.lazy(() => import('./pages/Security'));
+const Approvals = React.lazy(() => import('./pages/Approvals'));
+const UsersPage = React.lazy(() => import('./pages/Users'));
+const Audit = React.lazy(() => import('./pages/Audit'));
+const Account = React.lazy(() => import('./pages/Account'));
+const SessionsPage = React.lazy(() => import('./pages/Sessions'));
+const AdminSessions = React.lazy(() => import('./pages/AdminSessions'));
+const Models = React.lazy(() => import('./pages/Models'));
+const Roles = React.lazy(() => import('./pages/Roles'));
+const InboxPage = React.lazy(() => import('./pages/Inbox'));
+// The `logs` route renders the STANDALONE full-page view — the module's DEFAULT export
+// (`UnifiedLogsView`), not the `UnifiedLogsSheet` sheet variant (which needs open/onClose).
+const UnifiedLogs = React.lazy(() => import('./components/UnifiedLogsSheet'));
+const Campaigns = React.lazy(() => import('./pages/Campaigns'));
+const Tuning = React.lazy(() => import('./pages/Tuning'));
+const BatchJobs = React.lazy(() => import('./pages/BatchJobs'));
+const BaselineStats = React.lazy(() => import('./pages/Baseline'));
+
+/** The context a route render thunk may read (never `onNavigate` — pages use `useNavigate`). */
+export interface RouteRenderCtx {
+  /** In-memory navigation opts for the active page (tab / status / caseId …). */
+  opts?: NavOpts;
+  /** Re-launch the first-run wizard (Settings only). */
+  onRerunWizard: () => void;
+}
+
+/**
+ * One route: a lazy page element and an optional `render` that supplies page-CONFIG
+ * props (tab / initialStatus / onRerunWizard) from the route ctx. `render` NEVER passes
+ * `onNavigate` — pages resolve navigation via `useNavigate()`/`useNavigateOptional()`
+ * from the router context (Coupling-A: no navigate prop-drilling). When `render` is
+ * absent the page takes no route-derived props and App renders the bare element.
+ */
+export interface RouteDef {
+  element: React.LazyExoticComponent<React.ComponentType<any>>;
+  render?: (ctx: RouteRenderCtx) => React.ReactElement;
+}
+
+/**
+ * The route table, keyed by {@link PageId}. Derived id-for-id from `FEATURES` (every
+ * registered/hidden id resolves here); this is the ONE place a page id maps to its lazy
+ * component + its config-prop wiring, replacing the old hand-maintained `App.renderPage`
+ * switch AND the parallel eager lazy-declaration table.
+ *
+ * Host pages (`overview`/`chat`/`metrics`/`intelligence`) read their active sub-`tab`
+ * from the route ctx; the two deep-link leaves that force a specific sub-view
+ * (`dashboard` → Dashboard tab, `playbooks` → Catalog tab) pass a fixed `tab`. `cases`
+ * seeds its status filter from `opts.status`; `settings` receives `onRerunWizard`. No
+ * route passes `onNavigate` — pages use `useNavigate()`/`useNavigateOptional()`.
+ */
+export const ROUTES: Record<PageId, RouteDef> = {
+  /* ---- Round-2 W4 consolidated HOST pages (tabbed) ---- */
+  overview: { element: Home, render: (c) => <Home tab={c.opts?.tab} /> },
+  chat: { element: Workspace, render: (c) => <Workspace tab={c.opts?.tab} /> },
+  metrics: { element: Analytics, render: (c) => <Analytics tab={c.opts?.tab} /> },
+  intelligence: { element: Intelligence, render: (c) => <Intelligence tab={c.opts?.tab} /> },
+
+  /* ---- Deep-link leaves that force a host sub-tab ---- */
+  dashboard: { element: Home, render: () => <Home tab="dashboard" /> },
+  dashboards: { element: Dashboards },
+  playbooks: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
+
+  /* ---- Standalone admin / notification surfaces ---- */
+  models: { element: Models },
+  roles: { element: Roles },
+  inbox: { element: InboxPage },
+
+  /* ---- Triage ---- */
+  cases: { element: Cases, render: (c) => <Cases initialStatus={c.opts?.status} /> },
+  scans: { element: Scans },
+  approvals: { element: Approvals },
+  sources: { element: Sources },
+
+  /* ---- Round-4 surfaces ---- */
+  logs: { element: UnifiedLogs },
+  campaigns: { element: Campaigns },
+  tuning: { element: Tuning },
+  batchjobs: { element: BatchJobs },
+  baseline: { element: BaselineStats },
+
+  /* ---- Hidden-but-routable consolidated sub-pages (deep-link fallbacks) ---- */
+  investigate: { element: Investigate },
+  standup: { element: Standup },
+  cost: { element: Cost },
+  knowledge: { element: Knowledge },
+  memory: { element: Memory },
+  catalog: { element: Catalog },
+  account: { element: Account },
+  sessions: { element: SessionsPage },
+  admin_sessions: { element: AdminSessions },
+  settings: {
+    element: SettingsPage,
+    render: (c) => <SettingsPage onRerunWizard={c.onRerunWizard} />,
+  },
+  security: { element: SecurityPage },
+  users: { element: UsersPage },
+  audit: { element: Audit },
+};
+
+/**
+ * Resolve a page id to a rendered element. Unknown ids fall back to Overview (mirrors the
+ * router's `pageFromHash` default), so a stale hash never white-screens.
+ */
+export function renderRoute(page: PageId, ctx: RouteRenderCtx): React.ReactElement {
+  const def = ROUTES[page] ?? ROUTES.overview;
+  const El = def.element;
+  return def.render ? def.render(ctx) : <El />;
+}

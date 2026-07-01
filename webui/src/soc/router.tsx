@@ -191,3 +191,25 @@ export function useRoute(): RouteState {
 export function useNavigate(): Navigate {
   return useRoute().navigate;
 }
+
+/**
+ * A no-op {@link Navigate} used as the fallback when a component renders OUTSIDE a
+ * {@link RouterProvider} (e.g. a page mounted standalone in a unit test that does not
+ * wrap the router). Stable identity so it never re-triggers effects.
+ */
+const NOOP_NAVIGATE: Navigate = () => undefined;
+
+/**
+ * Round-5 Coupling-A — the navigation seam for pages that no longer receive an
+ * `onNavigate` prop from `App`. Unlike {@link useNavigate}, this SOFT-reads the router
+ * context and NEVER throws when there is no provider: it returns the real `navigate`
+ * when mounted under `<RouterProvider>` (the app), and a stable no-op otherwise (a
+ * standalone unit-test render). Pages resolve navigation as `onNavigate ?? useNavigateOptional()`
+ * so an explicit prop (host/embed/test) still wins, App-mounted pages get the real
+ * navigate from context, and a provider-less test render degrades to a harmless no-op
+ * instead of crashing. Keeps deep-links + drill-throughs working without prop-drilling.
+ */
+export function useNavigateOptional(): Navigate {
+  const ctx = React.useContext(RouteContext);
+  return ctx ? ctx.navigate : NOOP_NAVIGATE;
+}

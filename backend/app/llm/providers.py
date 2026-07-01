@@ -708,6 +708,56 @@ PROVIDER_REGISTRY: dict[str, Any] = {
     "openai_compatible": _make_openai,
 }
 
+# Entry-point group third-party LLM providers register under. A ``pip install
+# tlsoc-llm-<x>`` declaring ``[project.entry-points."tlsoc.llm_providers"]`` whose
+# object is a ``(name, factory)`` pair (or a factory with a ``provider_name``) is
+# MERGED into PROVIDER_REGISTRY without a core change (Round 5 / Coupling-F). A
+# discovered provider still returns raw completions to the gateway — it NEVER writes a
+# UsageDoc itself, so the single-ledger-write choke point (#6) is untouched.
+ENTRY_POINT_GROUP = "tlsoc.llm_providers"
+_LLM_DISCOVERED = False
+
+
+def _register_discovered(obj: Any) -> None:
+    """Merge one discovered LLM-provider entry-point object into PROVIDER_REGISTRY.
+
+    Accepts either a ``(name, factory)`` pair OR a factory that carries a
+    ``provider_name`` attribute. A built-in name is never silently shadowed unless the
+    plugin explicitly reuses it (logged "overridden by"), mirroring the connector/
+    enrichment precedence contract."""
+    name: str | None = None
+    factory: Any = None
+    if isinstance(obj, (tuple, list)) and len(obj) == 2:
+        name, factory = str(obj[0]).strip().lower(), obj[1]
+    elif callable(obj):
+        factory = obj
+        name = str(getattr(obj, "provider_name", "") or "").strip().lower() or None
+    if not name or factory is None:
+        logger.warning("LLM provider entry point %s has no resolvable (name, factory); skipping", obj)
+        return
+    if name in PROVIDER_REGISTRY and PROVIDER_REGISTRY[name] is not factory:
+        logger.info("LLM provider '%s' overridden by %s", name, getattr(factory, "__name__", factory))
+    PROVIDER_REGISTRY[name] = factory
+
+
+def ensure_providers_discovered() -> None:
+    """Discover + merge any ``tlsoc.llm_providers`` third-party factories (once).
+
+    Fully isolated + warned end-to-end via the shared plugin discovery helper — a bad
+    plugin can never break provider construction or startup. Idempotent."""
+    global _LLM_DISCOVERED
+    if _LLM_DISCOVERED:
+        return
+    _LLM_DISCOVERED = True
+    try:
+        from ..plugins.registry import discover_entry_points
+
+        discover_entry_points(
+            ENTRY_POINT_GROUP, _register_discovered, what="LLM provider", log=logger,
+        )
+    except Exception as exc:  # noqa: BLE001 — discovery must never break the gateway
+        logger.warning("LLM provider discovery failed: %s", exc)
+
 
 def _hash_embed(text: str, dim: int = 256) -> list[float]:
     import hashlib

@@ -14,7 +14,7 @@
  * and `#/overview` deep-links land on the right sub-view.
  */
 import { Gauge, FileText } from 'lucide-react';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { TabbedPage } from '@/soc/components/TabbedPage';
 import Overview from './Overview';
 import Standup from './Standup';
@@ -26,22 +26,27 @@ export interface HomeProps {
 }
 
 export default function Home({ onNavigate, tab }: HomeProps = {}) {
+  // Coupling-A: the host resolves navigate once (prop wins for tests) and threads it +
+  // the tab round-trip into its sub-views — App no longer prop-drills onNavigate.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   return (
     <TabbedPage
       value={tab}
-      onValueChange={(next) => onNavigate?.('overview', { tab: next })}
+      onValueChange={(next) => navigate('overview', { tab: next })}
       tabs={[
         {
           value: 'dashboard',
           label: 'Dashboard',
           icon: Gauge,
-          content: <Overview onNavigate={onNavigate} />,
+          content: <Overview onNavigate={navigate} />,
         },
         {
           value: 'standup',
           label: 'Standup',
           icon: FileText,
-          content: <Standup onNavigate={onNavigate} />,
+          content: <Standup onNavigate={navigate} />,
         },
       ]}
     />

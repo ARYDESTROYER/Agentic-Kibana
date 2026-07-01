@@ -75,8 +75,11 @@ def seeded_client(secrets, mock_provider):
         yield
         await state.shutdown()
 
+    from tests.conftest import mount_moved_routers
+
     api = FastAPI(lifespan=lifespan)
     api.include_router(router, dependencies=[Depends(require_auth)])
+    mount_moved_routers(api, dependencies=[Depends(require_auth)])
     with TestClient(api) as c:
         yield c
 
@@ -105,8 +108,11 @@ def _auth_client(**secret_overrides):
         yield
         await state.shutdown()
 
+    from tests.conftest import mount_moved_routers
+
     api = FastAPI(lifespan=lifespan)
     api.include_router(router, dependencies=[Depends(require_auth)])
+    mount_moved_routers(api, dependencies=[Depends(require_auth)])
     return TestClient(api)
 
 

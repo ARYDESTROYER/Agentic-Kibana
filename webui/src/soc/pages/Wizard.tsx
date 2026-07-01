@@ -75,6 +75,8 @@ import { HeroPanel } from '@/soc/components/HeroPanel';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { LoadingBar } from '@/soc/components/LoadingBar';
+import { useAuth } from '@/soc/auth';
+import { useDemo, isDemoActive } from '@/soc/demo';
 
 /* ----------------------------------------------------------------- helpers - */
 
@@ -103,9 +105,49 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [finishError, setFinishError] = React.useState<unknown>(null);
   const [finishing, setFinishing] = React.useState(false);
 
+  // Demo mode is an ADMIN action (POST /api/demo/enable is admin-gated server-side); the
+  // toggle is only offered to a principal who can manage it. Auth off → everyone is admin.
+  const { authEnabled, hasPermission } = useAuth();
+  const { status: demoStatus, refresh: refreshDemo } = useDemo();
+  const canManageDemo = !authEnabled || hasPermission('settings', 'manage');
+
   // Shared, persisted-between-steps state.
   const [deploymentName, setDeploymentName] = React.useState('My SOC');
+  // Reflects the LIVE demo tenant state (GET /api/demo/status), not a dead pref flag.
   const [demoMode, setDemoMode] = React.useState(false);
+  const [demoBusy, setDemoBusy] = React.useState(false);
+
+  // Seed the toggle from the real demo status once it loads (so re-running the wizard
+  // with demo already armed shows it ON).
+  React.useEffect(() => {
+    setDemoMode(isDemoActive(demoStatus));
+  }, [demoStatus]);
+
+  /**
+   * Bug #3 fix — actually ARM/disarm demo mode instead of writing a dead `demo_mode`
+   * pref. Turning it ON seeds the isolated, $0, reversible demo tenant via
+   * POST /api/demo/enable; OFF tears it down via POST /api/demo/disable. Either way we
+   * re-fetch the shared demo status so the banner + every surface update. Optimistic UI
+   * (flip immediately) with rollback on failure.
+   */
+  const onDemoMode = React.useCallback(
+    async (nextOn: boolean) => {
+      if (demoBusy || !canManageDemo) return;
+      setDemoBusy(true);
+      setDemoMode(nextOn); // optimistic
+      try {
+        const st = nextOn ? await api.demo.enable({}) : await api.demo.disable();
+        setDemoMode(isDemoActive(st));
+      } catch (e) {
+        setDemoMode(!nextOn); // rollback
+        setFinishError(e);
+      } finally {
+        setDemoBusy(false);
+        void refreshDemo();
+      }
+    },
+    [demoBusy, canManageDemo, refreshDemo],
+  );
 
   const [status, setStatus] = React.useState<SetupStatus | null>(null);
   const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
@@ -156,10 +198,11 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
     setFinishing(true);
     setFinishError(null);
     try {
-      // Persist deployment-name + demo flag additively into prefs (round-trips harmlessly).
+      // Persist the deployment name. Demo mode is NOT a pref flag — it is armed live via
+      // POST /api/demo/enable from the toggle (bug #3), so we no longer write a dead
+      // `demo_mode` key here.
       await api.putSettings({
         deployment_name: deploymentName,
-        demo_mode: demoMode,
       } as Partial<Preferences>);
       await api.completeSetup();
       onComplete();
@@ -261,7 +304,9 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                     deploymentName={deploymentName}
                     onDeploymentName={setDeploymentName}
                     demoMode={demoMode}
-                    onDemoMode={setDemoMode}
+                    onDemoMode={onDemoMode}
+                    canManageDemo={canManageDemo}
+                    demoBusy={demoBusy}
                   />
                 )}
                 {step === 1 && (
@@ -378,11 +423,17 @@ function WelcomeStep({
   onDeploymentName,
   demoMode,
   onDemoMode,
+  canManageDemo,
+  demoBusy,
 }: {
   deploymentName: string;
   onDeploymentName: (v: string) => void;
   demoMode: boolean;
   onDemoMode: (v: boolean) => void;
+  /** Only an admin (or auth-off) may arm demo mode — hide the toggle otherwise. */
+  canManageDemo: boolean;
+  /** True while an enable/disable call is in flight (disables the switch). */
+  demoBusy: boolean;
 }) {
   return (
     <div>
@@ -426,34 +477,45 @@ function WelcomeStep({
         </p>
       </div>
 
-      <Card className="mt-6 bg-muted/40">
-        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
-          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-info">
-            <Beaker className="h-5 w-5" aria-hidden />
-          </span>
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-2">
-              <Switch id="wz-demo" checked={demoMode} onCheckedChange={onDemoMode} />
-              <Label htmlFor="wz-demo" className="cursor-pointer">
-                Demo mode (explore with defaults, no real SIEM required)
-              </Label>
+      {/* Demo mode is an ADMIN action — the toggle is hidden entirely for a principal
+          who can't manage it (bug #3). */}
+      {canManageDemo ? (
+        <Card className="mt-6 bg-muted/40">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-info">
+              <Beaker className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="wz-demo"
+                  checked={demoMode}
+                  disabled={demoBusy}
+                  onCheckedChange={(v) => void onDemoMode(v)}
+                />
+                <Label htmlFor="wz-demo" className="cursor-pointer">
+                  Demo mode (explore with realistic sample data, no real SIEM required)
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Turning this on seeds an isolated, $0, fully reversible synthetic tenant so
+                you can explore the console immediately. It touches no real data and can be
+                switched off (and wiped) any time from Settings › Experimental. You can
+                still add a real source on the next step.
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Demo mode is non-destructive: it seeds nothing and simply lets you click
-              through the wizard and console using sensible defaults. You can still add a
-              real source on the next step.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {demoMode ? (
         <Alert className="mt-4">
           <Info className="h-4 w-4 text-info" aria-hidden />
           <AlertTitle>Demo mode is on</AlertTitle>
           <AlertDescription>
-            You can finish setup without configuring a live source. The analytics
-            surfaces will show empty states until a real source is connected.
+            The console is populated with isolated sample cases and activity. You can finish
+            setup without configuring a live source; switch demo off from Settings ›
+            Experimental to clear it.
           </AlertDescription>
         </Alert>
       ) : null}

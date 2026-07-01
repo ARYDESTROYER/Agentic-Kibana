@@ -22,6 +22,7 @@ from .providers import (
     BaseProvider,
     CompletionResult,
     MockProvider,
+    ensure_providers_discovered,
 )
 
 logger = logging.getLogger("tlsoc.gateway")
@@ -96,6 +97,12 @@ class LLMGateway:
         if cached is not None:
             return cached
         factory = PROVIDER_REGISTRY.get(str(name))
+        if factory is None:
+            # A miss may be a third-party provider registered via the
+            # ``tlsoc.llm_providers`` entry-point group — discover once (isolated +
+            # warned) and retry before failing. Built-in names never reach this branch.
+            ensure_providers_discovered()
+            factory = PROVIDER_REGISTRY.get(str(name))
         if factory is None:
             raise GatewayError(f"Unknown provider: {name}")
         kwargs = self._provider_kwargs(

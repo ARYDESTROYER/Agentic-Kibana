@@ -123,20 +123,38 @@ def test_urgency_band_tracks_risk_and_escalation():
 
 
 def test_derive_priority_itil_lookup_and_default():
-    matrix = PriorityMatrix()
+    # bug #14: the ITIL grid only derives a P-level when the operator ENABLED it.
+    matrix = PriorityMatrix(enabled=True)
     assert derive_priority("high", "high", matrix)["level"] == "P1"
     assert derive_priority("medium", "low", matrix)["level"] == "P4"
     got = derive_priority("low", "high", matrix)
     assert got["level"] == "P3"
     assert got["matched"] is True
+    assert got["enabled"] is True
     # An unmapped pair falls back to the matrix default.
     miss = derive_priority("bogus", "nope", matrix)
     assert miss["matched"] is False
     assert miss["level"] == matrix.default_priority
 
 
+def test_derive_priority_disabled_matrix_has_no_level():
+    # bug #14: a DISABLED matrix yields NO effective priority (level=None) — the chip
+    # previously (wrongly) derived "P1" here while the shift report showed nothing.
+    disabled = PriorityMatrix(enabled=False)  # the default
+    got = derive_priority("high", "high", disabled)
+    assert got["enabled"] is False
+    assert got["level"] is None
+    # ``matched`` still reflects that the pair EXISTS in the grid (for the UI preview),
+    # but there is no effective level while the grid is off.
+    assert got["matched"] is True
+
+
 def test_derive_triage_four_distinct_chips():
-    prefs = Preferences(asset_criticality={"203.0.113.50": 95.0})
+    # Enable the ITIL matrix so the priority chip carries an effective level (bug #14).
+    prefs = Preferences(
+        asset_criticality={"203.0.113.50": 95.0},
+        priority_matrix=PriorityMatrix(enabled=True),
+    )
     case = _case(risk=72.0, severity_max=8.0)
     chips = derive_triage(case, prefs)
     assert set(chips) == {"risk", "severity", "impact", "priority"}
@@ -145,16 +163,74 @@ def test_derive_triage_four_distinct_chips():
     assert chips["severity"]["value"] == 80.0           # source-asserted
     assert chips["impact"]["value"] == 95.0             # asset criticality
     assert chips["priority"]["level"] in {"P1", "P2", "P3", "P4"}
+    assert chips["priority"]["enabled"] is True
     # Every chip carries a HelpTip inputs bag.
     for chip in chips.values():
         assert "inputs" in chip
+
+
+def test_derive_triage_priority_none_when_matrix_disabled():
+    # bug #14 agreement: with the matrix OFF (the default) the priority chip has NO
+    # level — matching what the shift report shows for the same case.
+    prefs = Preferences(asset_criticality={"203.0.113.50": 95.0})  # matrix disabled
+    case = _case(risk=72.0, severity_max=8.0)
+    chips = derive_triage(case, prefs)
+    assert chips["priority"]["enabled"] is False
+    assert chips["priority"]["level"] is None
+
+
+# --------------------------------------------------------------------------- #
+# bug #14 — the triage chip and the shift report AGREE on matrix.enabled.
+# The two consumers used to derive priority INDEPENDENTLY (priority.derive_priority
+# ignored matrix.enabled while shift_report.derive_priority honoured it), so a
+# disabled matrix showed a P-level on the chip but nothing in the shift report. They
+# now share the ONE authority (shift_report delegates to priority.derive_priority);
+# these prove they never diverge across enabled/disabled × the whole band grid.
+# --------------------------------------------------------------------------- #
+def test_triage_chip_and_shift_report_agree_on_matrix_enabled():
+    from app.engine.shift_report import derive_priority as sr_derive_priority
+
+    for enabled in (True, False):
+        matrix = PriorityMatrix(enabled=enabled)
+        for imp in ("high", "medium", "low"):
+            for urg in ("high", "medium", "low"):
+                chip = derive_priority(imp, urg, matrix)          # triage-chip authority
+                report = sr_derive_priority(imp, urg, matrix)     # shift-report consumer
+                # The shift report's single value IS the authority's effective level.
+                assert report == chip["level"], (enabled, imp, urg, chip, report)
+                # And that level is present iff the matrix is enabled.
+                if enabled:
+                    assert chip["level"] in {"P1", "P2", "P3", "P4"}
+                    assert report is not None
+                else:
+                    assert chip["level"] is None
+                    assert report is None
+
+
+def test_shift_report_delegates_to_priority_authority():
+    # The shift report's derive_priority is now a thin unwrap of the ONE authority — a
+    # disabled matrix returns None on BOTH; an enabled unmapped pair falls back to the
+    # matrix default on BOTH; the empty-both-bands short-circuit stays report-specific.
+    from app.engine.shift_report import derive_priority as sr_derive_priority
+
+    on = PriorityMatrix(enabled=True)
+    assert sr_derive_priority("high", "high", on) == "P1"
+    assert sr_derive_priority("weird", "weird", on) == on.default_priority == derive_priority(
+        "weird", "weird", on
+    )["level"]
+    assert sr_derive_priority("high", "high", PriorityMatrix(enabled=False)) is None
+    # Empty bands → the shift report shows nothing regardless of the (enabled) matrix.
+    assert sr_derive_priority("", "", on) is None
+    assert sr_derive_priority(None, None, None) is None
 
 
 # --------------------------------------------------------------------------- #
 # ⛔ NON-NEGOTIABLE #3 — decide() is INVARIANT to advisory priority bands
 # --------------------------------------------------------------------------- #
 def test_decide_is_invariant_to_priority():
-    prefs = Preferences()
+    # Matrix ENABLED so the loop exercises real P-levels (bug #14) — decide() must stay
+    # invariant to every one of them regardless.
+    prefs = Preferences(priority_matrix=PriorityMatrix(enabled=True))
     base = decide(Verdict.TRUE_POSITIVE, 0.8, 72.0, prefs.auto_close,
                   escalation_confidence=prefs.escalation_confidence,
                   critical_severity=prefs.critical_severity)
@@ -181,7 +257,11 @@ def test_decide_is_invariant_to_priority():
 # --------------------------------------------------------------------------- #
 async def test_triage_endpoint_returns_four_chips(app_state):
     state = app_state
-    prefs = state.prefs.model_copy(update={"asset_criticality": {"203.0.113.50": 90.0}})
+    prefs = state.prefs.model_copy(update={
+        "asset_criticality": {"203.0.113.50": 90.0},
+        # Enable the ITIL grid so the priority chip carries a level (bug #14).
+        "priority_matrix": PriorityMatrix(enabled=True),
+    })
     await state.update_prefs(prefs)
     await state.cases.save(_case(case_id="case-tri-1"))
 
@@ -191,6 +271,7 @@ async def test_triage_endpoint_returns_four_chips(app_state):
     assert chips["severity"]["source"] == "source_asserted"
     assert chips["impact"]["value"] == 90.0
     assert chips["priority"]["level"] in {"P1", "P2", "P3", "P4"}
+    assert chips["priority"]["enabled"] is True
 
 
 async def test_triage_endpoint_never_404s(app_state):

@@ -194,6 +194,27 @@ def make_log_event(
     }
 
 
+def mount_moved_routers(api, *, dependencies=None) -> None:
+    """Mount the feature routers that hold routes carved OUT of the ``routes.py``
+    monolith in Round 5 (Coupling-E) so a locally-built test app matches production.
+
+    Paths/methods/auth are byte-identical to the monolith they came from; a test that
+    builds its own ``FastAPI`` app and exercises a MOVED route (branding / prefs /
+    saved views / terminology / rag / memory / search / audit / notifications) must
+    include these so the route resolves exactly as it does under ``app.main.app``.
+    Pass ``dependencies`` to mirror the production ``require_auth`` mount when the test
+    turns auth on.
+    """
+    from app.api.routes_notifications import router as notifications_router
+    from app.api.routes_prefs import router as prefs_router
+    from app.api.routes_rag import router as rag_router
+    from app.api.routes_search import router as search_router
+
+    kwargs = {"dependencies": dependencies} if dependencies else {}
+    for _r in (prefs_router, rag_router, search_router, notifications_router):
+        api.include_router(_r, **kwargs)
+
+
 @pytest.fixture
 def client(secrets, mock_provider):
     """A TestClient over the full app with a fake ES + mock LLM (own event loop)."""
@@ -217,6 +238,7 @@ def client(secrets, mock_provider):
 
     api = FastAPI(lifespan=lifespan)
     api.include_router(router)
+    mount_moved_routers(api)
     with TestClient(api) as c:
         yield c
 

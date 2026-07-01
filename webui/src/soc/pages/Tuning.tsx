@@ -35,7 +35,7 @@ import { toast } from 'sonner';
 
 import { humanizeToken, fmtPercent, fmtNumber, humanizeAge } from '@/lib/format';
 import { errorMessage } from '@/lib/errorMessage';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
@@ -104,6 +104,10 @@ export default function Tuning({ onNavigate }: TuningProps) {
 }
 
 export function TuningInner({ onNavigate }: TuningProps) {
+  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   const canManage = useCan('automation', 'manage');
 
   const [data, setData] = React.useState<TuningRecommendationsResponse | null>(null);
@@ -283,7 +287,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => onNavigate?.('approvals')}
+                onClick={() => navigate('approvals')}
               >
                 Open Approvals
                 <ArrowRight className="ml-1 h-3.5 w-3.5" aria-hidden />
@@ -310,7 +314,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
         },
       },
     ],
-    [applyRule, busyRule, onNavigate],
+    [applyRule, busyRule, navigate],
   );
 
   // --- ledger columns -------------------------------------------------------- //

@@ -26,9 +26,18 @@ build the right channel for each configured entry without an if-ladder.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+logger = logging.getLogger("tlsoc.notifications.channel")
+
+#: Entry-point group third-party channels register under. ``pip install
+#: tlsoc-channel-<x>`` that declares ``[project.entry-points."tlsoc.channels"]``
+#: appears in the catalog with ZERO core change — same detachability the connector
+#: and enrichment registries have (Round 5 / Coupling-F).
+ENTRY_POINT_GROUP = "tlsoc.channels"
 
 
 @dataclass(slots=True)
@@ -148,9 +157,32 @@ def _load_builtins() -> None:
     from . import webhook as _webhook  # noqa: F401
 
 
-# Public hook callers use to guarantee the registry is populated.
+_DISCOVERED = False
+
+
+def _discover_third_party() -> None:
+    """Discover out-of-tree channels registered under ``tlsoc.channels`` (once).
+
+    A discovered class is fed through the SAME ``register_channel`` path the built-ins
+    use, so a third-party channel appears in ``channel_types()`` / ``build_channel``
+    with zero core change. Fully isolated + warned end-to-end (a bad plugin never
+    breaks channel dispatch) via the shared plugin discovery helper (Round 5)."""
+    global _DISCOVERED
+    if _DISCOVERED:
+        return
+    _DISCOVERED = True
+    from ..plugins.registry import discover_entry_points
+
+    discover_entry_points(
+        ENTRY_POINT_GROUP, register_channel, what="notification channel", log=logger,
+    )
+
+
+# Public hook callers use to guarantee the registry is populated (built-ins + any
+# third-party channels discovered via the ``tlsoc.channels`` entry-point group).
 def ensure_registered() -> None:
     _load_builtins()
+    _discover_third_party()
 
 
 # A typed alias the dispatcher uses for an injectable SMTP transport in tests.

@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from ..config import Preferences
 from ..connectors.base import PullConnector
@@ -46,6 +46,35 @@ from ..constants import IngestMode
 from ..engine.poller import Poller
 
 logger = logging.getLogger("tlsoc.engine.poller_manager")
+
+
+@runtime_checkable
+class PollerHost(Protocol):
+    """The NARROW slice of :class:`app.state.AppState` the multi-source poller needs.
+
+    Round 5 (Coupling-F / G8): the manager used to take the WHOLE ``AppState`` and reach
+    into its ``_real_*`` privates. It now depends only on this documented seam — the
+    public REAL-collaborator accessors (``real_cases``/``real_audit``/``real_pipeline``),
+    the shared ``es``/``cursor_store``/``get_prefs``, the primary ``log_source``, the
+    per-source client builder, and ``schedule_close``. Structural typing means
+    ``AppState`` satisfies it with ZERO changes at the call site, and a test can hand the
+    manager a tiny fake host. Behaviour is byte-identical (same objects, narrower type).
+    """
+
+    es: Any
+    cursor_store: Any
+    log_source: Any
+
+    def get_prefs(self) -> Preferences: ...
+    def es_client_for_source(self, src: Any) -> tuple[Any, bool]: ...
+    def schedule_close(self, client: Any) -> None: ...
+
+    @property
+    def real_cases(self) -> Any: ...
+    @property
+    def real_audit(self) -> Any: ...
+    @property
+    def real_pipeline(self) -> Any: ...
 
 # Numeric stats keys aggregated (summed) across per-source pollers into one dict.
 _SUM_KEYS = (
@@ -57,7 +86,7 @@ _SUM_KEYS = (
 class PollerManager:
     """Owns N per-source :class:`Poller` children and drives them as one poller."""
 
-    def __init__(self, state: "AppState") -> None:  # noqa: F821 — avoid import cycle
+    def __init__(self, state: PollerHost) -> None:
         self._state = state
         self._get_prefs: Callable[[], Preferences] = state.get_prefs
         # The primary child (built from state.log_source) + the non-primary children.
@@ -113,8 +142,8 @@ class PollerManager:
         """The primary child wraps ``state.log_source`` (state owns its client)."""
         st = self._state
         child = Poller(
-            st.es, st._real_cases, st.cursor_store, st._real_audit,
-            st._real_pipeline, st.get_prefs, source=st.log_source,
+            st.es, st.real_cases, st.cursor_store, st.real_audit,
+            st.real_pipeline, st.get_prefs, source=st.log_source,
         )
         # Propagate the manager-level EVENT-feed funnel hook (finding #7). ``__init__``
         # sets ``self._event_funnel`` before this runs; ``rebuild()`` re-propagates.
@@ -164,8 +193,8 @@ class PollerManager:
         else:
             connector = ElasticConnector(es_client, config=cfg, connector_id=cid)
         child = Poller(
-            es_client, st._real_cases, st.cursor_store, st._real_audit,
-            st._real_pipeline, st.get_prefs, source=connector,
+            es_client, st.real_cases, st.cursor_store, st.real_audit,
+            st.real_pipeline, st.get_prefs, source=connector,
         )
         # Propagate the manager-level EVENT-feed funnel hook to this NON-primary child
         # too (finding #7) so an events-role feed on a non-primary source also routes to
@@ -245,7 +274,7 @@ class PollerManager:
         for client in self._owned_clients:
             try:
                 if client is not self._state.es:
-                    self._state._schedule_close(client)
+                    self._state.schedule_close(client)
             except Exception:  # noqa: BLE001
                 pass
         self._owned_clients = []

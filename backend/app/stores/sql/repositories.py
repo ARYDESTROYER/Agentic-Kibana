@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Float, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from ...config import Preferences
@@ -123,11 +123,19 @@ class SqlCaseRepository(CaseRepository):
             stmt = stmt.where(CaseRow.entity_value == entity_value)
             count_stmt = count_stmt.where(CaseRow.entity_value == entity_value)
 
-        # Only the materialised columns are sortable; default (created_at) covers
-        # the callers. An unknown sort_field falls back to created_at so the query
-        # never errors (matching ES tolerance of a missing sort field).
-        col = getattr(CaseRow, sort_field, None)
-        if col is None or sort_field not in {"created_at", "updated_at", "risk_score"}:
+        # Sortable fields. The timestamp columns are materialised; ``risk_score`` is
+        # NOT a column (it lives inside the JSON ``doc``), so it is sorted via a numeric
+        # JSON extraction — a plain ``getattr(CaseRow, 'risk_score')`` returns None and
+        # SILENTLY no-ops the sort (BUG #13). Any other/unknown field falls back to
+        # created_at so the query never errors (matching ES tolerance of a missing
+        # sort field).
+        if sort_field == "risk_score":
+            # cast to Float so ordering is NUMERIC (2 < 10), not lexicographic, on both
+            # SQLite (json_extract) and Postgres (->>) via the JSON accessor.
+            col = cast(CaseRow.doc["risk_score"].as_float(), Float)
+        elif sort_field in {"created_at", "updated_at"}:
+            col = getattr(CaseRow, sort_field)
+        else:
             col = CaseRow.created_at
         stmt = stmt.order_by(col.desc() if sort_order == "desc" else col.asc())
         stmt = stmt.limit(limit).offset(offset)

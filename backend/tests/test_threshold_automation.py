@@ -182,6 +182,105 @@ async def test_request_approval_creates_pending_proposal_no_live_write(app_state
 
 
 # --------------------------------------------------------------------------- #
+# bug #11 — request_approval proposals ROUND-TRIP through Approvals/Proposals.
+#
+# Before: a generic ``request_approval`` (no field/value) forced kind="suppression",
+# so approving it 400'd ("invalid suppression payload") — a dead end. Now the kind is
+# resolved to one the approve path can materialise: a COMPLETE suppression stays
+# suppression; anything else becomes an operator-acknowledged ``memory`` note that
+# always approves cleanly.
+# --------------------------------------------------------------------------- #
+def test_resolve_proposal_kind_round_trips() -> None:
+    from app.engine.threshold_automation import _resolve_proposal_kind
+
+    # A complete suppression payload → suppression (round-trips to a live rule).
+    assert _resolve_proposal_kind({"field": "event.module", "value": "sqli"}) == "suppression"
+    assert _resolve_proposal_kind(
+        {"kind": "suppression", "field": "f", "value": "v"}
+    ) == "suppression"
+    # A PARTIAL suppression (kind says suppression but no value) degrades to memory —
+    # never emit a kind the approve path would 400 on.
+    assert _resolve_proposal_kind({"kind": "suppression", "field": "f"}) == "memory"
+    assert _resolve_proposal_kind({"kind": "suppression"}) == "memory"
+    # An explicit memory stays memory; a generic gate defaults to memory.
+    assert _resolve_proposal_kind({"kind": "memory", "text": "note"}) == "memory"
+    assert _resolve_proposal_kind({}) == "memory"
+    # An unknown kind is never emitted (approve path only handles suppression+memory).
+    assert _resolve_proposal_kind({"kind": "escalate"}) == "memory"
+
+
+@pytest.mark.asyncio
+async def test_generic_request_approval_proposal_is_approvable(app_state: AppState) -> None:
+    """A generic ``request_approval`` (no suppression shape) must be APPROVABLE — not a
+    dead end. It becomes a memory-kind note and round-trips through the REAL approve
+    route without a 400."""
+    from app.api.routes import approve_proposal
+
+    case = _case(case_id="approvable")
+    await app_state.cases.save(case)
+    automation = ThresholdAutomation(app_state.proposals, app_state.audit)
+    # A generic approval gate — NO field/value, NO explicit kind.
+    rules = [_rule("gate", "request_approval", payload={
+        "rationale": "Escalation requires a lead's sign-off.",
+    })]
+    await automation.run(case, _prefs_with(rules), save=app_state.cases.save)
+
+    pending = await app_state.proposals.list(status="pending")
+    prop = next(p for p in pending if p.source_case_ids == ["approvable"])
+    # It resolved to a memory-kind note (the approve path CAN materialise it).
+    assert prop.kind == "memory"
+    assert (prop.payload or {}).get("text")  # non-empty text guaranteed
+
+    # The full round-trip: approving it succeeds (no HTTPException / 400) and marks it
+    # approved. The memory note is written; the case is NEVER transitioned by approval (#3).
+    status_before = case.status
+    res = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert res["ok"] is True
+    approved = await app_state.proposals.get(prop.id)
+    assert approved is not None and approved.status == "approved"
+    assert case.status == status_before  # approval never touches the case lifecycle (#3)
+
+
+@pytest.mark.asyncio
+async def test_complete_suppression_request_approval_still_round_trips(app_state: AppState) -> None:
+    """A ``request_approval`` carrying a COMPLETE suppression payload keeps the
+    suppression round-trip (approving it adds a live rule) — no regression."""
+    from app.api.routes import approve_proposal
+
+    case = _case(case_id="suppr")
+    await app_state.cases.save(case)
+    n_rules_before = len(app_state.prefs.suppression_rules)
+    automation = ThresholdAutomation(app_state.proposals, app_state.audit)
+    rules = [_rule("appr", "request_approval", payload={
+        "kind": "suppression", "field": "event.module", "value": "modsec_sqli",
+        "confidence": 0.7,
+    })]
+    await automation.run(case, _prefs_with(rules), save=app_state.cases.save)
+
+    prop = next(
+        p for p in await app_state.proposals.list(status="pending")
+        if p.source_case_ids == ["suppr"]
+    )
+    assert prop.kind == "suppression"
+    res = await approve_proposal(prop.id, _ApproveRequest(app_state), state=app_state)
+    assert res["ok"] is True
+    # A live suppression rule was materialised by the approve path.
+    assert len(app_state.prefs.suppression_rules) == n_rules_before + 1
+
+
+class _ApproveRequest:
+    """Minimal Request stand-in for the approve route (auth OFF in tests → the route's
+    ``current_username`` resolves to '' without a cookie). Exposes ``app.state.tlsoc``
+    so ``get_state(request)`` resolves the live AppState."""
+
+    def __init__(self, state: AppState) -> None:
+        self.headers = {}
+        self.cookies = {}
+        self.scope = {"type": "http"}
+        self.app = type("_App", (), {"state": type("_S", (), {"tlsoc": state})()})()
+
+
+# --------------------------------------------------------------------------- #
 # run_playbook → QUEUES a re-investigation that re-runs decide() (not bypassed)
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio

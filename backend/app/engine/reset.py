@@ -42,7 +42,7 @@ continues, so a best-effort reset never half-crashes the app.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from ..constants import (
     AUDIT_INDEX,
@@ -81,6 +81,36 @@ from ..constants import (
 
 logger = logging.getLogger("tlsoc.engine.reset")
 
+
+@runtime_checkable
+class ResetHost(Protocol):
+    """The NARROW slice of :class:`app.state.AppState` the reset engine needs.
+
+    Round 5 (Coupling-F / G8): ``reset_service`` used to take the whole ``AppState`` as
+    ``Any`` and reach into ``_kv``/``_sql_engine``/``_is_sql_backend``/
+    ``_real_ingest_service`` privates. It now depends only on this documented seam — the
+    public ``es``/``prefs``/``kv`` handles, ``update_prefs``/``rebuild_log_source``/
+    ``refresh_users``, and the SQL-backend accessors (``is_sql_backend``/``sql_engine``)
+    + the public ``real_ingest_service``. Structural typing means ``AppState`` satisfies
+    it unchanged, and a test can pass a tiny fake host. Behaviour is byte-identical.
+    """
+
+    es: Any
+    prefs: Any
+
+    @property
+    def kv(self) -> Any: ...
+    @property
+    def sql_engine(self) -> Any: ...
+    @property
+    def real_ingest_service(self) -> Any: ...
+
+    def is_sql_backend(self) -> bool: ...
+    async def update_prefs(self, prefs: Any) -> Any: ...
+    def rebuild_log_source(self) -> Any: ...
+    async def refresh_users(self) -> Any: ...
+
+
 # The KV (namespace, key) documents cleared at the ``cases`` tier: the case-adjacent
 # collaboration + observability stores. Every one is a single KV document over the
 # SHARED ``self._kv`` (ES: a doc in the config index; SQL: a KVRow) — clearing it is a
@@ -111,10 +141,11 @@ _FACTORY_KV: tuple[tuple[str, str], ...] = (
 )
 
 
-async def reset_service(app_state: Any, scope: ResetScope | str) -> dict[str, Any]:
+async def reset_service(app_state: ResetHost, scope: ResetScope | str) -> dict[str, Any]:
     """Execute a tiered StateStore reset and return WHAT WAS CLEARED.
 
-    ``app_state`` is the live :class:`app.state.AppState`; ``scope`` is a
+    ``app_state`` is the live :class:`app.state.AppState` (typed as the narrow
+    :class:`ResetHost` seam); ``scope`` is a
     :class:`app.constants.ResetScope` (or its string value). Returns a JSON-safe
     ``{"scope": ..., "cleared": [...]}`` receipt (plain data, #9) enumerating each
     store touched, so the route can echo it and the caller can see exactly what went.
@@ -227,7 +258,7 @@ async def _clear_cases(app_state: Any) -> int:
 async def _clear_kv(app_state: Any, namespace: str, key: str) -> bool:
     """Clear ONE shared-KV document (``put(ns, key, {})``) — backend-agnostic (ES doc
     in the config index / SQL KVRow). Best-effort; returns True on a successful put."""
-    kv = getattr(app_state, "_kv", None)
+    kv = getattr(app_state, "kv", None)
     if kv is None:
         return False
     try:
@@ -241,7 +272,7 @@ async def _clear_kv(app_state: Any, namespace: str, key: str) -> bool:
 def _clear_live_tail(app_state: Any) -> bool:
     """Drop the in-memory per-source live-tail ring buffers on the REAL ingest service
     (the demo stack has its own throwaway rings). Purely in-process; never raises."""
-    svc = getattr(app_state, "_real_ingest_service", None)
+    svc = getattr(app_state, "real_ingest_service", None)
     recent = getattr(svc, "_recent", None)
     if isinstance(recent, dict):
         try:
@@ -348,7 +379,7 @@ async def _reset_audit(app_state: Any) -> bool:
 # --------------------------------------------------------------------------- #
 def _is_sql(app_state: Any) -> bool:
     try:
-        return bool(app_state._is_sql_backend())  # noqa: SLF001
+        return bool(app_state.is_sql_backend())
     except Exception:  # noqa: BLE001
         return False
 
@@ -357,7 +388,7 @@ async def _sql_delete_all(app_state: Any, table: str, *, where: str | None = Non
     """``DELETE FROM <table> [WHERE <where>]`` on the SQL state engine. ``table`` +
     ``where`` are code-controlled constants (never user input) so this is not an
     injection surface. Returns the rowcount (0 on a glitch). Best-effort; never raises."""
-    engine = getattr(app_state, "_sql_engine", None)
+    engine = getattr(app_state, "sql_engine", None)
     if engine is None:
         return 0
     try:

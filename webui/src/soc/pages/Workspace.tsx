@@ -14,7 +14,7 @@
  * and `#/chat` deep-links land on the right sub-view.
  */
 import { MessageSquare, Search } from 'lucide-react';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { TabbedPage } from '@/soc/components/TabbedPage';
 import Chat from './Chat';
 import Investigate from './Investigate';
@@ -26,6 +26,11 @@ export interface WorkspaceProps {
 }
 
 export default function Workspace({ onNavigate, tab }: WorkspaceProps = {}) {
+  // Coupling-A: the host resolves navigate once (prop wins for tests) and threads it +
+  // the tab round-trip into its sub-views — App no longer prop-drills onNavigate.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   return (
     <TabbedPage
       header={{
@@ -36,19 +41,19 @@ export default function Workspace({ onNavigate, tab }: WorkspaceProps = {}) {
           'Talk to the SOC agent or launch an ad-hoc investigation — both query your logs, summarize, and explain.',
       }}
       value={tab}
-      onValueChange={(next) => onNavigate?.('chat', { tab: next })}
+      onValueChange={(next) => navigate('chat', { tab: next })}
       tabs={[
         {
           value: 'chat',
           label: 'Chat',
           icon: MessageSquare,
-          content: <Chat embedded onNavigate={onNavigate} />,
+          content: <Chat embedded onNavigate={navigate} />,
         },
         {
           value: 'investigate',
           label: 'Investigate',
           icon: Search,
-          content: <Investigate embedded onNavigate={onNavigate} />,
+          content: <Investigate embedded onNavigate={navigate} />,
         },
       ]}
     />

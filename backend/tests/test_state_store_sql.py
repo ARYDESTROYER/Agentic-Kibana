@@ -126,6 +126,36 @@ async def test_case_list_sort_order(engine) -> None:
     assert [c.case_id for c in asc] == ["old", "new"]
 
 
+async def test_case_list_sort_by_risk_score(engine) -> None:
+    # BUG #13 regression: risk_score is NOT a materialised column (it lives in the JSON
+    # doc), so the old getattr(CaseRow, 'risk_score') returned None and the sort
+    # SILENTLY fell back to created_at. Prove the SQL repo now orders by the numeric
+    # risk value — and that ordering is NUMERIC (10 > 2), not lexicographic.
+    repo = SqlCaseRepository(engine)
+
+    def _risk_case(cid: str, risk: float, created: str) -> Case:
+        c = _case(case_id=cid, signature=f"sig-{cid}", created_at=created)
+        return c.model_copy(update={"risk_score": risk})
+
+    # created_at order (low..high): b (oldest) → a → c (newest). risk order differs, and
+    # a lexicographic "2" vs "10" would wrongly rank "2" above "10".
+    await repo.save(_risk_case("a", 2.0, "2026-02-01T00:00:00+00:00"))
+    await repo.save(_risk_case("b", 10.0, "2026-01-01T00:00:00+00:00"))
+    await repo.save(_risk_case("c", 5.0, "2026-03-01T00:00:00+00:00"))
+
+    desc, _ = await repo.list(sort_field="risk_score", sort_order="desc")
+    assert [c.case_id for c in desc] == ["b", "c", "a"]  # 10 > 5 > 2 (NUMERIC, not by date)
+    # It must NOT be the created_at fallback order (which would be c, b, a).
+    assert [c.case_id for c in desc] != ["c", "b", "a"]
+
+    asc, _ = await repo.list(sort_field="risk_score", sort_order="asc")
+    assert [c.case_id for c in asc] == ["a", "c", "b"]
+
+    # An unknown sort field still falls back to created_at safely (no error).
+    fb, _ = await repo.list(sort_field="not_a_field", sort_order="desc")
+    assert [c.case_id for c in fb] == ["c", "a", "b"]  # newest created_at first
+
+
 async def test_find_open_by_signature(engine) -> None:
     repo = SqlCaseRepository(engine)
     # A CLOSED case with this signature must NOT match.

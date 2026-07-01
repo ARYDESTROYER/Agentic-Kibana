@@ -81,10 +81,13 @@ def _client(*, denies: dict[str, dict[str, list[str]]] | None = None):
         yield
         await state.shutdown()
 
+    from tests.conftest import mount_moved_routers
+
     api = FastAPI(lifespan=lifespan)
     api.include_router(monolith_router, dependencies=[Depends(require_auth)])
     api.include_router(roles_router, dependencies=[Depends(require_auth)])
     api.include_router(triage_router, dependencies=[Depends(require_auth)])
+    mount_moved_routers(api, dependencies=[Depends(require_auth)])
     return TestClient(api)
 
 

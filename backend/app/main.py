@@ -5,35 +5,58 @@ Run with: ``uvicorn app.main:app --host 0.0.0.0 --port 8088``
 
 from __future__ import annotations
 
+import importlib
 import logging
+import pkgutil
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 
+from . import api as api_pkg
 from .api.deps import require_auth
 from .api.routes import router
-from .api.routes_baseline import router as baseline_router
-from .api.routes_batch import router as batch_router
-from .api.routes_campaigns import router as campaigns_router
-from .api.routes_cases_collab import router as cases_collab_router
-from .api.routes_dashboards import router as dashboards_router
-from .api.routes_enrichment import router as enrichment_router
-from .api.routes_inapp import router as inapp_router
-from .api.routes_metrics import router as metrics_router
-from .api.routes_models import router as models_router
-from .api.routes_reset import router as reset_router
-from .api.routes_roles import router as roles_router
-from .api.routes_rules import router as rules_router
-from .api.routes_setup import router as setup_router
-from .api.routes_standup import router as standup_router
-from .api.routes_triage import router as triage_router
-from .api.routes_tuning import router as tuning_router
 from .config import Secrets
 from .logging_setup import configure_logging
 from .middleware import CSRFMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 from .state import AppState
 
 logger = logging.getLogger("tlsoc.main")
+
+
+def discover_feature_routers() -> list[tuple[str, APIRouter]]:
+    """Deterministically discover the feature routers to mount alongside the base
+    ``routes.py`` router (Round-5 Coupling-E/-F).
+
+    Convention: every ``app/api/routes_<feature>.py`` module exposes a top-level
+    ``router: APIRouter``. This replaces the previously-hardcoded tuple so "add a
+    feature" = "drop a ``routes_*.py`` file" — no edit here.
+
+    Invariants (see RESEARCH_COUPLING §B4):
+    * **SORTED** by module name — ``pkgutil`` order is filesystem-dependent, and the
+      mount order must be deterministic (uniform ``require_auth`` mount, but a stable
+      order keeps OpenAPI / route listings reproducible).
+    * The base ``routes`` module is EXCLUDED (it does not start with ``routes_`` and is
+      mounted separately above) so it is never double-mounted.
+    * **RAISE on import failure** — a broken feature module must fail loudly at boot,
+      never be silently print+skipped (which would de-register its routes and, worse,
+      could silently de-auth a surface).
+    """
+    found: list[tuple[str, APIRouter]] = []
+    for _finder, name, _ispkg in sorted(
+        pkgutil.iter_modules(api_pkg.__path__), key=lambda m: m[1]
+    ):
+        if not name.startswith("routes_"):  # allowlist convention; excludes base `routes`
+            continue
+        module = importlib.import_module(f"{api_pkg.__name__}.{name}")  # RAISE on failure
+        router_obj = getattr(module, "router", None)
+        if router_obj is None:
+            # A routes_* module MUST expose a `router`; a missing one is a wiring bug we
+            # surface loudly rather than silently drop the feature's endpoints.
+            raise RuntimeError(
+                f"feature module app.api.{name} has no top-level `router` to mount"
+            )
+        found.append((name, router_obj))
+    return found
 
 
 @asynccontextmanager
@@ -78,28 +101,13 @@ if _sec.security_headers_enabled:
 # disabled). Every /api route inherits it → a new route is protected automatically.
 app.include_router(router, dependencies=[Depends(require_auth)])
 
-# Round-3 Wave-2 feature routers (each a standalone APIRouter(prefix="/api")). Mounted
-# with the SAME require_auth dependency so every new route inherits the auth gate (GETs
-# are protected; each non-GET declares its own require_permission). Additive — none of
-# these touch the deterministic case_manager.decide() (#3) or the LLM ledger (#6).
-for _feature_router in (
-    metrics_router,       # F5 — richer posture / MITRE coverage metrics
-    standup_router,       # F11 — forward-looking shift handoff + action items
-    enrichment_router,    # F7 — multi-provider enrichment lookup
-    models_router,        # F9 — LLM model catalog / pricing / budget
-    inapp_router,         # F8 — in-app notification inbox + delivery prefs
-    cases_collab_router,  # F4 — per-case threaded collaboration + tasks
-    triage_router,        # F12 — triage chips + ReAct timeline
-    roles_router,         # F6 — RBAC custom-role CRUD + permission UX
-    setup_router,         # R4 W4 — OOBE first-admin account setup (POST /api/setup/account)
-    tuning_router,        # R4 W4 — threshold-tuning recommendations + HITL apply/rollback
-    batch_router,         # R4 W4 — batch reprocessing job status (read-only)
-    campaigns_router,     # R4 W4 — campaign cross-case correlation views + recorrelate
-    baseline_router,      # R4 W4 — per-signature seasonal baseline stats (read-only)
-    reset_router,         # R4 W4 — double-gated admin reset (users:manage + step-up)
-    rules_router,         # R5 G6 — rules customization CRUD + version ledger + preview
-    dashboards_router,    # R5 G7 — per-user custom-dashboard persistence (CD5)
-):
+# Feature routers (each a standalone ``APIRouter(prefix="/api")`` in an
+# ``app/api/routes_<feature>.py`` module). Auto-discovered (sorted, raise-on-failure)
+# and mounted with the SAME require_auth dependency so every route inherits the auth
+# gate (GETs are protected; each non-GET declares its own require_permission).
+# Additive — none of these touch the deterministic case_manager.decide() (#3) or the
+# LLM ledger (#6). "Add a feature" = "drop a ``routes_*.py`` file"; no edit here.
+for _name, _feature_router in discover_feature_routers():
     app.include_router(_feature_router, dependencies=[Depends(require_auth)])
 
 

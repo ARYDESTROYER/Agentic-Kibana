@@ -68,6 +68,32 @@ def _verdict_value(case: Case) -> str:
     return case.verdict.value if case.verdict else ""
 
 
+def _resolve_proposal_kind(payload: dict[str, Any]) -> str:
+    """Resolve the HITL Proposal ``kind`` for a ``request_approval`` action so it ALWAYS
+    round-trips through the existing approve path (bug #11).
+
+    * ``suppression`` ONLY when the payload is a complete suppression (both ``field``
+      AND ``value`` present) — otherwise the approve path's ``SuppressionRule``
+      validation 400s. A partial ``kind="suppression"`` degrades to ``memory``.
+    * ``memory`` when explicitly requested OR as the safe default for a generic gate.
+
+    Anything else the approve path cannot materialise (it handles exactly suppression +
+    memory) so we never emit a kind that would dead-end at approval time."""
+    requested = str(payload.get("kind") or "").strip().lower()
+    has_suppression_shape = bool(
+        str(payload.get("field") or "").strip() and str(payload.get("value") or "").strip()
+    )
+    if requested == "suppression" and has_suppression_shape:
+        return "suppression"
+    if requested == "memory":
+        return "memory"
+    # A complete suppression payload with no explicit kind still round-trips as one.
+    if not requested and has_suppression_shape:
+        return "suppression"
+    # Generic approval gate (or a partial suppression) → an operator-acknowledged note.
+    return "memory"
+
+
 def _coerce_float(value: Any) -> float | None:
     try:
         return float(value)
@@ -290,18 +316,36 @@ class ThresholdAutomation:
         """Materialise a PENDING HITL Proposal for a ``request_approval`` action — the
         ONLY thing automation does for an approval-required action (NO live write).
 
-        The payload mirrors the existing suppression/memory proposal shapes; an
-        operator approves it through the existing ``/proposals/{id}/approve`` path."""
+        THE #11 FIX (round-trip, not a dead end): the proposal ``kind`` must be one the
+        existing ``/proposals/{id}/approve`` path can MATERIALISE, or approving it 400s.
+        Previously this ALWAYS forced ``kind="suppression"`` — but a generic
+        ``request_approval`` rule carries no ``field``/``value``, so the approve path's
+        ``SuppressionRule.model_validate`` rejected it (400: "invalid suppression
+        payload"). We now resolve the kind to a shape that ALWAYS round-trips:
+
+        * a fully-formed suppression payload (has both ``field`` AND ``value``) stays
+          ``kind="suppression"`` → approving it adds a live suppression rule, as before;
+        * an explicit ``kind="memory"`` stays ``memory`` → approving it files a note;
+        * ANYTHING ELSE (the common generic gate) becomes ``kind="memory"`` — an
+          operator-acknowledged note whose ``text`` falls back to the rationale, which is
+          always present — so the approve path materialises it cleanly instead of 400ing.
+
+        Every path is #3-safe: approving a proposal writes a suppression rule / a memory
+        note (via the existing single approve write-path) — it NEVER closes or transitions
+        the case."""
         payload = dict(action.payload or {})
-        kind = str(payload.get("kind") or "suppression")
-        if kind not in ("suppression", "memory"):
-            kind = "suppression"
+        kind = _resolve_proposal_kind(payload)
         rationale = str(
             payload.get("rationale")
             or f"Threshold automation rule '{action.rule_id}' requested approval for "
             f"case {case.case_id} (verdict={_verdict_value(case) or 'n/a'}, "
             f"risk={round(case.risk_score, 1)}). Review before approving."
         )
+        # For a memory-kind approval note, guarantee the approve path has non-empty
+        # ``text`` (it falls back to ``proposal.rationale`` otherwise, but be explicit so
+        # a payload that only carried a ``kind`` still round-trips).
+        if kind == "memory" and not str(payload.get("text") or "").strip():
+            payload["text"] = rationale
         expires = (now_utc() + timedelta(days=_PROPOSAL_EXPIRY_DAYS)).isoformat()
         prop = Proposal(
             kind=kind,  # type: ignore[arg-type]

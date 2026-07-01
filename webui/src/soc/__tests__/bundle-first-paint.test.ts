@@ -69,6 +69,51 @@ describe.skipIf(!HAS_DIST)('first-paint bundle graph', () => {
     const assets = fs.readdirSync(path.join(DIST, 'assets'));
     expect(assets.filter((f) => /^motion-[^/]+\.js$/.test(f))).toHaveLength(0);
   });
+
+  /* -------------------------------------------------------------------------- *
+   * Round-5 Coupling-A — the FEATURES[]-derived ROUTES table + the settings-
+   * sections meta split keep every page body (and the heavy Settings renderer
+   * tree that the always-on CommandPalette used to drag in) OUT of the entry.
+   * The entry had ballooned to ~537 kB; these assertions lock the shrink so a
+   * future eager import of a page / settings section can't silently re-bloat it.
+   * -------------------------------------------------------------------------- */
+
+  it('entry chunk is well under the pre-Coupling-A 537 kB (page bodies are lazy)', () => {
+    const html = readHtml();
+    const m = html.match(/src="\/assets\/(index-[^"]+\.js)"/);
+    if (!m) throw new Error('could not find the entry chunk in dist/index.html');
+    const bytes = fs.statSync(path.join(DIST, 'assets', m[1])).size;
+    // Hard ceiling FAR below the 537 777-byte regression; today it is ~264 kB.
+    expect(bytes).toBeLessThan(400_000);
+  });
+
+  it('entry chunk statically imports ONLY vendor chunks (no page/settings chunk)', () => {
+    // Static `from"./<chunk>.js"` statements in the entry. The ONLY allowed static
+    // app-graph imports are the shared vendor splits (react-vendor/radix/icons/utils);
+    // any page or the settings-sections/Settings chunk being statically imported means
+    // it rode into the first-paint bundle (the exact 537 kB regression).
+    const entry = readEntry();
+    const statics = [...entry.matchAll(/from\s*["']\.\/([A-Za-z0-9._-]+)\.js["']/g)].map(
+      (mm) => mm[1],
+    );
+    const ALLOWED = /^(react-vendor|radix|icons|utils)-/;
+    const offenders = statics.filter((name) => !ALLOWED.test(name));
+    expect(offenders, `unexpected static entry imports: ${offenders.join(', ')}`).toEqual([]);
+  });
+
+  it('the heavy Settings section tree is code-split out of the entry', () => {
+    // The Settings renderer tree (BrandingEditor/RolesInner/DangerZone/…) lands in its
+    // own chunk (today `settings-dirty-*.js`), NOT the entry. Assert such a chunk exists
+    // and is a real (non-trivial) split — proof the CommandPalette no longer eager-imports
+    // the component-bearing settings-sections module.
+    const assets = fs.readdirSync(path.join(DIST, 'assets'));
+    const settingsChunks = assets.filter((f) => /^(settings-dirty|Settings)-[^/]+\.js$/.test(f));
+    expect(settingsChunks.length).toBeGreaterThan(0);
+    const biggest = Math.max(
+      ...settingsChunks.map((f) => fs.statSync(path.join(DIST, 'assets', f)).size),
+    );
+    expect(biggest).toBeGreaterThan(50_000);
+  });
 });
 
 describe('eager login chain does not pull framer-motion (source guard)', () => {

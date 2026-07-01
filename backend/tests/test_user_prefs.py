@@ -315,8 +315,11 @@ def _auth_client():
         yield
         await state.shutdown()
 
+    from tests.conftest import mount_moved_routers
+
     api = FastAPI(lifespan=lifespan)
     api.include_router(router, dependencies=[Depends(require_auth)])
+    mount_moved_routers(api, dependencies=[Depends(require_auth)])
     return TestClient(api)
 
 

@@ -4,71 +4,37 @@
  * Boot mirrors the legacy flow: GET /api/auth/me (auth disabled => no-op gate),
  * then GET /api/setup/status (first-run => Wizard), else the app shell. Dark/light
  * is owned by ThemeProvider; routing by the hash RouterProvider.
+ *
+ * Round-5 Coupling-A — the per-page lazy table + the hand-maintained `renderPage`
+ * switch that used to live HERE now live in `soc/registry.ts` as the single
+ * `FEATURES[]`-derived `ROUTES` table (one place a page id maps to its lazy chunk +
+ * its config-prop wiring). App only calls `renderRoute(page, ctx)`. Pages no longer
+ * receive an `onNavigate` prop — they resolve navigation via `useNavigate()` /
+ * `useNavigateOptional()` from the router context (no prop-drilling). The `api`
+ * singleton is exposed through `<ApiProvider>` for test injection (DI, default =
+ * singleton, so runtime is unchanged).
  */
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { NavOpts } from '@/lib/types';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ThemeProvider } from './theme';
 import { PrefsProvider } from './prefs';
 import { AuthProvider, useAuth, useUnauthorizedRedirect } from './auth';
 import { DemoProvider } from './demo';
-import { RouterProvider, useRoute, type Navigate } from './router';
+import { RouterProvider, useRoute } from './router';
+import { ApiProvider } from './api-context';
 import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
-import type { PageId } from './nav';
+import { renderRoute } from './registry';
 
 // Login + the first-run Wizard stay EAGER — they own first paint (the login gate
-// and the OOBE flow), so we don't want a chunk fetch in front of them.
+// and the OOBE flow), so we don't want a chunk fetch in front of them. Neither pulls
+// framer-motion (the login hero is pure CSS) — see bundle-first-paint.test.ts.
 import Login from './pages/Login';
 import Wizard from './pages/Wizard';
 import { ReauthDialog } from './components/ReauthDialog';
 import { PageSkeleton } from './components/PageSkeleton';
-
-// Every other page is code-split: a route renders only when navigated to, so the
-// entry bundle no longer ships all ~25 pages (foundation #6). Lazy loading is
-// transparent — the <Suspense> below covers the brief chunk fetch, and the
-// surrounding ErrorBoundary catches a failed chunk load instead of white-screening.
-// All target pages are DEFAULT exports (verified), so the bare import() resolves
-// directly to a `{ default }` module that React.lazy expects.
-const Home = React.lazy(() => import('./pages/Home'));
-// Round-5 G7 (CD5): the custom-dashboards builder. Lazy-loaded like every other page;
-// the drag/resize grid (react-grid-layout) is loaded ONLY in Edit mode, deeper still
-// (WidgetGrid's own lazy boundary), so this route's view mode + first paint ship ZERO
-// grid JS (the bundle-first-paint guardrail).
-const Dashboards = React.lazy(() => import('./pages/Dashboards'));
-const Cases = React.lazy(() => import('./pages/Cases'));
-const Workspace = React.lazy(() => import('./pages/Workspace'));
-const Investigate = React.lazy(() => import('./pages/Investigate'));
-const Scans = React.lazy(() => import('./pages/Scans'));
-const Standup = React.lazy(() => import('./pages/Standup'));
-const Analytics = React.lazy(() => import('./pages/Analytics'));
-const Cost = React.lazy(() => import('./pages/Cost'));
-const Intelligence = React.lazy(() => import('./pages/Intelligence'));
-const Knowledge = React.lazy(() => import('./pages/Knowledge'));
-const Memory = React.lazy(() => import('./pages/Memory'));
-const Sources = React.lazy(() => import('./pages/Sources'));
-const Catalog = React.lazy(() => import('./pages/Catalog'));
-const Settings = React.lazy(() => import('./pages/Settings'));
-const Security = React.lazy(() => import('./pages/Security'));
-const Approvals = React.lazy(() => import('./pages/Approvals'));
-const Users = React.lazy(() => import('./pages/Users'));
-const Audit = React.lazy(() => import('./pages/Audit'));
-const Account = React.lazy(() => import('./pages/Account'));
-const SessionsPage = React.lazy(() => import('./pages/Sessions'));
-const AdminSessions = React.lazy(() => import('./pages/AdminSessions'));
-// Round-3 surfaces: standalone admin/notification pages. Models + Roles are their
-// own admin pages (promoted out of Settings); Inbox is the notification center.
-const Models = React.lazy(() => import('./pages/Models'));
-const Roles = React.lazy(() => import('./pages/Roles'));
-const Inbox = React.lazy(() => import('./pages/Inbox'));
-// Round-4 surfaces: unified logs, campaigns, auto-tuning, batch jobs, baseline stats.
-const UnifiedLogs = React.lazy(() => import('./components/UnifiedLogsSheet'));
-const Campaigns = React.lazy(() => import('./pages/Campaigns'));
-const Tuning = React.lazy(() => import('./pages/Tuning'));
-const BatchJobs = React.lazy(() => import('./pages/BatchJobs'));
-const BaselineStats = React.lazy(() => import('./pages/Baseline'));
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
@@ -76,108 +42,6 @@ const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
     <span className="text-sm">{label}</span>
   </div>
 );
-
-function renderPage(
-  page: PageId,
-  opts: NavOpts | undefined,
-  navigate: Navigate,
-  onRerunWizard: () => void,
-): React.ReactNode {
-  switch (page) {
-    // ---- Round-2 W4 consolidated HOST pages (render a tabbed scaffold) ---- //
-    case 'overview':
-      // Home = Dashboard (Overview) | Standup.
-      return <Home onNavigate={navigate} tab={opts?.tab} />;
-    case 'chat':
-      // Workspace = Chat | Investigate (ONE chat engine).
-      return <Workspace onNavigate={navigate} tab={opts?.tab} />;
-    case 'metrics':
-      // Analytics = Dashboard (Metrics) | Cost & usage.
-      return <Analytics onNavigate={navigate} tab={opts?.tab} />;
-    case 'intelligence':
-      // Intelligence = Knowledge | Memory | Playbooks & Agents.
-      return <Intelligence onNavigate={navigate} tab={opts?.tab} />;
-
-    // ---- Round-3 nav-child leaf ids that deep-link into a host page's tab. The
-    //      expandable sidebar navigates directly to these leaf ids, so they must
-    //      resolve to the owning host with the right sub-tab pre-selected. ---- //
-    case 'dashboard':
-      // The dashboard IS the Overview/Home posture view (no standalone page).
-      return <Home onNavigate={navigate} tab="dashboard" />;
-    case 'dashboards':
-      // Round-5 G7 (CD5): the build-your-own custom-dashboards surface (distinct from
-      // the fixed `dashboard` posture view). Self-contained page; no props needed.
-      return <Dashboards />;
-    case 'playbooks':
-      // "Playbooks & Agents" is the Catalog tab of the Intelligence host.
-      return <Intelligence onNavigate={navigate} tab="catalog" />;
-
-    // ---- Round-3 standalone admin / notification surfaces ---- //
-    case 'models':
-      // Models & LLMs admin (catalog / cost & budget / providers). Self-gated by
-      // <ProtectedRoute resource="models" action="read"> inside the page.
-      return <Models />;
-    case 'roles':
-      // RBAC roles editor. Self-gated by <ProtectedRoute resource="roles" action="manage">.
-      return <Roles />;
-    case 'inbox':
-      // In-app notification center (the top-bar bell links here).
-      return <Inbox onNavigate={navigate} />;
-
-    case 'cases':
-      return <Cases onNavigate={navigate} initialStatus={opts?.status} />;
-    case 'scans':
-      return <Scans onNavigate={navigate} />;
-    case 'approvals':
-      return <Approvals onNavigate={navigate} />;
-    case 'sources':
-      return <Sources onNavigate={navigate} />;
-
-    // ---- Round-4 surfaces ---- //
-    case 'logs':
-      return <UnifiedLogs />;
-    case 'campaigns':
-      return <Campaigns onNavigate={navigate} />;
-    case 'tuning':
-      return <Tuning onNavigate={navigate} />;
-    case 'batchjobs':
-      return <BatchJobs />;
-    case 'baseline':
-      return <BaselineStats />;
-
-    // ---- Hidden-but-routable consolidated sub-pages (deep-link fallbacks; the
-    //      host pages above are the primary entry, but bare `#/cost` etc. still
-    //      resolve to the standalone page rather than falling through to Home). -- //
-    case 'investigate':
-      return <Investigate onNavigate={navigate} />;
-    case 'standup':
-      return <Standup onNavigate={navigate} />;
-    case 'cost':
-      return <Cost onNavigate={navigate} />;
-    case 'knowledge':
-      return <Knowledge onNavigate={navigate} />;
-    case 'memory':
-      return <Memory onNavigate={navigate} />;
-    case 'catalog':
-      return <Catalog onNavigate={navigate} />;
-    case 'account':
-      return <Account onNavigate={navigate} />;
-    case 'sessions':
-      return <SessionsPage onNavigate={navigate} />;
-    case 'admin_sessions':
-      return <AdminSessions onNavigate={navigate} />;
-    case 'settings':
-      return <Settings onNavigate={navigate} onRerunWizard={onRerunWizard} />;
-    case 'security':
-      return <Security onNavigate={navigate} />;
-    case 'users':
-      return <Users onNavigate={navigate} />;
-    case 'audit':
-      return <Audit onNavigate={navigate} />;
-    default:
-      return <Home onNavigate={navigate} tab={opts?.tab} />;
-  }
-}
 
 const Boot: React.FC = () => {
   const { authEnabled, isAuthenticated, username, loading: authLoading, refresh, logout } =
@@ -226,6 +90,8 @@ const Boot: React.FC = () => {
     navigate('overview');
   }, [logout, navigate]);
 
+  const onRerunWizard = React.useCallback(() => setForceWizard(true), []);
+
   if (authLoading) return <CenterSpinner label="Starting console…" />;
   if (showLogin) return <Login onAuthenticated={onAuthenticated} />;
   if (!setupChecked) return <CenterSpinner label="Starting console…" />;
@@ -255,9 +121,10 @@ const Boot: React.FC = () => {
         <ErrorBoundary resetKey={page}>
           {/* Single Suspense boundary covers every lazily-loaded page chunk; the
               fallback mirrors the page chrome so navigation never white-screens.
-              Keyed by `page` so each route shows its own fresh fallback. */}
+              Keyed by `page` so each route shows its own fresh fallback. The route
+              table (soc/registry.ts) maps the id → lazy chunk + config props. */}
           <React.Suspense key={page} fallback={<PageSkeleton />}>
-            {renderPage(page, opts, navigate, () => setForceWizard(true))}
+            {renderRoute(page, { opts, onRerunWizard })}
           </React.Suspense>
         </ErrorBoundary>
       </AppShell>
@@ -278,15 +145,17 @@ export const App: React.FC = () => (
   // motion must lazy-load it, never the entry.
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
-      <AuthProvider>
-        <PrefsProvider>
-          <DemoProvider>
-            <RouterProvider>
-              <Boot />
-            </RouterProvider>
-          </DemoProvider>
-        </PrefsProvider>
-      </AuthProvider>
+      <ApiProvider>
+        <AuthProvider>
+          <PrefsProvider>
+            <DemoProvider>
+              <RouterProvider>
+                <Boot />
+              </RouterProvider>
+            </DemoProvider>
+          </PrefsProvider>
+        </AuthProvider>
+      </ApiProvider>
     </TooltipProvider>
   </ThemeProvider>
 );

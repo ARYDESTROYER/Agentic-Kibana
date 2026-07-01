@@ -316,8 +316,17 @@ CaseDetail.tsx, config.py, models.py, routes.py.
 - NOTE: 1 FLAKY vitest test (async render timeout under CPU load; passes 2/3 runs). Stabilize in P6 polish.
 - NOTE: index bundle chunk grew ~248→489kB (recharts still split). Restore code-splitting in Coupling wave
   (likely settings-sections registry / dashboard eagerly pulled into entry). Check bundle-first-paint stays green.
-- WAVE STATUS: W0 done; Settings done; Dashboard done; Codemod+CaseDetail done; RULES G6 running (wf_fa238eab-20e);
-  next: Custom-Dash G7 → Coupling G8 (+restore code-splitting, remaining bugs #3,#9,#11,#13,#14) → A11y → P5 → P6 → P7.
+- b661bc8 feat(round5): rules customization G6 (Detection&Rules home+editor+preview+versioning; bugs#6/#9/#12).
+  1535 pytest / 529 vitest. preview zero-UsageDoc verified.
+- 830e836 feat(round5): custom dashboards G7 (widget registry + lazy RGL grid + per-user persistence).
+  1550 pytest / 582 vitest. react-grid-layout ^2.2.3 lazy (49kB own chunk, absent from entry).
+- WAVE STATUS: W0/Settings/Dashboard/Codemod+CaseDetail/RULES G6/CUSTOM-DASH G7 DONE. COUPLING G8 running
+  (wf_cdaad377-73f): renderPage registry + React.lazy code-splitting + useNavigate + bug#3; bounded routes.py
+  split + response_models + bug#13; entry-point registry + Protocols + bug#14 + bug#11; openapi-typescript.
+  next: A11y pass → P5 full verify + adversarial audit → P6 polish (2nd fleet, stabilize 2 flaky tests) → P7 docs.
+- Baseline before coupling: 1550 pytest / 582 vitest / build clean / 0 lint. Entry index chunk ~537kB (coupling fixes).
+- FLAKY tests (stabilize in P6): account.render + Knowledge '/of 14 retrieved/' (async timeout under load).
+- ALL 6 USER FEATURE ASKS SHIPPED: G1 color, G2 design system, G3 settings, G4/G5 dashboard+hero, G6 rules, G7 custom dash.
 - CONTENTION for remaining waves: Rules+CustomDash both touch registry/nav (running Rules FIRST, then CustomDash).
   Coupling-A (useNavigate) touches ALL pages → run LAST after all page edits. routes.py split = one-slice serial.
 

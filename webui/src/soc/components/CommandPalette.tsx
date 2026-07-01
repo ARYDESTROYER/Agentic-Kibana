@@ -49,7 +49,10 @@ import { useTheme } from '@/soc/theme';
 import { useDemo } from '@/soc/demo';
 import { NAV_GROUPS, isPageId, type NavGroup, type PageId } from '@/soc/nav';
 import type { Navigate } from '@/soc/router';
-import { searchJumpTargets } from '@/soc/pages/settings/settings-sections';
+// The always-on command palette needs only the section SEARCH metadata, never a
+// Settings renderer — import from the COMPONENT-FREE meta module so the heavy Settings
+// component tree stays out of the first-paint entry chunk (Round-5 Coupling-A).
+import { searchJumpTargets } from '@/soc/pages/settings/settings-sections-meta';
 
 const RECENTS_KEY = 'tlsoc.cmdk.recents';
 const RECENTS_MAX = 6;

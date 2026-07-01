@@ -12,10 +12,10 @@ configured ``SourceType`` to its connector class).
 
 from __future__ import annotations
 
-import importlib.metadata as importlib_metadata
 import logging
 
 from ..constants import SourceType
+from ..plugins.registry import EntryPointRegistry
 from .base import Connector, ConnectorManifest, PullConnector, PushReceiver
 from .elastic import ElasticConnector
 from .opensearch import OpenSearchConnector
@@ -30,23 +30,38 @@ ENTRY_POINT_GROUP = "tlsoc.connectors"
 _BUILTIN_PULL: list[type[Connector]] = [ElasticConnector, OpenSearchConnector, WazuhConnector]
 
 
+def _connector_key(cls: type[Connector]) -> SourceType | None:
+    """The registry key for a connector class (its declared ``source_type``)."""
+    return getattr(cls, "source_type", None)
+
+
 class ConnectorRegistry:
-    """A mapping of ``SourceType`` → connector class, with manifest listing."""
+    """A mapping of ``SourceType`` → connector class, with manifest listing.
+
+    Round 5 (Coupling-F): the ``SourceType -> class`` map, ``register`` precedence
+    log, ``get`` + entry-point discovery are the shared
+    :class:`app.plugins.registry.EntryPointRegistry`; this class keeps its connector-
+    specific manifest augmentation (push-receiver ``browse`` capability + generic
+    ``setup_help``) + the pull/receiver type checks on top. Behaviour is byte-identical.
+    """
 
     def __init__(self) -> None:
-        self._classes: dict[SourceType, type[Connector]] = {}
+        self._reg: EntryPointRegistry[SourceType, type[Connector]] = EntryPointRegistry(
+            ENTRY_POINT_GROUP, _connector_key, what="connector", log=logger,
+        )
+
+    # The historical ``self._classes`` dict is preserved as a live view onto the
+    # generic's store so any in-tree caller that reached ``registry._classes`` (e.g. the
+    # demo toggle's ``._classes.pop``) keeps working byte-identically.
+    @property
+    def _classes(self) -> dict[SourceType, type[Connector]]:
+        return self._reg._items  # noqa: SLF001 — same package, deliberate live view
 
     def register(self, cls: type[Connector]) -> None:
-        st = getattr(cls, "source_type", None)
-        if st is None:
-            logger.warning("Connector %s has no source_type; skipping", cls)
-            return
-        if st in self._classes and self._classes[st] is not cls:
-            logger.info("Connector for %s overridden by %s", st.value, cls.__name__)
-        self._classes[st] = cls
+        self._reg.register(cls)
 
     def get(self, source_type: SourceType) -> type[Connector] | None:
-        return self._classes.get(source_type)
+        return self._reg.get(source_type)
 
     @staticmethod
     def _with_browse(cls: type[Connector], m: ConnectorManifest) -> ConnectorManifest:
@@ -102,12 +117,10 @@ class ConnectorRegistry:
 
     def manifests(self) -> list[ConnectorManifest]:
         """Every connector's manifest, sorted for stable wizard display."""
-        out: list[ConnectorManifest] = []
-        for cls in self._classes.values():
-            try:
-                out.append(self._with_browse(cls, cls.manifest()))
-            except Exception as exc:  # noqa: BLE001 — one bad connector must not break listing
-                logger.warning("manifest() failed for %s: %s", cls, exc)
+        out: list[ConnectorManifest] = self._reg.iter_manifests(  # type: ignore[assignment]
+            lambda cls: cls.manifest(),
+            transform=lambda cls, m: self._with_browse(cls, m),
+        )
         out.sort(key=lambda m: (m.category, m.display_name))
         return out
 
@@ -125,18 +138,7 @@ class ConnectorRegistry:
 
 def _load_entry_point_connectors(reg: ConnectorRegistry) -> None:
     """Discover out-of-tree connectors registered under ``tlsoc.connectors``."""
-    try:
-        eps = importlib_metadata.entry_points(group=ENTRY_POINT_GROUP)
-    except Exception as exc:  # noqa: BLE001 — never let discovery break startup
-        logger.warning("entry-point discovery failed: %s", exc)
-        return
-    for ep in eps:
-        try:
-            cls = ep.load()
-            reg.register(cls)
-            logger.info("Loaded connector '%s' from entry point", ep.name)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not load connector entry point '%s': %s", ep.name, exc)
+    reg._reg.discover()  # noqa: SLF001 — same package; discovery is isolated + warned
 
 
 def _build_default_registry() -> ConnectorRegistry:

@@ -219,20 +219,38 @@ def urgency_band(case: Case, prefs: Preferences) -> dict[str, Any]:
 
 
 def derive_priority(impact: str, urgency: str, matrix: PriorityMatrix) -> dict[str, Any]:
-    """ITIL Impact×Urgency → P1..P4 lookup (ADVISORY ordering only).
+    """ITIL Impact×Urgency → P1..P4 lookup (ADVISORY ordering only) — THE ONE authority.
 
-    Looks up ``"{impact}/{urgency}"`` in the operator's :class:`PriorityMatrix`,
-    falling back to ``matrix.default_priority`` for any unmapped pair. Returns
-    ``{level, impact, urgency, matched, default}``. This is pure display/ordering —
-    it MUST NEVER be passed to ``case_manager.decide()`` (a regression test pins
-    decide()'s invariance to it)."""
+    Round 5 (bug #14): this is now the SINGLE source of truth for priority derivation.
+    Both consumers — the triage chip (:func:`derive_triage`) and the shift report
+    (:func:`app.engine.shift_report.derive_priority`, which delegates here) — call it,
+    so they can never disagree on whether the matrix is enabled again.
+
+    ``matrix.enabled`` gates the DERIVATION: when the operator has NOT enabled the ITIL
+    priority grid, there is no effective priority (``level`` is ``None`` and
+    ``enabled`` is ``False``) — the previous behaviour where the chip silently derived a
+    P-level from a disabled matrix (while the shift report correctly showed none) was
+    the bug. When enabled, ``"{impact}/{urgency}"`` is looked up in the operator's
+    :class:`PriorityMatrix`, falling back to ``matrix.default_priority`` for any
+    unmapped pair.
+
+    Returns ``{level, enabled, impact, urgency, matched, default}`` where ``level`` is
+    ``None`` when the matrix is disabled. Pure display/ordering — it MUST NEVER be
+    passed to ``case_manager.decide()`` (a regression test pins decide()'s invariance)."""
+    enabled = bool(getattr(matrix, "enabled", False))
     key = f"{impact}/{urgency}"
-    level = matrix.matrix.get(key)
-    matched = level is not None
-    if not matched:
+    raw = matrix.matrix.get(key)
+    matched = raw is not None
+    if not enabled:
+        # Matrix disabled → NO effective priority (agreement with the shift report).
+        level = None
+    elif matched:
+        level = raw
+    else:
         level = matrix.default_priority
     return {
         "level": level,
+        "enabled": enabled,
         "impact": impact,
         "urgency": urgency,
         "matched": matched,

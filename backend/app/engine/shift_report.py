@@ -36,6 +36,7 @@ from ..config import PriorityMatrix, SlaPolicy
 from ..constants import CaseStatus, Verdict
 from ..models import Case
 from ..utils import now_utc, parse_es_timestamp
+from .priority import derive_priority as _derive_priority_authority
 
 # Lifecycle statuses that belong in the "needs you now" attention queue: any
 # non-terminal case is a candidate (a closed/resolved case has been worked).
@@ -337,17 +338,21 @@ def derive_priority(
     """Map an ``impact × urgency`` band pair → a P-level via the PriorityMatrix.
 
     Read-time derivation ONLY (advisory display — #3-safe; it never feeds decide()).
-    Returns None when the matrix is disabled/absent or both bands are empty. Never
-    raises; an unmapped pair falls back to ``matrix.default_priority``."""
-    if matrix is None or not getattr(matrix, "enabled", False):
+    Returns None when the matrix is disabled/absent or both bands are empty.
+
+    Round 5 (bug #14): this now DELEGATES to the ONE authority
+    :func:`app.engine.priority.derive_priority` so the shift report and the triage chip
+    can never disagree on ``matrix.enabled`` again — it simply unwraps that function's
+    ``level`` (which is ``None`` exactly when the matrix is disabled). The empty-both-
+    bands short-circuit is kept (the shift report specifically shows nothing for a case
+    with no bands). Never raises."""
+    if matrix is None:
         return None
     imp = str(impact_band or "").strip().lower()
     urg = str(urgency_band or "").strip().lower()
     if not imp and not urg:
         return None
-    key = f"{imp}/{urg}"
-    table = getattr(matrix, "matrix", {}) or {}
-    return table.get(key, getattr(matrix, "default_priority", "P3"))
+    return _derive_priority_authority(imp, urg, matrix).get("level")
 
 
 def build_shift_report(

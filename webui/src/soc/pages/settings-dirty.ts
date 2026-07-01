@@ -17,7 +17,10 @@
  * never appear in a patch.
  */
 
-import { SECTION_KEYS } from './settings/settings-sections';
+// Import from the COMPONENT-FREE metadata module (not `settings-sections.ts`) so this
+// pure helper never drags the heavy Settings renderer tree into an eager import chain
+// (Round-5 Coupling-A — keeps the first-paint entry chunk slim).
+import { SECTION_KEYS } from './settings/settings-sections-meta';
 
 /** A loose Preferences view — we only ever index it by string key here. */
 export type PrefsRecord = Record<string, unknown>;

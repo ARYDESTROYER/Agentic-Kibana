@@ -31,7 +31,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { humanizeAge, humanizeToken } from '@/lib/format';
 import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
@@ -243,6 +243,10 @@ export interface InboxProps {
 }
 
 export default function Inbox({ onNavigate }: InboxProps = {}) {
+  // Coupling-A: prop wins (test); else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   const [items, setItems] = React.useState<InboxItem[]>([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
@@ -377,9 +381,9 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
 
   const openCase = React.useCallback(
     (caseId: string) => {
-      if (onNavigate) onNavigate('cases', { caseId });
+      navigate('cases', { caseId });
     },
-    [onNavigate],
+    [navigate],
   );
 
   /* ---- derived counts + grouping ---- */

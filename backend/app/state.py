@@ -98,6 +98,60 @@ class AppState:
     def demo_active(self) -> bool:
         return self._demo is not None
 
+    # ------------------------------------------------------------------ #
+    # Public accessors for the REAL (never demo-swapped) collaborators + KV.
+    #
+    # Round 5 (Coupling-F / G8): the multi-source poller, the reset engine, and the
+    # tuning/rules/reset routers reach the REAL store side directly (even under demo
+    # mode a poll/reset/rule-write always operates on the real backend — never the
+    # throwaway demo store). These name-stable public properties are the ONE seam those
+    # collaborators depend on (the :class:`app.engine.poller_manager.PollerHost` /
+    # :class:`app.engine.reset.ResetHost` Protocols), so they no longer reach into the
+    # ``_real_*``/``_kv`` privates. Behaviour is byte-identical — same objects, just a
+    # documented public surface + a decoupling firewall. The demo-aware ``cases``/
+    # ``audit``/``pipeline`` accessors above still swap; these deliberately DO NOT.
+    # ------------------------------------------------------------------ #
+    @property
+    def real_cases(self):
+        """The REAL case store (never the demo-swapped one)."""
+        return self._real_cases
+
+    @property
+    def real_audit(self):
+        """The REAL append-only audit logger (never the demo-swapped one)."""
+        return self._real_audit
+
+    @property
+    def real_pipeline(self):
+        """The REAL investigation pipeline (never the demo-swapped one)."""
+        return self._real_pipeline
+
+    @property
+    def real_ingest_service(self):
+        """The REAL push/queue ingest service (never the demo-swapped one)."""
+        return self._real_ingest_service
+
+    @property
+    def kv(self):
+        """The shared KV doc store backing every KV-over-KVStore store (public alias
+        for the historically-private ``_kv``)."""
+        return self._kv
+
+    @property
+    def oidc_state(self):
+        """The single-use OIDC ``state``-token store (Round 5 / Coupling-F) — the
+        public seam the SSO routes use to stash/consume the Authorization-Code state
+        instead of reaching into ``_kv``. Built lazily over the shared KV; rebound on a
+        ``_wire()`` KV rebuild."""
+        store = getattr(self, "_oidc_state_store", None)
+        kv = getattr(self, "_kv", None)
+        if store is None or getattr(store, "_kv", None) is not kv:
+            from .auth.oidc import OidcStateStore
+
+            store = OidcStateStore(kv)
+            self._oidc_state_store = store
+        return store
+
     @property
     def cases(self):
         return self._demo.cases if self._demo is not None else self._real_cases
@@ -231,6 +285,13 @@ class AppState:
             es, self.secrets, self.cache, self.gateway, self.rag, self._real_cases, self._real_audit,
             source=self.log_source, playbooks=self.playbooks, memory=self.memory,
             seq_store=self.case_seq,
+            # Round 5 (Coupling-F): the realtime EventBus is a module-global singleton
+            # already available here, so inject it at construction (an optional ctor
+            # kwarg) rather than the post-hoc setter it used to be. ``notifier`` +
+            # ``automation`` still setter-inject BELOW because they depend on
+            # collaborators built AFTER the pipeline — the _wire() ordering (#6) is
+            # preserved; only this already-available collaborator moves to the ctor.
+            event_bus=self.event_bus,
         )
         self._real_chat_engine = ChatEngine(
             es, self.gateway, self._real_audit, self._real_cases, self.rag,
@@ -277,11 +338,9 @@ class AppState:
             queue_playbook_run=self._automation_queue_playbook,
         )
         self._real_pipeline.automation = self.automation
-        # Let the pipeline reach the realtime EventBus for live ``agent.step`` frames
-        # (Round-3 Wave-4). The bus is the module-global singleton (survives _wire());
-        # publishing is best-effort, post-save, #3/#11-safe — and a cheap no-op when
-        # realtime is disabled / nobody is subscribed.
-        self._real_pipeline.event_bus = self.event_bus
+        # (The realtime EventBus is now injected at pipeline CONSTRUCTION above — Round 5
+        # Coupling-F — instead of this post-hoc setter. The bus is the module-global
+        # singleton, best-effort + #3/#11-safe, and a no-op when realtime is off.)
 
         # Round-4 Wave-4: wire the EVENT-feed detection-funnel hook onto the poller so a
         # ``role=events`` feed is routed to the funnel (aggregate→rules→anomaly→batched
@@ -358,6 +417,17 @@ class AppState:
 
     def _is_sql_backend(self) -> bool:
         return self.secrets.state_backend in ("sqlite", "postgres")
+
+    def is_sql_backend(self) -> bool:
+        """Public alias for :meth:`_is_sql_backend` — the ``ResetHost`` seam the reset
+        engine uses to pick the SQL-truncate vs ES-delete clear path (Round 5)."""
+        return self._is_sql_backend()
+
+    @property
+    def sql_engine(self):
+        """The SQLAlchemy async engine when on a SQL state backend (else ``None``) —
+        the ``ResetHost`` seam for the SQL-truncate reset path (Round 5)."""
+        return self._sql_engine
 
     def _build_state_backend(self) -> None:
         """Wire the suite's OWN-state stores per ``secrets.state_backend``.
@@ -1145,6 +1215,11 @@ class AppState:
             asyncio.get_running_loop().create_task(client.close())
         except RuntimeError:
             pass  # no running loop (sync init) — closed at shutdown
+
+    def schedule_close(self, client) -> None:
+        """Public alias for :meth:`_schedule_close` — the ``PollerHost`` seam the
+        multi-source poller uses to close a per-source ES client it owns (Round 5)."""
+        self._schedule_close(client)
 
     def _build_log_source(self):
         """Construct the primary pull connector for the agent's log surface.

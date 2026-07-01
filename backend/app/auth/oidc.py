@@ -41,6 +41,13 @@ logger = logging.getLogger("tlsoc.auth.oidc")
 
 _TIMEOUT = 12.0
 
+# The KV namespace + round-trip TTL for the single-use ``state`` tokens minted for the
+# Authorization-Code flow. Round 5 (Coupling-F): the stash/consume round-trip lives
+# here (over the shared KV) instead of the route reaching into ``state._kv`` directly —
+# the route now goes through the public ``AppState.oidc_state`` accessor.
+OIDC_STATE_NS = "oidc_state"
+OIDC_STATE_TTL_SECONDS = 600  # 10 minutes for the round-trip to the IdP + back.
+
 # Provider preset discovery URLs. ``microsoft`` is templated on the tenant.
 _GOOGLE_DISCOVERY = "https://accounts.google.com/.well-known/openid-configuration"
 _MS_DISCOVERY_TMPL = "https://login.microsoftonline.com/{tenant}/v2.0/.well-known/openid-configuration"
@@ -281,3 +288,62 @@ class OidcProvider:
             if mapped:
                 return str(mapped)
         return self.default_role
+
+
+class OidcStateStore:
+    """Single-use ``state``-token round-trip over the shared KV (Round 5 / Coupling-F).
+
+    The SSO Authorization-Code flow mints a ``state`` token, stashes the pending
+    request (provider/nonce/redirect_uri + a short TTL) under it, and validates +
+    consumes it exactly once on the IdP callback. This used to be inline route code
+    reaching straight into ``AppState._kv``; it now lives here (its natural home — this
+    module already owns the ``oidc_state`` namespace) and is exposed via the PUBLIC
+    ``AppState.oidc_state`` accessor, so the route no longer touches a private.
+
+    Backend-agnostic (any :class:`app.stores.base.KVStore`); never raises out of the
+    happy path (a KV glitch degrades to "state not found" → the flow safely rejects).
+    """
+
+    def __init__(self, kv: Any) -> None:
+        self._kv = kv
+
+    async def stash(self, state_tok: str, record: dict[str, Any]) -> None:
+        """Persist the pending SSO request under ``state_tok`` with a TTL epoch.
+
+        Mirrors the historical route write byte-for-byte (``expires_at`` iso +
+        ``expires_epoch`` = now + TTL). Best-effort; never raises."""
+        import time as _t
+
+        payload = {
+            **record,
+            "expires_epoch": int(_t.time()) + OIDC_STATE_TTL_SECONDS,
+        }
+        try:
+            await self._kv.put(OIDC_STATE_NS, state_tok, payload)
+        except Exception as exc:  # noqa: BLE001 — a stash glitch fails the flow safely later
+            logger.warning("OIDC state stash failed: %s", exc)
+
+    async def consume(self, state_tok: str) -> dict[str, Any] | None:
+        """Validate + SINGLE-USE consume a stored ``state`` token.
+
+        Returns the stored record when present, unexpired and not already used; else
+        ``None`` (unknown / replayed / expired). Consumption marks the record ``used``
+        (the KV has no delete) so a replay finds it consumed. Never raises."""
+        import time as _t
+
+        if not state_tok:
+            return None
+        try:
+            rec = await self._kv.get(OIDC_STATE_NS, state_tok)
+        except Exception as exc:  # noqa: BLE001 — a read glitch rejects the flow safely
+            logger.warning("OIDC state read failed: %s", exc)
+            return None
+        if not isinstance(rec, dict) or rec.get("used"):
+            return None
+        if int(rec.get("expires_epoch", 0) or 0) < int(_t.time()):
+            return None
+        try:
+            await self._kv.put(OIDC_STATE_NS, state_tok, {**rec, "used": True})
+        except Exception:  # noqa: BLE001 — single-use marking is best-effort
+            pass
+        return rec

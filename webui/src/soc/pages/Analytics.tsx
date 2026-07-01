@@ -17,7 +17,7 @@
  * happens inside Metrics/Cost, which render backend-derived values as plain text.
  */
 import { BarChart3 } from 'lucide-react';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
 import Metrics from './Metrics';
 
@@ -28,6 +28,11 @@ export interface AnalyticsProps {
 }
 
 export default function Analytics({ onNavigate, tab }: AnalyticsProps = {}) {
+  // Coupling-A: the host resolves navigate once (prop wins for tests) and threads it +
+  // the tab round-trip into the embedded Metrics — App no longer prop-drills onNavigate.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   return (
     <div className="space-y-6">
       <PageHeader
@@ -38,9 +43,9 @@ export default function Analytics({ onNavigate, tab }: AnalyticsProps = {}) {
       />
       <Metrics
         embedded
-        onNavigate={onNavigate}
+        onNavigate={navigate}
         tab={tab}
-        onTabChange={(next) => onNavigate?.('metrics', { tab: next })}
+        onTabChange={(next) => navigate('metrics', { tab: next })}
       />
     </div>
   );

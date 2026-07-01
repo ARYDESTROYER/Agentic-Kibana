@@ -45,7 +45,7 @@ import type { StandupResponse } from '@/lib/types';
 import { DASH, fmtNumber, humanizeAge, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/soc/auth';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 
 import { HeroPanel } from '@/soc/components/HeroPanel';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -144,6 +144,11 @@ interface StandupProps {
 /* ============================================================== component == */
 
 export default function Standup({ onNavigate }: StandupProps) {
+  // Coupling-A: prop wins (host/test); else resolve navigate from the router context.
+  // Threaded down to the drill-through cards as `onNavigate` (their internal wiring).
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   const { username } = useAuth();
   const [windowId, setWindowId] = React.useState<string>('24');
   const [windowSeeded, setWindowSeeded] = React.useState(false);
@@ -358,11 +363,11 @@ export default function Standup({ onNavigate }: StandupProps) {
       {!loading && !error && !disabled && report ? (
         <>
           {/* ATTENTION QUEUE — the lead. */}
-          <AttentionQueueCard attention={attention} onNavigate={onNavigate} />
+          <AttentionQueueCard attention={attention} onNavigate={navigate} />
 
           {/* SLA + workload. */}
           <div className="grid gap-5 lg:grid-cols-2">
-            <SlaCard sla={sla} onNavigate={onNavigate} />
+            <SlaCard sla={sla} onNavigate={navigate} />
             <WorkloadCard workload={workload} />
           </div>
 

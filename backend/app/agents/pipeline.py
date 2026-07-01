@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..audit.audit_log import AuditLogger
 from ..cache import Cache
@@ -61,6 +61,9 @@ class InvestigationPipeline:
         playbooks: "PlaybookRegistry | None" = None,
         memory: "MemoryStore | None" = None,
         seq_store: "SequenceStore | None" = None,
+        notifier: Any = None,
+        automation: Any = None,
+        event_bus: Any = None,
     ) -> None:
         self._es = es
         # The agent's read-only log surface. Defaults to wrapping ``es`` in an
@@ -83,23 +86,26 @@ class InvestigationPipeline:
         # Case-number sequence store (F7). None → case_number stays "" and the UI
         # falls back to case_id (today's behaviour).
         self._seq_store = seq_store
-        # Optional fire-and-forget notification dispatcher (F5 / Wave 4), wired by
-        # AppState AFTER construction. None → no notifications (today's behaviour). It
-        # is called ONLY after apply()+save and never alters the case decision (#3).
-        self.notifier = None
-        # Optional threshold-automation executor (F10 / Wave 6), wired by AppState
-        # AFTER construction. None → no automation (today's behaviour). It runs ONLY
-        # after apply()+save and may ONLY tag/recommend/notify/queue a re-investigation/
-        # open a HITL Proposal — it NEVER sets case.status/disposition (#3).
-        self.automation = None
+        # Optional fire-and-forget notification dispatcher (F5 / Wave 4). Round 5
+        # (Coupling-F): promoted to an optional CTOR kwarg (still assignable after
+        # construction — AppState sets it once the dispatcher is built). None → no
+        # notifications (today's behaviour). It is called ONLY after apply()+save and
+        # never alters the case decision (#3).
+        self.notifier = notifier
+        # Optional threshold-automation executor (F10 / Wave 6). Round 5: promoted to an
+        # optional CTOR kwarg (still post-settable). None → no automation (today's
+        # behaviour). It runs ONLY after apply()+save and may ONLY tag/recommend/notify/
+        # queue a re-investigation/open a HITL Proposal — never sets status/disposition (#3).
+        self.automation = automation
         # Optional realtime EventBus for live ``agent.step`` progress frames (Round-3
-        # Wave-4). DEFAULT None → resolved lazily from the module singleton so this
-        # works with zero integrator wiring (mirrors AppState.event_bus); set
-        # explicitly only to inject a test/alternate bus. Publishing is ALWAYS
-        # best-effort + fully isolated: it NEVER changes decide()/the ledger and a bus
-        # error can never break the pipeline (#3/#11). When realtime is disabled nobody
-        # subscribes and publish is a cheap history-only no-op.
-        self.event_bus = None
+        # Wave-4). Round 5: promoted to an optional CTOR kwarg (still post-settable).
+        # DEFAULT None → resolved lazily from the module singleton so this works with
+        # zero integrator wiring (mirrors AppState.event_bus); set explicitly only to
+        # inject a test/alternate bus. Publishing is ALWAYS best-effort + fully isolated:
+        # it NEVER changes decide()/the ledger and a bus error can never break the
+        # pipeline (#3/#11). When realtime is disabled nobody subscribes and publish is a
+        # cheap history-only no-op.
+        self.event_bus = event_bus
         # Per-cluster-signature locks (Round-4 harden). The poller fan-out
         # (:class:`PollerManager`) runs per-source pollers CONCURRENTLY, so two ticks /
         # sources correlating the SAME cluster signature could both run the

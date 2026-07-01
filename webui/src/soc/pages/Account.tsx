@@ -34,6 +34,7 @@ import type { AccountProfile, AccountProfileBody } from '@/lib/types';
 import { resizeAvatar, initialsFrom } from '@/lib/avatar';
 import { humanizeToken, formatTimestamp, DASH } from '@/lib/format';
 import { useAuth } from '@/soc/auth';
+import { useNavigateOptional } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -144,9 +145,13 @@ const AvatarBlock: React.FC<{ src?: string; name: string; size?: number }> = ({
 };
 
 export default function Account({ onNavigate }: AccountPageProps) {
-  // Standalone route: the "Security & two-factor" button navigates to the
-  // standalone Security page (cutover-safe).
-  return <AccountInner onNavigateToSecurity={() => onNavigate?.('security')} />;
+  // Standalone route (cutover-safe; `#/account` normally redirects into Settings): the
+  // "Security & two-factor" button navigates to the Security page. Coupling-A — an
+  // explicit prop still wins, else resolve navigate from the router context.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
+  return <AccountInner onNavigateToSecurity={() => navigate('security')} />;
 }
 
 export interface AccountInnerProps {

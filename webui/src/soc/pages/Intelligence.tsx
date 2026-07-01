@@ -16,7 +16,7 @@
  * and `#/intelligence` deep-links land on the right sub-view.
  */
 import { Library, Boxes, Brain, BookOpenCheck } from 'lucide-react';
-import type { Navigate } from '@/soc/router';
+import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { TabbedPage } from '@/soc/components/TabbedPage';
 import Knowledge from './Knowledge';
 import Memory from './Memory';
@@ -29,6 +29,11 @@ export interface IntelligenceProps {
 }
 
 export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}) {
+  // Coupling-A: the host resolves navigate once (prop wins for tests) and threads it +
+  // the tab round-trip into its sub-views — App no longer prop-drills onNavigate.
+  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  const contextNavigate = useNavigateOptional();
+  const navigate = onNavigate ?? contextNavigate;
   return (
     <TabbedPage
       header={{
@@ -39,25 +44,25 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
           'Everything the agents know — the RAG knowledge corpus, durable operator memory, and the playbooks & agents catalog.',
       }}
       value={tab}
-      onValueChange={(next) => onNavigate?.('intelligence', { tab: next })}
+      onValueChange={(next) => navigate('intelligence', { tab: next })}
       tabs={[
         {
           value: 'knowledge',
           label: 'Knowledge',
           icon: Boxes,
-          content: <Knowledge embedded onNavigate={onNavigate} />,
+          content: <Knowledge embedded onNavigate={navigate} />,
         },
         {
           value: 'memory',
           label: 'Memory',
           icon: Brain,
-          content: <Memory embedded onNavigate={onNavigate} />,
+          content: <Memory embedded onNavigate={navigate} />,
         },
         {
           value: 'catalog',
           label: 'Playbooks & Agents',
           icon: BookOpenCheck,
-          content: <Catalog embedded onNavigate={onNavigate} />,
+          content: <Catalog embedded onNavigate={navigate} />,
         },
       ]}
     />

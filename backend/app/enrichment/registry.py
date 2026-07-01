@@ -14,11 +14,11 @@ calls only those.
 
 from __future__ import annotations
 
-import importlib.metadata as importlib_metadata
 import logging
 from typing import TYPE_CHECKING
 
 from ..constants import IndicatorKind
+from ..plugins.registry import EntryPointRegistry
 from .base import EnrichmentProvider, ProviderManifest
 from .providers import BUILTIN_PROVIDERS
 
@@ -30,23 +30,37 @@ logger = logging.getLogger("tlsoc.enrichment.registry")
 ENTRY_POINT_GROUP = "tlsoc.enrichers"
 
 
+def _provider_key(cls: type[EnrichmentProvider]) -> str | None:
+    """The registry key for a provider class (its declared ``name``)."""
+    return getattr(cls, "name", None)
+
+
 class ProviderRegistry:
-    """A registry of :class:`EnrichmentProvider` classes, keyed by provider name."""
+    """A registry of :class:`EnrichmentProvider` classes, keyed by provider name.
+
+    Round 5 (Coupling-F): the ``name -> class`` map, ``register`` precedence log,
+    ``get`` + entry-point discovery are the shared
+    :class:`app.plugins.registry.EntryPointRegistry`; this class keeps the request-time
+    ``for_indicator`` FILTER (the whole point of the enrichment registry) + name-keyed
+    manifest listing on top. Behaviour is byte-identical.
+    """
 
     def __init__(self) -> None:
-        self._classes: dict[str, type[EnrichmentProvider]] = {}
+        self._reg: EntryPointRegistry[str, type[EnrichmentProvider]] = EntryPointRegistry(
+            ENTRY_POINT_GROUP, _provider_key, what="enrichment provider", log=logger,
+        )
+
+    # Live view of the generic's store so any caller reaching ``registry._classes``
+    # keeps working byte-identically (mirrors the connector registry).
+    @property
+    def _classes(self) -> dict[str, type[EnrichmentProvider]]:
+        return self._reg._items  # noqa: SLF001 — same package, deliberate live view
 
     def register(self, cls: type[EnrichmentProvider]) -> None:
-        name = getattr(cls, "name", None)
-        if not name:
-            logger.warning("Enrichment provider %s has no name; skipping", cls)
-            return
-        if name in self._classes and self._classes[name] is not cls:
-            logger.info("Enrichment provider '%s' overridden by %s", name, cls.__name__)
-        self._classes[name] = cls
+        self._reg.register(cls)
 
     def get(self, name: str) -> type[EnrichmentProvider] | None:
-        return self._classes.get(name)
+        return self._reg.get(name)
 
     def names(self) -> list[str]:
         return sorted(self._classes.keys())
@@ -66,12 +80,9 @@ class ProviderRegistry:
 
     def manifests(self) -> list[ProviderManifest]:
         """Every provider's manifest, sorted for stable UI display."""
-        out: list[ProviderManifest] = []
-        for cls in self._classes.values():
-            try:
-                out.append(cls.manifest())
-            except Exception as exc:  # noqa: BLE001 — one bad provider must not break listing
-                logger.warning("manifest() failed for %s: %s", cls, exc)
+        out: list[ProviderManifest] = self._reg.iter_manifests(  # type: ignore[assignment]
+            lambda cls: cls.manifest(),
+        )
         out.sort(key=lambda m: (m.display_name or m.name))
         return out
 
@@ -122,18 +133,7 @@ class ProviderRegistry:
 
 def _load_entry_point_providers(reg: ProviderRegistry) -> None:
     """Discover out-of-tree providers registered under ``tlsoc.enrichers``."""
-    try:
-        eps = importlib_metadata.entry_points(group=ENTRY_POINT_GROUP)
-    except Exception as exc:  # noqa: BLE001 — never let discovery break startup
-        logger.warning("enrichment entry-point discovery failed: %s", exc)
-        return
-    for ep in eps:
-        try:
-            cls = ep.load()
-            reg.register(cls)
-            logger.info("Loaded enrichment provider '%s' from entry point", ep.name)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not load enricher entry point '%s': %s", ep.name, exc)
+    reg._reg.discover()  # noqa: SLF001 — same package; discovery is isolated + warned
 
 
 def _build_default_registry() -> ProviderRegistry:
