@@ -10,9 +10,13 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: 'bg-card text-card-foreground border-border [&>svg]:text-foreground',
+        // NOTE: destructive/warning are LEFT BYTE-IDENTICAL (existing consumers).
         destructive:
           'border-critical/50 bg-critical/10 text-critical [&>svg]:text-critical',
         warning: 'border-warning/50 bg-warning/10 text-warning [&>svg]:text-warning',
+        // New (additive) — match the existing tint pattern.
+        success: 'border-success/50 bg-success/10 text-success [&>svg]:text-success',
+        info: 'border-info/50 bg-info/10 text-info [&>svg]:text-info',
       },
     },
     defaultVariants: {
@@ -21,17 +25,26 @@ const alertVariants = cva(
   },
 );
 
-const Alert = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>
->(({ className, variant, ...props }, ref) => (
-  <div
-    ref={ref}
-    role="alert"
-    className={cn(alertVariants({ variant }), className)}
-    {...props}
-  />
-));
+export interface AlertProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof alertVariants> {
+  /**
+   * Optional explicit icon slot. Rendered as the leading `<svg>` (same absolute
+   * position + variant color the `[&>svg]` child pattern uses), so callers can
+   * pass `icon={<CheckCircle2 />}` instead of hand-placing a first-child svg.
+   * The legacy first-child `<svg>` pattern still works unchanged.
+   */
+  icon?: React.ReactNode;
+}
+
+const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
+  ({ className, variant, icon, children, ...props }, ref) => (
+    <div ref={ref} role="alert" className={cn(alertVariants({ variant }), className)} {...props}>
+      {icon}
+      {children}
+    </div>
+  ),
+);
 Alert.displayName = 'Alert';
 
 const AlertTitle = React.forwardRef<
@@ -52,7 +65,10 @@ const AlertDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('text-sm [&_p]:leading-relaxed opacity-90', className)}
+    // Was `opacity-90` (a blanket dim that muddied the variant text color and
+    // hurt AA); the variant already carries the correct text token, so the body
+    // simply inherits it (DESIGN_STANDARD §5.2).
+    className={cn('text-sm [&_p]:leading-relaxed', className)}
     {...props}
   />
 ));

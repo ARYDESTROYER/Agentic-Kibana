@@ -11,10 +11,18 @@ export type KpiAccent =
   | 'info'
   | 'success';
 
+/**
+ * Which direction of change is GOOD for this metric.
+ *  - `'up'`   (default): higher-is-better (e.g. agreement rate, coverage).
+ *  - `'down'`: lower-is-better (e.g. MTTA/MTTR/dwell, open alerts, FP rate).
+ *  - `'none'`: neutral — color the delta muted, no judgement implied.
+ */
+export type KpiGoodDirection = 'up' | 'down' | 'none';
+
 export interface KpiDelta {
-  /** Signed delta value; sign drives the up/down arrow + color. */
+  /** Signed delta value; the SIGN drives the arrow (true direction of change). */
   value: number;
-  /** Optional pre-formatted label (e.g. "+12%"); falls back to the number. */
+  /** Optional pre-formatted label (e.g. "+12%"); falls back to |value|. */
   label?: string;
 }
 
@@ -27,10 +35,23 @@ export interface KpiTileProps {
   sub?: string;
   /** Optional leading icon. */
   icon?: LucideIcon;
-  /** Colored top accent bar. Defaults to 'primary'. */
+  /** Colored accent — a soft icon chip (default variant) or the left bar (`bar`). */
   accent?: KpiAccent;
   /** Optional trend delta shown next to the value. */
   delta?: KpiDelta;
+  /**
+   * Which direction of change counts as an improvement. COLOR encodes the
+   * judgement (improved → success, regressed → critical); the ARROW always shows
+   * the true direction of change and is never flipped. Defaults to `'up'` so no
+   * existing call site regresses (the call-site sweep is the Codemod wave).
+   */
+  goodDirection?: KpiGoodDirection;
+  /**
+   * `'default'` — soft tinted icon chip carrying the accent (KPI strip tiles).
+   * `'bar'`     — a slim colored LEFT accent bar (absorbs the former `StatCard`,
+   *               used for MTTD/MTTA/MTTR-style timing metrics).
+   */
+  variant?: 'default' | 'bar';
   /** When provided the tile becomes a keyboard-accessible button. */
   onClick?: () => void;
   /**
@@ -49,7 +70,7 @@ function slugId(label: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-/** Soft tinted chip behind the icon — the only place accent color appears. */
+/** Soft tinted chip behind the icon — the only place accent color appears (default variant). */
 const ACCENT_CHIP: Record<KpiAccent, string> = {
   primary: 'bg-primary/10 text-primary',
   critical: 'bg-critical/10 text-critical',
@@ -60,16 +81,87 @@ const ACCENT_CHIP: Record<KpiAccent, string> = {
   success: 'bg-success/10 text-success',
 };
 
+/** Slim left accent bar — used by the `bar` variant. */
+const ACCENT_BAR: Record<KpiAccent, string> = {
+  primary: 'bg-primary',
+  critical: 'bg-critical',
+  high: 'bg-high',
+  medium: 'bg-medium',
+  low: 'bg-low',
+  info: 'bg-info',
+  success: 'bg-success',
+};
+
+/**
+ * Resolve the delta into its visual + accessible facts.
+ *
+ * BUG #2 FIX (DESIGN_STANDARD §5.3): color = judgement (did the metric improve?),
+ * arrow = true direction of change (never flipped). "Open alerts +30%" must read
+ * as a REGRESSION (critical + up arrow), not green just because the sign is +.
+ */
+function resolveDelta(delta: KpiDelta, goodDirection: KpiGoodDirection) {
+  const rising = delta.value >= 0;
+  const improved =
+    goodDirection === 'none'
+      ? null
+      : goodDirection === 'up'
+        ? rising
+        : /* 'down' */ !rising;
+
+  const colorClass =
+    improved === null ? 'text-muted-foreground' : improved ? 'text-success' : 'text-critical';
+
+  const Arrow = rising ? ArrowUpRight : ArrowDownRight;
+  const directionWord = rising ? 'up' : 'down';
+  // a11y: announce BOTH the direction and the judgement (never color-only).
+  const judgement = improved === null ? '' : improved ? ', improved' : ', worse';
+  const ariaLabel = `changed ${directionWord} by ${delta.label ?? Math.abs(delta.value)}${judgement}`;
+
+  return { colorClass, Arrow, ariaLabel };
+}
+
 /**
  * AdSense-clean KPI tile: muted small-caps label, a big tabular value, and a soft
- * tinted icon chip carrying the only accent color. Border-first (hairline border,
- * no resting shadow); a static card, or — when `onClick` is set — a
- * keyboard-accessible button with focus ring + calm hover. Token-themed.
+ * tinted icon chip (or a left accent bar in `variant='bar'`) carrying the only
+ * accent color. Border-first (hairline border, no resting shadow); a static card,
+ * or — when `onClick` is set — a keyboard-accessible button with focus ring + calm
+ * hover. Token-themed. All text plain (UNTRUSTED-safe, #9).
  */
 export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
-  ({ label, value, sub, icon: Icon, accent = 'primary', delta, onClick, testId, className }, ref) => {
+  (
+    {
+      label,
+      value,
+      sub,
+      icon: Icon,
+      accent = 'primary',
+      delta,
+      goodDirection = 'up',
+      variant = 'default',
+      onClick,
+      testId,
+      className,
+    },
+    ref,
+  ) => {
     const clickable = typeof onClick === 'function';
     const kpiTestId = `kpi-${testId ?? slugId(label)}`;
+    const bar = variant === 'bar';
+
+    const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
+
+    const deltaNode = deltaFacts ? (
+      <span
+        className={cn(
+          'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
+          deltaFacts.colorClass,
+        )}
+        aria-label={deltaFacts.ariaLabel}
+      >
+        <deltaFacts.Arrow className="h-3.5 w-3.5" aria-hidden />
+        <span aria-hidden>{delta!.label ?? Math.abs(delta!.value)}</span>
+      </span>
+    ) : null;
 
     const inner = (
       <>
@@ -77,7 +169,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {label}
           </span>
-          {Icon ? (
+          {Icon && !bar ? (
             <span
               className={cn(
                 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
@@ -86,34 +178,28 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
             >
               <Icon className="h-4 w-4" aria-hidden />
             </span>
+          ) : Icon && bar ? (
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           ) : null}
         </div>
         <div className="mt-3 flex items-end gap-2">
           <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
             {value}
           </span>
-          {delta ? (
-            <span
-              className={cn(
-                'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
-                delta.value >= 0 ? 'text-success' : 'text-critical',
-              )}
-            >
-              {delta.value >= 0 ? (
-                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-              ) : (
-                <ArrowDownRight className="h-3.5 w-3.5" aria-hidden />
-              )}
-              {delta.label ?? Math.abs(delta.value)}
-            </span>
-          ) : null}
+          {deltaNode}
         </div>
         {sub ? <span className="mt-2 block text-xs text-muted-foreground">{sub}</span> : null}
       </>
     );
 
-    const base =
-      'relative h-full overflow-hidden rounded-lg border border-border bg-card p-5 text-left';
+    const base = cn(
+      'relative h-full overflow-hidden rounded-lg border border-border bg-card p-4 text-left',
+      bar && 'pl-5',
+    );
+
+    const barEdge = bar ? (
+      <span className={cn('absolute inset-y-0 left-0 w-0.5', ACCENT_BAR[accent])} aria-hidden />
+    ) : null;
 
     if (clickable) {
       return (
@@ -129,6 +215,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
             className,
           )}
         >
+          {barEdge}
           {inner}
         </button>
       );
@@ -136,6 +223,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
 
     return (
       <div ref={ref as React.Ref<HTMLDivElement>} data-testid={kpiTestId} className={cn(base, className)}>
+        {barEdge}
         {inner}
       </div>
     );

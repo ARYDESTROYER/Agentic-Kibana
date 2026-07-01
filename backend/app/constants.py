@@ -175,6 +175,20 @@ TUNING_NS = "tuning"
 TUNING_KEY = "tuning"
 TUNING_DOC_ID = "tuning"                # ES doc id within CONFIG_INDEX
 
+# --------------------------------------------------------------------------- #
+# Round 5 KV-store namespace (custom DASHBOARDS). Follows the SAME single-KV-
+# document pattern as every namespace above: one JSON document under ``<NS>/<KEY>``
+# whose value is ``{"dashboards": {"<user_id>": {"<dash_id>": <DashboardLayout>}}}``
+# so it needs NO new ES index / SQL table / migration. Per-user keyed (like the
+# INBOX / USER_PREFS namespaces): a user's custom dashboards live under their
+# normalised user_id bucket ('default' when auth is OFF). ADVISORY presentation
+# state only — never feeds ``case_manager.decide()`` (#3); every dashboard/widget
+# name is PLAIN data the UI render-escapes (#9).
+# --------------------------------------------------------------------------- #
+DASHBOARDS_NS = "dashboards"
+DASHBOARDS_KEY = "dashboards"
+DASHBOARDS_DOC_ID = "dashboards"        # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""

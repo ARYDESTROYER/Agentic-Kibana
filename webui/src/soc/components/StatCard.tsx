@@ -1,15 +1,14 @@
 import * as React from 'react';
-import { cn } from '@/lib/cn';
 import type { LucideIcon } from 'lucide-react';
+import { KpiTile, type KpiAccent } from './KpiTile';
 
-export type StatAccent =
-  | 'primary'
-  | 'critical'
-  | 'high'
-  | 'medium'
-  | 'low'
-  | 'info'
-  | 'success';
+/**
+ * @deprecated `StatCard` was absorbed into `KpiTile` as `variant='bar'` (W0-D D1).
+ * This is a THIN re-export kept for the one transition wave so existing call sites
+ * (Metrics/Cost/Models/BatchJobs/Overview/BaselineGauge) keep working unchanged;
+ * the Codemod wave migrates them to `<KpiTile variant="bar" .../>` directly.
+ */
+export type StatAccent = KpiAccent;
 
 export interface StatCardProps {
   /** Metric label (plain text). */
@@ -25,46 +24,24 @@ export interface StatCardProps {
   className?: string;
 }
 
-const ACCENT_BAR: Record<StatAccent, string> = {
-  primary: 'bg-primary',
-  critical: 'bg-critical',
-  high: 'bg-high',
-  medium: 'bg-medium',
-  low: 'bg-low',
-  info: 'bg-info',
-  success: 'bg-success',
-};
-
 /**
  * Big-metric card with a slim colored LEFT accent bar — used for MTTD / MTTA / MTTR
- * style timing metrics. Border-first (hairline border, no resting shadow);
- * token-themed (light + dark). All text plain (UNTRUSTED-safe).
+ * style timing metrics. Now a thin wrapper over `<KpiTile variant="bar">`; all text
+ * plain (UNTRUSTED-safe).
  */
-export const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
-  ({ label, value, sub, accent = 'primary', icon: Icon, className }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={cn(
-          'relative overflow-hidden rounded-lg border border-border bg-card p-5 pl-6',
-          className,
-        )}
-      >
-        <span
-          className={cn('absolute inset-y-0 left-0 w-0.5', ACCENT_BAR[accent])}
-          aria-hidden
-        />
-        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <span>{label}</span>
-          {Icon ? <Icon className="h-3.5 w-3.5" aria-hidden /> : null}
-        </div>
-        <div className="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-foreground">
-          {value}
-        </div>
-        {sub ? <p className="mt-2 text-xs text-muted-foreground">{sub}</p> : null}
-      </div>
-    );
-  },
+export const StatCard = React.forwardRef<HTMLElement, StatCardProps>(
+  ({ label, value, sub, accent = 'primary', icon, className }, ref) => (
+    <KpiTile
+      ref={ref}
+      variant="bar"
+      label={label}
+      value={value}
+      sub={sub}
+      accent={accent}
+      icon={icon}
+      className={className}
+    />
+  ),
 );
 StatCard.displayName = 'StatCard';
 

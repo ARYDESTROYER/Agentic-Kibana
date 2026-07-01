@@ -18,6 +18,12 @@
  * credentials. When auth is disabled this component is never mounted, so the
  * no-auth experience is untouched. All branding text is operator-set → rendered as
  * PLAIN text (#9).
+ *
+ * a11y — WCAG 2.2 §3.3.8 Accessible Authentication (Round-5 W0-E): every credential
+ * field carries the correct `autocomplete` for password-manager autofill —
+ * `username`, `current-password`, `new-password`, and `one-time-code` for the MFA /
+ * recovery-code inputs — and NONE of them block paste (no `onPaste` interception),
+ * so a manager can paste secrets and no cognitive-function test is imposed.
  */
 import * as React from 'react';
 import {

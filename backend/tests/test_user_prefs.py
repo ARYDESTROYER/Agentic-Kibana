@@ -71,6 +71,52 @@ async def test_patch_revalidates_typed_lists(app_state: AppState) -> None:
     assert len(eff["saved_views"]) == 1
 
 
+async def test_patch_deep_merges_misc_bag(app_state: AppState) -> None:
+    # Round-5 #5 fix: patching one key of the ``misc`` bag must NOT clobber the
+    # sibling keys the user already has. Previously ``patch(misc=...)`` replaced the
+    # whole bag; now it deep-merges (each top-level key replaces only its own entry).
+    store: UserPrefsStore = app_state.user_prefs
+    await store.patch("erin", misc={"terminology": {"case": "ticket"}, "density": "cozy"})
+    # A follow-up patch touching only ONE misc key keeps the others.
+    await store.patch("erin", misc={"density": "compact"})
+    got = await store.get("erin")
+    assert got.misc == {"terminology": {"case": "ticket"}, "density": "compact"}
+
+    # last_list_state + tables deep-merge the same way (add a surface, keep the rest).
+    await store.patch("erin", last_list_state={"cases": {"sort": "-created_at"}})
+    await store.patch("erin", last_list_state={"sources": {"sort": "name"}})
+    got = await store.get("erin")
+    assert set(got.last_list_state) == {"cases", "sources"}
+
+    # A scalar/list field still REPLACES wholesale (the caller sends the full value).
+    await store.patch("erin", theme_mode="dark")
+    await store.patch("erin", pinned_view_ids=["a", "b"])
+    await store.patch("erin", pinned_view_ids=["c"])
+    got = await store.get("erin")
+    assert got.theme_mode == "dark" and got.pinned_view_ids == ["c"]
+    # ...and the deep-merged misc survived all the unrelated patches.
+    assert got.misc == {"terminology": {"case": "ticket"}, "density": "compact"}
+
+
+async def test_concurrent_patches_are_cas_safe(app_state: AppState) -> None:
+    # Two interleaved writers to DIFFERENT keys must both land (no lost update). The
+    # store routes every mutation through the kv_mutate CAS helper (per-store lock +
+    # _rev retry), so a concurrent theme patch and a misc patch can't clobber each
+    # other even when scheduled together.
+    import asyncio
+
+    store: UserPrefsStore = app_state.user_prefs
+    await asyncio.gather(
+        store.patch("frank", theme_mode="dark"),
+        store.patch("frank", misc={"density": "compact"}),
+        store.add_view("frank", SavedView(name="Concurrent view", scope="cases")),
+    )
+    got = await store.get("frank")
+    assert got.theme_mode == "dark"
+    assert got.misc == {"density": "compact"}
+    assert any(v.name == "Concurrent view" for v in got.saved_views)
+
+
 def test_normalize_user_id() -> None:
     assert normalize_user_id(None) == "default"
     assert normalize_user_id("") == "default"
@@ -320,9 +366,13 @@ async def test_user_prefs_store_on_sqlite() -> None:
 
         # Empty → default bucket; patch theme; round-trips through SQLite.
         assert (await store.get("carol")).theme_mode == "system"
+        # Seed a misc key, then a second patch with a DIFFERENT misc key must DEEP-MERGE
+        # (Round-5 #5 fix) — the earlier key survives instead of being clobbered.
+        await store.patch("carol", misc={"terminology": {"case": "ticket"}})
         await store.patch("carol", theme_mode="dark", misc={"density": "compact"})
         got = await store.get("carol")
-        assert got.theme_mode == "dark" and got.misc == {"density": "compact"}
+        assert got.theme_mode == "dark"
+        assert got.misc == {"terminology": {"case": "ticket"}, "density": "compact"}
 
         # Saved-view CRUD persists across reloads (a fresh store over the same engine).
         v = await store.add_view("carol", SavedView(name="Sqlite view", scope="cases"))

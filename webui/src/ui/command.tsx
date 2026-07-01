@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Command as CommandPrimitive } from 'cmdk';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { menuItem } from '@/lib/ui-recipes';
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -98,10 +99,14 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      'relative flex cursor-default select-none items-center gap-2 rounded-md px-2.5 py-2 ' +
-        'text-sm outline-none transition-colors data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 ' +
-        'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground ' +
-        '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
+      // shared menu-item grammar (focus/selected/disabled bridging) …
+      menuItem,
+      // … with cmdk's own `data-[disabled=true]` flavor + this surface's roomier
+      // padding + icon styling (later utilities win via tailwind-merge, so the
+      // command-palette look is unchanged).
+      'rounded-md px-2.5 py-2 transition-colors',
+      'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
+      '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
       className,
     )}
     {...props}

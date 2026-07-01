@@ -1,15 +1,24 @@
 /**
- * Navigation model for the SOC console.
+ * Navigation model for the SOC console — a THIN derivation layer over the typed
+ * feature registry (`soc/registry.ts`, Round-5 W0-F F3).
  *
- * Round-2 W4 page consolidation: the rail is grouped into ≤5 top-level groups
- * (Overview / Triage / Intelligence / Analytics / Platform — Miller's 7±2) and a
- * batch of near-duplicate pages now live as tabbed sub-views of a host page rather
- * than as standalone rail items:
+ * This module used to hand-hold the whole nav array; that authoritative table now
+ * lives in {@link ./registry.FEATURES}. `nav.ts` re-exports the SAME shapes it always
+ * did — `NAV_GROUPS`, `NAV_ITEMS`, `NAV_CHILDREN`, `PageId`, `PAGE_IDS`, and the
+ * `navItem`/`navParentOf`/`navLabel`/`isPageId` helpers — DERIVED from `FEATURES`, so
+ * every existing importer (shell rail, command palette, router, breadcrumb) keeps
+ * working unchanged. This is a non-breaking migration behind existing exports; new
+ * features register in `registry.ts`, not here.
+ *
+ * Round-2 W4 page consolidation (still true): the rail is grouped into ≤5–6 top-level
+ * groups (Overview / Triage / Intelligence / Analytics / Notifications / Platform —
+ * Miller's 7±2) and a batch of near-duplicate pages live as tabbed sub-views of a host
+ * page rather than as standalone rail items:
  *
  *   - `chat`         (Workspace)    hosts Chat | Investigate.
- *   - `metrics`      (Analytics)    hosts Dashboard | Cost.
+ *   - `metrics`      (Analytics)    hosts Metrics | Cost | Models | Baseline | Batch.
  *   - `overview`     (Home)         hosts Dashboard | Standup.
- *   - `intelligence` (Intelligence) hosts Knowledge | Memory | Playbooks & Agents.
+ *   - `intelligence` (Intelligence) hosts Knowledge | Memory | Playbooks.
  *
  * The merged sub-pages keep their page ids in the union + the App.renderPage switch
  * (so old `#/cost`, `#/investigate`, … deep-links still resolve), but they are no
@@ -18,89 +27,23 @@
  */
 import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard,
-  ShieldAlert,
-  MessageSquare,
-  BarChart3,
-  ScanLine,
-  CheckCircle2,
-  Library,
-  Database,
-  ScrollText,
-  Settings,
-  Bell,
-  Gauge,
-  CalendarDays,
-  Search as SearchIcon,
-  DollarSign,
-  Cpu,
-  BookOpen,
-  Brain,
-  Workflow,
-  Inbox,
-  Users as UsersIcon,
-  ShieldCheck,
-  KeyRound,
-  MonitorSmartphone,
-  List,
-  Network,
-  SlidersHorizontal,
-  Layers,
-  Activity,
-} from 'lucide-react';
+  FEATURES,
+  FEATURE_GROUPS,
+  type FeatureChild,
+  type FeatureNode,
+  type NavGroupId,
+  type NavPerm,
+  type PageId,
+} from './registry';
 
-/** Stable page ids — the router validates the hash against these. */
-export type PageId =
-  | 'overview'
-  | 'dashboard'
-  | 'cases'
-  | 'investigate'
-  | 'chat'
-  | 'intelligence'
-  | 'metrics'
-  | 'models'
-  | 'scans'
-  | 'standup'
-  | 'catalog'
-  | 'playbooks'
-  | 'approvals'
-  | 'knowledge'
-  | 'memory'
-  | 'sources'
-  | 'cost'
-  | 'inbox'
-  | 'account'
-  | 'sessions'
-  | 'settings'
-  | 'security'
-  | 'roles'
-  | 'users'
-  | 'audit'
-  | 'admin_sessions'
-  | 'logs'
-  | 'campaigns'
-  | 'tuning'
-  | 'batchjobs'
-  | 'baseline';
-
-export type NavGroupId =
-  | 'overview'
-  | 'triage'
-  | 'intelligence'
-  | 'analytics'
-  | 'notifications'
-  | 'platform';
+/* Re-export the id/group/perm contracts unchanged (they now live in registry.ts). */
+export type { PageId, NavGroupId, NavPerm } from './registry';
 
 /**
- * A permission requirement (`resource:action`) gating a nav item. When present,
- * the shell hides the item from users without the grant. Items without a `perm`
- * are always shown (back-compat: visible when auth/RBAC are off).
+ * A top-level rail destination. Structurally identical to a non-hidden
+ * {@link FeatureNode} (id/label/icon/group/perm/children) — kept as its own named
+ * type for the exact back-compat shape existing importers rely on (icon required).
  */
-export interface NavPerm {
-  resource: string;
-  action: string;
-}
-
 export interface NavItem {
   id: PageId;
   label: string;
@@ -138,155 +81,42 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-export const NAV_GROUPS: NavGroup[] = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    items: [
-      // Host page: hosts the posture Dashboard + the daily Standup as sub-tabs.
-      // Expandable (Round-3): the disclosure surfaces those tabs as direct
-      // destinations so they are reachable from the rail, not only via Cmd-K.
-      {
-        id: 'overview',
-        label: 'Overview',
-        icon: LayoutDashboard,
-        group: 'overview',
-        children: [
-          { id: 'dashboard', label: 'Dashboard', icon: Gauge },
-          { id: 'standup', label: 'Standup', icon: CalendarDays },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'triage',
-    label: 'Triage',
-    items: [
-      { id: 'cases', label: 'Cases', icon: ShieldAlert, group: 'triage' },
-      { id: 'campaigns', label: 'Campaigns', icon: Network, group: 'triage', perm: { resource: 'cases', action: 'read' } },
-      { id: 'logs', label: 'Logs', icon: List, group: 'triage', perm: { resource: 'sources', action: 'read' } },
-      // Host page: Workspace = Chat | Investigate (ONE chat engine, CLAUDE.md).
-      {
-        id: 'chat',
-        label: 'Workspace',
-        icon: MessageSquare,
-        group: 'triage',
-        children: [
-          { id: 'chat', label: 'Chat', icon: MessageSquare },
-          { id: 'investigate', label: 'Investigate', icon: SearchIcon },
-        ],
-      },
-      { id: 'scans', label: 'Automated scans', icon: ScanLine, group: 'triage' },
-      { id: 'approvals', label: 'Approvals', icon: CheckCircle2, group: 'triage' },
-    ],
-  },
-  {
-    id: 'intelligence',
-    label: 'Intelligence',
-    items: [
-      // Host page: Intelligence = Knowledge | Memory | Playbooks & Agents.
-      {
-        id: 'intelligence',
-        label: 'Intelligence',
-        icon: Library,
-        group: 'intelligence',
-        children: [
-          { id: 'knowledge', label: 'Knowledge', icon: BookOpen },
-          { id: 'memory', label: 'Memory', icon: Brain },
-          { id: 'playbooks', label: 'Playbooks', icon: Workflow },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'analytics',
-    label: 'Analytics',
-    items: [
-      // Host page: Analytics = Dashboard (metrics) | Cost & usage | Models.
-      {
-        id: 'metrics',
-        label: 'Analytics',
-        icon: BarChart3,
-        group: 'analytics',
-        children: [
-          { id: 'metrics', label: 'Metrics', icon: BarChart3 },
-          { id: 'cost', label: 'Cost', icon: DollarSign },
-          { id: 'models', label: 'Models', icon: Cpu },
-          { id: 'baseline', label: 'Baseline', icon: Activity, perm: { resource: 'settings', action: 'read' } },
-          { id: 'batchjobs', label: 'Batch jobs', icon: Layers, perm: { resource: 'models', action: 'read' } },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'notifications',
-    label: 'Notifications',
-    items: [
-      // In-app notification inbox (Round-3): the bell in the top bar links here.
-      {
-        id: 'inbox',
-        label: 'Notifications',
-        icon: Bell,
-        group: 'notifications',
-        children: [{ id: 'inbox', label: 'Inbox', icon: Inbox }],
-      },
-    ],
-  },
-  {
-    id: 'platform',
-    label: 'Platform',
-    items: [
-      { id: 'sources', label: 'Sources', icon: Database, group: 'platform' },
-      // Audit-log viewer (W7c): read-only over the append-only audit (#2), gated by
-      // the `audit:view` grant (admin / auditor / soc_manager by default). Hidden for
-      // users without the grant; always visible when auth/RBAC are off (back-compat).
-      {
-        id: 'audit',
-        label: 'Audit log',
-        icon: ScrollText,
-        group: 'platform',
-        perm: { resource: 'audit', action: 'view' },
-      },
-      {
-        id: 'tuning',
-        label: 'Auto-tuning',
-        icon: SlidersHorizontal,
-        group: 'platform',
-        perm: { resource: 'automation', action: 'read' },
-      },
-      // Settings host: the disclosure surfaces the high-traffic admin sections
-      // (Users / Security / Roles / Sessions). Each child is RBAC-gated; with auth
-      // off they all show (hasPermission() === true). The Settings host page itself
-      // is always reachable (the sub-sections are deep-links into its left rail).
-      {
-        id: 'settings',
-        label: 'Settings',
-        icon: Settings,
-        group: 'platform',
-        children: [
-          { id: 'users', label: 'Users', icon: UsersIcon, perm: { resource: 'users', action: 'view' } },
-          { id: 'security', label: 'Security', icon: ShieldCheck },
-          { id: 'roles', label: 'Roles', icon: KeyRound, perm: { resource: 'roles', action: 'view' } },
-          { id: 'sessions', label: 'Sessions', icon: MonitorSmartphone },
-        ],
-      },
-    ],
-  },
-  // Round-2 Wave 4 — page + Settings IA consolidation. Pages folded into host tabs
-  // or into Settings keep their PageId + App.renderPage arm (deep-linkable, cutover
-  // safety) but are NOT top-level rail items:
-  //   - chat (Workspace) hosts:        Chat | Investigate          (#/chat?…)
-  //   - metrics (Analytics) hosts:     Dashboard | Cost            (#/metrics, #/cost)
-  //   - overview (Home) hosts:         Dashboard | Standup         (#/overview, #/standup)
-  //   - intelligence hosts:            Knowledge | Memory | Catalog
-  //   - Settings hosts (Stage 1):      Account/Security/Sessions + Users/Security/SSO
-  // The merged sub-page ids (investigate, cost, standup, knowledge, memory, catalog,
-  // account, sessions, security, users, admin_sessions) remain valid routes.
-  //
-  // Round-3 expandable nav: these consolidated sub-pages are now ALSO surfaced as
-  // `children` of their host item above (so they are reachable from the rail's
-  // disclosure groups), while keeping their standalone PageId + App.renderPage arm.
-];
+/* -------------------------------------------------------------------------- */
+/* Derivation from the registry.                                              */
+/* -------------------------------------------------------------------------- */
+
+/** Narrow a registry child to the back-compat {@link NavChild} shape. */
+function toNavChild(c: FeatureChild): NavChild {
+  const child: NavChild = { id: c.id, label: c.label };
+  if (c.icon) child.icon = c.icon;
+  if (c.perm) child.perm = c.perm;
+  return child;
+}
+
+/** Narrow a non-hidden registry feature to the back-compat {@link NavItem} shape. */
+function toNavItem(f: FeatureNode): NavItem {
+  const item: NavItem = {
+    id: f.id,
+    label: f.label,
+    // Every rail feature carries an icon; fall back defensively so the type holds.
+    icon: (f.icon ?? (undefined as unknown as LucideIcon)),
+    group: f.group,
+  };
+  if (f.perm) item.perm = f.perm;
+  if (f.children && f.children.length) item.children = f.children.map(toNavChild);
+  return item;
+}
+
+/**
+ * The rail groups, derived from {@link FEATURES}: for each declared group (in order),
+ * collect its non-hidden features (in registry order). Groups with no visible items
+ * are omitted, matching the old hand-written array (which had none empty).
+ */
+export const NAV_GROUPS: NavGroup[] = FEATURE_GROUPS.map((g) => ({
+  id: g.id,
+  label: g.label,
+  items: FEATURES.filter((f) => !f.hidden && f.group === g.id).map(toNavItem),
+})).filter((g) => g.items.length > 0);
 
 /** Flat list of all top-level nav items shown in the rail (lookups + command palette). */
 export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
@@ -295,45 +125,20 @@ export const NAV_ITEMS: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 export const NAV_CHILDREN: NavChild[] = NAV_ITEMS.flatMap((i) => i.children ?? []);
 
 /**
- * Every ROUTABLE page id — the rail items PLUS the consolidated sub-pages that are
- * no longer rail items but remain valid deep-link targets (Round-2 W4, Round-3
- * disclosure children). The router validates the hash against this set so
- * `#/cost`, `#/investigate`, `#/standup`, `#/knowledge`, `#/memory`, `#/catalog`,
- * `#/dashboard`, `#/models`, `#/playbooks`, `#/roles`, and the Settings-folded
- * account/sessions/security/users/admin_sessions routes still resolve to their
- * App.renderPage arm instead of falling back to Overview.
- *
- * NOTE: `dashboard`, `models`, `playbooks`, `roles`, `inbox` are rendered by other
- * builders / the integrator in App.renderPage; nav points at them here.
- */
-const HIDDEN_ROUTE_IDS: PageId[] = [
-  'dashboard',
-  'investigate',
-  'cost',
-  'models',
-  'standup',
-  'knowledge',
-  'memory',
-  'catalog',
-  'playbooks',
-  'account',
-  'sessions',
-  'security',
-  'roles',
-  'users',
-  'admin_sessions',
-];
-
-/**
- * All valid page ids (rail items + their disclosure children + hidden-but-routable
- * consolidated sub-pages). De-duplicated because some children (e.g. `chat`,
- * `metrics`, `inbox`) share an id with their host item.
+ * All valid page ids — the rail items PLUS their disclosure children PLUS the
+ * hidden-but-routable consolidated sub-pages (Round-2 W4, Round-3 disclosure). The
+ * router validates the hash against this set so `#/cost`, `#/investigate`,
+ * `#/standup`, `#/knowledge`, `#/memory`, `#/catalog`, `#/dashboard`, `#/models`,
+ * `#/playbooks`, `#/roles`, and the Settings-folded account/sessions/security/users/
+ * admin_sessions routes still resolve to their App.renderPage arm instead of falling
+ * back to Overview. De-duplicated because some children (e.g. `chat`, `metrics`,
+ * `inbox`) and hidden entries share an id with a rail item.
  */
 export const PAGE_IDS: PageId[] = Array.from(
   new Set<PageId>([
     ...NAV_ITEMS.map((i) => i.id),
     ...NAV_CHILDREN.map((c) => c.id),
-    ...HIDDEN_ROUTE_IDS,
+    ...FEATURES.map((f) => f.id),
   ]),
 );
 

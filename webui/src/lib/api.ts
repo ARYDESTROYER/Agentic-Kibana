@@ -16,19 +16,25 @@ import type {
   AuditQuery,
   AuditResponse,
   AuthMe,
+  AutoClosePolicy,
+  BaselineConfig,
+  BatchConfig,
   Branding,
   BulkResult,
+  CampaignConfig,
   Case,
   CaseActionInput,
   CaseIdPreview,
   CaseRationale,
   CasesResponse,
+  CaseStatus,
   ChatResponse,
   ChatTurn,
   ColumnState,
   ConnectionTest,
   ConnectorManifest,
   ConnectorsResponse,
+  DashboardLayout,
   DemoConfig,
   DemoStatus,
   EffectivePrefs,
@@ -51,6 +57,7 @@ import type {
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
+  RuleDefinition,
   SavedView,
   Proposal,
   ProposalsResponse,
@@ -146,6 +153,70 @@ export interface MemoryPatch {
   category?: string;
   tags?: string[];
   active?: boolean;
+}
+
+// --------------------------------------------------------------------------- //
+// Round-5 W0-F F2 scaffolds — payload/result contracts for the new stub
+// namespaces (`api.rules`, `api.dashboards`, `api.triage`, and the per-feature
+// `getConfig/putConfig` clients). These mirror the backend contracts that later
+// waves flesh out (Rules G6, Custom-Dash G7, F4 preview-decision, F5 typed config
+// endpoints). All are additive; the nginx `/api` proxy forwards arbitrary JSON.
+// --------------------------------------------------------------------------- //
+
+/**
+ * Input for POST /api/triage/preview-decision (F4). A thin, read-only what-if over
+ * the pure deterministic `decide()` — it NEVER bills an LLM (#6), never writes a
+ * case, and never re-implements the decision. `verdict` uses the backend `Verdict`
+ * enum values (uppercase); `policy` is optional (defaults to the live auto-close
+ * policy server-side).
+ */
+export interface PreviewDecisionInput {
+  verdict: 'FALSE_POSITIVE' | 'TRUE_POSITIVE' | 'NEEDS_HUMAN' | string;
+  /** Verdict confidence (0..1). */
+  confidence: number;
+  /** Cluster risk score (0..100). */
+  risk_score: number;
+  /** Optional candidate policy to preview; omitted → the live `prefs.auto_close`. */
+  policy?: AutoClosePolicy;
+}
+
+/**
+ * Result of POST /api/triage/preview-decision (F4). Mirrors the backend `Decision`
+ * dataclass fields the endpoint projects. `decision` is the resulting lifecycle
+ * status; `rationale` is the deterministic explanation string (both plain data, #9).
+ */
+export interface PreviewDecisionResult {
+  /** The resulting deterministic lifecycle status (a {@link CaseStatus} value). */
+  decision: CaseStatus;
+  /** Human-readable, deterministic rationale for the decision. */
+  rationale: string;
+  /** Whether the case would be flagged for priority human attention. */
+  escalate?: boolean;
+  /** Who made the decision (agent auto-close vs. system fail-safe). */
+  decision_by?: string;
+  /** When the reopen (objection) window expires, for an agent auto-close. */
+  objection_window_expires_at?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Response of GET /api/rules — the detection-rule catalog (mirrors
+ * `Preferences.rule_catalog`, a `RuleDefinition[]`). Rules ride `PUT /api/settings`
+ * today; this GET is a thin read scaffold the Rules G6 wave fleshes out.
+ */
+export interface RulesResponse {
+  rules: RuleDefinition[];
+  count?: number;
+}
+
+/**
+ * Response of GET /api/dashboards (G7). The caller's saved custom dashboards
+ * (persisted per-user under `UserPrefs.dashboards`). Every dashboard/widget name is
+ * UNTRUSTED → render as plain text / SVG `<text>` (#9).
+ */
+export interface DashboardsResponse {
+  dashboards: DashboardLayout[];
+  count?: number;
 }
 
 /** Error thrown for any non-2xx backend response. */
@@ -419,13 +490,12 @@ export const api = {
       request<AccountProfile>('PUT', 'me/avatar', { body: { avatar: value } }),
   },
 
-  // ---- OOBE first-run setup (PUBLIC status + init-admin) ---------------- //
+  // ---- OOBE first-run setup (PUBLIC status) ---------------------------- //
+  // The legacy public `POST /api/setup/init-admin` route was REMOVED in the Round-4
+  // audit (the live OOBE flow is `/api/setup/account`); the dead client stub was
+  // deleted here too (bug #10 — it POSTed a route that no longer exists).
   setup: {
     status: () => request<SetupStatus>('GET', 'setup/status'),
-    initAdmin: (username: string, password: string) =>
-      request<{ ok: boolean; username: string }>('POST', 'setup/init-admin', {
-        body: { username, password },
-      }),
   },
 
   // ---- RBAC: roles matrix + multi-user administration ------------------- //
@@ -792,6 +862,84 @@ export const api = {
   // Reject (discard) a drafted proposal. Returns ok / the updated proposal.
   rejectProposal: (id: string) =>
     request<Proposal>('POST', `proposals/${encodeURIComponent(id)}/reject`),
+
+  // ---- Round-5 W0-F F2 scaffolds (Rules G6 / Custom-Dash G7 / preview) --- //
+  // These are typed CLIENT scaffolds the feature waves flesh out. Each hits an
+  // additive backend route (the nginx `/api` proxy forwards arbitrary JSON, so no
+  // proxy change is needed). Kept in their OWN namespaces so later waves append to
+  // them without touching the rest of this module.
+
+  // ---- Detection-rule catalog (G6) ------------------------------------- //
+  // The rule catalog rides `Preferences.rule_catalog` (a `RuleDefinition[]`) via
+  // `PUT /api/settings` today; these are the dedicated read/write scaffolds the
+  // Rules wave builds on. Rule `name`/`match.field`/`match.value` are operator-
+  // authored + LOG-adjacent → render as plain text (#9); `model_override` never
+  // echoes a key (#10). Editors are config-writers — they NEVER touch `decide()`.
+  rules: {
+    list: () => request<RulesResponse>('GET', 'rules'),
+    save: (rules: RuleDefinition[]) =>
+      request<RulesResponse>('PUT', 'rules', { body: { rules } }),
+  },
+
+  // ---- Custom dashboards (G7) ------------------------------------------ //
+  // Per-user saved dashboards (persisted under `UserPrefs.dashboards`; the
+  // `DashboardStore` is zero-migration KV). Every dashboard/widget name is
+  // UNTRUSTED → plain text / SVG `<text>` (#9); the widget TYPE is server-
+  // allowlisted on write. Layout is presentation-only (advisory, never feeds #3).
+  dashboards: {
+    list: () => request<DashboardsResponse>('GET', 'dashboards'),
+    create: (dashboard: DashboardLayout) =>
+      request<DashboardLayout>('POST', 'dashboards', { body: dashboard }),
+    update: (id: string, dashboard: DashboardLayout) =>
+      request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, {
+        body: dashboard,
+      }),
+    remove: (id: string) =>
+      request<{ ok: boolean; id: string }>(
+        'DELETE',
+        `dashboards/${encodeURIComponent(id)}`,
+      ),
+    // Copy a role-default (or any) dashboard into the caller's personal set for
+    // customization (clone-to-customize on first edit).
+    clone: (id: string) =>
+      request<DashboardLayout>('POST', `dashboards/${encodeURIComponent(id)}/clone`),
+  },
+
+  // ---- Deterministic decision preview (F4) ----------------------------- //
+  // A read-only what-if over the pure `decide()`. It NEVER bills an LLM (#6),
+  // never writes a case, and never re-implements the decision — it just shows what
+  // the deterministic policy WOULD do for a given (verdict, confidence, risk).
+  triage: {
+    previewDecision: (input: PreviewDecisionInput) =>
+      request<PreviewDecisionResult>('POST', 'triage/preview-decision', { body: input }),
+  },
+
+  // ---- Per-feature typed config clients (F5) --------------------------- //
+  // Mirror `routes_tuning`'s `GET/PUT /tuning/config` for the other Round-4 engine
+  // blocks. GET returns `{config}`; PUT deep-merges the changed keys server-side
+  // (audited, RBAC-gated, #2) and returns `{ok, config}`. All blocks default OFF;
+  // every one is ADVISORY and NEVER feeds the deterministic decision (#3).
+  baseline: {
+    getConfig: () => request<{ config: BaselineConfig }>('GET', 'baseline/config'),
+    putConfig: (config: Partial<BaselineConfig>) =>
+      request<{ ok: boolean; config: BaselineConfig }>('PUT', 'baseline/config', {
+        body: config,
+      }),
+  },
+  campaign: {
+    getConfig: () => request<{ config: CampaignConfig }>('GET', 'campaign/config'),
+    putConfig: (config: Partial<CampaignConfig>) =>
+      request<{ ok: boolean; config: CampaignConfig }>('PUT', 'campaign/config', {
+        body: config,
+      }),
+  },
+  batch: {
+    getConfig: () => request<{ config: BatchConfig }>('GET', 'batch/config'),
+    putConfig: (config: Partial<BatchConfig>) =>
+      request<{ ok: boolean; config: BatchConfig }>('PUT', 'batch/config', {
+        body: config,
+      }),
+  },
 };
 
 export type Api = typeof api;

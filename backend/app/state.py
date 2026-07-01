@@ -151,6 +151,11 @@ class AppState:
         # so a live handle survives every _wire() rebuild (same rationale as the Round-3
         # stores). Their engines/schedulers/API are Wave-4 and do NOT run at boot.
         self._build_round4_stores()
+        # Round-5 (G7): per-user custom-dashboard store over the SAME shared KV — no new
+        # index/table/migration. Built here so a live handle survives every _wire()
+        # rebuild, exactly like the Round-3/4 stores. Advisory presentation state only
+        # (#3-safe); never read by case_manager.decide().
+        self._build_round5_stores()
         # Drop any memoised batch service so it re-binds to the freshly-built store +
         # gateway on the next access (a credential change rebuilds both).
         self._batch_service = None
@@ -493,6 +498,19 @@ class AppState:
         self.campaign_store = CampaignStore(kv)
         self.baseline_store = BaselineStore(kv)
         self.batch_job_store = BatchJobStore(kv)
+
+    def _build_round5_stores(self) -> None:
+        """Construct the Round-5 (G7) per-user custom-dashboard store over the active
+        backend's KV (the SAME shared ``self._kv`` the Round-3/4 stores use — works on
+        ES + SQL, no new index/table/migration). Takes only ``self._kv`` so it survives
+        every ``_wire()`` rebuild, exactly like ``_build_round4_stores`` above.
+
+        The store holds ONLY advisory presentation state (a user's saved dashboard
+        layouts). NONE of it feeds the deterministic ``case_manager.decide()`` (#3);
+        every dashboard/widget name is PLAIN data the UI render-escapes (#9)."""
+        from .stores.dashboards import DashboardStore
+
+        self.dashboards = DashboardStore(self._kv)
 
     @property
     def enrichment_registry(self):

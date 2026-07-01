@@ -29,14 +29,102 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
-from ..constants import ActionType
+from ..config import AutoClosePolicy
+from ..constants import ActionType, CaseStatus, Verdict
 from ..engine.case_manager import decide
 from ..engine.priority import derive_triage
 from ..models import TraceSpan
 from .deps import get_state, require_permission
 
 router = APIRouter(prefix="/api")
+
+
+# --------------------------------------------------------------------------- #
+# POST /api/triage/preview-decision — pure what-if over decide() (#3 made safe)
+# --------------------------------------------------------------------------- #
+class _PreviewDecisionIn(BaseModel):
+    """What-if inputs for the deterministic auto-close decision.
+
+    The three positional inputs the pure ``decide()`` takes, plus an OPTIONAL
+    ``policy`` to preview a candidate ``AutoClosePolicy`` (e.g. a Settings draft the
+    operator has not saved yet). When ``policy`` is omitted the LIVE
+    ``prefs.auto_close`` is used, so the caller sees exactly what the running system
+    would decide for these inputs. ``escalation_confidence`` / ``critical_severity``
+    default to the live prefs when omitted (they only affect the advisory ``escalate``
+    flag, never the close/route decision)."""
+
+    verdict: Verdict | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    risk_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    policy: AutoClosePolicy | None = None
+    escalation_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    critical_severity: float | None = Field(default=None, ge=0.0)
+
+
+@router.post("/triage/preview-decision")
+async def preview_decision(
+    body: _PreviewDecisionIn,
+    state: "Any" = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """A pure what-if wrapper over the deterministic ``case_manager.decide()``.
+
+    Given ``{verdict, confidence, risk_score, policy?}`` it RE-USES the SAME pure
+    ``decide()`` the running pipeline calls (imported, never re-implemented) and returns
+    its verbatim result ``{decision, rationale}``. It exists so the Settings/Rules UI can
+    show — before saving — what the live auto-close policy (or a candidate ``policy``)
+    would do for a hypothetical verdict, WITHOUT the risk of ever drifting from the real
+    decision code.
+
+    ⛔ Read-only + side-effect-free (#3/#6/#2):
+      * NEVER bills the LLM — no gateway call, so ZERO ``UsageDoc`` writes.
+      * NEVER writes or mutates a case, config, or any store.
+      * NEVER touches / re-implements / re-derives ``decide()`` — it calls the one true
+        pure function, which is byte-identical and has no side effects.
+
+    ``policy`` defaults to the LIVE ``prefs.auto_close``; ``escalation_confidence`` /
+    ``critical_severity`` default to the live prefs (they only flag the advisory
+    ``escalate`` band). RBAC: ``cases:read``."""
+    prefs = state.prefs
+    policy = body.policy if body.policy is not None else prefs.auto_close
+    esc_conf = (
+        body.escalation_confidence
+        if body.escalation_confidence is not None
+        else prefs.escalation_confidence
+    )
+    crit_sev = (
+        body.critical_severity
+        if body.critical_severity is not None
+        else prefs.critical_severity
+    )
+    decision = decide(
+        body.verdict,
+        body.confidence,
+        body.risk_score,
+        policy,
+        escalation_confidence=esc_conf,
+        critical_severity=crit_sev,
+    )
+    return {
+        "decision": {
+            "status": decision.status.value,
+            "decision_by": decision.decision_by.value,
+            "escalate": decision.escalate,
+            "objection_window_expires_at": decision.objection_window_expires_at,
+            "auto_closed": decision.status == CaseStatus.CLOSED,
+        },
+        "rationale": decision.rationale,
+        "inputs": {
+            "verdict": (body.verdict.value if body.verdict else None),
+            "confidence": body.confidence,
+            "risk_score": body.risk_score,
+            "escalation_confidence": esc_conf,
+            "critical_severity": crit_sev,
+            "policy_provided": body.policy is not None,
+        },
+    }
 
 
 # --------------------------------------------------------------------------- #

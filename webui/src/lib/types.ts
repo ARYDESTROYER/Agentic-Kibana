@@ -734,6 +734,12 @@ export interface CapsConfig {
   max_tokens?: number;
   timeout_seconds?: number;
   kill_switch?: boolean;
+  /**
+   * Round-4 (additive): the fan-out concurrency ceiling — how many investigations
+   * may run in parallel behind the pipeline semaphore. Defaults to 3; advisory to
+   * throughput only (never feeds the deterministic decision, #3).
+   */
+  max_concurrent?: number;
 }
 
 export interface EnrichmentConfig {
@@ -1523,11 +1529,15 @@ export interface ScanNotifications {
 }
 
 /**
- * Navigation options threaded through `Navigate` (Shell.tsx) so deep-links/
- * drill-throughs can pre-seed a destination page's filters/tab. All fields
- * optional and additive.
+ * Navigation options threaded through `Navigate` (router.tsx / App.tsx) so
+ * deep-links / drill-throughs can pre-seed a destination page's filters/tab.
+ *
+ * MOVED (Round-5 W0-F F1): the canonical definition now lives next to the shell
+ * router in `@/soc/nav-types` (it is a UI navigation contract, not a backend data
+ * mirror). This re-export shim keeps existing `import { NavOpts } from '@/lib/types'`
+ * sites working; prefer importing from `@/soc/nav-types` in new code.
  */
-export type NavOpts = { caseId?: string; status?: string; window?: number; tab?: string };
+export type { NavOpts } from '@/soc/nav-types';
 
 /**
  * Payload for POST /api/cases/{id}/action — a unified analyst action on a case
@@ -1688,6 +1698,18 @@ export interface Branding {
   support_url: string;
   /** Default colour mode for brand-new sessions (no stored user pref). */
   dark_mode_default: boolean;
+  // ---- Round-4 login white-label (all bounded PLAIN text; the server validator
+  // rejects any `<` #9). All optional/additive; "" == use default. ---- //
+  /** Login hero headline (plain text, bounded ≤120 chars), or "". */
+  login_headline?: string;
+  /** Login hero body copy (plain text, bounded ≤600 chars), or "". */
+  login_body?: string;
+  /** A few short feature bullets shown on the login hero (plain text each). */
+  login_chips?: string[];
+  /** Which login arrangement to render. */
+  login_layout?: 'split' | 'centered' | 'full' | string;
+  /** A KEY from a small curated illustration set (validated), not a URL; "" = none. */
+  login_illustration?: string;
 }
 
 // --------------------------------------------------------------------------- //
@@ -2044,4 +2066,402 @@ export interface ThreatContextPanel {
   /** Present + true when the feature is disabled in Preferences. */
   disabled?: boolean;
   [key: string]: unknown;
+}
+
+// =========================================================================== //
+// Round-5 W0-F F1 — REAL backend config-type mirrors (APPENDED SECTION).
+//
+// Hand-mirrored EXACTLY from `backend/app/config.py` + `backend/app/models.py`
+// (the source of truth). Additive + defaulted so unknown/absent fields round-trip
+// unharmed. NONE of these blocks feed the deterministic `decide()` (#3): auto-close
+// is the tunable policy `decide()` reads; tuning/batch/baseline/campaign/SLA/
+// priority are advisory/plumbing. Every operator-authored string here (rule name,
+// rule field value, dashboard/widget name, login copy) is UNTRUSTED at render →
+// plain text / SVG `<text>` / CodeBlock (#9), never markup. Secrets are NEVER
+// mirrored (#10). NOTE: `CorrelationRule`, `RiskWeights`, `CapsConfig`,
+// `FpAutoCloseConfig` and `Branding` are already defined above; `CapsConfig`
+// (`max_concurrent`) and `Branding` (`login_*`) were extended in place.
+// =========================================================================== //
+
+// ---- Auto-close policy (the field `case_manager.decide()` reads) — config.py. -- //
+/**
+ * Per-verdict-class auto-close thresholds (mirrors backend `VerdictAutoClose`).
+ *
+ * Auto-close is a normal calibration surface. The decision is enforced
+ * deterministically in `engine/case_manager.decide()` against this data; the LLM
+ * verdict feeds the policy, never bypasses it (#3). `enabled` gates auto-close for
+ * the verdict class; the confidence/risk bars + objection window tune when.
+ */
+export interface VerdictAutoClose {
+  enabled?: boolean;
+  /** Verdict confidence must be >= this (0..1). */
+  min_confidence?: number;
+  /** Cluster risk must be <= this (0..100). */
+  max_risk_score?: number;
+  /** Reopen (objection) window in minutes before a true close. */
+  objection_window_minutes?: number;
+}
+
+/**
+ * Operator-configured auto-close policy, one entry per verdict class (mirrors
+ * backend `AutoClosePolicy`). Conservative defaults: FALSE_POSITIVE may auto-close
+ * above a bar; TRUE_POSITIVE auto-close is OFF by default (explicit opt-in);
+ * NEEDS_HUMAN NEVER auto-closes — enforced in code regardless of this value.
+ * This is the field `Preferences.auto_close` that `decide()` acts on.
+ */
+export interface AutoClosePolicy {
+  false_positive?: VerdictAutoClose;
+  true_positive?: VerdictAutoClose;
+  /** Code-enforced never-auto-close; the toggle is effectively locked OFF. */
+  needs_human?: VerdictAutoClose;
+}
+
+// ---- Detection rule catalog + correlation (config.py). ---------------------- //
+/**
+ * The full set of entity types the backend correlates / groups on (mirrors backend
+ * `EntityType`). The classic per-rule ladder is ip/user/host/rule; `file_hash`/
+ * `domain` are extra keys the opt-in cross-source pass may group on.
+ */
+export type EntityTypeFull = 'ip' | 'user' | 'host' | 'file_hash' | 'domain' | 'rule';
+
+/** Per-rule correlation mode (mirrors backend `CorrelationMode`). */
+export type CorrelationMode = 'every' | 'threshold' | 'never';
+
+/**
+ * A single field predicate that classifies a raw log into a detection rule
+ * (mirrors backend `RuleMatch`). `field` is a dotted path; `op` selects the test.
+ * `field`/`value` are operator-authored + LOG-adjacent → render as plain text (#9).
+ */
+export interface RuleMatch {
+  field: string;
+  op: 'equals' | 'prefix' | 'tag' | 'exists' | string;
+  value?: string | null;
+}
+
+/**
+ * A config-driven, pre-baked-but-editable detection rule (mirrors backend
+ * `RuleDefinition`). Rules classify an event via `match`, may carry a `correlation`
+ * override + per-role `model_override`, and are evaluated in ascending `priority`
+ * (then list order). `model_override` never echoes a key (#10); its values are
+ * `ModelConfig` selections only. `name`/`description` are operator text → plain (#9).
+ */
+export interface RuleDefinition {
+  name: string;
+  enabled?: boolean;
+  description?: string;
+  match: RuleMatch;
+  correlation?: CorrelationRule | null;
+  /** Per-role model overrides for this rule (role → selection). Never carries a key. */
+  model_override?: Record<string, ModelConfig>;
+  priority?: number;
+}
+
+// NOTE: `CorrelationRule` is defined earlier in this file (Preferences section).
+// Its `group_by` there enumerates ip/user/host; the backend `EntityType` superset
+// (`EntityTypeFull`) additionally permits file_hash/domain/rule — the backend
+// validates, so wider strings round-trip. `Preferences.correlation_rules` is a
+// `Record<string, CorrelationRule>` (rule name → override); `Preferences.rule_catalog`
+// is a `RuleDefinition[]`; both are additive + defaulted (see the additions below).
+
+// ---- Asset criticality (CIDR + exact-value) — config.py. -------------------- //
+/**
+ * An internal-asset network (mirrors backend `AssetNetwork`): every IP inside
+ * `cidr` inherits `criticality` (0..100) in the deterministic risk score's
+ * asset-criticality component (max wins; falls back to the exact-value map). `cidr`
+ * is operator-authored → render as plain text (#9).
+ */
+export interface AssetNetwork {
+  cidr: string;
+  /** 0..100 criticality every IP in the CIDR inherits. */
+  criticality?: number;
+}
+
+/**
+ * The exact-value asset criticality map (mirrors backend
+ * `Preferences.asset_criticality`): entity value → 0..100 criticality. Higher
+ * precedence than the CIDR-derived value only where an exact match exists.
+ */
+export type AssetCriticalityMap = Record<string, number>;
+
+// ---- SLA policy (Round-3; advisory) — config.py. ---------------------------- //
+/**
+ * One SLA tier's response + resolution targets in minutes (mirrors backend
+ * `SlaTarget`). Advisory only — surfaces at-risk/breached badges + MTTR reporting,
+ * never gates the deterministic decision (#3).
+ */
+export interface SlaTarget {
+  response_minutes?: number;
+  resolve_minutes?: number;
+}
+
+/**
+ * Per-priority SLA response/resolution policy (mirrors backend `SlaPolicy`).
+ * Default OFF so today's behaviour is unchanged; `targets` is keyed by priority
+ * level (P1..P4). Advisory (#3). `timezone` is a plain IANA id.
+ */
+export interface SlaPolicy {
+  enabled?: boolean;
+  /** Priority level (e.g. "P1") → its SLA targets. */
+  targets?: Record<string, SlaTarget>;
+  /** When true the SLA clock runs only during business hours (default 24x7). */
+  business_hours_only?: boolean;
+  timezone?: string;
+}
+
+// ---- Priority matrix (Round-3 ITIL; advisory) — config.py. ------------------ //
+/**
+ * Impact × Urgency → Priority (P1..P4) mapping (mirrors backend `PriorityMatrix`,
+ * ITIL-style). Default OFF. Advisory: a later wave derives `Case.priority_level`
+ * from `impact_band` × `urgency_band` via this matrix; it NEVER changes the verdict
+ * or the deterministic decision (#3). `levels` are the band labels (high → low);
+ * `matrix` maps `"{impact}/{urgency}"` → a P-level.
+ */
+export interface PriorityMatrix {
+  enabled?: boolean;
+  /** Band labels high → low (drives the grid render). */
+  levels?: string[];
+  /** Fallback P-level for any unmapped impact/urgency pair. */
+  default_priority?: string;
+  /** `"{impact}/{urgency}"` → P-level. */
+  matrix?: Record<string, string>;
+}
+
+// ---- Round-4 config blocks (all default OFF/safe; ADVISORY — never feed #3). - //
+/**
+ * Nightly threshold auto-TUNING policy (mirrors backend `ThresholdTuningConfig`,
+ * all 8 fields). Default OFF. When enabled a later wave observes per-rule FP rates
+ * and PROPOSES bounded threshold adjustments (never applies them silently — the
+ * decision stays deterministic, #3).
+ */
+export interface ThresholdTuningConfig {
+  enabled?: boolean;
+  /** Minimum observations before a suggestion is considered. */
+  min_samples?: number;
+  /** Caps how far a correlation `n` may move per cadence. */
+  max_n_step?: number;
+  /** Target false-positive rate (0..1). */
+  fp_rate_target?: number;
+  /** Z-score for the Wilson confidence interval on the observed FP rate. */
+  wilson_z?: number;
+  /** EWMA smoothing factor for the running FP-rate estimate (0..1). */
+  ewma_alpha?: number;
+  /** When the tuner runs. */
+  cadence?: 'hourly' | 'nightly' | 'weekly' | 'manual' | string;
+  /** Evaluate a suggestion against recent data before it can apply (default ON). */
+  shadow_eval?: boolean;
+}
+
+/**
+ * BATCH-inference policy (mirrors backend `BatchConfig`). Default OFF. When enabled
+ * a later wave routes LOW-URGENCY investigations (at/below `severity_floor`, an OCSF
+ * severity_id 1-6) through a provider's async, discounted batch API. #6 preserved
+ * (one usage-ledger write per resolved call).
+ */
+export interface BatchConfig {
+  enabled?: boolean;
+  /** OCSF severity_id (1-6) at/below which a candidate is batch-eligible; 3 == medium. */
+  severity_floor?: number;
+  /** Providers whose batch APIs may be used. */
+  providers?: string[];
+  /** Opt into a provider's flexible / best-effort tier. */
+  flex?: boolean;
+}
+
+/**
+ * Anomaly-detection BASELINE policy (mirrors backend `BaselineConfig`). Default
+ * OFF. When enabled a later wave warms per-series streaming sketches and flags
+ * modified-z-score deviations as ANOMALY candidates (advisory — never feeds #3).
+ */
+export interface BaselineConfig {
+  enabled?: boolean;
+  /** EWMA decay half-life in days. */
+  half_life_days?: number;
+  /** `warmup_multiplier` × `min_samples` guards a cold series. */
+  warmup_multiplier?: number;
+  /** The modified-z deviation bar. */
+  modified_z_threshold?: number;
+  /** Bounds the quantile (t-digest) sketch size. */
+  tdigest_compression?: number;
+  /** How observations are bucketed for seasonality. */
+  seasonality?: 'none' | 'hour_of_day' | 'hour_of_week' | 'day_of_week' | string;
+}
+
+/**
+ * Cross-case CAMPAIGN-clustering policy (mirrors backend `CampaignConfig`). Default
+ * OFF. When enabled a later wave groups related cases (shared entities / overlapping
+ * MITRE) into a running `Campaign` for the UI (advisory — never force-merges cases
+ * or feeds #3). `cadence` is how often the clustering pass runs.
+ */
+export interface CampaignConfig {
+  enabled?: boolean;
+  cadence?: 'hourly' | 'daily' | 'weekly' | 'manual' | string;
+}
+
+/**
+ * LLM cost-budget ceiling (mirrors backend `BudgetConfig`, Round-3 cost governance).
+ * Default OFF so today's behaviour is byte-identical. When enabled the rolling spend
+ * (from the usage/cost ledger) is compared against the ceilings; a budget block
+ * affects whether an investigation RUNS — it never alters a case that DID run (#3).
+ */
+export interface BudgetConfig {
+  enabled?: boolean;
+  daily_usd?: number | null;
+  monthly_usd?: number | null;
+  /** Warn at this fraction of a ceiling (0..1). */
+  soft_warn_pct?: number;
+  /** Whether crossing a ceiling merely warns or BLOCKS further LLM spend. */
+  on_exceed?: 'warn' | 'block' | string;
+}
+
+/**
+ * Preferences.customization — ORG-level pervasive-customization defaults (mirrors
+ * backend `CustomizationConfig`). The ORG side of the two-store model, merged
+ * ORG ← USER by the cascade resolver. Superset of {@link OrgCustomization} the
+ * `/api/prefs/org` route projects; every free-text label is plain data (#9).
+ */
+export interface CustomizationConfig {
+  terminology?: Terminology;
+  default_saved_views?: SavedView[];
+  default_theme?: ThemeMode;
+  default_pinned_view_ids?: string[];
+  /** Per-role immutable default dashboards (G7 custom dashboards). */
+  default_dashboards?: Record<string, DashboardLayout>;
+  [key: string]: unknown;
+}
+
+// ---- Custom dashboards (G7) — mirrors backend `UserPrefs.dashboards` +
+// `DashboardLayout`/`DashboardWidget` (`models.py` / `stores/dashboards.py`). The
+// `react-grid-layout` item shape `{i,x,y,w,h,minW,minH,static}` IS the persistence
+// schema. `schema_version` present from day one (zero-migration KV store). Widget
+// TYPE is server-allowlisted on PUT; `title`/`name` are UNTRUSTED → plain text/SVG
+// (#9), never `dangerouslySetInnerHTML`. Layout is ADVISORY, never feeds #3. ------ //
+/**
+ * One widget placed on a custom dashboard (mirrors backend `DashboardWidget`). The
+ * grid geometry `{x,y,w,h,minW,minH,static}` doubles as the react-grid-layout item
+ * (the widget `id` is RGL's `i`). `type` is a `WidgetType` from the widget registry
+ * (server-allowlisted on PUT). `config` is declarative per-widget settings.
+ */
+export interface DashboardWidget {
+  /** Stable per-widget id (also the react-grid-layout `i`). */
+  id: string;
+  /** Widget kind — a key from the widget registry (server-allowlisted). */
+  type: string;
+  /** Grid position + size (react-grid-layout units). */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  /** Minimum grid width/height the widget may be resized to. */
+  minW?: number;
+  minH?: number;
+  /** When true the widget is pinned (not draggable/resizable). */
+  static?: boolean;
+  /**
+   * Declarative per-widget config (title, time-range, metric key, …). Values are
+   * operator-authored → render plain text / SVG `<text>` (#9), never markup.
+   */
+  config?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * One saved custom dashboard (mirrors backend `DashboardLayout`). Persisted per-user
+ * in the `DashboardStore` (KV, zero-migration) and surfaced under
+ * `UserPrefs.dashboards` (`Record<dashboardId, DashboardLayout>`). `name` is
+ * operator-authored + allowlist-validated → render as plain text (#9). Layout is
+ * advisory presentation only (never feeds the deterministic decision, #3).
+ */
+export interface DashboardLayout {
+  /** Stable dashboard id (the map key under `UserPrefs.dashboards`). */
+  id: string;
+  /** Operator-facing dashboard name (UNTRUSTED — plain text, allowlist-validated). */
+  name: string;
+  /** The widgets placed on this dashboard (their geometry is the RGL layout). */
+  widgets?: DashboardWidget[];
+  /** Store schema version (present from day one for zero-migration evolution). */
+  schema_version?: number;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+// ---- Additive Preferences fields (documented; the loose index signature on
+// `Preferences` already lets them round-trip). Declaration-merged onto the existing
+// `Preferences` interface above so a surface reading these is typed. -------------- //
+/**
+ * Additive `Preferences` fields mirrored from `config.py` in Round-5 W0-F F1.
+ * Declaration-merges onto the `Preferences` interface defined earlier; all optional
+ * + defaulted (an absent block uses the backend default). Wire keys are byte-
+ * identical to `config.py`.
+ */
+export interface Preferences {
+  /** The auto-close policy `decide()` reads (per-verdict-class thresholds). */
+  auto_close?: AutoClosePolicy;
+  /** Config-driven detection rules (empty preserves single-`rule_field` behaviour). */
+  rule_catalog?: RuleDefinition[];
+  /** Which seed version produced the built-in rules (no-op reseed guard). */
+  rule_catalog_seed_version?: number;
+  /** Per-rule model selection, keyed by rule name. Never carries a secret key (#10). */
+  rule_model_override?: Record<string, ModelConfig>;
+  /** Per-rule correlation overrides (rule name → correlation rule). */
+  correlation_rules?: Record<string, CorrelationRule>;
+  /** Exact-value asset criticality map (entity value → 0..100). */
+  asset_criticality?: AssetCriticalityMap;
+  /** CIDR-based internal-asset criticality networks. */
+  asset_networks?: AssetNetwork[];
+  /** Operator field==value suppression rules (matching events are dropped). */
+  suppression_rules?: SuppressionRuleConfig[];
+  /** Per-priority SLA response/resolution policy (advisory, #3-safe). */
+  sla?: SlaPolicy;
+  /** Impact × Urgency → Priority matrix (advisory, #3-safe). */
+  priority_matrix?: PriorityMatrix;
+  /** LLM cost-budget ceiling (governs whether an investigation runs, #3-safe). */
+  budget?: BudgetConfig;
+  /** Nightly threshold auto-tuning policy (Round-4; default OFF). */
+  threshold_tuning?: ThresholdTuningConfig;
+  /** Batch-inference cost policy (Round-4; default OFF). */
+  batch?: BatchConfig;
+  /** Anomaly-detection baseline policy (Round-4; default OFF). */
+  baseline?: BaselineConfig;
+  /** Cross-case campaign-clustering policy (Round-4; default OFF). */
+  campaign?: CampaignConfig;
+  /** ORG-level pervasive-customization defaults (terminology / views / dashboards). */
+  customization?: CustomizationConfig;
+}
+
+/**
+ * An operator field==value suppression rule (mirrors backend `SuppressionRule`).
+ * Matching events are DROPPED (not investigated). All fields beyond field/value/
+ * reason are additive provenance for agent-PROPOSED rules. `field`/`value`/`reason`/
+ * `rationale` are operator/agent text → render as plain text (#9).
+ */
+export interface SuppressionRuleConfig {
+  field: string;
+  value: string;
+  reason?: string;
+  /** Proposer's justified confidence (0..1); 1.0 for operator-authored. */
+  confidence?: number;
+  /** Why the rule exists (UNTRUSTED for agent-drafted — plain text). */
+  rationale?: string;
+  /** The closed case(s) that motivated an agent-drafted rule. */
+  source_case_ids?: string[];
+  /** "agent" when proposer-drafted, else the operator. */
+  created_by?: string;
+  /** Auto-expiry (ISO) so an agent rule self-retires; null/absent = never. */
+  expires_at?: string | null;
+  /** Operator off-switch without deleting the rule. */
+  enabled?: boolean;
+  [key: string]: unknown;
+}
+
+// ---- Custom dashboards on the per-user prefs bucket (G7). -------------------- //
+/**
+ * Additive `UserPrefs` field mirrored from backend `UserPrefs.dashboards`
+ * (`models.py`). Declaration-merges onto the `UserPrefs` interface defined earlier.
+ * Per-user saved custom dashboards, keyed by dashboard id (mirrors `saved_views`).
+ * Defaulted `{}`; zero-migration KV persistence via the `DashboardStore`.
+ */
+export interface UserPrefs {
+  /** Per-user saved custom dashboards (dashboard id → layout). */
+  dashboards?: Record<string, DashboardLayout>;
 }

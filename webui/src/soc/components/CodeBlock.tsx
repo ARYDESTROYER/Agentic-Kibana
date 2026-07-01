@@ -10,6 +10,7 @@
 import * as React from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { copyText } from '@/lib/clipboard';
 
 /** Coerce arbitrary content to a safe display string (never throws). */
 function toText(value: unknown): string {
@@ -96,18 +97,15 @@ export const CodeBlock = React.forwardRef<HTMLDivElement, CodeBlockProps>(
     );
 
     const onCopy = React.useCallback(() => {
-      const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
-      if (!clip?.writeText) return;
-      clip
-        .writeText(text)
-        .then(() => {
-          setCopied(true);
-          if (timer.current) clearTimeout(timer.current);
-          timer.current = setTimeout(() => setCopied(false), 1500);
-        })
-        .catch(() => {
-          /* clipboard denied — silently no-op */
-        });
+      // Route through copyText() so copy ALSO works over plain HTTP (non-secure
+      // context, where navigator.clipboard is undefined). Show "Copied" only on a
+      // truthy result — never claim success for a copy that never happened (bug #4).
+      void copyText(text).then((ok) => {
+        if (!ok) return;
+        setCopied(true);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1500);
+      });
     }, [text]);
 
     const showHeader = Boolean(caption) || copyable;

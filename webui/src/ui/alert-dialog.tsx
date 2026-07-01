@@ -17,6 +17,7 @@ import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cn } from '@/lib/cn';
 import { buttonVariants } from '@/ui/button';
+import { modalOverlay } from '@/lib/ui-recipes';
 
 const AlertDialog = DialogPrimitive.Root;
 const AlertDialogTrigger = DialogPrimitive.Trigger;
@@ -28,39 +29,72 @@ const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn(
-      'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
-      'data-[state=open]:animate-in data-[state=open]:fade-in-0',
-      'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
-      className,
-    )}
+    className={cn(modalOverlay, className)}
     {...props}
   />
 ));
 AlertDialogOverlay.displayName = 'AlertDialogOverlay';
 
+/**
+ * `dismissible` (default `true`) keeps the shadcn behaviour where clicking the
+ * overlay or pressing Escape closes the dialog. Pass `dismissible={false}` for a
+ * DESTRUCTIVE gate (delete a role/user, factory reset, …) so the user must make
+ * an explicit Action/Cancel choice — an errant click or stray Escape can't
+ * dismiss the guard (DESIGN_STANDARD §5.2 / map §3.16). Caller-provided
+ * `onPointerDownOutside`/`onEscapeKeyDown`/`onInteractOutside` handlers still run
+ * first and can also `preventDefault()`.
+ */
+export interface AlertDialogContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
+  dismissible?: boolean;
+}
+
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <AlertDialogPortal>
-    <AlertDialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      // role=alertdialog signals an assertive confirmation to AT.
-      role="alertdialog"
-      className={cn(
-        'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5',
-        'rounded-lg border border-border bg-card p-6 text-foreground shadow-elev2',
-        'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
-        'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
-        'duration-200',
-        className,
-      )}
-      {...props}
-    />
-  </AlertDialogPortal>
-));
+  AlertDialogContentProps
+>(
+  (
+    {
+      className,
+      dismissible = true,
+      onPointerDownOutside,
+      onEscapeKeyDown,
+      onInteractOutside,
+      ...props
+    },
+    ref,
+  ) => (
+    <AlertDialogPortal>
+      <AlertDialogOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        // role=alertdialog signals an assertive confirmation to AT.
+        role="alertdialog"
+        onPointerDownOutside={(e) => {
+          onPointerDownOutside?.(e);
+          if (!dismissible) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          onEscapeKeyDown?.(e);
+          if (!dismissible) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          onInteractOutside?.(e);
+          if (!dismissible) e.preventDefault();
+        }}
+        className={cn(
+          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5',
+          'rounded-lg border border-border bg-card p-6 text-foreground shadow-elev2',
+          'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
+          'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
+          'duration-200',
+          className,
+        )}
+        {...props}
+      />
+    </AlertDialogPortal>
+  ),
+);
 AlertDialogContent.displayName = 'AlertDialogContent';
 
 const AlertDialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

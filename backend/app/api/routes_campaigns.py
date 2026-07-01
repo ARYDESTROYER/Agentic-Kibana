@@ -39,6 +39,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..config import CampaignConfig
 from ..constants import ActionType
 from ..models import Campaign
 from ..state import AppState
@@ -57,6 +58,19 @@ def _safe(value: Any) -> str:
     renders it escaped and it is never fed back into a prompt. Bounds a runaway,
     source-influenceable string so a hostile upstream can't blow up the response."""
     return str(value)[:2000]
+
+
+def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    """In-place recursive merge of ``src`` INTO ``dst`` — a PUT deep-merges only the
+    keys the caller sent (mirrors ``routes.py:_deep_update`` + the ``PUT /api/settings``
+    contract). Absent keys keep their current value; a nested dict is merged, not
+    replaced."""
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            dst[key] = _deep_update(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
 
 
 def _campaign_json(campaign: Campaign) -> dict[str, Any]:
@@ -111,6 +125,52 @@ async def list_campaigns(
         "total": total,
         "enabled": bool(getattr(getattr(state.prefs, "campaign", None), "enabled", False)),
     }
+
+
+# --------------------------------------------------------------------------- #
+# GET / PUT /api/campaigns/config — read/update Preferences.campaign
+# (mirrors routes_tuning's GET/PUT /tuning/config; deep-merge PUT semantics)
+#
+# NB registered BEFORE the ``/campaigns/{campaign_id}`` catch-all so the literal
+# ``config`` path is not swallowed as a campaign id (FastAPI matches in order).
+# --------------------------------------------------------------------------- #
+@router.get("/campaigns/config")
+async def get_campaign_config(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """Read ``Preferences.campaign`` (the cross-case clustering policy). Read-only, no
+    secrets — the campaign block carries only cadence/enable knobs (#10)."""
+    cfg = getattr(state.prefs, "campaign", None) or CampaignConfig()
+    return {"config": cfg.model_dump(mode="json")}
+
+
+@router.put("/campaigns/config")
+async def put_campaign_config(
+    body: dict[str, Any],
+    request: Request,
+    state: AppState = Depends(get_state),
+    _perm=Depends(require_permission("cases", "read")),
+    _admin=Depends(require_admin),
+) -> dict[str, Any]:
+    """Update the ``campaign`` policy, DEEP-MERGING only the keys the caller sent onto
+    the live config (mirrors the ``PUT /api/settings`` contract). Additive + validated
+    by the Pydantic model; a campaign is ADVISORY — nothing here calls ``decide()`` (#3)
+    or touches a ``cluster_signature`` (#4). Admin-gated (a tenant-wide clustering-policy
+    change is an operator action, matching the recorrelate route). Audited (#2)."""
+    current = (getattr(state.prefs, "campaign", None) or CampaignConfig()).model_dump(mode="json")
+    merged = _deep_update(current, body or {})
+    try:
+        cfg = CampaignConfig.model_validate(merged)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid campaign config: {exc}") from exc
+    prefs = state.prefs.model_copy(update={"campaign": cfg})
+    await state.update_prefs(prefs)
+    await _audit(
+        state, request, "campaign_config_update",
+        f"enabled={cfg.enabled} cadence={cfg.cadence}",
+    )
+    return {"ok": True, "config": cfg.model_dump(mode="json")}
 
 
 # --------------------------------------------------------------------------- #

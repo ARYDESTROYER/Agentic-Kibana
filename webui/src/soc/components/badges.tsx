@@ -5,7 +5,15 @@
  * formatted numbers) — never raw free-form UNTRUSTED strings. When a value is an
  * arbitrary string the backend produced (e.g. an open-ended category), it is
  * passed through `humanizeToken` and rendered as plain text inside the Badge.
+ *
+ * a11y (Round-5 W0-E / DESIGN_STANDARD §6.1): meaning is NEVER color-only. Every
+ * semantic badge (severity/status/verdict/disposition/risk/posture/urgency) shows a
+ * `SEMANTIC_ICON` shape beside the color from the ONE palette.ts authority, so the
+ * reading survives colorblindness / monochrome (WCAG 1.4.1). The icon is decorative
+ * (`aria-hidden`) — the badge TEXT already carries the meaning — and can be turned
+ * off per call with `icon={false}` for the rare space-constrained inline use.
  */
+import type { LucideIcon } from 'lucide-react';
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { cn } from '@/lib/cn';
 import { DASH, humanizeToken, fmtPercent, toPercentValue } from '@/lib/format';
@@ -13,11 +21,26 @@ import {
   SEVERITY_COLOR,
   STATUS_COLOR,
   VERDICT_COLOR,
+  SEMANTIC_ICON,
   scoreBand,
   type ScoreBand,
 } from './palette';
 
 type Variant = NonNullable<BadgeProps['variant']>;
+
+/**
+ * Render the beside-color `SEMANTIC_ICON` shape for a semantic KEY (WCAG 1.4.1).
+ * Decorative (`aria-hidden`) — the badge text carries the meaning; the glyph is the
+ * redundant non-color channel. Sized to 12px so it sits inside the badge's `gap-1`
+ * without pushing the label. Returns null when the key has no mapped icon or the
+ * caller opted out.
+ */
+function SemanticGlyph({ iconKey, show }: { iconKey: string; show: boolean }) {
+  if (!show) return null;
+  const Icon: LucideIcon | undefined = SEMANTIC_ICON[iconKey];
+  if (!Icon) return null;
+  return <Icon className="size-3 shrink-0" aria-hidden />;
+}
 
 /**
  * Bridge a palette.ts TOKEN NAME (the ONE authority, §1.6) to a Badge variant.
@@ -99,9 +122,11 @@ export interface SeverityBadgeProps {
   className?: string;
   /** Append the raw numeric value in parens (e.g. "High (72)"). */
   showValue?: boolean;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function SeverityBadge({ severity, className, showValue }: SeverityBadgeProps) {
+export function SeverityBadge({ severity, className, showValue, icon = true }: SeverityBadgeProps) {
   const band = severityBand(severity);
   if (!band) {
     return (
@@ -113,6 +138,7 @@ export function SeverityBadge({ severity, className, showValue }: SeverityBadgeP
   const suffix = showValue && typeof severity === 'number' ? ` (${Math.round(severity)})` : '';
   return (
     <Badge variant={SEVERITY_VARIANT[band]} className={className}>
+      <SemanticGlyph iconKey={band} show={icon} />
       {SEVERITY_LABEL[band]}
       {suffix}
     </Badge>
@@ -156,12 +182,22 @@ function statusLabel(status: string): string {
   return humanizeToken(status);
 }
 
+/** Normalise a status string to a SEMANTIC_ICON key (§6.1 non-color signaling). */
+function statusIconKey(status: string): string {
+  const t = status.trim().toLowerCase();
+  if (t === 'auto_closed') return 'closed';
+  if (t === 'reopened') return 'investigating';
+  return t;
+}
+
 export interface StatusBadgeProps {
   status: string | null | undefined;
   className?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, className, icon = true }: StatusBadgeProps) {
   if (!status) {
     return (
       <Badge variant="outline" className={className}>
@@ -171,6 +207,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   }
   return (
     <Badge variant={statusVariant(status)} className={className}>
+      <SemanticGlyph iconKey={statusIconKey(status)} show={icon} />
       {statusLabel(status)}
     </Badge>
   );
@@ -190,21 +227,30 @@ function dispositionVariant(disposition: string): Variant {
   return 'secondary';
 }
 
+/** Normalise a verdict/disposition string to a SEMANTIC_ICON key (§6.1). */
+function verdictIconKey(v: string): string {
+  return v.trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 export interface DispositionBadgeProps {
   disposition: string | null | undefined;
   className?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function DispositionBadge({ disposition, className }: DispositionBadgeProps) {
+export function DispositionBadge({ disposition, className, icon = true }: DispositionBadgeProps) {
   if (!disposition || disposition.trim().toLowerCase() === 'none') {
     return (
       <Badge variant="outline" className={cn('text-muted-foreground', className)}>
+        <SemanticGlyph iconKey="undetermined" show={icon} />
         Undetermined
       </Badge>
     );
   }
   return (
     <Badge variant={dispositionVariant(disposition)} className={className}>
+      <SemanticGlyph iconKey={verdictIconKey(disposition)} show={icon} />
       {humanizeToken(disposition)}
     </Badge>
   );
@@ -225,9 +271,11 @@ function verdictVariant(verdict: string): Variant {
 export interface VerdictBadgeProps {
   verdict: string | null | undefined;
   className?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function VerdictBadge({ verdict, className }: VerdictBadgeProps) {
+export function VerdictBadge({ verdict, className, icon = true }: VerdictBadgeProps) {
   if (!verdict || verdict.trim().toLowerCase() === 'none') {
     return (
       <Badge variant="outline" className={className}>
@@ -237,6 +285,7 @@ export function VerdictBadge({ verdict, className }: VerdictBadgeProps) {
   }
   return (
     <Badge variant={verdictVariant(verdict)} className={className}>
+      <SemanticGlyph iconKey={verdictIconKey(verdict)} show={icon} />
       {humanizeToken(verdict)}
     </Badge>
   );
@@ -293,9 +342,11 @@ export interface RiskBadgeProps {
   className?: string;
   /** Prefix the label (default "Risk"). */
   label?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function RiskBadge({ score, className, label = 'Risk' }: RiskBadgeProps) {
+export function RiskBadge({ score, className, label = 'Risk', icon = true }: RiskBadgeProps) {
   if (typeof score !== 'number' || Number.isNaN(score)) {
     return (
       <Badge variant="outline" className={className}>
@@ -306,6 +357,7 @@ export function RiskBadge({ score, className, label = 'Risk' }: RiskBadgeProps) 
   const rounded = Math.max(0, Math.min(100, Math.round(score)));
   return (
     <Badge variant={riskVariant(rounded)} className={className}>
+      <SemanticGlyph iconKey={scoreBand(rounded)} show={icon} />
       {label} {rounded}
     </Badge>
   );
@@ -357,12 +409,23 @@ const POSTURE_LABEL: Record<PostureBand, string> = {
   stable: 'Stable',
 };
 
+/** Posture band → SEMANTIC_ICON severity key (§6.1), so posture shares the shape
+ *  vocabulary with severity/risk (critical/high/medium/low glyphs). */
+const POSTURE_ICON_KEY: Record<PostureBand, ScoreBand> = {
+  critical: 'critical',
+  elevated: 'high',
+  guarded: 'medium',
+  stable: 'low',
+};
+
 export interface PostureBadgeProps {
   posture: number | string | null | undefined;
   className?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function PostureBadge({ posture, className }: PostureBadgeProps) {
+export function PostureBadge({ posture, className, icon = true }: PostureBadgeProps) {
   const band = postureBand(posture);
   if (!band) {
     return (
@@ -373,6 +436,7 @@ export function PostureBadge({ posture, className }: PostureBadgeProps) {
   }
   return (
     <Badge variant={POSTURE_VARIANT[band]} className={className}>
+      <SemanticGlyph iconKey={POSTURE_ICON_KEY[band]} show={icon} />
       {POSTURE_LABEL[band]}
     </Badge>
   );
@@ -465,9 +529,11 @@ export interface UrgencyPillProps {
   riskScore?: number | null;
   status?: string | null;
   className?: string;
+  /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
+  icon?: boolean;
 }
 
-export function UrgencyPill({ createdAt, riskScore, status, className }: UrgencyPillProps) {
+export function UrgencyPill({ createdAt, riskScore, status, className, icon = true }: UrgencyPillProps) {
   const u = computeUrgency(createdAt, riskScore, status);
   if (!u) {
     return (
@@ -478,6 +544,8 @@ export function UrgencyPill({ createdAt, riskScore, status, className }: Urgency
   }
   return (
     <Badge variant={URGENCY_VARIANT[u.band]} className={cn('rounded-full', className)}>
+      {/* UrgencyBand keys (critical/high/medium/low) are SEMANTIC_ICON keys. */}
+      <SemanticGlyph iconKey={u.band} show={icon} />
       {u.label}
     </Badge>
   );

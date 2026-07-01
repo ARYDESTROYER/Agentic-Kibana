@@ -24,11 +24,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..config import BatchConfig
+from ..constants import ActionType
 from ..models import BatchJob
 from ..state import AppState
-from .deps import get_state, require_permission
+from .deps import current_username, get_state, require_permission
 
 logger = logging.getLogger("tlsoc.api.batch")
 
@@ -38,6 +40,19 @@ router = APIRouter(prefix="/api")
 def _safe(value: Any) -> str:
     """Plain, length-bounded string for the client (#9)."""
     return str(value)[:2000]
+
+
+def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    """In-place recursive merge of ``src`` INTO ``dst`` — a PUT deep-merges only the
+    keys the caller sent (mirrors ``routes.py:_deep_update`` + the ``PUT /api/settings``
+    contract). Absent keys keep their current value; a nested dict is merged, not
+    replaced."""
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            dst[key] = _deep_update(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
 
 
 def _job_json(job: BatchJob) -> dict[str, Any]:
@@ -101,3 +116,73 @@ async def get_batch_job(
     if job is None:
         raise HTTPException(status_code=404, detail="batch job not found")
     return {"job": _job_json(job)}
+
+
+# --------------------------------------------------------------------------- #
+# GET / PUT /api/batch/config — read/update Preferences.batch
+# (mirrors routes_tuning's GET/PUT /tuning/config; deep-merge PUT semantics)
+# --------------------------------------------------------------------------- #
+@router.get("/batch/config")
+async def get_batch_config(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("models", "read")),
+) -> dict[str, Any]:
+    """Read ``Preferences.batch`` (the batch-inference cost policy). Read-only, no
+    secrets — the batch block carries only routing knobs, never a credential (#10)."""
+    cfg = getattr(state.prefs, "batch", None) or BatchConfig()
+    return {"config": cfg.model_dump(mode="json")}
+
+
+@router.put("/batch/config")
+async def put_batch_config(
+    body: dict[str, Any],
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("models", "manage")),
+) -> dict[str, Any]:
+    """Update the ``batch`` policy, DEEP-MERGING only the keys the caller sent onto the
+    live config (mirrors the ``PUT /api/settings`` contract). Additive + validated by
+    the Pydantic model; #6 is untouched (this only toggles routing — the batch service
+    still writes exactly one UsageDoc per resolved call). Never touches ``decide()`` (#3).
+    Audited (#2)."""
+    current = (getattr(state.prefs, "batch", None) or BatchConfig()).model_dump(mode="json")
+    merged = _deep_update(current, body or {})
+    try:
+        cfg = BatchConfig.model_validate(merged)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid batch config: {exc}") from exc
+    prefs = state.prefs.model_copy(update={"batch": cfg})
+    await state.update_prefs(prefs)
+    await _audit(
+        state, request, "batch_config_update",
+        f"enabled={cfg.enabled} severity_floor={cfg.severity_floor} "
+        f"flex={cfg.flex} providers={','.join(cfg.providers)}",
+    )
+    return {"ok": True, "config": cfg.model_dump(mode="json")}
+
+
+# --------------------------------------------------------------------------- #
+# Audit helper (#2 — append-only)
+# --------------------------------------------------------------------------- #
+async def _audit(state: AppState, request: Request, event: str, detail: str) -> None:
+    """Append-only audit of an operator batch-config mutation (#2). Best-effort.
+
+    Uses ``USER_MGMT`` with ``surface="batch"`` — constants are frozen this wave so no
+    new ActionType is introduced (mirrors ``routes_campaigns._audit``). The actor is the
+    authenticated username when present. NEVER raises."""
+    audit = getattr(state, "audit", None)
+    if audit is None:
+        return
+    try:
+        actor = current_username(request) or ""
+    except Exception:  # noqa: BLE001 — no resolvable principal; audit anonymously
+        actor = ""
+    try:
+        await audit.record(
+            action_type=ActionType.USER_MGMT,
+            surface="batch",
+            actor=actor,
+            result_summary=f"{event}: {detail}"[:500],
+        )
+    except Exception:  # noqa: BLE001
+        pass

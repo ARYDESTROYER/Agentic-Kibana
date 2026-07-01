@@ -630,6 +630,62 @@ class ColumnState(BaseModel):
     widths: dict[str, int] = Field(default_factory=dict)  # column id → px width
 
 
+class DashboardWidget(BaseModel):
+    """One placed widget on a custom dashboard (Round 5 / G7). The geometry fields
+    (``i``/``x``/``y``/``w``/``h``/``minW``/``minH``/``static``) ARE the
+    ``react-grid-layout`` item shape: 12-column absolute grid coordinates the RGL
+    edit surface reads/writes verbatim, so the persistence schema and the layout
+    library share one contract (no adapter). ``i`` is the stable item id used both
+    as the RGL key AND the widget instance id.
+
+    ``type`` selects a widget from the client widget registry (a WidgetType enum
+    value, kept a str so an unknown/legacy type round-trips and is dropped by the
+    client's reconcile-on-load); ``options`` is the widget's declarative config
+    (title, series, source id, …) — small free-form PLAIN data the UI
+    render-escapes (#9), NEVER interpolated unfenced into a prompt. A widget layout
+    is ADVISORY presentation only — it never feeds ``case_manager.decide()`` (#3)."""
+
+    i: str = ""                                    # stable item id (RGL key + widget id)
+    type: str = ""                                 # WidgetType (client registry) — plain str
+    x: int = 0                                      # 12-col grid column
+    y: int = 0                                      # grid row
+    w: int = 4                                      # width in grid columns
+    h: int = 4                                      # height in grid rows
+    minW: int | None = None                         # min width (RGL constraint)
+    minH: int | None = None                         # min height (RGL constraint)
+    static: bool = False                            # locked (not draggable/resizable)
+    options: dict[str, Any] = Field(default_factory=dict)  # declarative widget config (#9)
+
+
+class DashboardLayout(BaseModel):
+    """One named custom dashboard (Round 5 / G7). A user owns a set of these keyed
+    by ``id`` on :attr:`UserPrefs.dashboards`. Persisted backend-agnostically as
+    part of the per-user prefs KV document — NO new index/table/migration.
+
+    ``widgets`` is the default (single-breakpoint) placement; ``layouts`` optionally
+    carries a per-breakpoint override map (``{"lg": [...], "md": [...], ...}`` — the
+    RGL responsive shape) so a dashboard can reflow at different widths. ``columns``
+    is the grid column count (12 by default). ``schema_version`` is stamped from day
+    one so a future migration can evolve the widget shape without a data reset (a
+    lower/absent version is upgraded on read by the client/store, never blocks load).
+
+    ``name`` is UNTRUSTED user input — rendered as PLAIN text/SVG by the UI, never
+    ``dangerouslySetInnerHTML`` and never a prompt instruction (#9). A dashboard is
+    ADVISORY presentation state only; it never feeds ``case_manager.decide()`` (#3)."""
+
+    id: str = Field(default_factory=lambda: new_id("dash-"))
+    name: str = ""
+    schema_version: int = 1
+    columns: int = 12
+    widgets: list[DashboardWidget] = Field(default_factory=list)
+    # Optional per-breakpoint override (RGL responsive layouts). Keyed by breakpoint
+    # name (lg/md/sm/xs/xxs); each value is a list of widget placements. Defaulted
+    # empty → the single ``widgets`` layout is authoritative.
+    layouts: dict[str, list[DashboardWidget]] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=iso_now)
+    updated_at: str = Field(default_factory=iso_now)
+
+
 class UserPrefs(BaseModel):
     """One user's PERSONAL preferences bucket (Wave 7). Every field is additive +
     defaulted so an empty/legacy bucket loads unchanged. Distinct from the ORG
@@ -642,6 +698,9 @@ class UserPrefs(BaseModel):
     * ``last_list_state`` — last-used filter/sort per surface (so a page reopens where
       the user left it), keyed by surface id; small free-form dicts.
     * ``pinned_view_ids`` — saved-view ids the user pinned as quick-access defaults.
+    * ``dashboards`` — the user's custom dashboards (Round 5 / G7), keyed by dashboard
+      id; each is a :class:`DashboardLayout`. Additive + defaulted ``{}`` (mirrors
+      ``saved_views``) so a legacy bucket loads unchanged.
     * ``misc`` — a small catch-all UI-prefs bag (density, etc.).
     """
 
@@ -650,6 +709,7 @@ class UserPrefs(BaseModel):
     theme_mode: Literal["light", "dark", "system"] = "system"
     last_list_state: dict[str, dict[str, Any]] = Field(default_factory=dict)
     pinned_view_ids: list[str] = Field(default_factory=list)
+    dashboards: dict[str, DashboardLayout] = Field(default_factory=dict)
     misc: dict[str, Any] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=iso_now)
 

@@ -26,13 +26,16 @@ glitch can never break a page.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from ..constants import USER_PREFS_DEFAULT_BUCKET, USER_PREFS_KEY, USER_PREFS_NS
 from ..models import ColumnState, SavedView, UserPrefs
 from ..utils import iso_now
-from .base import KVStore
+from .base import KVStore, kv_mutate
+
+_T = TypeVar("_T")
 
 logger = logging.getLogger("tlsoc.stores.user_prefs")
 
@@ -55,15 +58,14 @@ class UserPrefsStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        # Per-store lock serialising the read-modify-write of the shared prefs doc
+        # (lost-update safe; see :func:`app.stores.base.kv_mutate`). Every mutating
+        # method routes through :meth:`_mutate` so two concurrent writers (e.g. a
+        # theme patch racing a saved-view add) never silently clobber each other.
+        self._lock = asyncio.Lock()
 
-    async def _load_all(self) -> dict[str, UserPrefs]:
-        try:
-            doc = await self._kv.get(USER_PREFS_NS, USER_PREFS_KEY)
-        except Exception as exc:  # noqa: BLE001 — prefs are best-effort
-            logger.warning("Loading user prefs failed (%s); using empty set", exc)
-            return {}
-        if not doc:
-            return {}
+    @staticmethod
+    def _decode(doc: dict | None) -> dict[str, UserPrefs]:
         raw = doc.get("buckets", {}) if isinstance(doc, dict) else {}
         out: dict[str, UserPrefs] = {}
         for uid, item in (raw or {}).items():
@@ -73,14 +75,36 @@ class UserPrefsStore:
                 continue
         return out
 
-    async def _save_all(self, buckets: dict[str, UserPrefs]) -> None:
+    @staticmethod
+    def _encode(buckets: dict[str, UserPrefs]) -> dict:
+        return {"buckets": {uid: p.model_dump(mode="json") for uid, p in buckets.items()}}
+
+    async def _load_all(self) -> dict[str, UserPrefs]:
         try:
-            await self._kv.put(
-                USER_PREFS_NS, USER_PREFS_KEY,
-                {"buckets": {uid: p.model_dump(mode="json") for uid, p in buckets.items()}},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting user prefs failed (%s); continuing", exc)
+            doc = await self._kv.get(USER_PREFS_NS, USER_PREFS_KEY)
+        except Exception as exc:  # noqa: BLE001 — prefs are best-effort
+            logger.warning("Loading user prefs failed (%s); using empty set", exc)
+            return {}
+        if not doc:
+            return {}
+        return self._decode(doc)
+
+    async def _mutate(self, change: Callable[[dict[str, UserPrefs]], _T]) -> _T:
+        """Atomic, lost-update-safe read-modify-write over the shared prefs doc.
+
+        ``change`` is applied to a FRESH decode of the current value (it may run more
+        than once on a CAS retry) and both mutates the buckets dict AND stashes a
+        result to return. Mirrors the ``inbox.py`` / ``tuning.py`` CAS pattern so two
+        interleaving writers can't drop one another's change. Never raises."""
+        box: dict[str, _T] = {}
+
+        def _mutator(current: dict | None) -> dict:
+            buckets = self._decode(current)
+            box["r"] = change(buckets)
+            return self._encode(buckets)
+
+        await kv_mutate(self._kv, USER_PREFS_NS, USER_PREFS_KEY, _mutator, lock=self._lock)
+        return box.get("r")  # type: ignore[return-value]
 
     async def get(self, user_id: str | None) -> UserPrefs:
         """The user's personal prefs bucket (an empty default bucket when none stored)."""
@@ -94,42 +118,66 @@ class UserPrefsStore:
     async def put(self, user_id: str | None, prefs: UserPrefs) -> UserPrefs:
         """Replace the user's whole bucket (the route validates the body first)."""
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        prefs = prefs.model_copy(update={"updated_at": iso_now()})
-        buckets[bid] = prefs
-        await self._save_all(buckets)
-        return prefs
+        stamped = prefs.model_copy(update={"updated_at": iso_now()})
+
+        def _change(buckets: dict[str, UserPrefs]) -> UserPrefs:
+            buckets[bid] = stamped
+            return stamped
+
+        return await self._mutate(_change)
 
     async def patch(self, user_id: str | None, **fields: Any) -> UserPrefs:
         """Patch only the provided (non-None) top-level fields on the user's bucket.
 
+        DEEP-MERGES the dict-valued bags (``misc``, ``last_list_state``, ``tables``)
+        so a partial patch ADDS/updates keys instead of CLOBBERING the whole bag —
+        e.g. patching ``misc={"density": "compact"}`` when the user already has
+        ``misc={"terminology": {...}}`` keeps BOTH (Round-5 #5 fix). List/scalar
+        fields still replace wholesale (the caller sends the full new list).
+
         Re-validates through the model after the merge so the stored/returned object
         always holds real ``SavedView``/``ColumnState`` instances (the route passes
         the patch as dicts via ``model_dump``; ``model_copy(update=...)`` does NOT
-        re-validate, so a bare merge would leave raw dicts in the typed lists)."""
+        re-validate, so a bare merge would leave raw dicts in the typed lists).
+
+        CAS-safe: the read-modify-write runs under the store lock + ``_rev`` retry so
+        a concurrent writer's change is never dropped."""
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        current = buckets.get(bid) or UserPrefs()
-        merged = current.model_dump(mode="json")
-        for key, value in fields.items():
-            if value is None or key == "updated_at":
-                continue
-            merged[key] = value
-        merged["updated_at"] = iso_now()
-        updated = UserPrefs.model_validate(merged)
-        buckets[bid] = updated
-        await self._save_all(buckets)
-        return updated
+        # The bags that DEEP-merge (a partial patch adds keys, never wipes siblings).
+        deep_merge_keys = {"misc", "last_list_state", "tables"}
+
+        def _change(buckets: dict[str, UserPrefs]) -> UserPrefs:
+            current = buckets.get(bid) or UserPrefs()
+            merged = current.model_dump(mode="json")
+            for key, value in fields.items():
+                if value is None or key == "updated_at":
+                    continue
+                if key in deep_merge_keys and isinstance(value, dict) and isinstance(merged.get(key), dict):
+                    # Shallow-merge the top-level bag keys (each value replaces its own
+                    # entry) so an unrelated sibling key survives the patch.
+                    combined = dict(merged.get(key) or {})
+                    combined.update(value)
+                    merged[key] = combined
+                else:
+                    merged[key] = value
+            merged["updated_at"] = iso_now()
+            updated = UserPrefs.model_validate(merged)
+            buckets[bid] = updated
+            return updated
+
+        return await self._mutate(_change)
 
     async def delete(self, user_id: str | None) -> bool:
         """Drop a user's entire personal-prefs bucket (e.g. on user delete)."""
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        if bid not in buckets:
-            return False
-        del buckets[bid]
-        await self._save_all(buckets)
-        return True
+
+        def _change(buckets: dict[str, UserPrefs]) -> bool:
+            if bid not in buckets:
+                return False
+            del buckets[bid]
+            return True
+
+        return await self._mutate(_change)
 
     # ---- Saved views ----------------------------------------------------- #
     async def list_views(self, user_id: str | None) -> list[SavedView]:
@@ -144,52 +192,58 @@ class UserPrefsStore:
 
     async def add_view(self, user_id: str | None, view: SavedView) -> SavedView:
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        current = buckets.get(bid) or UserPrefs()
-        views = [v for v in current.saved_views if v.id != view.id]
-        views.append(view)
-        buckets[bid] = current.model_copy(update={"saved_views": views, "updated_at": iso_now()})
-        await self._save_all(buckets)
-        return view
+
+        def _change(buckets: dict[str, UserPrefs]) -> SavedView:
+            current = buckets.get(bid) or UserPrefs()
+            views = [v for v in current.saved_views if v.id != view.id]
+            views.append(view)
+            buckets[bid] = current.model_copy(update={"saved_views": views, "updated_at": iso_now()})
+            return view
+
+        return await self._mutate(_change)
 
     async def update_view(
         self, user_id: str | None, view_id: str, **fields: Any
     ) -> SavedView | None:
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        current = buckets.get(bid) or UserPrefs()
         allowed = {"name", "scope", "shared", "filters", "sort", "columns"}
-        updated: SavedView | None = None
-        views = list(current.saved_views)
-        for idx, v in enumerate(views):
-            if v.id != view_id:
-                continue
-            patch = {k: val for k, val in fields.items() if k in allowed and val is not None}
-            patch["updated_at"] = iso_now()
-            updated = v.model_copy(update=patch)
-            views[idx] = updated
-            break
-        if updated is not None:
-            buckets[bid] = current.model_copy(
-                update={"saved_views": views, "updated_at": iso_now()}
-            )
-            await self._save_all(buckets)
-        return updated
+
+        def _change(buckets: dict[str, UserPrefs]) -> SavedView | None:
+            current = buckets.get(bid) or UserPrefs()
+            updated: SavedView | None = None
+            views = list(current.saved_views)
+            for idx, v in enumerate(views):
+                if v.id != view_id:
+                    continue
+                patch = {k: val for k, val in fields.items() if k in allowed and val is not None}
+                patch["updated_at"] = iso_now()
+                updated = v.model_copy(update=patch)
+                views[idx] = updated
+                break
+            if updated is not None:
+                buckets[bid] = current.model_copy(
+                    update={"saved_views": views, "updated_at": iso_now()}
+                )
+            return updated
+
+        return await self._mutate(_change)
 
     async def delete_view(self, user_id: str | None, view_id: str) -> bool:
         bid = normalize_user_id(user_id)
-        buckets = await self._load_all()
-        current = buckets.get(bid) or UserPrefs()
-        remaining = [v for v in current.saved_views if v.id != view_id]
-        if len(remaining) == len(current.saved_views):
-            return False
-        # Also drop a now-dangling pin.
-        pins = [p for p in current.pinned_view_ids if p != view_id]
-        buckets[bid] = current.model_copy(
-            update={"saved_views": remaining, "pinned_view_ids": pins, "updated_at": iso_now()}
-        )
-        await self._save_all(buckets)
-        return True
+
+        def _change(buckets: dict[str, UserPrefs]) -> bool:
+            current = buckets.get(bid) or UserPrefs()
+            remaining = [v for v in current.saved_views if v.id != view_id]
+            if len(remaining) == len(current.saved_views):
+                return False
+            # Also drop a now-dangling pin.
+            pins = [p for p in current.pinned_view_ids if p != view_id]
+            buckets[bid] = current.model_copy(
+                update={"saved_views": remaining, "pinned_view_ids": pins, "updated_at": iso_now()}
+            )
+            return True
+
+        return await self._mutate(_change)
 
     # ---- Per-table column state ------------------------------------------ #
     async def set_table_state(
@@ -204,18 +258,24 @@ class UserPrefsStore:
         tid = str(table_id or "").strip()
         if not tid:
             raise ValueError("table_id is required")
-        buckets = await self._load_all()
-        current = buckets.get(bid) or UserPrefs()
-        tables = dict(current.tables)
+        # Coerce/validate OUTSIDE the CAS mutator so a bad payload raises to the
+        # caller (rather than being swallowed inside the never-raise mutate loop).
         if state:
             cs = state if isinstance(state, ColumnState) else ColumnState.model_validate(state)
-            tables[tid] = cs
         else:
             cs = ColumnState()
-            tables.pop(tid, None)
-        buckets[bid] = current.model_copy(update={"tables": tables, "updated_at": iso_now()})
-        await self._save_all(buckets)
-        return cs
+
+        def _change(buckets: dict[str, UserPrefs]) -> ColumnState:
+            current = buckets.get(bid) or UserPrefs()
+            tables = dict(current.tables)
+            if state:
+                tables[tid] = cs
+            else:
+                tables.pop(tid, None)
+            buckets[bid] = current.model_copy(update={"tables": tables, "updated_at": iso_now()})
+            return cs
+
+        return await self._mutate(_change)
 
 
 # --------------------------------------------------------------------------- #

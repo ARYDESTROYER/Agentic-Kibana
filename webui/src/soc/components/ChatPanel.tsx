@@ -68,6 +68,7 @@ import type {
 import { api, ApiError } from '@/lib/api';
 import { fmtMoney } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { copyText } from '@/lib/clipboard';
 import { Button } from '@/ui/button';
 import { Textarea } from '@/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
@@ -335,16 +336,15 @@ const CopyButton: React.FC<{ text: string; label: string }> = ({ text, label }) 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const onCopy = () => {
-    const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
-    if (!clip?.writeText) return;
-    clip
-      .writeText(text)
-      .then(() => {
-        setCopied(true);
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => { /* clipboard denied — no-op */ });
+    // Route through copyText() so copy ALSO works over plain HTTP (non-secure
+    // context, where navigator.clipboard is undefined). Show "Copied" only on a
+    // truthy result — never claim success for a copy that never happened (bug #4).
+    void copyText(text).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    });
   };
   return (
     <Tooltip>

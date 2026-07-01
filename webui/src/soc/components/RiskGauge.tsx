@@ -6,7 +6,7 @@ export interface RiskGaugeProps {
   score: number;
   /** Optional label under the value (plain text). */
   label?: string;
-  /** Optional pixel size of the gauge (width). Defaults to 200. */
+  /** Optional pixel size of the gauge (width). Defaults to 160 (compact). */
   size?: number;
   className?: string;
 }
@@ -39,6 +39,18 @@ const TEXT_CLASS: Record<ReturnType<typeof bandOf>, string> = {
 };
 
 /**
+ * Human-readable band label for non-color signaling (a11y §6.1: the gauge shows a
+ * numeric value AND a text band label, never color-only). Matches `bandOf` so the
+ * word always agrees with the arc colour.
+ */
+const BAND_LABEL: Record<ReturnType<typeof bandOf>, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+
+/**
  * Crisp half-circle risk gauge.
  *
  * The arc is a single fixed half-circle path drawn TWICE: a muted full-length
@@ -57,7 +69,7 @@ const TEXT_CLASS: Record<ReturnType<typeof bandOf>, string> = {
  *    external label below the svg.
  */
 export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
-  ({ score, label, size = 200, className }, ref) => {
+  ({ score, label, size = 160, className }, ref) => {
     const clamped = Math.max(0, Math.min(100, Number.isFinite(score) ? score : 0));
     const w = size;
     const stroke = Math.max(8, Math.round(size * 0.07));
@@ -89,7 +101,7 @@ export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
           <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-labelledby={titleId}>
             <title id={titleId}>
               {label ? `${label}: ` : 'Risk '}
-              {Math.round(clamped)} of 100
+              {Math.round(clamped)} of 100 ({BAND_LABEL[band]})
             </title>
             {/* Muted track — the full semicircle. */}
             <path d={d} fill="none" className="stroke-muted" strokeWidth={stroke} strokeLinecap="round" />
@@ -129,11 +141,37 @@ export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
             </div>
           </div>
         </div>
-        {label ? (
-          <div className="mt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            {label}
-          </div>
-        ) : null}
+        {/* Text band label — non-color signaling (a11y §6.1): the WORD itself carries
+            the meaning for assistive tech (plus the <title>), not only the arc/value
+            colour. The beside-color swatch is a decorative <circle>-only SVG
+            (`aria-hidden`) drawn WITH the band `text-*` colour; it deliberately emits
+            no <path>, so the crisp 2-path donut geometry stays the only <path>s in the
+            output. */}
+        <div className="mt-1 flex flex-col items-center gap-0.5">
+          <span
+            className={cn(
+              'flex items-center gap-1 text-xs font-semibold uppercase tracking-wider',
+              TEXT_CLASS[band],
+            )}
+          >
+            <svg
+              width={10}
+              height={10}
+              viewBox="0 0 10 10"
+              className="shrink-0"
+              aria-hidden
+              focusable="false"
+            >
+              <circle cx="5" cy="5" r="4" fill="currentColor" />
+            </svg>
+            {BAND_LABEL[band]}
+          </span>
+          {label ? (
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              {label}
+            </span>
+          ) : null}
+        </div>
       </div>
     );
   },

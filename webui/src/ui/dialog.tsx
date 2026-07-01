@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { focusRing, modalOverlay } from '@/lib/ui-recipes';
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -14,12 +15,7 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn(
-      'fixed inset-0 z-50 bg-black/45 backdrop-blur-[2px]',
-      'data-[state=open]:animate-in data-[state=open]:fade-in-0',
-      'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
-      className,
-    )}
+    className={cn(modalOverlay, className)}
     {...props}
   />
 ));
@@ -48,7 +44,7 @@ const DialogContent = React.forwardRef<
         className={cn(
           'absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-md',
           'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
-          'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          focusRing,
           'disabled:pointer-events-none',
         )}
       >

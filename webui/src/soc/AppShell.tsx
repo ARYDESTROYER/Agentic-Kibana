@@ -62,6 +62,7 @@ import { useTheme } from './theme';
 import { usePrefs } from './prefs';
 import { useDemo } from './demo';
 import { DemoBanner } from './components/DemoBanner';
+import { AnnouncerProvider } from './components/announcer';
 import { CommandPalette } from './components/CommandPalette';
 import { GlassSurface } from './components/GlassSurface';
 import { NavSidebar, useNavPrefs } from './components/NavSidebar';
@@ -454,6 +455,10 @@ export const AppShell: React.FC<AppShellProps> = ({
   );
 
   return (
+    // AnnouncerProvider mounts the ONE app-level aria-live region (§6.3 / E3) and
+    // shares announce() so deep components (DataTable sort/bulk outcomes, etc.) can
+    // speak status to assistive tech without a visible UI change.
+    <AnnouncerProvider>
     <div className="flex min-h-screen bg-canvas text-foreground">
       {/* Skip-to-main link (#1 — WCAG 2.4.1). Visually hidden until it receives
           keyboard focus, then it pins to the top-left so a keyboard/SR user can jump
@@ -596,9 +601,18 @@ export const AppShell: React.FC<AppShellProps> = ({
 
         {/* Content slot — re-keyed so the fade-in replays on each route change.
             tabIndex={-1} lets the skip-link (#1) move focus here without making it a
-            tab stop in the normal order. */}
+            tab stop in the normal order.
+
+            W0-C: the hard `max-w-[1400px]` cap was removed — width is now owned
+            per-page by `<PageContainer variant>` (§4.1). This wrapper keeps only the
+            gutter/vertical rhythm; pages that have not opted into a width still look
+            unchanged because `PageContainer` defaults to `fixed` (~1200px). Keep
+            `min-w-0` so flex/grid children can shrink + truncate. */}
         <main id="socMain" role="main" tabIndex={-1} className="flex-1 outline-none">
-          <div key={page} className="mx-auto w-full max-w-[1400px] px-4 py-6 animate-fade-in sm:px-6">
+          <div
+            key={page}
+            className="mx-auto w-full min-w-0 px-4 py-6 animate-fade-in sm:px-6 lg:px-8 2xl:px-12"
+          >
             {/* Demo-mode banner — renders only when the demo tenant is active. */}
             <DemoBanner />
             <div className={cn(demoActive && 'mt-4')}>{children}</div>
@@ -612,5 +626,6 @@ export const AppShell: React.FC<AppShellProps> = ({
         onNavigate={onNavigate}
       />
     </div>
+    </AnnouncerProvider>
   );
 };

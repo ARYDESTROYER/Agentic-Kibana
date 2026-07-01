@@ -26,9 +26,23 @@ import {
   YAxis,
 } from 'recharts';
 import { cn } from '@/lib/cn';
-import { categorical, semanticColor, token } from './palette';
+import { categorical, semanticColor, semanticIcon, token } from './palette';
 
 const AXIS_TICK = { fill: 'hsl(var(--muted-foreground))', fontSize: 11 } as const;
+
+/* ------------------------------------------------------------------------- */
+/* Beside-color legend/tooltip glyph (WCAG 1.4.1, §6.1).                       */
+/* A recharts swatch is a colored dot — color is the ONLY channel. When a      */
+/* series LABEL maps to a semantic key (verdict/severity/status), render the   */
+/* SEMANTIC_ICON shape beside the swatch so the reading survives CVD/mono.     */
+/* Decorative (`aria-hidden`) — the plain-text label carries the meaning.      */
+/* ------------------------------------------------------------------------- */
+
+function SeriesGlyph({ name, className }: { name?: string; className?: string }) {
+  const Icon = semanticIcon(name);
+  if (!Icon) return null;
+  return <Icon className={cn('size-3 shrink-0', className)} aria-hidden />;
+}
 
 /* ------------------------------------------------------------------------- */
 /* Shared tooltip (token-themed, plain-text).                                 */
@@ -52,12 +66,40 @@ function SocTooltip({ active, payload, label, format }: SocTooltipProps) {
         {payload.map((p, i) => (
           <li key={i} className="flex items-center gap-2">
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: p.color }} aria-hidden />
+            <SeriesGlyph name={p.name} className="text-muted-foreground" />
             <span className="text-muted-foreground">{p.name}</span>
             <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">{fmt(p.value)}</span>
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------------- */
+/* Custom recharts <Legend> content — swatch + beside-color SEMANTIC_ICON.     */
+/* Replaces the default color-only legend so a colorblind reader can still     */
+/* distinguish the series by shape (§6.1). Plain-text labels only (#9).        */
+/* ------------------------------------------------------------------------- */
+
+interface LegendEntry {
+  value?: string;
+  color?: string;
+}
+
+function SemanticLegend({ payload }: { payload?: LegendEntry[] }) {
+  const items = payload ?? [];
+  if (items.length === 0) return null;
+  return (
+    <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-1 text-[11px] text-muted-foreground">
+      {items.map((p, i) => (
+        <li key={`${p.value}-${i}`} className="flex items-center gap-1.5">
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: p.color }} aria-hidden />
+          <SeriesGlyph name={p.value} />
+          <span>{p.value}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -169,9 +211,18 @@ export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
                         near-opaque surface chip so `text-foreground` always meets AA
                         (≥4.5:1) regardless of how saturated the underlying ramp band
                         is. Without the chip, white/foreground text over the critical/
-                        high fill measured ~3.0:1. */}
-                    <span className="max-w-[calc(100%-0.25rem)] truncate rounded-sm bg-background/85 px-1 py-0.5 text-foreground supports-[backdrop-filter]:bg-background/70 supports-[backdrop-filter]:backdrop-blur-[1px]">
-                      {cell.technique}
+                        high fill measured ~3.0:1.
+
+                        Non-color signaling (§6.1): the ramp intensity is quantitative
+                        (a sequential scale, not a categorical shape vocabulary), so the
+                        redundant channel here is the printed COUNT beside the technique
+                        id — the magnitude the color encodes is now readable without any
+                        color perception (the sr-only table below carries the full data).*/}
+                    <span className="flex max-w-[calc(100%-0.25rem)] items-baseline gap-0.5 rounded-sm bg-background/85 px-1 py-0.5 text-foreground supports-[backdrop-filter]:bg-background/70 supports-[backdrop-filter]:backdrop-blur-[1px]">
+                      <span className="truncate">{cell.technique}</span>
+                      <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                        {cell.value.toLocaleString()}
+                      </span>
                     </span>
                   </div>
                 );
@@ -300,7 +351,7 @@ export const BurnDownChart = React.forwardRef<HTMLDivElement, BurnDownChartProps
               tickFormatter={(v) => (format ? format(Number(v)) : String(v))}
             />
             <Tooltip content={<SocTooltip format={format} />} cursor={{ stroke: openColor, strokeOpacity: 0.3 }} />
-            <Legend wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }} />
+            <Legend content={<SemanticLegend />} />
             <Area
               type="monotone"
               dataKey="open"
@@ -468,7 +519,7 @@ export const MultiSeriesTrend = React.forwardRef<HTMLDivElement, MultiSeriesTren
               <YAxis hide />
             )}
             <Tooltip content={<SocTooltip format={format} />} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.25 }} />
-            <Legend wrapperStyle={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }} />
+            <Legend content={<SemanticLegend />} />
             {list.map((s, i) => (
               <Line
                 key={s.key}

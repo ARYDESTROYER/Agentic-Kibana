@@ -27,7 +27,20 @@ import {
   YAxis,
 } from 'recharts';
 import { cn } from '@/lib/cn';
-import { categorical, token } from './palette';
+import { categorical, semanticIcon, token } from './palette';
+
+/* ------------------------------------------------------------------------- */
+/* Beside-color glyph (WCAG 1.4.1, §6.1) — a recharts swatch is color-only. When
+/* a segment/series NAME maps to a semantic key (verdict/severity/status), show the
+/* SEMANTIC_ICON shape beside the swatch so the reading survives CVD/monochrome.
+/* Decorative (`aria-hidden`) — the plain-text label carries the meaning (#9).      */
+/* ------------------------------------------------------------------------- */
+
+function SeriesGlyph({ name, className }: { name?: string; className?: string }) {
+  const Icon = semanticIcon(name);
+  if (!Icon) return null;
+  return <Icon className={cn('size-3 shrink-0', className)} aria-hidden />;
+}
 
 /* ------------------------------------------------------------------------- */
 /* Shared tooltip — token-themed, plain-text labels.                         */
@@ -62,6 +75,7 @@ function ChartTooltip({ active, payload, label, format, hideLabel }: ChartToolti
               style={{ background: p.color }}
               aria-hidden
             />
+            <SeriesGlyph name={p.name} className="text-muted-foreground" />
             <span className="text-muted-foreground">{p.name}</span>
             <span className="ml-auto font-mono font-semibold tabular-nums text-foreground">
               {fmt(p.value)}

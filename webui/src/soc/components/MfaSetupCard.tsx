@@ -14,6 +14,10 @@
  * All values shown here are the user's own enrollment data (trusted), but the secret
  * + recovery codes are sensitive — they are shown only transiently and never persisted
  * client-side beyond the component's state.
+ *
+ * a11y — WCAG 2.2 §3.3.8 Accessible Authentication (Round-5 W0-E): the confirm/disable
+ * code inputs carry `autoComplete="one-time-code"` and never block paste, so a
+ * password manager can autofill / the operator can paste a TOTP or recovery code.
  */
 import * as React from 'react';
 import {

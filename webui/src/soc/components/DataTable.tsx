@@ -1,3 +1,20 @@
+/**
+ * DataTable — the ONE table primitive for the console.
+ *
+ * a11y contract (Round-5 W0-E / DESIGN_STANDARD §6.2/§6.3):
+ *  - Sortable headers are `<button>` inside `<th scope="col">`; `aria-sort` is set
+ *    ONLY on the active column (omitted otherwise — never `"none"`), and the change
+ *    is ALSO spoken through the shared live region (VoiceOver/TalkBack ignore
+ *    `aria-sort`).
+ *  - Clickable rows get `scroll-mt-[var(--header-h)]` so a focused row is never
+ *    hidden behind the sticky header (WCAG 2.4.11 Focus Not Obscured).
+ *  - `rowAccent` draws an OPT-IN left-edge severity band (non-color-only reading of
+ *    row risk, §6.1) as an inset box-shadow (no layout shift, no extra column).
+ *  - 2.5.7 Dragging: this table has NO drag interaction. Column reorder ships via the
+ *    keyboard-accessible `<ColumnsMenu>` (checklist + move controls), NOT drag — so
+ *    the no-single-pointer-drag requirement is met by construction. If a future
+ *    variant adds drag-to-reorder, it MUST keep a non-drag "move up/down" alternative.
+ */
 import * as React from 'react';
 import {
   ChevronUp,
@@ -28,6 +45,8 @@ import {
   SelectContent,
   SelectItem,
 } from '@/ui/select';
+import { useAnnouncer } from './announcer';
+import { semanticColor } from './palette';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -129,6 +148,18 @@ export interface DataTableProps<T> {
    * PrefsContext + feeds back here.
    */
   columnState?: ColumnState;
+
+  /**
+   * Left-edge severity band (Round-5 W0-E / §6.1 non-color signaling). OFF by
+   * default (back-compatible). When provided, each dense row gets a 3px colored bar
+   * on its leading edge derived from a per-row SEVERITY label/score, so the risk of
+   * a row is legible at a glance at high row counts WITHOUT relying on a tiny colored
+   * word in a cell. Return a severity label ('critical'/'high'/'medium'/'low'/'info')
+   * or a 0-100 score (resolved via the ONE palette authority), or null/undefined for
+   * no band on that row. The band is decorative (`aria-hidden`); the cell content
+   * still carries the accessible value.
+   */
+  rowAccent?: (row: T, index: number) => string | number | null | undefined;
 }
 
 const alignClass = (align?: 'left' | 'center' | 'right') =>
@@ -205,7 +236,11 @@ export function DataTable<T>({
   className,
   ariaLabel,
   columnState,
+  rowAccent,
 }: DataTableProps<T>) {
+  // Shared app-level live announcer (§6.3 / E3) — no-op when no provider is mounted.
+  const announce = useAnnouncer();
+
   // Resolve the displayed columns from the user's stored column state (Wave 7).
   const displayColumns = React.useMemo(
     () => resolveColumns(columns, columnState),
@@ -231,22 +266,34 @@ export function DataTable<T>({
   // vertical rhythm in normal density, tighter (but still legible) when compact.
   const cellPad = density === 'compact' ? 'px-4 py-2' : 'px-4 py-3';
 
+  // A short plain-text name for a column, for the live announcement (§6.3). Prefer
+  // an explicit `menuLabel`, then a string `header`, else the column id.
+  const columnName = (col: DataTableColumn<T>): string =>
+    col.menuLabel ?? (typeof col.header === 'string' ? col.header : col.id);
+
   const handleHeaderSort = (col: DataTableColumn<T>) => {
     if (!col.sortable || !onSortChange) return;
     const isActive = sort?.id === col.id;
     const nextDir: SortDir =
       isActive && sort?.dir === 'asc' ? 'desc' : 'asc';
     onSortChange({ id: col.id, dir: nextDir });
+    // aria-sort is silently ignored by VoiceOver / TalkBack, so speak the change
+    // through the shared live region too (§6.3).
+    announce(
+      `Sorted by ${columnName(col)}, ${nextDir === 'asc' ? 'ascending' : 'descending'}`,
+    );
   };
 
   const toggleAll = () => {
     if (!onSelectedChange) return;
     if (allSelected) {
       onSelectedChange((selected ?? []).filter((id) => !rowIds.includes(id)));
+      announce('All rows deselected');
     } else {
       const merged = new Set(selected ?? []);
       rowIds.forEach((id) => merged.add(id));
       onSelectedChange(Array.from(merged));
+      announce(`${rowIds.length} row${rowIds.length === 1 ? '' : 's'} selected`);
     }
   };
 
@@ -299,6 +346,7 @@ export function DataTable<T>({
               return (
                 <TableHead
                   key={col.id}
+                  scope="col"
                   style={col.width ? { width: col.width } : undefined}
                   className={cn(
                     // Header typography (uppercase/tracking/weight/colour) comes
@@ -307,13 +355,14 @@ export function DataTable<T>({
                     alignClass(col.align),
                     col.headerClassName,
                   )}
+                  // §6.3: reflect the sort ONLY on the actively-sorted sortable
+                  // column; OMIT aria-sort otherwise (never emit "none", which some
+                  // SRs announce as a spurious "not sorted" on every column).
                   aria-sort={
-                    col.sortable
-                      ? isActive
-                        ? sort?.dir === 'asc'
-                          ? 'ascending'
-                          : 'descending'
-                        : 'none'
+                    col.sortable && isActive
+                      ? sort?.dir === 'asc'
+                        ? 'ascending'
+                        : 'descending'
                       : undefined
                   }
                 >
@@ -375,15 +424,30 @@ export function DataTable<T>({
               const id = rowIds[rowIndex];
               const isSelected = selectedSet.has(id);
               const clickable = !!onRowClick;
+              // Left-edge severity band (§6.1) — opt-in via `rowAccent`. Drawn as an
+              // inset box-shadow so it needs no extra column and never shifts layout.
+              // Decorative: the cell content carries the accessible severity value.
+              const accent = rowAccent?.(row, rowIndex);
+              const accentColor =
+                accent !== null && accent !== undefined && accent !== ''
+                  ? semanticColor(String(accent))
+                  : undefined;
               return (
                 <TableRow
                   key={id}
                   data-state={isSelected ? 'selected' : undefined}
                   className={cn(
+                    // §2.4.11 Focus Not Obscured: when a keyboard user tabs onto a
+                    // clickable row, keep it clear of the sticky header/save-bar.
                     clickable &&
-                      'cursor-pointer focus-visible:outline-none focus-visible:ring-2 ' +
+                      'cursor-pointer scroll-mt-[var(--header-h)] focus-visible:outline-none focus-visible:ring-2 ' +
                         'focus-visible:ring-inset focus-visible:ring-ring',
                   )}
+                  style={
+                    accentColor
+                      ? { boxShadow: `inset 3px 0 0 0 ${accentColor}` }
+                      : undefined
+                  }
                   onClick={
                     clickable ? () => onRowClick?.(row, rowIndex) : undefined
                   }

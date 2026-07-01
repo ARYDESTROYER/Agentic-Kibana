@@ -259,6 +259,14 @@ const Boot: React.FC = () => {
 };
 
 export const App: React.FC = () => (
+  // Reduced-motion is honoured GLOBALLY without pulling framer-motion onto first
+  // paint: the `@media (prefers-reduced-motion: reduce)` block in styles/theme.css
+  // (W0-A) neutralises CSS/transition/animation motion, and the
+  // usePrefersReducedMotion hook (W0-B2) lets any component opt out imperatively.
+  // No eager <MotionConfig> here — that statically imported framer-motion into the
+  // entry chunk (see soc/__tests__/bundle-first-paint.test.ts, the "Login eager +
+  // framer-motion-free first paint" invariant). Any component that needs framer
+  // motion must lazy-load it, never the entry.
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
       <AuthProvider>

@@ -31,11 +31,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from ..config import BaselineConfig
+from ..constants import ActionType
 from ..engine.baseline import SEASONAL_PERIODS, SKETCH_VERSION, _TDigest
 from ..state import AppState
-from .deps import get_state, require_permission
+from .deps import current_username, get_state, require_permission
 
 logger = logging.getLogger("tlsoc.api.baseline")
 
@@ -46,6 +48,19 @@ def _safe(value: Any) -> str:
     """A bounded plain string for the client (#9): a signature can carry source-derived
     rule/entity text, so we cap it and the UI render-escapes it; never a prompt."""
     return str(value)[:2000]
+
+
+def _deep_update(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
+    """In-place recursive merge of ``src`` INTO ``dst`` — a PUT deep-merges only the
+    keys the caller sent (mirrors ``routes.py:_deep_update`` + the ``PUT /api/settings``
+    contract). Absent keys keep their current value; a nested dict is merged, not
+    replaced."""
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            dst[key] = _deep_update(dst[key], value)
+        else:
+            dst[key] = value
+    return dst
 
 
 def _warmup_target(state: AppState) -> int:
@@ -124,6 +139,53 @@ async def baseline_stats(
 
 
 # --------------------------------------------------------------------------- #
+# GET / PUT /api/baseline/config — read/update Preferences.baseline
+# (mirrors routes_tuning's GET/PUT /tuning/config; deep-merge PUT semantics)
+#
+# NB registered BEFORE the ``/baseline/{signature}`` catch-all so the literal
+# ``config`` path is not swallowed as a signature (FastAPI matches in order).
+# --------------------------------------------------------------------------- #
+@router.get("/baseline/config")
+async def get_baseline_config(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "read")),
+) -> dict[str, Any]:
+    """Read ``Preferences.baseline`` (the anomaly-baseline policy). Read-only, no
+    secrets — the baseline block carries only tuning knobs (#10)."""
+    cfg = getattr(state.prefs, "baseline", None) or BaselineConfig()
+    return {"config": cfg.model_dump(mode="json")}
+
+
+@router.put("/baseline/config")
+async def put_baseline_config(
+    body: dict[str, Any],
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    """Update the ``baseline`` policy, DEEP-MERGING only the keys the caller sent onto
+    the live config (mirrors the ``PUT /api/settings`` contract). Additive + validated
+    by the Pydantic model; never touches ``decide()`` (#3) — the baseline is a pure
+    advisory producer. Audited (#2)."""
+    current = (getattr(state.prefs, "baseline", None) or BaselineConfig()).model_dump(mode="json")
+    merged = _deep_update(current, body or {})
+    try:
+        cfg = BaselineConfig.model_validate(merged)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=422, detail=f"Invalid baseline config: {exc}") from exc
+    prefs = state.prefs.model_copy(update={"baseline": cfg})
+    await state.update_prefs(prefs)
+    await _audit(
+        state, request, "baseline_config_update",
+        f"enabled={cfg.enabled} seasonality={cfg.seasonality} "
+        f"half_life_days={cfg.half_life_days} warmup_multiplier={cfg.warmup_multiplier} "
+        f"modified_z_threshold={cfg.modified_z_threshold} "
+        f"tdigest_compression={cfg.tdigest_compression}",
+    )
+    return {"ok": True, "config": cfg.model_dump(mode="json")}
+
+
+# --------------------------------------------------------------------------- #
 # GET /api/baseline/{signature} — per-signature warm-up + p50/p95/p99 gauge
 # --------------------------------------------------------------------------- #
 @router.get("/baseline/{signature}")
@@ -172,3 +234,30 @@ async def baseline_for_signature(
         "seasonality": _safe(getattr(cfg, "seasonality", "hour_of_week")),
         "series": rows,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Audit helper (#2 — append-only)
+# --------------------------------------------------------------------------- #
+async def _audit(state: AppState, request: Request, event: str, detail: str) -> None:
+    """Append-only audit of an operator baseline-config mutation (#2). Best-effort.
+
+    Uses ``USER_MGMT`` with ``surface="baseline"`` — constants are frozen this wave so
+    no new ActionType is introduced (mirrors ``routes_campaigns._audit``). The actor is
+    the authenticated username when present. NEVER raises."""
+    audit = getattr(state, "audit", None)
+    if audit is None:
+        return
+    try:
+        actor = current_username(request) or ""
+    except Exception:  # noqa: BLE001 — no resolvable principal; audit anonymously
+        actor = ""
+    try:
+        await audit.record(
+            action_type=ActionType.USER_MGMT,
+            surface="baseline",
+            actor=actor,
+            result_summary=f"{event}: {detail}"[:500],
+        )
+    except Exception:  # noqa: BLE001
+        pass

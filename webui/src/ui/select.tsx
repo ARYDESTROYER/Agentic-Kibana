@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { focusRing, overlaySurface } from '@/lib/ui-recipes';
 
 const Select = SelectPrimitive.Root;
 const SelectGroup = SelectPrimitive.Group;
@@ -16,8 +17,8 @@ const SelectTrigger = React.forwardRef<
     className={cn(
       'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground transition-colors',
       'placeholder:text-muted-foreground hover:border-border',
-      'focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0',
-      'data-[state=open]:border-ring data-[state=open]:ring-2 data-[state=open]:ring-ring/40',
+      focusRing,
+      'data-[state=open]:border-ring',
       'disabled:cursor-not-allowed disabled:opacity-50',
       '[&>span]:line-clamp-1 [&>span]:text-left',
       className,
@@ -68,8 +69,8 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border border-border bg-card text-foreground shadow-elev2',
-        'data-[state=open]:animate-fade-in',
+        'relative z-50 max-h-96 min-w-[8rem] overflow-hidden',
+        overlaySurface,
         position === 'popper' &&
           'data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1',
         className,
@@ -81,8 +82,9 @@ const SelectContent = React.forwardRef<
       <SelectPrimitive.Viewport
         className={cn(
           'p-1',
-          position === 'popper' &&
-            'h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]',
+          // Match the trigger's WIDTH (not its height) — pinning height to the
+          // trigger clipped the option list to a single row (viewport-clip bug).
+          position === 'popper' && 'w-full min-w-[var(--radix-select-trigger-width)]',
         )}
       >
         {children}
