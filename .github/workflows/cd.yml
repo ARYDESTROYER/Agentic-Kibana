@@ -77,13 +77,21 @@ jobs:
       - name: Normalize package namespace
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
-      - name: Extract metadata for image tags
-        id: meta
+      - name: Extract metadata for backend image
+        id: meta-backend
         uses: docker/metadata-action@v5
         with:
-          images: |
-            ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-backend
-            ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-webui
+          images: ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-backend
+          tags: |
+            latest
+            ${{ github.sha }}
+            ${{ github.ref_name }}
+
+      - name: Extract metadata for webui image
+        id: meta-webui
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-webui
           tags: |
             latest
             ${{ github.sha }}
@@ -103,9 +111,9 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           tags: |
-            ${{ steps.meta.outputs.tags }}
+            ${{ steps.meta-backend.outputs.tags }}
           labels: |
-            ${{ steps.meta.outputs.labels }}
+            ${{ steps.meta-backend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -116,9 +124,9 @@ jobs:
           file: ./webui/Dockerfile
           push: true
           tags: |
-            ${{ steps.meta.outputs.tags }}
+            ${{ steps.meta-webui.outputs.tags }}
           labels: |
-            ${{ steps.meta.outputs.labels }}
+            ${{ steps.meta-webui.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -131,8 +139,8 @@ jobs:
             "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "workflow_run_id": "${{ github.run_id }}",
             "workflow_run_number": "${{ github.run_number }}",
-            "backend_tags": ["${{ steps.meta.outputs.tags }}"],
-            "webui_tags": ["${{ steps.meta.outputs.tags }}"]
+            "backend_image": "${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-backend",
+            "webui_image": "${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-webui"
           }
           EOF
           echo "Build metadata generated"

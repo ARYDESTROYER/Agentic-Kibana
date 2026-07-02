@@ -11,7 +11,7 @@ FAILED=0
 
 # Test 1: YAML Syntax
 echo "Test 1: YAML Syntax Validation"
-if python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))" 2>/dev/null; then
+if ruby -e 'require "yaml"; YAML.load_file(".github/workflows/ci.yml")' 2>/dev/null; then
     echo "  ✓ PASS: YAML syntax is valid"
 else
     echo "  ✗ FAIL: YAML syntax error"
