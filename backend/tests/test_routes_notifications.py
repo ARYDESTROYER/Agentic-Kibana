@@ -70,16 +70,19 @@ class TestPreview:
 
 
 class TestTestSend:
-    def test_test_send_unknown_channel_does_not_raise(self, client: TestClient):
+    def test_test_send_unknown_channel_returns_ok_false(self, client: TestClient):
         resp = client.post("/api/notifications/test", json={"channel_id": "nonexistent"})
-        assert resp.status_code in (200, 500), resp.text
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ok"] is False
+        assert body["detail"] == "channel not found"
 
 
 class TestChannelSecret:
     def test_set_channel_secret(self, client: TestClient):
         resp = client.post(
             "/api/notifications/channels/test-set-chan/secret",
-            json={"field": "token", "value": "sk_test_abc"},
+            json={"field": "token", "value": "test_secret_abc"},
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -88,7 +91,7 @@ class TestChannelSecret:
     def test_clear_channel_secret(self, client: TestClient):
         client.post(
             "/api/notifications/channels/test-clear-chan/secret",
-            json={"field": "token", "value": "sk_test_abc"},
+            json={"field": "token", "value": "test_secret_abc"},
         )
         resp = client.post(
             "/api/notifications/channels/test-clear-chan/secret",
