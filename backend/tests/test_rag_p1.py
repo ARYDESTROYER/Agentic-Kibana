@@ -119,7 +119,9 @@ async def test_resolved_cases_disabled_when_pref_off() -> None:
 # --------------------------------------------------------------------------- #
 async def test_dim_mismatch_triggers_reseed_not_truncation() -> None:
     provider = _DimProvider(dim=128)
-    rag = RagService(_gateway_with(provider), Preferences())
+    prefs = Preferences()
+    prefs.rag.min_score = 0.0
+    rag = RagService(_gateway_with(provider), prefs)
     await rag.ensure_seeded()
     space = await rag._store.embedding_space()
     assert space is not None and space[1] == 128
