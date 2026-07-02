@@ -83,9 +83,9 @@ jobs:
         with:
           images: ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-backend
           tags: |
-            latest
-            ${{ github.sha }}
-            ${{ github.ref_name }}
+            type=raw,value=latest
+            type=sha
+            type=ref,event=branch
 
       - name: Extract metadata for webui image
         id: meta-webui
@@ -93,9 +93,9 @@ jobs:
         with:
           images: ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-webui
           tags: |
-            latest
-            ${{ github.sha }}
-            ${{ github.ref_name }}
+            type=raw,value=latest
+            type=sha
+            type=ref,event=branch
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
