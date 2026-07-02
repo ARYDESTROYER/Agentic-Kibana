@@ -1,0 +1,145 @@
+name: CD
+
+# Continuous deployment pipeline for the primary deployable artifacts.
+#
+# - Validates both compose manifests so deployment changes fail fast.
+# - Builds and publishes the backend and webui images to GHCR on pushes to main.
+# - Keeps CI and CD separate: CI gates quality, CD handles deployable artifacts.
+# - Includes robust error handling, environment validation, and build metadata.
+
+"on":
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Common environment variables
+  IMAGE_REGISTRY: ghcr.io
+  BACKEND_IMAGE_NAME: agentic-kibana-backend
+  WEBUI_IMAGE_NAME: agentic-kibana-webui
+
+jobs:
+  validate:
+    name: Validate deploy manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Validate agnostic compose file
+        run: |
+          set -e
+          echo "Validating agnostic compose manifest..."
+          docker compose -f deploy/docker-compose.agnostic.yml config >/dev/null
+          echo "✓ Agnostic compose manifest validation passed"
+
+      - name: Validate legacy compose overlay
+        run: |
+          set -e
+          echo "Validating legacy compose overlay..."
+          ruby -e 'require "yaml"; YAML.load_file("deploy/docker-compose.tlsoc.yml")'
+          echo "✓ Legacy compose overlay validation passed"
+
+  publish:
+    name: Build and publish images
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - name: Normalize package namespace
+        run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Extract metadata for image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-backend
+            ${{ env.IMAGE_REGISTRY }}/${{ env.OWNER_LC }}/agentic-kibana-webui
+          tags: |
+            latest
+            ${{ github.sha }}
+            ${{ github.ref_name }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push webui image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./webui
+          file: ./webui/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate build metadata
+        run: |
+          cat > build-metadata.json <<EOF
+          {
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "workflow_run_id": "${{ github.run_id }}",
+            "workflow_run_number": "${{ github.run_number }}",
+            "backend_tags": ["${{ steps.meta.outputs.tags }}"],
+            "webui_tags": ["${{ steps.meta.outputs.tags }}"]
+          }
+          EOF
+          echo "Build metadata generated"
+
+      - name: Upload build metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-metadata
+          path: build-metadata.json
+          retention-days: 7

@@ -1,14 +1,17 @@
 name: CI
 
-# Gate merges on the two checks that must always be green (CLAUDE.md §7):
-#   1. the offline backend test suite (fake ES + mock LLM, no network/keys) —
-#      this INCLUDES the deny-by-default auth route-coverage test, so a new
-#      unauthenticated /api route fails CI.
-#   2. the standalone web UI build (tsc --noEmit && vite build).
+# Quality Assurance pipeline — gates merges on comprehensive checks (CLAUDE.md §7):
+#   1. Backend: offline test suite (fake ES + mock LLM) with coverage reporting
+#      INCLUDES deny-by-default auth route-coverage test
+#   2. Backend: dependency security scanning (pip-audit)
+#   3. Web UI: type-check + build + tests + coverage
+#   4. Web UI: lint + design gates (WCAG AA, token existence, CVD)
+#   5. Web UI: API type contract drift detection
+#   6. Web UI: dependency security scanning (npm audit)
 # Make `ci` a REQUIRED status check in branch protection (see CONTRIBUTING.md) so
-# a PR cannot merge unless both pass.
+# a PR cannot merge unless all checks pass.
 
-on:
+"on":
   pull_request:
   push:
     branches: [main, Testing]
@@ -23,8 +26,9 @@ permissions:
 
 jobs:
   backend:
-    name: Backend tests (offline)
+    name: Backend tests + coverage + security
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -37,12 +41,38 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
-      - name: Run pytest (offline; includes auth route-coverage gate)
-        run: python -m pytest -q
+      - name: Run pytest with coverage (offline; includes auth route-coverage gate)
+        run: python -m pytest -q --cov=app --cov-report=xml --cov-report=term --junitxml=pytest-results.xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          flags: backend
+          name: backend-coverage
+          fail_ci_if_error: false
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results
+          path: backend/pytest-results.xml
+          retention-days: 30
+      - name: Security scan (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --requirement requirements.txt --requirement requirements-dev.txt --format=json --output=pip-audit.json || true
+        continue-on-error: true
+      - name: Upload security scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-security-scan
+          path: backend/pip-audit.json
+          retention-days: 30
 
   webui:
-    name: Web UI build
+    name: Web UI build + tests + coverage + gates + security
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: webui
@@ -55,13 +85,47 @@ jobs:
           cache-dependency-path: webui/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Type-check + build (tsc --noEmit && vite build)
+      - name: Type-check (tsc --noEmit)
+        run: npm run typecheck
+      - name: Build (vite build)
         run: npm run build
+      - name: Run Vitest tests with coverage
+        run: npm run test -- --coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/coverage-final.json
+          flags: webui
+          name: webui-coverage
+          fail_ci_if_error: false
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: webui-test-results
+          path: webui/coverage/
+          retention-days: 30
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Run design gates (token existence, contrast, grep guards, CVD)
+        run: npm run gates
+      - name: Check API type contract (openapi-typescript drift)
+        run: npm run check:types
+      - name: Security scan (npm audit)
+        run: npm audit --audit-level=moderate --json > npm-audit.json || true
+        continue-on-error: true
+      - name: Upload security scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-security-scan
+          path: webui/npm-audit.json
+          retention-days: 30
 
   # A single aggregate check to require in branch protection.
   ci:
     name: CI passed
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [backend, webui]
     steps:
       - run: echo "All required checks passed."

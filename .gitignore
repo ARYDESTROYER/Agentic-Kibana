@@ -48,3 +48,9 @@ WORK_TRACKER.md
 .vite/
 webui/.vite/
 **/vitest/results.json
+
+# ---- CI/CD test artifacts (do not commit) ----
+coverage.xml
+pip-audit.json
+npm-audit.json
+pytest-results.xml
