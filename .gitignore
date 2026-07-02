@@ -54,3 +54,4 @@ coverage.xml
 pip-audit.json
 npm-audit.json
 pytest-results.xml
+webui/coverage/

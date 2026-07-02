@@ -63,7 +63,7 @@ def _mk_case(
     mitre: list[str] | None = None,
     status: CaseStatus = CaseStatus.OPEN,
     verdict: Verdict | None = None,
-    ts: str = "2026-07-01T10:00:00+00:00",
+    ts: str = "2026-07-02T10:00:00+00:00",
     severity_band: str | None = None,
 ) -> Case:
     entity = Entity(type=EntityType.IP, value=ip or "0.0.0.0")
