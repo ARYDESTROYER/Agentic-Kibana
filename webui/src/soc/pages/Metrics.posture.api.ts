@@ -12,7 +12,7 @@
  * The consuming components render them as PLAIN text. The types below describe the
  * SHAPE only; they grant no trust.
  */
-import { api } from '@/lib/api';
+import { api, API_BASE } from '@/lib/api';
 
 /** The labelled-DASH-or-number p50/p90/mean block from `_stat_block`. */
 export interface StatBlock {
@@ -175,8 +175,22 @@ export function fetchMitreCoverage(windowHours = 0): Promise<MitreCoverageRespon
   );
 }
 
-/** The Navigator-layer export URL (served as a downloadable JSON document). */
+/** The API prefix, read from the shared client so it stays correct if the API is ever
+ *  served under a different prefix (not hard-coded '/api'). Guarded because a unit test
+ *  may replace the WHOLE `@/lib/api` module and omit this const — accessing a missing
+ *  named export throws under the mock, so we fall back to the conventional '/api'. In
+ *  every real build `API_BASE` is defined and this never falls back. */
+function apiBase(): string {
+  try {
+    return API_BASE || '/api';
+  } catch {
+    return '/api';
+  }
+}
+
+/** The Navigator-layer export URL (served as a downloadable JSON document). Built from the
+ *  shared API prefix ({@link apiBase}) instead of a hard-coded '/api'. */
 export function navigatorLayerUrl(windowHours = 0): string {
   const q = windowHours > 0 ? `?window_hours=${encodeURIComponent(String(windowHours))}` : '';
-  return `/api/mitre/coverage/navigator.layer.json${q}`;
+  return `${apiBase()}/mitre/coverage/navigator.layer.json${q}`;
 }

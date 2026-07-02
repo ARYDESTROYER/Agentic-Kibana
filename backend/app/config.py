@@ -313,8 +313,11 @@ class Secrets(BaseSettings):
             users[self.auth_admin_username] = hash_password(self.auth_admin_password)
         return users
 
-    def configured_status(self) -> dict[str, bool]:
-        """Boolean-only view for the settings UI. NEVER returns values."""
+    def configured_status(self) -> dict[str, Any]:
+        """Boolean-only view for the settings UI. NEVER returns values.
+
+        Every value is a bool EXCEPT ``sso_client_secrets_by_id`` (an ADDITIVE
+        ``provider_id -> bool`` map, Round-6 #21) — still boolean-only, never a value."""
         return {
             "es_api_key": bool(self.es_api_key),
             "es_mgmt_api_key": bool(self.es_mgmt_api_key),
@@ -353,7 +356,15 @@ class Secrets(BaseSettings):
             "embedding_api_key": bool(self.embedding_key()),
             # Wave 2: configured-booleans only (never the values).
             "mfa_obfuscation_key": bool(self.mfa_obfuscation_key),
+            # Legacy scalar (kept for compat): True iff ANY SSO provider has a secret.
             "sso_client_secrets": bool(self.sso_client_secrets),
+            # ADDITIVE per-provider configured-boolean map (Round-6 #21): provider_id ->
+            # bool. Lets the Security editor show an accurate "configured" badge PER
+            # provider even with 2+ providers (the scalar above conflates them). NEVER
+            # returns the secret value (#10) — only whether one is set.
+            "sso_client_secrets_by_id": {
+                pid: bool(val) for pid, val in (self.sso_client_secrets or {}).items()
+            },
             # Wave 4: per-channel configured-booleans only (never the values).
             "notification_secrets": bool(self.notification_secrets),
         }
@@ -435,13 +446,52 @@ class RuleMatch(BaseModel):
         return False
 
 
+class RuleSchedule(BaseModel):
+    """Optional per-detection-rule schedule metadata (G6 R5 "Schedule" tab).
+
+    ADVISORY ONLY — the poller's durable per-feed cursor (``{source.id}:{feed.id}``)
+    owns the actual evaluation cadence today; these values persist the operator's
+    intent so the editor round-trips losslessly and a future per-rule scheduler can
+    honour them. It NEVER feeds ``case_manager.decide()`` (#3). Both fields default
+    None (== inherit the feed/global schedule), so an existing stored rule loads
+    byte-identically."""
+
+    # Wire keys are snake_case (the FE ``ScheduleForm`` uses camelCase; the rules
+    # adapter maps ``intervalSeconds`` ⇄ ``interval_seconds`` etc.).
+    interval_seconds: int | None = Field(default=None, ge=1)
+    lookback_seconds: int | None = Field(default=None, ge=0)
+
+
+class RuleSuppression(BaseModel):
+    """Optional per-detection-rule alert-storm suppression metadata (G6 R5).
+
+    A DISTINCT concept from the ``correlation`` threshold (Elastic keeps them apart;
+    conflating them is a known analyst pitfall). ADVISORY/STORAGE ONLY today — this
+    persists the operator's intent so the Suppression editor round-trips; the engine
+    does NOT silently DROP events from this per-rule block. Any actual suppression that
+    would DROP a candidate stays a HITL Proposal via the existing
+    ``Preferences.suppression_rules`` path (#3/#4-safe: never silently drops). All
+    fields are defaulted so a stored rule without it loads unchanged."""
+
+    by: list[str] = Field(default_factory=list)              # up-to-3 group-by fields
+    scope: Literal["per_run", "per_window"] = "per_run"
+    window_seconds: int | None = Field(default=None, ge=1)   # for per_window scope
+    missing_field: Literal["suppress", "keep"] = "suppress"  # behaviour on absent field
+
+
 class RuleDefinition(BaseModel):
     """A config-driven, pre-baked-but-editable detection rule (C3-1).
 
     Each definition classifies a raw event (via ``match``) into a named rule, can
     carry its own ``correlation`` override and per-role ``model_override`` (C3-6b),
     and is evaluated in ascending ``priority`` (then list order) so ModSec
-    sub-rules (lower priority) win over the generic ``modsec_audit_log`` rule."""
+    sub-rules (lower priority) win over the generic ``modsec_audit_log`` rule.
+
+    ``mitre``/``schedule``/``suppression`` are ADDITIVE, defaulted G6-editor metadata
+    (advisory only — none feeds ``decide()``, #3): ``mitre`` is a list of ATT&CK
+    technique ids the rule maps to (drives the coverage heatmap), ``schedule`` persists
+    an optional per-rule cadence intent, and ``suppression`` persists alert-storm
+    collapse intent (never a silent DROP — see :class:`RuleSuppression`)."""
 
     # ``model_override`` collides with Pydantic's protected ``model_`` namespace;
     # disable the guard (this is plain data, not a Pydantic config attribute).
@@ -454,6 +504,11 @@ class RuleDefinition(BaseModel):
     correlation: CorrelationRule | None = None
     model_override: dict[str, ModelConfig] = Field(default_factory=dict)
     priority: int = 100
+    # G6 R5 additive editor metadata (advisory; never feeds decide(), #3). All
+    # defaulted so a stored rule predating them deserialises byte-identically.
+    mitre: list[str] = Field(default_factory=list)           # ATT&CK technique ids
+    schedule: RuleSchedule | None = None
+    suppression: RuleSuppression | None = None
 
 
 class RiskWeights(BaseModel):
@@ -1067,6 +1122,12 @@ class CaseAutomationRule(BaseModel):
     recommendation, the channel id, the ``playbook_id`` to run)."""
 
     id: str
+    # Optional operator-facing DISPLAY name, independent of the (immutable) ``id`` so a
+    # rule can be renamed after creation (G6 R5, #F25). ADDITIVE + defaulted "" → a
+    # stored rule predating it deserialises byte-identically and the UI falls back to
+    # ``id`` when blank. Plain, attacker-uninfluenced operator text → rendered escaped
+    # (#9); it never feeds the matcher or ``decide()`` (#3).
+    name: str = ""
     enabled: bool = True
     priority: int = 100
     # Conditions (all-of; an absent/empty key does not constrain):

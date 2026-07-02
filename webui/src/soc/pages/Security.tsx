@@ -28,6 +28,7 @@ import { MfaSetupCard } from '@/soc/components/MfaSetupCard';
 import { SessionPolicySection } from '@/soc/components/SessionPolicyEditor';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
+import { Textarea } from '@/ui/textarea';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Badge } from '@/ui/badge';
@@ -85,6 +86,7 @@ function CopyField({ value }: { value: string }) {
         variant="outline"
         size="sm"
         className="h-8 gap-1.5"
+        aria-label={done ? 'Callback URL copied' : 'Copy callback URL'}
         onClick={() => {
           // copyText falls back to execCommand over plain HTTP (no secure context).
           void copyText(value).then((ok) => {
@@ -250,10 +252,10 @@ function ProviderEditor({
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="sso-group-role-map" className="text-xs">Group → role map (one per line, e.g. <span className="font-mono">soc-admins=super_admin</span>)</Label>
-          <textarea
-            id="sso-group-role-map"
-            className="w-full resize-y rounded-md border border-border bg-card px-3 py-2 font-mono text-xs"
+          <Label htmlFor={`sso-group-role-map-${provider.id}`} className="text-xs">Group → role map (one per line, e.g. <span className="font-mono">soc-admins=super_admin</span>)</Label>
+          <Textarea
+            id={`sso-group-role-map-${provider.id}`}
+            className="resize-y font-mono text-xs"
             rows={3}
             value={groupMapText}
             onChange={(e) => {
@@ -498,7 +500,15 @@ export function SecuritySsoInner({
             key={p.id}
             provider={p}
             callbackUrl={callbackUrl}
-            configuredSecret={Boolean(secretConfigured[p.id]) || Boolean(configured.sso_client_secrets)}
+            // `configured.sso_client_secrets` is a GLOBAL boolean (true if ANY provider
+            // has a stored secret), so it can only be trusted when there is exactly one
+            // provider. With 2+ providers rely on the per-provider session flag, so a
+            // secret-less provider is never falsely shown "configured" (backend handoff:
+            // return a per-provider secret map to make the badge accurate for all).
+            configuredSecret={
+              Boolean(secretConfigured[p.id]) ||
+              (providers.length === 1 && Boolean(configured.sso_client_secrets))
+            }
             onChange={(next) => {
               const arr = [...providers];
               arr[idx] = next;

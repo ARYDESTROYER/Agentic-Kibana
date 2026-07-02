@@ -23,11 +23,11 @@ import { cn } from '@/lib/cn';
 import { useDemo } from '@/soc/demo';
 
 import { Button } from '@/ui/button';
-import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
-import { Slider } from '@/ui/slider';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
+import { NumberField } from '@/soc/components/NumberField';
+import { LabeledSlider } from '@/soc/components/LabeledSlider';
 
 const MODES: Array<{ value: Exclude<DemoMode, 'off'>; label: string; help: string }> = [
   {
@@ -41,48 +41,6 @@ const MODES: Array<{ value: Exclude<DemoMode, 'off'>; label: string; help: strin
     help: 'Seed the history AND simulate new incidents on a tick, so the console feels alive.',
   },
 ];
-
-/** A small labelled number input used for the demo knobs. */
-function Knob({
-  label,
-  value,
-  onChange,
-  step,
-  min,
-  max,
-  help,
-  suffix,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  step?: number;
-  min?: number;
-  max?: number;
-  help?: string;
-  suffix?: string;
-}) {
-  const id = React.useId();
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-xs">
-        {label}
-        {suffix ? <span className="ml-1 font-normal text-muted-foreground">({suffix})</span> : null}
-      </Label>
-      <Input
-        id={id}
-        type="number"
-        className="h-9"
-        value={Number.isFinite(value) ? value : 0}
-        step={step}
-        min={min}
-        max={max}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      {help ? <p className="text-[11px] leading-relaxed text-muted-foreground">{help}</p> : null}
-    </div>
-  );
-}
 
 export function DemoModeSection() {
   const { status, active, refresh } = useDemo();
@@ -238,51 +196,43 @@ export function DemoModeSection() {
             </div>
           </div>
 
-          {/* Knobs */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Knob
+          {/* Knobs — shared NumberField (+/- steppers, clamp-on-blur) + LabeledSlider,
+              matching Settings › Detection so the demo config uses the same primitives. */}
+          <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+            <NumberField
               label="History"
-              suffix="days"
+              unit="days"
               value={historyDays}
               min={0}
               max={90}
               onChange={setHistoryDays}
-              help="Days of trailing synthetic history to pre-generate."
+              description="Days of trailing synthetic history to pre-generate."
             />
-            <Knob
+            <NumberField
               label="Tick"
-              suffix="seconds"
+              unit="s"
               value={tickSeconds}
               min={1}
-              step={1}
               onChange={setTickSeconds}
-              help="Live mode only — how often a new synthetic batch arrives."
+              description="Live mode only — how often a new synthetic batch arrives."
             />
-            <Knob
+            <NumberField
               label="Seed"
               value={seed}
               min={0}
-              step={1}
               onChange={setSeed}
-              help="Deterministic — the same seed reproduces the same data."
+              description="Deterministic — the same seed reproduces the same data."
             />
-            <div className="space-y-1.5">
-              <Label className="text-xs">
-                Incident rate
-                <span className="ml-1 font-normal text-muted-foreground">({incidentRatePct}%)</span>
-              </Label>
-              <Slider
-                min={0}
-                max={50}
-                step={1}
-                value={[incidentRatePct]}
-                onValueChange={(vals) => setIncidentRatePct(vals[0] ?? 0)}
-                aria-label="Incident rate"
-              />
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Per-tick chance of igniting an attack storyline (live mode).
-              </p>
-            </div>
+            <LabeledSlider
+              label="Incident rate"
+              value={incidentRatePct}
+              onChange={setIncidentRatePct}
+              min={0}
+              max={50}
+              step={1}
+              formatValue={(v) => `${v}%`}
+              description="Per-tick chance of igniting an attack storyline (live mode)."
+            />
           </div>
 
           <Button onClick={() => void onEnable()} disabled={busy !== null}>

@@ -14,9 +14,12 @@ const buttonVariants = cva(
         default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:bg-primary/85',
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80 active:bg-secondary/70',
         outline:
-          'border border-border bg-card text-foreground hover:bg-muted hover:text-foreground active:bg-muted/80',
+          // border-input (≥3:1), not the decorative hairline --border: on a bg-card fill the
+          // edge is the ONLY boundary cue, so it must clear the WCAG 1.4.11 non-text bar and
+          // match the input/select/textarea/checkbox primitives (DESIGN_STANDARD §1.2).
+          'border border-input bg-card text-foreground hover:bg-muted hover:text-foreground active:bg-muted/80',
         ghost: 'text-foreground hover:bg-muted hover:text-foreground active:bg-muted/80',
-        destructive: 'bg-critical text-primary-foreground shadow-sm hover:bg-critical/90 active:bg-critical/85',
+        destructive: 'bg-critical text-critical-foreground shadow-sm hover:bg-critical/90 active:bg-critical/85',
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {

@@ -48,6 +48,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { LoadError } from '@/soc/components/LoadError';
 import { Can, ProtectedRoute } from '@/soc/components/Can';
 import { useAuth } from '@/soc/auth';
 
@@ -97,14 +98,19 @@ export function UsersInner() {
   // assigning a user a base role + custom_roles[] (Round 3 / Feature 6).
   const [customRoleNames, setCustomRoleNames] = React.useState<string[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<unknown>(null);
   const [addOpen, setAddOpen] = React.useState(false);
   const [resetFor, setResetFor] = React.useState<User | null>(null);
   const [rolesFor, setRolesFor] = React.useState<User | null>(null);
   const [deleteFor, setDeleteFor] = React.useState<User | null>(null);
   const [busyUser, setBusyUser] = React.useState<string | null>(null);
 
-  const load = React.useCallback(async () => {
-    setLoading(true);
+  const load = React.useCallback(async (opts?: { background?: boolean }) => {
+    // Inline mutations (role/active/delete) reload in the BACKGROUND: keep the current
+    // rows on screen (the per-row `busyUser` state signals progress) instead of tearing
+    // the whole table down to skeleton rows for a single-row change.
+    if (!opts?.background) setLoading(true);
+    setError(null);
     try {
       const [u, r] = await Promise.all([api.users.list(), api.roles.get()]);
       setUsers(u.users);
@@ -114,9 +120,10 @@ export function UsersInner() {
         Object.keys(matrixRes.matrix ?? {}).filter((n) => !BUILTIN_ROLES.has(n)),
       );
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load users.'));
+      // A failed load must read as an error, not a genuine "No users yet." table.
+      setError(e);
     } finally {
-      setLoading(false);
+      if (!opts?.background) setLoading(false);
     }
   }, []);
 
@@ -130,7 +137,7 @@ export function UsersInner() {
     try {
       await api.users.update(user.username, { role });
       toast.success(`Role updated for ${user.username}.`);
-      await load();
+      await load({ background: true });
     } catch (e) {
       toast.error(errMsg(e, 'Could not change role.'));
     } finally {
@@ -143,7 +150,7 @@ export function UsersInner() {
     try {
       await api.users.update(user.username, { active });
       toast.success(active ? `${user.username} enabled.` : `${user.username} disabled.`);
-      await load();
+      await load({ background: true });
     } catch (e) {
       toast.error(errMsg(e, 'Could not update the account.'));
     } finally {
@@ -156,7 +163,7 @@ export function UsersInner() {
     try {
       await api.users.remove(user.username);
       toast.success(`Deleted ${user.username}.`);
-      await load();
+      await load({ background: true });
     } catch (e) {
       toast.error(errMsg(e, 'Could not delete the user.'));
     } finally {
@@ -305,14 +312,22 @@ export function UsersInner() {
         }
       />
 
-      <DataTable<User>
-        columns={columns}
-        rows={users}
-        getRowId={(u) => u.username}
-        loading={loading}
-        ariaLabel="User accounts"
-        empty="No users yet."
-      />
+      {error ? (
+        <LoadError
+          error={error}
+          title="Couldn't load users"
+          onRetry={() => void load()}
+        />
+      ) : (
+        <DataTable<User>
+          columns={columns}
+          rows={users}
+          getRowId={(u) => u.username}
+          loading={loading}
+          ariaLabel="User accounts"
+          empty="No users yet."
+        />
+      )}
 
       <AddUserDialog
         open={addOpen}
@@ -457,8 +472,15 @@ function AssignRolesDialog({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label>Custom roles</Label>
+          <div className="space-y-2" role="group" aria-labelledby="assign-custom-roles-label">
+            {/* A group label (not a bare <label>, which would associate with nothing) so
+                the toggle-chip set below has an accessible name. */}
+            <span
+              id="assign-custom-roles-label"
+              className="text-sm font-medium leading-none text-foreground"
+            >
+              Custom roles
+            </span>
             {customRoleNames.length === 0 ? (
               <p className="text-sm text-muted-foreground">No custom roles defined yet.</p>
             ) : (

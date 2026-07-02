@@ -29,6 +29,19 @@ const PRIORITY_LABEL: Record<string, string> = {
   P4: 'P4 — Low',
 };
 
+/**
+ * Per-level fallback targets — MIRROR the backend `SlaPolicy` defaults
+ * (`config.py`: P1 15/240, P2 30/480, P3 120/1440, P4 480/4320). Shown for any level
+ * whose target is absent from the loaded policy so the editor never implies a flat
+ * 60/1440 the system does not actually enforce.
+ */
+const DEFAULT_TARGETS: Record<string, { response: number; resolve: number }> = {
+  P1: { response: 15, resolve: 240 },
+  P2: { response: 30, resolve: 480 },
+  P3: { response: 120, resolve: 1440 },
+  P4: { response: 480, resolve: 4320 },
+};
+
 export interface SlaPolicyEditorProps {
   policy: SlaPolicy;
   onChange: (next: SlaPolicy) => void;
@@ -77,6 +90,7 @@ export function SlaPolicyEditor({ policy, onChange, disabled }: SlaPolicyEditorP
       <div className="space-y-4">
         {PRIORITY_LEVELS.map((level) => {
           const t = targets[level] ?? {};
+          const def = DEFAULT_TARGETS[level];
           return (
             <div
               key={level}
@@ -92,7 +106,7 @@ export function SlaPolicyEditor({ policy, onChange, disabled }: SlaPolicyEditorP
                 <NumberField
                   label="Response target"
                   description="Minutes to first response."
-                  value={t.response_minutes ?? 60}
+                  value={t.response_minutes ?? def.response}
                   min={0}
                   unit="min"
                   disabled={controlsDisabled}
@@ -101,7 +115,7 @@ export function SlaPolicyEditor({ policy, onChange, disabled }: SlaPolicyEditorP
                 <NumberField
                   label="Resolution target"
                   description="Minutes to resolution."
-                  value={t.resolve_minutes ?? 1440}
+                  value={t.resolve_minutes ?? def.resolve}
                   min={0}
                   unit="min"
                   disabled={controlsDisabled}
@@ -113,34 +127,35 @@ export function SlaPolicyEditor({ policy, onChange, disabled }: SlaPolicyEditorP
         })}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label="Timezone"
-          description="IANA timezone the SLA clock runs in (e.g. UTC, America/New_York)."
-        >
-          <Input
-            value={policy.timezone ?? 'UTC'}
-            disabled={controlsDisabled}
-            placeholder="UTC"
-            onChange={(e) => onChange({ ...policy, timezone: e.target.value })}
-          />
-        </Field>
-        <div className="flex items-start justify-between gap-4 pt-6">
-          <div className="space-y-0.5">
-            <Label htmlFor="sla-business-hours" className="text-sm">
-              Business hours only
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              When on, the SLA clock pauses outside business hours (default 24×7).
-            </p>
-          </div>
-          <Switch
-            id="sla-business-hours"
-            checked={policy.business_hours_only ?? false}
-            disabled={controlsDisabled}
-            onCheckedChange={(v) => onChange({ ...policy, business_hours_only: v })}
-          />
+      {/* Timezone + business-hours are stacked as full-width rows rather than paired in a
+          grid with a brittle `pt-6` offset — the toggle no longer misaligns when the
+          timezone helper text wraps to two lines on a narrow column (#35). */}
+      <Field
+        label="Timezone"
+        description="IANA timezone the SLA clock runs in (e.g. UTC, America/New_York)."
+      >
+        <Input
+          value={policy.timezone ?? 'UTC'}
+          disabled={controlsDisabled}
+          placeholder="UTC"
+          onChange={(e) => onChange({ ...policy, timezone: e.target.value })}
+        />
+      </Field>
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-0.5">
+          <Label htmlFor="sla-business-hours" className="text-sm">
+            Business hours only
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            When on, the SLA clock pauses outside business hours (default 24×7).
+          </p>
         </div>
+        <Switch
+          id="sla-business-hours"
+          checked={policy.business_hours_only ?? false}
+          disabled={controlsDisabled}
+          onCheckedChange={(v) => onChange({ ...policy, business_hours_only: v })}
+        />
       </div>
     </div>
   );

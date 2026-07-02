@@ -9,7 +9,7 @@
  *
  * Fully offline — no network, no real providers beyond the mocked auth.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 
 const { fetchReportMock } = vi.hoisted(() => ({ fetchReportMock: vi.fn() }));
@@ -129,6 +129,12 @@ describe('Standup shift handoff (Round 3 / F11)', () => {
     window.localStorage.clear();
   });
 
+  // Round-6: the Copy control depends on navigator.clipboard; reset it after each test
+  // so a case that installs a fake clipboard does not leak into the others.
+  afterEach(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  });
+
   it('renders the urgency-ranked attention queue with deep-link rows', async () => {
     const onNavigate = vi.fn();
     render(<Standup onNavigate={onNavigate} />);
@@ -158,5 +164,24 @@ describe('Standup shift handoff (Round 3 / F11)', () => {
     const nhTile = screen.getByTestId('delta-tile-needs_human');
     expect(within(nhTile).getByText('2')).toBeInTheDocument();
     expect(within(nhTile).getByText('+1')).toBeInTheDocument();
+  });
+
+  it('hides the Copy summary button on an insecure origin (no clipboard)', async () => {
+    // jsdom has no navigator.clipboard by default → the dead button must not render.
+    render(<Standup onNavigate={vi.fn()} />);
+    await screen.findByText('Suspicious PowerShell on host-12');
+    expect(
+      screen.queryByRole('button', { name: /copy the shift summary/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows + wires the Copy summary button when a clipboard is available', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+
+    render(<Standup onNavigate={vi.fn()} />);
+    const btn = await screen.findByRole('button', { name: /copy the shift summary/i });
+    fireEvent.click(btn);
+    expect(writeText).toHaveBeenCalledWith('Quiet shift overall.');
   });
 });

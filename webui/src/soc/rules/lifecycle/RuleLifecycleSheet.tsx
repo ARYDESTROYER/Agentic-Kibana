@@ -29,6 +29,7 @@ import {
 } from '@/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 import { Button } from '@/ui/button';
+import { Skeleton } from '@/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { HelpTip } from '@/soc/components/HelpTip';
@@ -97,22 +98,28 @@ export function RuleLifecycleSheet({
   onTune,
   onRolledBack,
 }: RuleLifecycleSheetProps) {
-  // Health is derived from the last preview outcome (updated as the operator runs it).
-  const [health, setHealth] = React.useState<RuleHealth>(() => deriveHealth({ state }));
-  React.useEffect(() => {
-    // Re-baseline health when the rule's state changes and no preview has run yet.
-    setHealth((h) => (h.status === 'ok' || h.status === 'warning' || h.status === 'failed' ? h : deriveHealth({ state })));
-  }, [state]);
+  // Health is a PURE derivation of the current lifecycle state + the last preview
+  // outcome. Keeping the raw preview counts (not the derived RuleHealth) in state means
+  // health re-derives whenever `state` changes — so toggling to Disabled immediately
+  // re-reads as "Not evaluated" instead of retaining a stale green "Matching" (#30).
+  const [lastPreview, setLastPreview] = React.useState<{ matched: number; scanned: number } | null>(null);
+  const [previewErrored, setPreviewErrored] = React.useState(false);
+  const health = React.useMemo<RuleHealth>(
+    () =>
+      deriveHealth({
+        state,
+        lastMatched: lastPreview?.matched ?? null,
+        lastScanned: lastPreview?.scanned ?? null,
+        lastErrored: previewErrored,
+      }),
+    [state, lastPreview, previewErrored],
+  );
 
-  const onPreviewResult = React.useCallback(
-    (res: RulePreviewResult) =>
-      setHealth(deriveHealth({ state, lastMatched: res.matched, lastScanned: res.scanned })),
-    [state],
-  );
-  const onPreviewError = React.useCallback(
-    () => setHealth(deriveHealth({ state, lastErrored: true })),
-    [state],
-  );
+  const onPreviewResult = React.useCallback((res: RulePreviewResult) => {
+    setPreviewErrored(false);
+    setLastPreview({ matched: res.matched, scanned: res.scanned });
+  }, []);
+  const onPreviewError = React.useCallback(() => setPreviewErrored(true), []);
 
   // Disabling a LIVE rule reduces coverage — gate it behind an explicit confirm.
   const [confirmDisable, setConfirmDisable] = React.useState(false);
@@ -190,7 +197,11 @@ export function RuleLifecycleSheet({
             <TabsContent value="preview" className="mt-0">
               <React.Suspense
                 fallback={
-                  <p className="py-6 text-center text-sm text-muted-foreground">Loading preview…</p>
+                  <div className="space-y-3" aria-busy="true" aria-label="Loading preview">
+                    <Skeleton className="h-16 w-full" />
+                    <Skeleton className="h-8 w-56" />
+                    <Skeleton className="h-40 w-full" />
+                  </div>
                 }
               >
                 <RulePreviewPanel rule={rule} onResult={onPreviewResult} onError={onPreviewError} />

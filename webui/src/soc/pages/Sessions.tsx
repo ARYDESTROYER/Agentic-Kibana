@@ -335,6 +335,10 @@ export function SessionsInner() {
   }, [loadSessions, loadActivity]);
 
   const otherCount = sessions.filter((s) => !s.current && !s.revoked).length;
+  // Only signed-in + auth-on shows the session tabs; in the other two states the body
+  // is an informational Alert, so the Refresh + destructive header actions (which
+  // would fire pointless / 401'ing calls) are hidden to match.
+  const active = authEnabled && isAuthenticated;
 
   const doRevoke = async (s: Session) => {
     setBusySid(s.sid);
@@ -374,30 +378,32 @@ export function SessionsInner() {
         title="Sessions & activity"
         description="Review where you're signed in and your recent account activity."
         actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void loadSessions();
-                void loadActivity();
-              }}
-              disabled={loading}
-            >
-              <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
-              Refresh
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-critical hover:text-critical"
-              onClick={() => setRevokeOthersOpen(true)}
-              disabled={loading || otherCount === 0}
-            >
-              <ShieldOff className="h-4 w-4" aria-hidden />
-              Sign out all other sessions
-            </Button>
-          </div>
+          active ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void loadSessions();
+                  void loadActivity();
+                }}
+                disabled={loading}
+              >
+                <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} aria-hidden />
+                Refresh
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-critical hover:text-critical"
+                onClick={() => setRevokeOthersOpen(true)}
+                disabled={loading || otherCount === 0}
+              >
+                <ShieldOff className="h-4 w-4" aria-hidden />
+                Sign out all other sessions
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 

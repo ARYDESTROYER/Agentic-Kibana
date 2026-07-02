@@ -27,6 +27,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/ui/collapsible';
+import { Heading } from '@/ui/typography';
 
 export interface DashboardGroupProps {
   /** Group heading (plain text). */
@@ -78,7 +79,6 @@ export function DashboardGroup({
   const isOpen = controlled ? (open as boolean) : internalOpen;
 
   const regionId = useGroupId();
-  const Heading = (`h${headingLevel}` as unknown) as keyof JSX.IntrinsicElements;
 
   const handleOpenChange = React.useCallback(
     (next: boolean) => {
@@ -97,37 +97,49 @@ export function DashboardGroup({
     >
       <section aria-label={title}>
         <div className="flex items-center gap-2">
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              aria-expanded={isOpen}
-              aria-controls={regionId}
-              className={cn(
-                'group/dg flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left transition-colors',
-                'hover:text-foreground',
-                focusRing,
-              )}
-            >
-              <ChevronDown
-                aria-hidden="true"
+          {/* The heading WRAPS the button (WAI disclosure pattern): a <button> may
+              not contain h2-h6 (flow content), and a heading nested inside a button
+              is swallowed by the button's name-from-contents, breaking heading-jump
+              (NVDA/JAWS 'H'). Keeping the heading OUTSIDE the button preserves both a
+              valid button and the document outline. */}
+          {/* Shared typography <Heading> for the document-outline node; its visual
+              scale is inert here because the visible label/count/description are the
+              explicitly-sized spans inside the trigger button. */}
+          <Heading level={headingLevel} className="m-0 min-w-0 flex-1">
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                aria-controls={regionId}
                 className={cn(
-                  'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-                  isOpen ? 'rotate-0' : '-rotate-90',
+                  'group/dg flex w-full min-w-0 items-center gap-2 rounded-md py-1 text-left transition-colors',
+                  'hover:text-foreground',
+                  focusRing,
                 )}
-              />
-              <Heading className="truncate text-sm font-semibold uppercase tracking-wide text-foreground">
-                {title}
-              </Heading>
-              {count != null ? (
-                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                  {count}
+              >
+                <ChevronDown
+                  aria-hidden="true"
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                    isOpen ? 'rotate-0' : '-rotate-90',
+                  )}
+                />
+                <span className="truncate text-sm font-semibold uppercase tracking-wide text-foreground">
+                  {title}
                 </span>
-              ) : null}
-              {description ? (
-                <span className="truncate text-xs text-muted-foreground">{description}</span>
-              ) : null}
-            </button>
-          </CollapsibleTrigger>
+                {count != null ? (
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                    {count}
+                  </span>
+                ) : null}
+                {description ? (
+                  <span className="truncate text-xs font-normal normal-case tracking-normal text-muted-foreground">
+                    {description}
+                  </span>
+                ) : null}
+              </button>
+            </CollapsibleTrigger>
+          </Heading>
           {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
         </div>
 

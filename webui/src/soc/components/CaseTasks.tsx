@@ -67,6 +67,18 @@ function statusMeta(status: string): StatusMeta {
   return STATUS_META[(status || '').toLowerCase()] || STATUS_META.open;
 }
 
+/**
+ * Normalise an arbitrary status to the canonical Select value. The status <Select>
+ * options are the lowercase canonical set, but `task.status` is typed to allow any
+ * string (and the backend may return "Done"/"OPEN"/unknown). `statusMeta()` already
+ * lowercases + defaults for the BADGE; mirror that here so the dropdown trigger never
+ * renders blank while the badge shows a value.
+ */
+export function canonicalStatus(status: string): TaskStatus {
+  const s = (status || '').toLowerCase();
+  return (STATUS_META[s] ? s : 'open') as TaskStatus;
+}
+
 /* --------------------------------------------------------------- task row -- */
 
 interface TaskRowProps {
@@ -142,7 +154,11 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, canWrite, busy, onStatus, onLog
 
         {canWrite ? (
           <div className="flex shrink-0 items-center gap-1">
-            <Select value={task.status} onValueChange={(v) => onStatus(v as TaskStatus)} disabled={busy}>
+            <Select
+              value={canonicalStatus(task.status)}
+              onValueChange={(v) => onStatus(v as TaskStatus)}
+              disabled={busy}
+            >
               <SelectTrigger className="h-7 w-[7.5rem] text-xs" aria-label="Task status">
                 <SelectValue />
               </SelectTrigger>

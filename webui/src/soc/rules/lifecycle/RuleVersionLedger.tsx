@@ -23,6 +23,7 @@ import { History, RotateCcw } from 'lucide-react';
 
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { Button } from '@/ui/button';
+import { Skeleton } from '@/ui/skeleton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
@@ -106,7 +107,23 @@ export function RuleVersionLedger({
   );
 
   if (loading && versions.length === 0) {
-    return <p className="py-6 text-center text-sm text-muted-foreground">Loading history…</p>;
+    // Skeleton rows (matching the version-row shape) reserve layout space and match the
+    // shared loading grammar, instead of a plain-text loader that jumps on load (#44).
+    return (
+      <ol className="space-y-2" aria-busy="true" aria-label="Loading version history">
+        {[0, 1, 2].map((i) => (
+          <li key={i} className="rounded-md border border-border bg-card p-3">
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="ml-auto h-3 w-32" />
+            </div>
+            <Skeleton className="mt-2 h-3 w-40" />
+            <Skeleton className="mt-2 h-8 w-28" />
+          </li>
+        ))}
+      </ol>
+    );
   }
   if (error && versions.length === 0) {
     return <LoadError error={error} title="Couldn't load version history" onRetry={reload} />;
@@ -203,9 +220,12 @@ export function RuleVersionLedger({
               {isSelected ? (
                 <div className="mt-3 border-t border-border pt-3">
                   <div className="mb-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Changes to restore (this version → current)
+                    Changes to restore (current → this version)
                   </div>
-                  <DiffView before={v.config} after={current?.config} />
+                  {/* Direction matches the RESTORE action (#42): restoring makes the live
+                      config become THIS version, so `before` = current, `after` = v. Now a
+                      green "+" is what Restore ADDS and a red "−" is what it REMOVES. */}
+                  <DiffView before={current?.config} after={v.config} />
                 </div>
               ) : null}
             </li>

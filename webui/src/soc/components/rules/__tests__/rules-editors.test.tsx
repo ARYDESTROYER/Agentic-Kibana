@@ -101,6 +101,27 @@ describe('AssetCriticalityEditor', () => {
     fireEvent.change(input, { target: { value: 'db-prod-02' } });
     expect(onExactChange).toHaveBeenCalledWith({ 'db-prod-02': 80 });
   });
+
+  it('"Add asset" renders a real, typeable empty row instead of a no-op (#34)', () => {
+    const onExactChange = vi.fn();
+    renderEditor({ exact: {}, onExactChange });
+    fireEvent.click(screen.getByRole('button', { name: /add asset/i }));
+    // A new empty entity input appears (the row is not folded away before render).
+    const inputs = screen.getAllByLabelText('Asset entity value');
+    expect(inputs).toHaveLength(1);
+    // Typing into it folds the new key (default criticality 50) into the wire map.
+    fireEvent.change(inputs[0], { target: { value: 'db-01' } });
+    expect(onExactChange).toHaveBeenCalledWith({ 'db-01': 50 });
+  });
+
+  it('clearing an entity to retype it keeps the row instead of deleting it (#34)', () => {
+    const onExactChange = vi.fn();
+    renderEditor({ exact: { 'db-01': 80 }, onExactChange });
+    fireEvent.change(screen.getByDisplayValue('db-01'), { target: { value: '' } });
+    // The row survives the transient empty value; the folded map just drops the empty key.
+    expect(screen.getByLabelText('Asset entity value')).toBeInTheDocument();
+    expect(onExactChange).toHaveBeenLastCalledWith({});
+  });
 });
 
 /* ── SlaPolicyEditor ───────────────────────────────────────────────────── */
@@ -114,6 +135,15 @@ describe('SlaPolicyEditor', () => {
     // While disabled, a response-target input is disabled.
     const responseInputs = screen.getAllByLabelText('Response target');
     expect((responseInputs[0] as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('shows per-level defaults that mirror the backend (P1 15/240 … P4 480/4320), not a flat 60/1440', () => {
+    wrap(<SlaPolicyEditor policy={{ enabled: true }} onChange={vi.fn()} />);
+    const response = screen.getAllByLabelText('Response target') as HTMLInputElement[];
+    const resolve = screen.getAllByLabelText('Resolution target') as HTMLInputElement[];
+    // Descending per-level defaults, not a single flat fallback.
+    expect(response.map((i) => i.value)).toEqual(['15', '30', '120', '480']);
+    expect(resolve.map((i) => i.value)).toEqual(['240', '480', '1440', '4320']);
   });
 
   it('edits a P1 response target when enabled', () => {

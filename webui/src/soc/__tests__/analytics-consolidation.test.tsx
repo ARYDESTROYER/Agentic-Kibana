@@ -127,8 +127,8 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
     expect(screen.getByRole('tab', { name: /posture/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /^cost$/i })).toBeInTheDocument();
     // Exactly four SECTION tabs in the metrics strip — no double strip / phantom
-    // tab. Scoped to the metrics TabsList so the inline window/sort SegmentedControls
-    // (also Radix tabs) in the same row don't inflate the count.
+    // tab. Scoped to the metrics TabsList; the inline window/sort SegmentedControls
+    // (now radiogroups, role="radio") in the same row can't inflate a role="tab" count.
     const strip = screen.getByTestId('metrics-tabs');
     expect(within(strip).getAllByRole('tab')).toHaveLength(4);
   });
@@ -136,8 +136,8 @@ describe('Analytics consolidation (Round 4 / #10)', () => {
   it('Cost tab is the single spend home — shows the ledger controls + breakdown', async () => {
     render(<Metrics embedded />);
     // Scope the section-tab lookup to the metrics strip: the embedded Cost ledger's
-    // own window/rank SegmentedControls are also Radix tabs (one labelled "Cost"),
-    // so a global role query would be ambiguous once the ledger mounts.
+    // own window/rank SegmentedControls are radiogroups (one segment labelled "Cost");
+    // scoping to the real TabsList keeps the section-tab lookup unambiguous.
     await waitFor(() => expect(screen.getByTestId('metrics-tabs')).toBeInTheDocument());
     const costTabTrigger = () =>
       within(screen.getByTestId('metrics-tabs')).getByRole('tab', { name: /^cost$/i });

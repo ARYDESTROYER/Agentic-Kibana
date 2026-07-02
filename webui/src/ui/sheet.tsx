@@ -111,7 +111,9 @@ SheetContent.displayName = SheetPrimitive.Content.displayName;
 
 const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col gap-1.5 border-b border-border p-6 text-left', className)}
+    // `pr-14` reserves room for the built-in close (X) pinned at `right-4` (28px box)
+    // so a long title never slides underneath it — no per-consumer `pr-8`/`truncate`.
+    className={cn('flex flex-col gap-1.5 border-b border-border p-6 pr-14 text-left', className)}
     {...props}
   />
 );

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { cn } from '@/lib/cn';
+import { scoreBand, type ScoreBand } from './palette';
 
 export interface RiskGaugeProps {
   /** Risk score 0-100 (clamped). */
@@ -12,18 +13,6 @@ export interface RiskGaugeProps {
 }
 
 /**
- * Severity band for a clamped 0-100 score (matches RiskBadge / Overview bands).
- * The gauge is 4-band by design: it intentionally collapses the canonical info
- * (<15) band into low, so its single non-canonical boundary is medium >= 35.
- */
-function bandOf(score: number): 'critical' | 'high' | 'medium' | 'low' {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  return 'low';
-}
-
-/**
  * Per-band semantic tokens, written as LITERAL class strings so the Tailwind JIT
  * emits them. `text-*` sets `color` (→ `currentColor`, consumed by the progress
  * arc's `stroke="currentColor"`) and `stroke-*` is a belt-and-braces fallback so
@@ -31,7 +20,7 @@ function bandOf(score: number): 'critical' | 'high' | 'medium' | 'low' {
  *
  * These are passed LAST to `cn()` at the call sites so tailwind-merge keeps them.
  */
-const TEXT_CLASS: Record<ReturnType<typeof bandOf>, string> = {
+const TEXT_CLASS: Record<ScoreBand, string> = {
   critical: 'text-critical stroke-critical',
   high: 'text-high stroke-high',
   medium: 'text-medium stroke-medium',
@@ -40,10 +29,11 @@ const TEXT_CLASS: Record<ReturnType<typeof bandOf>, string> = {
 
 /**
  * Human-readable band label for non-color signaling (a11y §6.1: the gauge shows a
- * numeric value AND a text band label, never color-only). Matches `bandOf` so the
- * word always agrees with the arc colour.
+ * numeric value AND a text band label, never color-only). Keyed by the canonical
+ * `scoreBand` so the WORD, the arc colour, RiskBadge and posture all agree on the
+ * ONE 0-100 ladder (74/48/22 — palette.ts), never a divergent gauge-only ladder.
  */
-const BAND_LABEL: Record<ReturnType<typeof bandOf>, string> = {
+const BAND_LABEL: Record<ScoreBand, string> = {
   critical: 'Critical',
   high: 'High',
   medium: 'Medium',
@@ -88,7 +78,7 @@ export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
     const len = Math.PI * r;
     const dashOffset = (1 - clamped / 100) * len;
 
-    const band = bandOf(clamped);
+    const band = scoreBand(clamped);
     const titleId = `gauge-title-${React.useId().replace(/:/g, '')}`;
 
     // Value font caps to the bowl so it never collides with the external label.

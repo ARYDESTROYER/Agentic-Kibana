@@ -10,7 +10,10 @@
  *   - `fixed` (the DEFAULT) keeps the focused ~1200px cap so pages that have not
  *             opted into a width look unchanged after the shell's hard cap was removed.
  *   - `fluid` is uncapped (`max-w-none`) for full-bleed dashboards.
- * Every variant shares the gutter/rhythm and opens a container-query context.
+ * Every variant centers (`mx-auto w-full min-w-0`) and opens a container-query
+ * context — but the page GUTTER/vertical rhythm is owned once by the AppShell
+ * content wrapper, NOT re-declared here (so migrated + un-migrated pages share a
+ * single consistent inset instead of doubling it). See PageContainer's docstring.
  */
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
@@ -62,25 +65,29 @@ describe('PageContainer width authority (W0-C)', () => {
     expect(cls).toContain('max-w-none');
   });
 
-  it('every variant shares the gutter rhythm + a container-query context + min-w-0', () => {
+  it('every variant centers + opens a container-query context (min-w-0)', () => {
     for (const variant of ['fixed', 'wide', 'fluid', 'prose'] as const) {
       const { container } = render(
         <PageContainer variant={variant}>body</PageContainer>,
       );
       const cls = classesOf(container.firstElementChild as HTMLElement);
-      // Shared gutters/vertical rhythm (§4.1: mx-auto w-full px-4 sm:px-6 lg:px-8 2xl:px-12 py-6).
-      for (const shared of [
-        'mx-auto',
-        'w-full',
-        'min-w-0',
-        'px-4',
-        'sm:px-6',
-        'lg:px-8',
-        '2xl:px-12',
-        'py-6',
-        '@container',
-      ]) {
+      // Shared centering + container-query context (width authority per archetype).
+      for (const shared of ['mx-auto', 'w-full', 'min-w-0', '@container']) {
         expect(cls).toContain(shared);
+      }
+    }
+  });
+
+  it('does NOT re-declare the page gutter/vertical rhythm (owned once by AppShell)', () => {
+    // The AppShell content wrapper is the single gutter authority; PageContainer must
+    // not double it (would waste width + add top dead space on every migrated page).
+    for (const variant of ['fixed', 'wide', 'fluid', 'prose'] as const) {
+      const { container } = render(
+        <PageContainer variant={variant}>body</PageContainer>,
+      );
+      const cls = classesOf(container.firstElementChild as HTMLElement);
+      for (const gutter of ['px-4', 'sm:px-6', 'lg:px-8', '2xl:px-12', 'py-6']) {
+        expect(cls).not.toContain(gutter);
       }
     }
   });

@@ -54,6 +54,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
+import { LoadError } from '@/soc/components/LoadError';
 import { Card, CardContent } from '@/ui/card';
 import { ProtectedRoute, useCan } from '@/soc/components/Can';
 import { CodeBlock } from '@/soc/components/CodeBlock';
@@ -66,6 +67,7 @@ import {
   roleLabel,
   BUILTIN_ROLES,
   RESOURCE_ORDER,
+  RESOURCE_ACTIONS,
   type RolesMatrixResponse,
   type CustomRole,
   type RolePreviewResponse,
@@ -108,6 +110,39 @@ function cloneMap(m?: GrantMap): GrantMap {
   return out;
 }
 
+/**
+ * Build an editor draft for an EXISTING custom role.
+ *
+ * The full raw definition (`row.custom`) is only cached after an in-session
+ * create/update — GET /api/roles returns just the RESOLVED matrix. On a fresh page
+ * load `row.custom` is undefined, so seeding an empty draft here would let a save
+ * blank the role (silent RBAC data loss). When the raw definition is absent we seed
+ * the draft's grants from the resolved matrix row (`matrix[name]`), so a subsequent
+ * save re-persists the role's CURRENT effective permissions instead of wiping them.
+ * Inheritance/denies flatten into explicit grants — permissions are preserved, never
+ * reduced. (A backend change returning raw custom-role definitions would let Edit
+ * restore the exact grants/denies/inherits + description — see the handoff.)
+ */
+export function draftFromRow(row: RoleRow, matrix: Record<string, GrantMap>): RoleDraft {
+  const c = row.custom;
+  if (c) {
+    return {
+      name: row.name,
+      description: c.description ?? '',
+      inherits: [...(c.inherits ?? [])],
+      grants: cloneMap(c.grants),
+      denies: cloneMap(c.denies),
+    };
+  }
+  return {
+    name: row.name,
+    description: '',
+    inherits: [],
+    grants: cloneMap(matrix[row.name]),
+    denies: {},
+  };
+}
+
 export default function Roles() {
   return (
     <ProtectedRoute resource="roles" action="manage">
@@ -122,6 +157,7 @@ export function RolesInner() {
   const [customRoles, setCustomRoles] = React.useState<Map<string, CustomRole>>(new Map());
   const [perms, setPerms] = React.useState<AccountPermissions | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<unknown>(null);
   const [editor, setEditor] = React.useState<{ draft: RoleDraft; mode: 'create' | 'edit' } | null>(
     null,
   );
@@ -130,6 +166,7 @@ export function RolesInner() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [matrix, ap] = await Promise.all([
         rolesApi.matrix(),
@@ -138,7 +175,9 @@ export function RolesInner() {
       setData(matrix);
       if (ap) setPerms(ap);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load roles.'));
+      // The roster ALWAYS contains the six built-ins, so an empty table means the
+      // fetch failed — surface a retryable error, not a misleading "No roles yet."
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -187,32 +226,13 @@ export function RolesInner() {
         mode: 'create',
       });
     } else {
-      const c = row.custom;
-      setEditor({
-        draft: {
-          name: '',
-          description: c?.description ?? '',
-          inherits: [...(c?.inherits ?? [])],
-          grants: cloneMap(c?.grants),
-          denies: cloneMap(c?.denies),
-        },
-        mode: 'create',
-      });
+      const base = draftFromRow(row, data?.matrix ?? {});
+      setEditor({ draft: { ...base, name: '' }, mode: 'create' });
     }
   };
 
   const openEdit = (row: RoleRow) => {
-    const c = row.custom;
-    setEditor({
-      draft: {
-        name: row.name,
-        description: c?.description ?? '',
-        inherits: [...(c?.inherits ?? [])],
-        grants: cloneMap(c?.grants),
-        denies: cloneMap(c?.denies),
-      },
-      mode: 'edit',
-    });
+    setEditor({ draft: draftFromRow(row, data?.matrix ?? {}), mode: 'edit' });
   };
 
   const remove = async (row: RoleRow) => {
@@ -371,16 +391,24 @@ export function RolesInner() {
         </Alert>
       ) : null}
 
-      <DataTable<RoleRow>
-        columns={columns}
-        rows={rows}
-        getRowId={(r) => r.name}
-        loading={loading}
-        ariaLabel="RBAC roles"
-        empty="No roles yet."
-      />
+      {error ? (
+        <LoadError
+          error={error}
+          title="Couldn't load roles"
+          onRetry={() => void load()}
+        />
+      ) : (
+        <DataTable<RoleRow>
+          columns={columns}
+          rows={rows}
+          getRowId={(r) => r.name}
+          loading={loading}
+          ariaLabel="RBAC roles"
+          empty="No roles yet."
+        />
+      )}
 
-      <SimulatePanel matrix={data?.matrix ?? {}} roles={Object.keys(data?.matrix ?? {})} />
+      <SimulatePanel roles={Object.keys(data?.matrix ?? {})} />
 
       {editor ? (
         <RoleEditorDialog
@@ -609,10 +637,8 @@ export function PreviewDiff({ preview }: { preview: RolePreviewResponse }) {
 // Simulate panel: a single role × resource × action can() spot-check.
 // --------------------------------------------------------------------------- //
 function SimulatePanel({
-  matrix,
   roles,
 }: {
-  matrix: Record<string, GrantMap>;
   roles: string[];
 }) {
   const [role, setRole] = React.useState('');
@@ -685,10 +711,10 @@ function SimulatePanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(matrix[role]?.[resource]?.length
-                ? Array.from(new Set([...(matrix[role][resource] ?? []), action]))
-                : ['read', 'write', 'manage', 'view', 'close', 'assign', 'comment', 'approve', 'run', 'reinvestigate']
-              )
+              {/* Offer the resource's FULL action vocabulary (not just what the
+                  selected role already grants) so a DENIED action can be simulated
+                  too — super_admin resolves to ['*'] and must not collapse to one. */}
+              {Array.from(new Set([...(RESOURCE_ACTIONS[resource] ?? []), action]))
                 .filter((a) => a !== '*')
                 .map((a) => (
                   <SelectItem key={a} value={a}>

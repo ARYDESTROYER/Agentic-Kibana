@@ -77,6 +77,7 @@ import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
+import { AutomationNudge } from './AutomationNudge';
 import { usePosture } from '@/soc/hooks/usePosture';
 import {
   Card,
@@ -106,6 +107,9 @@ interface OverviewProps {
 
 const OPEN_STATUSES = new Set(['open', 'investigating', 'in_progress', 'new', 'on_hold']);
 const CLOSED_STATUSES = new Set(['closed', 'resolved', 'auto_closed']);
+
+/** Per-browser dismissal flag for the recommended-automation nudge (onboarding). */
+const NUDGE_KEY = 'tlsoc.overview.automationNudge';
 
 /** Round a resolved range down to whole hours (min 1) for the window-scoped fetches. */
 function rangeHours(range: TimeRange): number {
@@ -174,7 +178,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
   /** The `window` (hours) carried on every drill-through so the case list matches. */
   const navWindow = hours;
 
-  // ----- Window-scoped case/metrics/usage/rag loads ----------------------- //
+  // ----- Dashboard data loads --------------------------------------------- //
+  // NOTE (Round-6 #37): `listCases` now honours the selected range too — it is fetched
+  // with a `from=now-${hours}h` created-at window, so every case-DERIVED widget below
+  // (open/severity/entities/connector-health/workload) reflects the TimeRangePicker,
+  // alongside `usageSummary` (cost ledger) + `usePosture` which already did. Only
+  // `getMetrics.total_cases` stays all-time (its `window_hours` scopes just the cost
+  // sub-block) — surfaced honestly as "Total Cases" (all tracked), never the range.
   const [cases, setCases] = React.useState<Case[]>([]);
   const [metrics, setMetrics] = React.useState<Metrics | null>(null);
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
@@ -188,7 +198,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
     setError(null);
     try {
       const [c, m, u, r] = await Promise.allSettled([
-        api.listCases({ limit: 200 }),
+        // #37: window the case sample by created-at so the case-derived widgets honour
+        // the range. Backend caps at 200 by created-desc, so this is the most-recent
+        // slice within the window (what the KPI/severity/health widgets summarise).
+        api.listCases({ limit: 200, from: `now-${hours}h` }),
         api.getMetrics(hours),
         api.usageSummary(hours),
         api.ragStats(),
@@ -224,6 +237,48 @@ export default function Overview({ onNavigate }: OverviewProps) {
     void load();
     void reloadPosture();
   }, [load, reloadPosture]);
+
+  // ----- Recommended-automation nudge (onboarding-beginner) --------------- //
+  // Shows ONCE when a source is enabled but threshold tuning is still off (and not
+  // previously dismissed). The api calls are typeof-guarded so a minimal test/mock
+  // surface (no listSources/get) simply never nudges — and AutomationNudge (which reads
+  // useAuth) is only mounted when this is true, so it can't run provider-less.
+  const [showNudge, setShowNudge] = React.useState(false);
+  React.useEffect(() => {
+    const canFetch = typeof api.listSources === 'function' && typeof api.get === 'function';
+    if (!canFetch) return undefined;
+    try {
+      if (localStorage.getItem(NUDGE_KEY) === 'dismissed') return undefined;
+    } catch {
+      /* no storage → treat as not dismissed */
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const [srcRes, tuning] = await Promise.all([
+          api.listSources(),
+          api.get<{ config?: { enabled?: boolean } }>('tuning/config'),
+        ]);
+        const hasEnabledSource = (srcRes.sources ?? []).some((s) => s.enabled !== false);
+        const tuningOff = tuning?.config?.enabled === false;
+        if (alive) setShowNudge(Boolean(hasEnabledSource && tuningOff));
+      } catch {
+        /* best-effort — no nudge on failure */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const dismissNudge = React.useCallback(() => {
+    try {
+      localStorage.setItem(NUDGE_KEY, 'dismissed');
+    } catch {
+      /* ignore storage errors */
+    }
+    setShowNudge(false);
+  }, []);
 
   // ----- Derived case-shape breakdowns (NOT lifecycle timing) ------------- //
   // Only what the server posture rollup does NOT provide: open-by-severity, distinct
@@ -405,15 +460,22 @@ export default function Overview({ onNavigate }: OverviewProps) {
           : undefined,
       },
       {
-        label: 'Cases In Window',
+        // NOT window-scoped — `total_cases` is all-time (the recent-capped total), so
+        // this reads honestly as "Total Cases" rather than falsely implying the range.
+        label: 'Total Cases',
         value: fmtNumber(metrics?.total_cases ?? cases.length),
-        sub: `${range.label} operating window`,
+        sub: 'All tracked cases',
         icon: LayoutDashboard,
         accent: 'info',
         goodDirection: 'none',
-        onClick: navigate ? () => navigate('cases', { window: navWindow }) : undefined,
+        onClick: navigate ? () => navigate('cases') : undefined,
       },
       {
+        // #38: deep-links to a severity-filtered Cases view. The tile aggregates TWO
+        // bands (critical + high) but the Cases severity facet is single-band, so we
+        // drill to the WORST non-empty band — critical when any exist (worst-first, and
+        // matching the "N critical observed" sub), else high (which then equals the whole
+        // crit/high set). Carries the window so the list matches the selected range.
         label: 'Critical / High',
         value: fmtNumber(derived.criticalHighAlerts),
         sub: `${fmtNumber(derived.critical)} critical observed`,
@@ -421,7 +483,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
         accent: 'high',
         goodDirection: 'down', // fewer high-severity is better
         onClick: navigate
-          ? () => navigate('cases', { status: 'needs_human', window: navWindow })
+          ? () =>
+              navigate('cases', {
+                severity: derived.critical > 0 ? 'critical' : 'high',
+                window: navWindow,
+              })
           : undefined,
       },
       {
@@ -467,7 +533,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
         onClick: navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined,
       },
     ],
-    [derived, metrics, cases.length, rag, usage, range.label, navWindow, autonomy.escalated, navigate],
+    [derived, metrics, cases.length, rag, usage, navWindow, autonomy.escalated, navigate],
   );
 
   // ----- The compact control bar (shared across all three-zone dashboards) - //
@@ -517,7 +583,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <Skeleton key={i} className="h-[104px] rounded-lg" />
             ))}
           </div>
-          {/* widget grid — two rows of bands */}
+          {/* widget grid — THREE rows in LOCKSTEP with the real layout: Row A + Row B
+              are xl:grid-cols-3, Row C is xl:grid-cols-2, so nothing shifts on load. */}
           <div className="grid gap-6 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
@@ -525,6 +592,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </div>
           <div className="grid gap-6 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-56 rounded-lg" />
+            ))}
+          </div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-56 rounded-lg" />
             ))}
           </div>
@@ -570,6 +642,19 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
       {/* ---- ZONE 1b: control bar (time range + auto-refresh + last-refresh) ---- */}
       {controlBar}
+
+      {/* Recommended-automation nudge — only in the non-empty state, only for a
+          principal who can act (AutomationNudge self-hides otherwise). */}
+      {showNudge && !empty ? (
+        <AutomationNudge
+          onEnabled={() => {
+            setShowNudge(false);
+            refreshAll();
+          }}
+          onReview={() => navigate?.('tuning')}
+          onDismiss={dismissNudge}
+        />
+      ) : null}
 
       {error ? (
         <LoadError
@@ -663,12 +748,16 @@ export default function Overview({ onNavigate }: OverviewProps) {
                       const clickable = !!navigate;
                       return (
                         <li key={sev}>
+                          {/* #38: each band deep-links to a severity-filtered Cases view
+                              (severity-only, no status — matching this row's count, which
+                              spans every status in the band). Carries the window so the
+                              list matches the selected range. Mirrors the workload rows. */}
                           <button
                             type="button"
                             disabled={!clickable}
                             onClick={
                               clickable
-                                ? () => navigate?.('cases', { window: navWindow })
+                                ? () => navigate('cases', { severity: sev, window: navWindow })
                                 : undefined
                             }
                             className={cn(
@@ -676,7 +765,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
                               clickable &&
                                 '-mx-1 px-1 py-0.5 transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                             )}
-                            aria-label={clickable ? `View ${SEV_LABEL[sev]} cases` : undefined}
+                            aria-label={
+                              clickable ? `View ${SEV_LABEL[sev]} severity cases` : undefined
+                            }
                           >
                             <div className="flex items-center justify-between gap-3">
                               <span className="flex items-center gap-2 text-sm font-medium text-foreground">

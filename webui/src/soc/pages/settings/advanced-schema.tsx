@@ -23,7 +23,7 @@
  *     ever shown — the schema carries defaults + field names only (#10).
  */
 import * as React from 'react';
-import { AlertTriangle, Info, Lock, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { Info, Lock, Search, SlidersHorizontal } from 'lucide-react';
 
 import { api } from '@/lib/api';
 import type {
@@ -48,6 +48,8 @@ import {
   SelectValue,
 } from '@/ui/select';
 import { SettingsGrid, SettingsCard } from '@/soc/components/SettingsGrid';
+import { LoadError } from '@/soc/components/LoadError';
+import { EmptyState } from '@/soc/components/EmptyState';
 
 import { SectionShell, type SecProps } from './primitives';
 
@@ -66,7 +68,19 @@ const CURATED_SECTIONS: ReadonlySet<string> = new Set([
   'rbac',
   'threshold_automation',
   'case_id_format',
+  // `caps` (per-case caps + emergency kill switch) and `rag` (suppression) both have
+  // dedicated curated editors in Advanced, so exclude them from the generic long tail to
+  // keep a single authoritative editor per knob.
+  'caps',
+  'rag',
 ]);
+
+/**
+ * Top-level SCALAR field names that have a dedicated curated editor and so must NOT
+ * double-show in the synthetic `general` group (CURATED_SECTIONS only excludes whole
+ * sections, not individual general-group scalars).
+ */
+const CURATED_FIELDS: ReadonlySet<string> = new Set(['background_scan_enabled']);
 
 /** Field names that are NEVER generically editable (special-cased, managed elsewhere). */
 const SPECIAL_CASE_KEYS: ReadonlySet<string> = new Set(['demo', 'read_only_settings_mode']);
@@ -408,7 +422,25 @@ export function AdvancedSchemaSection({ prefs, update }: SecProps) {
         .includes(term);
     return schema.sections
       .filter((s) => !CURATED_SECTIONS.has(s.key))
-      .map((s) => ({ ...s, fields: s.fields.filter(matchField) }))
+      // Drop scalars that already have a curated editor (e.g. background_scan_enabled)
+      // so a general-group knob isn't editable in two places.
+      .map((s) => {
+        let fields = s.fields.filter((f) => !CURATED_FIELDS.has(f.name) && matchField(f));
+        // For a default-OFF engine feature, keep its `enabled` disclosure toggle whenever
+        // the section is shown (i.e. some OTHER field matched) even if the query didn't
+        // match `enabled`. Otherwise the filtered-out toggle made `isEngineFeature` flip
+        // false → the block's gated sub-fields rendered as editable + the head enable
+        // toggle vanished while searching.
+        if (
+          ENGINE_FEATURE_KEYS.has(s.key) &&
+          fields.length > 0 &&
+          !fields.some((f) => f.name === 'enabled')
+        ) {
+          const enabledField = s.fields.find((f) => f.name === 'enabled' && f.type === 'boolean');
+          if (enabledField) fields = [enabledField, ...fields];
+        }
+        return { ...s, fields };
+      })
       .filter((s) => s.fields.length > 0);
   }, [schema, term]);
 
@@ -439,26 +471,22 @@ export function AdvancedSchemaSection({ prefs, update }: SecProps) {
             ))}
           </SettingsGrid>
         ) : error ? (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" aria-hidden />
-            <AlertTitle>Could not load the settings schema</AlertTitle>
-            <AlertDescription className="flex flex-wrap items-center gap-3">
-              <span>{error}</span>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs font-medium hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-                Retry
-              </button>
-            </AlertDescription>
-          </Alert>
+          <LoadError
+            error={error}
+            title="Could not load the settings schema"
+            onRetry={() => void load()}
+          />
         ) : sections.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border bg-surface-sunken px-4 py-6 text-center text-sm text-muted-foreground">
-            <Info className="mx-auto mb-2 h-5 w-5" aria-hidden />
-            {term ? `No settings match “${q}”.` : 'No additional settings to show.'}
-          </div>
+          <EmptyState
+            icon={Info}
+            compact
+            title={term ? 'No matching settings' : 'No additional settings'}
+            description={
+              term
+                ? `No settings match “${q}”.`
+                : 'Every engine preference already has a dedicated section.'
+            }
+          />
         ) : (
           <SettingsGrid>
             {sections.map((s) => (

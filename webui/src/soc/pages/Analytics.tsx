@@ -19,6 +19,7 @@
 import { BarChart3 } from 'lucide-react';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import Metrics from './Metrics';
 
 export interface AnalyticsProps {
@@ -34,10 +35,9 @@ export default function Analytics({ onNavigate, tab }: AnalyticsProps = {}) {
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
   return (
-    <div className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={BarChart3}
-        eyebrow="Analytics"
         title="Analytics"
         description="Triage performance, security posture, and LLM spend — the metrics, the posture rollup, and the cost ledger in one place."
       />
@@ -47,6 +47,6 @@ export default function Analytics({ onNavigate, tab }: AnalyticsProps = {}) {
         tab={tab}
         onTabChange={(next) => navigate('metrics', { tab: next })}
       />
-    </div>
+    </PageContainer>
   );
 }

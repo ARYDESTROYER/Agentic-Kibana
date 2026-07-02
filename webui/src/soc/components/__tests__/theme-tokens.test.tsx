@@ -89,6 +89,16 @@ describe('applyTokens — allow-listing + sanitisation (#10/#9)', () => {
     expect(sanitizeTokenValue('--font-display', 'Comic Sans')).toBeNull();
   });
 
+  it('font stacks LEAD with the actually-bundled Inter Variable (round-6 no-downgrade fix)', () => {
+    // The only self-hosted sans is 'Inter Variable' (@fontsource-variable/inter). The
+    // 'inter'/'grotesk' stacks previously led with the UNREGISTERED 'Inter'/'Space Grotesk',
+    // so selecting them silently fell through to the OS font. Both must now include the
+    // bundled family (and 'inter' must lead with it) so the choice actually renders Inter.
+    const inter = sanitizeTokenValue('--font-display', 'inter')!;
+    expect(inter.startsWith("'Inter Variable'")).toBe(true);
+    expect(sanitizeTokenValue('--font-display', 'grotesk')).toContain('Inter Variable');
+  });
+
   it('every ALLOWED_TOKENS entry is a -- custom property', () => {
     for (const t of ALLOWED_TOKENS) expect(t.startsWith('--')).toBe(true);
   });

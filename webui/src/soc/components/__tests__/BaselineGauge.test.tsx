@@ -63,6 +63,27 @@ describe('BaselineWarmupGauge (n/target visibility)', () => {
     expect(screen.getByText('Warm')).toBeInTheDocument();
     expect(screen.queryByText('Warming up')).toBeNull();
   });
+
+  it('accepts a custom `unit` so aggregate cards read "buckets warm", not "obs"', () => {
+    render(<BaselineWarmupGauge n={2} target={3} unit="buckets warm" />);
+    expect(screen.getByText(/2 \/ 3 buckets warm/)).toBeInTheDocument();
+    // The default "obs" suffix must NOT appear when a unit is supplied.
+    expect(screen.queryByText(/2 \/ 3 obs/)).toBeNull();
+  });
+
+  it('drives the warm fill via the Progress `variant` (bg-success indicator), not a [&>div] override', () => {
+    const { container } = render(<BaselineWarmupGauge n={504} target={504} />);
+    // warm → success variant → the indicator fill carries bg-success directly.
+    expect(container.querySelector('.bg-success')).not.toBeNull();
+    // and it no longer relies on the arbitrary child-selector override.
+    expect(container.innerHTML).not.toContain('[&>div]:bg-success');
+  });
+
+  it('uses the default (primary) fill while still warming', () => {
+    const { container } = render(<BaselineWarmupGauge n={100} target={504} />);
+    expect(container.querySelector('.bg-success')).toBeNull();
+    expect(container.querySelector('.bg-primary')).not.toBeNull();
+  });
 });
 
 describe('BaselineSignatureCard', () => {
@@ -72,6 +93,8 @@ describe('BaselineSignatureCard', () => {
     expect(screen.getByText('sig::brute_force::10.0.0.5')).toBeInTheDocument();
     // "2 of 3 buckets warm" gauge label surfaces the warm-up progress.
     expect(screen.getByText(/2 of 3 buckets warm/)).toBeInTheDocument();
+    // The aggregate gauge counts BUCKETS, not observations — no "/ 3 obs" mislabel.
+    expect(screen.queryByText(/\/ 3 obs/)).toBeNull();
     // p50/p95/p99 read-out labels are present.
     expect(screen.getByText('p50')).toBeInTheDocument();
     expect(screen.getByText('p95')).toBeInTheDocument();

@@ -196,7 +196,8 @@ export function editThreadMessage(
   msgId: string,
   body: string,
 ): Promise<CaseMessage> {
-  return api.put<CaseMessage>(
+  // The backend registers this as PATCH-only (routes_cases_collab.py); a PUT here 405s.
+  return api.patch<CaseMessage>(
     `cases/${encodeURIComponent(caseId)}/thread/${encodeURIComponent(msgId)}`,
     { body },
   );
@@ -263,7 +264,8 @@ export interface PatchTaskInput {
 }
 
 export function patchTask(caseId: string, tid: string, patch: PatchTaskInput): Promise<CaseTask> {
-  return api.put<CaseTask>(
+  // The backend registers this as PATCH-only (routes_cases_collab.py); a PUT here 405s.
+  return api.patch<CaseTask>(
     `cases/${encodeURIComponent(caseId)}/tasks/${encodeURIComponent(tid)}`,
     patch,
   );

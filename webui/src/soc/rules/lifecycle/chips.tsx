@@ -118,7 +118,10 @@ export function deriveHealth(input: {
     return { status: 'failed', label: 'Last preview failed', lastRunAt: lastRunAt ?? null };
   }
   if (state === 'disabled') {
-    return { status: 'unknown', label: 'Disabled', lastRunAt: lastRunAt ?? null };
+    // A DISTINCT label from the LifecycleStateChip's "Disabled" — otherwise the sheet
+    // header renders two identical grey "Disabled" chips side by side (#45). The health
+    // chip's job for a disabled rule is to say it is not being evaluated.
+    return { status: 'unknown', label: 'Not evaluated', lastRunAt: lastRunAt ?? null };
   }
   if (typeof lastMatched !== 'number' || typeof lastScanned !== 'number') {
     return { status: 'unknown', label: 'Not yet previewed', lastRunAt: lastRunAt ?? null };

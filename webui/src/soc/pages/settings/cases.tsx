@@ -12,6 +12,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 import { api } from '@/lib/api';
 
+import { Button } from '@/ui/button';
 import { Label } from '@/ui/label';
 import { Badge } from '@/ui/badge';
 import { Alert, AlertDescription } from '@/ui/alert';
@@ -154,15 +155,17 @@ export function CaseIdSection({ prefs, update }: SecProps) {
         <Label>Placeholders</Label>
         <div className="flex flex-wrap gap-1.5">
           {CASE_ID_PLACEHOLDERS.map((p) => (
-            <button
+            <Button
               key={p.token}
               type="button"
+              variant="outline"
+              size="sm"
               title={p.desc}
-              className="rounded-md border border-border bg-surface px-2 py-1 font-mono text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              className="h-7 font-mono text-xs font-normal text-muted-foreground hover:text-primary"
               onClick={() => set({ template: `${cfg.template || ''}${p.token}` })}
             >
               {p.token}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

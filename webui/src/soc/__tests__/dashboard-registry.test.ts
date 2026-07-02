@@ -71,12 +71,13 @@ describe('reconcileWidgets — anti-corruption on load', () => {
   });
 
   it('(2) RBAC-FILTERS instances the caller lacks the required grant for', () => {
-    // Deny only `cost:read` → the cost widget is filtered, others survive.
+    // Deny only `cost:view` (the canonical cost grant the widget requires) → the cost
+    // widget is filtered, others survive.
     const denyCost: PermissionCheck = (resource, action) =>
-      !(resource === 'cost' && action === 'read');
+      !(resource === 'cost' && action === 'view');
 
     const input = [
-      widget('kpi.cost_budget', { id: 'cost' }), // requires cost:read → dropped
+      widget('kpi.cost_budget', { id: 'cost' }), // requires cost:view → dropped
       widget('kpi.needs_human', { id: 'needs' }), // requires cases:read → kept
     ];
     const out = reconcileWidgets(input, { can: denyCost });
@@ -143,9 +144,9 @@ describe('per-role default dashboards', () => {
   });
 
   it('RBAC-filters a role default set', () => {
-    // super_admin default leads with cost_budget (needs cost:read); deny it.
+    // super_admin default leads with cost_budget (needs cost:view); deny it.
     const denyCost: PermissionCheck = (resource, action) =>
-      !(resource === 'cost' && action === 'read');
+      !(resource === 'cost' && action === 'view');
     const filtered = defaultWidgetTypesForRole('super_admin', denyCost);
     expect(filtered).not.toContain('kpi.cost_budget');
     expect(filtered.length).toBeLessThan(ROLE_DEFAULT_WIDGETS.super_admin.length);

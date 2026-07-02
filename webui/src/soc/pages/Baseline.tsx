@@ -36,7 +36,9 @@ import {
   SelectValue,
 } from '@/ui/select';
 
+import { useNavigateOptional } from '@/soc/router';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { ProtectedRoute, Can, useCan } from '@/soc/components/Can';
@@ -78,6 +80,7 @@ export default function Baseline() {
 }
 
 export function BaselineInner() {
+  const navigate = useNavigateOptional();
   const canManage = useCan('settings', 'manage');
   const [stats, setStats] = React.useState<BaselineStats | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -113,19 +116,20 @@ export function BaselineInner() {
   }, [cfg]);
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={Activity}
+        breadcrumb={[{ label: 'Analytics' }, { label: 'Anomaly baseline' }]}
         title="Anomaly baseline"
         description="Per-entity streaming baselines that improve over time — warm-up progress and robust percentiles. Advisory only: the baseline ranks candidates for detection; it never closes or escalates a case."
         actions={
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              void load();
-              void cfg.reload();
-            }}
+            // Refresh only re-loads the read-only stats; it must NOT reload the config
+            // (that would clobber any unsaved policy edits — the editor has its own
+            // load-on-mount + LoadError retry).
+            onClick={() => void load()}
             disabled={loading}
           >
             <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
@@ -152,8 +156,18 @@ export function BaselineInner() {
       ) : (
         <EmptyState
           icon={Activity}
-          title="No baseline yet"
-          description="The baseline warms up as EVENT-feed detection runs."
+          title="No baseline data yet"
+          // #41: the baseline does NOT warm up on its own. It only produces once (1) the
+          // policy below is ENABLED and (2) an events-role feed with detection is sending
+          // data through the funnel. Enabling the policy alone leaves the warm-up gauge
+          // perpetually empty (which reads as "broken"), so spell out both dependencies
+          // and point at where the missing half — an events source — is connected.
+          description="The baseline only warms up once it is enabled (in the policy below) AND an events-role feed with detection is sending data — enabling the policy on its own is not enough. Connect an events source, then let detection run to begin warming up."
+          action={
+            <Button variant="outline" size="sm" onClick={() => navigate('sources')}>
+              Connect an events source
+            </Button>
+          }
         />
       )}
 
@@ -176,6 +190,15 @@ export function BaselineInner() {
             description="Tune the anomaly detector's warm-up and sensitivity. Default off — an off detector emits no candidates and changes nothing."
             wide
           >
+            {cfg.loading ? (
+              // Never show the default-valued form while the persisted policy loads —
+              // that flashes a misleading "disabled" state, then snaps to the saved
+              // values. Match the warm-up section's Skeleton treatment above.
+              <div className="space-y-4" aria-busy="true">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
                 <Info className="h-4 w-4" aria-hidden />
@@ -283,6 +306,7 @@ export function BaselineInner() {
                 </p>
               ) : null}
             </fieldset>
+            )}
           </SettingsCard>
         </SettingsGrid>
       )}
@@ -296,6 +320,6 @@ export function BaselineInner() {
           onDiscard={cfg.discard}
         />
       </Can>
-    </div>
+    </PageContainer>
   );
 }

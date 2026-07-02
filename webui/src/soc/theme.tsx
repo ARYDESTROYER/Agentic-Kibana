@@ -108,6 +108,9 @@ function applyDocumentTitle(branding: Branding): void {
   if (typeof document === 'undefined') return;
   const org = branding.org_name.trim();
   const product = branding.product_name.trim();
+  // Default deployment (no org/product configured) → keep the static index.html title
+  // instead of clobbering it to a different fallback string, which flickers on load.
+  if (!org && !product) return;
   const title = [org || 'Agentic SOC', product].filter(Boolean).join(' · ');
   if (title) document.title = title;
 }
@@ -150,8 +153,6 @@ export interface ThemeContextValue {
   isDark: boolean;
   /** Set the mode explicitly (persisted). */
   setTheme: (mode: ThemeMode) => void;
-  /** Cycle between light and dark (resolving `system` to its current value first). */
-  toggle: () => void;
   /** The current branding (defaults until/unless the backend overrides). */
   branding: Branding;
   /** The resolved shell material pack ('quiet' === pre-wave default). */
@@ -174,8 +175,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const brandingRef = React.useRef<Branding>(branding);
   brandingRef.current = branding;
 
-  // Apply the `.dark` class whenever the resolved value changes.
-  React.useEffect(() => {
+  // Apply the `.dark` class whenever the resolved value changes. useLayoutEffect
+  // (not useEffect) runs synchronously after commit but BEFORE the browser paints,
+  // so the very first frame — the App splash spinner + shell — already renders in the
+  // resolved theme instead of flashing the light palette then snapping to dark (FOUC).
+  // The applyDarkClass guard no-ops when `document` is undefined, so SSR/jsdom is safe.
+  React.useLayoutEffect(() => {
     applyDarkClass(isDark);
   }, [isDark]);
 
@@ -225,24 +230,17 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     writeStoredMode(next);
   }, []);
 
-  const toggle = React.useCallback(() => {
-    setMode((prev) => {
-      const currentlyDark = resolveDark(prev, brandingRef.current as unknown as BrandingLike);
-      const next: ThemeMode = currentlyDark ? 'light' : 'dark';
-      writeStoredMode(next);
-      return next;
-    });
-  }, []);
-
   const value = React.useMemo<ThemeContextValue>(
-    () => ({ theme: mode, isDark, setTheme, toggle, branding, material, ready }),
-    [mode, isDark, setTheme, toggle, branding, material, ready],
+    () => ({ theme: mode, isDark, setTheme, branding, material, ready }),
+    [mode, isDark, setTheme, branding, material, ready],
   );
 
   return (
     <ThemeContext.Provider value={value}>
       {children}
-      <Toaster />
+      {/* Drive sonner from the app's RESOLVED theme (not the OS media query) so
+          toasts follow an explicit Light/Dark choice / branding default. */}
+      <Toaster theme={isDark ? 'dark' : 'light'} />
     </ThemeContext.Provider>
   );
 };

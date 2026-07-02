@@ -66,7 +66,7 @@ import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { ChartCard, ChartEmpty } from '@/soc/components/ChartCard';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
-import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
+import { KpiTile, type KpiAccent, type KpiGoodDirection } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -406,7 +406,7 @@ export default function MetricsPage({
     <section className="space-y-5 pt-2">
       <Separator />
       <div className="flex items-start gap-3.5">
-        <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-accent">
+        <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
           <Database className="h-5 w-5" aria-hidden />
         </span>
         <div className="min-w-0">
@@ -546,6 +546,10 @@ export default function MetricsPage({
   const operationalBody =
     loading && !data ? (
       <MetricsSkeleton />
+    ) : error && !hasAny ? (
+      // A load failure already renders the destructive Alert above; don't ALSO show the
+      // misleading "No cases yet" empty state (the two contradict each other).
+      null
     ) : !hasAny ? (
       <div className="space-y-8">
         <Card>
@@ -665,7 +669,7 @@ export default function MetricsPage({
             )}
           </ChartCard>
 
-          <ChartCard title="Persona usage" icon={Users} accentClass="text-accent">
+          <ChartCard title="Persona usage" icon={Users} accentClass="text-primary">
             {personaItems.length ? (
               <BarList items={personaItems} format={(n) => fmtNumber(n)} showPercent />
             ) : (
@@ -910,10 +914,12 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
     cmp?: CmpKey;
     icon: LucideIcon;
     accent: KpiAccent;
+    /** All lifecycle timings are lower-is-better → a fall reads as an improvement. */
+    goodDirection: KpiGoodDirection;
   }> = [
-    { key: 'mtta', label: 'MTTA (p50)', block: statBlockTile(lifecycle.mtta_minutes), cmp: 'mtta_p50', icon: Clock, accent: 'info' },
-    { key: 'mttr', label: 'MTTR (p50)', block: statBlockTile(lifecycle.mttr_minutes), cmp: 'mttr_p50', icon: Timer, accent: 'success' },
-    { key: 'dwell', label: 'Dwell (p50)', block: statBlockTile(lifecycle.dwell_minutes), icon: Activity, accent: 'medium' },
+    { key: 'mtta', label: 'MTTA (p50)', block: statBlockTile(lifecycle.mtta_minutes), cmp: 'mtta_p50', icon: Clock, accent: 'info', goodDirection: 'down' },
+    { key: 'mttr', label: 'MTTR (p50)', block: statBlockTile(lifecycle.mttr_minutes), cmp: 'mttr_p50', icon: Timer, accent: 'success', goodDirection: 'down' },
+    { key: 'dwell', label: 'Dwell (p50)', block: statBlockTile(lifecycle.dwell_minutes), icon: Activity, accent: 'medium', goodDirection: 'down' },
   ];
 
   return (
@@ -925,7 +931,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
         </h2>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
           {lifecycleTiles.map((t) => {
-            const dv = t.cmp ? deltaView(compare?.[t.cmp], { lowerIsBetter: true }) : { show: false, label: '' };
+            const dv = t.cmp ? deltaView(compare?.[t.cmp]) : { show: false, label: '' };
             return (
               <KpiTile
                 key={t.key}
@@ -934,6 +940,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
                 sub={t.block.sub}
                 icon={t.icon}
                 accent={t.accent}
+                goodDirection={t.goodDirection}
                 delta={
                   dv.show && typeof dv.value === 'number'
                     ? { value: dv.value, label: dv.label }
@@ -967,7 +974,8 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
             label="FP rate"
             value={ratioPct(quality.false_positive_rate)}
             sub={`${fmtNumber(quality.false_positive_cases)} of ${fmtNumber(quality.verdicted_cases)} verdicted`}
-            delta={deltaView(compare?.false_positive_rate, { lowerIsBetter: true })}
+            delta={deltaView(compare?.false_positive_rate)}
+            goodDirection="down"
             accent="success"
           />
           <QualityTile
@@ -981,7 +989,8 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
             label="Escalation rate"
             value={ratioPct(quality.escalation_rate)}
             sub={`${fmtNumber(quality.escalated_cases)} escalated`}
-            delta={deltaView(compare?.escalation_rate, { lowerIsBetter: true })}
+            delta={deltaView(compare?.escalation_rate)}
+            goodDirection="down"
             accent="high"
           />
           <QualityTile
@@ -1061,15 +1070,18 @@ interface QualityTileProps {
   sub?: string;
   delta?: ReturnType<typeof deltaView>;
   accent: KpiAccent;
+  /** Which direction is an improvement (drives the delta COLOR; arrow follows the sign). */
+  goodDirection?: KpiGoodDirection;
 }
 
-function QualityTile({ label, value, sub, delta, accent }: QualityTileProps) {
+function QualityTile({ label, value, sub, delta, accent, goodDirection }: QualityTileProps) {
   return (
     <KpiTile
       label={label}
       value={value}
       sub={sub}
       accent={accent}
+      goodDirection={goodDirection}
       delta={
         delta && delta.show && typeof delta.value === 'number'
           ? { value: delta.value, label: delta.label }
@@ -1276,7 +1288,12 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
                       <span className="truncate text-muted-foreground">
                         {humanizeToken(b.clock)} · {b.priority || '—'}
                       </span>
-                      <span className="ml-auto font-mono tabular-nums text-foreground">+{Math.round(b.over_pct)}%</span>
+                      {/* at-risk rows are still UNDER target → over_pct is negative; only
+                          prefix '+' for genuine over-target breaches (never "+-12%"). */}
+                      <span className="ml-auto font-mono tabular-nums text-foreground">
+                        {b.over_pct >= 0 ? '+' : ''}
+                        {Math.round(b.over_pct)}%
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1326,7 +1343,6 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
             <CardContent className="space-y-4 pt-6">
               <MitreHeatmap
                 columns={mitreColumns}
-                colorToken="critical"
                 ariaLabel="MITRE ATT&CK technique coverage by tactic"
               />
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">

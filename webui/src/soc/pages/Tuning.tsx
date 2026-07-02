@@ -52,6 +52,7 @@ import {
 } from '@/ui/select';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -98,7 +99,9 @@ export interface TuningProps {
 export default function Tuning({ onNavigate }: TuningProps) {
   return (
     <ProtectedRoute resource="automation" action="read">
-      <TuningInner onNavigate={onNavigate} />
+      <PageContainer variant="wide">
+        <TuningInner onNavigate={onNavigate} />
+      </PageContainer>
     </ProtectedRoute>
   );
 }
@@ -112,13 +115,36 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
   const [data, setData] = React.useState<TuningRecommendationsResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
+  // True once a load has SUCCESSFULLY populated the policy. The config editor + save bar
+  // only render after this, so a load FAILURE never leaves an editable DEFAULT policy
+  // form (a Save there would clobber the real, never-loaded policy wholesale).
+  const [loadedOnce, setLoadedOnce] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
-  const [busyRule, setBusyRule] = React.useState<string | null>(null);
+  // Busy key is the ROW id (recommendation `${rule_id}:${kind}` / ledger `id`), NOT the
+  // bare rule_id — otherwise applying/rolling back one row disables every sibling row that
+  // shares the same rule_id (a rule can have both a correlation_n and severity_floor rec).
+  const [busyRow, setBusyRow] = React.useState<string | null>(null);
 
   // Config panel: `saved` is the persisted policy; `draft` is the editing copy.
   const [saved, setSaved] = React.useState<TuningConfig>(DEFAULT_TUNING_CONFIG);
   const [draft, setDraft] = React.useState<TuningConfig>(DEFAULT_TUNING_CONFIG);
   const [savingCfg, setSavingCfg] = React.useState(false);
+
+  const dirty = React.useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify(saved),
+    [draft, saved],
+  );
+
+  // Latest draft/saved snapshots so a BACKGROUND reload (Refresh, after Apply/Rollback)
+  // can preserve unsaved policy edits instead of silently discarding them.
+  const draftRef = React.useRef(draft);
+  const savedRef = React.useRef(saved);
+  React.useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  React.useEffect(() => {
+    savedRef.current = saved;
+  }, [saved]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -131,7 +157,11 @@ export function TuningInner({ onNavigate }: TuningProps) {
       setData(recs);
       const c = { ...DEFAULT_TUNING_CONFIG, ...(cfg.config ?? {}) };
       setSaved(c);
-      setDraft(c);
+      // Only overwrite the editing draft when it has NO unsaved edits — a reload must
+      // not wipe in-progress policy changes the operator hasn't saved (#16).
+      const wasDirty = JSON.stringify(draftRef.current) !== JSON.stringify(savedRef.current);
+      if (!wasDirty) setDraft(c);
+      setLoadedOnce(true);
     } catch (e) {
       setError(e);
     } finally {
@@ -142,11 +172,6 @@ export function TuningInner({ onNavigate }: TuningProps) {
   React.useEffect(() => {
     void load();
   }, [load]);
-
-  const dirty = React.useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(saved),
-    [draft, saved],
-  );
 
   const saveConfig = React.useCallback(async () => {
     setSavingCfg(true);
@@ -165,7 +190,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
 
   const applyRule = React.useCallback(
     async (rec: TuningRecommendation) => {
-      setBusyRule(rec.rule_id);
+      setBusyRow(`${rec.rule_id}:${rec.kind}`);
       try {
         const res = await tuningApi.apply(rec.rule_id);
         const applied = res.applied?.length ?? 0;
@@ -185,15 +210,17 @@ export function TuningInner({ onNavigate }: TuningProps) {
       } catch (e) {
         toast.error(errorMessage(e, 'Could not apply this recommendation.'));
       } finally {
-        setBusyRule(null);
+        setBusyRow(null);
       }
     },
     [load],
   );
 
   const rollbackRule = React.useCallback(
-    async (ruleId: string) => {
-      setBusyRule(ruleId);
+    // `rowId` scopes the busy/spinner to THIS ledger row; the backend rollback still
+    // takes only the rule_id (it reverses the newest active record, #13).
+    async (ruleId: string, rowId: string) => {
+      setBusyRow(rowId);
       try {
         await tuningApi.rollback(ruleId);
         toast.success(`Rolled back ${ruleId}.`);
@@ -201,11 +228,31 @@ export function TuningInner({ onNavigate }: TuningProps) {
       } catch (e) {
         toast.error(errorMessage(e, 'Could not roll back this change.'));
       } finally {
-        setBusyRule(null);
+        setBusyRow(null);
       }
     },
     [load],
   );
+
+  // BUG #13: the backend rollback reverses the MOST-RECENT active record for a rule_id
+  // (it takes `active[0]`), and the FE only sends the rule_id — never a record id. So
+  // clicking Rollback on an OLDER active row of a rule with several un-rolled-back
+  // changes reverses the NEWER one. Restrict the Rollback affordance to the single
+  // newest active row per rule_id (newest by `applied_at`) so the button matches what
+  // the backend actually reverses.
+  const newestActiveRowByRule = React.useMemo(() => {
+    const newest = new Map<string, string>(); // rule_id -> row id
+    const at = new Map<string, string>(); // rule_id -> applied_at of the current newest
+    for (const r of data?.applied ?? []) {
+      if (!isLedgerRowActive(r)) continue;
+      const when = r.applied_at ?? '';
+      if (!newest.has(r.rule_id) || when > (at.get(r.rule_id) ?? '')) {
+        newest.set(r.rule_id, r.id);
+        at.set(r.rule_id, when);
+      }
+    }
+    return newest;
+  }, [data]);
 
   // --- recommendation columns ------------------------------------------------ //
   const recColumns = React.useMemo<DataTableColumn<TuningRecommendation>[]>(
@@ -294,15 +341,16 @@ export function TuningInner({ onNavigate }: TuningProps) {
               </Button>
             );
           }
+          const recBusy = busyRow === `${r.rule_id}:${r.kind}`;
           return (
             <Can resource="automation" action="manage">
               <Button
                 size="sm"
                 variant="outline"
-                disabled={busyRule === r.rule_id}
+                disabled={recBusy}
                 onClick={() => applyRule(r)}
               >
-                {busyRule === r.rule_id ? (
+                {recBusy ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : (
                   <Play className="mr-1 h-3.5 w-3.5" aria-hidden />
@@ -314,7 +362,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
         },
       },
     ],
-    [applyRule, busyRule, navigate],
+    [applyRule, busyRow, navigate],
   );
 
   // --- ledger columns -------------------------------------------------------- //
@@ -373,17 +421,18 @@ export function TuningInner({ onNavigate }: TuningProps) {
         id: 'actions',
         header: '',
         align: 'right',
-        // Only an ACTIVE (not-yet-rolled-back) change offers a rollback (#12).
+        // Only the NEWEST ACTIVE (not-yet-rolled-back) row per rule offers a rollback —
+        // the backend reverses the most-recent active record for the rule_id (#12/#13).
         cell: (r) =>
-          isLedgerRowActive(r) ? (
+          isLedgerRowActive(r) && newestActiveRowByRule.get(r.rule_id) === r.id ? (
             <Can resource="automation" action="manage">
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={busyRule === r.rule_id}
-                onClick={() => rollbackRule(r.rule_id)}
+                disabled={busyRow === r.id}
+                onClick={() => rollbackRule(r.rule_id, r.id)}
               >
-                {busyRule === r.rule_id ? (
+                {busyRow === r.id ? (
                   <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden />
                 ) : (
                   <Undo2 className="mr-1 h-3.5 w-3.5" aria-hidden />
@@ -394,7 +443,7 @@ export function TuningInner({ onNavigate }: TuningProps) {
           ) : null,
       },
     ],
-    [busyRule, rollbackRule],
+    [busyRow, rollbackRule, newestActiveRowByRule],
   );
 
   const recommendations = data?.recommendations ?? [];
@@ -435,8 +484,8 @@ export function TuningInner({ onNavigate }: TuningProps) {
           fallback="Could not load tuning data."
           onRetry={() => void load()}
         />
-      ) : null}
-
+      ) : (
+        <>
       {/* Recommendations */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -487,6 +536,11 @@ export function TuningInner({ onNavigate }: TuningProps) {
         </section>
       ) : null}
 
+      {/* The editable config + save bar render ONLY after a successful load, so a load
+          FAILURE never leaves a DEFAULT policy form whose Save would clobber the real,
+          never-loaded policy (#14). */}
+      {loadedOnce ? (
+        <>
       <Separator />
 
       {/* Config panel — NumberField/LabeledSlider threshold UX (R4). */}
@@ -658,6 +712,10 @@ export function TuningInner({ onNavigate }: TuningProps) {
           onDiscard={() => setDraft(saved)}
         />
       </Can>
+        </>
+      ) : null}
+        </>
+      )}
     </div>
   );
 }

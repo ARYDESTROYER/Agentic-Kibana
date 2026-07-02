@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Command as CommandPrimitive } from 'cmdk';
 import { Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { menuItem } from '@/lib/ui-recipes';
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -53,10 +52,10 @@ CommandList.displayName = CommandPrimitive.List.displayName;
 const CommandEmpty = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Empty>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Empty>
->((props, ref) => (
+>(({ className, ...props }, ref) => (
   <CommandPrimitive.Empty
     ref={ref}
-    className="py-6 text-center text-sm text-muted-foreground"
+    className={cn('py-6 text-center text-sm text-muted-foreground', className)}
     {...props}
   />
 ));
@@ -99,12 +98,15 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      // shared menu-item grammar (focus/selected/disabled bridging) …
-      menuItem,
-      // … with cmdk's own `data-[disabled=true]` flavor + this surface's roomier
-      // padding + icon styling (later utilities win via tailwind-merge, so the
-      // command-palette look is unchanged).
-      'rounded-md px-2.5 py-2 transition-colors',
+      // cmdk-specific item grammar. We CANNOT reuse the shared `menuItem` recipe here:
+      // cmdk renders `data-disabled={false}` (a PRESENT attribute) on every ENABLED
+      // row, so the Radix-flavored presence selectors `data-[disabled]:opacity-50` /
+      // `data-[disabled]:pointer-events-none` would match ALL rows and grey out + kill
+      // pointer events on the whole palette. Use VALUE-specific `data-[disabled=true]:`
+      // variants (which only match a real disabled row) instead.
+      'relative flex cursor-default select-none items-center gap-2 rounded-md px-2.5 py-2 text-sm outline-none transition-colors',
+      'focus:bg-accent focus:text-accent-foreground',
+      'data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground',
       'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50',
       '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
       className,

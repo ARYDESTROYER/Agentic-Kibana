@@ -212,6 +212,12 @@ export function useEventStream(
       const source = es;
       source.onopen = () => {
         if (cancelled) return;
+        // A CONFIRMED open is the only signal that realtime is actually healthy, so
+        // the cold-failure counter is cleared HERE (and in handleFrame), never on a
+        // mere probe 200. A 200 probe followed by a stream that never opens must keep
+        // accruing cold failures until MAX_COLD_FAILURES engages the give-up cap —
+        // otherwise the probe→open→onerror loop resets the counter and thrashes forever.
+        coldFailures = 0;
         setLive(true);
       };
       for (const ch of CHANNELS) {
@@ -249,6 +255,12 @@ export function useEventStream(
       // The probe must not itself hang an open stream; it's a cheap HEAD-of-stream
       // GET that we abort immediately once we have the status line.
       const ctrl = new AbortController();
+      // Set once the probe resolves with ANY definitive status (204 / 2xx / error
+      // status), all of which are handled fully inside `.then`. The success-path
+      // `ctrl.abort()` can reject into `.catch` in some runtimes; this flag keeps
+      // `.catch` a genuine-PRE-response-network-error path only, so the no-retry 204
+      // fallback can never leak into a reconnect storm.
+      let probeResolved = false;
       fetch(queryUrl, {
         method: 'GET',
         credentials: 'include',
@@ -256,6 +268,7 @@ export function useEventStream(
         signal: ctrl.signal,
       })
         .then((res) => {
+          probeResolved = true;
           // We only needed the status + headers; never read the (infinite) body.
           try {
             ctrl.abort();
@@ -269,7 +282,10 @@ export function useEventStream(
             return;
           }
           if (res.status >= 200 && res.status < 300) {
-            coldFailures = 0;
+            // Do NOT reset coldFailures here — a 200 probe only means the endpoint
+            // ACCEPTED the request, not that the EventSource will actually open. The
+            // reset happens on a confirmed open/frame; a stream that 200-probes but
+            // never opens must reach the give-up cap instead of looping forever.
             openStream();
             return;
           }
@@ -285,9 +301,11 @@ export function useEventStream(
             /* ignore */
           }
           if (cancelled) return;
-          // The abort we issue on success also rejects here in some runtimes; only
-          // treat it as a failure when we have NOT already opened a stream.
-          if (es) return;
+          // A response was already received + fully handled in `.then` (the no-retry
+          // 204 path, the stream-open 2xx path, and the abort we issue on success that
+          // rejects here in some runtimes) — only a genuine PRE-response network error
+          // (probe never resolved, no stream open) should count as a cold failure.
+          if (probeResolved || es) return;
           coldFailures += 1;
           setLive(false);
           scheduleReconnect();

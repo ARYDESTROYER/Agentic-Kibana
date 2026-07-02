@@ -147,10 +147,13 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     label: 'Escalate',
     icon: Bell,
     variant: 'default',
-    confirmTitle: 'Escalate to a human?',
+    confirmTitle: 'Escalate this case?',
+    // The backend `escalate` verb sets CaseStatus.ESCALATED (a distinct status from
+    // NEEDS_HUMAN, which is only reached via the deterministic decide()/verdict path).
+    // The paired `deescalate` action clears it.
     confirmBody:
-      'Set this case to NEEDS_HUMAN — route it to a human / senior analyst for review.',
-    help: 'Set NEEDS_HUMAN — route to a human / senior analyst.',
+      'Escalate this case — flag it for a senior / Tier-3 analyst and raise its priority. The status becomes ESCALATED.',
+    help: 'Escalate — flag for a senior / Tier-3 analyst; the status becomes ESCALATED.',
     fields: ['assignee', 'priority'],
   },
   reopen: {

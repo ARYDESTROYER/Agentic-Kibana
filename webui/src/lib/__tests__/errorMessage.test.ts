@@ -43,6 +43,16 @@ describe('errorMessage', () => {
     expect(errorMessage({}, 'fb')).toBe('fb');
   });
 
+  it('falls back on an empty array, like the empty object', () => {
+    expect(errorMessage([], 'fb')).toBe('fb');
+    expect(errorMessage([1, 2])).toBe('[1,2]');
+  });
+
+  it('falls back for values that stringify to the value undefined (functions/symbols)', () => {
+    expect(errorMessage(() => {}, 'fb')).toBe('fb');
+    expect(errorMessage(Symbol('x'), 'fb')).toBe('fb');
+  });
+
   it('uses a default fallback when none given', () => {
     expect(errorMessage(null)).toBe('Something went wrong.');
   });

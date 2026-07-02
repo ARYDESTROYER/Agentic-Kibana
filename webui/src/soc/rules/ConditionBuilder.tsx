@@ -21,6 +21,7 @@
 import * as React from 'react';
 import { Plus, X } from 'lucide-react';
 
+import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import {
@@ -189,15 +190,10 @@ export function ConditionBuilder({ value, onChange, disabled, idPrefix = 'cond' 
         </React.Fragment>
       ))}
 
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={addRow}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted disabled:opacity-50"
-      >
+      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={addRow}>
         <Plus className="h-3.5 w-3.5" aria-hidden />
         Add condition
-      </button>
+      </Button>
     </div>
   );
 }

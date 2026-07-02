@@ -26,6 +26,16 @@ export interface ChartCardProps {
   className?: string;
   /** Optional header-right action (e.g. a sort toggle or export link). */
   action?: React.ReactNode;
+  /**
+   * When true the BODY scrolls internally instead of the caller clipping it: the card
+   * becomes a `min-h-0` flex column and the content area gets `min-h-0 flex-1
+   * overflow-auto`, so a tall body (a long table / MITRE heatmap) sitting in a
+   * FIXED-height dashboard cell scrolls within the card rather than being cut off. Off by
+   * default → byte-identical for the Metrics page (which uses ChartCard directly and lets
+   * the page grow). Pair with an `overflow-hidden` outer wrapper (WidgetShell does) so the
+   * card still clips to its grid cell.
+   */
+  scrollBody?: boolean;
 }
 
 /**
@@ -40,9 +50,10 @@ export function ChartCard({
   children,
   className,
   action,
+  scrollBody = false,
 }: ChartCardProps) {
   return (
-    <Card className={cn('flex flex-col', className)}>
+    <Card className={cn('flex flex-col', scrollBody && 'min-h-0', className)}>
       <CardHeader className="pb-4">
         <CardTitle className="flex items-center gap-2.5 text-sm font-semibold">
           <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-surface">
@@ -52,7 +63,9 @@ export function ChartCard({
           {action ? <span className="ml-auto">{action}</span> : null}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex-1">{children}</CardContent>
+      <CardContent className={cn('flex-1', scrollBody && 'min-h-0 overflow-auto')}>
+        {children}
+      </CardContent>
     </Card>
   );
 }

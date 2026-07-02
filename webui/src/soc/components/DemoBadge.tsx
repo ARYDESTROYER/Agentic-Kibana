@@ -36,11 +36,8 @@ export function DemoBadge({ show = true, className, iconless }: DemoBadgeProps) 
   if (!show) return null;
   return (
     <Badge
-      variant="outline"
-      className={cn(
-        'gap-1 border-warning/50 bg-warning/10 text-warning',
-        className,
-      )}
+      variant="warning"
+      className={cn('gap-1', className)}
       title="Synthetic demo data — not a real case"
     >
       {iconless ? null : <FlaskConical className="h-3 w-3" aria-hidden />}

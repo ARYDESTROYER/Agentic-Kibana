@@ -14,13 +14,14 @@
  * catalog + can open the editor read-only. #9: every rule name/field renders plain.
  */
 import * as React from 'react';
-import { History, ListTree, Pencil, Plus, Trash2, Workflow, Zap } from 'lucide-react';
+import { AlertTriangle, History, ListTree, Pencil, Plus, Trash2, Workflow, Zap } from 'lucide-react';
 
 import type { Preferences } from '@/lib/types';
 import { cn } from '@/lib/cn';
 
 import { useCan } from '@/soc/components/Can';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { Button } from '@/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import {
@@ -34,10 +35,12 @@ import {
 import { IconButton } from '@/soc/components/IconButton';
 
 import { RuleEditor } from './RuleEditor';
-import type { RuleCatalogItem, RuleForm, RuleTier } from './types';
+import type { AutomationRule, RuleCatalogItem, RuleForm, RuleTier } from './types';
 import { RULES_PERM, RULES_READ_PERM } from './types';
 import { RULE_TIER_BY_ID, newRuleForm } from './constants';
 import {
+  anomalyToBaseline,
+  baselineToAnomaly,
   caseAutomationToWire,
   detectionMatchToWire,
   wireToCaseAutomation,
@@ -62,18 +65,40 @@ function newAutomationId(): string {
   return `rule-${Date.now().toString(36)}-${_autoSeq}`;
 }
 
-/** Build the merged catalog table rows from both wire sources. */
+/**
+ * Derive a NEW case-automation rule's id from the operator's typed Name so the required
+ * Name field is not silently discarded and shown back as an opaque machine id (#25). The
+ * wire `CaseAutomationRule` is keyed only by `id`, so the id doubles as the display name.
+ * Empty → auto-generate; a collision with an existing id gets a numeric suffix.
+ */
+export function automationIdFromName(name: string, existing: readonly AutomationRule[]): string {
+  const base = name.trim();
+  if (!base) return newAutomationId();
+  const taken = new Set(existing.map((r) => r.id));
+  if (!taken.has(base)) return base;
+  for (let i = 2; i < 1000; i += 1) {
+    const candidate = `${base} (${i})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return newAutomationId();
+}
+
+/** Build the merged catalog table rows from both wire sources. Each row carries its
+ * source-array INDEX so edit/delete/toggle target exactly that row even when two rules
+ * share a display name/id (#24). */
 function buildCatalog(prefs: Preferences): RuleCatalogItem[] {
-  const detection: RuleCatalogItem[] = (prefs.rule_catalog ?? []).map((r) => ({
-    key: `det:${r.name}`,
+  const detection: RuleCatalogItem[] = (prefs.rule_catalog ?? []).map((r, i) => ({
+    key: `det:${i}`,
+    sourceIndex: i,
     tier: 'detection_match',
     name: r.name,
     enabled: r.enabled ?? true,
     priority: typeof r.priority === 'number' ? r.priority : 100,
     lifecycle: (r.enabled ?? true) ? 'enabled' : 'disabled',
   }));
-  const automation: RuleCatalogItem[] = (prefs.threshold_automation?.rules ?? []).map((r) => ({
-    key: `auto:${r.id}`,
+  const automation: RuleCatalogItem[] = (prefs.threshold_automation?.rules ?? []).map((r, i) => ({
+    key: `auto:${i}`,
+    sourceIndex: i,
     tier: 'case_automation',
     name: r.id,
     enabled: r.enabled ?? true,
@@ -118,6 +143,12 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<RuleForm | null>(null);
   const [target, setTarget] = React.useState<EditTarget | null>(null);
+  // A validation message surfaced when Save is rejected (e.g. a nameless / condition-less
+  // detection rule) so the operator is never left with a silent, dead Save button.
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  // A rule pending a delete confirmation — destructive deletes are gated (parity with the
+  // confirm-gated Disable in the lifecycle sheet), so a single misclick can't wipe a rule.
+  const [confirmDelete, setConfirmDelete] = React.useState<RuleCatalogItem | null>(null);
 
   // The per-rule lifecycle surface (test/preview + version ledger + state). It maps a
   // catalog item to the {kind, ruleId, form, state} the RuleLifecycleSheet needs. A
@@ -132,31 +163,53 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
   } | null>(null);
 
   const startNew = () => {
+    setSaveError(null);
     setDraft(newRuleForm('detection_match'));
     setTarget({ kind: 'new' });
     setOpen(true);
   };
 
   const startEdit = (item: RuleCatalogItem) => {
+    setSaveError(null);
+    // Identify the rule by its source-array INDEX (never a name/id match), so editing one
+    // of two same-named rules resolves to exactly the row clicked (#24).
     if (item.tier === 'case_automation') {
-      const idx = (prefs.threshold_automation?.rules ?? []).findIndex((r) => r.id === item.name);
-      const rule = (prefs.threshold_automation?.rules ?? [])[idx];
+      const rule = (prefs.threshold_automation?.rules ?? [])[item.sourceIndex];
       if (!rule) return;
       setDraft(wireToCaseAutomation(rule));
-      setTarget({ kind: 'automation', index: idx });
+      setTarget({ kind: 'automation', index: item.sourceIndex });
     } else {
-      const idx = (prefs.rule_catalog ?? []).findIndex((r) => r.name === item.name);
-      const def = (prefs.rule_catalog ?? [])[idx];
+      const def = (prefs.rule_catalog ?? [])[item.sourceIndex];
       if (!def) return;
       setDraft(wireToDetectionMatch(def));
-      setTarget({ kind: 'detection', index: idx });
+      setTarget({ kind: 'detection', index: item.sourceIndex });
     }
     setOpen(true);
   };
 
-  /** Switch a brand-new rule's tier (only allowed before first save). */
+  /** Switch a brand-new rule's tier (only allowed before first save). The anomaly tier
+   * edits the shared org baseline block, so seed its form from the CURRENT baseline so
+   * the operator sees (and tunes) the real values rather than blank defaults. */
   const changeTier = (tier: RuleTier) => {
-    setDraft(newRuleForm(tier));
+    setSaveError(null);
+    setDraft((cur) => {
+      const base = tier === 'detection_anomaly' ? baselineToAnomaly(prefs.baseline) : newRuleForm(tier);
+      const carried = cur?.about;
+      if (!carried) return base;
+      // Carry the shared About metadata across a tier switch so name/description/priority
+      // (and MITRE, for detection tiers) the operator already typed isn't wiped (#31).
+      const isDetection = RULE_TIER_BY_ID[tier].detection;
+      return {
+        ...base,
+        about: {
+          ...base.about,
+          name: carried.name,
+          description: carried.description,
+          priority: carried.priority,
+          ...(isDetection ? { mitre: carried.mitre ?? base.about.mitre ?? [] } : {}),
+        },
+      } as RuleForm;
+    });
   };
 
   /**
@@ -167,22 +220,24 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
    * lifecycle surface is offered for detection + case-automation rules only.
    */
   const openLifecycle = (item: RuleCatalogItem) => {
+    // Resolve the exact rule by index (#24). `ruleId` stays the wire identity
+    // (detection: name; automation: id) the backend version ledger keys on.
     if (item.tier === 'case_automation') {
-      const rule = (prefs.threshold_automation?.rules ?? []).find((r) => r.id === item.name);
+      const rule = (prefs.threshold_automation?.rules ?? [])[item.sourceIndex];
       if (!rule) return;
       setLifecycle({
         kind: 'case_automation',
-        ruleId: item.name,
+        ruleId: rule.id,
         form: wireToCaseAutomation(rule),
         state: item.lifecycle,
         item,
       });
     } else {
-      const def = (prefs.rule_catalog ?? []).find((r) => r.name === item.name);
+      const def = (prefs.rule_catalog ?? [])[item.sourceIndex];
       if (!def) return;
       setLifecycle({
         kind: 'detection',
-        ruleId: item.name,
+        ruleId: def.name,
         form: wireToDetectionMatch(def),
         state: item.lifecycle,
         item,
@@ -199,14 +254,15 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
    */
   const setLifecycleState = (item: RuleCatalogItem, next: RuleLifecycleState) => {
     const enabled = next !== 'disabled';
+    // Toggle exactly the indexed row (#24) — never every rule that happens to share a name.
     if (item.tier === 'case_automation') {
-      const rules = (prefs.threshold_automation?.rules ?? []).map((r) =>
-        r.id === item.name ? { ...r, enabled } : r,
+      const rules = (prefs.threshold_automation?.rules ?? []).map((r, i) =>
+        i === item.sourceIndex ? { ...r, enabled } : r,
       );
       update({ threshold_automation: { ...(prefs.threshold_automation ?? {}), rules } });
     } else {
-      const catalogList = (prefs.rule_catalog ?? []).map((r) =>
-        r.name === item.name ? { ...r, enabled } : r,
+      const catalogList = (prefs.rule_catalog ?? []).map((r, i) =>
+        i === item.sourceIndex ? { ...r, enabled } : r,
       );
       update({ rule_catalog: catalogList });
     }
@@ -217,37 +273,50 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
   /** Deterministically map the draft form → wire and deep-merge it in. */
   const save = () => {
     if (!draft) return;
+    setSaveError(null);
     if (draft.tier === 'case_automation') {
       const rules = [...(prefs.threshold_automation?.rules ?? [])];
+      // Keep an EXISTING rule's stable id on edit; for a NEW rule derive the id from the
+      // typed Name so the operator's input persists + shows in the list (#25).
       const id =
         target && target.kind === 'automation' && rules[target.index]
           ? rules[target.index].id
-          : newAutomationId();
+          : automationIdFromName(draft.about.name, rules);
       const wire = caseAutomationToWire(draft, id);
       if (target && target.kind === 'automation') rules[target.index] = wire;
       else rules.push(wire);
       update({ threshold_automation: { ...(prefs.threshold_automation ?? {}), rules } });
     } else if (draft.tier === 'detection_match') {
       const wire = detectionMatchToWire(draft);
-      if (!wire) return; // unnamed / no predicate — keep the sheet open
+      if (!wire) {
+        // Surface WHY the save is a no-op instead of a silent dead button (#3-safe:
+        // this only validates the form; it never calls decide()).
+        setSaveError('Give the rule a name (About tab) and at least one condition with a field (Define tab) before saving.');
+        return; // keep the sheet open so the operator can fix it
+      }
       const catalogList = [...(prefs.rule_catalog ?? [])];
       if (target && target.kind === 'detection') catalogList[target.index] = wire;
       else catalogList.push(wire);
       update({ rule_catalog: catalogList });
+    } else if (draft.tier === 'detection_anomaly') {
+      // Anomaly rules configure the shared org baseline block (there is no per-rule
+      // baseline on the wire yet). Persist it through the same deep-merge buffer so the
+      // operator's tuning is actually saved rather than silently discarded on close.
+      update({ baseline: anomalyToBaseline(draft, prefs.baseline) });
     }
-    // detection_anomaly edits the shared baseline block (handled by its own settings
-    // section); the sheet keeps it in-draft only until that lands. Close cleanly.
     setOpen(false);
     setDraft(null);
     setTarget(null);
   };
 
   const removeItem = (item: RuleCatalogItem) => {
+    // Delete exactly the indexed row (#24) — a name filter would wipe BOTH rules that
+    // share a duplicate name.
     if (item.tier === 'case_automation') {
-      const rules = (prefs.threshold_automation?.rules ?? []).filter((r) => r.id !== item.name);
+      const rules = (prefs.threshold_automation?.rules ?? []).filter((_, i) => i !== item.sourceIndex);
       update({ threshold_automation: { ...(prefs.threshold_automation ?? {}), rules } });
     } else {
-      const catalogList = (prefs.rule_catalog ?? []).filter((r) => r.name !== item.name);
+      const catalogList = (prefs.rule_catalog ?? []).filter((_, i) => i !== item.sourceIndex);
       update({ rule_catalog: catalogList });
     }
   };
@@ -292,7 +361,9 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-md border border-border">
+        // overflow-x-auto (not overflow-hidden) so a long/unbreakable rule name on a
+        // narrow viewport can be scrolled to instead of being clipped with no access (#33).
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left text-xs text-muted-foreground">
@@ -366,7 +437,7 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
                             variant="ghost"
                             tooltip={false}
                             className="text-critical-text hover:text-critical-text"
-                            onClick={() => removeItem(item)}
+                            onClick={() => setConfirmDelete(item)}
                           >
                             <Trash2 />
                           </IconButton>
@@ -381,7 +452,10 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
         </div>
       )}
 
-      <Sheet open={open} onOpenChange={(v) => (v ? setOpen(true) : (setOpen(false), setDraft(null)))}>
+      <Sheet
+        open={open}
+        onOpenChange={(v) => (v ? setOpen(true) : (setOpen(false), setDraft(null), setSaveError(null)))}
+      >
         <SheetContent side="right" size="lg" className={cn('flex w-full flex-col sm:max-w-2xl')}>
           <SheetHeader>
             <SheetTitle>
@@ -397,7 +471,10 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
             {draft ? (
               <RuleEditor
                 value={draft}
-                onChange={setDraft}
+                onChange={(next) => {
+                  setSaveError(null);
+                  setDraft(next);
+                }}
                 readOnly={!canManage}
                 allowTierChange={target?.kind === 'new'}
                 onTierChange={changeTier}
@@ -405,14 +482,43 @@ export function DetectionRulesHome({ prefs, update }: DetectionRulesHomeProps) {
             ) : null}
           </div>
 
+          {saveError ? (
+            <Alert variant="warning">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+              <AlertTitle>Can&apos;t save yet</AlertTitle>
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          ) : null}
+
           <SheetFooter>
-            <Button variant="outline" onClick={() => (setOpen(false), setDraft(null))}>
+            <Button variant="outline" onClick={() => (setOpen(false), setDraft(null), setSaveError(null))}>
               Cancel
             </Button>
             {canManage ? <Button onClick={save}>Save rule</Button> : null}
           </SheetFooter>
         </SheetContent>
       </Sheet>
+
+      {/* Destructive-delete gate — parity with the confirm-gated Disable in the lifecycle
+          sheet. Config writer only (#3): the confirmed delete flows through `update`. */}
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(null);
+        }}
+        destructive
+        title="Delete this rule?"
+        description={
+          confirmDelete
+            ? `"${confirmDelete.name || 'This rule'}" will be removed from your configuration. This writes configuration only — it never changes a case.`
+            : ''
+        }
+        confirmLabel="Delete rule"
+        onConfirm={() => {
+          if (confirmDelete) removeItem(confirmDelete);
+          setConfirmDelete(null);
+        }}
+      />
 
       {/* Per-rule LIFECYCLE surface — test/preview + version ledger + rollback + state.
           Config writer only (#3): a state change flows through `update`; a rollback is a

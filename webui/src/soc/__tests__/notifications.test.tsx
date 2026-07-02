@@ -29,12 +29,19 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), message: v
 
 import { NotificationsEditor } from '../components/NotificationsEditor';
 import { HelpTip } from '../components/HelpTip';
+import { TooltipProvider } from '@/ui/tooltip';
 import type { Preferences } from '@/lib/types';
 
 function setup(prefsOver: Partial<Preferences> = {}) {
   const update = vi.fn();
   const prefs = { ...prefsOver } as Preferences;
-  const utils = render(<NotificationsEditor prefs={prefs} update={update} />);
+  // The shared SecretField's reveal IconButton renders a Tooltip; the app supplies ONE
+  // root TooltipProvider, so the test harness must too.
+  const utils = render(
+    <TooltipProvider>
+      <NotificationsEditor prefs={prefs} update={update} />
+    </TooltipProvider>,
+  );
   return { update, ...utils };
 }
 

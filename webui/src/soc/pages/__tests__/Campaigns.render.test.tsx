@@ -38,9 +38,10 @@ vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
   };
 });
 
-// The page loads the campaign config via the low-level api.get('campaigns/config').
+// The page loads/saves its config through the shared `api.campaign` client
+// (getConfig/putConfig → GET/PUT campaigns/config).
 vi.mock('@/lib/api', () => ({
-  api: { get: apiGetMock, put: apiPutMock, post: vi.fn() },
+  api: { campaign: { getConfig: apiGetMock, putConfig: apiPutMock }, post: vi.fn() },
 }));
 
 vi.mock('@/soc/auth', () => ({
@@ -93,8 +94,9 @@ describe('Campaigns page', () => {
     apiPutMock.mockReset();
     listMock.mockResolvedValue({ campaigns: [CAMPAIGN], total: 1, enabled: true });
     recorrelateMock.mockResolvedValue({ ok: true, count: 1, campaigns: [CAMPAIGN] });
-    // The campaign config load (useConfigEditor → api.get('campaigns/config')).
+    // The campaign config load (useConfigEditor → api.campaign.getConfig()).
     apiGetMock.mockResolvedValue({ config: { enabled: true, cadence: 'daily' } });
+    apiPutMock.mockResolvedValue({ ok: true, config: { enabled: true, cadence: 'daily' } });
   });
 
   it('renders campaigns with name, case count and shared entities as plain text', async () => {
@@ -128,6 +130,27 @@ describe('Campaigns page', () => {
     const openButtons = screen.getAllByRole('button', { name: /^open$/i });
     fireEvent.click(openButtons[0]);
     expect(onNavigate).toHaveBeenCalledWith('cases', { caseId: 'case-1' });
+  });
+
+  it('Refresh reloads the campaign list without discarding unsaved policy edits', async () => {
+    renderCampaigns();
+
+    // The config form renders after the policy load resolves (loading skeleton first).
+    const toggle = await screen.findByRole('switch', { name: /enable campaign clustering/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+
+    // Edit the policy — the draft is now dirty.
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+
+    // The list reloaded, but the config was NOT re-fetched (no clobber) and the
+    // unsaved edit survives.
+    await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2));
+    expect(apiGetMock).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
   it('recorrelates via campaignsApi.recorrelate', async () => {

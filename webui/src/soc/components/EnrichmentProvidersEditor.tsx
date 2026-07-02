@@ -23,7 +23,6 @@
 import * as React from 'react';
 import {
   AlertCircle,
-  Check,
   ChevronDown,
   ExternalLink,
   Gift,
@@ -32,7 +31,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
-  ShieldCheck,
+  ShieldAlert,
   Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -49,6 +48,8 @@ import {
 import { useCan } from './Can';
 import { CodeBlock } from './CodeBlock';
 import { EmptyState } from './EmptyState';
+import { LoadError } from './LoadError';
+import { SecretField } from './SecretField';
 
 import { Button } from '@/ui/button';
 import { Badge, type BadgeProps } from '@/ui/badge';
@@ -90,11 +91,14 @@ function repVariant(score?: number | null): BadgeProps['variant'] {
 /* ----------------------------------------------------------- secret entry --- */
 
 /**
- * A write-only secret field for one provider key. The console NEVER shows the value
- * — only a "Configured" / "Not set" boolean (#10). Saving posts the new value (or
- * null to clear) and refreshes the boolean from the response.
+ * A write-only secret field for one provider key, built on the SHARED `SecretField`
+ * primitive (uniform reveal toggle + boolean status pill + explicit clear across every
+ * secret surface). The console NEVER shows the value — only a "Configured" / "Not set"
+ * boolean (#10). Saving posts the new value (via the Save button); clearing posts null
+ * (via the primitive's "Remove stored value" affordance). An empty Save is blocked so a
+ * stored secret can never be clobbered with a blank value.
  */
-const SecretField: React.FC<{
+const ProviderSecretField: React.FC<{
   providerName: string;
   field: { key: string; label: string; required: boolean; help?: string | null; configured: boolean };
   canManage: boolean;
@@ -122,51 +126,34 @@ const SecretField: React.FC<{
     }
   };
 
-  return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-2">
+  if (!canManage) {
+    return (
+      <div className="space-y-1.5">
         <Label className="text-xs">{field.label}</Label>
-        {field.required ? (
-          <Badge variant="outline" className="text-[10px]">
-            required
-          </Badge>
-        ) : null}
-        {field.configured ? (
-          <Badge variant="success" className="gap-1 text-[10px]">
-            <Check className="size-3" aria-hidden />
-            Configured
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px] text-muted-foreground">
-            Not set
-          </Badge>
-        )}
-      </div>
-      {field.help ? <p className="text-xs text-muted-foreground">{field.help}</p> : null}
-      {canManage ? (
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            placeholder={field.configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            className="font-mono"
-          />
-          <Button size="sm" variant="outline" disabled={saving} onClick={() => void save(false)}>
-            {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : 'Save'}
-          </Button>
-          {field.configured ? (
-            <Button size="sm" variant="ghost" disabled={saving} onClick={() => void save(true)}>
-              Clear
-            </Button>
-          ) : null}
-        </div>
-      ) : (
         <p className="text-xs text-muted-foreground">
           You do not have permission to edit provider keys.
         </p>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <SecretField
+        label={field.label}
+        description={field.help ?? undefined}
+        configured={field.configured}
+        required={field.required}
+        value={draft}
+        onChange={setDraft}
+        disabled={saving}
+        placeholder={field.configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
+        onClear={field.configured ? () => void save(true) : undefined}
+        configuredLabel="Configured"
+      />
+      <Button size="sm" variant="outline" disabled={saving} onClick={() => void save(false)}>
+        {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : 'Save'}
+      </Button>
     </div>
   );
 };
@@ -288,7 +275,7 @@ const ProviderCard: React.FC<{
 
       {needsKey ? (
         <div className="border-t border-border px-4 py-2">
-          <p className="flex items-center gap-1.5 text-xs text-warning">
+          <p className="flex items-center gap-1.5 text-xs text-warning-text">
             <KeyRound className="size-3.5" aria-hidden />
             Enabled but missing its API key — add it below so it can run.
           </p>
@@ -298,7 +285,7 @@ const ProviderCard: React.FC<{
       {hasSecrets && open ? (
         <div className="space-y-4 border-t border-border bg-surface px-4 py-4">
           {provider.secret_fields.map((f) => (
-            <SecretField
+            <ProviderSecretField
               key={f.key}
               providerName={provider.name}
               field={f}
@@ -318,7 +305,8 @@ const ProviderCard: React.FC<{
 
 const LookupBox: React.FC = () => {
   const [indicator, setIndicator] = React.useState('');
-  const [kind, setKind] = React.useState('');
+  // 'auto' is the auto-detect sentinel (Radix Select needs a non-empty value).
+  const [kind, setKind] = React.useState('auto');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const [result, setResult] = React.useState<EnrichmentLookupResult | null>(null);
@@ -329,7 +317,7 @@ const LookupBox: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await enrichmentApi.lookup(value, kind || undefined);
+      const res = await enrichmentApi.lookup(value, kind && kind !== 'auto' ? kind : undefined);
       setResult(res);
     } catch (e) {
       setError(e);
@@ -417,7 +405,10 @@ const LookupBox: React.FC = () => {
             </Badge>
             {result.is_malicious ? (
               <Badge variant="critical" className="gap-1">
-                <ShieldCheck className="size-3" aria-hidden />
+                {/* Threat-signaling icon (ShieldAlert), not ShieldCheck — a check-shield
+                    reads as "safe/verified" and contradicts a malicious verdict (G9
+                    non-color signaling). */}
+                <ShieldAlert className="size-3" aria-hidden />
                 flagged malicious
               </Badge>
             ) : (
@@ -592,105 +583,104 @@ export function EnrichmentProvidersEditor({ className, embedded = false }: Enric
         </div>
       ) : null}
 
+      {/* On a providers-load failure, replace the config body (master flags + list) with
+          the shared LoadError so we never show contradictory "no providers registered"
+          copy alongside live, writable master switches. */}
       {error ? (
-        <Alert variant="destructive">
-          <AlertCircle aria-hidden />
-          <AlertTitle>Could not load enrichment providers</AlertTitle>
-          <AlertDescription className="flex items-center gap-3">
-            <span>{errMsg(error, 'Request failed.')}</span>
-            <Button size="sm" variant="outline" onClick={() => void load()}>
-              <RefreshCw className="size-3.5" aria-hidden />
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {/* master flags */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Enrichment enabled</p>
-            <p className="text-xs text-muted-foreground">
-              Master switch for all provider lookups.
-            </p>
+        <LoadError
+          error={error}
+          title="Couldn't load enrichment providers"
+          onRetry={() => void load()}
+        />
+      ) : (
+        <>
+          {/* master flags */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Enrichment enabled</p>
+                <p className="text-xs text-muted-foreground">
+                  Master switch for all provider lookups.
+                </p>
+              </div>
+              <Switch
+                checked={enrichmentEnabled}
+                disabled={!canManage || savingFlag || loading}
+                onCheckedChange={(v) => void setMasterFlag('enabled', v)}
+                aria-label="Enrichment enabled"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground">Fuse provider scores</p>
+                <p className="text-xs text-muted-foreground">
+                  Combine providers into one normalised reputation score.
+                </p>
+              </div>
+              <Switch
+                checked={fusionEnabled}
+                disabled={!canManage || savingFlag || loading}
+                onCheckedChange={(v) => void setMasterFlag('fusion_enabled', v)}
+                aria-label="Fuse provider scores"
+              />
+            </div>
           </div>
-          <Switch
-            checked={enrichmentEnabled}
-            disabled={!canManage || savingFlag}
-            onCheckedChange={(v) => void setMasterFlag('enabled', v)}
-            aria-label="Enrichment enabled"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">Fuse provider scores</p>
-            <p className="text-xs text-muted-foreground">
-              Combine providers into one normalised reputation score.
-            </p>
-          </div>
-          <Switch
-            checked={fusionEnabled}
-            disabled={!canManage || savingFlag}
-            onCheckedChange={(v) => void setMasterFlag('fusion_enabled', v)}
-            aria-label="Fuse provider scores"
-          />
-        </div>
-      </div>
 
-      {/* provider list */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Providers
-            </p>
-            {!loading ? (
-              <Badge variant="outline">
-                {enabledCount} of {providers.length} on
-              </Badge>
+          {/* provider list */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Providers
+                </p>
+                {!loading ? (
+                  <Badge variant="outline">
+                    {enabledCount} of {providers.length} on
+                  </Badge>
+                ) : null}
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
+                <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
+                Refresh
+              </Button>
+            </div>
+
+            {loading ? (
+              <div className="space-y-3">
+                {[0, 1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-28 w-full rounded-lg" />
+                ))}
+              </div>
+            ) : providers.length === 0 ? (
+              <EmptyState
+                icon={Globe}
+                title="No enrichment providers"
+                description="No providers are registered. Check the backend enrichment configuration."
+              />
+            ) : (
+              <div className={cn('space-y-3', !enrichmentEnabled && 'opacity-60')}>
+                {providers.map((p) => (
+                  <ProviderCard
+                    key={p.name}
+                    provider={p}
+                    canManage={canManage}
+                    toggling={togglingName === p.name}
+                    onToggle={(prov, on) => void toggleProvider(prov, on)}
+                    onSecretConfigured={onSecretConfigured}
+                  />
+                ))}
+              </div>
+            )}
+
+            {!canManage && !loading ? (
+              <p className="text-xs text-muted-foreground">
+                You have read-only access to enrichment settings. Provider toggles and keys
+                require the enrichment:manage permission.
+              </p>
             ) : null}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={cn('size-4', loading && 'animate-spin')} aria-hidden />
-            Refresh
-          </Button>
-        </div>
-
-        {loading ? (
-          <div className="space-y-3">
-            {[0, 1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-28 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : providers.length === 0 ? (
-          <EmptyState
-            icon={Globe}
-            title="No enrichment providers"
-            description="No providers are registered. Check the backend enrichment configuration."
-          />
-        ) : (
-          <div className={cn('space-y-3', !enrichmentEnabled && 'opacity-60')}>
-            {providers.map((p) => (
-              <ProviderCard
-                key={p.name}
-                provider={p}
-                canManage={canManage}
-                toggling={togglingName === p.name}
-                onToggle={(prov, on) => void toggleProvider(prov, on)}
-                onSecretConfigured={onSecretConfigured}
-              />
-            ))}
-          </div>
-        )}
-
-        {!canManage && !loading ? (
-          <p className="text-xs text-muted-foreground">
-            You have read-only access to enrichment settings. Provider toggles and keys
-            require the enrichment:manage permission.
-          </p>
-        ) : null}
-      </div>
+        </>
+      )}
 
       <Separator />
 

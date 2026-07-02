@@ -172,9 +172,9 @@ describe('Inbox page (read-state)', () => {
     renderInbox();
     await screen.findByText('Case escalated: brute force');
 
-    // The group toggle is now a SegmentedControl (Radix Tabs → role="tab").
-    // Radix Tabs activate on pointer events, so drive it with userEvent.
-    const byCat = screen.getByRole('tab', { name: /by category/i });
+    // The group toggle is a SegmentedControl — a single-select value picker built on
+    // Radix RadioGroup (role="radio"), not a tab surface. Drive it with userEvent.
+    const byCat = screen.getByRole('radio', { name: /by category/i });
     await userEvent.click(byCat);
     // The category group heading appears (curated label for case_escalated).
     const heading = await screen.findByRole('heading', { name: /escalations/i });

@@ -57,6 +57,8 @@ import type {
   PersonasResponse,
   PlaybooksResponse,
   Preferences,
+  AutomationRule,
+  CorrelationRule,
   RuleDefinition,
   SavedView,
   Proposal,
@@ -83,6 +85,7 @@ import type {
   StandupResponse,
   Terminology,
   ThreatContextPanel,
+  ThresholdTuningConfig,
   UsageSummary,
   User,
   UserPrefs,
@@ -187,27 +190,57 @@ export interface PreviewDecisionInput {
  * status; `rationale` is the deterministic explanation string (both plain data, #9).
  */
 export interface PreviewDecisionResult {
-  /** The resulting deterministic lifecycle status (a {@link CaseStatus} value). */
-  decision: CaseStatus;
+  /**
+   * The deterministic decision, nested exactly as the backend returns it
+   * (`routes_triage.preview_decision`). `decision.status` is the resulting lifecycle
+   * {@link CaseStatus}; the escalate/decision_by/objection-window fields live UNDER
+   * `decision`, not at the top level.
+   */
+  decision: {
+    /** The resulting deterministic lifecycle status (a {@link CaseStatus} value). */
+    status: CaseStatus;
+    /** Who made the decision (agent auto-close vs. system fail-safe). */
+    decision_by: string;
+    /** Whether the case would be flagged for priority human attention. */
+    escalate: boolean;
+    /** When the reopen (objection) window expires, for an agent auto-close. */
+    objection_window_expires_at?: string | null;
+    /** Whether the decision auto-closes the case (status === CLOSED). */
+    auto_closed: boolean;
+  };
   /** Human-readable, deterministic rationale for the decision. */
   rationale: string;
-  /** Whether the case would be flagged for priority human attention. */
-  escalate?: boolean;
-  /** Who made the decision (agent auto-close vs. system fail-safe). */
-  decision_by?: string;
-  /** When the reopen (objection) window expires, for an agent auto-close. */
-  objection_window_expires_at?: string | null;
-  [key: string]: unknown;
+  /** The resolved inputs the decision was computed from (echoed for the what-if strip). */
+  inputs?: {
+    verdict?: string | null;
+    confidence?: number;
+    risk_score?: number;
+    escalation_confidence?: number;
+    critical_severity?: number;
+    policy_provided?: boolean;
+  };
 }
 
 /**
- * Response of GET /api/rules — the detection-rule catalog (mirrors
- * `Preferences.rule_catalog`, a `RuleDefinition[]`). Rules ride `PUT /api/settings`
- * today; this GET is a thin read scaffold the Rules G6 wave fleshes out.
+ * Response of GET /api/rules (`routes_rules.list_rules`) — every rule across the three
+ * families the engine reads, as plain JSON (#9). This mirrors the backend keys exactly;
+ * there is NO flat `rules` array. Rides `PUT /api/settings` for writes.
  */
 export interface RulesResponse {
-  rules: RuleDefinition[];
-  count?: number;
+  /** `Preferences.rule_catalog` — the detection rules. */
+  detection: RuleDefinition[];
+  /** `Preferences.correlation_rules`, keyed by rule name. */
+  correlation: Record<string, CorrelationRule>;
+  /** The fallback correlation rule applied when no per-rule override matches. */
+  default_correlation: CorrelationRule;
+  /** `Preferences.threshold_automation.rules`, each flagged when it carries an impossible verdict. */
+  case_automation: Array<AutomationRule & { invalid_verdict: boolean }>;
+  /** Whether case-automation is globally enabled. */
+  automation_enabled: boolean;
+  /** Canonical (enum-case) verdicts for display. */
+  valid_verdicts: string[];
+  /** The same verdict set in the lower-case form the editors emit. */
+  valid_verdicts_lower: string[];
 }
 
 /* --------------------------------------------------------------------------- //
@@ -270,7 +303,7 @@ export interface RulePreviewInput {
   match: Array<{ field: string; op: string; value?: string }>;
   /** Scope to one source; omit for all browse-capable sources. */
   source_id?: string;
-  /** Hard-capped result size (1..1000; default 200). */
+  /** Hard-capped result size (1..200; default 200 — matches the backend `le=200` cap). */
   limit?: number;
   /** Relative/absolute time window bounds (ES date-math friendly). */
   from?: string;
@@ -329,7 +362,6 @@ export interface RulePreviewResult {
  */
 export interface DashboardsResponse {
   dashboards: DashboardLayout[];
-  count?: number;
 }
 
 // --------------------------------------------------------------------------- //
@@ -343,6 +375,11 @@ export interface DashboardsResponse {
 // rejects from) that single final request — the awaitable contract the builder relies
 // on (it commits the server echo) is preserved; only the network chatter is collapsed.
 // Keyed per dashboard id so two different boards never share a timer.
+//
+// An EXPLICIT Save is a different intent than a settle stream: it must NOT eat the
+// coalescing delay. `update(id, body, { immediate: true })` therefore takes a separate
+// path — it fires one PUT right away and FOLDS any pending coalesced settle for that id
+// into it — while the default (no opts) keeps the trailing-debounce coalescing above.
 // --------------------------------------------------------------------------- //
 
 /** Client debounce window for dashboard writes (ms). Kept small so a save feels instant. */
@@ -359,9 +396,19 @@ interface PendingDashboardUpdate {
 
 const pendingDashboardUpdates = new Map<string, PendingDashboardUpdate>();
 
+/** Flush a coalesced trailing entry: fire ONE PUT and settle every awaiting caller. */
+function flushDashboardUpdate(id: string, entry: PendingDashboardUpdate): void {
+  pendingDashboardUpdates.delete(id);
+  const { body, resolvers, rejecters } = entry;
+  request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, { body })
+    .then((res) => resolvers.forEach((r) => r(res)))
+    .catch((err) => rejecters.forEach((r) => r(err)));
+}
+
 /**
- * Debounced `PUT /api/dashboards/{id}`. Collapses rapid successive updates to the same
- * id into ONE trailing request. Returns a promise that settles when the coalesced
+ * Trailing-debounced `PUT /api/dashboards/{id}` — the DEFAULT path for a drag/resize
+ * settle stream. Collapses rapid successive updates to the same id into ONE trailing
+ * request ~500ms after the last call. Returns a promise that settles when the coalesced
  * request completes; callers made within the same window share that outcome.
  */
 function debouncedDashboardUpdate(id: string, body: DashboardLayout): Promise<DashboardLayout> {
@@ -372,24 +419,40 @@ function debouncedDashboardUpdate(id: string, body: DashboardLayout): Promise<Da
       existing.body = body; // last write wins
       existing.resolvers.push(resolve);
       existing.rejecters.push(reject);
+      existing.timer = setTimeout(() => flushDashboardUpdate(id, existing), DASHBOARD_UPDATE_DEBOUNCE_MS);
+      return;
     }
-    const entry: PendingDashboardUpdate = existing ?? {
+    const entry: PendingDashboardUpdate = {
       timer: null as unknown as ReturnType<typeof setTimeout>,
       body,
       resolvers: [resolve],
       rejecters: [reject],
     };
-    entry.timer = setTimeout(() => {
-      // Detach this entry BEFORE firing so a new call during the flight starts a fresh
-      // window (rather than joining an in-flight request that already left the map).
-      pendingDashboardUpdates.delete(id);
-      const { body: finalBody, resolvers, rejecters } = entry;
-      request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, { body: finalBody })
-        .then((res) => resolvers.forEach((r) => r(res)))
-        .catch((err) => rejecters.forEach((r) => r(err)));
-    }, DASHBOARD_UPDATE_DEBOUNCE_MS);
-    if (!existing) pendingDashboardUpdates.set(id, entry);
+    entry.timer = setTimeout(() => flushDashboardUpdate(id, entry), DASHBOARD_UPDATE_DEBOUNCE_MS);
+    pendingDashboardUpdates.set(id, entry);
   });
+}
+
+/**
+ * IMMEDIATE `PUT /api/dashboards/{id}` — for an EXPLICIT Save. Fires one PUT right now so
+ * the primary action never eats the ~500ms coalescing delay meant only for a drag/resize
+ * settle burst. If a trailing coalesced write for this id is still pending it is CANCELLED
+ * and FOLDED into this request (its awaiters settle with this same outcome), so a Save that
+ * lands mid-settle persists exactly once, immediately.
+ */
+function immediateDashboardUpdate(id: string, body: DashboardLayout): Promise<DashboardLayout> {
+  const pending = pendingDashboardUpdates.get(id);
+  if (pending) {
+    clearTimeout(pending.timer);
+    pendingDashboardUpdates.delete(id);
+  }
+  const req = request<DashboardLayout>('PUT', `dashboards/${encodeURIComponent(id)}`, { body });
+  if (pending) {
+    req
+      .then((res) => pending.resolvers.forEach((r) => r(res)))
+      .catch((err) => pending.rejecters.forEach((r) => r(err)));
+  }
+  return req;
 }
 
 /** Error thrown for any non-2xx backend response. */
@@ -404,7 +467,13 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE = '/api';
+/**
+ * The single API prefix every request is built from. EXPORTED so co-located data
+ * layers that hand-build a URL for a plain `<a href>` download (e.g. the ATT&CK
+ * Navigator layer export) derive it from ONE place instead of hard-coding `/api`,
+ * so a deployment that serves the API under a different prefix stays consistent.
+ */
+export const API_BASE = '/api';
 
 /**
  * Optional global 401 handler. When auth is enabled the app registers a callback
@@ -473,10 +542,27 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+/** Friendly labels for backend coded errors that carry no human `message` string. */
+const ERROR_CODE_LABELS: Record<string, string> = {
+  session_invalid: 'Your session is no longer valid. Please sign in again.',
+  reauth_required: 'Please re-enter your password to continue.',
+};
+
 function extractMessage(status: number, body: unknown): string {
   if (body && typeof body === 'object' && 'detail' in body) {
     const detail = (body as { detail: unknown }).detail;
     if (typeof detail === 'string') return detail;
+    if (detail && typeof detail === 'object') {
+      // A coded HTTPException detail (e.g. {code:'session_invalid', reason:'refresh_reuse'})
+      // carries no human string — prefer a message/detail field, then map the code to a
+      // readable sentence, and only stringify as a genuine last resort (never a raw blob).
+      const d = detail as Record<string, unknown>;
+      if (typeof d.message === 'string' && d.message.trim()) return d.message;
+      if (typeof d.detail === 'string' && d.detail.trim()) return d.detail;
+      if (typeof d.code === 'string' && d.code.trim())
+        return ERROR_CODE_LABELS[d.code] || `Request failed (${status})`;
+      return JSON.stringify(detail);
+    }
     if (detail) return JSON.stringify(detail);
   }
   if (typeof body === 'string' && body.trim()) return body;
@@ -542,6 +628,9 @@ export const api = {
     request<T>('GET', path, { query }),
   post: <T = unknown>(path: string, body?: unknown) => request<T>('POST', path, { body }),
   put: <T = unknown>(path: string, body?: unknown) => request<T>('PUT', path, { body }),
+  // Some routes are registered PATCH-only (e.g. the case-collab thread-message edit
+  // + task patch in `routes_cases_collab.py`); calling them with PUT 405s. Mirrors put().
+  patch: <T = unknown>(path: string, body?: unknown) => request<T>('PATCH', path, { body }),
   del: <T = unknown>(path: string) => request<T>('DELETE', path),
 
   // ---- Auth (optional; OFF-safe) ---------------------------------------- //
@@ -825,6 +914,17 @@ export const api = {
       'DELETE',
       `sources/${encodeURIComponent(sourceId)}`,
     ),
+  // Set/clear a source's PER-SOURCE secret fields (a webhook token, a Kafka
+  // `sasl_password`, an S3 `secret_access_key`/`session_token`, a non-primary ES
+  // source's `es_api_key`, …). The source must already exist (upsert first — the
+  // endpoint 404s otherwise). Values land in the in-memory secret tier and only the
+  // field NAMES are recorded on the SourceInstance (#10); a `null` value clears one.
+  setSourceSecrets: (sourceId: string, secrets: Record<string, string | null>) =>
+    request<{ ok: boolean; configured_secrets: string[] }>(
+      'POST',
+      `sources/${encodeURIComponent(sourceId)}/secrets`,
+      { body: secrets },
+    ),
   // Browse a window of normalised events from one source. `buildQuery` drops any
   // undefined / null / empty params, so blank query/from/to are not sent.
   sourceLogs: (sourceId: string, params?: SourceLogsQuery) =>
@@ -1054,8 +1154,9 @@ export const api = {
   // echoes a key (#10). Editors are config-writers — they NEVER touch `decide()`.
   rules: {
     list: () => request<RulesResponse>('GET', 'rules'),
-    save: (rules: RuleDefinition[]) =>
-      request<RulesResponse>('PUT', 'rules', { body: { rules } }),
+    // NB: there is NO `PUT /api/rules`. The catalog is saved through the deep-merge
+    // `PUT /api/settings` (see `soc/rules/api.saveRuleCatalog`) and per-family edits
+    // through the `/rules/{family}/…` routes below — never a whole-list PUT.
 
     // ---- Lifecycle: version ledger + rollback (G6 R5) ------------------- //
     // The immutable per-rule version history + one-click rollback. Rollback rides
@@ -1096,9 +1197,13 @@ export const api = {
     // Debounced ~500ms client-side (CD5): rapid successive edits to the SAME id
     // coalesce into ONE trailing PUT so a drag/resize settle persists exactly once.
     // The returned promise still resolves with the stored dashboard, so callers that
-    // commit the server echo (the builder) keep working.
-    update: (id: string, dashboard: DashboardLayout) =>
-      debouncedDashboardUpdate(id, dashboard),
+    // commit the server echo (the builder) keep working. Pass `{ immediate: true }` for
+    // an EXPLICIT Save so the primary action fires now (flushing any pending settle for
+    // this id) instead of eating the coalescing delay.
+    update: (id: string, dashboard: DashboardLayout, opts?: { immediate?: boolean }) =>
+      opts?.immediate
+        ? immediateDashboardUpdate(id, dashboard)
+        : debouncedDashboardUpdate(id, dashboard),
     remove: (id: string) =>
       request<{ ok: boolean; id: string }>(
         'DELETE',
@@ -1124,6 +1229,16 @@ export const api = {
   // blocks. GET returns `{config}`; PUT deep-merges the changed keys server-side
   // (audited, RBAC-gated, #2) and returns `{ok, config}`. All blocks default OFF;
   // every one is ADVISORY and NEVER feeds the deterministic decision (#3).
+  tuning: {
+    // `routes_tuning.py` → GET/PUT /api/tuning/config (Preferences.threshold_tuning).
+    // The nightly, deterministic FP auto-tuner — a config-writer that NEVER calls
+    // `decide()`/risk/signature; it only PROPOSES bounded threshold moves (#3).
+    getConfig: () => request<{ config: ThresholdTuningConfig }>('GET', 'tuning/config'),
+    putConfig: (config: Partial<ThresholdTuningConfig>) =>
+      request<{ ok: boolean; config: ThresholdTuningConfig }>('PUT', 'tuning/config', {
+        body: config,
+      }),
+  },
   baseline: {
     getConfig: () => request<{ config: BaselineConfig }>('GET', 'baseline/config'),
     putConfig: (config: Partial<BaselineConfig>) =>
@@ -1132,9 +1247,10 @@ export const api = {
       }),
   },
   campaign: {
-    getConfig: () => request<{ config: CampaignConfig }>('GET', 'campaign/config'),
+    // The backend route is PLURAL (`routes_campaigns.py` → GET/PUT /api/campaigns/config).
+    getConfig: () => request<{ config: CampaignConfig }>('GET', 'campaigns/config'),
     putConfig: (config: Partial<CampaignConfig>) =>
-      request<{ ok: boolean; config: CampaignConfig }>('PUT', 'campaign/config', {
+      request<{ ok: boolean; config: CampaignConfig }>('PUT', 'campaigns/config', {
         body: config,
       }),
   },

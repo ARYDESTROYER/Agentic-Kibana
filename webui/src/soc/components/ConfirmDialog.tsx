@@ -91,9 +91,11 @@ export function ConfirmDialog({
       }}
     >
       <AlertDialogContent
-        // Destructive gates cannot be dismissed by click-away / Escape (§3.16).
-        onEscapeKeyDown={destructive ? (e) => e.preventDefault() : undefined}
-        onPointerDownOutside={destructive ? (e) => e.preventDefault() : undefined}
+        // Destructive gates cannot be dismissed by click-away / Escape (§3.16). Defer
+        // to the primitive's `dismissible` switch as the single source of truth — it
+        // suppresses pointer-outside, Escape AND interact-outside (the hand-rolled
+        // handlers missed the last one), so no accidental dismissal slips through.
+        dismissible={!destructive}
       >
         <AlertDialogHeader>
           <AlertDialogTitle className={cn(destructive && 'flex items-center gap-2')}>

@@ -21,6 +21,7 @@ import { fmtMoney, fmtTokens, humanizeToken } from '@/lib/format';
 import {
   PRICING_SOURCE_META,
   batchRates,
+  providerLabel,
   type ModelCatalogRow,
 } from '@/soc/pages/Models.api';
 
@@ -29,10 +30,8 @@ export interface ModelsCatalogProps {
   loading?: boolean;
   /** Open the per-model price-override editor. */
   onEditPrice?: (row: ModelCatalogRow) => void;
-  /** Run a metered test call against the model. */
+  /** Run a metered test call against the model (feedback is shown in the test dialog). */
   onTest?: (row: ModelCatalogRow) => void;
-  /** The model id currently running a test (shows a spinner / disables the row). */
-  testingId?: string | null;
   /** Optional provider filter — only rows whose provider matches are shown. */
   providerFilter?: string;
   /** Whether the current user may manage models (drives action availability). */
@@ -130,7 +129,6 @@ export function ModelsCatalog({
   loading,
   onEditPrice,
   onTest,
-  testingId,
   providerFilter,
   canManage = true,
 }: ModelsCatalogProps) {
@@ -156,11 +154,7 @@ export function ModelsCatalog({
     {
       id: 'provider',
       header: 'Provider',
-      cell: (r) => (
-        <Badge variant="outline" className="capitalize">
-          {r.provider}
-        </Badge>
-      ),
+      cell: (r) => <Badge variant="outline">{providerLabel(r.provider)}</Badge>,
     },
     {
       id: 'capabilities',
@@ -237,14 +231,11 @@ export function ModelsCatalog({
               size="icon"
               className="h-8 w-8"
               onClick={() => onTest(r)}
-              disabled={!canManage || testingId === r.id}
+              disabled={!canManage}
               aria-label={`Test ${r.id}`}
               title="Metered test call"
             >
-              <FlaskConical
-                className={testingId === r.id ? 'h-4 w-4 animate-pulse' : 'h-4 w-4'}
-                aria-hidden
-              />
+              <FlaskConical className="h-4 w-4" aria-hidden />
             </Button>
           ) : null}
           {onEditPrice ? (

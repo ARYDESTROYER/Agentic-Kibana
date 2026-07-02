@@ -8,7 +8,7 @@
  * Operator-entered rule values render as PLAIN TEXT (#9).
  */
 import * as React from 'react';
-import { FileText, Lock, ShieldAlert, SlidersHorizontal, X, Zap } from 'lucide-react';
+import { FileText, Lock, Repeat, ShieldAlert, SlidersHorizontal, X, Zap } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 
@@ -24,6 +24,7 @@ import { SectionShell, NumPref, SwitchPref, type NavigateFn, type SecProps } fro
 const ADVANCED_TOC: SettingsTOCItem[] = [
   { anchor: 'advanced-caps', label: 'Per-case caps', icon: SlidersHorizontal },
   { anchor: 'advanced-killswitch', label: 'Kill switch', icon: ShieldAlert },
+  { anchor: 'advanced-scans', label: 'Automated scans', icon: Repeat },
   { anchor: 'advanced-allowlist', label: 'Allowlist', icon: Zap },
   { anchor: 'advanced-suppression', label: 'Suppression', icon: FileText },
   { anchor: 'advanced-lock', label: 'Settings lock', icon: Lock },
@@ -101,6 +102,20 @@ export function AdvancedSection({
         </SettingsCard>
 
         <SettingsCard
+          anchor="advanced-scans"
+          title="Automated scans"
+          icon={Repeat}
+          description="Scheduled background scans that triage new cases automatically, separate from the auto-forward allowlist below."
+        >
+          <SwitchPref
+            label="Background automated scans"
+            help="Run scheduled background scans that triage new cases automatically."
+            checked={Boolean(prefs.background_scan_enabled)}
+            onChange={(v) => update({ background_scan_enabled: v })}
+          />
+        </SettingsCard>
+
+        <SettingsCard
           anchor="advanced-allowlist"
           title="Auto-forward allowlist"
           icon={Zap}
@@ -108,12 +123,6 @@ export function AdvancedSection({
           wide="full"
         >
           <div className="space-y-4">
-            <SwitchPref
-              label="Background automated scans"
-              help="Run scheduled background scans that triage new cases automatically."
-              checked={Boolean(prefs.background_scan_enabled)}
-              onChange={(v) => update({ background_scan_enabled: v })}
-            />
             <div className="space-y-1.5">
               <Label htmlFor="allowlist-input">Allowlisted rule values</Label>
               <Input

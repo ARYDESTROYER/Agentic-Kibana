@@ -1,10 +1,11 @@
 /**
- * BudgetCard — the LLM cost-budget ceiling editor + live burn-down (Round 3 / F9).
+ * BudgetCard — the LLM cost-budget ceiling editor + live spend gauge (Round 3 / F9).
  *
  * Reads GET /api/budget (the ceiling config) + GET /api/budget/status (the live rolling
  * daily/monthly spend vs the ceilings + band), edits the config (PUT /api/budget when
- * the user has `models:manage`), and visualises each window's spend-vs-cap with a
- * band-coloured bar plus a Stage-1 burn-down/sparkline of the trajectory toward the cap.
+ * the user has `models:manage`), and visualises each window's spend-vs-cap with an
+ * honest band-coloured fraction bar (the status payload has no per-bucket time series, so
+ * we do not fabricate a burn-down trajectory).
  *
  * #3: a budget governs ONLY whether an LLM call RUNS (enforced in the gateway, which
  * fails to NEEDS_HUMAN) — it never alters case_manager.decide(). #9: all values here are
@@ -21,6 +22,7 @@ import { Badge } from '@/ui/badge';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
+import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -28,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/ui/select';
-import { BurnDownChart, AreaSpark } from '@/soc/components/charts-soc';
+import { LoadError } from '@/soc/components/LoadError';
 import {
   modelsApi,
   type BudgetConfig,
@@ -46,24 +48,70 @@ const BAND_META: Record<string, { label: string; cls: string; bar: string }> = {
   over: { label: 'Over', cls: 'text-critical', bar: 'bg-critical' },
 };
 
-/** Build a small monotone burn-down series from a window snapshot: the spend so far
- * plus the cap as the ceiling, projected across the window for a trajectory view. */
-export function windowSeries(w: BudgetWindowStatus): { x: string; open: number; closed: number }[] {
-  const cap = w.cap ?? 0;
-  const spent = w.spent ?? 0;
-  // 5 evenly-spaced points: open = remaining headroom, closed = cumulative spend.
-  const steps = 5;
-  const out: { x: string; open: number; closed: number }[] = [];
-  for (let i = 0; i <= steps; i += 1) {
-    const f = i / steps;
-    const cum = spent * f;
-    out.push({
-      x: `${Math.round(f * 100)}%`,
-      open: cap > 0 ? Math.max(0, cap - cum) : 0,
-      closed: cum,
-    });
-  }
-  return out;
+/**
+ * Parse a raw ceiling input into a budget cap. Empty/whitespace → `null` ("no limit");
+ * a finite value ≥ 0 → that number; anything else (garbage / negative) keeps `prev` so a
+ * bad partial entry never clobbers a set ceiling. Exported for tests.
+ */
+export function parseCeiling(raw: string, prev: number | null): number | null {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : prev;
+}
+
+/**
+ * A USD ceiling input that keeps the RAW text while the operator is typing so
+ * intermediate decimal states ("10.", "10.50") survive, and only parses + commits on
+ * blur/Enter. A plain `<Input type="number">` bound to the parsed number re-derived the
+ * value each keystroke, which stripped a trailing dot/zero and made decimals unenterable.
+ */
+function CeilingField({
+  id,
+  label,
+  value,
+  disabled,
+  onCommit,
+}: {
+  id: string;
+  label: string;
+  value: number | null;
+  disabled?: boolean;
+  onCommit: (v: number | null) => void;
+}) {
+  const [text, setText] = React.useState(value == null ? '' : String(value));
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => {
+    if (!editing) setText(value == null ? '' : String(value));
+  }, [value, editing]);
+  const commit = (raw: string) => {
+    const next = parseCeiling(raw, value);
+    setEditing(false);
+    setText(next == null ? '' : String(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="text"
+        inputMode="decimal"
+        placeholder="no limit"
+        value={text}
+        disabled={disabled}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => {
+          setEditing(true);
+          setText(e.target.value);
+        }}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit((e.target as HTMLInputElement).value);
+        }}
+      />
+    </div>
+  );
 }
 
 function WindowRow({ label, w }: { label: string; w: BudgetWindowStatus }) {
@@ -85,30 +133,15 @@ function WindowRow({ label, w }: { label: string; w: BudgetWindowStatus }) {
           {w.cap != null ? `of ${fmtMoney(w.cap)}` : 'no ceiling'}
         </span>
       </div>
-      {/* Band-coloured progress (custom bar so the colour tracks the band). */}
+      {/* Honest spend-vs-cap gauge: a band-coloured bar of the fraction used. (There is
+          no real per-bucket time series in the status payload, so we do NOT fabricate a
+          burn-down trajectory that would imply spend-over-time it cannot show.) */}
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`${label} ${pct != null ? Math.round(pct) + '% of ceiling' : 'no ceiling'}`}>
         <div
           className={cn('h-full rounded-full transition-all', band.bar)}
           style={{ width: pct != null ? `${pct}%` : '0%' }}
         />
       </div>
-      {w.cap != null && w.cap > 0 ? (
-        <BurnDownChart
-          data={windowSeries(w)}
-          height={120}
-          format={(v) => fmtMoney(v)}
-          openLabel="Headroom"
-          closedLabel="Spent"
-          ariaLabel={`${label} burn-down`}
-        />
-      ) : (
-        <AreaSpark
-          data={windowSeries(w).map((p) => p.closed)}
-          height={40}
-          colorToken="primary"
-          ariaLabel={`${label} spend trajectory`}
-        />
-      )}
     </div>
   );
 }
@@ -123,9 +156,11 @@ export function BudgetCard({ canManage = true }: BudgetCardProps) {
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
+  const [error, setError] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const [b, s] = await Promise.all([
         modelsApi.getBudget(),
@@ -135,7 +170,7 @@ export function BudgetCard({ canManage = true }: BudgetCardProps) {
       if (s) setStatus(s);
       setDirty(false);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load the budget.'));
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -170,20 +205,35 @@ export function BudgetCard({ canManage = true }: BudgetCardProps) {
 
   if (loading && !config) {
     return (
-      <div className="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">
-        Loading budget…
+      <div
+        className="space-y-5 rounded-lg border border-border bg-card p-5"
+        aria-busy
+        aria-label="Loading budget"
+      >
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-5 w-28" />
+        </div>
+        <Skeleton className="h-4 w-full" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-3.5 w-24" />
+              <Skeleton className="h-9 w-full rounded-md" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
-  if (!config) return null;
-
-  const numOrEmpty = (v: number | null) => (v == null ? '' : String(v));
-  const parseCap = (s: string): number | null => {
-    const t = s.trim();
-    if (t === '') return null;
-    const n = Number(t);
-    return Number.isFinite(n) && n >= 0 ? n : null;
-  };
+  if (!config) {
+    // A load failure (config never arrived) surfaces the shared error+retry panel
+    // instead of silently rendering nothing.
+    if (error) {
+      return <LoadError error={error} title="Couldn't load the budget" onRetry={() => void load()} />;
+    }
+    return null;
+  }
 
   return (
     <div className="space-y-5 rounded-lg border border-border bg-card p-5">
@@ -210,32 +260,20 @@ export function BudgetCard({ canManage = true }: BudgetCardProps) {
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor="budget-daily">Daily ceiling (USD)</Label>
-          <Input
-            id="budget-daily"
-            type="number"
-            min={0}
-            step="0.5"
-            placeholder="no limit"
-            value={numOrEmpty(config.daily_usd)}
-            disabled={!canManage || busy}
-            onChange={(e) => patch({ daily_usd: parseCap(e.target.value) })}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="budget-monthly">Monthly ceiling (USD)</Label>
-          <Input
-            id="budget-monthly"
-            type="number"
-            min={0}
-            step="1"
-            placeholder="no limit"
-            value={numOrEmpty(config.monthly_usd)}
-            disabled={!canManage || busy}
-            onChange={(e) => patch({ monthly_usd: parseCap(e.target.value) })}
-          />
-        </div>
+        <CeilingField
+          id="budget-daily"
+          label="Daily ceiling (USD)"
+          value={config.daily_usd}
+          disabled={!canManage || busy}
+          onCommit={(v) => patch({ daily_usd: v })}
+        />
+        <CeilingField
+          id="budget-monthly"
+          label="Monthly ceiling (USD)"
+          value={config.monthly_usd}
+          disabled={!canManage || busy}
+          onCommit={(v) => patch({ monthly_usd: v })}
+        />
         <div className="space-y-1.5">
           <Label htmlFor="budget-warn">Soft-warn at</Label>
           <Select
@@ -272,7 +310,7 @@ export function BudgetCard({ canManage = true }: BudgetCardProps) {
       </div>
 
       {config.on_exceed === 'block' && config.enabled ? (
-        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+        <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-text">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             Block mode will stop LLM spend when a ceiling is crossed; affected investigations

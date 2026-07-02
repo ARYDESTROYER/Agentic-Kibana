@@ -44,6 +44,7 @@ vi.mock('sonner', () => ({
 import { DemoProvider } from '../demo';
 import { DemoModeSection } from '../components/DemoModeSection';
 import { DemoBanner } from '../components/DemoBanner';
+import { TooltipProvider } from '@/ui/tooltip';
 
 const OFF = { mode: 'off' as const, active: false, run_id: null };
 const ACTIVE = {
@@ -58,7 +59,14 @@ const ACTIVE = {
 };
 
 function withProvider(node: React.ReactNode) {
-  return render(<DemoProvider>{node}</DemoProvider>);
+  // DemoModeSection now composes NumberField (whose steppers are IconButtons wrapping a
+  // Radix Tooltip), so a TooltipProvider is required — the real app supplies one globally
+  // (App.tsx). Wrapping here mirrors that.
+  return render(
+    <TooltipProvider>
+      <DemoProvider>{node}</DemoProvider>
+    </TooltipProvider>,
+  );
 }
 
 beforeEach(() => {

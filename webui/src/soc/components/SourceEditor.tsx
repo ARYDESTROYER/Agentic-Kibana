@@ -111,13 +111,13 @@ const ROLE_DEFS: Array<{
     value: 'events',
     label: 'Events',
     help: 'Raw logs. Correlated into clusters, then auto-investigated only when the firing rule is on the auto-forward allowlist (or per-feed auto-investigate is on).',
-    active: 'bg-info/15 text-info border-info/40',
+    active: 'bg-info/15 text-info-text border-info/40',
   },
   {
     value: 'alerts',
     label: 'Alerts',
     help: 'Pre-triaged detections. Every matching cluster is auto-investigated, bypassing the allowlist.',
-    active: 'bg-critical/15 text-critical border-critical/40',
+    active: 'bg-critical/15 text-critical-text border-critical/40',
   },
   {
     value: 'ignore',
@@ -213,6 +213,13 @@ function splitPatterns(s: unknown): string[] {
  * `config['index_patterns']` wire entries on save.
  */
 interface FeedRow {
+  /**
+   * Stable React key — assigned once at creation, NEVER derived from the mutable
+   * pattern and NEVER persisted. Keying the FeedCard on this (not on the
+   * pattern-derived `id`) keeps the pattern input from remounting/losing focus as the
+   * operator types.
+   */
+  uid: string;
   /** Stable feed id (derived from the pattern when absent). */
   id: string;
   label: string;
@@ -254,8 +261,16 @@ function derivedAutoInvestigate(row: Pick<FeedRow, 'role' | 'correlate'>): boole
   return row.correlate;
 }
 
+/** Monotonic per-session counter for stable, non-derived FeedRow React keys. */
+let feedUidSeq = 0;
+function nextFeedUid(): string {
+  feedUidSeq += 1;
+  return `feed-uid-${feedUidSeq}`;
+}
+
 function emptyFeed(): FeedRow {
   return {
+    uid: nextFeedUid(),
     id: '',
     label: '',
     pattern: '',
@@ -311,6 +326,7 @@ function deriveIndexPatterns(cfg: Record<string, unknown>): FeedRow[] {
                 ? true
                 : false;
       rows.push({
+        uid: nextFeedUid(),
         id: typeof p.id === 'string' && p.id ? p.id : slugPattern(pattern),
         label: typeof p.label === 'string' ? p.label : '',
         pattern,
@@ -611,7 +627,7 @@ const FieldRow: React.FC<{
         </span>
         <ConnectorFieldHelp field={f} />
         {f.secret && configuredSecrets.includes(f.key) ? (
-          <span className="inline-flex items-center gap-1 text-xs text-success">
+          <span className="inline-flex items-center gap-1 text-xs text-success-text">
             <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> configured
           </span>
         ) : null}
@@ -636,34 +652,58 @@ const RoleSegmented: React.FC<{
   value: FeedRole;
   onChange: (v: FeedRole) => void;
   idBase: string;
-}> = ({ value, onChange, idBase }) => (
-  <div
-    role="radiogroup"
-    aria-label="Feed role"
-    className="inline-flex rounded-md border border-border bg-surface p-0.5"
-  >
-    {ROLE_DEFS.map((r) => {
-      const active = value === r.value;
-      return (
-        <button
-          key={r.value}
-          type="button"
-          role="radio"
-          aria-checked={active}
-          id={`${idBase}-role-${r.value}`}
-          onClick={() => onChange(r.value)}
-          className={cn(
-            'rounded px-2.5 py-1 text-xs font-medium transition-colors',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            active ? cn('border', r.active) : 'border border-transparent text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {r.label}
-        </button>
-      );
-    })}
-  </div>
-);
+}> = ({ value, onChange, idBase }) => {
+  // WAI-ARIA radiogroup: a SINGLE tab stop (roving tabindex — only the checked radio is
+  // tabbable) plus arrow-key selection, so the announced radio semantics actually behave.
+  const btnRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const move = (dir: 1 | -1) => {
+    const cur = ROLE_DEFS.findIndex((r) => r.value === value);
+    const next = ((cur < 0 ? 0 : cur) + dir + ROLE_DEFS.length) % ROLE_DEFS.length;
+    onChange(ROLE_DEFS[next].value);
+    btnRefs.current[next]?.focus();
+  };
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Feed role"
+      className="inline-flex rounded-md border border-border bg-surface p-0.5"
+    >
+      {ROLE_DEFS.map((r, i) => {
+        const active = value === r.value;
+        return (
+          <button
+            key={r.value}
+            ref={(el) => {
+              btnRefs.current[i] = el;
+            }}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            id={`${idBase}-role-${r.value}`}
+            onClick={() => onChange(r.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                move(1);
+              } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                move(-1);
+              }
+            }}
+            className={cn(
+              'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              active ? cn('border', r.active) : 'border border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {r.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 /** A small effective-config summary chip describing what a feed will actually do. */
 const FeedPreviewChip: React.FC<{ row: FeedRow }> = ({ row }) => {
@@ -712,7 +752,10 @@ const FeedMappingDrawer: React.FC<{
           ) : null}
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+      {/* The pinned SheetHeader (with the built-in close X) stays put while only the
+          inner body scrolls — don't put overflow-y-auto on SheetContent itself, or the
+          absolute X scrolls out of reach (#19). */}
+      <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
         <SheetHeader>
           <SheetTitle>Feed field mapping</SheetTitle>
           <SheetDescription>
@@ -720,7 +763,7 @@ const FeedMappingDrawer: React.FC<{
             native fields. Blank falls back to the source-level mapping, then global Settings.
           </SheetDescription>
         </SheetHeader>
-        <div className="mt-4 space-y-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           <div className="space-y-1.5">
             <Label htmlFor={`${row.id}-msg`} className="flex items-center gap-1.5">
               Message field
@@ -1016,9 +1059,15 @@ const FeedCard: React.FC<{
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={testing || demoGuard.disabled || !sourceId}
+                // Soft-disable the GUARDED states (demo / not-yet-saved) so the button stays
+                // hoverable/focusable and the tooltip that EXPLAINS why can still open; only
+                // the transient in-flight `testing` uses the real disabled attribute.
+                disabled={testing}
                 aria-disabled={demoGuard.disabled || !sourceId || undefined}
-                onClick={() => void runTest()}
+                className={cn((demoGuard.disabled || !sourceId) && 'opacity-50')}
+                onClick={() => {
+                  if (!demoGuard.disabled) void runTest();
+                }}
               >
                 {testing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -1039,7 +1088,7 @@ const FeedCard: React.FC<{
         </div>
         {testMsg ? (
           // browse-endpoint message is authoritative → plain text only
-          <p className={cn('text-xs', testMsg.ok ? 'text-success' : 'text-critical')}>
+          <p className={cn('text-xs', testMsg.ok ? 'text-success-text' : 'text-critical-text')}>
             {testMsg.text}
           </p>
         ) : null}
@@ -1123,7 +1172,7 @@ const IndexPatternsEditor: React.FC<{
       <div className="space-y-3">
         {rows.map((row, i) => (
           <FeedCard
-            key={row.id || i}
+            key={row.uid}
             row={row}
             index={i}
             count={rows.length}
@@ -1369,6 +1418,10 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     setAnalyzeError(null);
     setTestResult(null);
     setError(null);
+    // Start the freshly-picked connector's form clean: seed its own default name and
+    // clear any validation errors left over from a prior connector's failed Save.
+    setDisplayName(m.display_name);
+    setShowValidation(false);
   };
 
   const setMapping = (key: keyof FieldMappingsExtra, v: string) =>
@@ -1785,9 +1838,14 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
           <TooltipTrigger asChild>
             <Button
               variant="outline"
-              onClick={onTest}
-              disabled={testing || demoGuard.disabled}
+              // Soft-disable the demo guard so the explaining tooltip stays reachable; keep
+              // the real disabled only for the transient in-flight `testing` state.
+              onClick={() => {
+                if (!demoGuard.disabled) void onTest();
+              }}
+              disabled={testing}
               aria-disabled={demoGuard.disabled || undefined}
+              className={cn(demoGuard.disabled && 'opacity-50')}
             >
               {testing ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

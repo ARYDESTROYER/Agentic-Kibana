@@ -825,6 +825,89 @@ async def get_settings_schema(
     return settings_schema()
 
 
+# The three rule-bearing Preferences blocks the G6 version ledger tracks, projected into
+# ``kind -> {rule_id: config-json}`` maps for the settings-save version diff (Round-6 #10).
+# DetectionRulesHome saves rules through PUT /api/settings (the whole prefs) — unlike the
+# per-rule routes_rules.py CRUD, that path previously wrote NO version, leaving the ledger
+# + rollback UI permanently empty.
+def _rule_maps(prefs: Preferences) -> dict[str, dict[str, dict[str, Any]]]:
+    detection = {rd.name: rd.model_dump(mode="json") for rd in (prefs.rule_catalog or [])}
+    correlation = {
+        name: r.model_dump(mode="json")
+        for name, r in (prefs.correlation_rules or {}).items()
+    }
+    cfg = getattr(prefs, "threshold_automation", None)
+    case_automation = {
+        r.id: r.model_dump(mode="json") for r in (getattr(cfg, "rules", []) or [])
+    }
+    return {
+        "detection": detection,
+        "correlation": correlation,
+        "case_automation": case_automation,
+    }
+
+
+def _rule_change_action(old_cfg: dict[str, Any], new_cfg: dict[str, Any]) -> str:
+    """Classify a same-id rule edit: an enable/disable toggle (ONLY ``enabled`` changed)
+    vs a general ``update`` — so the ledger records the same action verbs the per-rule
+    routes_rules.py CRUD does."""
+    changed = {k for k in set(old_cfg) | set(new_cfg) if old_cfg.get(k) != new_cfg.get(k)}
+    if changed == {"enabled"}:
+        return "enable" if new_cfg.get("enabled") else "disable"
+    return "update"
+
+
+async def _record_settings_rule_versions(
+    state: AppState, request: Request, old: Preferences, new: Preferences
+) -> None:
+    """Append an immutable version snapshot for every rule CHANGED by a settings PUT
+    (Round-6 #10 / G6 R5) — making the version ledger + one-click rollback real for
+    rules saved through DetectionRulesHome (which rides PUT /api/settings, not the
+    per-rule CRUD). Diffs old-vs-new for the three rule-bearing blocks and records one
+    version per created / updated / enabled / disabled / deleted rule, plus ONE
+    consolidated audit line. Best-effort + never raises: a versioning glitch must never
+    fail the settings save (#2 append-only; #3 config-writer only — NEVER calls
+    ``decide()``)."""
+    store = getattr(state, "rule_versions", None)
+    if store is None:
+        return
+    actor = current_username(request) or ""
+    old_maps = _rule_maps(old)
+    new_maps = _rule_maps(new)
+    changes: list[str] = []
+    for kind in ("detection", "correlation", "case_automation"):
+        omap = old_maps[kind]
+        nmap = new_maps[kind]
+        for rule_id in sorted(set(omap) | set(nmap)):
+            ocfg = omap.get(rule_id)
+            ncfg = nmap.get(rule_id)
+            if ncfg is None:
+                action, cfg = "delete", ocfg or {}
+            elif ocfg is None:
+                action, cfg = "create", ncfg
+            elif ocfg != ncfg:
+                action, cfg = _rule_change_action(ocfg, ncfg), ncfg
+            else:
+                continue  # unchanged → no version recorded
+            try:
+                await store.record(
+                    kind=kind, rule_id=rule_id, config=cfg, action=action,
+                    actor=actor,
+                    summary=f"{action} {kind} rule {rule_id} (via settings)"[:500],
+                )
+            except Exception:  # noqa: BLE001 — versioning is best-effort
+                continue
+            changes.append(f"{kind}:{rule_id}:{action}")
+    if changes:
+        try:
+            await state.audit.record(
+                action_type=ActionType.STATUS, surface="rules", actor=actor,
+                result_summary=("rule versions recorded: " + ", ".join(changes))[:500],
+            )
+        except Exception:  # noqa: BLE001 — audit is best-effort
+            pass
+
+
 @router.put("/settings")
 async def put_settings(
     body: dict[str, Any],
@@ -834,6 +917,10 @@ async def put_settings(
 ) -> dict[str, Any]:
     if state.prefs.read_only_settings_mode and body.get("read_only_settings_mode") is not False:
         raise HTTPException(status_code=403, detail="Settings are in read-only mode")
+    # Snapshot the pre-save prefs so we can diff rule-bearing blocks for versioning (#10).
+    # ``update_prefs`` REPLACES ``state.prefs`` (never mutates in place), so this stays the
+    # old snapshot after the write.
+    old_prefs = state.prefs
     merged = _deep_update(state.prefs.model_dump(mode="json"), body)
     # Demo Mode is managed ONLY by the /api/demo/* endpoints — never via the settings
     # write path. Preserve the live demo block so a settings PUT can't flip/corrupt it.
@@ -859,6 +946,10 @@ async def put_settings(
         )
     except Exception:  # noqa: BLE001 — audit is best-effort; never break the save
         pass
+    # #10 / G6 R5: record an immutable version snapshot for every rule this save CHANGED
+    # (detection / correlation / case-automation) so DetectionRulesHome edits populate the
+    # ledger + rollback UI. Best-effort; a versioning glitch never fails the save.
+    await _record_settings_rule_versions(state, request, old_prefs, prefs)
     if prefs.setup_complete and prefs.polling_enabled and not prefs.caps.kill_switch:
         state.poller.start()
     return {"ok": True, "prefs": prefs.model_dump(mode="json")}
@@ -2461,11 +2552,23 @@ async def list_roles(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
     rbac = await _rbac_config_with_custom_roles(state)
     base = getattr(state.prefs, "rbac", None)
+    # ADDITIVE (Round-6 #20): surface the RAW custom-role definitions (name /
+    # description / inherits / grants / denies) alongside the RESOLVED matrix so the
+    # Roles editor can restore the exact draft on Edit/Clone (the resolved matrix
+    # flattens inheritance into explicit grants and drops description). Normalised to
+    # plain JSON dicts (#9 — rendered escaped, never fed to a prompt); never a secret.
+    raw_custom_roles: list[dict[str, Any]] = []
+    for cr in (getattr(rbac, "custom_roles", []) or []):
+        if hasattr(cr, "model_dump"):
+            raw_custom_roles.append(cr.model_dump(mode="json"))
+        elif isinstance(cr, dict):
+            raw_custom_roles.append(dict(cr))
     return {
         "roles": [r.value for r in UserRole],
         "default_role": getattr(base, "default_role", UserRole.ANALYST_TIER1.value),
         "rbac_enabled": bool(getattr(base, "enabled", False)),
         "matrix": resolve_matrix(rbac),
+        "custom_roles": raw_custom_roles,
     }
 
 
@@ -2629,6 +2732,37 @@ class CaseListResponse(BaseModel):
     total: int
 
 
+def _window_cases_by_created(
+    cases: list[Case], from_expr: str | None, to_expr: str | None
+) -> list[Case]:
+    """Keep only cases whose ``created_at`` is within [from, to] (each bound optional).
+
+    Bounds accept an ISO timestamp OR a relative ``now-24h`` expression (whatever the
+    TimeRangePicker emits). Best-effort + never-drop-on-error (#4): a case with a
+    missing/unparseable ``created_at`` is KEPT rather than silently excluded."""
+    lo = relative_to_millis(from_expr) if from_expr else None
+    hi = relative_to_millis(to_expr) if to_expr else None
+    if lo is None and hi is None:
+        return cases
+    out: list[Case] = []
+    for c in cases:
+        ts = getattr(c, "created_at", "") or ""
+        if not ts:
+            out.append(c)
+            continue
+        try:
+            ms = relative_to_millis(ts)
+        except Exception:  # noqa: BLE001 — unparseable ts → keep (never silently drop)
+            out.append(c)
+            continue
+        if lo is not None and ms < lo:
+            continue
+        if hi is not None and ms > hi:
+            continue
+        out.append(c)
+    return out
+
+
 @router.get("/cases", response_model=CaseListResponse)
 async def list_cases(
     status: str | None = None,
@@ -2636,6 +2770,8 @@ async def list_cases(
     entity: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    from_: str | None = Query(default=None, alias="from"),
+    to: str | None = Query(default=None),
     state: AppState = Depends(get_state),
     _=Depends(require_permission("cases", "read")),
 ) -> CaseListResponse:
@@ -2643,6 +2779,15 @@ async def list_cases(
         status=status, source_surface=surface, entity_value=entity,
         limit=min(limit, 200), offset=offset,
     )
+    # ADDITIVE (Round-6 #37): an OPTIONAL created_at time window so Overview widgets can
+    # honor the TimeRangePicker. Default (both None) == byte-identical prior behaviour.
+    # Cases sort created_at-desc, so a recent [from..to] window captures the front of the
+    # returned page; when a window is active, ``total`` reflects the windowed count (what
+    # the KPI widgets want). Full store-level windowing (accurate paged totals across the
+    # whole corpus) is a follow-up handoff on the case store (foreign file).
+    if from_ or to:
+        cases = _window_cases_by_created(cases, from_, to)
+        total = len(cases)
     return CaseListResponse(cases=cases, total=total)
 
 

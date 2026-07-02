@@ -143,7 +143,7 @@
        §4.2/§6.4). `--header-h` is consumed by the compact PageHeader + condensed
        sticky bar + `scroll-margin-top` (W0-C). Motion tokens replace ad-hoc
        `duration-xxx` (W0-C wires MotionConfig + the reduced-motion upgrade). */
-    --header-h: 52px;
+    --header-h: 56px; /* MUST match the AppShell top bar (h-14 = 56px) so sticky sub-bars + scroll-margin sit exactly below it (WCAG 2.4.11) */
     --motion-fast: 120ms; /* hover/press/focus, toasts, chips */
     --motion-base: 200ms; /* popover/tooltip/tab-switch/row-expand */
     --motion-slow: 280ms; /* Sheet/Dialog/drawer enter */
@@ -193,7 +193,7 @@
 
     /* ---- 3 semantic axes (dark). *-text measured as text on card. ---------- */
     /* SEVERITY / RISK — no green (--low is BLUE); --info blue-grey. */
-    --critical: 358 78% 62%;  --critical-foreground: 0 0% 100%;  --critical-text: 358 80% 68%; /* 5.56:1 */
+    --critical: 358 78% 50%;  --critical-foreground: 0 0% 100%;  --critical-text: 358 80% 68%; /* fill: white-on-color 4.71:1 (was 62% L → 3.59:1 ✗); -text 5.56:1 */
     --high:     26 90% 58%;    --high-foreground: 222 47% 11%;    --high-text: 28 90% 62%;      /* 7.50:1 */
     --medium:   42 92% 58%;    --medium-foreground: 222 47% 11%;  --medium-text: 42 92% 62%;    /* 10.06:1 */
     --low:      210 85% 62%;   --low-foreground: 222 47% 11%;     --low-text: 210 85% 68%;      /* 7.02:1 (BLUE) */
@@ -201,7 +201,7 @@
     /* STATUS — the only green. */
     --success: 158 64% 48%;   --success-foreground: 222 47% 11%; --success-text: 158 60% 56%;
     --warning: 40 90% 56%;     --warning-foreground: 222 47% 11%; --warning-text: 40 90% 62%;
-    --danger:  358 78% 62%;    --danger-foreground: 0 0% 100%;    --danger-text: 358 80% 68%;
+    --danger:  358 78% 50%;    --danger-foreground: 0 0% 100%;    --danger-text: 358 80% 68%; /* aliases critical (fill 4.71:1 white-on-color) */
 
     /* ---- Round-3 extra token set (dark values). radius/density/font-display are
        MODE-AGNOSTIC and declared ONCE in :root (they resolve on <html> in both
@@ -389,9 +389,14 @@
 @media (prefers-reduced-transparency: reduce) {
   :root,
   .dark {
-    --glass-opacity: 1;
-    --glow-strength: 0;
-    --grid-opacity: 0;
+    /* !important so this reset beats a material pack's INLINE `--glass-opacity` /
+       `--glow-strength` / `--grid-opacity` on <html> (an inline style outranks any
+       stylesheet selector). Without it the 'command' pack keeps panels translucent
+       under reduced transparency, weakening text contrast — the exact thing this
+       block promises to prevent. */
+    --glass-opacity: 1 !important;
+    --glow-strength: 0 !important;
+    --grid-opacity: 0 !important;
   }
   .glass-surface {
     backdrop-filter: none !important;

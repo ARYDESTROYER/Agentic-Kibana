@@ -20,6 +20,8 @@ const { schemaMock } = vi.hoisted(() => ({ schemaMock: vi.fn() }));
 
 vi.mock('@/lib/api', () => ({
   api: { getSettingsSchema: schemaMock },
+  // LoadError (shared error panel) coerces the caught value via errorMessage → ApiError.
+  ApiError: class ApiError extends Error {},
 }));
 
 import { AdvancedSchemaSection } from '../advanced-schema';
@@ -169,6 +171,20 @@ describe('AdvancedSchemaSection (schema-driven generic renderer)', () => {
     // Only the matching field remains.
     await waitFor(() => expect(screen.getByLabelText('Severity threshold')).toBeInTheDocument());
     expect(screen.queryByLabelText('Data view pattern')).not.toBeInTheDocument();
+  });
+
+  it('keeps a default-OFF engine feature GATED when only a sub-field is searched (Round-6 #42)', async () => {
+    renderSection({ baseline: { enabled: false, horizon_days: 14 } });
+    await waitFor(() => expect(screen.getByText('Anomaly Baseline')).toBeInTheDocument());
+    const filter = screen.getByLabelText('Filter all settings');
+    // Search for the baseline sub-field only. The `enabled` toggle does NOT match the query,
+    // so the old code filtered it out → isEngineFeature flipped false → the toggle vanished
+    // and the sub-field rendered as editable despite the feature being OFF.
+    fireEvent.change(filter, { target: { value: 'horizon' } });
+    // The head enable toggle is still present (the block stays gated)…
+    await waitFor(() => expect(screen.getByLabelText('Enable Anomaly Baseline')).toBeInTheDocument());
+    // …and because the feature is OFF, the matched sub-field stays HIDDEN behind the toggle.
+    expect(screen.queryByLabelText('Horizon days')).not.toBeInTheDocument();
   });
 
   it('shows an error + retry when the schema fetch fails', async () => {

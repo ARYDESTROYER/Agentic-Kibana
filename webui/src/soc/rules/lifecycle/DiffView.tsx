@@ -25,6 +25,11 @@ export interface DiffViewProps {
 function ValueToken({ text, tone }: { text: string; tone: 'add' | 'remove' }) {
   return (
     <code
+      // Presentational only: the visible before/after values are re-announced (with
+      // full "changed X from … to …" context) by the sr-only span in DiffRow, so the
+      // token itself is hidden from assistive tech to avoid a double, context-less
+      // announcement (#41).
+      aria-hidden
       className={cn(
         'break-all rounded px-1 py-0.5 font-mono text-2xs',
         tone === 'add'
@@ -51,7 +56,9 @@ function DiffRow({ row }: { row: FieldDiff }) {
       >
         {row.kind === 'added' ? '+' : row.kind === 'removed' ? '−' : '~'}
       </span>
-      <span className="font-mono text-xs font-medium text-foreground">{row.path}</span>
+      <span className="font-mono text-xs font-medium text-foreground" aria-hidden>
+        {row.path}
+      </span>
       {row.kind === 'changed' ? (
         <>
           <ValueToken text={row.before ?? ''} tone="remove" />

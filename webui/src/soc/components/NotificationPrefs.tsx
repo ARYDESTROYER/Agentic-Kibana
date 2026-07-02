@@ -225,7 +225,11 @@ export function NotificationPrefs({ className, onSaved }: NotificationPrefsProps
   }
 
   const quiet = draft.quiet_hours;
-  const quietOn = Boolean(quiet && (quiet.start || quiet.end));
+  // Quiet-hours on/off is the EXPLICIT presence of the object (the toggle sets it to a
+  // window or to null), NOT whether a time string is non-empty — deriving it from the
+  // times tore the editor down + flipped the switch off the moment BOTH fields were
+  // cleared (e.g. to retype the window).
+  const quietOn = quiet != null;
 
   return (
     <div className={cn('space-y-6', className)}>

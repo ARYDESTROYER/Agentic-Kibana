@@ -5,6 +5,7 @@
  * RAG retrieval config, the per-case threat-context panel, and deep-links to the
  * corpus/playbook management pages.
  */
+import { useId } from 'react';
 import { FileText, Library, ShieldAlert } from 'lucide-react';
 
 import type { ThreatContextConfig } from '@/lib/types';
@@ -53,6 +54,7 @@ export function KnowledgeSection({
   const cfg: ThreatContextConfig = prefs.threat_context || {};
   const set = (patch: Partial<ThreatContextConfig>) =>
     update({ threat_context: { ...cfg, ...patch } });
+  const iocThresholdId = useId();
 
   return (
     <SectionShell
@@ -66,7 +68,7 @@ export function KnowledgeSection({
           title="Retrieval (RAG)"
           icon={Library}
           description="Hybrid BM25 + vector retrieval injects relevant knowledge into investigations as a clearly-labelled TRUSTED block."
-          wide
+          wide="full"
         >
           <RagControls prefs={prefs} update={update} />
         </SettingsCard>
@@ -100,10 +102,11 @@ export function KnowledgeSection({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">
-                  <Label>IOC malicious threshold</Label>
+                  <Label htmlFor={iocThresholdId}>IOC malicious threshold</Label>
                   <HelpTip text="A reputation score at or above this (0–100) marks an indicator as malicious in the panel." />
                 </div>
                 <Input
+                  id={iocThresholdId}
                   type="number"
                   min={0}
                   max={100}

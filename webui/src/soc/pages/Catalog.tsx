@@ -511,8 +511,6 @@ const PlaybooksCatalog: React.FC = () => {
 /* ------------------------------------------------------------------- page ---- */
 
 export interface CatalogProps {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onNavigate?: (page: any, opts?: any) => void;
   /**
    * When hosted as a tab inside the Intelligence scaffold (Round-2 W4 consolidation),
    * suppress the page's own PageHeader so the host owns the title (no duplicate

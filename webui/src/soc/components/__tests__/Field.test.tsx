@@ -25,6 +25,18 @@ describe('Field', () => {
     expect(control.tagName).toBe('INPUT');
   });
 
+  it('keeps the label associated when the single child sets its own id', () => {
+    render(
+      <Field label="Custom id field">
+        <Input id="my-own-id" />
+      </Field>,
+    );
+    // The auto-inject path preserves the caller's id; the <Label htmlFor> must point
+    // at that same id so clicking the label focuses the control and AT keeps the name.
+    const control = screen.getByLabelText('Custom id field');
+    expect(control).toHaveAttribute('id', 'my-own-id');
+  });
+
   it('wires description + error into aria-describedby and marks invalid', () => {
     render(
       <Field label="Threshold" description="Minutes" error="Too high">

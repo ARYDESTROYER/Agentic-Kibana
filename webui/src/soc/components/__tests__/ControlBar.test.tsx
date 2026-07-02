@@ -1,7 +1,8 @@
 /**
  * ControlBar — spec (Dash-B). Pins the layout contract:
  *   - title/meta render on the left, controls on the right;
- *   - the controls region is a labelled toolbar when `label` is given.
+ *   - the controls region is a labelled GROUP when `label` is given (not a toolbar —
+ *     the children are independently tabbable with no roving-tabindex navigation).
  */
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -23,7 +24,7 @@ describe('ControlBar', () => {
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
   });
 
-  it('exposes a labelled toolbar for the controls', () => {
+  it('exposes a labelled group for the controls (not a toolbar)', () => {
     render(
       <ControlBar
         title="Metrics"
@@ -31,12 +32,14 @@ describe('ControlBar', () => {
         controls={<button type="button">X</button>}
       />,
     );
-    expect(screen.getByRole('toolbar', { name: 'Dashboard controls' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Dashboard controls' })).toBeInTheDocument();
+    // Must NOT advertise toolbar semantics (no roving-tabindex/arrow navigation).
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
   });
 
-  it('omits the toolbar role when no label is given', () => {
+  it('omits the group role when no label is given', () => {
     render(<ControlBar controls={<button type="button">Y</button>} />);
-    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Y' })).toBeInTheDocument();
   });
 });

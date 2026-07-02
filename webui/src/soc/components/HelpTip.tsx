@@ -37,7 +37,8 @@ const TriggerButton = React.forwardRef<
     type="button"
     aria-label={label}
     className={cn(
-      'inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground transition-colors',
+      // ≥24px hit target (WCAG 2.5.8 / DESIGN_STANDARD §6.2); the glyph stays 14px.
+      'inline-flex min-h-6 min-w-6 items-center justify-center rounded-full text-muted-foreground transition-colors',
       'hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       className,
     )}

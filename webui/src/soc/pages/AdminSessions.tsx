@@ -23,6 +23,7 @@ import { Label } from '@/ui/label';
 import { Checkbox } from '@/ui/checkbox';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { ProtectedRoute } from '@/soc/components/Can';
+import { LoadError } from '@/soc/components/LoadError';
 import { SessionsTable, sessionDevice, sessionLocation } from '@/soc/pages/Sessions';
 import {
   AlertDialog,
@@ -61,6 +62,7 @@ export default function AdminSessions(_props: AdminSessionsPageProps) {
 export function AdminSessionsInner() {
   const [sessions, setSessions] = React.useState<Session[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<unknown>(null);
   const [filter, setFilter] = React.useState('');
   const [busySid, setBusySid] = React.useState<string | null>(null);
 
@@ -75,11 +77,14 @@ export function AdminSessionsInner() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.admin.sessions.list();
       setSessions(res.sessions ?? []);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load sessions.'));
+      // Track the error so a fetch failure renders a distinct LoadError (with retry)
+      // instead of the empty table's authoritative-sounding "No active sessions.".
+      setLoadError(e);
     } finally {
       setLoading(false);
     }
@@ -140,47 +145,58 @@ export function AdminSessionsInner() {
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="admin-session-filter" className="text-xs">
-            Filter by user
-          </Label>
-          <Input
-            id="admin-session-filter"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="username…"
-            className="h-9 w-56"
-          />
-        </div>
-        {filter && revokeAllCandidate(filtered) ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-critical hover:text-critical"
-            onClick={() => {
-              setRevokeAllUser(revokeAllCandidate(filtered));
-              setRevokeAllNotify(false);
-            }}
-          >
-            <UserX className="h-4 w-4" aria-hidden />
-            Revoke all for {revokeAllCandidate(filtered)}
-          </Button>
-        ) : null}
-      </div>
+      {loadError && !loading ? (
+        <LoadError
+          error={loadError}
+          title="Couldn't load sessions"
+          fallback="Could not load sessions."
+          onRetry={() => void load()}
+        />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="admin-session-filter" className="text-xs">
+                Filter by user
+              </Label>
+              <Input
+                id="admin-session-filter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="username…"
+                className="h-9 w-56"
+              />
+            </div>
+            {filter && revokeAllCandidate(filtered) ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-critical hover:text-critical"
+                onClick={() => {
+                  setRevokeAllUser(revokeAllCandidate(filtered));
+                  setRevokeAllNotify(false);
+                }}
+              >
+                <UserX className="h-4 w-4" aria-hidden />
+                Revoke all for {revokeAllCandidate(filtered)}
+              </Button>
+            ) : null}
+          </div>
 
-      <SessionsTable
-        sessions={filtered}
-        loading={loading}
-        busySid={busySid}
-        showUser
-        revokeLabel="Terminate"
-        ariaLabel="All active sessions"
-        onRevoke={(s) => {
-          setTermTarget(s);
-          setTermNotify(false);
-        }}
-      />
+          <SessionsTable
+            sessions={filtered}
+            loading={loading}
+            busySid={busySid}
+            showUser
+            revokeLabel="Terminate"
+            ariaLabel="All active sessions"
+            onRevoke={(s) => {
+              setTermTarget(s);
+              setTermNotify(false);
+            }}
+          />
+        </>
+      )}
 
       {/* Force-terminate (single) confirm with notify checkbox */}
       <AlertDialog

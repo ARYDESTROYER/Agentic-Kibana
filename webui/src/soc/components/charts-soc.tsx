@@ -26,7 +26,7 @@ import {
   YAxis,
 } from 'recharts';
 import { cn } from '@/lib/cn';
-import { categorical, semanticColor, semanticIcon, token } from './palette';
+import { semanticColor, semanticIcon, sequential, token } from './palette';
 
 const AXIS_TICK = { fill: 'hsl(var(--muted-foreground))', fontSize: 11 } as const;
 
@@ -129,7 +129,12 @@ export interface MitreHeatmapProps {
   columns: MitreTacticColumn[];
   /** Max value used to scale the colour ramp (defaults to the data max). */
   maxValue?: number;
-  /** Colour token name for the ramp (default 'critical'). */
+  /**
+   * @deprecated Ignored. A coverage COUNT is a quantitative magnitude, not a severity,
+   * so the ramp is ALWAYS the colorblind-safe viridis `sequential()` scale — never a
+   * semantic hue like `critical` (DESIGN_STANDARD §1.4). Kept only so existing callers
+   * still type-check; it has no effect.
+   */
   colorToken?: string;
   /** Accessible name. */
   ariaLabel?: string;
@@ -151,11 +156,12 @@ function intensityAlpha(v: number, max: number): number {
  * paths), so it's robust under jsdom and fully token-themed.
  */
 export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
-  ({ columns, maxValue, colorToken = 'critical', ariaLabel, className }, ref) => {
+    // `colorToken` is intentionally NOT destructured: the ramp is always viridis
+    // (a magnitude scale must not be read as a severity hue — DESIGN_STANDARD §1.4).
+  ({ columns, maxValue, ariaLabel, className }, ref) => {
     const cols = columns ?? [];
     const dataMax =
       maxValue ?? cols.reduce((m, c) => Math.max(m, ...c.cells.map((x) => x.value || 0)), 0);
-    const base = colorToken;
     const label =
       ariaLabel ?? `MITRE ATT&CK coverage heatmap across ${cols.length} tactic(s)`;
 
@@ -204,7 +210,7 @@ export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
                   <div
                     key={`${c.tactic}-${row}`}
                     className="flex h-9 items-center justify-center rounded-sm border border-border/40 text-[10px] font-medium"
-                    style={{ backgroundColor: a > 0 ? token(base, a) : 'hsl(var(--muted) / 0.2)' }}
+                    style={{ backgroundColor: a > 0 ? sequential(a) : 'hsl(var(--muted) / 0.2)' }}
                     title={`${cell.technique}${cell.name ? ` · ${cell.name}` : ''}: ${cell.value}`}
                   >
                     {/* Contrast scrim (#5 — WCAG 1.4.3): the 10px label sits in a
@@ -235,7 +241,7 @@ export const MitreHeatmap = React.forwardRef<HTMLDivElement, MitreHeatmapProps>(
         <div className="mt-3 flex items-center gap-2 text-[10px] text-muted-foreground">
           <span>Low</span>
           {[0.18, 0.38, 0.59, 0.79, 1].map((a) => (
-            <span key={a} className="h-3 w-5 rounded-sm border border-border/40" style={{ backgroundColor: token(base, a) }} aria-hidden />
+            <span key={a} className="h-3 w-5 rounded-sm border border-border/40" style={{ backgroundColor: sequential(a) }} aria-hidden />
           ))}
           <span>High</span>
           <span className="ml-auto">max {dataMax.toLocaleString()}</span>
@@ -462,11 +468,11 @@ export interface MultiSeriesTrendProps {
   className?: string;
 }
 
-/** Resolve a series colour: explicit → semantic(by label) → categorical(by index). */
+/** Resolve a series colour: explicit → semantic(by label), else categorical(by index).
+ *  `semanticColor` already falls back to `categorical(i)` on an unknown label, so no
+ *  extra `|| categorical(i)` is needed (it could never fire). */
 function seriesColor(s: MultiSeries, i: number): string {
-  if (s.color) return s.color;
-  const sem = semanticColor(s.label, i);
-  return sem || categorical(i);
+  return s.color ?? semanticColor(s.label, i);
 }
 
 /**

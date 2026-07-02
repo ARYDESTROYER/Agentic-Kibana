@@ -61,6 +61,7 @@ import { KeysSection } from './keys';
 import { DetectionSection } from './detection';
 import { DetectionRulesSection } from './detection-rules';
 import { CaseIdSection } from './cases';
+import { CasePolicySection } from './case-policy';
 import { AutomationSection } from './automation';
 import { StandupSection } from './standup';
 import { KnowledgeSection } from './knowledge';
@@ -182,7 +183,15 @@ const SECTION_COMPONENTS: Record<string, SectionRenderer> = {
   detection: (ctx) => h(DetectionSection, { prefs: ctx.prefs, update: ctx.update }),
   detection_rules: (ctx) => h(DetectionRulesSection, { prefs: ctx.prefs, update: ctx.update }),
   cases: (ctx) => h(CaseIdSection, { prefs: ctx.prefs, update: ctx.update }),
-  automation: (ctx) => h(AutomationSection, { prefs: ctx.prefs, update: ctx.update }),
+  case_policy: (ctx) => h(CasePolicySection, { prefs: ctx.prefs, update: ctx.update }),
+  // The per-rule editor lives in the Detection & rules home now; this section links there
+  // via `setSection('detection_rules')` (Round-6 de-dup).
+  automation: (ctx) =>
+    h(AutomationSection, {
+      prefs: ctx.prefs,
+      update: ctx.update,
+      onOpenRules: () => ctx.setSection('detection_rules'),
+    }),
   standup: (ctx) => h(StandupSection, { prefs: ctx.prefs, update: ctx.update }),
   notifications: (ctx) => h(NotificationsEditor, { prefs: ctx.prefs, update: ctx.update }),
   enrichment: (ctx) => h(EnrichmentSection, { prefs: ctx.prefs, update: ctx.update }),

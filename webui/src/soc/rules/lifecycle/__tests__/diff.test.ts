@@ -60,4 +60,22 @@ describe('diffConfigs', () => {
     expect(hasChanges({ a: 1 }, { a: 2 })).toBe(true);
     expect(hasChanges({ a: 1 }, { a: 1 })).toBe(false);
   });
+
+  it('detects a change PAST the display cap — compares untruncated (#46)', () => {
+    // Two long strings identical for their first 2100 chars, differing only afterward.
+    // Truncating BEFORE comparison would classify them `unchanged` and hide the change.
+    const shared = 'x'.repeat(2100);
+    const rows = diffConfigs({ description: `${shared}A` }, { description: `${shared}B` });
+    const row = rows.find((r) => r.path === 'description');
+    expect(row?.kind).toBe('changed');
+    // …but the RENDERED value is still bounded (display cap + ellipsis).
+    expect((row?.before ?? '').length).toBeLessThanOrEqual(2001);
+    expect(row?.before?.endsWith('…')).toBe(true);
+  });
+
+  it('does not report a spurious change when only the tail past the cap is equal (#46)', () => {
+    // Identical long values → no change, even though both exceed the display cap.
+    const shared = 'y'.repeat(3000);
+    expect(diffConfigs({ note: shared }, { note: shared })).toEqual([]);
+  });
 });

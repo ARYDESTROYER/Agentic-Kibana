@@ -158,11 +158,15 @@ const ThreadComposer: React.FC<{
   submitLabel?: string;
   busy?: boolean;
   autoFocus?: boolean;
+  /** Seed text (for editing an existing message). Applied on mount; the edit branch
+   *  mounts a fresh composer each time so the seed re-applies per edit session. */
+  initialValue?: string;
   onSubmit: (text: string) => void;
   onCancel?: () => void;
-}> = ({ users, placeholder, submitLabel = 'Post', busy, autoFocus, onSubmit, onCancel }) => {
-  const [text, setText] = React.useState('');
+}> = ({ users, placeholder, submitLabel = 'Post', busy, autoFocus, initialValue, onSubmit, onCancel }) => {
+  const [text, setText] = React.useState(initialValue ?? '');
   const [menuActive, setMenuActive] = React.useState(0);
+  const [dismissed, setDismissed] = React.useState(false);
   const ref = React.useRef<HTMLTextAreaElement | null>(null);
 
   // The active @token immediately before the caret (if any).
@@ -182,7 +186,15 @@ const ThreadComposer: React.FC<{
       .slice(0, 6);
   }, [token, users]);
 
-  React.useEffect(() => setMenuActive(0), [token?.query]);
+  // Reset the active row AND the Escape-dismissal whenever the active @token changes
+  // (i.e. the next keystroke re-opens the menu after an Escape).
+  React.useEffect(() => {
+    setMenuActive(0);
+    setDismissed(false);
+  }, [token?.query]);
+
+  // The menu is open when there are matches AND the user hasn't Escaped it.
+  const menuOpen = matches.length > 0 && !dismissed;
 
   const pick = (u: PickableUser) => {
     const el = ref.current;
@@ -210,7 +222,7 @@ const ThreadComposer: React.FC<{
 
   return (
     <div className="relative">
-      {matches.length ? (
+      {menuOpen ? (
         <MentionMenu matches={matches} active={menuActive} onPick={pick} />
       ) : null}
       <Textarea
@@ -223,7 +235,7 @@ const ThreadComposer: React.FC<{
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (matches.length) {
+          if (menuOpen) {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
               setMenuActive((a) => Math.min(a + 1, matches.length - 1));
@@ -243,8 +255,11 @@ const ThreadComposer: React.FC<{
               }
             }
             if (e.key === 'Escape') {
+              // Actually dismiss the menu (visibility keys off `dismissed`, not the
+              // trailing token) and swallow the key so it doesn't also close a parent
+              // surface. The next keystroke re-opens it (the token effect clears it).
               e.preventDefault();
-              // Collapse the menu by clearing the trailing token (no-op on text).
+              setDismissed(true);
               setMenuActive(0);
               return;
             }
@@ -383,6 +398,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 autoFocus
                 submitLabel="Save"
                 busy={busy}
+                initialValue={msg.body || ''}
                 placeholder="Edit your message…"
                 onCancel={() => setEditing(false)}
                 onSubmit={(text) => {
@@ -552,17 +568,28 @@ const MessageItem: React.FC<MessageItemProps> = ({
  * renders (see {@link CaseThread}'s `visibleRoots`) — the two must never drift.
  */
 export function visibleMessageCount(messages: CaseMessage[]): number {
-  const replyParents = new Set<string>();
+  // Roots (no parent) + how many DIRECT children each id has. The list renders roots
+  // and their one-level replies only: nested MessageItems get `replies={[]}`, so a
+  // deeper-than-one-level reply (parent is itself a reply) and an orphaned reply (parent
+  // absent from `messages`) are never rendered — and must not be counted here.
+  const rootIds = new Set<string>();
+  const directReplies = new Map<string, number>();
   for (const m of messages) {
-    if (m.parent_id) replyParents.add(m.parent_id);
+    if (m.parent_id) directReplies.set(m.parent_id, (directReplies.get(m.parent_id) ?? 0) + 1);
+    else rootIds.add(m.id);
   }
   let count = 0;
   for (const m of messages) {
-    const tombstoned = Boolean(m.deleted || m.deleted_at);
-    // A parentless tombstone with no replies is hidden; everything else renders
-    // (live messages, replies, and tombstoned roots that still anchor a reply).
-    if (tombstoned && !m.parent_id && !replyParents.has(m.id)) continue;
-    count += 1;
+    if (!m.parent_id) {
+      // A parentless tombstone with no replies is hidden; every other root renders
+      // (live roots, and tombstoned roots that still anchor a reply as a placeholder).
+      const tombstoned = Boolean(m.deleted || m.deleted_at);
+      if (tombstoned && !(directReplies.get(m.id) ?? 0)) continue;
+      count += 1;
+    } else if (rootIds.has(m.parent_id)) {
+      // A direct reply under a rendered root. Deeper/orphaned replies are not rendered.
+      count += 1;
+    }
   }
   return count;
 }

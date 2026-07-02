@@ -2,15 +2,17 @@
  * App shell for the SOC console — a slim left ICON RAIL + a top bar + the routed
  * content slot.
  *
- * - Rail (~64px): icon-only nav, grouped (TRIAGE / AUTOMATION / PLATFORM) with
- *   thin separators, each item a tooltip'd button; the active item is a filled
- *   primary square.
- * - Top bar: product breadcrumb ("ASP / <Page>" using OUR product name from
+ * - Rail: the registry-derived `NavSidebar` (collapsible groups Overview / Triage /
+ *   Intelligence / Analytics / Notifications / Platform, per nav.ts ← registry.FEATURES),
+ *   with disclosure groups + fly-outs when collapsed; the active item is highlighted
+ *   with `bg-primary` + `shadow-glow`. Width toggles with Cmd/Ctrl-B (persisted).
+ * - Top bar: product breadcrumb ("<Product> / <Page>" using OUR product name from
  *   branding), and on the right a theme toggle, version badge, a health pill
  *   (polls /api/health, debounced), an optional user chip + logout, and a Cmd-K
  *   hint that opens a cmdk command palette for navigation.
- * - Content: `bg-canvas`, a centered container, re-keyed on the page id so it
- *   replays `animate-fade-in` on every route change.
+ * - Content: `bg-canvas`, the single gutter/vertical-rhythm authority for every
+ *   routed page (per-page width is capped/centered by `<PageContainer variant>`),
+ *   re-keyed on the page id so it replays `animate-fade-in` on every route change.
  *
  * Health-poll behaviour mirrors the legacy Shell: poll every 15s, only flip to
  * "unreachable" after 2 consecutive failures, and label Healthy / Store degraded
@@ -23,6 +25,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Database,
+  Loader2,
   XCircle,
   LogOut,
   UserCircle2,
@@ -114,6 +117,20 @@ export function healthView(health: HealthResponse | null, err: boolean): HealthV
         'settings are unavailable until it returns.\n\n' +
         'How to fix: confirm the tlsoc-backend service is running and reachable; ' +
         'see docs/TROUBLESHOOTING.md.',
+    };
+  }
+  // Before the first /api/health resolves (health === null and not yet failed twice)
+  // we know NOTHING about the store — show a neutral "Checking…" note, never the
+  // alarming amber "State store unreachable" fall-through below (which would flash on
+  // every fresh load and mislabel the first ~15s of a total backend outage).
+  if (health === null) {
+    return {
+      tone: 'muted',
+      label: 'Checking…',
+      icon: Loader2,
+      detail: 'Contacting backend',
+      title: 'Checking backend health…',
+      help: 'Waiting for the first /api/health response. The pill updates as soon as the backend replies.',
     };
   }
   const storeType = health?.store_type ?? 'unknown';
@@ -226,12 +243,16 @@ function useAccountProfile(active: boolean): AccountProfile | null {
 }
 
 /** Small round avatar (image + initials fallback) used in the shell user chip. */
-const UserAvatar: React.FC<{ src?: string; name: string; className?: string }> = ({
+export const UserAvatar: React.FC<{ src?: string; name: string; className?: string }> = ({
   src,
   name,
   className,
 }) => {
   const [broken, setBroken] = React.useState(false);
+  // Re-sync when the source changes (e.g. a profile refetch after the user updates
+  // their picture): a one-time onError must not permanently pin the initials fallback
+  // for a NEW, valid URL.
+  React.useEffect(() => setBroken(false), [src]);
   if (src && !broken) {
     return (
       // onError is a broken-image fallback (swap to initials), not a user
@@ -313,7 +334,10 @@ const UserMenu: React.FC<{
           Sessions &amp; activity
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        {/* Per-user theme (Wave 7): persisted to the user's prefs; 'system' follows the OS. */}
+        {/* Per-user theme (Wave 7): persisted to the user's prefs. 'system' follows the
+            organization default theme when one is set, otherwise the device (Round-6 §18 —
+            mirrors the CustomizationSection copy; the org-default cascade lives in
+            stores/user_prefs.py). */}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <Palette aria-hidden />
@@ -337,6 +361,12 @@ const UserMenu: React.FC<{
                 System
               </DropdownMenuRadioItem>
             </DropdownMenuRadioGroup>
+            {/* Accurate System-mode copy (Round-6 §18): matches the org-default cascade
+                and the CustomizationSection helper text — never the bare "follows the OS". */}
+            <p className="max-w-[220px] px-2 pb-1 pt-1.5 text-xs leading-snug text-muted-foreground">
+              “System” follows the organization default theme when one is set, otherwise
+              your device setting.
+            </p>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         {onLogout ? (
@@ -606,11 +636,12 @@ export const AppShell: React.FC<AppShellProps> = ({
             tabIndex={-1} lets the skip-link (#1) move focus here without making it a
             tab stop in the normal order.
 
-            W0-C: the hard `max-w-[1400px]` cap was removed — width is now owned
-            per-page by `<PageContainer variant>` (§4.1). This wrapper keeps only the
-            gutter/vertical rhythm; pages that have not opted into a width still look
-            unchanged because `PageContainer` defaults to `fixed` (~1200px). Keep
-            `min-w-0` so flex/grid children can shrink + truncate. */}
+            W0-C: the hard `max-w-[1400px]` cap was removed — per-page WIDTH is now
+            owned by `<PageContainer variant>` (§4.1). This wrapper is the SINGLE
+            gutter/vertical-rhythm authority applied exactly once to every routed page
+            (PageContainer no longer re-declares the gutter), so PageContainer and
+            not-yet-migrated pages share one consistent inset. Keep `min-w-0` so
+            flex/grid children can shrink + truncate. */}
         <main id="socMain" role="main" tabIndex={-1} className="flex-1 outline-none">
           <div
             key={page}

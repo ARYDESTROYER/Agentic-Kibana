@@ -141,6 +141,17 @@ export const DASHBOARD_SOURCE_KEYS = Object.keys(
   DASHBOARD_SOURCES,
 ) as DashboardSourceKey[];
 
+/**
+ * Default light auto-refresh cadence (ms) a host can hand the provider so a dashboard
+ * left open re-syncs instead of freezing on its mount-time snapshot. All dashboard
+ * sources are NON-billing read-only rollups (#6/#7 — never `standup`), so a periodic
+ * refresh is safe. The interval PAUSES while the tab is hidden (no background fetching)
+ * and fires one catch-up refresh when the tab becomes visible again. 60s balances
+ * freshness against chatter; a host may override or pass 0 to disable (the calm default,
+ * #10, is preserved because the provider only auto-refreshes when a host opts in).
+ */
+export const DASHBOARD_AUTO_REFRESH_MS = 60_000;
+
 // --------------------------------------------------------------------------- //
 // Per-source state
 // --------------------------------------------------------------------------- //
@@ -205,6 +216,20 @@ export interface DashboardDataProviderProps {
    * (or one with no MITRE widget) skips those round-trips entirely.
    */
   sourceKeys?: readonly DashboardSourceKey[];
+  /**
+   * An EXTERNAL refresh signal: bump this (e.g. a header "Refresh" button in the host)
+   * to force a re-fetch of every active source. Distinct from the internal
+   * {@link DashboardDataContextValue.refresh} a descendant widget can call — this lets a
+   * host OUTSIDE the provider (which can't reach the context) trigger a refresh.
+   */
+  reloadNonce?: number;
+  /**
+   * Light auto-refresh cadence in ms. `0`/omitted = OFF (fetch once at mount, the prior
+   * behaviour). When > 0 the provider re-fetches every N ms while the tab is VISIBLE and
+   * once on regaining visibility, so a dashboard left open never freezes on a stale
+   * snapshot. See {@link DASHBOARD_AUTO_REFRESH_MS} for the standard cadence.
+   */
+  refreshIntervalMs?: number;
   children: React.ReactNode;
 }
 
@@ -217,6 +242,8 @@ export function DashboardDataProvider({
   windowHours = 168,
   caseLimit = 25,
   sourceKeys = DASHBOARD_SOURCE_KEYS,
+  reloadNonce = 0,
+  refreshIntervalMs = 0,
   children,
 }: DashboardDataProviderProps) {
   // Stable, deduped list of the keys to fetch this pass.
@@ -291,9 +318,37 @@ export function DashboardDataProvider({
     return () => {
       cancelled = true;
     };
-    // Re-fetch when the window, page size, requested source SET, or refresh changes.
+    // Re-fetch when the window, page size, requested source SET, the internal refresh
+    // token, or an EXTERNAL reload signal (`reloadNonce`) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowHours, caseLimit, activeKeysSig, refreshToken]);
+  }, [windowHours, caseLimit, activeKeysSig, refreshToken, reloadNonce]);
+
+  // Light auto-refresh (opt-in via `refreshIntervalMs`): re-fetch every N ms while the
+  // tab is VISIBLE, and once on regaining visibility, so a dashboard left open re-syncs
+  // instead of freezing on its mount snapshot. Paused while hidden (no background
+  // chatter); every source is a non-billing rollup so this never triggers an LLM call
+  // (#6/#7). `refresh` is stable (useCallback []), so this effect re-installs only when
+  // the cadence changes.
+  React.useEffect(() => {
+    if (!refreshIntervalMs || refreshIntervalMs <= 0) return;
+    if (typeof window === 'undefined') return;
+    const tick = () => {
+      if (typeof document === 'undefined' || !document.hidden) refresh();
+    };
+    const id = window.setInterval(tick, refreshIntervalMs);
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden) refresh();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisible);
+    }
+    return () => {
+      window.clearInterval(id);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisible);
+      }
+    };
+  }, [refreshIntervalMs, refresh]);
 
   const loading = React.useMemo(
     () => activeKeys.some((k) => (state[k] as DashboardSourceState).loading),

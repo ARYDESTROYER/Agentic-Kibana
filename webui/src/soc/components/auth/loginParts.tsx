@@ -79,12 +79,15 @@ const STRENGTH_BAR: Record<number, string> = {
   3: 'bg-info',
   4: 'bg-success',
 };
+// Standalone-text tints use the AA-tuned `-text` triad member (theme.css §1.3): the
+// solid `--{axis}` FILL fails 4.5:1 as small text on the light card, so the label
+// colour must come from `--{axis}-text` (measured AA in both themes).
 const STRENGTH_TEXT: Record<number, string> = {
-  0: 'text-critical',
-  1: 'text-critical',
-  2: 'text-warning',
-  3: 'text-info',
-  4: 'text-success',
+  0: 'text-critical-text',
+  1: 'text-critical-text',
+  2: 'text-warning-text',
+  3: 'text-info-text',
+  4: 'text-success-text',
 };
 
 /**
@@ -97,8 +100,10 @@ export const PasswordStrengthMeter: React.FC<{ password: string; className?: str
 }) => {
   const { score, label, hint } = React.useMemo(() => scorePassword(password), [password]);
   if (!password) return null;
-  // Map 0..4 onto 4 visible segments (score 0 fills none; 1..4 fill that many).
-  const filled = Math.min(4, Math.max(0, score));
+  // Map 0..4 onto 4 visible segments. A non-empty password is always ≥1 filled
+  // segment so a score-0 "Too weak" shows a single red bar (distinct from the empty
+  // / untyped all-`bg-border` state) instead of reading as no reaction.
+  const filled = Math.max(1, Math.min(4, score));
   return (
     <div className={cn('space-y-1.5', className)} aria-live="polite">
       <div className="flex gap-1.5" aria-hidden>
@@ -206,12 +211,17 @@ export const OtpInput: React.FC<OtpInputProps> = ({
     el?.select?.();
   };
 
-  const setAt = (index: number, char: string) => {
+  // Returns the new collapsed value so callers can move focus to the cell that
+  // ACTUALLY holds the next empty slot. `digits` is always front-packed (gaps are
+  // stripped by `onChange`), so focusing `index + 1` blindly overshoots when a gap
+  // cell was clicked; callers clamp against `joined.length` instead.
+  const setAt = (index: number, char: string): string => {
     const next = digits.slice();
     next[index] = char;
     const joined = next.join('').replace(/\D/g, '').slice(0, length);
     onChange(joined);
     if (joined.length === length) onComplete?.(joined);
+    return joined;
   };
 
   const handleChange = (index: number, raw: string) => {
@@ -232,11 +242,13 @@ export const OtpInput: React.FC<OtpInputProps> = ({
       const joined = next.join('').replace(/\D/g, '').slice(0, length);
       onChange(joined);
       if (joined.length === length) onComplete?.(joined);
-      else focusCell(cursor);
+      else focusCell(joined.length);
       return;
     }
-    setAt(index, only);
-    focusCell(index + 1);
+    const joined = setAt(index, only);
+    // Never move past the last filled cell: a digit typed into a gap re-packs to the
+    // front, so the caret follows it instead of overshooting to the clicked index+1.
+    focusCell(Math.min(index + 1, joined.length));
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -288,7 +300,7 @@ export const OtpInput: React.FC<OtpInputProps> = ({
           aria-label={`${ariaLabel} digit ${i + 1}`}
           className={cn(
             'h-12 w-full min-w-0 rounded-lg border border-input bg-background text-center text-lg font-semibold text-foreground',
-            'transition-colors hover:border-border',
+            'transition-colors hover:border-border-strong',
             'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             'disabled:cursor-not-allowed disabled:opacity-50',
             d ? 'border-ring/60' : '',

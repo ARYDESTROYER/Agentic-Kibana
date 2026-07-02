@@ -18,8 +18,38 @@
  * fenced CodeBlock — never HTML, never a prompt input.
  */
 import { api } from '@/lib/api';
+import { humanizeToken } from '@/lib/format';
 
 export type PricingSource = 'exact' | 'heuristic' | 'zero' | 'default';
+
+/**
+ * Canonical display labels for known provider ids — the backend returns lowercase
+ * codes (`openai`, `openai_compatible`), which `humanizeToken` alone renders as
+ * "Openai" / "Openai compatible". Use this for a consistent, correctly-cased label on
+ * EVERY provider surface (the catalog filter, the providers grid, the catalog table).
+ */
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  azure: 'Azure OpenAI',
+  azure_openai: 'Azure OpenAI',
+  bedrock: 'AWS Bedrock',
+  aws_bedrock: 'AWS Bedrock',
+  vertex: 'Google Vertex',
+  vertex_ai: 'Google Vertex',
+  google: 'Google',
+  openai_compatible: 'OpenAI-compatible',
+  ollama: 'Ollama',
+  cohere: 'Cohere',
+  mistral: 'Mistral',
+  mock: 'Mock',
+};
+
+/** A consistent, correctly-cased display label for a provider id (fallback: humanized). */
+export function providerLabel(id?: string | null): string {
+  if (!id) return humanizeToken(id);
+  return PROVIDER_LABELS[id.toLowerCase()] ?? humanizeToken(id);
+}
 
 /** One row of GET /api/llm/models. */
 export interface ModelCatalogRow {
@@ -156,17 +186,6 @@ export const modelsApi = {
     api.put<{ ok: boolean; budget: BudgetConfig }>('budget', budget),
   budgetStatus: () => api.get<BudgetStatus>('budget/status'),
 };
-
-/** The per-role model slots (mirrors backend `_ROLE_FIELDS`). */
-export const MODEL_ROLE_SLOTS = [
-  'router',
-  'investigator',
-  'formatter',
-  'standup',
-  'chat',
-  'overview',
-  'embedding',
-] as const;
 
 /** Provenance badge metadata — variant + label for a pricing source. */
 export const PRICING_SOURCE_META: Record<

@@ -60,7 +60,9 @@ import {
 } from '@/ui/sheet';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
+import { Skeleton } from '@/ui/skeleton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { errorMessage } from '@/lib/errorMessage';
@@ -79,20 +81,6 @@ import {
   CAMPAIGN_STATUS_LABELS,
   type Campaign,
 } from './Campaigns.api';
-
-/**
- * Local campaign-config client. The shared `api.campaign` scaffold points at the
- * SINGULAR `campaign/config`, but the backend route (`routes_campaigns.py`) is the
- * PLURAL `campaigns/config` — so we call the correct path via the low-level verbs
- * (mirroring the co-located Tuning.api pattern) rather than editing the shared client.
- * Config edits deep-merge server-side (audited, admin-gated, #2) and never touch
- * `decide()` (#3) or a `cluster_signature` (#4).
- */
-const campaignConfigApi = {
-  getConfig: () => api.get<{ config: CampaignConfig }>('campaigns/config'),
-  putConfig: (config: Partial<CampaignConfig>) =>
-    api.put<{ ok: boolean; config: CampaignConfig }>('campaigns/config', config),
-};
 
 /** Backend defaults (mirror `config.CampaignConfig`). */
 const DEFAULT_CAMPAIGN_CONFIG: Required<CampaignConfig> = {
@@ -143,7 +131,9 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   const [recorrelating, setRecorrelating] = React.useState(false);
   const [detail, setDetail] = React.useState<Campaign | null>(null);
 
-  const cfg = useConfigEditor<CampaignConfig>(campaignConfigApi, DEFAULT_CAMPAIGN_CONFIG);
+  // The shared `api.campaign` client now targets the PLURAL `campaigns/config` route
+  // (`routes_campaigns.py`); use it directly so there is ONE config client (Round-6 §27).
+  const cfg = useConfigEditor<CampaignConfig>(api.campaign, DEFAULT_CAMPAIGN_CONFIG);
   const cfgDraft = { ...DEFAULT_CAMPAIGN_CONFIG, ...cfg.draft };
 
   const saveConfig = React.useCallback(async () => {
@@ -267,7 +257,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
   );
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={Network}
         eyebrow="Triage"
@@ -278,10 +268,10 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                void load();
-                void cfg.reload();
-              }}
+              // Refresh only re-loads the read-only campaign list; it must NOT reload
+              // the config (that would clobber unsaved policy edits — the editor has
+              // its own load-on-mount + LoadError retry).
+              onClick={() => void load()}
               disabled={loading}
             >
               <RefreshCw
@@ -383,6 +373,13 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
             description="Run the deterministic cross-case clustering pass on a cadence. Default off — clustering only builds a reporting grouping and never merges or decides cases."
             wide
           >
+            {cfg.loading ? (
+              // Don't flash the default-valued form while the persisted policy loads.
+              <div className="space-y-4" aria-busy="true">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
                 <Info className="h-4 w-4" aria-hidden />
@@ -442,6 +439,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
                 </p>
               ) : null}
             </fieldset>
+            )}
           </SettingsCard>
         </SettingsGrid>
       )}
@@ -455,7 +453,7 @@ export function CampaignsInner({ onNavigate }: CampaignsProps) {
           onDiscard={cfg.discard}
         />
       ) : null}
-    </div>
+    </PageContainer>
   );
 }
 

@@ -143,8 +143,8 @@ describe('EnrichmentProvidersEditor (Feature 7)', () => {
     const keyToggle = screen.getByRole('button', { name: /^key$/i });
     fireEvent.click(keyToggle);
 
-    // The configured state shows as a "Configured" badge.
-    expect(await screen.findByText('Configured')).toBeInTheDocument();
+    // The configured state shows as the shared SecretField boolean pill ("Configured ✓").
+    expect(await screen.findByText(/configured ✓/i)).toBeInTheDocument();
     // The secret <input> is a password field, empty (placeholder only) — no value leaks.
     const input = screen.getByPlaceholderText(/enter a new value to replace/i) as HTMLInputElement;
     expect(input).toHaveAttribute('type', 'password');

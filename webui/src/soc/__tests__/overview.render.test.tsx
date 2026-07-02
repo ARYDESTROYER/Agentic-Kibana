@@ -188,6 +188,46 @@ describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
     );
   });
 
+  it('window-scopes the case sample by created-at so case widgets honour the range (#37)', async () => {
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    await waitFor(() => expect(listCasesMock).toHaveBeenCalled());
+    // The case sample is fetched with a `from=now-<hours>h` created-at window (capped at
+    // 200 by created-desc) so open/severity/health/workload reflect the TimeRangePicker.
+    const arg = listCasesMock.mock.calls[0][0] as { limit?: number; from?: string };
+    expect(arg).toMatchObject({ limit: 200 });
+    expect(String(arg.from)).toMatch(/^now-\d+h$/);
+  });
+
+  it('deep-links the Critical/High KPI tile to a SEVERITY-filtered case list (#38)', async () => {
+    const onNavigate = vi.fn();
+    render(<Overview onNavigate={onNavigate} />);
+    await screen.findByTestId('page-hero');
+    const tile = await screen.findByTestId('kpi-critical-high');
+    await userEvent.click(tile);
+    // The sample has a critical case (risk 88) → drill to the WORST band (critical),
+    // carrying the selected window (never a stray status filter).
+    expect(onNavigate).toHaveBeenCalledWith(
+      'cases',
+      expect.objectContaining({ severity: 'critical', window: expect.any(Number) }),
+    );
+    const [, opts] = onNavigate.mock.calls[0];
+    expect(opts).not.toHaveProperty('status');
+  });
+
+  it('deep-links an open-by-severity row to that severity band, carrying the window (#38)', async () => {
+    const onNavigate = vi.fn();
+    render(<Overview onNavigate={onNavigate} />);
+    await screen.findByTestId('page-hero');
+    // Every band row is always rendered (even at count 0); the High row drills severity=high.
+    const highRow = await screen.findByRole('button', { name: /view High severity cases/i });
+    await userEvent.click(highRow);
+    expect(onNavigate).toHaveBeenCalledWith(
+      'cases',
+      expect.objectContaining({ severity: 'high', window: expect.any(Number) }),
+    );
+  });
+
   it('renders the autonomous-vs-human trust surface + named dashboard groups', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');

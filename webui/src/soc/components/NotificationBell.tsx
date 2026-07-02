@@ -34,6 +34,7 @@ import { Separator } from '@/ui/separator';
 import { cn } from '@/lib/cn';
 import { humanizeAge } from '@/lib/format';
 import { ApiError } from '@/lib/api';
+import { semanticIcon, type SeverityKey } from './palette';
 import type { Navigate } from '../router';
 import {
   fetchInbox,
@@ -117,23 +118,50 @@ function badgeText(n: number): string {
   return n > 9 ? '9+' : String(n);
 }
 
-/** Map a severity token → a calm dot colour class (UNTRUSTED token, enum-matched). */
-function severityDot(sev?: string | null): string {
-  switch ((sev || '').toLowerCase()) {
-    case 'critical':
-      return 'bg-critical';
-    case 'high':
-      return 'bg-warning';
-    case 'medium':
-      return 'bg-primary';
-    default:
-      return 'bg-muted-foreground/50';
-  }
+/**
+ * Severity token → dot colour, keyed to the SEVERITY axis authority (palette
+ * `SEVERITY_COLOR`) so a MEDIUM dot is gold (`bg-medium`), never brand-blue — and a
+ * LOW dot (`bg-low`) is distinct from an untyped one. The classes are FULL literals
+ * (not `bg-${…}`) so Tailwind's JIT scanner emits them. UNTRUSTED token, enum-matched.
+ */
+export const SEVERITY_DOT: Record<SeverityKey, string> = {
+  critical: 'bg-critical',
+  high: 'bg-high',
+  medium: 'bg-medium',
+  low: 'bg-low',
+  info: 'bg-info',
+};
+
+export function severityDot(sev?: string | null): string {
+  const key = (sev || '').toLowerCase();
+  return SEVERITY_DOT[key as SeverityKey] ?? 'bg-muted-foreground/50';
 }
+
+/**
+ * Severity token → AA standalone text color for the beside-color severity GLYPH
+ * (mirrors SEVERITY_DOT). The `-text` variants are the theme-tuned AA colors on a
+ * card surface, so the icon reads in both light and dark. Rendering the
+ * `SEMANTIC_ICON` shape (not just a colored dot) is the WCAG 1.4.1 redundancy —
+ * severity is no longer conveyed by color alone (colorblind-safe), and an sr-only
+ * label announces it to assistive tech.
+ */
+export const SEVERITY_TEXT: Record<SeverityKey, string> = {
+  critical: 'text-critical-text',
+  high: 'text-high-text',
+  medium: 'text-medium-text',
+  low: 'text-low-text',
+  info: 'text-info-text',
+};
 
 /** One row in the bell dropdown. All text is UNTRUSTED → rendered PLAIN. */
 const InboxRow: React.FC<{ item: InboxItem }> = ({ item }) => {
   const unread = item.state === 'unseen' || item.state === 'seen';
+  // Severity: not color-only (WCAG 1.4.1). For a known severity we render the shared
+  // SEMANTIC_ICON glyph (shape = colorblind-safe redundancy) tinted by the AA `-text`
+  // token, plus an sr-only label so AT announces it; unknown severities keep the dot.
+  const sevKey = (item.severity || '').toLowerCase();
+  const sevColor = SEVERITY_TEXT[sevKey as SeverityKey];
+  const SevIcon = sevColor ? semanticIcon(item.severity) : undefined;
   return (
     <li
       className={cn(
@@ -141,10 +169,17 @@ const InboxRow: React.FC<{ item: InboxItem }> = ({ item }) => {
         unread ? 'bg-primary/[0.04]' : '',
       )}
     >
-      <span
-        className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', severityDot(item.severity))}
-        aria-hidden
-      />
+      {SevIcon ? (
+        <>
+          <SevIcon className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', sevColor)} aria-hidden />
+          <span className="sr-only">{sevKey} severity</span>
+        </>
+      ) : (
+        <span
+          className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', severityDot(item.severity))}
+          aria-hidden
+        />
+      )}
       <span className="min-w-0 flex-1">
         <span className="flex items-start justify-between gap-2">
           {/* UNTRUSTED title → plain text. */}
@@ -236,7 +271,7 @@ export function NotificationBell({ onNavigate, className }: NotificationBellProp
             <span
               className={cn(
                 'absolute -right-0.5 -top-0.5 flex min-w-[15px] items-center justify-center rounded-full',
-                'border border-surface bg-critical px-[3px] text-[9px] font-semibold leading-none text-white',
+                'border border-surface bg-critical px-[3px] text-[9px] font-semibold leading-none text-critical-foreground',
                 'h-[15px]',
               )}
               aria-hidden

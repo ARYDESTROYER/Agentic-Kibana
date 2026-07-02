@@ -283,7 +283,11 @@ const ExpandedItem: React.FC<{
   // A host whose OWN id is ALSO one of its children (chat/metrics/inbox) renders the
   // shared-id child link as the single canonical `aria-current="page"` marker, so the
   // parent button must NOT also claim it (a nav landmark must have exactly one current
-  // page). The open child <ul> always carries the marker, so active state is never lost.
+  // page). BUT the child <ul> is only mounted when the disclosure is OPEN — when the
+  // group is collapsed the child marker doesn't exist, so the parent must carry
+  // aria-current itself. Suppress the parent's marker ONLY when the child <ul> that
+  // carries it is actually rendered (`idIsAlsoChild && open`); otherwise the current
+  // page would have NO marker at all for a screen reader.
   const idIsAlsoChild = children.some((c) => c.id === item.id);
   const panelId = `nav-group-${item.id}`;
 
@@ -324,7 +328,7 @@ const ExpandedItem: React.FC<{
         <button
           type="button"
           onClick={() => onNavigate(item.id)}
-          aria-current={selfActive && !idIsAlsoChild ? 'page' : undefined}
+          aria-current={selfActive && !(idIsAlsoChild && open) ? 'page' : undefined}
           data-testid={`nav-${item.id}`}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
@@ -393,13 +397,48 @@ const CollapsedItem: React.FC<{
   const childActive = children.some((c) => c.id === page);
   const selfActive = page === item.id;
   const trailActive = selfActive || childActive;
-  // Same shared-id host case as the expanded rail: the fly-out child carries the
-  // canonical aria-current, so the rail button must not double it (the active trail is
-  // still shown visually via the selfActive/trailActive className branch).
+  // Same shared-id host case as the expanded rail: the fly-out child (ALWAYS mounted in
+  // the collapsed rail) carries the canonical aria-current, so the rail button must not
+  // double it (the active trail is still shown visually via the selfActive/trailActive
+  // className branch).
   const idIsAlsoChild = children.some((c) => c.id === item.id);
+
+  // The child fly-out is positioned with `position: fixed` — NOT `absolute`. An
+  // absolutely-positioned descendant of the scrolling <nav> (which is
+  // `overflow-y-auto overflow-x-hidden`, hence a clip container on BOTH axes) gets
+  // clipped to the ~64px rail width, hiding almost the entire fly-out. A `fixed`
+  // element is positioned against the viewport and is NOT subject to an ancestor's
+  // overflow clip (no ancestor here establishes a transform/filter/contain containing
+  // block), so it escapes the clip while staying an in-flow DOM descendant of the
+  // `.group` wrapper — keeping the CSS hover/focus-within reveal AND the child links'
+  // native tab order intact. We drive its viewport coords from the rail button's rect.
+  const btnRef = React.useRef<HTMLButtonElement>(null);
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const [pos, setPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [engaged, setEngaged] = React.useState(false);
+
+  const measure = React.useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.top, left: r.right + 10 }); // +10px ≈ the old ml-2.5 gap
+  }, []);
+
+  // While the fly-out is engaged (hovered or focus-within), keep it pinned to the rail
+  // button as the nav/page scrolls or the viewport resizes; detach the listeners the
+  // moment it disengages so idle rail items cost nothing.
+  React.useEffect(() => {
+    if (!engaged) return;
+    const onMove = () => measure();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [engaged, measure]);
 
   const railButton = (
     <button
+      ref={btnRef}
       type="button"
       onClick={() => onNavigate(item.id)}
       aria-label={item.label}
@@ -442,19 +481,37 @@ const CollapsedItem: React.FC<{
   // buttons, so Tab from the rail button moves straight into them — the previous
   // Radix HoverCard portaled the content out of the tab order, leaving the
   // destinations keyboard-unreachable in the collapsed rail. A HoverCard is no
-  // longer used here; visibility is driven purely by CSS group state.
+  // longer used here; visibility is driven purely by CSS group state, and
+  // `position: fixed` (measured coords) keeps the fly-out out of the nav's clip.
   const panelId = `nav-fly-${item.id}`;
   return (
-    <div className="group relative">
+    <div
+      ref={wrapRef}
+      className="group relative"
+      onPointerEnter={() => {
+        measure();
+        setEngaged(true);
+      }}
+      onPointerLeave={() => setEngaged(false)}
+      onFocusCapture={() => {
+        measure();
+        setEngaged(true);
+      }}
+      onBlurCapture={(e) => {
+        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setEngaged(false);
+      }}
+    >
       {railButton}
       <div
         id={panelId}
-        // Hidden by default; revealed on hover OR when any descendant has focus.
-        // `pointer-events-none` + `opacity-0` keep it out of the way until shown, but
-        // it stays in the DOM/tab order so focus can enter it (focus-within then makes
-        // it interactive). `motion-reduce` drops the fade for reduced-motion users.
+        // `position: fixed` + measured top/left escapes the nav's overflow clip (see the
+        // note above). Hidden by default; revealed on hover OR when any descendant has
+        // focus. `pointer-events-none` + `opacity-0` keep it out of the way until shown,
+        // but it stays in the DOM/tab order so focus can enter it (focus-within then
+        // makes it interactive). `motion-reduce` drops the fade for reduced-motion users.
+        style={{ position: 'fixed', top: pos.top, left: pos.left }}
         className={cn(
-          'absolute left-full top-0 z-50 ml-2.5 w-52 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-elev2',
+          'z-50 w-52 rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-elev2',
           'pointer-events-none opacity-0 transition-opacity duration-100 motion-reduce:transition-none',
           'group-hover:pointer-events-auto group-hover:opacity-100',
           'group-focus-within:pointer-events-auto group-focus-within:opacity-100',

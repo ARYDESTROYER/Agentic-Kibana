@@ -150,6 +150,22 @@ export function hasImpossibleVerdict(verdict: string | undefined): boolean {
   return !VALID_VERDICT_SET.has(verdict.toLowerCase());
 }
 
+/**
+ * Map a STORED verdict-condition value to the `<Select>` item value that should render.
+ * The wire token can arrive UPPERCASE (config.py documents FALSE_POSITIVE|TRUE_POSITIVE|
+ * NEEDS_HUMAN and the backend matcher is case-insensitive), while the Select items are
+ * lowercase — so a valid uppercase verdict must map to its lowercase item or Radix shows
+ * a BLANK field for a real, active condition (#28). Returns:
+ *   - `''` for an empty/absent condition (caller maps to its "any" sentinel),
+ *   - the lowercase wire token for a valid verdict in ANY case,
+ *   - the raw value otherwise (surfaced via the disabled "(invalid)" fallback item).
+ */
+export function normalizedVerdictCondition(verdict: string | undefined): string {
+  if (typeof verdict !== 'string' || verdict === '') return '';
+  const lower = verdict.toLowerCase();
+  return VALID_VERDICT_SET.has(lower) ? lower : verdict;
+}
+
 export const STATUS_CONDITION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'new', label: 'New' },
   { value: 'open', label: 'Open' },

@@ -45,6 +45,20 @@ import type {
 
 import { PanelCard, SectionHeading } from './shared';
 
+/**
+ * The Radix Select value for an assignee picker. Binds to the ACTUAL assignee so the
+ * trigger reflects it instead of a false "Unassigned": the known user's CANONICAL
+ * username (so it matches a SelectItem exactly even when the stored value differs in
+ * case), else the free-text value (rendered as a selectable item), else the
+ * "__unassigned__" sentinel when there is no assignee.
+ */
+export function assigneeSelectValue(current: string, users: PickableUser[]): string {
+  const trimmed = (current || '').trim();
+  if (!trimmed) return '__unassigned__';
+  const matched = users.find((u) => u.username.toLowerCase() === trimmed.toLowerCase());
+  return matched?.username ?? trimmed;
+}
+
 /** An assignee picker over the known users (with a free-text fallback when the user
  *  store is empty / auth is off). Saves via api.caseAssign + bubbles the updated case
  *  through `onAssigned`. The assignee string is UNTRUSTED → rendered plain. */
@@ -78,10 +92,11 @@ const AssigneePicker: React.FC<{
   // When we have a user list, use a Select; otherwise a free-text input + Save.
   if (users.length) {
     const known = users.some((u) => u.username.toLowerCase() === current.toLowerCase());
+    const selectValue = assigneeSelectValue(current, users);
     return (
       <div className="flex items-center gap-2">
         <Select
-          value={current && known ? current : '__unassigned__'}
+          value={selectValue}
           disabled={!canWrite || saving}
           onValueChange={(v) => void save(v === '__unassigned__' ? '' : v)}
         >

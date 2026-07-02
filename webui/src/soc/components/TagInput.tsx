@@ -17,7 +17,6 @@ import { X } from 'lucide-react';
 import { Field } from './Field';
 import { IconButton } from './IconButton';
 import { cn } from '@/lib/cn';
-import { focusRing } from '@/lib/ui-recipes';
 
 export interface TagInputProps {
   /** Visible label. */
@@ -61,6 +60,7 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
   ) => {
     const [text, setText] = React.useState('');
     const [error, setError] = React.useState<string | null>(null);
+    const containerRef = React.useRef<HTMLDivElement>(null);
 
     const atMax = max != null && value.length >= max;
 
@@ -88,9 +88,13 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
       <Field label={label} description={description} error={error ?? undefined} required={required} className={className}>
         {({ id, describedBy, invalid }) => (
           <div
+            ref={containerRef}
             className={cn(
               'flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 transition-colors',
-              error ? 'border-critical' : 'border-input focus-within:border-ring hover:border-border',
+              // ONE control-wide keyboard-focus treatment on the composite container
+              // (not doubled onto the inner <input>, which floated an inset ring).
+              'focus-within:ring-2 focus-within:ring-ring/60 focus-within:ring-offset-2 focus-within:ring-offset-background',
+              error ? 'border-critical' : 'border-input focus-within:border-ring hover:border-border-strong',
               disabled && 'cursor-not-allowed opacity-50',
             )}
           >
@@ -102,7 +106,7 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
               {value.map((tag, i) => (
                 <li
                   key={`${tag}-${i}`}
-                  className="inline-flex items-center gap-1 rounded-r-sm bg-muted px-1.5 py-0.5 text-xs text-foreground"
+                  className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 text-xs text-foreground"
                 >
                   <span>{tag}</span>
                   <IconButton
@@ -143,8 +147,14 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
                   removeAt(value.length - 1);
                 }
               }}
-              onBlur={() => add(text)}
-              className={cn('h-6 min-w-[6rem] flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground', focusRing)}
+              onBlur={(e) => {
+                // Don't auto-commit pending text when focus moves to a control
+                // inside the widget (e.g. a chip's remove button) — that would add a
+                // spurious chip in addition to the intended action.
+                if (containerRef.current?.contains(e.relatedTarget as Node | null)) return;
+                add(text);
+              }}
+              className="h-6 min-w-[6rem] flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
             />
           </div>
         )}

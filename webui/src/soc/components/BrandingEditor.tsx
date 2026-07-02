@@ -67,6 +67,7 @@ import {
   LOGIN_LAYOUTS,
 } from './auth/loginParts';
 import { LOGIN_BRANDING_DEFAULTS } from './auth/login.api';
+import { LoadError } from './LoadError';
 
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
@@ -74,7 +75,9 @@ import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Textarea } from '@/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
+import { Skeleton } from '@/ui/skeleton';
 import { Separator } from '@/ui/separator';
+import { Heading as TypographyHeading, Text } from '@/ui/typography';
 import {
   Select,
   SelectContent,
@@ -187,6 +190,50 @@ function isValidHex(v: string): boolean {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
 }
 
+/**
+ * Convert an `H S% L%` CSS triplet (the form our severity colour tokens store, e.g.
+ * `0 72% 51%`) to `#rrggbb`. Returns null on a malformed triplet. Pure + exported so
+ * an unset token's swatch/placeholder can show the theme's REAL current colour instead
+ * of a misleading black `#000000`. Tested in isolation.
+ */
+export function hslTripletToHex(triplet: string): string | null {
+  const m = triplet.trim().match(/^(-?\d*\.?\d+)\s+(-?\d*\.?\d+)%\s+(-?\d*\.?\d+)%$/);
+  if (!m) return null;
+  const h = (((Number(m[1]) % 360) + 360) % 360) / 60;
+  const s = Math.min(100, Math.max(0, Number(m[2]))) / 100;
+  const l = Math.min(100, Math.max(0, Number(m[3]))) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const mm = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (h < 1) [r, g, b] = [c, x, 0];
+  else if (h < 2) [r, g, b] = [x, c, 0];
+  else if (h < 3) [r, g, b] = [0, c, x];
+  else if (h < 4) [r, g, b] = [0, x, c];
+  else if (h < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (v: number) =>
+    Math.round((v + mm) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * The current computed colour of a `--token` (as `#rrggbb`), for an unset-token swatch
+ * so it doesn't render black. Reads the live CSS custom property (an `H S% L%` triplet
+ * for our tokens, occasionally a hex) and converts it. No-ops (null) in non-DOM/test envs.
+ */
+function resolvedTokenHex(name: string): string | null {
+  if (typeof document === 'undefined' || typeof getComputedStyle === 'undefined') return null;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw) return null;
+  if (isValidHex(raw)) return raw;
+  return hslTripletToHex(raw);
+}
+
 /** Live-preview the accent by rewriting (or clearing) the primary/ring CSS vars. */
 function applyAccentPreview(accentHex: string): void {
   if (typeof document === 'undefined') return;
@@ -251,16 +298,26 @@ function applyMaterialPreview(material: Material): void {
 }
 
 /** Live-preview the favicon from a trusted data: URL (empty/blank → no change). */
+// The site's ORIGINAL favicon (from index.html), captured once so removing a custom one
+// can RESTORE it rather than leaving the tab icon stale until a full page reload.
+let _originalFaviconHref: string | null = null;
 function applyFaviconPreview(href: string): void {
   if (typeof document === 'undefined') return;
-  if (!href || !href.startsWith('data:image/')) return;
   let link = document.querySelector<HTMLLinkElement>('link[rel~="icon"]');
+  if (_originalFaviconHref === null) _originalFaviconHref = link?.getAttribute('href') ?? '';
+  // A valid custom data-URL wins; a blank/invalid href falls back to the original favicon.
+  const next = href && href.startsWith('data:image/') ? href : _originalFaviconHref;
+  if (!next) {
+    // No custom AND no original → drop the <link rel=icon> so the tab icon isn't stale.
+    if (link) link.parentNode?.removeChild(link);
+    return;
+  }
   if (!link) {
     link = document.createElement('link');
     link.rel = 'icon';
     document.head.appendChild(link);
   }
-  link.href = href;
+  link.href = next;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -291,8 +348,17 @@ function effectiveDefaultTheme(b: BrandingDoc): ThemeMode {
 function Heading({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="space-y-0.5">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-      {sub ? <p className="text-xs leading-relaxed text-muted-foreground">{sub}</p> : null}
+      {/* Shared typography primitives (§2.4) instead of a hand-rolled h3/p pair. The
+          text-sm override keeps the compact 13px section-heading size while the level-4
+          weight (600) + tracking come from the scale. Title/sub render as plain text (#9). */}
+      <TypographyHeading level={4} as="h3" className="text-sm">
+        {title}
+      </TypographyHeading>
+      {sub ? (
+        <Text variant="small" className="leading-relaxed">
+          {sub}
+        </Text>
+      ) : null}
     </div>
   );
 }
@@ -453,26 +519,25 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const [serverWarnings, setServerWarnings] = React.useState<string[]>([]);
   const [autoCorrected, setAutoCorrected] = React.useState<Record<string, string>>({});
 
-  // Fetch the authoritative branding once.
-  React.useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const b = await getBrandingDoc();
-        if (!mounted) return;
-        const merged = { ...DEFAULT_BRANDING, ...b };
-        setSaved(merged);
-        setDraft(merged);
-      } catch (e) {
-        if (mounted) setError(e);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
+  // Fetch the authoritative branding (callable so a load failure can be retried).
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const b = await getBrandingDoc();
+      const merged = { ...DEFAULT_BRANDING, ...b };
+      setSaved(merged);
+      setDraft(merged);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
   const set = (patch: Partial<BrandingDoc>) => {
     setDraft((d) => ({ ...d, ...patch }));
@@ -482,6 +547,10 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   // appearance edits never leak globally (switching sections / navigating away).
   const savedRef = React.useRef(saved);
   savedRef.current = saved;
+  // setTheme persists to localStorage, so a previewed "Default theme" would otherwise
+  // leak past unmount; keep a ref so the cleanup can revert the colour mode too.
+  const setThemeRef = React.useRef(setTheme);
+  setThemeRef.current = setTheme;
   React.useEffect(() => {
     return () => {
       const s = savedRef.current;
@@ -489,6 +558,10 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
       applyAccent2Preview(s.accent_color2 || '');
       applyThemeTokensPreview(s.theme_tokens || {});
       applyMaterialPreview((s.material as Material) || 'quiet');
+      applyFaviconPreview(s.favicon_data_url || '');
+      // Mirror discard(): revert the previewed colour mode to the saved default so an
+      // unsaved theme click does not persist globally.
+      setThemeRef.current(effectiveDefaultTheme(s));
     };
   }, []);
 
@@ -591,6 +664,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
         return;
       }
       set({ favicon_data_url: dataUrl });
+      applyFaviconPreview(dataUrl); // live preview, mirroring accent/token/material edits
     } catch {
       setFaviconError('Could not read the file. Please try again.');
     }
@@ -602,6 +676,12 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   // (headline/body/chips) or a curated ENUM key (layout/illustration) — never markup
   // or a URL (#6/#9). The BrandHero live preview renders every string as plain text.
   const loginLayout = asLoginLayout(draft.login_layout);
+  // Mirror the real login's layout→hero-variant mapping so the preview reflects the
+  // chosen layout. 'centered' truly drops the copy (backdrop only); 'split' uses the
+  // 'panel' variant which is hidden below lg and would vanish in the small preview box,
+  // so it falls back to the copy-bearing 'full' hero here.
+  const loginPreviewVariant: 'full' | 'backdrop' =
+    loginLayout === 'centered' ? 'backdrop' : 'full';
   const loginIllustration = asLoginIllustration(draft.login_illustration);
   const loginChips: string[] = Array.isArray(draft.login_chips)
     ? draft.login_chips.map((c) => String(c))
@@ -700,15 +780,22 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   const gradient = `linear-gradient(135deg, ${a1} 0%, ${a2} 100%)`;
 
   if (loading) {
-    return <p className="text-sm text-muted-foreground">Loading branding…</p>;
+    // Skeleton shaped like the form (preview bar + a field grid) — consistent with the
+    // other Settings editors, and avoids the bare-text → full-form pop.
+    return (
+      <div className="space-y-6" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading branding…</span>
+        <Skeleton className="h-24 w-full rounded-lg" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-md" />
+          ))}
+        </div>
+      </div>
+    );
   }
   if (error) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>Could not load branding</AlertTitle>
-        <AlertDescription>{errMsg(error, 'An unexpected error occurred.')}</AlertDescription>
-      </Alert>
-    );
+    return <LoadError error={error} title="Couldn't load branding" onRetry={() => void load()} />;
   }
 
   const hasServerWarnings = serverWarnings.length > 0;
@@ -838,6 +925,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             onPick={(f) => void onFavicon(f)}
             onRemove={() => {
               set({ favicon_data_url: '' });
+              applyFaviconPreview(''); // reflect removal immediately (restore the original)
               setFaviconError(null);
             }}
           />
@@ -938,12 +1026,15 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
             const value = themeTokens[spec.name] || '';
             if (spec.kind === 'color') {
               const invalid = Boolean(value) && !isValidHex(value);
+              // Show the token's REAL current colour as the unset swatch/placeholder
+              // rather than a misleading black (unset severity tokens all looked black).
+              const placeholder = resolvedTokenHex(spec.name) || '#000000';
               return (
                 <ColorField
                   key={spec.name}
                   label={spec.label}
                   value={value}
-                  placeholder="#000000"
+                  placeholder={placeholder}
                   invalid={invalid}
                   disabled={readOnly}
                   onChange={(v) => setToken(spec.name, v)}
@@ -1122,7 +1213,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
               subtitle={draft.login_subtitle || ''}
               footerText={draft.footer_text || ''}
               illustration={loginIllustration}
-              variant="full"
+              variant={loginPreviewVariant}
             />
           </div>
         </div>

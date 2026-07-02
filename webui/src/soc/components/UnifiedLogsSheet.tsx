@@ -73,6 +73,7 @@ import { CodeBlock } from '@/soc/components/CodeBlock';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SeverityBadge } from '@/soc/components/badges';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 
 /** Auto-refresh cadence for the "Live tail" switch (ms). */
 const LIVE_TAIL_INTERVAL_MS = 10_000;
@@ -117,7 +118,7 @@ const SourceStatusStrip: React.FC<{ sources: UnifiedLogSourceStatus[] }> = ({ so
           )}
           {/* source_name is operator-set text → plain text. */}
           <span className="truncate">{s.source_name || s.source_id}</span>
-          <span className="tabular-nums text-[0.7rem] opacity-80">
+          <span className="tabular-nums text-xs opacity-80">
             {s.ok ? s.count : (s.error || 'error')}
           </span>
         </Badge>
@@ -132,6 +133,10 @@ const SourceStatusStrip: React.FC<{ sources: UnifiedLogSourceStatus[] }> = ({ so
 
 export const UnifiedLogsBody: React.FC = () => {
   const [query, setQuery] = React.useState('');
+  // The COMMITTED search term the fetch actually uses. Kept separate from the live
+  // `query` input so typing does not refetch/skeleton-flash on every keystroke — the
+  // search is manual (Enter / Refresh), matching the button contract below.
+  const [submittedQuery, setSubmittedQuery] = React.useState('');
   const [start, setStart] = React.useState('now-1h');
   const [liveTail, setLiveTail] = React.useState(false);
 
@@ -145,18 +150,23 @@ export const UnifiedLogsBody: React.FC = () => {
 
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const loadRef = React.useRef<(showSkeleton: boolean) => void>(() => {});
+  // Monotonic request id: a response is applied only if it is still the latest one,
+  // so overlapping fetches (typing fast, live-tail overlap) never render stale rows.
+  const seqRef = React.useRef(0);
 
   const load = React.useCallback(
     async (showSkeleton: boolean) => {
+      const seq = ++seqRef.current;
       if (showSkeleton) setLoading(true);
       setError(null);
       try {
         const res = await fetchUnifiedLogs({
           limit: ROW_LIMIT,
-          query: query.trim() || undefined,
+          query: submittedQuery.trim() || undefined,
           from: start || undefined,
           to: 'now',
         });
+        if (seq !== seqRef.current) return; // superseded by a newer request
         const logs = res.logs || [];
         setRows(logs);
         setSources(res.sources || []);
@@ -171,13 +181,21 @@ export const UnifiedLogsBody: React.FC = () => {
           return next;
         });
       } catch (e) {
+        if (seq !== seqRef.current) return;
         setError(e);
       } finally {
-        if (showSkeleton) setLoading(false);
+        if (showSkeleton && seq === seqRef.current) setLoading(false);
       }
     },
-    [query, start],
+    [submittedQuery, start],
   );
+
+  // Manual search: commit the live input. If the term is unchanged the load effect
+  // won't refire, so force a single refetch.
+  const runSearch = React.useCallback(() => {
+    if (submittedQuery === query) void load(true);
+    else setSubmittedQuery(query);
+  }, [submittedQuery, query, load]);
 
   React.useEffect(() => {
     loadRef.current = load;
@@ -231,7 +249,7 @@ export const UnifiedLogsBody: React.FC = () => {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void load(true);
+              if (e.key === 'Enter') runSearch();
             }}
           />
         </div>
@@ -261,7 +279,7 @@ export const UnifiedLogsBody: React.FC = () => {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void load(true)}
+          onClick={runSearch}
           disabled={loading}
           aria-label="Refresh log events"
         >
@@ -390,6 +408,7 @@ export const UnifiedLogsBody: React.FC = () => {
                                   : `Show raw event for ${r.id}`
                               }
                               aria-expanded={isOpen}
+                              aria-controls={`ulog-raw-${key}`}
                               onClick={() => toggleExpand(key)}
                             >
                               {isOpen ? (
@@ -401,7 +420,7 @@ export const UnifiedLogsBody: React.FC = () => {
                           </TableCell>
                         </TableRow>
                         {isOpen ? (
-                          <TableRow>
+                          <TableRow id={`ulog-raw-${key}`}>
                             <TableCell colSpan={7} className="bg-muted/30 p-2">
                               {/* _raw is UNTRUSTED source data → fenced, never markup. */}
                               <CodeBlock
@@ -444,7 +463,7 @@ function rowKey(r: UnifiedLogRow): string {
 /* -------------------------------------------------------------------------- */
 
 export const UnifiedLogsView: React.FC = () => (
-  <div className="space-y-6">
+  <PageContainer variant="wide" className="space-y-6">
     <PageHeader
       icon={Layers}
       eyebrow="Triage"
@@ -452,7 +471,7 @@ export const UnifiedLogsView: React.FC = () => (
       description="Recent normalised events merged across every browse-capable source, newest first."
     />
     <UnifiedLogsBody />
-  </div>
+  </PageContainer>
 );
 
 export default UnifiedLogsView;

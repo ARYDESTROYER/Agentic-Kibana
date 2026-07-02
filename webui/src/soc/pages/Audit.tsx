@@ -39,6 +39,7 @@ import {
 } from '@/ui/select';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -67,6 +68,30 @@ function rowSummary(r: AuditRecord): string {
   );
 }
 
+/**
+ * The known audit `action_type` vocabulary (mirror of backend `ActionType`). The
+ * Action facet is populated from THIS stable set (unioned with whatever appears in
+ * the loaded window) rather than only the server-filtered results, so every action
+ * stays selectable and switching filters is a single hop — a rare/older action, or
+ * the currently-selected one, is never dropped from the dropdown.
+ */
+const KNOWN_ACTIONS: readonly string[] = [
+  'prompt', 'es_query', 'tool_call', 'verdict', 'decision', 'error', 'poll', 'scan',
+  'feedback', 'collab', 'status', 'context', 'proposal', 'automation', 'notification',
+  'user_mgmt', 'auth', 'access_denied', 'thread_post', 'reaction', 'task_update',
+  'inapp_notify', 'tuning', 'reset',
+];
+
+/** Debounce a rapidly-changing value (free-text filters) before it drives a fetch. */
+function useDebouncedValue<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
 export interface AuditProps {
   onNavigate?: Navigate;
 }
@@ -87,27 +112,38 @@ function AuditViewer({ onNavigate }: AuditProps) {
   const [timeRange, setTimeRange] = React.useState<TimeRange>('all');
   const [search, setSearch] = React.useState('');
 
+  // Debounce the free-text filters so typing does not fire a GET /api/audit per
+  // keystroke; the Select filters (action/surface/time) stay immediate.
+  const actorQuery = useDebouncedValue(actor, 300);
+  const caseIdQuery = useDebouncedValue(caseId, 300);
+  // Monotonic request id — apply a response only if it is still the latest, so an
+  // out-of-order (broader) response cannot clobber a newer (narrower) one.
+  const seqRef = React.useRef(0);
+
   const load = React.useCallback(async () => {
+    const seq = ++seqRef.current;
     setLoading(true);
     setError(null);
     try {
       const now = Date.now();
       const params: AuditQuery = { limit: LIST_LIMIT };
-      if (actor.trim()) params.actor = actor.trim();
+      if (actorQuery.trim()) params.actor = actorQuery.trim();
       if (action !== ANY) params.action = action;
       if (surface !== ANY) params.surface = surface;
-      if (caseId.trim()) params.case_id = caseId.trim();
+      if (caseIdQuery.trim()) params.case_id = caseIdQuery.trim();
       if (timeRange !== 'all') {
         params.from = new Date(now - TIME_RANGE_MS[timeRange]).toISOString();
       }
       const res = await api.audit.list(params);
+      if (seq !== seqRef.current) return; // superseded by a newer request
       setRecords(res.records ?? []);
     } catch (e) {
+      if (seq !== seqRef.current) return;
       setError(e);
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
-  }, [actor, action, surface, caseId, timeRange]);
+  }, [actorQuery, action, surface, caseIdQuery, timeRange]);
 
   React.useEffect(() => {
     void load();
@@ -119,15 +155,35 @@ function AuditViewer({ onNavigate }: AuditProps) {
     if (routeCaseId) setCaseId(routeCaseId);
   }, [routeCaseId]);
 
-  // Facets for the dropdowns derived from the loaded window (self-describing).
-  const surfaces = React.useMemo(() => {
-    const s = new Set<string>();
-    for (const r of records) if (r.surface) s.add(String(r.surface));
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  // Surface facets ACCUMULATE across loads (grow-only) so selecting a surface — which
+  // narrows the server result to just that surface — never collapses the dropdown to
+  // a single option or hides the control while its filter is still active.
+  const [seenSurfaces, setSeenSurfaces] = React.useState<Set<string>>(() => new Set());
+  React.useEffect(() => {
+    setSeenSurfaces((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const r of records) {
+        if (r.surface) {
+          const s = String(r.surface);
+          if (!next.has(s)) {
+            next.add(s);
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
   }, [records]);
+  const surfaces = React.useMemo(
+    () => Array.from(seenSurfaces).sort((a, b) => a.localeCompare(b)),
+    [seenSurfaces],
+  );
 
+  // Action facets come from the STABLE known vocabulary (unioned with any observed),
+  // so every action stays selectable regardless of the current server filter.
   const actions = React.useMemo(() => {
-    const s = new Set<string>();
+    const s = new Set<string>(KNOWN_ACTIONS);
     for (const r of records) if (r.action_type) s.add(String(r.action_type));
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [records]);
@@ -309,7 +365,7 @@ function AuditViewer({ onNavigate }: AuditProps) {
           </SelectContent>
         </Select>
 
-        {surfaces.length ? (
+        {surfaces.length > 0 || surface !== ANY ? (
           <Select value={surface} onValueChange={setSurface}>
             <SelectTrigger className="w-[10rem]" aria-label="Filter by surface">
               <SelectValue placeholder="Surface" />
@@ -377,14 +433,14 @@ function AuditViewer({ onNavigate }: AuditProps) {
           <EmptyState
             compact
             icon={ScrollText}
-            title={records.length === 0 ? 'No audit records' : 'No records match your filters'}
+            title={anyActive ? 'No records match your filters' : 'No audit records'}
             description={
-              records.length === 0
-                ? 'Agent and analyst actions will appear here as they happen.'
-                : 'Clear or widen the filters to see more records.'
+              anyActive
+                ? 'No audit records match the current filters. Clear or widen them to see more.'
+                : 'Agent and analyst actions will appear here as they happen.'
             }
             action={
-              records.length > 0 && anyActive ? (
+              anyActive ? (
                 <Button variant="outline" size="sm" onClick={clearAll}>
                   <X className="mr-1.5 size-4" aria-hidden />
                   Clear filters
@@ -402,7 +458,9 @@ function AuditViewer({ onNavigate }: AuditProps) {
 export default function Audit({ onNavigate }: AuditProps) {
   return (
     <ProtectedRoute resource="audit" action="view">
-      <AuditViewer onNavigate={onNavigate} />
+      <PageContainer variant="wide">
+        <AuditViewer onNavigate={onNavigate} />
+      </PageContainer>
     </ProtectedRoute>
   );
 }

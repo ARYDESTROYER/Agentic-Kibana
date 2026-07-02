@@ -143,25 +143,32 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                 return (
                   <Card
                     key={c.source_type}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isSel}
-                    aria-label={`Select ${c.display_name}`}
-                    onClick={() => onSelect(c)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelect(c);
-                      }
-                    }}
                     className={cn(
-                      'cursor-pointer p-4 shadow-none outline-none transition-colors',
+                      'relative p-4 shadow-none transition-colors',
                       'hover:border-primary/60 hover:bg-accent/40',
-                      'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      'focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background',
                       isSel && 'border-primary ring-1 ring-primary',
                     )}
                   >
-                    <div className="flex items-start justify-between">
+                    {/* The whole-card selection target is a REAL button stretched over the
+                        card, so no interactive control is nested inside another (WCAG 4.1.2).
+                        The (?) help sits ABOVE it as a SIBLING (z-10), never inside it. */}
+                    <button
+                      type="button"
+                      aria-pressed={isSel}
+                      aria-label={`Select ${c.display_name}`}
+                      onClick={() => onSelect(c)}
+                      className="absolute inset-0 z-0 cursor-pointer rounded-lg outline-none"
+                    />
+                    <span className="absolute right-4 top-4 z-10 flex items-center gap-1.5">
+                      {c.setup_help ? (
+                        <HelpTip label={`How to add ${c.display_name}`} text={c.setup_help} />
+                      ) : null}
+                      {isSel ? (
+                        <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden />
+                      ) : null}
+                    </span>
+                    <div className="flex items-start">
                       <span
                         className={cn(
                           'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface',
@@ -169,27 +176,6 @@ export const ConnectorPicker: React.FC<ConnectorPickerProps> = ({
                         )}
                       >
                         <Icon className="h-5 w-5" aria-hidden />
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        {c.setup_help ? (
-                          // The (?) opens a popover; stop the card's click/keydown so it
-                          // doesn't also select the connector. This span is only a
-                          // propagation boundary — the real interactive element is the
-                          // HelpTip button nested inside it, so it needs no role/tabindex.
-                          // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-                          <span
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          >
-                            <HelpTip
-                              label={`How to add ${c.display_name}`}
-                              text={c.setup_help}
-                            />
-                          </span>
-                        ) : null}
-                        {isSel ? (
-                          <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden />
-                        ) : null}
                       </span>
                     </div>
                     <div

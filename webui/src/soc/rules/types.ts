@@ -257,9 +257,15 @@ export interface ScheduleForm {
  * keyed by a stable local `key` (name for detection, id for automation).
  */
 export interface RuleCatalogItem {
-  /** Stable local key for React lists (detection: name; automation: id). */
+  /** Stable local key for React lists — the source-array INDEX, so rules with a
+   * DUPLICATE display name never collide (detection rules are keyed by free-text name
+   * on the wire; two same-named rules must still edit/delete independently, #24). */
   key: string;
   tier: RuleTier;
+  /** The index of this rule in its source wire array (`rule_catalog` for detection,
+   * `threshold_automation.rules` for automation) — the authoritative identity used to
+   * edit/delete/toggle exactly this row, never a name/id match (#24). */
+  sourceIndex: number;
   /** Display name (plain text). */
   name: string;
   enabled: boolean;

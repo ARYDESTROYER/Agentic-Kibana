@@ -2,10 +2,9 @@
  * Co-located API + types for the async BATCH-inference job viewer (Round 4 / Wave 4).
  *
  * Kept OUT of the shared `lib/api.ts` (parallel-build hygiene) per the co-located
- * `*.api.ts` convention. Endpoints (all under `/api`, READ-ONLY, `models:read`):
+ * `*.api.ts` convention. Endpoint (under `/api`, READ-ONLY, `models:read`):
  *   GET /api/batch/jobs            — list every tracked batch job, newest-submitted
  *                                    first (secret-free, bounded).
- *   GET /api/batch/jobs/{job_id}   — one job by id (404 when unknown).
  *
  * Surfaces the durable async LLM batch-job registry so an operator can see which
  * low-urgency investigations were routed through a provider's discounted async batch
@@ -69,11 +68,6 @@ export interface BatchJobsResponse {
   count: number;
 }
 
-/** GET /api/batch/jobs/{job_id}. */
-export interface BatchJobResponse {
-  job: BatchJobRow;
-}
-
 /** GET /api/batch/jobs (newest-submitted first). */
 export function fetchBatchJobs(): Promise<BatchJobsResponse> {
   // Defer through Promise.resolve so a synchronous stub failure surfaces as a
@@ -81,16 +75,8 @@ export function fetchBatchJobs(): Promise<BatchJobsResponse> {
   return Promise.resolve().then(() => api.get<BatchJobsResponse>('batch/jobs'));
 }
 
-/** GET /api/batch/jobs/{job_id} (404 when unknown). */
-export function fetchBatchJob(jobId: string): Promise<BatchJobResponse> {
-  return Promise.resolve().then(() =>
-    api.get<BatchJobResponse>(`batch/jobs/${encodeURIComponent(jobId)}`),
-  );
-}
-
 export const batchApi = {
   jobs: fetchBatchJobs,
-  job: fetchBatchJob,
 };
 
 /** Badge variant + human label for a batch-job state (controlled tokens, plain text). */

@@ -13,7 +13,6 @@
  */
 import * as React from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { Check } from 'lucide-react';
 
 import type { ModelConfig, ModelsResponse, Preferences } from '@/lib/types';
 import { humanizeToken } from '@/lib/format';
@@ -21,7 +20,6 @@ import { humanizeToken } from '@/lib/format';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
-import { Badge } from '@/ui/badge';
 import {
   Select,
   SelectContent,
@@ -34,6 +32,7 @@ import {
   SettingsTOC,
   type SettingsTOCItem,
 } from '@/soc/components/SettingsGrid';
+import { SecretField } from '@/soc/components/SecretField';
 
 /** The `{ prefs, update }` contract every top-level settings section renderer takes. */
 export type SecProps = {
@@ -129,8 +128,8 @@ export function SectionShell({
     <div className="space-y-6">
       <SectionTitle title={title} sub={sub} />
       {showToc ? (
-        <div className="sticky top-2 z-10 -mx-1 overflow-x-auto rounded-lg border border-border bg-card/90 px-1.5 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/75">
-          <SettingsTOC items={toc!} active={active} className="min-w-max flex-row gap-1" />
+        <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 -mx-1 overflow-x-auto rounded-lg border border-border bg-card/90 px-1.5 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/75">
+          <SettingsTOC items={toc!} active={active} orientation="horizontal" className="min-w-max flex-row gap-1" />
         </div>
       ) : null}
       {children}
@@ -186,18 +185,47 @@ export function NumPref({
   onChange: (v: number) => void;
 }) {
   const id = React.useId();
+  // Keep raw text while EDITING so the field can be cleared/retyped without snapping to
+  // 0 (the old `value ?? 0` controlled input committed `Number('') === 0` on clear and
+  // showed a literal "0" for an unset pref). Commit on blur: parse, clamp to [min,max],
+  // and an empty field falls back to `min ?? 0` rather than a bogus mid-edit 0.
+  const [text, setText] = React.useState<string>(value == null ? '' : String(value));
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => {
+    if (!editing) setText(value == null ? '' : String(value));
+  }, [value, editing]);
+
+  const commit = (raw: string) => {
+    setEditing(false);
+    const trimmed = raw.trim();
+    let n = trimmed === '' ? (min ?? 0) : Number(trimmed);
+    if (Number.isNaN(n)) {
+      setText(value == null ? '' : String(value));
+      return;
+    }
+    if (min != null && n < min) n = min;
+    if (max != null && n > max) n = max;
+    setText(String(n));
+    if (n !== value) onChange(n);
+  };
+
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
       <Input
         id={id}
         type="number"
-        value={value ?? 0}
+        value={text}
         step={step}
         min={min}
         max={max}
         disabled={disabled}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => {
+          setEditing(true);
+          setText(e.target.value);
+        }}
+        onBlur={(e) => commit(e.target.value)}
       />
       {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
     </div>
@@ -296,6 +324,13 @@ export function ModelPicker({
   );
 }
 
+/**
+ * A write-only key input, built on the SHARED `SecretField` primitive so every secret
+ * surface (settings keys, enrichment providers, notification channels, the wizard)
+ * shares ONE reveal-toggle + boolean-pill + explicit-clear UX (#10). Values are buffered
+ * in the section's draft and pushed via the dedicated secrets route; an empty draft is
+ * never sent, so a blank value can never clobber a stored key.
+ */
 export function SecretInput({
   label,
   secretKey,
@@ -311,33 +346,19 @@ export function SecretInput({
   help?: string;
   onChange: (v: string) => void;
 }) {
-  const id = React.useId();
+  // `secretKey` is retained in the call-site contract for a stable field identity; the
+  // shared SecretField manages its own control id, so it isn't threaded onto the DOM here.
   void secretKey;
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{label}</Label>
-        {configured ? (
-          <Badge variant="success" className="gap-1">
-            <Check className="h-3 w-3" aria-hidden />
-            Configured
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-muted-foreground">
-            Not set
-          </Badge>
-        )}
-      </div>
-      <Input
-        id={id}
-        type="password"
-        autoComplete="new-password"
-        placeholder={configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {help ? <p className="text-xs text-muted-foreground">{help}</p> : null}
-    </div>
+    <SecretField
+      label={label}
+      description={help}
+      configured={Boolean(configured)}
+      value={value}
+      onChange={onChange}
+      placeholder={configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
+      configuredLabel="Configured"
+    />
   );
 }
 

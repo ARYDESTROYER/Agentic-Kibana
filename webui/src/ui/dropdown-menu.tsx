@@ -39,7 +39,13 @@ const DropdownMenuSubContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.SubContent
     ref={ref}
-    className={cn('z-50 min-w-[8rem] overflow-hidden p-1', overlaySurface, className)}
+    className={cn(
+      // Clamp to the Popper-available height + scroll internally so a menu taller than
+      // the viewport doesn't push its lower items off-screen (Radix has no scroll buttons).
+      'z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-y-auto overflow-x-hidden p-1',
+      overlaySurface,
+      className,
+    )}
     {...props}
   />
 ));
@@ -54,7 +60,9 @@ const DropdownMenuContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 min-w-[8rem] overflow-hidden p-1',
+        // Clamp to the Popper-available height + scroll internally so a long menu
+        // (e.g. many saved views) doesn't overflow the viewport with unreachable rows.
+        'z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[8rem] overflow-y-auto overflow-x-hidden p-1',
         overlaySurface,
         'data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1',
         'data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1',
@@ -144,7 +152,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn('px-2 py-1.5 text-xs font-medium text-muted-foreground', inset && 'pl-8', className)}
+    className={cn('px-2.5 py-1.5 text-xs font-medium text-muted-foreground', inset && 'pl-8', className)}
     {...props}
   />
 ));

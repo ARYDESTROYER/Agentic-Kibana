@@ -658,6 +658,22 @@ export interface SecretsUpdate {
 
 export type ConfiguredStatus = Record<string, boolean>;
 
+/**
+ * The per-provider SSO client-secret configured map (Round-6 #21): `provider_id → bool`
+ * (true iff THAT provider has a client secret set — never the value, #10). The backend
+ * returns this ADDITIVELY inside `configured` (alongside the legacy scalar
+ * `sso_client_secrets` boolean, kept for compat). `ConfiguredStatus`'s boolean index
+ * signature can't express this nested map, so read it via `configuredSsoById(configured)`
+ * for an accurate PER-provider badge even with 2+ providers.
+ */
+export type SsoClientSecretsById = Record<string, boolean>;
+
+/** Safely read the additive per-provider SSO configured map out of `configured` (#21). */
+export function configuredSsoById(configured: ConfiguredStatus): SsoClientSecretsById {
+  const raw = (configured as Record<string, unknown>)['sso_client_secrets_by_id'];
+  return raw && typeof raw === 'object' ? (raw as SsoClientSecretsById) : {};
+}
+
 export interface SetupStatus {
   setup_complete: boolean;
   // Wave-1 OOBE + auth fields (additive).
@@ -831,6 +847,13 @@ export interface AutomationConditions {
 /** One operator-authored threshold-automation rule. */
 export interface AutomationRule {
   id: string;
+  /**
+   * Optional operator-facing DISPLAY name, independent of the immutable `id`, so a rule
+   * can be renamed after creation (mirrors backend `CaseAutomationRule.name`; additive,
+   * defaults ""). Plain operator text → render escaped (#9); falls back to `id` when
+   * blank. Never feeds the matcher or `decide()` (#3).
+   */
+  name?: string;
   enabled?: boolean;
   /** Lower runs first (priority order). Defaults to 100. */
   priority?: number;
@@ -1314,7 +1337,15 @@ export interface EffectivePrefs {
 // Cases / analytics surfaces.
 // --------------------------------------------------------------------------- //
 export interface Entity {
-  type: 'ip' | 'user' | 'host';
+  /**
+   * Correlation grouping-key type. Mirrors the backend `EntityType` enum (all SIX
+   * values — see {@link EntityTypeFull}): ip/user/host plus file_hash/domain/rule,
+   * where `rule` is the always-resolvable terminal fallback cluster. A case grouped
+   * on a rule/domain/file_hash is therefore typed correctly (the old
+   * ip|user|host union under-typed `Case.entity`). The Investigate picker only
+   * OFFERS the ip/user/host subset (see `ENTITY_OPTIONS` there).
+   */
+  type: EntityTypeFull;
   value: string;
 }
 
@@ -1704,7 +1735,8 @@ export interface ChatResponse {
   memory_suggestion?: ChatMemorySuggestion | null;
   /**
    * Optional provenance the chat engine may attach (additive; render only when
-   * present). All values are UNTRUSTED — render as plain text / `EuiCodeBlock`.
+   * present). All values are UNTRUSTED — render as plain text / the `CodeBlock`
+   * primitive (`soc/components/CodeBlock`), never as markup.
    */
   tools?: RationaleTool[];
   knowledge?: RationaleKnowledge[];
@@ -1944,8 +1976,8 @@ export type ProposalStatus = 'pending' | 'approved' | 'rejected' | string;
  * Nothing here is applied automatically: a `suppression` rule only goes live, and
  * a `memory` fact is only saved, once a human approves it. `payload` is
  * kind-specific and SOURCE-INFLUENCED (it derives from log events), so every value
- * inside it — and `rationale` — is UNTRUSTED and must render as plain text /
- * `EuiCode`, never as markup.
+ * inside it — and `rationale` — is UNTRUSTED and must render as plain text / the
+ * `InlineCode` primitive (`soc/components/CodeBlock`), never as markup.
  *
  * - `kind === 'suppression'` → `payload` carries `{ field, value, reason? }` (the
  *   candidate `field == value` rule).
@@ -2205,11 +2237,41 @@ export interface RuleMatch {
 }
 
 /**
+ * Optional per-detection-rule schedule metadata (mirrors backend `RuleSchedule`;
+ * G6 R5 "Schedule" tab). ADVISORY ONLY — the poller's durable per-feed cursor owns
+ * cadence today; these persist the operator's intent + round-trip losslessly. Never
+ * feeds `decide()` (#3). Snake_case wire keys (the FE `ScheduleForm` uses camelCase;
+ * the rules adapter maps `intervalSeconds` ⇄ `interval_seconds`).
+ */
+export interface RuleSchedule {
+  interval_seconds?: number | null;
+  lookback_seconds?: number | null;
+}
+
+/**
+ * Optional per-detection-rule alert-storm suppression metadata (mirrors backend
+ * `RuleSuppression`; G6 R5). ADVISORY/STORAGE ONLY — persists the operator's intent so
+ * the Suppression editor round-trips; the engine does NOT silently DROP events from this
+ * per-rule block (any real DROP stays a HITL Proposal via `Preferences.suppression_rules`,
+ * #3/#4-safe). `by` fields are operator/log-adjacent → render as plain text (#9).
+ */
+export interface RuleSuppression {
+  by?: string[];
+  scope?: 'per_run' | 'per_window' | string;
+  window_seconds?: number | null;
+  missing_field?: 'suppress' | 'keep' | string;
+}
+
+/**
  * A config-driven, pre-baked-but-editable detection rule (mirrors backend
  * `RuleDefinition`). Rules classify an event via `match`, may carry a `correlation`
  * override + per-role `model_override`, and are evaluated in ascending `priority`
  * (then list order). `model_override` never echoes a key (#10); its values are
  * `ModelConfig` selections only. `name`/`description` are operator text → plain (#9).
+ * `mitre`/`schedule`/`suppression` are ADDITIVE, defaulted G6-editor metadata (advisory
+ * only — none feeds `decide()`, #3): `mitre` maps the rule to ATT&CK technique ids
+ * (coverage heatmap), `schedule`/`suppression` persist the operator's cadence/storm
+ * intent. `mitre` values are operator/log-adjacent → render as plain text (#9).
  */
 export interface RuleDefinition {
   name: string;
@@ -2220,6 +2282,10 @@ export interface RuleDefinition {
   /** Per-role model overrides for this rule (role → selection). Never carries a key. */
   model_override?: Record<string, ModelConfig>;
   priority?: number;
+  /** ATT&CK technique ids this rule maps to (advisory; coverage heatmap). */
+  mitre?: string[];
+  schedule?: RuleSchedule | null;
+  suppression?: RuleSuppression | null;
 }
 
 // NOTE: `CorrelationRule` is defined earlier in this file (Preferences section).
@@ -2465,8 +2531,17 @@ export interface DashboardLayout {
   id: string;
   /** Operator-facing dashboard name (UNTRUSTED — plain text, allowlist-validated). */
   name: string;
+  /** Grid column count (mirrors backend `DashboardLayout.columns`, default 12). */
+  columns?: number;
   /** The widgets placed on this dashboard (their geometry is the RGL layout). */
   widgets?: DashboardWidget[];
+  /**
+   * Optional per-breakpoint override map (RGL responsive layouts), keyed by
+   * breakpoint name (lg/md/sm/xs/xxs) → widget placements. Mirrors the backend
+   * `DashboardLayout.layouts` field + its sanitizer. Absent/empty → the single
+   * `widgets` layout is authoritative (the current builder emits only `widgets`).
+   */
+  layouts?: Record<string, DashboardWidget[]>;
   /** Store schema version (present from day one for zero-migration evolution). */
   schema_version?: number;
   created_at?: string;

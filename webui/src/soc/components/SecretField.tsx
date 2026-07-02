@@ -46,6 +46,10 @@ export interface SecretFieldProps {
   onClear?: () => void;
   /** Disable the input (e.g. env-managed secret). */
   disabled?: boolean;
+  /** Marks the field required (visual `*` + `aria-required`). */
+  required?: boolean;
+  /** Optional slot on the label's right (e.g. a HelpTip) — forwarded to `Field`. */
+  labelAction?: React.ReactNode;
   /** Label shown when configured. Default "configured". */
   configuredLabel?: string;
   className?: string;
@@ -63,6 +67,8 @@ export const SecretField = React.forwardRef<HTMLInputElement, SecretFieldProps>(
       placeholder,
       onClear,
       disabled,
+      required,
+      labelAction,
       configuredLabel = 'configured',
       className,
     },
@@ -71,13 +77,20 @@ export const SecretField = React.forwardRef<HTMLInputElement, SecretFieldProps>(
     const [reveal, setReveal] = React.useState(false);
 
     return (
-      <Field label={label} description={description} error={error} className={className}>
-        {({ id, describedBy, invalid }) => (
+      <Field
+        label={label}
+        description={description}
+        error={error}
+        required={required}
+        labelAction={labelAction}
+        className={className}
+      >
+        {({ id, describedBy, invalid, required: ariaRequired }) => (
           <div className="space-y-1.5">
             {/* Status pill — the boolean, never the value. */}
             <div
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-r-md border px-2 py-0.5 text-2xs font-medium',
+                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-2xs font-medium',
                 configured
                   ? 'border-success/40 bg-success/10 text-success-text'
                   : 'border-border bg-muted/50 text-muted-foreground',
@@ -105,11 +118,12 @@ export const SecretField = React.forwardRef<HTMLInputElement, SecretFieldProps>(
                 placeholder={placeholder ?? (configured ? 'Enter a new value to rotate' : 'Enter value')}
                 disabled={disabled}
                 autoComplete="new-password"
+                aria-required={ariaRequired}
                 aria-describedby={describedBy}
                 aria-invalid={invalid}
                 className={cn(
                   'flex h-9 w-full rounded-md border border-input bg-background pl-3 pr-16 py-1 text-sm text-foreground transition-colors',
-                  'placeholder:text-muted-foreground hover:border-border',
+                  'placeholder:text-muted-foreground hover:border-border-strong',
                   'focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
                   focusRing,
                 )}

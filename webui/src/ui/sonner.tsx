@@ -5,14 +5,17 @@ type ToasterProps = React.ComponentProps<typeof SonnerToaster>;
 
 /**
  * Pre-themed sonner Toaster. Drives toast colors from our CSS-var tokens so it
- * matches both light and dark themes automatically (theme is controlled by the
- * `.dark` class on <html>, so `theme="system"` here just defers to our tokens).
- * Import `toast` directly from 'sonner' to fire toasts.
+ * matches both light and dark themes. sonner's own `theme` prop is NOT tied to our
+ * `.dark` class — left as `system` it reads the OS `prefers-color-scheme` directly,
+ * which diverges whenever the operator forces Light/Dark (or a branding default
+ * overrides the OS). So the ThemeProvider mount passes the app's RESOLVED theme in;
+ * `system` remains only as the standalone default. Import `toast` directly from
+ * 'sonner' to fire toasts.
  */
-function Toaster({ ...props }: ToasterProps) {
+function Toaster({ theme = 'system', ...props }: ToasterProps) {
   return (
     <SonnerToaster
-      theme="system"
+      theme={theme}
       className="toaster group"
       toastOptions={{
         classNames: {

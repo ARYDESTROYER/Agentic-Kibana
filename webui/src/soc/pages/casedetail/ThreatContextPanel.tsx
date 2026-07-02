@@ -18,7 +18,6 @@ import {
   GitBranch,
   Globe,
   Link2,
-  RefreshCw,
   Search,
   Shield,
   Target,
@@ -29,11 +28,10 @@ import { humanizeAge, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
-import { Button } from '@/ui/button';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { VerdictBadge, StatusBadge, RiskBadge } from '@/soc/components/badges';
 import type { Navigate } from '@/soc/router';
@@ -71,16 +69,7 @@ export const ThreatContextPanel: React.FC<{
   if (error) {
     return (
       <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not load threat context</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Something went wrong.'}
-          </AlertDescription>
-        </Alert>
-        <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" /> Retry
-        </Button>
+        <LoadError error={error} title="Could not load threat context" onRetry={onRetry} />
       </div>
     );
   }
@@ -243,9 +232,10 @@ export const ThreatContextPanel: React.FC<{
                     href={mitreUrl(t.id, t.url)}
                     target="_blank"
                     rel="noopener noreferrer"
+                    aria-label={`Open MITRE ATT&CK ${t.id} in a new tab`}
                     className="ml-auto inline-flex items-center gap-1 text-xs text-primary hover:underline"
                   >
-                    <Link2 className="h-3 w-3" /> MITRE
+                    <Link2 className="h-3 w-3" aria-hidden /> MITRE
                   </a>
                 </div>
                 {t.tactics && t.tactics.length ? (
@@ -320,7 +310,7 @@ export const ThreatContextPanel: React.FC<{
         <SectionHeading icon={Crosshair}>
           Asset context
         </SectionHeading>
-        {!asset || (!asset.entity && assetAttrs.length === 0) ? (
+        {!asset || (!asset.entity && !asset.criticality && assetAttrs.length === 0) ? (
           <EmptyState
             icon={Crosshair}
             compact

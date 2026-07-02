@@ -21,12 +21,19 @@
  * therefore sized `calc(100vh - 104px)` so it fills exactly the available slot while
  * still respecting the wrapper's bottom padding, with `min-h-0` so the transcript
  * lane (not the page) is what scrolls.
+ *
+ * Demo Mode: the AppShell injects the amber DemoBanner + a 16px `mt-4` spacer ABOVE
+ * the page INSIDE that same content wrapper, so when the demo tenant is active the
+ * frame must subtract that band (~88px) as well or the composer is pushed below the
+ * fold. We read `useDemo()` and pick the offset accordingly (literal class strings so
+ * Tailwind's JIT emits them).
  */
 import { useRef } from 'react';
 import { MessageSquare, RefreshCw } from 'lucide-react';
 
 import type { Navigate } from '@/soc/router';
 import { cn } from '@/lib/cn';
+import { useDemo } from '@/soc/demo';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { Button } from '@/ui/button';
 import { ChatPanel, type ChatPanelHandle } from '@/soc/components/ChatPanel';
@@ -52,6 +59,17 @@ export interface ChatPageProps {
 
 export default function Chat({ embedded = false }: ChatPageProps = {}) {
   const panelRef = useRef<ChatPanelHandle>(null);
+  // When the demo tenant is active the shell renders the DemoBanner + a 16px spacer
+  // above the page inside the same content wrapper (~88px), so subtract it too.
+  const { active: demoActive } = useDemo();
+
+  const frameHeight = embedded
+    ? demoActive
+      ? 'h-[calc(100vh-308px)]'
+      : 'h-[calc(100vh-220px)]'
+    : demoActive
+      ? 'h-[calc(100vh-192px)]'
+      : 'h-[calc(100vh-104px)]';
 
   const resetAction = (
     <Button variant="outline" size="sm" onClick={() => panelRef.current?.reset()}>
@@ -65,13 +83,9 @@ export default function Chat({ embedded = false }: ChatPageProps = {}) {
     // content slot exactly so the chat never collapses to content height. `min-h-0`
     // on the column lets the transcript lane scroll instead of the whole page.
     // Embedded inside the Workspace scaffold, the header + tab bar already consume
-    // vertical space, so the frame is a touch shorter.
-    <div
-      className={cn(
-        'flex min-h-0 flex-col gap-5',
-        embedded ? 'h-[calc(100vh-220px)]' : 'h-[calc(100vh-104px)]',
-      )}
-    >
+    // vertical space, so the frame is a touch shorter. In Demo Mode we also subtract
+    // the injected DemoBanner band (see header note).
+    <div className={cn('flex min-h-0 flex-col gap-5', frameHeight)}>
       {/* Fixed page header — does not scroll. Embedded: just the reset action. */}
       <div className="shrink-0">
         {embedded ? (

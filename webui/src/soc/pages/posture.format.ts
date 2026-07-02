@@ -60,29 +60,25 @@ export interface DeltaView {
 /**
  * Interpret a CompareBlock's `delta_pct` into a render-ready delta view.
  *
- * * a number → "+N%" / "-N%", arrow follows the sign (unless `lowerIsBetter`,
- *   which flips the color semantics so e.g. a falling FP-rate reads as positive).
- * * `null`   → "new" (prior window was 0; growth undefined) — shown, no color flip.
+ * * a number → "+N%" / "-N%" with the TRUE signed `value` (positive = rose).
+ * * `null`   → "new" (prior window was 0; growth undefined) — shown, but with NO
+ *   numeric value so the tile draws no misleading arrow.
  * * DASH / undefined → no badge (no honest comparison to draw).
  *
- * `lowerIsBetter` ONLY affects the success/critical COLOR, never the arrow direction
- * (the arrow always reflects the literal numeric change so the figure stays honest).
+ * The returned `value` is the literal signed change; whether a rise or a fall is GOOD
+ * is now the KpiTile's `goodDirection` prop (Round-5 bug #2 fix — the ARROW follows the
+ * true sign, the COLOR follows judgement). Callers pass `goodDirection="down"` for
+ * lower-is-better metrics (MTTA/MTTR, FP rate, escalation) instead of pre-flipping here.
  */
-export function deltaView(
-  block: CompareBlock | undefined,
-  opts: { lowerIsBetter?: boolean } = {},
-): DeltaView {
+export function deltaView(block: CompareBlock | undefined): DeltaView {
   if (!block) return { label: DASH, show: false };
   const d = block.delta_pct;
-  if (d === null) return { label: 'new', show: true, value: 0 };
+  if (d === null) return { label: 'new', show: true };
   if (!isNum(d)) return { label: DASH, show: false };
   const rounded = Math.round(d * 10) / 10;
   const sign = rounded > 0 ? '+' : '';
-  // The KpiTile colors by the SIGN of `value`; flip it for lower-is-better metrics so
-  // an improvement (a drop) reads green while keeping the arrow tied to the real label.
-  const colorValue = opts.lowerIsBetter ? -rounded : rounded;
   return {
-    value: colorValue,
+    value: rounded,
     label: `${sign}${rounded}%`,
     show: rounded !== 0,
   };

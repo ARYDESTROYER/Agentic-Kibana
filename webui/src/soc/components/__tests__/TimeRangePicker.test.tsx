@@ -6,7 +6,7 @@
  *   - useAutoRefresh honours `off` and pauses on a hidden tab.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, renderHook } from '@testing-library/react';
+import { render, screen, fireEvent, renderHook, within } from '@testing-library/react';
 
 import {
   TimeRangePicker,
@@ -168,8 +168,16 @@ describe('<TimeRangePicker/> render', () => {
     const onChange = vi.fn();
     render(<TimeRangePicker value={PRESETS[2]} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: /Time range:/i }));
-    // preset options render in the popover listbox
-    const opt = screen.getByRole('option', { name: /Last 7 days/i });
+    // Presets render as a labelled GROUP of plain buttons (NOT a listbox/option
+    // composite — see the a11y fix), with the active range marked via aria-current.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('option')).not.toBeInTheDocument();
+    const group = screen.getByRole('group', { name: /Relative time ranges/i });
+    expect(within(group).getByRole('button', { name: /Last 24 hours/i })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    const opt = within(group).getByRole('button', { name: /Last 7 days/i });
     fireEvent.click(opt);
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange.mock.calls[0][0]).toMatchObject({ from: 'now-7d', to: 'now' });

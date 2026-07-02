@@ -29,7 +29,9 @@ import type { LucideIcon } from 'lucide-react';
 import {
   FEATURES,
   FEATURE_GROUPS,
+  featureEnabled,
   type FeatureChild,
+  type FeatureCtx,
   type FeatureNode,
   type NavGroupId,
   type NavPerm,
@@ -37,7 +39,17 @@ import {
 } from './registry';
 
 /* Re-export the id/group/perm contracts unchanged (they now live in registry.ts). */
-export type { PageId, NavGroupId, NavPerm } from './registry';
+export type { PageId, NavGroupId, NavPerm, FeatureCtx } from './registry';
+
+/**
+ * The SINGLE nav-visibility authority (Round-6 #42). `featureEnabled` (registry.ts) is
+ * the one place the three visibility axes (RBAC grant / prefs feature-toggle / demo)
+ * are combined; re-export it here so the nav consumers (NavSidebar, CommandPalette)
+ * import ONE authority from the same module they already pull `NAV_GROUPS` from, rather
+ * than re-implementing an ad-hoc `!perm || has()` check that silently ignores a
+ * feature's `enabled` override. See {@link navVisible} for the RBAC-only convenience.
+ */
+export { featureEnabled };
 
 /**
  * A top-level rail destination. Structurally identical to a non-hidden
@@ -51,6 +63,14 @@ export interface NavItem {
   group: NavGroupId;
   /** Optional RBAC gate; the item is hidden unless the user has this grant. */
   perm?: NavPerm;
+  /**
+   * Optional unified visibility predicate over the three axes (RBAC / prefs-toggle /
+   * demo). Carried through from the registry so a consumer can route the item through
+   * {@link navVisible} / {@link featureEnabled} (the single authority) instead of only
+   * checking `perm`. Round-6 #42: previously DROPPED at this derivation boundary, which
+   * silently defeated any registered `enabled` override.
+   */
+  enabled?: (ctx: FeatureCtx) => boolean;
   /**
    * Optional child destinations (Round-3 expandable hamburger nav). These are the
    * sub-pages a host page tabs between (and that were previously only reachable via
@@ -73,6 +93,8 @@ export interface NavChild {
   icon?: LucideIcon;
   /** Optional RBAC gate; hidden unless the user has this grant. */
   perm?: NavPerm;
+  /** Optional unified visibility predicate (see {@link NavItem.enabled}). */
+  enabled?: (ctx: FeatureCtx) => boolean;
 }
 
 export interface NavGroup {
@@ -90,19 +112,32 @@ function toNavChild(c: FeatureChild): NavChild {
   const child: NavChild = { id: c.id, label: c.label };
   if (c.icon) child.icon = c.icon;
   if (c.perm) child.perm = c.perm;
+  // Round-6 #42: carry the unified `enabled` predicate through the derivation so nav
+  // consumers can gate on all three axes via navVisible/featureEnabled, not perm alone.
+  if (c.enabled) child.enabled = c.enabled;
   return child;
 }
 
 /** Narrow a non-hidden registry feature to the back-compat {@link NavItem} shape. */
 function toNavItem(f: FeatureNode): NavItem {
+  if (!f.icon) {
+    // A rail feature (non-hidden) MUST declare an icon — the shell + command palette
+    // render it as a component (`<item.icon />`). Fail fast at module-load (boot) with a
+    // named feature rather than casting `undefined` to a LucideIcon and white-screening
+    // the rail at paint time. toNavItem is only ever called for non-hidden features
+    // (see NAV_GROUPS), so a missing icon here is always a registry data mistake.
+    throw new Error(`nav: rail feature "${f.id}" is missing a required icon`);
+  }
   const item: NavItem = {
     id: f.id,
     label: f.label,
-    // Every rail feature carries an icon; fall back defensively so the type holds.
-    icon: (f.icon ?? (undefined as unknown as LucideIcon)),
+    icon: f.icon,
     group: f.group,
   };
   if (f.perm) item.perm = f.perm;
+  // Round-6 #42: carry `enabled` through (see toNavChild) so the rail/palette can route
+  // visibility through the single featureEnabled authority instead of a perm-only check.
+  if (f.enabled) item.enabled = f.enabled;
   if (f.children && f.children.length) item.children = f.children.map(toNavChild);
   return item;
 }
@@ -169,11 +204,30 @@ export function navLabel(id: PageId): string {
   if (top) return top.label;
   const child = NAV_CHILDREN.find((c) => c.id === id);
   if (child) return child.label;
-  // Consolidated sub-pages with no nav entry — humanise the id (e.g. account → Account).
+  // Hidden-but-routable pages are not in NAV_ITEMS/NAV_CHILDREN, but the registry is the
+  // single source of truth for labels — honour its declared label (correct multi-word
+  // casing included) before falling back to a humanised id for a truly unknown one.
+  const feat = FEATURES.find((f) => f.id === id);
+  if (feat) return feat.label;
   return id.charAt(0).toUpperCase() + id.slice(1).replace(/_/g, ' ');
 }
 
 /** Type guard: is the given string a known page id? */
 export function isPageId(value: string): value is PageId {
   return (PAGE_IDS as string[]).includes(value);
+}
+
+/**
+ * The single nav-visibility check for consumers that only have the RBAC axis handy
+ * (Round-6 #42). Delegates to {@link featureEnabled} — the ONE authority combining the
+ * three axes — supplying just `hasPermission`; a feature's own `enabled` override still
+ * wins (e.g. one that gates on a prefs toggle with no `perm`), which a bare
+ * `!perm || has()` check silently ignored. Consumers with the prefs/demo axes can call
+ * {@link featureEnabled} directly with a fuller {@link FeatureCtx}.
+ */
+export function navVisible(
+  node: { perm?: NavPerm; enabled?: (ctx: FeatureCtx) => boolean },
+  has: (resource: string, action: string) => boolean,
+): boolean {
+  return featureEnabled(node, { hasPermission: has });
 }

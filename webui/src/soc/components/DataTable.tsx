@@ -185,6 +185,45 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
 }
 
 /**
+ * SkeletonRow — a placeholder row shaped like a real data row so the loading state
+ * occupies the eventual row height + column layout (no content-in shift). It mirrors a
+ * rendered row exactly: the leading checkbox cell when `selectable`, the SAME density
+ * padding, one shimmer bar per displayed column, and the column's alignment (a block
+ * Skeleton is nudged via `ml-auto`/`mx-auto` so a right/center column's bar lands where
+ * its content will). Decorative → `aria-hidden`.
+ */
+function SkeletonRow<T>({
+  columns,
+  selectable,
+  cellPad,
+}: {
+  columns: DataTableColumn<T>[];
+  selectable: boolean;
+  cellPad: string;
+}) {
+  return (
+    <TableRow className="hover:bg-transparent" aria-hidden>
+      {selectable && (
+        <TableCell className={cellPad}>
+          <Skeleton className="size-4 rounded" />
+        </TableCell>
+      )}
+      {columns.map((col) => (
+        <TableCell key={col.id} className={cn(cellPad, alignClass(col.align))}>
+          <Skeleton
+            className={cn(
+              'h-4 w-full max-w-[12rem]',
+              col.align === 'right' && 'ml-auto',
+              col.align === 'center' && 'mx-auto',
+            )}
+          />
+        </TableCell>
+      ))}
+    </TableRow>
+  );
+}
+
+/**
  * Resolve the DISPLAYED columns from the full column set + the user's column state:
  * hidden ids dropped, then ordered by `order` (any column missing from `order`
  * keeps its original relative position AFTER the ordered ones). Locked columns are
@@ -393,18 +432,12 @@ export function DataTable<T>({
         <TableBody>
           {loading ? (
             Array.from({ length: loadingRows }).map((_, r) => (
-              <TableRow key={`sk-${r}`} className="hover:bg-transparent">
-                {selectable && (
-                  <TableCell className={cellPad}>
-                    <Skeleton className="size-4 rounded" />
-                  </TableCell>
-                )}
-                {displayColumns.map((col) => (
-                  <TableCell key={col.id} className={cn(cellPad, alignClass(col.align))}>
-                    <Skeleton className="h-4 w-full max-w-[12rem]" />
-                  </TableCell>
-                ))}
-              </TableRow>
+              <SkeletonRow
+                key={`sk-${r}`}
+                columns={displayColumns}
+                selectable={selectable}
+                cellPad={cellPad}
+              />
             ))
           ) : rows.length === 0 ? (
             <TableRow className="hover:bg-transparent">

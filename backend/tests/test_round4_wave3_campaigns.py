@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -27,6 +28,12 @@ from app.engine.campaigns import build_campaigns, correlate_campaigns
 from app.engine.signatures import cluster_signature
 from app.models import Campaign, Case, Entity
 from app.stores.campaigns import CampaignStore
+
+# A RECENT default timestamp (relative to now, not a hardcoded calendar day) so the
+# store-backed pass's trailing daily window (`_read_recent_cases`, 24h) always sees the
+# fixture cases as "today's cases". A fixed date here is a time-bomb: once real time
+# moves past the window, the store-read tests wrongly see zero recent cases.
+_RECENT_TS = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(microsecond=0).isoformat()
 
 
 # --------------------------------------------------------------------------- #
@@ -63,7 +70,7 @@ def _mk_case(
     mitre: list[str] | None = None,
     status: CaseStatus = CaseStatus.OPEN,
     verdict: Verdict | None = None,
-    ts: str = "2026-07-01T10:00:00+00:00",
+    ts: str = _RECENT_TS,
     severity_band: str | None = None,
 ) -> Case:
     entity = Entity(type=EntityType.IP, value=ip or "0.0.0.0")

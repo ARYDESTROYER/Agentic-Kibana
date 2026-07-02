@@ -53,4 +53,13 @@ describe('SecretField', () => {
     const input = screen.getByLabelText('API key') as HTMLInputElement;
     expect(input.value).toBe('');
   });
+
+  it('renders the status pill with evenly-rounded corners (no lopsided rounded-r-md)', () => {
+    // Regression: the pill is a standalone element, so `rounded-r-md` (right-only)
+    // left its left corners square. All four corners must match.
+    renderSecret({ configured: false });
+    const pill = screen.getByText('not set').closest('div') as HTMLElement;
+    expect(pill.className).toContain('rounded-md');
+    expect(pill.className).not.toContain('rounded-r-md');
+  });
 });

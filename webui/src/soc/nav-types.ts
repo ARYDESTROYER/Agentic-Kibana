@@ -20,6 +20,13 @@
 export type NavOpts = {
   caseId?: string;
   status?: string;
+  /**
+   * Severity-band drill-through (Round-6 #38): a coarse band the destination Cases view
+   * seeds its severity filter from — one of `critical | high | medium | low | info`
+   * (matching the Cases severity dropdown + `severityBand`). Lets the Overview
+   * Critical/High KPI + the open-by-severity rows deep-link to a severity-filtered list.
+   */
+  severity?: string;
   window?: number;
   tab?: string;
   /** Settings section id — serialized to `#/settings?s=<section>`. */

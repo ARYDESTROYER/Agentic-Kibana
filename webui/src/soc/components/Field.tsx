@@ -91,18 +91,27 @@ export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
       required: required || undefined,
     };
 
+    // A single-element child may already carry its own `id`; the auto-inject path
+    // preserves it (`id: childId ?? id`), so the visible `<Label htmlFor>` must point
+    // at whatever id the control actually renders with — otherwise clicking the label
+    // wouldn't focus the control and AT would lose the association.
+    const childEl =
+      typeof children !== 'function' && React.isValidElement(children)
+        ? (children as React.ReactElement<Record<string, unknown>>)
+        : null;
+    const controlId = (childEl?.props.id as string | undefined) ?? id;
+
     let control: React.ReactNode;
     if (typeof children === 'function') {
       control = (children as (p: FieldControlProps) => React.ReactNode)(controlProps);
-    } else if (React.isValidElement(children)) {
+    } else if (childEl) {
       // Auto-inject wiring, but never clobber props the caller already set.
-      const el = children as React.ReactElement<Record<string, unknown>>;
-      control = React.cloneElement(el, {
-        id: el.props.id ?? id,
+      control = React.cloneElement(childEl, {
+        id: controlId,
         'aria-describedby':
-          [el.props['aria-describedby'] as string | undefined, describedBy].filter(Boolean).join(' ') || undefined,
-        'aria-invalid': el.props['aria-invalid'] ?? invalid,
-        'aria-required': el.props['aria-required'] ?? (required || undefined),
+          [childEl.props['aria-describedby'] as string | undefined, describedBy].filter(Boolean).join(' ') || undefined,
+        'aria-invalid': childEl.props['aria-invalid'] ?? invalid,
+        'aria-required': childEl.props['aria-required'] ?? (required || undefined),
       });
     } else {
       control = children;
@@ -111,7 +120,7 @@ export const Field = React.forwardRef<HTMLDivElement, FieldProps>(
     return (
       <div ref={ref} className={cn('space-y-1.5', className)} {...rest}>
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={id} id={labelId} className={cn(hideLabel && 'sr-only')}>
+          <Label htmlFor={controlId} id={labelId} className={cn(hideLabel && 'sr-only')}>
             {label}
             {required ? (
               <span className="ml-0.5 text-critical-text" aria-hidden="true">

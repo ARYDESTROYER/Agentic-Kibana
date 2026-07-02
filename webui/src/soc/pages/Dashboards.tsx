@@ -119,9 +119,15 @@ export function Dashboards() {
 
   const createBlank = React.useCallback(async () => {
     try {
+      // Auto-number so repeated "New dashboard" boards stay distinguishable in the
+      // picker (they can be renamed in edit mode; the switcher shows the name).
+      const base = 'New dashboard';
+      const taken = new Set(saved.map((b) => (b.name ?? '').trim()));
+      let name = base;
+      for (let n = 2; taken.has(name); n += 1) name = `${base} ${n}`;
       const created = await api.dashboards.create({
         id: '',
-        name: 'New dashboard',
+        name,
         schema_version: 1,
         columns: 12,
         widgets: [],
@@ -132,7 +138,7 @@ export function Dashboards() {
     } catch (err) {
       toast.error(errorMessage(err, 'Could not create a dashboard'));
     }
-  }, [reload]);
+  }, [reload, saved]);
 
   const header = (
     <PageHeader
@@ -189,6 +195,10 @@ export function Dashboards() {
             key={active.id}
             dashboard={active}
             can={hasPermission}
+            // The role default (id 'overview') RESTORES on reset and is not persisted
+            // until first Save; a user-created board is persisted + permanently deleted.
+            isDefaultBoard={active.id === DEFAULT_DASHBOARD_ID}
+            persisted={saved.some((b) => b.id === active.id)}
             onSaved={() => {
               void reload();
             }}

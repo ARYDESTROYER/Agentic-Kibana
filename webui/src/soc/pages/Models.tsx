@@ -33,13 +33,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api';
-import { fmtMoney, humanizeToken } from '@/lib/format';
+import { fmtMoney } from '@/lib/format';
 import { Card } from '@/ui/card';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Textarea } from '@/ui/textarea';
+import { Skeleton } from '@/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 import {
   Select,
@@ -57,13 +58,18 @@ import {
   DialogTitle,
 } from '@/ui/dialog';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { StatCard } from '@/soc/components/StatCard';
 import { CodeBlock } from '@/soc/components/CodeBlock';
+import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { ProtectedRoute, useCan } from '@/soc/components/Can';
+import { NumberField } from '@/soc/components/NumberField';
 import { ModelsCatalog } from '@/soc/components/ModelsCatalog';
 import { BudgetCard } from '@/soc/components/BudgetCard';
 import {
   modelsApi,
+  providerLabel,
   PRICING_SOURCE_META,
   type ModelCatalogRow,
   type ModelsCatalogResponse,
@@ -79,7 +85,9 @@ function errMsg(e: unknown, fallback: string): string {
 export default function Models() {
   return (
     <ProtectedRoute resource="models" action="read">
-      <ModelsInner />
+      <PageContainer variant="wide">
+        <ModelsInner />
+      </PageContainer>
     </ProtectedRoute>
   );
 }
@@ -89,6 +97,8 @@ export function ModelsInner() {
   const [catalog, setCatalog] = React.useState<ModelsCatalogResponse | null>(null);
   const [providers, setProviders] = React.useState<ProvidersResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<unknown>(null);
+  const [providersError, setProvidersError] = React.useState<unknown>(null);
   const [providerFilter, setProviderFilter] = React.useState('all');
 
   // Per-model dialogs.
@@ -97,15 +107,22 @@ export function ModelsInner() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setProvidersError(null);
     try {
       const [cat, prov] = await Promise.all([
         modelsApi.catalog(),
-        modelsApi.providers().catch(() => null),
+        // Providers is a secondary panel: a providers-only failure must NOT fail the
+        // whole page, but it must also not masquerade as an empty registry — capture it.
+        modelsApi.providers().catch((e) => {
+          setProvidersError(e);
+          return null;
+        }),
       ]);
       setCatalog(cat);
       if (prov) setProviders(prov);
     } catch (e) {
-      toast.error(errMsg(e, 'Could not load models.'));
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -120,6 +137,15 @@ export function ModelsInner() {
     () => Array.from(new Set(models.map((m) => m.provider))).sort(),
     [models],
   );
+
+  // If the filtered-to provider disappears from the catalog on refresh (e.g. its LLM key
+  // was removed), fall back to "all" so the Select trigger never points at a removed
+  // item (which blanks the trigger and hides every row behind a false "No models").
+  React.useEffect(() => {
+    if (providerFilter !== 'all' && !providerNames.includes(providerFilter)) {
+      setProviderFilter('all');
+    }
+  }, [providerNames, providerFilter]);
 
   const exactCount = models.filter((m) => m.pricing_source === 'exact').length;
   const assignedCount = models.filter((m) => m.assigned_roles.length > 0).length;
@@ -140,6 +166,10 @@ export function ModelsInner() {
         }
       />
 
+      {error && !catalog ? (
+        <LoadError error={error} title="Couldn't load models" onRetry={() => void load()} />
+      ) : (
+      <>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Models" value={models.length} icon={Cpu} accent="primary" />
         <StatCard label="Verified pricing" value={exactCount} accent="success" sub="exact rates" />
@@ -164,13 +194,13 @@ export function ModelsInner() {
             <div className="w-48">
               <Select value={providerFilter} onValueChange={setProviderFilter}>
                 <SelectTrigger aria-label="Filter by provider">
-                  <SelectValue />
+                  <SelectValue placeholder="All providers" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All providers</SelectItem>
                   {providerNames.map((p) => (
                     <SelectItem key={p} value={p}>
-                      {humanizeToken(p)}
+                      {providerLabel(p)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -189,15 +219,22 @@ export function ModelsInner() {
 
         {/* --- Cost & budget --- */}
         <TabsContent value="cost" className="space-y-6">
-          <CostEstimator models={models} canManage={canManage} />
+          <CostEstimator models={models} />
           <BudgetCard canManage={canManage} />
         </TabsContent>
 
         {/* --- Providers --- */}
         <TabsContent value="providers" className="space-y-4">
-          <ProvidersGrid providers={providers} loading={loading} />
+          <ProvidersGrid
+            providers={providers}
+            loading={loading}
+            error={providersError}
+            onRetry={() => void load()}
+          />
         </TabsContent>
       </Tabs>
+      </>
+      )}
 
       {priceFor ? (
         <PriceOverrideDialog
@@ -424,16 +461,10 @@ function TestCallDialog({ model, onClose }: { model: ModelCatalogRow; onClose: (
 // --------------------------------------------------------------------------- //
 // Cost estimator (POST /api/cost/estimate) — a pre-flight USD estimate.
 // --------------------------------------------------------------------------- //
-function CostEstimator({
-  models,
-  canManage,
-}: {
-  models: ModelCatalogRow[];
-  canManage: boolean;
-}) {
+function CostEstimator({ models }: { models: ModelCatalogRow[] }) {
   const [model, setModel] = React.useState(models[0]?.id ?? '');
-  const [promptChars, setPromptChars] = React.useState('4000');
-  const [maxTokens, setMaxTokens] = React.useState('1000');
+  const [promptChars, setPromptChars] = React.useState(4000);
+  const [maxTokens, setMaxTokens] = React.useState(1000);
   const [busy, setBusy] = React.useState(false);
   const [result, setResult] = React.useState<CostEstimateResult | null>(null);
 
@@ -450,8 +481,8 @@ function CostEstimator({
     try {
       const res = await modelsApi.estimate({
         model,
-        prompt_chars: Math.max(0, Number(promptChars) || 0),
-        max_tokens: Math.max(0, Number(maxTokens) || 0),
+        prompt_chars: Math.max(0, promptChars),
+        max_tokens: Math.max(0, maxTokens),
       });
       setResult(res);
     } catch (e) {
@@ -486,33 +517,24 @@ function CostEstimator({
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="est-chars">Prompt chars</Label>
-          <Input
-            id="est-chars"
-            type="number"
-            min={0}
-            value={promptChars}
-            onChange={(e) => setPromptChars(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="est-tokens">Max output tokens</Label>
-          <Input
-            id="est-tokens"
-            type="number"
-            min={0}
-            value={maxTokens}
-            onChange={(e) => setMaxTokens(e.target.value)}
-          />
-        </div>
+        <NumberField
+          label="Prompt chars"
+          value={promptChars}
+          onChange={setPromptChars}
+          min={0}
+          step={1}
+        />
+        <NumberField
+          label="Max output tokens"
+          value={maxTokens}
+          onChange={setMaxTokens}
+          min={0}
+          step={1}
+        />
         <div className="flex items-end">
-          <Button
-            onClick={() => void run()}
-            disabled={busy || !canManage}
-            className="w-full"
-            title={canManage ? undefined : 'Requires models:manage'}
-          >
+          {/* Estimating is a pre-flight arithmetic call — it neither mutates state nor
+              hits the cost ledger — so it is NOT gated on models:manage (only busy). */}
+          <Button onClick={() => void run()} disabled={busy} className="w-full">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             Estimate
           </Button>
@@ -523,7 +545,7 @@ function CostEstimator({
           <div className="flex items-center gap-2">
             <DollarSign className="h-4 w-4 text-success" aria-hidden />
             <span className="text-lg font-semibold tabular-nums text-foreground">
-              {fmtMoney(result.estimated_cost, result.currency === 'USD' ? '$' : result.currency)}
+              {fmtMoney(result.estimated_cost, result.currency)}
             </span>
           </div>
           <span className="text-xs text-muted-foreground">
@@ -547,16 +569,31 @@ function CostEstimator({
 function ProvidersGrid({
   providers,
   loading,
+  error,
+  onRetry,
 }: {
   providers: ProvidersResponse | null;
   loading?: boolean;
+  error?: unknown;
+  onRetry?: () => void;
 }) {
   if (loading && !providers) {
-    return <p className="text-sm text-muted-foreground">Loading providers…</p>;
+    return (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+  // A providers-only fetch failure surfaces its own error+retry instead of the
+  // misleading "No providers" empty state (which reads as an empty registry).
+  if (error && !providers) {
+    return <LoadError error={error} title="Couldn't load providers" onRetry={onRetry} />;
   }
   const rows = providers?.providers ?? [];
   if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">No providers available.</p>;
+    return <EmptyState icon={Server} title="No providers" description="No LLM provider is registered yet." />;
   }
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -565,9 +602,7 @@ function ProvidersGrid({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Server className="h-4 w-4 text-muted-foreground" aria-hidden />
-              <span className="font-medium capitalize text-foreground">
-                {humanizeToken(p.name)}
-              </span>
+              <span className="font-medium text-foreground">{providerLabel(p.name)}</span>
             </div>
             {p.configured ? (
               <Badge variant="success" className="gap-1">

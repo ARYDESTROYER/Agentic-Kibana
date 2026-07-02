@@ -157,9 +157,15 @@ def test_secrets_never_appear_in_settings_dump(client):
     """The settings dump exposes only the non-secret tier + configured booleans."""
     body = client.get("/api/settings").json()
     blob = repr(body).lower()
-    # Configured status is booleans only — never a secret VALUE.
+    # Configured status is booleans only — never a secret VALUE. Round-6 #21 added the
+    # ADDITIVE per-provider ``sso_client_secrets_by_id`` map (provider_id -> bool), so a
+    # value may be a NESTED dict whose LEAVES must still all be bools (still no secret
+    # value ever leaks).
     for v in body["configured"].values():
-        assert isinstance(v, bool)
+        if isinstance(v, dict):
+            assert all(isinstance(x, bool) for x in v.values())
+        else:
+            assert isinstance(v, bool)
     # No secret field NAMES from the Secrets tier leak into the prefs subtree.
     prefs_blob = repr(body["prefs"]).lower()
     for forbidden in (

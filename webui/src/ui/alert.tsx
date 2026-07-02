@@ -38,12 +38,18 @@ export interface AlertProps
 }
 
 const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
-  ({ className, variant, icon, children, ...props }, ref) => (
-    <div ref={ref} role="alert" className={cn(alertVariants({ variant }), className)} {...props}>
-      {icon}
-      {children}
-    </div>
-  ),
+  ({ className, variant, icon, role, children, ...props }, ref) => {
+    // success/info are non-urgent confirmations/notes → role="status" (a POLITE live
+    // region that doesn't interrupt the screen reader). destructive/warning/default stay
+    // role="alert" (assertive), per WAI-ARIA. Callers can still override `role`.
+    const resolvedRole = role ?? (variant === 'success' || variant === 'info' ? 'status' : 'alert');
+    return (
+      <div ref={ref} role={resolvedRole} className={cn(alertVariants({ variant }), className)} {...props}>
+        {icon}
+        {children}
+      </div>
+    );
+  },
 );
 Alert.displayName = 'Alert';
 

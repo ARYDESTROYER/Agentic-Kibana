@@ -14,10 +14,17 @@
  *   - `prose`  — narrative (CaseDetail "Why"/rationale, chat threads, long-form
  *                settings) capped at a readable ~72ch measure.
  *
- * Every variant shares the gutter/vertical rhythm `mx-auto w-full px-4 sm:px-6
- * lg:px-8 2xl:px-12 py-6` and establishes a container-query context (`@container`)
- * so wrapped widgets can reflow by their SLOT width rather than the viewport
- * (via `@tailwindcss/container-queries`, shipped by W0-A's tailwind.config edit).
+ * PageContainer owns ONLY width + centering (`@container mx-auto w-full min-w-0` +
+ * the per-variant `max-w`). The page GUTTER and vertical rhythm (`px-4 sm:px-6
+ * lg:px-8 2xl:px-12 py-6`) are applied EXACTLY ONCE by the AppShell content wrapper
+ * for every routed page — PageContainer must NOT re-declare them or the ~26 pages
+ * that have not (yet) adopted PageContainer would either double-pad (if kept here)
+ * or lose their gutter entirely. Keeping the gutter on the shell keeps a single
+ * consistent inset across BOTH page groups while PageContainer still caps + centers
+ * the content column per archetype (this is the pragmatic reading of DESIGN_STANDARD
+ * §4.1 given the migration is partial). It also establishes a container-query context
+ * (`@container`) so wrapped widgets can reflow by their SLOT width rather than the
+ * viewport (via `@tailwindcss/container-queries`, shipped by W0-A's tailwind.config).
  *
  * `min-w-0` is set so flex/grid children inside can shrink and truncate correctly.
  */
@@ -60,7 +67,9 @@ export function PageContainer({
   return (
     <Comp
       className={cn(
-        '@container mx-auto w-full min-w-0 px-4 py-6 sm:px-6 lg:px-8 2xl:px-12',
+        // Width + centering + container-query ONLY — the gutter/vertical rhythm is
+        // owned once by the AppShell content wrapper (see the module docstring).
+        '@container mx-auto w-full min-w-0',
         WIDTHS[variant],
         className,
       )}

@@ -169,7 +169,7 @@ export function RoleMatrixEditor({
             }
           />
           <p className="text-xs text-muted-foreground">
-            Lowercase letters, digits, and <code>_ . -</code>. Cannot match a built-in role.
+            Letters, digits, and <code>_ . -</code>. Cannot match a built-in role.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -189,8 +189,7 @@ export function RoleMatrixEditor({
       <div className="space-y-2">
         <Label>Inherits from</Label>
         <div className="flex flex-wrap gap-2">
-          {Object.keys(ROLE_LABELS)
-            .filter((r) => BUILTIN_ROLES.has(r))
+          {Array.from(BUILTIN_ROLES)
             .map((base) => {
               const on = draft.inherits.includes(base);
               return (
@@ -227,11 +226,13 @@ export function RoleMatrixEditor({
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-44">Resource</TableHead>
-                {actionCols.map((i) => (
-                  <TableHead key={i} className="text-center">
-                    Action {i + 1}
-                  </TableHead>
-                ))}
+                {/* Actions are positional + heterogeneous per resource (cases has 6,
+                    users has 1), so a numbered "Action N" header would falsely imply
+                    the columns align by action across rows. Each cell self-labels with
+                    its own action name; a single spanning header states the truth. */}
+                <TableHead className="text-center" colSpan={actionCols.length}>
+                  Permissions
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

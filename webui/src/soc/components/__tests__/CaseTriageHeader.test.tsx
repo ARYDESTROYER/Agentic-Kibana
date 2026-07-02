@@ -104,6 +104,15 @@ describe('CaseTriageHeader (#12 four honest chips)', () => {
     expect(container).toBeTruthy();
     expect(screen.queryByTestId('triage-chip-priority')).toBeNull();
   });
+
+  it('renders NOTHING (not endless skeletons) when the fetch failed — chips null, not loading', () => {
+    // After a failed /triage fetch the parent sets triage=null, loading=false. The
+    // header must collapse (return null) so the overview falls back to its legacy
+    // headline panels instead of shimmering four grey tiles forever.
+    const { container } = render(<CaseTriageHeader chips={null} loading={false} />);
+    expect(container.firstChild).toBeNull();
+    expect(container.querySelectorAll('[class*="rounded-lg"]').length).toBe(0);
+  });
 });
 
 describe('CaseTriageHeader risk-factor help (#8)', () => {
@@ -141,5 +150,49 @@ describe('CaseTriageHeader risk-factor help (#8)', () => {
       expect(body).toContain(factor);
     }
     expect(body).toContain('never closes or escalates');
+  });
+
+  // #26 — the primary Risk HelpTip promised "(default weights shown)" but showed none;
+  // fold the actual weights into the copy so the promise is self-contained.
+  it('names the actual default weights in RISK_HELP_TEXT (no empty "weights shown" promise)', () => {
+    expect(RISK_HELP_TEXT).toContain('Reputation 30%');
+    expect(RISK_HELP_TEXT).toContain('Volume 25%');
+    expect(RISK_HELP_TEXT).toContain('Velocity 20%');
+    expect(RISK_HELP_TEXT).toContain('Diversity 15%');
+    expect(RISK_HELP_TEXT).toContain('Asset criticality 10%');
+    expect(RISK_HELP_TEXT).not.toContain('default weights shown');
+    // The honest caveat stays.
+    expect(RISK_HELP_TEXT).toContain('never closes or escalates');
+  });
+});
+
+describe('CaseTriageHeader — visual consistency (Round-6)', () => {
+  // #27 — the risk chip accent stripe must use the SAME 0-100 ladder (scoreBand) as the
+  // embedded RiskGauge, which collapses scores <15 into "low" (not the 5-band "info").
+  it('colours the risk accent stripe "low" (not "info") for a sub-15 score, matching the gauge', () => {
+    const low: TriageChips = {
+      ...CHIPS,
+      // All-zero breakdown → RiskBreakdownBars renders null, so the only accent is the
+      // top stripe (no per-factor bg-info bars to confuse the assertion).
+      risk: {
+        value: 10,
+        band: 'low',
+        breakdown: { volume: 0, velocity: 0, reputation: 0, diversity: 0, asset_criticality: 0 },
+        inputs: {},
+      },
+    };
+    render(<CaseTriageHeader chips={low} />);
+    const chip = screen.getByTestId('triage-chip-risk');
+    const accent = chip.querySelector('[class*="inset-x-0"]');
+    expect(accent?.className).toContain('bg-low');
+    expect(accent?.className).not.toContain('bg-info');
+  });
+
+  // #25 — the loading skeleton height approximates the (taller) rendered chip so the
+  // header footprint barely shifts on load.
+  it('sizes the loading skeletons close to the rendered chip height', () => {
+    const { container } = render(<CaseTriageHeader chips={null} loading />);
+    expect(container.innerHTML).toContain('h-[10.75rem]');
+    expect(container.innerHTML).not.toContain('h-[7.5rem]');
   });
 });

@@ -98,12 +98,6 @@ export interface DemoGuard {
   disabled: boolean;
   /** A tooltip/aria reason to show on a disabled control. */
   reason: string;
-  /**
-   * Spread onto a disabled trigger to convey + enforce the guard. When demo is
-   * active it sets `disabled`, `aria-disabled` and a `title`; otherwise it is the
-   * empty object so the control behaves exactly as before (back-compat).
-   */
-  guardProps: { disabled?: boolean; 'aria-disabled'?: boolean; title?: string };
 }
 
 /**
@@ -112,9 +106,14 @@ export interface DemoGuard {
  * would touch REAL stores/sources and must be disabled with an explanatory tooltip;
  * when demo is off the guard is fully inert.
  *
- * Usage:
+ * Usage — wire `disabled`/`reason` onto the trigger's disabled + title/aria-disabled:
  *   const guard = useDemoGuard();
- *   <Button {...guard.guardProps} onClick={guard.disabled ? undefined : run}>Run</Button>
+ *   <Button
+ *     disabled={guard.disabled}
+ *     aria-disabled={guard.disabled || undefined}
+ *     title={guard.disabled ? guard.reason : undefined}
+ *     onClick={guard.disabled ? undefined : run}
+ *   >Run</Button>
  */
 export function useDemoGuard(): DemoGuard {
   const { active } = useDemo();
@@ -124,7 +123,6 @@ export function useDemoGuard(): DemoGuard {
       active,
       disabled: active,
       reason,
-      guardProps: active ? { disabled: true, 'aria-disabled': true, title: reason } : {},
     };
   }, [active]);
 }

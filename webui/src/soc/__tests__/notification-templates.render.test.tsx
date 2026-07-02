@@ -38,6 +38,7 @@ vi.mock('@/lib/api', () => ({
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn(), warning: vi.fn() } }));
 
 import { NotificationsEditor } from '../components/NotificationsEditor';
+import { TooltipProvider } from '@/ui/tooltip';
 import { api } from '@/lib/api';
 import type { Preferences } from '@/lib/types';
 
@@ -46,7 +47,13 @@ const previewMock = vi.mocked(api.notifications.preview);
 function setup(prefsOver: Partial<Preferences> = {}) {
   const update = vi.fn();
   const prefs = { ...prefsOver } as Preferences;
-  const utils = render(<NotificationsEditor prefs={prefs} update={update} />);
+  // The shared SecretField's reveal IconButton renders a Tooltip; the app supplies ONE
+  // root TooltipProvider, so the test harness must too.
+  const utils = render(
+    <TooltipProvider>
+      <NotificationsEditor prefs={prefs} update={update} />
+    </TooltipProvider>,
+  );
   return { update, ...utils };
 }
 
@@ -99,7 +106,9 @@ describe('NotificationsEditor — Resend / SES channels', () => {
     });
     expect(screen.getByText(/SANDBOX/i)).toBeInTheDocument();
     expect(screen.getByDisplayValue('us-east-1')).toBeInTheDocument();
-    expect(screen.getByLabelText(/AWS region/i)).toBeInTheDocument();
+    // Exact label match: the field's HelpTip carries the accessible name "AWS region help",
+    // so a loose /AWS region/i would ambiguously match both the input and the help button.
+    expect(screen.getByLabelText('AWS region')).toBeInTheDocument();
     expect(screen.getByText(/IAM access key id/i)).toBeInTheDocument();
   });
 });

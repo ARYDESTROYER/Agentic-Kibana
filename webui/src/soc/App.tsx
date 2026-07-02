@@ -10,20 +10,18 @@
  * `FEATURES[]`-derived `ROUTES` table (one place a page id maps to its lazy chunk +
  * its config-prop wiring). App only calls `renderRoute(page, ctx)`. Pages no longer
  * receive an `onNavigate` prop — they resolve navigation via `useNavigate()` /
- * `useNavigateOptional()` from the router context (no prop-drilling). The `api`
- * singleton is exposed through `<ApiProvider>` for test injection (DI, default =
- * singleton, so runtime is unchanged).
+ * `useNavigateOptional()` from the router context (no prop-drilling).
  */
 import * as React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
+import { Button } from '@/ui/button';
 import { TooltipProvider } from '@/ui/tooltip';
 import { ThemeProvider } from './theme';
 import { PrefsProvider } from './prefs';
 import { AuthProvider, useAuth, useUnauthorizedRedirect } from './auth';
 import { DemoProvider } from './demo';
 import { RouterProvider, useRoute } from './router';
-import { ApiProvider } from './api-context';
 import { AppShell } from './AppShell';
 import { ErrorBoundary } from './ErrorBoundary';
 import { renderRoute } from './registry';
@@ -37,22 +35,67 @@ import { ReauthDialog } from './components/ReauthDialog';
 import { PageSkeleton } from './components/PageSkeleton';
 
 const CenterSpinner: React.FC<{ label: string }> = ({ label }) => (
-  <div className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground">
-    <Loader2 className="h-5 w-5 animate-spin" />
+  // role=status + aria-live so a screen reader is told the console is starting
+  // (mirrors PageSkeleton's aria-busy loading-state convention).
+  <div
+    className="flex h-screen items-center justify-center gap-3 bg-canvas text-muted-foreground"
+    role="status"
+    aria-live="polite"
+    aria-busy="true"
+  >
+    <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
     <span className="text-sm">{label}</span>
   </div>
 );
 
+/**
+ * Full-screen "couldn't reach the backend" gate shown when the initial GET
+ * /api/auth/me FAILED (network / 5xx). Without this the shell would fail OPEN
+ * (a failed load collapses to authEnabled=false → isAuthenticated=true) and strand
+ * the user in a half-broken console with no way back to login. Retry re-runs refresh().
+ */
+const BootError: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
+  <div
+    className="flex h-screen flex-col items-center justify-center gap-4 bg-canvas px-6 text-center"
+    role="alert"
+  >
+    <AlertTriangle className="h-8 w-8 text-critical-text" aria-hidden />
+    <div className="space-y-1">
+      <p className="text-sm font-semibold text-foreground">Can&apos;t reach the backend</p>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        The console couldn&apos;t load your session. Check your connection or that the service
+        is running, then try again.
+      </p>
+    </div>
+    <Button variant="outline" onClick={onRetry}>
+      <RefreshCw aria-hidden />
+      Retry
+    </Button>
+  </div>
+);
+
 const Boot: React.FC = () => {
-  const { authEnabled, isAuthenticated, username, loading: authLoading, refresh, logout } =
-    useAuth();
+  const {
+    authEnabled,
+    isAuthenticated,
+    mustChangePassword,
+    loadError,
+    username,
+    loading: authLoading,
+    refresh,
+    logout,
+  } = useAuth();
   const [setupChecked, setSetupChecked] = React.useState(false);
   const [setupComplete, setSetupComplete] = React.useState(true);
   const [forceWizard, setForceWizard] = React.useState(false);
   const { page, opts, navigate } = useRoute();
 
-  // Whether the gate currently shows the login screen (auth on + no session).
-  const showLogin = authEnabled && !isAuthenticated;
+  // Whether the gate currently shows the login screen: auth on + (no session OR a
+  // forced-password-change that a mid-flow reload / deep-link must not escape). The
+  // backend mints the session cookie before the change screen, so without the
+  // mustChangePassword clause a reload would drop the user into the console with the
+  // mandatory rotation skipped; Login re-resolves to its `change` mode after re-auth.
+  const showLogin = authEnabled && (!isAuthenticated || mustChangePassword);
 
   const checkSetup = React.useCallback(async () => {
     try {
@@ -93,6 +136,10 @@ const Boot: React.FC = () => {
   const onRerunWizard = React.useCallback(() => setForceWizard(true), []);
 
   if (authLoading) return <CenterSpinner label="Starting console…" />;
+  // A failed /api/auth/me must NOT collapse to "auth disabled" and render the console;
+  // offer a retry instead (auth on/off is indistinguishable from a load failure once
+  // `me` is null, so we key off the explicit loadError flag).
+  if (loadError) return <BootError onRetry={() => void refresh()} />;
   if (showLogin) return <Login onAuthenticated={onAuthenticated} />;
   if (!setupChecked) return <CenterSpinner label="Starting console…" />;
 
@@ -145,17 +192,15 @@ export const App: React.FC = () => (
   // motion must lazy-load it, never the entry.
   <ThemeProvider>
     <TooltipProvider delayDuration={200}>
-      <ApiProvider>
-        <AuthProvider>
-          <PrefsProvider>
-            <DemoProvider>
-              <RouterProvider>
-                <Boot />
-              </RouterProvider>
-            </DemoProvider>
-          </PrefsProvider>
-        </AuthProvider>
-      </ApiProvider>
+      <AuthProvider>
+        <PrefsProvider>
+          <DemoProvider>
+            <RouterProvider>
+              <Boot />
+            </RouterProvider>
+          </DemoProvider>
+        </PrefsProvider>
+      </AuthProvider>
     </TooltipProvider>
   </ThemeProvider>
 );

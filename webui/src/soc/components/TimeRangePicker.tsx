@@ -315,11 +315,6 @@ export function TimeRangePicker({
   // The picker optionally owns the refresh interval (paused on hidden tab).
   useAutoRefresh(refresh, onRefreshTick ?? noop);
 
-  const currentPreset = React.useMemo(
-    () => PRESETS.find((p) => p.from === value.from && p.to === value.to)?.label ?? '__custom',
-    [value.from, value.to],
-  );
-
   const pick = React.useCallback(
     (label: string) => {
       const preset = PRESETS.find((p) => p.label === label);
@@ -349,17 +344,18 @@ export function TimeRangePicker({
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-3">
           <div className="mb-2 text-xs font-medium text-muted-foreground">Quick ranges</div>
-          {/* Radix Tabs (via SegmentedControl-styling) would wrap awkwardly for 5
-              stacked presets; use a keyboard-operable list of buttons instead. */}
-          <div role="listbox" aria-label="Relative time ranges" className="flex flex-col gap-1">
+          {/* A labelled GROUP of plain buttons — NOT a listbox/option composite (each
+              button is its own tab stop with Enter/Space activation and there is no
+              roving-tabindex/arrow navigation, so `listbox`/`option` would mis-announce
+              the interaction model). `aria-current` marks the active range for AT. */}
+          <div role="group" aria-label="Relative time ranges" className="flex flex-col gap-1">
             {PRESETS.map((p) => {
               const active = p.from === value.from && p.to === value.to;
               return (
                 <button
                   key={p.label}
                   type="button"
-                  role="option"
-                  aria-selected={active}
+                  aria-current={active || undefined}
                   onClick={() => pick(p.label)}
                   className={cn(
                     'flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
@@ -382,10 +378,13 @@ export function TimeRangePicker({
         <Select value={refresh} onValueChange={(v) => onRefreshChange(v as RefreshValue)}>
           <SelectTrigger
             aria-label="Auto-refresh interval"
-            className={cn('w-[104px] gap-1.5', triggerH)}
+            // w-36 (144px) fits the longest cadence label ('30 seconds') alongside the
+            // leading icon + chevron; a narrower fixed width truncated every non-'Off'
+            // value via SelectTrigger's `[&>span]:line-clamp-1`.
+            className={cn('w-36 gap-1.5', triggerH)}
           >
             <RefreshCw
-              className={cn('h-3.5 w-3.5 opacity-70', refresh !== 'off' && 'text-primary')}
+              className={cn('h-3.5 w-3.5 shrink-0 opacity-70', refresh !== 'off' && 'text-primary')}
               aria-hidden="true"
             />
             <SelectValue />
@@ -405,8 +404,6 @@ export function TimeRangePicker({
           · {formatStamp(lastRefreshedMs)}
         </span>
       ) : null}
-      {/* keep `currentPreset` referenced for future custom-range affordance */}
-      <span className="sr-only" data-preset={currentPreset} />
     </div>
   );
 }

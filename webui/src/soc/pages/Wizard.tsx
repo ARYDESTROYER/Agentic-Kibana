@@ -43,8 +43,7 @@ import {
   Trash2,
   Star,
   Save,
-  Eye,
-  EyeOff,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -71,12 +70,15 @@ import { Separator } from '@/ui/separator';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 
-import { HeroPanel } from '@/soc/components/HeroPanel';
+import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SourceEditor } from '@/soc/components/SourceEditor';
+import { SecretField } from '@/soc/components/SecretField';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { LoadingBar } from '@/soc/components/LoadingBar';
 import { useAuth } from '@/soc/auth';
 import { useDemo, isDemoActive } from '@/soc/demo';
+import { enableRecommendedAutomation } from './automation';
 
 /* ----------------------------------------------------------------- helpers - */
 
@@ -111,11 +113,23 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const { status: demoStatus, refresh: refreshDemo } = useDemo();
   const canManageDemo = !authEnabled || hasPermission('settings', 'manage');
 
+  // Recommended-automation grants (the ReviewStep card + finish()). Tuning needs
+  // `automation:manage`; the admin-gated campaigns PUT needs `cases:read` + `users:manage`
+  // (require_admin === users:manage). Auth off / super_admin holds everything.
+  const canTuneAutomation = !authEnabled || hasPermission('automation', 'manage');
+  const canCampaignAutomation =
+    !authEnabled || (hasPermission('cases', 'read') && hasPermission('users', 'manage'));
+  const canRecommendAutomation = canTuneAutomation || canCampaignAutomation;
+  const [enableAutomation, setEnableAutomation] = React.useState(true);
+
   // Shared, persisted-between-steps state.
   const [deploymentName, setDeploymentName] = React.useState('My SOC');
   // Reflects the LIVE demo tenant state (GET /api/demo/status), not a dead pref flag.
   const [demoMode, setDemoMode] = React.useState(false);
   const [demoBusy, setDemoBusy] = React.useState(false);
+  // Demo toggle gets its OWN error channel so an enable/disable failure on the Welcome
+  // step never masquerades as the finish-only "Could not complete setup" banner.
+  const [demoError, setDemoError] = React.useState<unknown>(null);
 
   // Seed the toggle from the real demo status once it loads (so re-running the wizard
   // with demo already armed shows it ON).
@@ -134,13 +148,14 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
     async (nextOn: boolean) => {
       if (demoBusy || !canManageDemo) return;
       setDemoBusy(true);
+      setDemoError(null);
       setDemoMode(nextOn); // optimistic
       try {
         const st = nextOn ? await api.demo.enable({}) : await api.demo.disable();
         setDemoMode(isDemoActive(st));
       } catch (e) {
         setDemoMode(!nextOn); // rollback
-        setFinishError(e);
+        setDemoError(e); // demo-specific channel, NOT the finish banner
       } finally {
         setDemoBusy(false);
         void refreshDemo();
@@ -153,6 +168,14 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
   const [sources, setSources] = React.useState<SourceInstance[]>([]);
 
+  // Provider-key draft is LIFTED to the wizard so it survives the KeysStep unmounting
+  // on step change (the step is conditionally rendered) — otherwise a beginner who
+  // pastes a key and clicks the prominent "Continue" (not "Save") silently loses it.
+  const [keyValues, setKeyValues] = React.useState<Record<string, string>>({});
+  const [savingKeys, setSavingKeys] = React.useState(false);
+  const [keysError, setKeysError] = React.useState<unknown>(null);
+  const [keysSavedNote, setKeysSavedNote] = React.useState<string | null>(null);
+
   const configured: ConfiguredStatus = status?.configured || {};
 
   const refreshStatus = React.useCallback(async () => {
@@ -160,6 +183,39 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
     setStatus(st);
     setSources(src.sources);
   }, []);
+
+  const setKeyValue = React.useCallback((k: string, v: string) => {
+    setKeyValues((prev) => ({ ...prev, [k]: v }));
+    setKeysSavedNote(null);
+  }, []);
+
+  /** Persist any typed provider keys. Returns false on failure so nav can stay put. */
+  const saveKeys = React.useCallback(async (): Promise<boolean> => {
+    setSavingKeys(true);
+    setKeysError(null);
+    setKeysSavedNote(null);
+    try {
+      const body: SecretsUpdate = {};
+      for (const f of KEY_FIELDS) {
+        const v = (keyValues[f.key] || '').trim();
+        if (v) (body as Record<string, string>)[f.key] = v;
+      }
+      if (Object.keys(body).length === 0) {
+        setKeysSavedNote('No new keys entered.');
+        return true;
+      }
+      await api.updateSecrets(body);
+      await refreshStatus();
+      setKeyValues({});
+      setKeysSavedNote('Provider keys saved.');
+      return true;
+    } catch (e) {
+      setKeysError(e);
+      return false;
+    } finally {
+      setSavingKeys(false);
+    }
+  }, [keyValues, refreshStatus]);
 
   React.useEffect(() => {
     let alive = true;
@@ -204,6 +260,15 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
       await api.putSettings({
         deployment_name: deploymentName,
       } as Partial<Preferences>);
+      // Recommended automation: BEST-EFFORT + never blocks completion. The helper
+      // catches its own failures (#3-safe: tuning keeps shadow-eval on & routes
+      // suppression to HITL; campaigns are advisory) so setup always finishes.
+      if (enableAutomation && canRecommendAutomation) {
+        await enableRecommendedAutomation({
+          tuning: canTuneAutomation,
+          campaigns: canCampaignAutomation,
+        });
+      }
       await api.completeSetup();
       onComplete();
     } catch (e) {
@@ -212,7 +277,16 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
     }
   };
 
-  const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  const next = React.useCallback(async () => {
+    // Auto-save any typed-but-unsaved provider keys before leaving the Keys step so a
+    // beginner who clicks the prominent "Continue" (not "Save") doesn't silently lose
+    // them. A save failure keeps us on the step; the inline error explains why.
+    if (step === 2 && Object.values(keyValues).some((v) => v.trim())) {
+      const ok = await saveKeys();
+      if (!ok) return;
+    }
+    setStep((s) => Math.min(s + 1, STEPS.length - 1));
+  }, [step, keyValues, saveKeys]);
   const back = () => setStep((s) => Math.max(s - 1, 0));
   const isLast = step === STEPS.length - 1;
 
@@ -221,7 +295,8 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   return (
     <div className="min-h-screen bg-canvas">
       <div className="mx-auto w-full max-w-5xl animate-fade-in px-4 py-8 sm:px-6 sm:py-12">
-        <HeroPanel
+        <PageHeader
+          variant="hero"
           eyebrow="Agentic SOC · First-run setup"
           title="Stand up your triage console"
           description="Connect your data and models so the agent can turn raw alert volume into audited, cost-metered, human-reviewable cases."
@@ -307,6 +382,7 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                     onDemoMode={onDemoMode}
                     canManageDemo={canManageDemo}
                     demoBusy={demoBusy}
+                    demoError={demoError}
                   />
                 )}
                 {step === 1 && (
@@ -318,7 +394,15 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                   />
                 )}
                 {step === 2 && (
-                  <KeysStep configured={configured} onSecretsSaved={refreshStatus} />
+                  <KeysStep
+                    configured={configured}
+                    values={keyValues}
+                    onChange={setKeyValue}
+                    onSave={saveKeys}
+                    saving={savingKeys}
+                    error={keysError}
+                    savedNote={keysSavedNote}
+                  />
                 )}
                 {step === 3 && (
                   <ReviewStep
@@ -326,6 +410,10 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
                     demoMode={demoMode}
                     sources={sources}
                     configured={configured}
+                    showAutomation={canRecommendAutomation}
+                    canCampaignAutomation={canCampaignAutomation}
+                    enableAutomation={enableAutomation}
+                    onEnableAutomation={setEnableAutomation}
                   />
                 )}
               </>
@@ -356,7 +444,10 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
               Finish setup
             </Button>
           ) : (
-            <Button onClick={next} disabled={loading}>
+            <Button onClick={() => void next()} disabled={loading || savingKeys}>
+              {savingKeys ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              ) : null}
               Continue <ArrowRight className="h-4 w-4" aria-hidden />
             </Button>
           )}
@@ -425,6 +516,7 @@ function WelcomeStep({
   onDemoMode,
   canManageDemo,
   demoBusy,
+  demoError,
 }: {
   deploymentName: string;
   onDeploymentName: (v: string) => void;
@@ -434,6 +526,8 @@ function WelcomeStep({
   canManageDemo: boolean;
   /** True while an enable/disable call is in flight (disables the switch). */
   demoBusy: boolean;
+  /** A demo enable/disable failure — shown INLINE here, never as the finish banner. */
+  demoError: unknown;
 }) {
   return (
     <div>
@@ -503,6 +597,13 @@ function WelcomeStep({
                 switched off (and wiped) any time from Settings › Experimental. You can
                 still add a real source on the next step.
               </p>
+              {demoError ? (
+                <Alert variant="destructive" className="mt-2">
+                  <X className="h-4 w-4" aria-hidden />
+                  <AlertTitle>Couldn&apos;t switch demo mode</AlertTitle>
+                  <AlertDescription>{errorMessage(demoError)}</AlertDescription>
+                </Alert>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -540,6 +641,9 @@ function SourcesStep({
   const [editing, setEditing] = React.useState<SourceInstance | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  // Destructive removal is gated behind the shared ConfirmDialog (matching the hardened
+  // Sources page) so a single misclick can't wipe a configured source + its secrets.
+  const [pendingDelete, setPendingDelete] = React.useState<SourceInstance | null>(null);
 
   const reload = async () => {
     setAdding(false);
@@ -661,8 +765,8 @@ function SourcesStep({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-critical"
-                      onClick={() => remove(s)}
+                      className="text-critical-text"
+                      onClick={() => setPendingDelete(s)}
                       disabled={busyId === s.id}
                     >
                       <Trash2 className="h-4 w-4" aria-hidden /> Remove
@@ -702,6 +806,29 @@ function SourcesStep({
           />
         </Card>
       ) : null}
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o) setPendingDelete(null);
+        }}
+        title="Remove this source?"
+        // display name is operator input → rendered as plain text by ConfirmDialog (#9)
+        description={
+          pendingDelete
+            ? `"${pendingDelete.display_name || pendingDelete.source_type}" and its configuration${
+                pendingDelete.configured_secrets?.length ? ' (including its stored secrets)' : ''
+              } will be deleted. This can't be undone.`
+            : ''
+        }
+        destructive
+        confirmLabel="Remove source"
+        onConfirm={() => {
+          const s = pendingDelete;
+          setPendingDelete(null);
+          if (s) void remove(s);
+        }}
+      />
     </div>
   );
 }
@@ -732,97 +859,25 @@ const KEY_FIELDS: KeyField[] = [
   },
 ];
 
-function SecretField({
-  field,
-  configured,
-  value,
-  onChange,
-}: {
-  field: KeyField;
-  configured: boolean;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const [reveal, setReveal] = React.useState(false);
-  const id = `wz-secret-${field.key}`;
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="flex items-center gap-1.5">
-        <span>{field.label}</span>
-        {configured ? (
-          <span className="inline-flex items-center gap-1 text-xs text-success">
-            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> configured
-          </span>
-        ) : null}
-      </Label>
-      <div className="relative">
-        <Input
-          id={id}
-          type={reveal ? 'text' : 'password'}
-          autoComplete="off"
-          placeholder={configured ? 'configured — type to replace' : 'Paste your key…'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="pr-10"
-        />
-        <button
-          type="button"
-          onClick={() => setReveal((r) => !r)}
-          aria-label={reveal ? 'Hide key' : 'Show key'}
-          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {reveal ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
-        </button>
-      </div>
-      <p className="text-xs text-muted-foreground">
-        {field.help} Stored in the secret store; only ever shown as configured.
-      </p>
-    </div>
-  );
-}
-
 function KeysStep({
   configured,
-  onSecretsSaved,
+  values,
+  onChange,
+  onSave,
+  saving,
+  error,
+  savedNote,
 }: {
   configured: ConfiguredStatus;
-  onSecretsSaved: () => Promise<void> | void;
+  /** The lifted key draft (survives step changes). */
+  values: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  /** Persist the draft (also invoked by Continue). */
+  onSave: () => Promise<boolean> | void;
+  saving: boolean;
+  error: unknown;
+  savedNote: string | null;
 }) {
-  const [values, setValues] = React.useState<Record<string, string>>({});
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<unknown>(null);
-  const [savedNote, setSavedNote] = React.useState<string | null>(null);
-
-  const setValue = (k: string, v: string) => {
-    setValues((prev) => ({ ...prev, [k]: v }));
-    setSavedNote(null);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setError(null);
-    setSavedNote(null);
-    try {
-      const body: SecretsUpdate = {};
-      for (const f of KEY_FIELDS) {
-        const v = (values[f.key] || '').trim();
-        if (v) (body as Record<string, string>)[f.key] = v;
-      }
-      if (Object.keys(body).length === 0) {
-        setSavedNote('No new keys entered.');
-        return;
-      }
-      await api.updateSecrets(body);
-      await onSecretsSaved();
-      setValues({});
-      setSavedNote('Provider keys saved.');
-    } catch (e) {
-      setError(e);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const anyConfigured =
     Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
 
@@ -844,14 +899,17 @@ function KeysStep({
         </Alert>
       ) : null}
 
+      {/* Uses the SHARED SecretField primitive (Field + IconButton a11y wiring,
+          autoComplete="new-password", boolean-only status) — no re-rolled input (#10). */}
       <div className="space-y-4">
         {KEY_FIELDS.map((f) => (
           <SecretField
             key={f.key}
-            field={f}
+            label={f.label}
+            description={`${f.help} Stored in the secret store; only ever shown as configured.`}
             configured={Boolean(configured[f.key])}
             value={values[f.key] || ''}
-            onChange={(v) => setValue(f.key, v)}
+            onChange={(v) => onChange(f.key, v)}
           />
         ))}
       </div>
@@ -859,7 +917,7 @@ function KeysStep({
       <Separator className="my-5" />
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={save} disabled={saving}>
+        <Button onClick={() => void onSave()} disabled={saving}>
           {saving ? (
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
           ) : (
@@ -868,11 +926,14 @@ function KeysStep({
           Save provider keys
         </Button>
         {savedNote ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-success">
+          <span className="inline-flex items-center gap-1.5 text-sm text-success-text">
             <CheckCircle2 className="h-4 w-4" aria-hidden /> {savedNote}
           </span>
         ) : null}
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Continue also saves any key you&apos;ve entered here.
+      </p>
 
       {error ? (
         <Alert variant="destructive" className="mt-4">
@@ -919,11 +980,21 @@ function ReviewStep({
   demoMode,
   sources,
   configured,
+  showAutomation,
+  canCampaignAutomation,
+  enableAutomation,
+  onEnableAutomation,
 }: {
   deploymentName: string;
   demoMode: boolean;
   sources: SourceInstance[];
   configured: ConfiguredStatus;
+  /** Show the recommended-automation card only when the principal can enable ≥1 engine. */
+  showAutomation: boolean;
+  /** Whether the admin-gated campaigns line is also offered. */
+  canCampaignAutomation: boolean;
+  enableAutomation: boolean;
+  onEnableAutomation: (v: boolean) => void;
 }) {
   const primary = sources.find((s) => s.is_primary);
   const hasKey =
@@ -983,6 +1054,45 @@ function ReviewStep({
           />
         </CardContent>
       </Card>
+
+      {/* Recommended automation — the one-click beginner self-improvement journey. On
+          Finish, when checked, we enable the #3-safe engines (FP-noise tuning + advisory
+          campaign grouping). Default-on; hidden when the principal can't enable any. */}
+      {showAutomation ? (
+        <Card className="mt-4 bg-muted/40">
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
+              <Sparkles className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="wz-automation"
+                  checked={enableAutomation}
+                  onCheckedChange={onEnableAutomation}
+                />
+                <Label htmlFor="wz-automation" className="cursor-pointer">
+                  Let this SOC improve itself over time (recommended)
+                </Label>
+              </div>
+              <ul className="ml-0.5 space-y-1 text-xs text-muted-foreground">
+                <li>
+                  Reduce false-positive noise from your closed cases — nightly and
+                  shadow-checked, so a threshold change can never hide a real threat.
+                </li>
+                {canCampaignAutomation ? (
+                  <li>Group related cases into campaigns (daily, advisory).</li>
+                ) : null}
+              </ul>
+              <p className="text-2xs text-muted-foreground">
+                This only adjusts what gets investigated — never how a case is closed or
+                escalated. That decision stays deterministic (non-negotiable&nbsp;#3). You
+                can change it any time in Settings.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Alert className="mt-4">
         <CheckCircle2 className="h-4 w-4 text-success" aria-hidden />

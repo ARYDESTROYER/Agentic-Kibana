@@ -58,8 +58,11 @@ export function EffectiveConfigPreview({
         'rounded-md border border-border bg-surface-sunken px-3 py-2.5 text-sm',
         className,
       )}
-      role="status"
-      aria-live="polite"
+      // Passive presentation — NOT a live region. Wrapping the whole panel in
+      // role="status"/aria-live re-announced the full summary + value grid + note on
+      // every slider/number-field keystroke (unusable verbosity). The summary is a
+      // restatement of controls that carry their own labels/values, so it is readable
+      // on navigation without being re-read on each edit.
     >
       <div className="flex items-start gap-2">
         <Eye className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />

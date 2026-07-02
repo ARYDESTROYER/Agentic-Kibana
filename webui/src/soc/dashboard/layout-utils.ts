@@ -126,6 +126,89 @@ export function applyLayout(
 }
 
 // --------------------------------------------------------------------------- //
+// Deterministic packing — the VIEW-mode analogue of RGL's compaction.
+// VIEW mode is a plain CSS grid that renders each widget's persisted {x,y} verbatim,
+// so it has NO negative-gravity compaction of its own. A per-role DEFAULT dashboard
+// (and the reconcile-append path) seeds every widget at (0,0) expecting RGL to pack
+// them — but RGL never runs in view mode, so without this they all collide in the
+// top-left cell (an unusable pile). `packWidgets` is that missing packer: pure,
+// side-effect-free, and safe to load in view mode (no RGL import).
+// --------------------------------------------------------------------------- //
+
+interface PackRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Axis-aligned rectangle overlap test (touching edges do NOT count as overlap). */
+function rectsIntersect(a: PackRect, b: PackRect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+/**
+ * Return a NEW widget list with non-overlapping geometry, preserving the ORIGINAL
+ * array order (so React keys stay stable). Two regimes, chosen by the input:
+ *
+ *   • UNPLACED (every widget at the origin — the per-role default / freshly-seeded
+ *     case): FLOW-pack left→right in reading order, wrapping at the column edge and
+ *     advancing rows by the tallest widget in the row. Turns the (0,0) pile into a
+ *     coherent grid without needing curated coordinates.
+ *   • PLACED (a real saved/RGL layout): COLLISION-resolve only — keep each widget's
+ *     x/w/h and push y DOWN until it no longer overlaps an already-placed widget.
+ *     A valid non-overlapping layout is returned byte-for-byte (idempotent), so a
+ *     user's saved arrangement is respected; only genuine overlaps are repaired.
+ *
+ * O(n²), deterministic. Clamps geometry via `widgetToItem` first (defense, #9).
+ */
+export function packWidgets(
+  widgets: readonly DashboardWidget[],
+  cols = GRID_COLS,
+): DashboardWidget[] {
+  if (widgets.length <= 1) return widgets.map((w) => ({ ...w }));
+
+  const geo = widgets.map((w, i) => ({ w, i, g: widgetToItem(w, cols) }));
+  const out = new Array<DashboardWidget>(widgets.length);
+
+  const allAtOrigin = geo.every(({ g }) => g.x === 0 && g.y === 0);
+  if (allAtOrigin) {
+    let cx = 0; // running x cursor within the current row
+    let rowY = 0; // top of the current row
+    let rowH = 0; // tallest widget placed in the current row
+    for (const { w, i, g } of geo) {
+      const ww = Math.min(g.w, cols);
+      if (cx + ww > cols) {
+        // wrap to a new row below the tallest widget of the row just filled
+        rowY += rowH;
+        cx = 0;
+        rowH = 0;
+      }
+      out[i] = { ...w, x: cx, y: rowY, w: ww, h: g.h } as DashboardWidget;
+      cx += ww;
+      rowH = Math.max(rowH, g.h);
+    }
+    return out;
+  }
+
+  // Collision-resolve: process in reading order (y, then x, then original index for a
+  // stable tie-break) and push each widget's y down until it clears prior placements.
+  const order = [...geo].sort((a, b) => a.g.y - b.g.y || a.g.x - b.g.x || a.i - b.i);
+  const placed: PackRect[] = [];
+  for (const { w, i, g } of order) {
+    let y = g.y;
+    const rect: PackRect = { x: g.x, y, w: g.w, h: g.h };
+    while (placed.some((p) => rectsIntersect(rect, p))) {
+      y += 1;
+      rect.y = y;
+    }
+    placed.push({ ...rect });
+    out[i] = { ...w, x: g.x, y, w: g.w, h: g.h } as DashboardWidget;
+  }
+  return out;
+}
+
+// --------------------------------------------------------------------------- //
 // Keyboard move / resize (WCAG 2.5.7 — a non-drag alternative to the pointer).
 // Pure functions over ONE widget's geometry; the caller re-packs via RGL compaction.
 // --------------------------------------------------------------------------- //

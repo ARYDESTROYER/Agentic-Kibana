@@ -10,9 +10,12 @@
  * `controls` slot. Wraps at small widths (controls drop below the title) so it stays
  * usable on narrow viewports without a media-query fork.
  *
- * a11y: renders as a labelled `role="toolbar"` region for the controls when a
- * `label` is given; the title (if any) is a plain-text `<h2>`-ish eyebrow (never
- * HTML). All values passed in are the caller's responsibility to keep UNTRUSTED-safe.
+ * a11y: renders as a labelled `role="group"` region for the controls when a
+ * `label` is given (NOT `role="toolbar"` — the children are independently tabbable
+ * with no roving-tabindex/arrow navigation, which a toolbar would falsely advertise;
+ * a labelled group carries no keyboard-navigation expectation and matches the actual
+ * behavior). The title (if any) is a plain-text `<h2>`-ish eyebrow (never HTML). All
+ * values passed in are the caller's responsibility to keep UNTRUSTED-safe.
  */
 import * as React from 'react';
 
@@ -25,7 +28,7 @@ export interface ControlBarProps {
   meta?: React.ReactNode;
   /** The controls, right-aligned (TimeRangePicker, filter Selects, buttons). */
   controls?: React.ReactNode;
-  /** Accessible name for the controls toolbar (recommended when `controls` is set). */
+  /** Accessible name for the controls group (recommended when `controls` is set). */
   label?: string;
   /**
    * Surface: `flat` (default) sits on the page with a bottom hairline; `bordered`
@@ -71,7 +74,7 @@ export function ControlBar({
       )}
       {controls ? (
         <div
-          role={label ? 'toolbar' : undefined}
+          role={label ? 'group' : undefined}
           aria-label={label}
           className={cn(
             'flex flex-wrap items-center gap-2',

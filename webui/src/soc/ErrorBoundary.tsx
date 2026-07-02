@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
+import { LoadError } from './components/LoadError';
 import { Button } from '@/ui/button';
 
 interface Props {
@@ -29,13 +29,22 @@ export class ErrorBoundary extends React.Component<Props, { error: Error | null 
 
   override render() {
     if (this.state.error) {
+      // Reuse the shared "this surface failed to load" panel (icon + #9 plain-text
+      // message coercion) instead of re-rolling Alert markup, then offer TWO recovery
+      // affordances with a clear hierarchy:
+      //   • "Reload page" — the reliable path. The primary failure this boundary guards
+      //     is a page-chunk load rejection from `React.lazy` (see registry.tsx), which
+      //     React permanently caches: a plain re-render re-throws the cached error, so
+      //     only a full reload re-fetches the chunk and actually recovers.
+      //   • "Try again" — a cheap re-render for a transient render-time error (where the
+      //     cause has since cleared); it CANNOT recover a rejected chunk load.
       return (
-        <div className="p-6">
-          <Alert variant="destructive">
-            <AlertTitle>Something went wrong</AlertTitle>
-            <AlertDescription>{this.state.error.message}</AlertDescription>
-          </Alert>
-          <div className="mt-3">
+        <div className="space-y-3 p-6">
+          <LoadError title="Something went wrong" error={this.state.error} />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="default" onClick={() => window.location.reload()}>
+              Reload page
+            </Button>
             <Button variant="outline" onClick={() => this.setState({ error: null })}>
               Try again
             </Button>

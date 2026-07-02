@@ -81,18 +81,10 @@ export interface FieldDiff {
   after?: string;
 }
 
-/* --------------------------------------------------------- what-if (F4) ---- */
-
-/**
- * The three inputs the pure `previewDecision` what-if takes, in the UPPERCASE
- * `Verdict` vocabulary the backend expects. Used by the preview panel's optional
- * "what would the deterministic decision be?" strip — it calls the pure wrapper, so
- * it NEVER bills the LLM (#6) and NEVER runs a real investigation.
+/* --------------------------------------------------------- what-if (F4) ----
+ *
+ * The preview panel's "what would the deterministic decision be?" strip consumes
+ * `PreviewDecisionInput`/`PreviewDecisionResult` from `@/lib/api` directly (via
+ * `previewDecision`). A separate local `WhatIfInputs` duplicate was never imported by
+ * the panel and has been removed to avoid a misleading orphan type (#47).
  */
-export interface WhatIfInputs {
-  verdict: 'FALSE_POSITIVE' | 'TRUE_POSITIVE' | 'NEEDS_HUMAN';
-  /** 0..1 confidence. */
-  confidence: number;
-  /** 0..100 cluster risk. */
-  risk_score: number;
-}

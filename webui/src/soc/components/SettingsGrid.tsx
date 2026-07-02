@@ -145,31 +145,53 @@ export function StickySaveBar({
   discardLabel = 'Discard',
   className,
 }: StickySaveBarProps) {
-  if (!visible) return null;
+  // A PERSISTENT (always-mounted) polite live region: screen readers only announce
+  // content that changes INSIDE a region that already existed in the DOM, so a live
+  // region inserted at the same instant as its text (the old `!visible → null` path)
+  // was never announced. Keeping this node mounted and toggling its text means the
+  // MUTATION (empty → message) is what AT announces when the save bar appears.
+  const liveMessage = visible
+    ? typeof message === 'string'
+      ? message
+      : 'You have unsaved changes.'
+    : '';
   return (
-    <div
-      role="region"
-      aria-label="Unsaved changes"
-      className={cn(
-        'sticky bottom-0 z-20 -mx-1 mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-elev2 backdrop-blur supports-[backdrop-filter]:bg-card/80',
-        'animate-rise-in',
-        className,
-      )}
-    >
-      <span className="min-w-0 flex-1 text-sm text-muted-foreground" aria-live="polite">
-        {message ?? 'You have unsaved changes.'}
-      </span>
-      <div className="flex items-center gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={busy}>
-          <RotateCcw className="h-3.5 w-3.5" aria-hidden />
-          {discardLabel}
-        </Button>
-        <Button type="button" size="sm" onClick={onSave} disabled={busy || saveDisabled}>
-          <Check className="h-3.5 w-3.5" aria-hidden />
-          {busy ? 'Saving…' : saveLabel}
-        </Button>
+    <>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {liveMessage}
       </div>
-    </div>
+      {visible ? (
+        <div
+          role="region"
+          aria-label="Unsaved changes"
+          className={cn(
+            'sticky bottom-0 z-20 -mx-1 mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-elev2 backdrop-blur supports-[backdrop-filter]:bg-card/80',
+            // Honour prefers-reduced-transparency: `.glass-surface` drops the backdrop-filter
+            // (global guard in theme.css) and the media variant forces a fully-opaque bg so
+            // scrolling content never bleeds through behind the muted text (WCAG-AA).
+            'glass-surface [@media(prefers-reduced-transparency:reduce)]:!bg-card',
+            'animate-rise-in',
+            className,
+          )}
+        >
+          <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+            {message ?? 'You have unsaved changes.'}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={onDiscard} disabled={busy}>
+              {/* No size override: the shared Button's `[&_svg]:size-4` wins on specificity,
+                  so an `h-3.5 w-3.5` here would be dead — rely on the uniform 16px icon. */}
+              <RotateCcw aria-hidden />
+              {discardLabel}
+            </Button>
+            <Button type="button" size="sm" onClick={onSave} disabled={busy || saveDisabled}>
+              <Check aria-hidden />
+              {busy ? 'Saving…' : saveLabel}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -192,6 +214,12 @@ export interface SettingsTOCProps {
   active?: string;
   /** Called with the clicked anchor (caller may smooth-scroll / setActive). */
   onSelect?: (anchor: string) => void;
+  /**
+   * Active-item accent orientation. `vertical` (default) draws a left rail — correct for
+   * the stacked rail; `horizontal` draws a bottom underline — correct when the TOC is laid
+   * out as a `flex-row` tab strip (otherwise the left rail reads as a stray vertical bar).
+   */
+  orientation?: 'vertical' | 'horizontal';
   className?: string;
 }
 
@@ -200,7 +228,8 @@ export interface SettingsTOCProps {
  * (honouring `scroll-mt` on the card) and reports the selection. Keyboard
  * accessible (each entry is a real button); the active entry gets an accent rail.
  */
-export function SettingsTOC({ items, active, onSelect, className }: SettingsTOCProps) {
+export function SettingsTOC({ items, active, onSelect, orientation = 'vertical', className }: SettingsTOCProps) {
+  const horizontal = orientation === 'horizontal';
   const go = React.useCallback(
     (anchor: string) => {
       onSelect?.(anchor);
@@ -228,7 +257,9 @@ export function SettingsTOC({ items, active, onSelect, className }: SettingsTOCP
             onClick={() => go(it.anchor)}
             aria-current={isActive ? 'true' : undefined}
             className={cn(
-              'flex items-center gap-2 rounded-md border-l-2 px-3 py-1.5 text-left text-sm transition-colors',
+              'flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
+              // Left rail for the vertical rail; bottom underline for the horizontal tab strip.
+              horizontal ? 'border-b-2' : 'border-l-2',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isActive
                 ? 'border-primary bg-accent/40 font-medium text-foreground'

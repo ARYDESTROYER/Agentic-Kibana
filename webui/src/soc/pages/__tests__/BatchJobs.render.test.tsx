@@ -10,7 +10,7 @@
  *   - a load error surfaces a retry affordance.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 const { jobsMock, getConfigMock, putConfigMock } = vi.hoisted(() => ({
   jobsMock: vi.fn(),
@@ -97,7 +97,7 @@ describe('BatchJobs', () => {
     // Provider + model (plain text / InlineCode).
     expect(screen.getByText('Anthropic')).toBeInTheDocument();
     expect(screen.getByText('claude-opus-4-8')).toBeInTheDocument();
-    // Lifecycle states ("Retrieved" also names a stat tile → allow multiple).
+    // Lifecycle state badge (the retrieved job).
     expect(screen.getAllByText('Retrieved').length).toBeGreaterThan(0);
     expect(screen.getByText('Polling')).toBeInTheDocument();
     // Discount pill.
@@ -110,20 +110,47 @@ describe('BatchJobs', () => {
     jobsMock.mockResolvedValue({ jobs: JOBS, count: JOBS.length });
     renderPage();
 
-    // The "Requests" tile derives `of 14 retrieved` from the async-loaded rows
+    // The "Requests retrieved" tile derives `of 14 total` from the async-loaded rows
     // (totals.requests = 10 + 4). The four StatCards render EAGERLY (even during the
     // loading skeleton, with totals = 0), so `Total jobs` is present before the
     // jobsMock promise resolves — asserting it via getByText after a waitFor on a
     // DIFFERENT node would race the row-load under CPU contention. Anchor the wait on
-    // the value that only appears once the rows land: `of 14 retrieved`. findByText
+    // the value that only appears once the rows land: `of 14 total`. findByText
     // polls until the loaded-state re-render commits (default 1000ms is tight under a
     // fully parallel suite → give it explicit headroom without weakening the assert).
-    expect(await screen.findByText(/of 14 retrieved/, {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/of 14 total/, {}, { timeout: 5000 })).toBeInTheDocument();
     // Now that the loaded state has committed, the sibling tiles are all present.
     expect(screen.getByText('Total jobs')).toBeInTheDocument();
     expect(screen.getByText('In flight')).toBeInTheDocument();
-    // "Retrieved" names both a stat tile and a state badge → at least one present.
+    // The tiles are labelled by granularity (jobs vs requests) — no "retrieved" collision.
+    expect(screen.getByText('Jobs done')).toBeInTheDocument();
+    expect(screen.getByText('Requests retrieved')).toBeInTheDocument();
+    // "Retrieved" now names only the lifecycle state badge (not a tile).
     expect(screen.getAllByText('Retrieved').length).toBeGreaterThan(0);
+  });
+
+  it('Refresh reloads the jobs table without discarding unsaved policy edits', async () => {
+    jobsMock.mockResolvedValue({ jobs: JOBS, count: JOBS.length });
+    renderPage();
+
+    // The config form renders only after the policy load resolves (loading skeleton
+    // until then).
+    const toggle = await screen.findByRole('switch', { name: /enable batch routing/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    // Edit the policy — the draft is now dirty.
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+    expect(getConfigMock).toHaveBeenCalledTimes(1);
+
+    // Refresh the read-only table.
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
+
+    // The jobs table reloaded, but the config was NOT re-fetched (no clobber) and the
+    // unsaved edit survives.
+    await waitFor(() => expect(jobsMock).toHaveBeenCalledTimes(2));
+    expect(getConfigMock).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
   });
 
   it('shows the empty state when there are no jobs', async () => {

@@ -92,6 +92,7 @@ describe('useEventStream (Wave-4 live wiring / graceful fallback)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
   });
 
   it('is completely inert when disabled (no probe, no EventSource, live false)', () => {
@@ -167,6 +168,77 @@ describe('useEventStream (Wave-4 live wiring / graceful fallback)', () => {
     await waitFor(() => expect(result.current.live).toBe(false));
     // The errored source is closed (no leaked socket).
     expect(es.closed).toBe(true);
+  });
+
+  it('bounds the reconnect loop (does not thrash) when a 200 probe opens a stream that never confirms open', async () => {
+    // Regression: coldFailures used to reset on EVERY 200 probe (before the
+    // EventSource confirmed open), so a 200-but-unstreamable endpoint (a proxy that
+    // buffers text/event-stream, a backend that accepts then immediately closes)
+    // looped forever: probe 200 → reset → open → onerror → reset → … The give-up cap
+    // (MAX_COLD_FAILURES) must now bound it, and the reset only happens on a confirmed
+    // open/frame. MAX_COLD_FAILURES is 4 (module-private), so exactly 4 streams open.
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(probeResponse(200));
+    const { result } = renderHook(() =>
+      useEventStream(['notifications'], { enabled: true }),
+    );
+
+    for (let i = 0; i < 12; i++) {
+      // Flush the pending probe .then → open the i-th (mock) stream.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      if (!es || es.closed) break; // no fresh stream opened → the give-up cap engaged
+      // The opened stream errors BEFORE it ever confirmed OPEN (a cold failure).
+      act(() => es.emitError(false));
+      // Run the backoff timer so the next reconnect (if any) fires.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60000);
+      });
+    }
+
+    // Bounded at the cold-failure cap (4) — not an unbounded reconnect storm.
+    expect(MockEventSource.instances).toHaveLength(4);
+    expect(result.current.live).toBe(false);
+    // And no further reconnect remains pending after the cap engages.
+    const settled = MockEventSource.instances.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120000);
+    });
+    expect(MockEventSource.instances).toHaveLength(settled);
+  });
+
+  it('does not retry after a 204 even if the success-path abort rejects into .catch (some runtimes)', async () => {
+    // Regression: on a 204 (realtime disabled) `es` stays null, so the old
+    // `.catch` guard `if (es) return` did NOT cover it — a success-path abort that
+    // rejects into `.catch` (as the code notes happens in some runtimes) would run
+    // coldFailures++/scheduleReconnect and re-probe a deliberately-disabled backend.
+    // The probeResolved guard must keep the documented 204 "no retries" contract.
+    vi.useFakeTimers();
+    // A pathological thenable: fulfils with a 204 (handled in `.then`, no retry) AND
+    // then rejects (the success-path ctrl.abort() surfacing into the chained `.catch`).
+    const pathological = {
+      then(onFulfilled: (r: Response) => unknown) {
+        onFulfilled(probeResponse(204));
+        return Promise.reject(new Error('The operation was aborted'));
+      },
+    };
+    fetchMock.mockReturnValue(pathological);
+
+    const { result } = renderHook(() =>
+      useEventStream(['notifications'], { enabled: true }),
+    );
+
+    // Flush the rejected-promise microtask (the `.catch`) + any backoff timers.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+
+    // 204 = realtime disabled → no stream, live false, and CRUCIALLY no retry probe.
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(result.current.live).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('tears down (closes the stream + clears live) on unmount', async () => {

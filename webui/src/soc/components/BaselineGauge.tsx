@@ -9,9 +9,11 @@
  * Exports (all pure/presentational — the data comes from `Baseline.api.ts`):
  *   - `BaselineWarmupGauge` — a single bucket's n/target progress bar + warm badge.
  *   - `BaselinePercentileSparkline` — a p50/p95/p99 sparkline across buckets.
- *   - `BaselineSignatureCard` — the per-signature panel (gauge + percentiles), usable
- *      BOTH standalone on a baseline stats page AND embedded on CaseDetail (pass
- *      `embedded` to drop the outer card chrome + shrink).
+ *   - `BaselineSignatureCard` — the per-signature panel (gauge + percentiles). Pass
+ *      `embedded` to drop the outer card chrome + shrink for embedding in a host panel.
+ *      Mounted `embedded` in the CaseDetail Overview (`casedetail/OverviewPanel.tsx`)
+ *      when the case's cluster signature has baseline data, and standalone as the
+ *      per-signature drill-in on the Baseline page.
  *   - `BaselineStatsOverview` — the tenant-wide overview (signature/bucket counts,
  *      warm buckets, seasonality, config knobs).
  *
@@ -61,6 +63,12 @@ export interface BaselineWarmupGaugeProps {
   progress?: number;
   /** Optional caption above the bar (e.g. "Bucket 14 (Mon 14:00)"). Plain text. */
   label?: string;
+  /**
+   * Unit noun for the caption + aria-label (default 'obs'). The signature-level card
+   * aggregates WARM BUCKETS (not observations), so it passes 'buckets warm' to avoid
+   * mislabelling bucket counts as observations. Plain text.
+   */
+  unit?: string;
   className?: string;
 }
 
@@ -69,7 +77,7 @@ export interface BaselineWarmupGaugeProps {
  * This is the load-bearing "baseline warming up (n/target)" affordance.
  */
 export const BaselineWarmupGauge = React.forwardRef<HTMLDivElement, BaselineWarmupGaugeProps>(
-  ({ n, target, warm, progress, label, className }, ref) => {
+  ({ n, target, warm, progress, label, unit = 'obs', className }, ref) => {
     const safeTarget = target > 0 ? target : 1;
     const p = progress ?? n / safeTarget;
     const isWarm = warm ?? n >= target;
@@ -96,11 +104,14 @@ export const BaselineWarmupGauge = React.forwardRef<HTMLDivElement, BaselineWarm
         </div>
         <Progress
           value={pct}
-          aria-label={`Warm-up ${warmupLabel(n, target)} observations`}
-          className={cn('h-2', isWarm && '[&>div]:bg-success')}
+          variant={isWarm ? 'success' : 'default'}
+          aria-label={`Warm-up ${warmupLabel(n, target)} ${unit}`}
+          className="h-2"
         />
         <div className="flex items-center justify-between text-[11px] tabular-nums text-muted-foreground">
-          <span>{warmupLabel(n, target)} obs</span>
+          <span>
+            {warmupLabel(n, target)} {unit}
+          </span>
           <span>{pct}%</span>
         </div>
       </div>
@@ -215,6 +226,7 @@ export const BaselineSignatureCard = React.forwardRef<HTMLDivElement, BaselineSi
               warm={fullyWarm}
               progress={progress}
               label={`${fmtNumber(warm)} of ${fmtNumber(buckets)} buckets warm`}
+              unit="buckets warm"
             />
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="rounded-md border border-border bg-surface/40 px-2.5 py-1.5">
@@ -362,8 +374,9 @@ export const BaselineStatsOverview = React.forwardRef<HTMLDivElement, BaselineSt
           </div>
           <Progress
             value={warmPct}
+            variant={warmPct >= 60 ? 'success' : 'default'}
             aria-label={`Overall warm-up ${warmPct}%`}
-            className={cn('h-2', warmPct >= 60 && '[&>div]:bg-success')}
+            className="h-2"
           />
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">

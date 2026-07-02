@@ -25,7 +25,6 @@ import {
   Info,
   Layers,
   Link2,
-  Lock,
   MemoryStick,
   RefreshCw,
   ShieldOff,
@@ -62,6 +61,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
@@ -166,7 +166,11 @@ function KindBadge({ kind }: { kind?: string }) {
 
 interface ProposalCardProps {
   proposal: Proposal;
+  /** This card's own decision is in flight (drives the "Working…" label). */
   busy: boolean;
+  /** ANY decision (this or another card / bulk) is in flight — disables the actions
+   *  so a click on a second card is never a silent no-op behind the page-level guard. */
+  locked: boolean;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   onApprove: (p: Proposal) => void;
@@ -177,6 +181,7 @@ interface ProposalCardProps {
 function ProposalCard({
   proposal,
   busy,
+  locked,
   selected,
   onToggleSelect,
   onApprove,
@@ -329,39 +334,30 @@ function ProposalCard({
 
       <Separator className="my-4" />
 
-      {/* actions */}
+      {/* actions — Approve is always shown enabled; the server enforces the
+          privileged check and a 403 surfaces inline (see the page Alert). The
+          per-action detail lives on the Approve button's own tooltip, not a
+          misleading padlock that reads as "disabled". */}
       <div className="flex flex-wrap items-center justify-end gap-2 pl-3">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {/* tabIndex={0} makes this disabled-state lock indicator keyboard-
-                focusable so its explanatory tooltip is reachable without a mouse
-                (there is no real control to disable — this replaces the gated
-                Approve button). It is intentionally focusable-but-not-interactive. */}
-            <span
-              className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground"
-              /* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */
-              tabIndex={0}
-              aria-label="Approve requires admin"
-            >
-              <Lock className="h-4 w-4" aria-hidden />
-            </span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">{approveTip}</TooltipContent>
-        </Tooltip>
         <Button
           variant="ghost"
           size="sm"
           className="text-critical hover:bg-critical/10 hover:text-critical"
           onClick={() => onReject(proposal)}
-          disabled={busy || decided}
+          disabled={busy || locked || decided}
         >
           <X className="h-4 w-4" aria-hidden />
           Reject
         </Button>
-        <Button size="sm" onClick={() => onApprove(proposal)} disabled={busy || decided}>
-          <CheckCircle2 className="h-4 w-4" aria-hidden />
-          {busy ? 'Working…' : 'Approve'}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="sm" onClick={() => onApprove(proposal)} disabled={busy || locked || decided}>
+              <CheckCircle2 className="h-4 w-4" aria-hidden />
+              {busy ? 'Working…' : 'Approve'}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">{approveTip}</TooltipContent>
+        </Tooltip>
       </div>
     </Card>
   );
@@ -549,6 +545,7 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
       key={p.id}
       proposal={p}
       busy={busyId === p.id || bulkBusy}
+      locked={busyId !== null || bulkBusy}
       selected={selected.has(p.id)}
       onToggleSelect={toggleSelect}
       onApprove={(pr) => void decide(pr, 'approve')}
@@ -592,11 +589,11 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
   let body: React.ReactNode;
   if (error) {
     body = (
-      <Alert variant="destructive">
-        <AlertTriangle aria-hidden />
-        <AlertTitle>Could not load proposals</AlertTitle>
-        <AlertDescription>{describeError(error)}</AlertDescription>
-      </Alert>
+      <LoadError
+        error={error}
+        title="Couldn't load proposals"
+        onRetry={() => void load()}
+      />
     );
   } else if (loading && proposals.length === 0) {
     body = (
@@ -692,9 +689,10 @@ export default function Approvals({ onNavigate }: ApprovalsProps) {
         ) : null}
       </div>
 
-      {/* sticky bulk-action bar */}
+      {/* sticky bulk-action bar — pin flush BELOW the app header (matches the
+          PageHeader/FilterBar convention) so it isn't drawn behind the z-30 top bar. */}
       {selected.size > 0 ? (
-        <div className="sticky top-2 z-10">
+        <div className="sticky top-[var(--header-h)] z-20">
           <Card className="flex flex-wrap items-center gap-2 border-primary/30 bg-surface p-3 shadow-elev2">
             <span className="text-sm font-medium text-foreground">
               <span className="tabular-nums">{fmtNumber(selected.size)}</span> selected

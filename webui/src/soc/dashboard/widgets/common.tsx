@@ -14,6 +14,7 @@
 import * as React from 'react';
 import type { LucideIcon } from 'lucide-react';
 
+import { cn } from '@/lib/cn';
 import { Skeleton } from '@/ui/skeleton';
 import { ChartCard } from '@/soc/components/ChartCard';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -61,6 +62,12 @@ export interface WidgetShellProps {
   emptyIcon?: LucideIcon;
   /** Optional header-right action. */
   action?: React.ReactNode;
+  /**
+   * Tall bodies (tables, the MITRE heatmap) scroll INTERNALLY within the fixed grid cell
+   * instead of being clipped. Off by default (a KPI/gauge body fits its cell). See
+   * {@link ChartCard} `scrollBody`.
+   */
+  scrollBody?: boolean;
   className?: string;
   children: React.ReactNode;
 }
@@ -79,6 +86,7 @@ export function WidgetShell({
   emptyMessage,
   emptyIcon,
   action,
+  scrollBody,
   className,
   children,
 }: WidgetShellProps) {
@@ -102,8 +110,21 @@ export function WidgetShell({
     body = children;
   }
 
+  // On a dashboard every widget sits in a FIXED-height grid cell. `h-full` makes the
+  // card fill its cell (so a short KPI never leaves a gap below it) and `overflow-hidden`
+  // clips the card to the cell (so a long table/heatmap can never spill over the widget
+  // below). When `scrollBody` is set the BODY scrolls INSIDE the card instead of being
+  // cut off — a tall table/heatmap stays fully reachable. On the Metrics page ChartCard
+  // is used directly (not via WidgetShell), so that layout is unaffected.
   return (
-    <ChartCard title={title} icon={icon} accentClass={accentClass} action={action} className={className}>
+    <ChartCard
+      title={title}
+      icon={icon}
+      accentClass={accentClass}
+      action={action}
+      scrollBody={scrollBody}
+      className={cn('h-full overflow-hidden', className)}
+    >
       {body}
     </ChartCard>
   );

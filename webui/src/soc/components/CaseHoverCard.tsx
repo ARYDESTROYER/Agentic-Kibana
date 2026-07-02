@@ -21,9 +21,18 @@ export interface CaseHoverCardProps {
  * case-derived text is UNTRUSTED and rendered as plain text / InlineCode only.
  */
 export function CaseHoverCard({ case: c, children, openDelay = 280, className }: CaseHoverCardProps) {
+  // Make the trigger keyboard-focusable so the preview is reachable on FOCUS, not only
+  // on hover (WCAG 1.4.13 / 2.1.1) — Radix HoverCard opens on trigger focus too.
+  // Consumers commonly pass a non-focusable <span>/<div>, so default tabIndex=0 unless
+  // the child already sets one (e.g. it is itself a button/link).
+  const trigger =
+    React.isValidElement(children) &&
+    (children.props as { tabIndex?: number }).tabIndex === undefined
+      ? React.cloneElement(children as React.ReactElement<{ tabIndex?: number }>, { tabIndex: 0 })
+      : children;
   return (
     <HoverCard openDelay={openDelay} closeDelay={120}>
-      <HoverCardTrigger asChild>{children}</HoverCardTrigger>
+      <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
       <HoverCardContent align="start" className={cn('w-96', className)}>
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-xs text-muted-foreground">{c.case_id}</span>

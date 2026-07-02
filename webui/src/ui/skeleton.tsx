@@ -50,7 +50,10 @@ const SkeletonCard = React.forwardRef<HTMLDivElement, SkeletonCardProps>(
           <Skeleton
             key={i}
             className="h-3"
-            style={{ width: `${92 - i * 14}%` }}
+            // Floor the width so large `lines` values (i>=6 would go sub-visible /
+            // negative → invalid CSS that snaps back to full width) still render a
+            // visible, on-brand placeholder line.
+            style={{ width: `${Math.max(28, 92 - i * 14)}%` }}
           />
         ))}
       </div>
@@ -59,33 +62,4 @@ const SkeletonCard = React.forwardRef<HTMLDivElement, SkeletonCardProps>(
 );
 SkeletonCard.displayName = 'SkeletonCard';
 
-/**
- * SkeletonRow — a single dense table-style placeholder row. Used inside list /
- * table loading states so the loading shape matches the eventual row height.
- */
-export interface SkeletonRowProps extends React.HTMLAttributes<HTMLDivElement> {
-  /** Number of cell placeholders across (default 4). */
-  cells?: number;
-}
-
-const SkeletonRow = React.forwardRef<HTMLDivElement, SkeletonRowProps>(
-  ({ className, cells = 4, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn('flex items-center gap-4 px-4 py-3', className)}
-      aria-hidden
-      {...props}
-    >
-      {Array.from({ length: Math.max(1, cells) }).map((_, i) => (
-        <Skeleton
-          key={i}
-          className="h-3.5"
-          style={{ flex: i === 0 ? '2 1 0%' : '1 1 0%' }}
-        />
-      ))}
-    </div>
-  ),
-);
-SkeletonRow.displayName = 'SkeletonRow';
-
-export { Skeleton, SkeletonCard, SkeletonRow };
+export { Skeleton, SkeletonCard };

@@ -38,8 +38,9 @@ export function errorMessage(e: unknown, fallback = 'Something went wrong.'): st
   if (e === null || e === undefined) return fallback;
   try {
     const s = JSON.stringify(e);
-    // `undefined`/functions stringify to `undefined`; treat that as no message.
-    return s && s !== 'undefined' && s !== '{}' ? s : fallback;
+    // JSON.stringify returns the *value* undefined (falsy → caught by `s &&`) for
+    // functions/symbols; empty containers ({}/[]) carry no message, so fall back too.
+    return s && s !== '{}' && s !== '[]' ? s : fallback;
   } catch {
     return fallback;
   }

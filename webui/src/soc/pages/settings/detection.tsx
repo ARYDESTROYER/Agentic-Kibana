@@ -19,22 +19,26 @@
  * controls. TRUE_POSITIVE auto-close is an explicit opt-in (OFF by default) and
  * NEEDS_HUMAN NEVER auto-closes (code-enforced; shown here as a locked, read-only row).
  */
-import { Info, Lock, Network, ShieldAlert, ShieldCheck, SlidersHorizontal, Workflow } from 'lucide-react';
+import { Info, Lock, Network, Server, ShieldAlert, ShieldCheck, SlidersHorizontal, Workflow } from 'lucide-react';
 
 import { humanizeToken } from '@/lib/format';
 import type { AutoClosePolicy, VerdictAutoClose as VerdictAutoCloseConfig } from '@/lib/types';
 import { cn } from '@/lib/cn';
 
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
+import { Input } from '@/ui/input';
 import { SettingsGrid, SettingsCard, type SettingsTOCItem } from '@/soc/components/SettingsGrid';
 import { NumberField } from '@/soc/components/NumberField';
 import { LabeledSlider } from '@/soc/components/LabeledSlider';
+import { Field } from '@/soc/components/Field';
+import { AssetCriticalityEditor } from '@/soc/components/rules';
 
-import { SectionShell, NumPref, SwitchPref, TextPref, type SecProps } from './primitives';
+import { SectionShell, NumPref, SwitchPref, type SecProps } from './primitives';
 
 const DETECTION_TOC: SettingsTOCItem[] = [
   { anchor: 'detection-correlation', label: 'Correlation', icon: Workflow },
   { anchor: 'detection-risk', label: 'Risk weights', icon: SlidersHorizontal },
+  { anchor: 'detection-asset', label: 'Asset criticality', icon: Server },
   { anchor: 'detection-escalation', label: 'Escalation', icon: ShieldAlert },
   { anchor: 'detection-autoclose', label: 'Auto-close', icon: ShieldCheck },
   { anchor: 'detection-crosssource', label: 'Cross-source', icon: Network },
@@ -45,7 +49,9 @@ export function DetectionSection({ prefs, update }: SecProps) {
   const weights = prefs.risk_weights || {};
   return (
     <SectionShell
-      title="Detection & correlation"
+      // Match the Round-5 rail label (SETTINGS_SECTIONS_META title = 'Detection') so the
+      // nav item and the body heading agree; the longer phrasing lives in `sub`.
+      title="Detection"
       sub="How alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
       toc={DETECTION_TOC}
     >
@@ -79,6 +85,21 @@ export function DetectionSection({ prefs, update }: SecProps) {
               />
             ))}
           </div>
+        </SettingsCard>
+
+        <SettingsCard
+          anchor="detection-asset"
+          title="Asset criticality"
+          icon={Server}
+          description="Mark internal assets (CIDR ranges and exact hosts/users/IPs) as high-value. Feeds the deterministic risk model's asset-criticality weight above — higher criticality only RAISES risk; it never auto-closes or escalates a case (#3)."
+          wide="full"
+        >
+          <AssetCriticalityEditor
+            networks={prefs.asset_networks ?? []}
+            onNetworksChange={(next) => update({ asset_networks: next })}
+            exact={prefs.asset_criticality ?? {}}
+            onExactChange={(next) => update({ asset_criticality: next })}
+          />
         </SettingsCard>
 
         <SettingsCard
@@ -149,20 +170,32 @@ function CrossSourceSubsection({ prefs, update }: SecProps) {
           onChange={(v) => set({ min_sources: v })}
         />
       </div>
-      <TextPref
-        label="Entity keys"
-        help="Comma-separated entity keys to correlate on across sources (e.g. ip, host, user, file_hash, domain)."
-        value={entityKeys.join(', ')}
-        placeholder="ip, host, user, file_hash, domain"
-        onChange={(v) =>
-          set({
-            entity_keys: v
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean),
-          })
-        }
-      />
+      {/* Entity keys shares the cross-source enable gate: it dims + disables with the two
+          numeric knobs above so the whole sub-form reads as one on/off unit (#20). */}
+      <div className={cn(!enabled && 'opacity-60')}>
+        <Field
+          label="Entity keys"
+          description="Comma-separated entity keys to correlate on across sources (e.g. ip, host, user, file_hash, domain)."
+        >
+          {({ id, describedBy }) => (
+            <Input
+              id={id}
+              aria-describedby={describedBy}
+              value={entityKeys.join(', ')}
+              placeholder="ip, host, user, file_hash, domain"
+              disabled={!enabled}
+              onChange={(e) =>
+                set({
+                  entity_keys: e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                })
+              }
+            />
+          )}
+        </Field>
+      </div>
     </div>
   );
 }

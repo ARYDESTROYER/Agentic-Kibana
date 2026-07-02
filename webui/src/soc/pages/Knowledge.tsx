@@ -55,9 +55,12 @@ import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
+import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Can, useCan } from '@/soc/components/Can';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
+import { NumberField } from '@/soc/components/NumberField';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import {
   DataTable,
@@ -298,7 +301,9 @@ const DocumentSheet: React.FC<{
 
   return (
     <Sheet open={!!documentId} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" size="lg" className="overflow-y-auto p-0">
+      {/* Pinned header (with the built-in close X) + an inner scroll region — never
+          overflow-y-auto on SheetContent itself or the absolute X scrolls away (#19). */}
+      <SheetContent side="right" size="lg" className="flex flex-col p-0">
         <SheetHeader>
           {/* Title is UNTRUSTED — plain text. */}
           <SheetTitle className="pr-8 break-words">
@@ -341,7 +346,7 @@ const DocumentSheet: React.FC<{
           ) : null}
         </SheetHeader>
 
-        <div className="flex-1 space-y-3 p-6">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-6">
           {error ? (
             <Alert variant="destructive">
               <AlertCircle aria-hidden />
@@ -399,6 +404,22 @@ const DocumentSheet: React.FC<{
 
 /* ------------------------------------------------------------------- import --- */
 
+/**
+ * Whether the import button should be enabled, keyed to the SAME signal `submit()`
+ * indexes: when files are queued it indexes the queue (`queueValid`), otherwise the
+ * pasted title+text (`hasPasted && !tooBig`). Branching on `hasPasted` alone let an
+ * oversized queued file slip through / blocked a valid batch behind pasted text.
+ */
+export function computeImportCanSubmit(s: {
+  batching: boolean;
+  queueValid: boolean;
+  hasPasted: boolean;
+  tooBig: boolean;
+  submitting: boolean;
+}): boolean {
+  return (s.batching ? s.queueValid : s.hasPasted && !s.tooBig) && !s.submitting;
+}
+
 /** One queued file waiting to be (or being) indexed. */
 interface QueuedFile {
   name: string;
@@ -427,7 +448,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
   const hasPasted = title.trim().length > 0 && text.trim().length > 0;
   const queueValid = queue.length > 0 && queue.every((q) => !q.tooBig);
   const batching = queue.length > 0;
-  const canSubmit = (hasPasted ? !tooBig : queueValid) && !submitting;
+  const canSubmit = computeImportCanSubmit({ batching, queueValid, hasPasted, tooBig, submitting });
 
   const readFile = (file: File): Promise<QueuedFile> =>
     new Promise((resolve, reject) => {
@@ -994,28 +1015,18 @@ const SearchCard: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="rag-topk">Top-K results</Label>
-            <Input
-              id="rag-topk"
-              type="number"
-              min={1}
-              max={20}
-              value={topK}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                setTopK(
-                  Number.isFinite(n)
-                    ? Math.min(20, Math.max(1, Math.round(n)))
-                    : TOP_K_DEFAULT,
-                );
-              }}
-              aria-label="Top-K results"
-            />
-            <p className="text-xs text-muted-foreground">
-              How many ranked chunks to return.
-            </p>
-          </div>
+          {/* NumberField keeps raw text while editing and clamps to [1,20] on blur, so
+              the operator can clear/edit mid-entry (a raw type=number clamps per
+              keystroke, snapping an empty field to 1). DESIGN_STANDARD §5.2. */}
+          <NumberField
+            label="Top-K results"
+            description="How many ranked chunks to return."
+            value={topK}
+            onChange={setTopK}
+            min={1}
+            max={20}
+            defaultValue={TOP_K_DEFAULT}
+          />
           <div className="space-y-1.5">
             <Label htmlFor="rag-minsim">Min. similarity</Label>
             <Input id="rag-minsim" value={MIN_SIMILARITY_HINT} disabled aria-label="Minimum similarity" />
@@ -1080,7 +1091,9 @@ const DocumentsSection: React.FC<{
   loading: boolean;
   onOpen: (id: string) => void;
   onDelete: (doc: RagDocument) => void;
-}> = ({ documents, loading, onOpen, onDelete }) => {
+  /** Whether the current user may delete (rag:manage) — gates the per-row Delete. */
+  canManage: boolean;
+}> = ({ documents, loading, onOpen, onDelete, canManage }) => {
   const [search, setSearch] = React.useState('');
   const [sourceFilter, setSourceFilter] = React.useState<string>('all');
   const [sort, setSort] = React.useState<SortState>({ id: 'added_at', dir: 'desc' });
@@ -1259,25 +1272,27 @@ const DocumentsSection: React.FC<{
             >
               <Search className="size-4" aria-hidden />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-critical hover:text-critical"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(d);
-              }}
-              aria-label="Delete from the corpus"
-            >
-              <Trash2 className="size-4" aria-hidden />
-            </Button>
+            {canManage ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-critical hover:text-critical"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(d);
+                }}
+                aria-label="Delete from the corpus"
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </Button>
+            ) : null}
           </div>
         ),
       },
     );
 
     return cols;
-  }, [compact, onOpen, onDelete]);
+  }, [compact, onOpen, onDelete, canManage]);
 
   return (
     <div className="space-y-4">
@@ -1551,6 +1566,9 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
 
   const showHealthSkeleton = loading && !stats;
   const canManageRag = useCan('rag', 'manage');
+  // A hard load failure with NO cached data: show one clean LoadError instead of
+  // zeroed KPIs + a false "corpus is empty" state below it.
+  const hardLoadFail = !!error && !stats;
 
   const refreshAction = (
     <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
@@ -1560,7 +1578,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
   );
 
   return (
-    <div className="space-y-8">
+    <PageContainer variant="wide" className="space-y-8">
       {embedded ? (
         <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
       ) : (
@@ -1574,13 +1592,16 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
       )}
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertCircle aria-hidden />
-          <AlertTitle>Could not load the knowledge corpus</AlertTitle>
-          <AlertDescription>{errorMessage(error, 'Request failed.')}</AlertDescription>
-        </Alert>
+        <LoadError
+          error={error}
+          title="Could not load the knowledge corpus"
+          fallback="Request failed."
+          onRetry={() => void load()}
+        />
       ) : null}
 
+      {hardLoadFail ? null : (
+        <>
       {/* ---- corpus health KPIs ---- */}
       {showHealthSkeleton ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1681,10 +1702,16 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
       </div>
 
       {/* ---- import + search ---- */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <ImportCard onImported={load} />
+      {/* Import is rag:manage; read-only roles (auditor/tier1/tier2/responder) get
+          search only — no import affordance that always 403s. */}
+      {canManageRag ? (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <ImportCard onImported={load} />
+          <SearchCard />
+        </div>
+      ) : (
         <SearchCard />
-      </div>
+      )}
 
       {/* ---- threat-intel import (rag:manage) ---- */}
       {canManageRag ? (
@@ -1699,6 +1726,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
         loading={loading}
         onOpen={setSelectedDoc}
         onDelete={requestDelete}
+        canManage={canManageRag}
       />
 
       <Separator />
@@ -1709,6 +1737,8 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
           investigator and never executed as instructions.
         </p>
       </div>
+        </>
+      )}
 
       <DocumentSheet documentId={selectedDoc} onClose={() => setSelectedDoc(null)} />
       <DeleteDialog
@@ -1717,6 +1747,6 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
         onCancel={() => setPending(null)}
         onConfirm={() => void runDelete()}
       />
-    </div>
+    </PageContainer>
   );
 }

@@ -196,6 +196,12 @@ def _sanitize_layout(
 
     # Per-breakpoint override map (RGL responsive). Bound the breakpoint count + each
     # list; clamp every placement the same way as the primary list.
+    #
+    # NOTE (single-breakpoint MVP): the current FE builder is single-breakpoint — it never
+    # AUTHORS `layouts`, so a real Edit->Save posts `layouts` absent/empty and this branch
+    # stores ``{}``. The ``DashboardLayout.layouts`` field + this clamping branch are
+    # RETAINED for forward wire-compat so a future responsive builder can populate them
+    # without a schema/route change; until then they are inert (always ``{}``).
     layouts: dict[str, list[DashboardWidget]] = {}
     src_layouts = body.layouts if isinstance(body.layouts, dict) else {}
     for bp in list(src_layouts.keys())[:_MAX_BREAKPOINT_KEYS]:

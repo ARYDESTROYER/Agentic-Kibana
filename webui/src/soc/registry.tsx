@@ -274,7 +274,13 @@ export const FEATURES: FeatureNode[] = [
     icon: BarChart3,
     group: 'analytics',
     children: [
-      { id: 'metrics', label: 'Metrics', icon: BarChart3 },
+      // The Metrics page loads GET /api/metrics, which routes_metrics.py gates on
+      // `metrics:view` — so the nav child gates on the SAME grant (mirroring the
+      // `dashboards` sibling), never showing an entry that would 403 on open. (`cost`
+      // and `models` stay ungated: their GET endpoints — /api/usage/summary,
+      // /api/llm/models — are auth-only, no per-resource grant, so gating them would
+      // hide a page the principal can actually read.)
+      { id: 'metrics', label: 'Metrics', icon: BarChart3, perm: { resource: 'metrics', action: 'view' } },
       { id: 'cost', label: 'Cost', icon: DollarSign },
       { id: 'models', label: 'Models', icon: Cpu },
       {
@@ -402,17 +408,15 @@ export const FEATURE_GROUPS: { id: NavGroupId; label: string }[] = [
 const Home = React.lazy(() => import('./pages/Home'));
 const Dashboards = React.lazy(() => import('./pages/Dashboards'));
 const Cases = React.lazy(() => import('./pages/Cases'));
-const Investigate = React.lazy(() => import('./pages/Investigate'));
 const Workspace = React.lazy(() => import('./pages/Workspace'));
 const Scans = React.lazy(() => import('./pages/Scans'));
-const Standup = React.lazy(() => import('./pages/Standup'));
 const Analytics = React.lazy(() => import('./pages/Analytics'));
-const Cost = React.lazy(() => import('./pages/Cost'));
 const Intelligence = React.lazy(() => import('./pages/Intelligence'));
-const Knowledge = React.lazy(() => import('./pages/Knowledge'));
-const Memory = React.lazy(() => import('./pages/Memory'));
 const Sources = React.lazy(() => import('./pages/Sources'));
-const Catalog = React.lazy(() => import('./pages/Catalog'));
+// NB: the host-tab leaves (Chat/Investigate → Workspace, Standup → Home, Cost →
+// Analytics, Knowledge/Memory/Catalog → Intelligence) no longer have their OWN lazy
+// const here — each routes THROUGH its host with a forced `tab` (see ROUTES below), so
+// their page module is loaded by the host's chunk, not a second standalone chunk.
 // NB: several page names collide with the lucide icon imports at the top of this file
 // (Settings, Inbox, Users, …) — the lazy page consts are `*Page`-suffixed to avoid it.
 const SettingsPage = React.lazy(() => import('./pages/Settings'));
@@ -463,8 +467,9 @@ export interface RouteDef {
  * Host pages (`overview`/`chat`/`metrics`/`intelligence`) read their active sub-`tab`
  * from the route ctx; the two deep-link leaves that force a specific sub-view
  * (`dashboard` → Dashboard tab, `playbooks` → Catalog tab) pass a fixed `tab`. `cases`
- * seeds its status filter from `opts.status`; `settings` receives `onRerunWizard`. No
- * route passes `onNavigate` — pages use `useNavigate()`/`useNavigateOptional()`.
+ * seeds its status filter from `opts.status` and its severity facet from `opts.severity`
+ * (#38 drill-through); `settings` receives `onRerunWizard`. No route passes `onNavigate`
+ * — pages use `useNavigate()`/`useNavigateOptional()`.
  */
 export const ROUTES: Record<PageId, RouteDef> = {
   /* ---- Round-2 W4 consolidated HOST pages (tabbed) ---- */
@@ -473,7 +478,19 @@ export const ROUTES: Record<PageId, RouteDef> = {
   metrics: { element: Analytics, render: (c) => <Analytics tab={c.opts?.tab} /> },
   intelligence: { element: Intelligence, render: (c) => <Intelligence tab={c.opts?.tab} /> },
 
-  /* ---- Deep-link leaves that force a host sub-tab ---- */
+  /* ---- Deep-link leaves that force a host sub-tab ----
+   * ROUTING RULE (Round-6 consistency fix): a disclosure child that its host embeds as
+   * a TAB routes THROUGH that host with a forced `tab`, so the child renders inside the
+   * host's segmented strip — never as a bare, strip-less DUPLICATE of the same content
+   * at a second URL, and never losing lateral access to its sibling tabs. This is how
+   * `dashboard`/`playbooks` already resolved; it now covers EVERY host-tab child:
+   *   Overview     → dashboard | standup
+   *   Workspace    → chat | investigate
+   *   Analytics    → metrics | cost
+   *   Intelligence → knowledge | memory | catalog (a.k.a. playbooks)
+   * Children that are GENUINELY standalone pages (they are NOT a tab of any host —
+   * `dashboards` [custom-dashboard builder], `models`, `baseline`, `batchjobs`, `inbox`)
+   * keep a standalone route below. */
   dashboard: { element: Home, render: () => <Home tab="dashboard" /> },
   dashboards: { element: Dashboards },
   playbooks: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
@@ -484,7 +501,12 @@ export const ROUTES: Record<PageId, RouteDef> = {
   inbox: { element: InboxPage },
 
   /* ---- Triage ---- */
-  cases: { element: Cases, render: (c) => <Cases initialStatus={c.opts?.status} /> },
+  cases: {
+    element: Cases,
+    render: (c) => (
+      <Cases initialStatus={c.opts?.status} initialSeverity={c.opts?.severity} />
+    ),
+  },
   scans: { element: Scans },
   approvals: { element: Approvals },
   sources: { element: Sources },
@@ -496,13 +518,24 @@ export const ROUTES: Record<PageId, RouteDef> = {
   batchjobs: { element: BatchJobs },
   baseline: { element: BaselineStats },
 
-  /* ---- Hidden-but-routable consolidated sub-pages (deep-link fallbacks) ---- */
-  investigate: { element: Investigate },
-  standup: { element: Standup },
-  cost: { element: Cost },
-  knowledge: { element: Knowledge },
-  memory: { element: Memory },
-  catalog: { element: Catalog },
+  /* ---- Host-tab leaves: route THROUGH the host with a forced tab (see rule above) --- */
+  investigate: { element: Workspace, render: () => <Workspace tab="investigate" /> },
+  standup: { element: Home, render: () => <Home tab="standup" /> },
+  cost: { element: Analytics, render: () => <Analytics tab="cost" /> },
+  knowledge: { element: Intelligence, render: () => <Intelligence tab="knowledge" /> },
+  memory: { element: Intelligence, render: () => <Intelligence tab="memory" /> },
+  catalog: { element: Intelligence, render: () => <Intelligence tab="catalog" /> },
+
+  /* ---- Settings-redirected ids: INTENTIONALLY-unreachable-but-registered ----
+   * `account`/`sessions`/`admin_sessions`/`security`/`users`/`roles` always redirect to
+   * a Settings section (SETTINGS_REDIRECTS in router.tsx), so `pageFromHash` never
+   * returns these ids and renderRoute never renders these entries at runtime. They are
+   * kept ON PURPOSE, not dead: (a) `ROUTES` is an EXHAUSTIVE `Record<PageId, RouteDef>`
+   * (a compile-time guarantee every PageId has a route), (b) `route-registry.test.tsx`
+   * pins that every PageId resolves, and (c) they are a defensive fallback — if a
+   * redirect entry were ever dropped, the id would render its real page instead of a
+   * white-screen. The lazy consts are shared with the Settings section files that import
+   * these pages directly, so no extra "never-fetched" chunk actually ships. */
   account: { element: Account },
   sessions: { element: SessionsPage },
   admin_sessions: { element: AdminSessions },

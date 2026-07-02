@@ -160,12 +160,22 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
     };
     window.addEventListener('hashchange', onHashChange);
-    // Normalise the initial hash. A retired standalone deep-link rewrites to its
-    // Settings section; otherwise a bare `#` / unknown id reflects the resolved page.
+    // Normalise the initial hash. A retired standalone deep-link rewrites to its Settings
+    // section; a bare `#` / unknown id reflects the resolved page. CRUCIALLY, when the
+    // hash's page id ALREADY resolves to the current page we leave the hash UNTOUCHED, so
+    // any `?s=<section>&a=<anchor>` query on a bookmarked/refreshed `#/settings?s=...` is
+    // preserved (previously the effect collapsed it to the bare `#/settings`, stripping
+    // the section deep-link before the lazy Settings chunk could read it).
     const initialRaw = (window.location.hash || '').replace(/^#\/?/, '').split(/[?&/]/)[0];
     const initialRedirect = settingsRedirectHash(initialRaw);
-    const initial = initialRedirect ?? '#/' + page;
-    if (window.location.hash !== initial) window.location.hash = initial;
+    if (initialRedirect) {
+      if (window.location.hash !== initialRedirect) window.location.hash = initialRedirect;
+    } else if (initialRaw !== page) {
+      // Only rewrite when the current hash's page id differs from the resolved page
+      // (e.g. a bare `#`, an unknown id, or a trailing slash) — never when it merely
+      // carries a query for the same page.
+      window.location.hash = '#/' + page;
+    }
     return () => window.removeEventListener('hashchange', onHashChange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

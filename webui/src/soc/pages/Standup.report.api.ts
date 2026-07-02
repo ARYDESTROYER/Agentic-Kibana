@@ -149,13 +149,10 @@ export function normalizeReport(raw: Partial<StandupReport> | null | undefined):
 
 // --------------------------------------------------------------------------- //
 // Action items (the cross-shift living attention queue) — CRUD
+//
+// NOTE: there is no `listActionItems` read wrapper — the combined `/standup/report`
+// payload already carries `action_items`; the page reads them from there.
 // --------------------------------------------------------------------------- //
-export function listActionItems(openOnly = false): Promise<{ items: ActionItem[] }> {
-  return api.get<{ items: ActionItem[] }>('standup/action-items', {
-    open_only: openOnly,
-  });
-}
-
 export function createActionItem(body: {
   title: string;
   owner?: string | null;
@@ -181,20 +178,13 @@ export function deleteActionItem(id: string): Promise<{ ok: boolean }> {
 
 // --------------------------------------------------------------------------- //
 // Acknowledgements (append-only sign-off)
+//
+// NOTE: there is no `listAcknowledgements` read wrapper — the combined
+// `/standup/report` payload already carries `acknowledgements`.
 // --------------------------------------------------------------------------- //
 export function acknowledgeHandoff(body: {
   window?: string;
   note?: string;
 }): Promise<{ ack: ShiftAck }> {
   return api.post<{ ack: ShiftAck }>('standup/acknowledge', body);
-}
-
-export function listAcknowledgements(params?: {
-  window?: string;
-  user?: string;
-}): Promise<{ acknowledgements: ShiftAck[]; window: string }> {
-  return api.get<{ acknowledgements: ShiftAck[]; window: string }>(
-    'standup/acknowledgements',
-    params,
-  );
 }

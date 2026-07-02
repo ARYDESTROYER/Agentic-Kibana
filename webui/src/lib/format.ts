@@ -61,17 +61,50 @@ export function formatTimestamp(iso?: string | null): string {
   }
 }
 
+/** Common ISO-4217 currency CODE → symbol map (the backend sends codes, not symbols). */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+  JPY: '¥',
+  CNY: '¥',
+  INR: '₹',
+  CAD: '$',
+  AUD: '$',
+};
+
+/**
+ * Resolve a currency argument to a display prefix. The backend cost ledger sends a
+ * 3-letter ISO code (e.g. `"USD"`), NOT a symbol, so a bare `"USD"` prefix produced
+ * `"USD0.05"`; map known codes to their symbol. A value that is already a symbol
+ * (`"$"`, `"€"`) or a short marker (≤2 chars) is used verbatim; an unknown longer
+ * code falls back to a `"CODE "` prefix so it stays readable.
+ */
+function currencySymbol(currency?: string): string {
+  if (!currency) return '$';
+  const known = CURRENCY_SYMBOLS[currency.toUpperCase()];
+  if (known) return known;
+  if (currency.length <= 2) return currency;
+  return `${currency} `;
+}
+
 /**
  * Format a monetary value. Small spends are shown with 4 decimals (the cost
- * ledger routinely deals in fractions of a cent); larger ones with 2.
+ * ledger routinely deals in fractions of a cent); larger ones with 2, and the
+ * integer part is grouped with thousands separators to match {@link fmtNumber}.
+ * `currency` is an ISO code (e.g. `"USD"`) or a symbol — see {@link currencySymbol}.
  */
 export function fmtMoney(v: number | undefined | null, currency?: string): string {
   if (typeof v !== 'number' || Number.isNaN(v)) {
     return DASH;
   }
-  const symbol = currency || '$';
+  const symbol = currencySymbol(currency);
   const decimals = Math.abs(v) >= 1 ? 2 : 4;
-  return `${symbol}${v.toFixed(decimals)}`;
+  const amount = v.toLocaleString(undefined, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+  return `${symbol}${amount}`;
 }
 
 /** Format an integer-ish count with thousands separators ("12,345"). */
@@ -86,7 +119,7 @@ export function fmtNumber(v: number | undefined | null): string {
   }
 }
 
-/** Format a tokens count compactly (e.g. 2085 -> "2,085", 12000 -> "12K"). */
+/** Format a tokens count compactly (e.g. 2085 -> "2.1K", 12000 -> "12K", 850 -> "850"). */
 export function fmtTokens(v: number | undefined | null): string {
   if (typeof v !== 'number' || Number.isNaN(v)) {
     return DASH;
@@ -118,11 +151,29 @@ export function toPercentValue(v: number | undefined | null): number {
   return Math.max(0, Math.min(100, Math.round(pct)));
 }
 
-/** Title-case an enum-ish token: "needs_human" -> "Needs human". */
+/**
+ * Sentence-case an enum-ish token: "needs_human" -> "Needs human".
+ *
+ * Force-lowercasing the remainder mangles acronyms and proper nouns ("US" -> "Us",
+ * "OpenAI" -> "Openai", "United States" -> "United states"), so we PRESERVE the
+ * author's casing when the source is mixed-case ("OpenAI", "United States") or a short
+ * all-caps acronym ("US", "AWS"). A plain single-case enum token ("needs_human",
+ * "FALSE_POSITIVE") is still sentence-cased for a calm, uniform read.
+ */
 export function humanizeToken(token?: string | null): string {
   if (!token) {
     return DASH;
   }
   const spaced = token.replace(/[_-]+/g, ' ').trim();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+  if (!spaced) {
+    return DASH;
+  }
+  const rest = spaced.slice(1);
+  const hasLower = /[a-z]/.test(spaced);
+  const isAcronymish =
+    (hasLower && /[A-Z]/.test(rest)) || (!hasLower && spaced.replace(/\s+/g, '').length <= 3);
+  if (isAcronymish) {
+    return spaced.charAt(0).toUpperCase() + rest;
+  }
+  return spaced.charAt(0).toUpperCase() + rest.toLowerCase();
 }

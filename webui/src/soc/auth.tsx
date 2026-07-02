@@ -35,14 +35,24 @@ export interface AuthContextValue {
   matrix: Record<string, Record<string, string[]>>;
   /** Whether the initial auth/roles load is still in flight. */
   loading: boolean;
+  /**
+   * True when the LAST GET /api/auth/me call FAILED (network / 5xx), as opposed to a
+   * clean "auth disabled" 200. Distinguishes "could not reach the backend" from
+   * "auth is off" so the shell doesn't fail OPEN into a broken console. Cleared on a
+   * successful `refresh()`.
+   */
+  loadError: boolean;
   /** Re-fetch /api/auth/me (+ /api/roles); call after login / password change. */
   refresh: () => Promise<AuthMe | null>;
   /** Log out (best-effort) and reset the session to unauthenticated. */
   logout: () => Promise<void>;
   /**
    * Whether the current principal may perform `action` on `resource`.
-   * Returns true when auth is off OR rbac is off (back-compat). When rbac is on it
-   * consults the loaded matrix for the user's role (deny-by-default if unknown).
+   * Returns true when auth is off OR rbac is genuinely off (back-compat). When rbac
+   * is on it consults the loaded matrix for the user's role (deny-by-default if
+   * unknown). If GET /api/roles FAILED to load for an authenticated principal it is
+   * deny-by-default (super_admin excepted) — never allow-all — so a transient fetch
+   * failure can't surface admin controls to a low-privilege user.
    */
   hasPermission: (resource: string, action: string) => boolean;
 }
@@ -56,15 +66,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [matrix, setMatrix] = React.useState<Record<string, Record<string, string[]>>>(EMPTY_MATRIX);
   const [rbacEnabled, setRbacEnabled] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
+  // GET /api/auth/me could not be reached (network / 5xx) — NOT the clean auth-off 200.
+  const [loadError, setLoadError] = React.useState(false);
+  // GET /api/roles failed for an authenticated principal — force deny-by-default in
+  // hasPermission (rather than the allow-all that `rbacEnabled=false` means when RBAC
+  // is genuinely off).
+  const [rolesError, setRolesError] = React.useState(false);
 
   const refresh = React.useCallback(async (): Promise<AuthMe | null> => {
     let next: AuthMe | null = null;
+    let meFailed = false;
     try {
       next = await api.auth.me();
     } catch {
       next = null;
+      meFailed = true;
     }
     setMe(next);
+    setLoadError(meFailed);
     // Only fetch the matrix when there is an authenticated principal (the /roles
     // route requires a session). When auth is off, allow-all makes it unnecessary.
     if (next && next.authenticated && next.auth_enabled) {
@@ -72,13 +91,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const roles: RolesResponse = await api.roles.get();
         setMatrix(roles.matrix ?? EMPTY_MATRIX);
         setRbacEnabled(Boolean(roles.rbac_enabled));
+        setRolesError(false);
       } catch {
         setMatrix(EMPTY_MATRIX);
         setRbacEnabled(false);
+        setRolesError(true);
       }
     } else {
       setMatrix(EMPTY_MATRIX);
       setRbacEnabled(false);
+      setRolesError(false);
     }
     return next;
   }, []);
@@ -103,6 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setMe((prev) => (prev ? { ...prev, authenticated: false, user: null } : prev));
     setMatrix(EMPTY_MATRIX);
     setRbacEnabled(false);
+    setRolesError(false);
   }, []);
 
   const authEnabled = Boolean(me?.auth_enabled);
@@ -113,15 +136,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const hasPermission = React.useCallback(
     (resource: string, action: string): boolean => {
-      // Auth off OR rbac off → everything allowed (mirrors the backend gate).
-      if (!authEnabled || !rbacEnabled) return true;
-      if (!role) return false;
+      // Auth off → everything allowed (mirrors the backend gate).
+      if (!authEnabled) return true;
+      // super_admin always has every grant (it also holds everything backend-side).
       if (role === 'super_admin') return true;
+      // /roles failed to load → deny-by-default (never allow-all on an error), so a
+      // transient fetch failure can't surface admin controls to a lesser role.
+      if (rolesError) return false;
+      // rbac GENUINELY off (a clean /roles response) → allow-all (back-compat).
+      if (!rbacEnabled) return true;
+      if (!role) return false;
       const actions = matrix[role]?.[resource];
       if (!actions) return false;
       return actions.includes('*') || actions.includes(action);
     },
-    [authEnabled, rbacEnabled, role, matrix],
+    [authEnabled, rbacEnabled, rolesError, role, matrix],
   );
 
   const value = React.useMemo<AuthContextValue>(
@@ -134,6 +163,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mustChangePassword,
       matrix,
       loading,
+      loadError,
       refresh,
       logout,
       hasPermission,
@@ -147,6 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       mustChangePassword,
       matrix,
       loading,
+      loadError,
       refresh,
       logout,
       hasPermission,

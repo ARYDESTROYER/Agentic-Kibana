@@ -12,12 +12,10 @@
 import * as React from 'react';
 import {
   Activity,
-  AlertTriangle,
   BookOpen,
   Brain,
   GitBranch,
   Globe,
-  RefreshCw,
   Shield,
   Terminal,
   User,
@@ -29,11 +27,11 @@ import { humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
-import { Button } from '@/ui/button';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import {
   VerdictBadge,
@@ -68,16 +66,7 @@ export const WhyPanel: React.FC<{
   if (error) {
     return (
       <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not load decision rationale</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Something went wrong.'}
-          </AlertDescription>
-        </Alert>
-        <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
-          <RefreshCw className="h-4 w-4" /> Retry
-        </Button>
+        <LoadError error={error} title="Could not load decision rationale" onRetry={onRetry} />
       </div>
     );
   }
@@ -105,6 +94,14 @@ export const WhyPanel: React.FC<{
   const memory = (r.memory_used || []).filter((m) => (m || '').trim());
   const mitre = r.mitre || [];
   const enr = r.enrichment || null;
+  // Only treat enrichment as present when it carries one of the fields the card
+  // actually renders — a fail-open `{}` / `{asn: 5}` result is truthy but would
+  // otherwise draw a heading-only card with an empty grid.
+  const hasEnr =
+    !!enr &&
+    (typeof enr.reputation_score === 'number' ||
+      typeof enr.is_malicious === 'boolean' ||
+      !!enr.country);
   const playbook = r.playbook || null;
 
   return (
@@ -179,7 +176,9 @@ export const WhyPanel: React.FC<{
               <div key={i} className="rounded-md border border-border bg-muted/30 p-3">
                 <Badge variant="info" className="mb-2 gap-1">
                   <BookOpen className="h-3 w-3" />
-                  {humanizeToken(k.source) || 'Knowledge'}
+                  {/* humanizeToken('') returns the DASH glyph (truthy), so guard the
+                      empty source explicitly to hit the 'Knowledge' fallback. */}
+                  {k.source ? humanizeToken(k.source) : 'Knowledge'}
                 </Badge>
                 {k.snippet ? (
                   /* UNTRUSTED — inside CodeBlock fence. */
@@ -253,9 +252,9 @@ export const WhyPanel: React.FC<{
       ) : null}
 
       {/* ------------------------------- enrichment + playbook */}
-      {enr || (playbook && playbook.id) ? (
+      {hasEnr || (playbook && playbook.id) ? (
         <div className="grid gap-6 lg:grid-cols-2">
-          {enr ? (
+          {hasEnr && enr ? (
             <PanelCard>
               <SectionHeading icon={Globe}>
                 Enrichment

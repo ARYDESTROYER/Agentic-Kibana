@@ -40,6 +40,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Timer,
   Trash2,
   UserCircle2,
   Users as UsersIcon,
@@ -207,9 +208,12 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     blurb: 'Clustering, risk weights, escalation, auto-close, and cross-source correlation.',
     icon: Workflow,
     grid: true,
-    keywords: ['correlation', 'risk', 'weights', 'escalation', 'auto-close', 'autonomy', 'false positive', 'cross-source', 'entity'],
+    keywords: ['correlation', 'risk', 'weights', 'escalation', 'auto-close', 'autonomy', 'false positive', 'cross-source', 'entity', 'asset criticality', 'asset', 'cidr', 'crown jewel'],
     // Both the legacy `fp_auto_close` scalar AND the live `auto_close` policy block are
     // owned here (Round-5 R1 moves the auto-close editor onto `prefs.auto_close`).
+    // `asset_networks`/`asset_criticality` are owned here too (Round-6: the Asset
+    // criticality editor sits beside Risk weights — the deterministic risk model reads
+    // both, so the modified-dot must track them).
     ownedKeys: [
       'default_correlation',
       'risk_weights',
@@ -218,6 +222,8 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
       'fp_auto_close',
       'auto_close',
       'cross_source_correlation',
+      'asset_networks',
+      'asset_criticality',
     ],
   },
   {
@@ -261,15 +267,43 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     ownedKeys: ['case_id_format'],
   },
   {
+    id: 'case_policy',
+    group: 'general',
+    title: 'SLA, priority & suppression',
+    blurb: 'Advisory SLA targets and the impact × urgency priority matrix, plus operator suppression rules that drop known-benign events before triage.',
+    icon: Timer,
+    perm: { resource: 'settings', action: 'manage' },
+    grid: true,
+    keywords: [
+      'sla',
+      'service level',
+      'response time',
+      'resolution',
+      'priority',
+      'priority matrix',
+      'impact',
+      'urgency',
+      'suppression',
+      'suppress',
+      'drop event',
+      'mute',
+      'noise',
+    ],
+    ownedKeys: ['sla', 'priority_matrix', 'suppression_rules'],
+  },
+  {
     id: 'automation',
     group: 'general',
     title: 'Automation',
-    blurb: 'Threshold rules that react to a case after the deterministic decision.',
+    // Round-6: the per-rule editor moved to the unified "Detection & rules" home; this
+    // section keeps only the master enable switch + the #3 explainer and links there.
+    blurb: 'The master switch for threshold automation — rules that react to a case after the deterministic decision (authored in Detection & rules).',
     icon: Zap,
     perm: { resource: 'settings', action: 'manage' },
-    keywords: ['automation', 'rules', 'threshold', 'tag', 'notify', 'playbook', 'proposal'],
+    keywords: ['automation', 'rules', 'threshold', 'tag', 'notify', 'playbook', 'proposal', 'enable'],
     ownedKeys: ['threshold_automation'],
-    grid: true,
+    // No longer a grid section: with the embedded rule cards gone, the master toggle +
+    // link card sit on the shared single-card surface (like Cases / Standup).
   },
   {
     id: 'standup',
@@ -299,7 +333,10 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     blurb: 'Threat-intel lookups (AbuseIPDB / VirusTotal / GeoIP), cached in Redis.',
     icon: Globe,
     keywords: ['enrichment', 'abuseipdb', 'virustotal', 'geoip', 'reputation', 'cache', 'ttl'],
-    ownedKeys: ['enrichment'],
+    // Owns NO page-dirty keys: the section's enable/fusion/provider toggles AND the
+    // cache TTL all persist via IMMEDIATE settings PUTs (self-contained provider
+    // editor), so the buffered page-save can never re-send a stale `enrichment` block
+    // and clobber a provider toggle (matches the documented intent at `ownedKeys`).
   },
   {
     id: 'knowledge',
@@ -380,14 +417,15 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     perm: { resource: 'settings', action: 'manage' },
     grid: true,
     keywords: ['advanced', 'caps', 'kill switch', 'suppression', 'rule catalog', 'read-only', 'lock', 'budget', 'allowlist'],
+    // NOTE: `excluded_rules` / `in_scope_rules` are intentionally NOT owned here — no
+    // control in the Settings tree edits them, so listing them lit a dirty dot that
+    // could never trigger. Re-add them only if/when a real editor card is built.
     ownedKeys: [
       'caps',
       'auto_forward_allowlist',
       'background_scan_enabled',
       'rag',
       'read_only_settings_mode',
-      'excluded_rules',
-      'in_scope_rules',
     ],
   },
   {
@@ -412,10 +450,13 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
   {
     id: 'danger',
     group: 'organization',
+    // Gate on `users:manage` to match BOTH the DangerZone body's own <Can> guard and the
+    // backend `require_admin` on POST /api/admin/reset — otherwise a principal with only
+    // settings:manage saw the rail entry + outer guard pass but a blank (body-gated) panel.
+    perm: { resource: 'users', action: 'manage' },
     title: 'Danger zone',
     blurb: 'Tiered reset of cases, sources, or the whole tenant. Never wipes env secrets.',
     icon: Trash2,
-    perm: { resource: 'settings', action: 'manage' },
     keywords: ['danger', 'reset', 'factory reset', 'wipe', 'delete', 'destructive', 'revoke all', 'kill switch'],
   },
 ];
@@ -448,9 +489,15 @@ export const SETTING_ANCHORS: readonly SettingAnchor[] = [
   // General › Detection
   { section: 'detection', anchor: 'detection-correlation', label: 'Correlation', keywords: ['clustering', 'group by', 'window', 'trigger after'] },
   { section: 'detection', anchor: 'detection-risk', label: 'Risk weights', keywords: ['risk', 'weights', 'severity weight', 'asset criticality'] },
+  { section: 'detection', anchor: 'detection-asset', label: 'Asset criticality', keywords: ['asset', 'criticality', 'cidr', 'network', 'crown jewel', 'high value'] },
   { section: 'detection', anchor: 'detection-escalation', label: 'Escalation', keywords: ['escalation', 'confidence', 'critical severity'] },
   { section: 'detection', anchor: 'detection-autoclose', label: 'Auto-close policy', keywords: ['auto-close', 'autonomy', 'false positive', 'true positive', 'needs human'] },
   { section: 'detection', anchor: 'detection-crosssource', label: 'Cross-source correlation', keywords: ['cross-source', 'link', 'shared entity', 'related cases'] },
+  // Integrations › Knowledge & threat context
+  // General › SLA, priority & suppression
+  { section: 'case_policy', anchor: 'case-policy-sla', label: 'SLA targets', keywords: ['sla', 'response', 'resolution', 'timer', 'breach', 'mttr'] },
+  { section: 'case_policy', anchor: 'case-policy-priority', label: 'Priority matrix', keywords: ['priority', 'impact', 'urgency', 'p1', 'p2', 'matrix'] },
+  { section: 'case_policy', anchor: 'case-policy-suppression', label: 'Suppression rules', keywords: ['suppression', 'suppress', 'drop', 'mute', 'benign', 'noise'] },
   // Integrations › Knowledge & threat context
   { section: 'knowledge', anchor: 'knowledge-rag', label: 'Retrieval (RAG)', keywords: ['rag', 'retrieval', 'top k', 'vector', 'bm25'] },
   { section: 'knowledge', anchor: 'knowledge-threat', label: 'Threat-context panel', keywords: ['threat context', 'ioc', 'mitre', 'reputation'] },
@@ -458,7 +505,7 @@ export const SETTING_ANCHORS: readonly SettingAnchor[] = [
   // Organization › Advanced
   { section: 'advanced', anchor: 'advanced-caps', label: 'Per-case caps', keywords: ['caps', 'budget', 'max tokens', 'max cost', 'concurrency'] },
   { section: 'advanced', anchor: 'advanced-killswitch', label: 'Kill switch', keywords: ['kill switch', 'pause', 'stop', 'disable'] },
-  { section: 'advanced', anchor: 'advanced-allowlist', label: 'Auto-forward allowlist', keywords: ['allowlist', 'auto-forward', 'in-scope rules', 'excluded rules'] },
+  { section: 'advanced', anchor: 'advanced-allowlist', label: 'Auto-forward allowlist', keywords: ['allowlist', 'auto-forward'] },
   { section: 'advanced', anchor: 'advanced-suppression', label: 'Suppression & rule catalog', keywords: ['suppression', 'rule catalog', 'detection rules'] },
   { section: 'advanced', anchor: 'advanced-lock', label: 'Settings lock', keywords: ['read-only', 'lock', 'settings lock'] },
 ];
@@ -477,6 +524,7 @@ export type SectionId =
   | 'detection'
   | 'detection_rules'
   | 'cases'
+  | 'case_policy'
   | 'automation'
   | 'standup'
   | 'notifications'

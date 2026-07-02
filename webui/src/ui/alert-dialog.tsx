@@ -83,7 +83,9 @@ const AlertDialogContent = React.forwardRef<
           if (!dismissible) e.preventDefault();
         }}
         className={cn(
-          'fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5',
+          // Match dialog.tsx: bound the height + scroll internally so a tall confirm
+          // dialog can't clip its Action/Cancel footer off-screen.
+          'fixed left-1/2 top-1/2 z-50 grid max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto',
           'rounded-lg border border-border bg-card p-6 text-foreground shadow-elev2',
           'data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
           'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
@@ -163,7 +165,10 @@ const AlertDialogCancel = React.forwardRef<
   <DialogPrimitive.Close asChild>
     <button
       ref={ref}
-      className={cn(buttonVariants({ variant: 'outline' }), 'mt-2 sm:mt-0', className)}
+      // The footer owns the stacked gutter via `gap-2`; a `mt-2` here would ADD to
+      // that gap (flex margin + gap are cumulative), pushing the narrow-viewport
+      // spacing off the 8px grid. So no extra margin — the footer spacing is enough.
+      className={cn(buttonVariants({ variant: 'outline' }), className)}
       {...props}
     />
   </DialogPrimitive.Close>

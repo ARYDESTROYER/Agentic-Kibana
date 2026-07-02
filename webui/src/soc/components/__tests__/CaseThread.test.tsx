@@ -11,7 +11,7 @@
  * one-level replies nest under their parent.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 import { CaseThread, visibleMessageCount } from '../CaseThread';
 import type { CaseMessage } from '@/soc/pages/CaseDetail.api';
@@ -174,6 +174,58 @@ describe('CaseThread (#4 collaboration / #9 escaping)', () => {
     );
     expect(screen.getByText(/was deleted/i)).toBeInTheDocument();
     expect(screen.getByText('a reply that must stay anchored')).toBeInTheDocument();
+  });
+
+  it('visibleMessageCount ignores grandchildren + orphaned replies (matches the rendered set)', () => {
+    // The list renders roots + their ONE-LEVEL replies only (nested MessageItems get
+    // replies={[]}); a grandchild (parent is a reply) and an orphan (parent absent) are
+    // never rendered, so the badge must not count them.
+    const messages: CaseMessage[] = [
+      msg({ id: 'root', body: 'root' }),
+      msg({ id: 'reply', parent_id: 'root', body: 'reply' }),
+      msg({ id: 'grandchild', parent_id: 'reply', body: 'deep' }),
+      msg({ id: 'orphan', parent_id: 'missing', body: 'orphan' }),
+    ];
+    // Rendered set = root + its 1 direct reply = 2.
+    expect(visibleMessageCount(messages)).toBe(2);
+  });
+
+  it('seeds the edit composer with the existing message body (no full retype, #5)', () => {
+    render(
+      <CaseThread
+        messages={[msg({ id: 'm1', author: 'jdoe', body: 'original text with a typoo' })]}
+        users={[]}
+        currentUser="jdoe"
+        canComment
+        {...NOOP}
+      />,
+    );
+    // Own message ⇒ an Edit control is offered; clicking it opens the composer.
+    fireEvent.click(screen.getByRole('button', { name: /edit/i }));
+    const editor = screen.getByPlaceholderText('Edit your message…') as HTMLTextAreaElement;
+    // The composer is PRE-FILLED with the current body (not blank).
+    expect(editor.value).toBe('original text with a typoo');
+  });
+
+  it('Escape dismisses the @mention autocomplete and keeps the typed text (#6)', () => {
+    render(
+      <CaseThread
+        messages={[]}
+        users={[{ username: 'analyst2' }, { username: 'analyst3' }]}
+        currentUser="jdoe"
+        canComment
+        {...NOOP}
+      />,
+    );
+    const composer = screen.getByPlaceholderText(/use @ to mention/i) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: 'ping @anal' } });
+    // The menu is showing the two matches.
+    expect(screen.getByText('analyst2')).toBeInTheDocument();
+    // Escape collapses the menu (visibility keys off the dismissed flag now).
+    fireEvent.keyDown(composer, { key: 'Escape' });
+    expect(screen.queryByText('analyst2')).toBeNull();
+    // The typed text is untouched (Escape only dismisses the popover).
+    expect(composer.value).toBe('ping @anal');
   });
 
   it('mounts the composer only when the caller can comment', () => {

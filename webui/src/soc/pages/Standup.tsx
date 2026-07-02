@@ -48,7 +48,7 @@ import { useAuth } from '@/soc/auth';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 
 import { PageContainer } from '@/soc/components/PageContainer';
-import { HeroPanel } from '@/soc/components/HeroPanel';
+import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
@@ -95,7 +95,12 @@ const WINDOWS = [
 
 /* -------------------------------------------------------- copy button hook - */
 
-function useCopy(): [boolean, (text: string) => void] {
+/**
+ * Copy-to-clipboard hook. Returns `[copied, copy, supported]`; `supported` is false on
+ * insecure (plain-http, non-localhost) origins where `navigator.clipboard` is undefined,
+ * so the caller can HIDE the Copy control rather than render a dead button that no-ops.
+ */
+function useCopy(): [boolean, (text: string) => void, boolean] {
   const [copied, setCopied] = React.useState(false);
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
@@ -104,6 +109,10 @@ function useCopy(): [boolean, (text: string) => void] {
     },
     [],
   );
+  const supported =
+    typeof navigator !== 'undefined' &&
+    !!navigator.clipboard &&
+    typeof navigator.clipboard.writeText === 'function';
   const copy = React.useCallback((text: string) => {
     const clip = typeof navigator !== 'undefined' ? navigator.clipboard : undefined;
     if (!clip?.writeText) return;
@@ -118,7 +127,7 @@ function useCopy(): [boolean, (text: string) => void] {
         /* clipboard denied — silently no-op */
       });
   }, []);
-  return [copied, copy];
+  return [copied, copy, supported];
 }
 
 /* ------------------------------------------------------------- delta labels */
@@ -159,7 +168,7 @@ export default function Standup({ onNavigate }: StandupProps) {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
 
-  const [summaryCopied, copySummary] = useCopy();
+  const [summaryCopied, copySummary, canCopySummary] = useCopy();
 
   const requestedHours = React.useMemo(
     () => WINDOWS.find((w) => w.id === windowId)?.hours ?? 24,
@@ -222,7 +231,9 @@ export default function Standup({ onNavigate }: StandupProps) {
     if (windowSeeded) void load();
   }, [load, windowSeeded]);
 
-  const windowHours = report?.window_hours ?? requestedHours;
+  // While a window switch is reloading, prefer the freshly-requested window over the
+  // stale report so the header label matches the selector (report still holds the old one).
+  const windowHours = loading ? requestedHours : (report?.window_hours ?? requestedHours);
   const windowLabel = windowHours >= 168 ? `${Math.round(windowHours / 24)}d` : `${windowHours}h`;
   const windowKey = report?.window ?? '';
 
@@ -261,7 +272,7 @@ export default function Standup({ onNavigate }: StandupProps) {
         </SelectContent>
       </Select>
 
-      {hasSummary ? (
+      {hasSummary && canCopySummary ? (
         <Button
           variant="outline"
           size="sm"
@@ -297,13 +308,18 @@ export default function Standup({ onNavigate }: StandupProps) {
   /* ------------------------------------------------------------------ body */
   return (
     <PageContainer variant="wide" className="animate-fade-in space-y-6">
-      <HeroPanel
+      <PageHeader
+        variant="hero"
         eyebrow="Shift handoff"
         title="Standup"
         description="What needs attention this shift — the urgency-ranked open queue, SLA pressure, and the running action list."
         icon={Inbox}
-        meta={heroMeta}
-        actions={<div className="flex flex-wrap items-center gap-2">{actions}</div>}
+        actions={
+          <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
+            <div className="font-mono text-xs text-muted-foreground">{heroMeta}</div>
+            <div className="flex flex-wrap items-center gap-2">{actions}</div>
+          </div>
+        }
       >
         {error ? (
           <LoadError
@@ -333,7 +349,7 @@ export default function Standup({ onNavigate }: StandupProps) {
             <DeltaTiles deltas={deltas} />
           </div>
         )}
-      </HeroPanel>
+      </PageHeader>
 
       {/* Disabled state — friendly, outside the hero. */}
       {!loading && !error && disabled ? (
@@ -427,6 +443,11 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
           ) : (
             <ArrowDownRight className="h-3.5 w-3.5" aria-hidden />
           );
+        // a11y (WCAG 1.4.1): the arrow is aria-hidden and good/bad is otherwise color-only,
+        // so announce BOTH direction AND judgement (mirrors KpiTile's delta aria-label).
+        const deltaAria = `changed ${d > 0 ? 'up' : 'down'} by ${Math.abs(d)}${
+          good ? ', improved' : ', worse'
+        }`;
         return (
           <Card key={m.key} className="p-4" data-testid={`delta-tile-${m.key}`}>
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -442,9 +463,10 @@ function DeltaTiles({ deltas }: { deltas: Record<string, DeltaCell> }) {
                     'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
                     good ? 'text-success' : 'text-critical',
                   )}
+                  aria-label={deltaAria}
                 >
                   {arrow}
-                  {d > 0 ? `+${d}` : d}
+                  <span aria-hidden>{d > 0 ? `+${d}` : d}</span>
                 </span>
               ) : (
                 <span className="mb-0.5 text-xs text-muted-foreground">±0</span>

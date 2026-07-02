@@ -16,6 +16,7 @@ import * as React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/ui/tabs';
 import { PageHeader, type PageHeaderProps } from '@/soc/components/PageHeader';
+import { PageContainer, type ContainerVariant } from '@/soc/components/PageContainer';
 
 export interface TabSpec {
   /** Stable tab id (matches the `NavOpts.tab` value used for deep-links). */
@@ -37,13 +38,28 @@ export interface TabbedPageProps {
   value?: string;
   /** Fires when the user picks a tab — hosts mirror it into the route opts. */
   onValueChange?: (value: string) => void;
+  /**
+   * Page-width archetype for the whole host (tab strip + bodies). Default `wide`
+   * (operational hosts). Wrapping the WHOLE host in one `PageContainer` keeps the
+   * segmented strip and the embedded sub-page content on the SAME centered gutter
+   * so the strip lines up with the content it controls (Round-6 §40) — instead of a
+   * full-bleed strip over a capped-and-centered body. Sub-pages that also declare
+   * their own `PageContainer` nest harmlessly (same cap → width-identical).
+   */
+  container?: ContainerVariant;
 }
 
 /**
  * Resolve the active tab: the requested `value` if it names a known tab, else the
  * first tab. Kept in a controlled `Tabs` so an external deep-link change applies.
  */
-export function TabbedPage({ header, tabs, value, onValueChange }: TabbedPageProps) {
+export function TabbedPage({
+  header,
+  tabs,
+  value,
+  onValueChange,
+  container = 'wide',
+}: TabbedPageProps) {
   const ids = tabs.map((t) => t.value);
   const fallback = ids[0];
   const requested = value && ids.includes(value) ? value : fallback;
@@ -64,7 +80,7 @@ export function TabbedPage({ header, tabs, value, onValueChange }: TabbedPagePro
   );
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant={container} className="space-y-6">
       {header ? <PageHeader {...header} /> : null}
       <Tabs value={active} onValueChange={handleChange}>
         <TabsList>
@@ -87,7 +103,7 @@ export function TabbedPage({ header, tabs, value, onValueChange }: TabbedPagePro
           </TabsContent>
         ))}
       </Tabs>
-    </div>
+    </PageContainer>
   );
 }
 

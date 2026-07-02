@@ -15,13 +15,15 @@
  * never as markup.
  */
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import {
   Briefcase,
   RefreshCw,
   SortAsc,
+  SortDesc,
   Search,
   X,
-  Trash2,
+  XCircle,
   Check,
   UserPlus,
   Clock,
@@ -35,7 +37,7 @@ import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
 import type { Case, CaseActionInput, SavedView } from '@/lib/types';
-import { Can } from '@/soc/components/Can';
+import { Can, useCan } from '@/soc/components/Can';
 import { humanizeAge, humanizeToken, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
@@ -82,6 +84,8 @@ import {
   ConfidenceBadge,
   CategoryBadge,
   UrgencyPill,
+  severityBand,
+  SEVERITY_BAND_ORDER,
 } from '@/soc/components/badges';
 
 import type { Navigate } from '@/soc/router';
@@ -234,25 +238,16 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
   return next;
 }
 
-/** Map a numeric/string severity onto a coarse band for filtering. */
+/**
+ * Map a numeric/string severity onto a coarse band for filtering/sorting.
+ *
+ * Delegates to the ONE `severityBand` authority (badges.tsx → palette.ts scoreBand)
+ * so the filter, the sort comparator, and the visible <SeverityBadge> share a single
+ * ladder and can never disagree (previously a risk 50 rendered "High" but filtered as
+ * "Medium"). It also picks up the badge's string aliases (crit/med/moderate/…).
+ */
 function severityBandKey(severity: number | string | null): string | null {
-  if (severity === null) return null;
-  let n: number;
-  if (typeof severity === 'string') {
-    const t = severity.trim().toLowerCase();
-    if (['critical', 'high', 'medium', 'low', 'info'].includes(t)) return t;
-    const asNum = Number(t);
-    if (Number.isNaN(asNum)) return null;
-    n = asNum;
-  } else {
-    n = severity;
-  }
-  const scaled = n <= 5 ? (n / 5) * 100 : n <= 15 ? (n / 15) * 100 : n;
-  if (scaled >= 80) return 'critical';
-  if (scaled >= 60) return 'high';
-  if (scaled >= 35) return 'medium';
-  if (scaled >= 15) return 'low';
-  return 'info';
+  return severityBand(severity);
 }
 
 function applyFilters(cases: Case[], f: CaseFilters): Case[] {
@@ -383,13 +378,9 @@ const sortComparators: Record<SortId, (a: Case, b: Case) => number> = {
   disposition: (a, b) =>
     (a.disposition || '￿').localeCompare(b.disposition || '￿'),
   category: (a, b) => (caseCategory(a) || '￿').localeCompare(caseCategory(b) || '￿'),
-  severity: (a, b) => {
-    const order = ['info', 'low', 'medium', 'high', 'critical'];
-    return (
-      order.indexOf(severityBandKey(caseSeverity(a)) || 'info') -
-      order.indexOf(severityBandKey(caseSeverity(b)) || 'info')
-    );
-  },
+  severity: (a, b) =>
+    SEVERITY_BAND_ORDER.indexOf(severityBand(caseSeverity(a)) ?? 'info') -
+    SEVERITY_BAND_ORDER.indexOf(severityBand(caseSeverity(b)) ?? 'info'),
   severity_ai: (a, b) => (aiSeverity(a) ?? -1) - (aiSeverity(b) ?? -1),
   confidence: (a, b) => (a.confidence ?? -1) - (b.confidence ?? -1),
   updated_at: (a, b) =>
@@ -402,7 +393,16 @@ export interface CasesProps {
   onNavigate?: Navigate;
   /** Seed the status filter on mount (e.g. from a drill-through). */
   initialStatus?: string;
+  /**
+   * Seed the severity filter on mount from a severity drill-through (Round-6 #38 —
+   * Overview's Critical/High KPI + open-by-severity rows). One of the coarse bands
+   * `critical | high | medium | low | info`; any other value is ignored.
+   */
+  initialSeverity?: string;
 }
+
+/** Severity-band values the Cases severity filter (and the #38 drill-through) accepts. */
+const SEVERITY_FILTER_VALUES = new Set(['critical', 'high', 'medium', 'low', 'info']);
 
 /**
  * Inline header pill count (replaces the old 4-tile KPI band — G4 density). Shows a
@@ -415,7 +415,9 @@ const CountPill: React.FC<{
   tone?: 'default' | 'info' | 'high' | 'critical';
   onClick?: () => void;
   testId?: string;
-}> = ({ label, count, tone = 'default', onClick, testId }) => {
+  /** Hover title clarifying the count's basis (e.g. "of N loaded cases"). */
+  title?: string;
+}> = ({ label, count, tone = 'default', onClick, testId, title }) => {
   const toneCls =
     tone === 'info'
       ? 'text-info'
@@ -438,6 +440,7 @@ const CountPill: React.FC<{
         type="button"
         onClick={onClick}
         data-testid={testId}
+        title={title}
         className={cn(
           base,
           'transition-colors hover:border-primary/40 hover:bg-accent/40',
@@ -449,7 +452,7 @@ const CountPill: React.FC<{
     );
   }
   return (
-    <span data-testid={testId} className={base}>
+    <span data-testid={testId} title={title} className={base}>
       {body}
     </span>
   );
@@ -482,10 +485,21 @@ const CountLink: React.FC<{ count: number; onClick?: () => void }> = ({ count, o
   );
 };
 
-export default function Cases({ onNavigate, initialStatus: initialStatusProp }: CasesProps) {
+export default function Cases({
+  onNavigate,
+  initialStatus: initialStatusProp,
+  initialSeverity: initialSeverityProp,
+}: CasesProps) {
   const route = useRoute();
   const navigate = onNavigate ?? route.navigate;
   const initialStatus = initialStatusProp ?? route.opts?.status;
+  // Only honour a recognised band so a stray value can never silently empty the list
+  // behind an un-representable severity filter.
+  const initialSeverityRaw = initialSeverityProp ?? route.opts?.severity;
+  const initialSeverity =
+    initialSeverityRaw && SEVERITY_FILTER_VALUES.has(initialSeverityRaw)
+      ? initialSeverityRaw
+      : undefined;
 
   // Pervasive customization (Wave 7): terminology labels + saved views + per-table
   // column state, all keyed to the caller (the 'default' bucket when auth is off).
@@ -493,14 +507,23 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
   const columnState = tableColumns(CASES_TABLE_ID) ?? {};
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
 
+  // The per-row Close affordance mirrors the bulk bar's RBAC gate: hide it entirely
+  // unless the operator holds cases:close, so a cases:write-only analyst never sees a
+  // control that would 403 (consistent with the <Can resource="cases" action="close">
+  // wrap on the bulk buttons).
+  const canClose = useCan('cases', 'close');
+
   const [cases, setCases] = React.useState<Case[]>([]);
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
 
-  const [filters, setFilters] = React.useState<CaseFilters>(() =>
-    initialStatus ? { ...EMPTY_FILTERS, status: initialStatus } : EMPTY_FILTERS,
-  );
+  const [filters, setFilters] = React.useState<CaseFilters>(() => {
+    let f = EMPTY_FILTERS;
+    if (initialStatus) f = { ...f, status: initialStatus };
+    if (initialSeverity) f = { ...f, severity: initialSeverity };
+    return f;
+  });
   const [sort, setSort] = React.useState<SortState>({ id: 'updated_at', dir: 'desc' });
   const [pageSize, setPageSize] = React.useState(50);
   const [page, setPage] = React.useState(1);
@@ -511,9 +534,9 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
 
-  // Bug #8: the one-click row "Close" is a destructive lifecycle action — gate it
-  // behind ConfirmDialog. The close still posts through the SAME analyst action
-  // endpoint (server-side decide()), never a client-side status write (#3).
+  // The one-click row "Close" is a reversible lifecycle move — gate it behind a plain
+  // ConfirmDialog. The close still posts through the SAME analyst action endpoint
+  // (server-side decide()), never a client-side status write (#3).
   const [closeTarget, setCloseTarget] = React.useState<Case | null>(null);
 
   const load = React.useCallback(async () => {
@@ -538,6 +561,13 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
   React.useEffect(() => {
     if (initialStatus) setFilters((f) => ({ ...f, status: initialStatus }));
   }, [initialStatus]);
+
+  // A severity drill-through (Overview Critical/High KPI + open-by-severity rows, #38)
+  // can change `initialSeverity` while mounted; reseed the severity facet. Additive —
+  // no-op when absent, and pre-validated to a known band above.
+  React.useEffect(() => {
+    if (initialSeverity) setFilters((f) => ({ ...f, severity: initialSeverity }));
+  }, [initialSeverity]);
 
   // A drill-through (e.g. a "Related case" link in CaseDetail) can pass a caseId;
   // open that case's detail sheet. Additive — no-op when absent.
@@ -576,20 +606,27 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     return filteredSorted.slice(start, start + pageSize);
   }, [filteredSorted, page, pageSize]);
 
-  // KPI counts over the IN-VIEW (filtered) list so they match what's shown.
+  // Header pill counts over the full LOADED set (`cases`), NOT the filtered view, so
+  // (a) they stay a stable triage snapshot that doesn't collapse to 0 when a status
+  // filter is applied, and (b) their basis matches the "N loaded" the Total pill shows
+  // when truncated — never read as a fraction of the server total.
   const counts = React.useMemo(() => {
     let open = 0;
     let needsHuman = 0;
     let truePositive = 0;
-    for (const c of filteredSorted) {
+    for (const c of cases) {
       if (c.status === 'open') open += 1;
       if (c.status === 'needs_human') needsHuman += 1;
       if ((c.verdict || '').toUpperCase().includes('TRUE')) truePositive += 1;
     }
     return { open, needsHuman, truePositive };
-  }, [filteredSorted]);
+  }, [cases]);
 
   const truncated = total > cases.length;
+  // Tooltip clarifying that the Open/Needs-human/TP pills count the LOADED set.
+  const loadedScopeTitle = truncated
+    ? `Among the ${cases.length.toLocaleString()} loaded cases (of ${total.toLocaleString()})`
+    : `Among ${cases.length.toLocaleString()} case${cases.length === 1 ? '' : 's'}`;
 
   // Drop any selection no longer visible so the bulk bar can't act on hidden rows.
   React.useEffect(() => {
@@ -650,6 +687,45 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     [selectedCases, bulkBusy, load],
   );
 
+  // Status-NEUTRAL bulk helper: apply a per-case async op (tag / assign) to every
+  // selected case WITHOUT the lifecycle-action path. Bulk tagging and owner-assignment
+  // must never move a case's status — the old wiring mis-used `acknowledge`/`escalate`,
+  // which silently drove open cases to INVESTIGATING/ESCALATED (distorting SLA/MTTA)
+  // and 400-ed on closed/resolved cases ("illegal transition"). These use the dedicated
+  // status-neutral POST /cases/{id}/tags and /cases/{id}/assign endpoints instead.
+  // Mirrors runBulk's toast + error summary + selection-clear + reload.
+  const runBulkForEach = React.useCallback(
+    async (perform: (c: Case) => Promise<unknown>) => {
+      const targets = selectedCases;
+      if (!targets.length || bulkBusy) return;
+      setBulkBusy(true);
+      setBulkError(null);
+      const failures: string[] = [];
+      let okCount = 0;
+      for (const c of targets) {
+        try {
+          await perform(c);
+          okCount += 1;
+        } catch (e) {
+          failures.push(e instanceof Error ? e.message : 'unknown error');
+        }
+      }
+      if (failures.length) {
+        const reasons = Array.from(new Set(failures)).slice(0, 3);
+        setBulkError(
+          `${failures.length} of ${targets.length} case${targets.length === 1 ? '' : 's'} could not be updated: ${reasons.join('; ')}`,
+        );
+        toast.warning(`${okCount} updated, ${failures.length} failed`);
+      } else {
+        toast.success(`${okCount} case${okCount === 1 ? '' : 's'} updated`);
+      }
+      setSelected([]);
+      await load();
+      setBulkBusy(false);
+    },
+    [selectedCases, bulkBusy, load],
+  );
+
   // Perform the confirmed row-close. Posts the SAME `close` analyst action as the
   // bulk bar / CaseDetail close dialog — the backend's decide() adjudicates (#3).
   const confirmClose = React.useCallback(async () => {
@@ -670,6 +746,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
     setFilters((f) => ({ ...f, [key]: value }));
 
   const anyActive = countActiveFilters(filters) > 0;
+  const oldestFirst = sort.id === 'updated_at' && sort.dir === 'asc';
 
   /* ------------------------------------------------- saved views (Wave 7) -- */
   // Apply a saved view's stored filter/sort onto the page (null → defaults).
@@ -876,27 +953,34 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         </span>
       ),
     },
-    {
-      id: 'actions',
-      header: 'Actions',
-      align: 'right',
-      width: '5rem',
-      cell: (c) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 text-critical hover:text-critical"
-          aria-label={`Close case ${c.case_id}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            // Bug #8: confirm before this destructive one-click close.
-            setCloseTarget(c);
-          }}
-        >
-          <Trash2 className="size-4" aria-hidden />
-        </Button>
-      ),
-    },
+    // Actions column — only present when the operator can close (RBAC-mirrored). A
+    // case Close is a REVERSIBLE lifecycle move (it can be reopened), so it uses a
+    // close glyph (XCircle) + neutral tone, NOT the Trash/delete grammar that implies
+    // data loss (DESIGN_STANDARD reserves Trash for real deletes).
+    ...(canClose
+      ? ([
+          {
+            id: 'actions',
+            header: 'Actions',
+            align: 'right',
+            width: '5rem',
+            cell: (c: Case) => (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                aria-label={`Close case ${c.case_id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCloseTarget(c);
+                }}
+              >
+                <XCircle className="size-4" aria-hidden />
+              </Button>
+            ),
+          },
+        ] as DataTableColumn<Case>[])
+      : []),
   ];
 
   // Column-menu descriptors (plain-text labels; the actions column is hideable but
@@ -917,12 +1001,23 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         title={t('cases', 'Cases')}
         icon={Briefcase}
         meta={
-          // Inline pill counts replace the old 4-tile KPI band (G4 density). They
-          // read against the IN-VIEW (filtered) list, matching what's shown.
+          // Inline pill counts replace the old 4-tile KPI band (G4 density). The
+          // Open / Needs-human / True-positive pills count the LOADED set; when only a
+          // subset is loaded the Total pill shows "N of M" so the loaded basis is
+          // explicit (never a "12 of 5,000" misread).
           <div className="flex flex-wrap items-center gap-1.5">
             <CountPill
               label={`Total ${t('cases', 'Cases')}`}
-              count={total.toLocaleString()}
+              count={
+                truncated
+                  ? `${cases.length.toLocaleString()} of ${total.toLocaleString()}`
+                  : total.toLocaleString()
+              }
+              title={
+                truncated
+                  ? `${cases.length.toLocaleString()} of ${total.toLocaleString()} cases loaded`
+                  : undefined
+              }
               testId="cases-count-total"
             />
             <CountPill
@@ -930,6 +1025,7 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
               count={counts.open}
               tone="info"
               onClick={() => setFilter('status', 'open')}
+              title={loadedScopeTitle}
               testId="cases-count-open"
             />
             <CountPill
@@ -937,27 +1033,38 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
               count={counts.needsHuman}
               tone="high"
               onClick={() => setFilter('status', 'needs_human')}
+              title={loadedScopeTitle}
               testId="cases-count-needs-human"
             />
             <CountPill
               label="True positives"
               count={counts.truePositive}
               tone="critical"
+              title={loadedScopeTitle}
               testId="cases-count-tp"
             />
           </div>
         }
         actions={
           <>
+            {/* A true two-way sort toggle on updated_at — the visible label reflects
+                the CURRENT order, and clicking always flips it, so there is always a
+                way back to newest (the old control only ever set asc). */}
             <Button
-              variant={
-                sort.id === 'updated_at' && sort.dir === 'asc' ? 'default' : 'outline'
-              }
+              variant={oldestFirst ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setSort({ id: 'updated_at', dir: 'asc' })}
+              aria-pressed={oldestFirst}
+              aria-label={`Sort by updated time, currently ${oldestFirst ? 'oldest' : 'newest'} first`}
+              onClick={() =>
+                setSort({ id: 'updated_at', dir: oldestFirst ? 'desc' : 'asc' })
+              }
             >
-              <SortAsc className="mr-1.5 size-4" aria-hidden />
-              Oldest first
+              {oldestFirst ? (
+                <SortDesc className="mr-1.5 size-4" aria-hidden />
+              ) : (
+                <SortAsc className="mr-1.5 size-4" aria-hidden />
+              )}
+              {oldestFirst ? 'Oldest first' : 'Newest first'}
             </Button>
             <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
               <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
@@ -1217,8 +1324,16 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         onResolve={(reason) =>
           void runBulk({ action: 'resolve', reason: reason || 'Bulk-resolved by analyst' })
         }
-        onAssign={(assignee) => void runBulk({ action: 'escalate', assignee })}
-        onAddTag={(tag) => void runBulk({ action: 'acknowledge', tags: [tag] })}
+        onAssign={(assignee) =>
+          void runBulkForEach((c) => api.caseAssign(c.case_id, assignee))
+        }
+        onAddTag={(tag) =>
+          void runBulkForEach((c) =>
+            // Merge (don't replace): the /tags endpoint sets the full list, so send
+            // the case's existing tags + the new one (backend de-dupes + caps).
+            api.caseTags(c.case_id, [...(Array.isArray(c.tags) ? c.tags : []), tag]),
+          )
+        }
         onSetStatus={(status) => void runBulk({ action: 'set_status', status })}
         onSetDisposition={(disposition) =>
           void runBulk({ action: 'set_disposition', disposition })
@@ -1236,14 +1351,14 @@ export default function Cases({ onNavigate, initialStatus: initialStatusProp }: 
         onNavigate={navigate}
       />
 
-      {/* Bug #8: destructive one-click close confirmation. The close still posts
-          through the analyst `close` action (server-side decide(), #3). */}
+      {/* One-click row-close confirmation. Close is a REVERSIBLE lifecycle move, so
+          this is a plain (non-destructive) confirm — it still posts through the
+          analyst `close` action (server-side decide(), #3). */}
       <ConfirmDialog
         open={closeTarget !== null}
         onOpenChange={(next) => {
           if (!next) setCloseTarget(null);
         }}
-        destructive
         title="Close this case?"
         description={
           closeTarget
@@ -1318,7 +1433,13 @@ const BulkActionBar: React.FC<{
 
   if (count === 0) return null;
 
-  return (
+  // Render via a portal to <body> so the `position: fixed` bar anchors to the VIEWPORT.
+  // The page is wrapped in <PageContainer> which sets `@container`
+  // (container-type: inline-size); per CSS containment that makes the container a
+  // containing block for fixed descendants, so an in-tree fixed bar would dock ~20px
+  // above the (tall) page content instead of floating at the bottom of the screen — the
+  // well-known container-query gotcha. Portaling out escapes that containing block.
+  const bar = (
     <div
       role="region"
       aria-label="Bulk actions"
@@ -1338,7 +1459,8 @@ const BulkActionBar: React.FC<{
           Acknowledge
         </Button>
 
-        {/* Assign / escalate (cases:write) */}
+        {/* Assign owner — a pure owner set (cases:assign), NOT an escalation. To move
+            status use "Set status → Escalated" below. */}
         <Popover open={assignOpen} onOpenChange={setAssignOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline" disabled={busy}>
@@ -1352,14 +1474,14 @@ const BulkActionBar: React.FC<{
                 htmlFor="bulk-assignee"
                 className="block text-xs font-medium text-muted-foreground"
               >
-                Escalate to
+                Assign to
               </label>
               <Input
                 id="bulk-assignee"
                 value={assignee}
                 onChange={(e) => setAssignee(e.target.value)}
                 placeholder="Analyst or team"
-                aria-label="Assignee for bulk escalation"
+                aria-label="Owner for bulk assignment"
               />
               <Button
                 size="sm"
@@ -1370,7 +1492,7 @@ const BulkActionBar: React.FC<{
                   setAssignOpen(false);
                 }}
               >
-                Escalate {count}
+                Assign {count}
               </Button>
             </div>
           </PopoverContent>
@@ -1469,4 +1591,6 @@ const BulkActionBar: React.FC<{
       </Card>
     </div>
   );
+
+  return typeof document === 'undefined' ? bar : createPortal(bar, document.body);
 };

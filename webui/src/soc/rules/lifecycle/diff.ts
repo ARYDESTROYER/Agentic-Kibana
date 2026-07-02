@@ -22,21 +22,32 @@ function isPrimitive(v: unknown): boolean {
   return v === null || typeof v !== 'object';
 }
 
+/** Max characters shown per diff value token (display only, never the compare basis). */
+const DISPLAY_CAP = 2000;
+
 /**
- * Stringify a leaf value for display + comparison. Primitives use their string form;
- * arrays + objects are JSON-stringified (stable-ish — object key order is the
- * snapshot's own, which is deterministic per Pydantic `model_dump`). Bounded so an
- * attacker-influenceable rule field can't bloat the diff row.
+ * Stringify a leaf value for COMPARISON. Primitives use their string form; arrays +
+ * objects are JSON-stringified (stable-ish — object key order is the snapshot's own,
+ * which is deterministic per Pydantic `model_dump`). NOT truncated: comparing truncated
+ * values would classify two long fields that differ only past the cap as `unchanged`,
+ * silently hiding a real change in a trust/audit surface (#46). Truncation is applied
+ * ONLY when building the display value (`capForDisplay`).
  */
 function stringifyLeaf(v: unknown): string {
   if (v === undefined) return '';
-  if (typeof v === 'string') return v.slice(0, 2000);
+  if (typeof v === 'string') return v;
   if (isPrimitive(v)) return String(v);
   try {
-    return JSON.stringify(v).slice(0, 2000);
+    return JSON.stringify(v);
   } catch {
-    return String(v).slice(0, 2000);
+    return String(v);
   }
+}
+
+/** Bound a compared value for DISPLAY so an attacker-influenceable field can't bloat a
+ * diff row. Applied after the (untruncated) equality decision. */
+function capForDisplay(s: string): string {
+  return s.length > DISPLAY_CAP ? `${s.slice(0, DISPLAY_CAP)}…` : s;
 }
 
 /**
@@ -103,8 +114,9 @@ export function diffConfigs(
     rows.push({
       path,
       kind,
-      before: inA ? a[path] : undefined,
-      after: inB ? b[path] : undefined,
+      // Compare on the full value (above); truncate only for the rendered token.
+      before: inA ? capForDisplay(a[path]) : undefined,
+      after: inB ? capForDisplay(b[path]) : undefined,
     });
   }
   return rows;

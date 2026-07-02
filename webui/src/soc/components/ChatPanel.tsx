@@ -51,8 +51,6 @@ import {
   Send,
   ShieldAlert,
   Sparkles,
-  ThumbsDown,
-  ThumbsUp,
   Wand2,
   X,
 } from 'lucide-react';
@@ -146,7 +144,7 @@ function renderInline(text: string, keyBase: string): React.ReactNode[] {
       nodes.push(
         <code
           key={`${keyBase}-c${i}`}
-          className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[0.8em] text-foreground"
+          className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-xs text-foreground"
         >
           {part}
         </code>,
@@ -208,7 +206,9 @@ const Markdown: React.FC<{ text: string }> = ({ text }) => {
   });
   flushList('ul-end');
 
-  return <div className="space-y-0.5 text-sm">{blocks}</div>;
+  // Running prose (DESIGN_STANDARD §2.6): the comfortable reading scale (15px), never
+  // the dense table `text-sm`.
+  return <div className="space-y-0.5 text-md">{blocks}</div>;
 };
 
 /* --------------------------------------------------------------- helpers --- */
@@ -294,7 +294,7 @@ const ResultTable: React.FC<{ table: ChatTable }> = ({ table }) => {
               {visibleCols.map((ci) => (
                 <th
                   key={ci}
-                  className="whitespace-nowrap px-3 py-2 text-left text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground"
+                  className="whitespace-nowrap px-3 py-2 text-left text-2xs font-semibold uppercase tracking-wide text-muted-foreground"
                 >
                   {/* column name is source/agent-derived → plain text node. */}
                   {table.columns[ci]}
@@ -368,7 +368,7 @@ const AnswerMeta: React.FC<{ resp: ChatResponse; model?: string }> = ({ resp, mo
     <div className="mt-3 space-y-2">
       {hasQuery ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
             Query
           </span>
           {/* query is UNTRUSTED → InlineCode (plain text node). */}
@@ -423,7 +423,7 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
           <AccordionContent className="space-y-4 pb-2">
             {tools.length ? (
               <div className="space-y-2">
-                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Tools run
                 </div>
                 {tools.map((t, i) => (
@@ -443,7 +443,7 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
 
             {knowledge.length ? (
               <div className="space-y-2">
-                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Knowledge consulted
                 </div>
                 {knowledge.map((k, i) => (
@@ -458,7 +458,7 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
 
             {citations.length ? (
               <div className="space-y-1.5">
-                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Citations
                 </div>
                 {citations.map((c, i) => (
@@ -476,7 +476,7 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
 
             {reasoning ? (
               <div className="space-y-1.5">
-                <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Reasoning
                 </div>
                 {/* reasoning excerpt model-derived → CodeBlock (plain text). */}
@@ -492,8 +492,13 @@ const Provenance: React.FC<{ resp: ChatResponse; turnId: number }> = ({ resp, tu
 
 /**
  * Per-message action row under an assistant answer: Copy (raw answer), Regenerate,
- * an open-in-Discover deep-link (when safe), and local 👍/👎 feedback (component
- * state only — no backend call this round).
+ * and an open-in-Discover deep-link (when safe).
+ *
+ * NOTE: there is deliberately NO 👍/👎 affordance here. Chat has no feedback
+ * endpoint, so a thumbs control could only ever toggle throwaway local state — a
+ * dead affordance that misleads operators into thinking their grade was recorded.
+ * The persisted feedback loop lives on cases (`POST /api/cases/{id}/feedback`); add
+ * a thumbs control here only once a real chat-feedback endpoint exists.
  */
 const MessageActions: React.FC<{
   answer: string;
@@ -501,7 +506,6 @@ const MessageActions: React.FC<{
   canRegenerate: boolean;
   onRegenerate: () => void;
 }> = ({ answer, resp, canRegenerate, onRegenerate }) => {
-  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
   const href = discoverHref(resp?.discover);
 
   return (
@@ -531,37 +535,6 @@ const MessageActions: React.FC<{
           </a>
         </Button>
       ) : null}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn('h-7 w-7', feedback === 'up' && 'text-success')}
-            aria-label="Mark answer helpful"
-            aria-pressed={feedback === 'up'}
-            onClick={() => setFeedback((f) => (f === 'up' ? null : 'up'))}
-          >
-            <ThumbsUp className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Helpful</TooltipContent>
-      </Tooltip>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn('h-7 w-7', feedback === 'down' && 'text-critical')}
-            aria-label="Mark answer not helpful"
-            aria-pressed={feedback === 'down'}
-            onClick={() => setFeedback((f) => (f === 'down' ? null : 'down'))}
-          >
-            <ThumbsDown className="h-3.5 w-3.5" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Not helpful</TooltipContent>
-      </Tooltip>
-      {feedback ? <span className="text-xs text-muted-foreground">Thanks for the feedback</span> : null}
     </div>
   );
 };
@@ -622,7 +595,7 @@ const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = (
       <div className="flex items-start gap-2">
         <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
             Save this to memory?
           </div>
           {/* suggested text is UNTRUSTED → plain text node. */}
@@ -667,7 +640,7 @@ const MemorySuggestionPrompt: React.FC<{ suggestion: ChatMemorySuggestion }> = (
 const MetaLine: React.FC<{ who: string; at: number; align: 'start' | 'end' }> = ({ who, at, align }) => (
   <div
     className={cn(
-      'mt-1.5 text-[0.6875rem] text-muted-foreground',
+      'mt-1.5 text-2xs text-muted-foreground',
       align === 'end' ? 'self-end' : 'self-start',
     )}
   >
@@ -694,7 +667,7 @@ const Bubble: React.FC<{
       <div className={cn('flex justify-end', grouped && '-mt-1')}>
         <div className="flex max-w-[min(80%,720px)] flex-col">
           {/* user content is UNTRUSTED → plain text node (whitespace preserved). */}
-          <div className="whitespace-pre-wrap break-words rounded-xl rounded-br-md bg-primary px-4 py-2.5 text-sm leading-relaxed text-primary-foreground">
+          <div className="whitespace-pre-wrap break-words rounded-xl rounded-br-md bg-primary px-4 py-2.5 text-md leading-relaxed text-primary-foreground">
             {item.content}
           </div>
           {showMeta ? <MetaLine who="You" at={item.at} align="end" /> : null}
@@ -833,6 +806,10 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   const idRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Mirror of `transcript` so regenerate() can read the latest turns WITHOUT doing
+  // work inside a setState updater (updaters must stay pure; StrictMode double-invokes
+  // them — see regenerate() below).
+  const transcriptRef = useRef<TranscriptItem[]>([]);
 
   const nextId = () => {
     idRef.current += 1;
@@ -863,6 +840,11 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     el.scrollTo({ top: el.scrollHeight, behavior: reduce ? 'auto' : 'smooth' });
   }, [transcript, loading]);
+
+  // Keep the ref mirror in sync so regenerate() can read the latest turns.
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   const send = useCallback(
     async (raw?: string) => {
@@ -911,20 +893,21 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
   );
 
   // Regenerate: re-send the user turn that immediately preceded a given assistant turn.
+  // Reads the transcript from a ref and calls send() ONCE outside any setState — doing
+  // this in a setState updater is impure and StrictMode double-invokes updaters in dev,
+  // which would double-send the message.
   const regenerate = useCallback(
     (assistantId: number) => {
       if (loading) return;
-      setTranscript((prev) => {
-        const idx = prev.findIndex((t) => t.id === assistantId);
-        for (let i = idx - 1; i >= 0; i -= 1) {
-          if (prev[i].role === 'user') {
-            const content = prev[i].content;
-            queueMicrotask(() => void send(content));
-            break;
-          }
+      const turns = transcriptRef.current;
+      const idx = turns.findIndex((t) => t.id === assistantId);
+      if (idx < 0) return;
+      for (let i = idx - 1; i >= 0; i -= 1) {
+        if (turns[i].role === 'user') {
+          void send(turns[i].content);
+          break;
         }
-        return prev;
-      });
+      }
     },
     [loading, send],
   );
@@ -996,15 +979,14 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
         ) : null}
 
         {/* Transcript lane — the ONLY scrolling region. It GROWS to absorb all
-            surplus height (`flex-1 min-h-0 overflow-y-auto`); when empty it centres
-            its single child both axes so the empty-state sits in the middle of the
-            frame rather than floating at the top. */}
+            surplus height (`flex-1 min-h-0 overflow-y-auto`). When empty, an inner
+            min-h-full wrapper centres the empty-state (see below) — the scroll box
+            itself stays in normal flow so nothing is ever clipped/stranded. */}
         <div
           ref={scrollRef}
           className={cn(
             'flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden',
             compact ? 'gap-3 px-1 py-1' : 'gap-5 px-1 py-2',
-            isEmpty && 'items-center justify-center',
           )}
           role="log"
           aria-live="polite"
@@ -1012,13 +994,19 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
           aria-label="Chat transcript"
         >
           {isEmpty ? (
-            <EmptyState
-              compact={compact}
-              scoped={!!caseId}
-              starters={starters}
-              loading={loading}
-              onPick={(p) => void send(p)}
-            />
+            // Centre without collapsing the scroll region: `m-auto` centres the
+            // wrapper when it fits, and `min-h-full` keeps it scrollable from the top
+            // when it is taller than the frame (a bare `justify-center` on the scroll
+            // box clips/strands the overflowing top under zoom/short viewports).
+            <div className="m-auto flex min-h-full w-full flex-col items-center justify-center">
+              <EmptyState
+                compact={compact}
+                scoped={!!caseId}
+                starters={starters}
+                loading={loading}
+                onPick={(p) => void send(p)}
+              />
+            </div>
           ) : (
             <div className={cn('flex flex-col', compact ? 'gap-3' : 'gap-5', laneInner)}>
               {transcript.map((item, i) => {
@@ -1084,60 +1072,59 @@ export const ChatPanel = forwardRef<ChatPanelHandle, ChatPanelProps>(function Ch
             </span>
             <div className="flex flex-wrap items-center gap-2">
               {hasSources ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <Select value={sourceId} onValueChange={setSourceId}>
-                        <SelectTrigger
-                          className="h-8 gap-1.5 text-xs"
-                          aria-label="Source"
-                          style={{ minWidth: compact ? 150 : 190 }}
-                        >
-                          <Database className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={ALL_SOURCES}>All sources</SelectItem>
-                          {sources.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {/* source label is operator-configured → plain text. */}
-                              {sourceLabel(s)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>Which source the agent queries</TooltipContent>
-                </Tooltip>
+                <Select value={sourceId} onValueChange={setSourceId}>
+                  {/* Tooltip attaches to the SelectTrigger (the focusable combobox
+                      button), not a wrapper <div> — so keyboard focus surfaces the
+                      description and Radix wires aria-describedby to it. */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <SelectTrigger
+                        className="h-8 gap-1.5 text-xs"
+                        aria-label="Source"
+                        style={{ minWidth: compact ? 150 : 190 }}
+                      >
+                        <Database className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        <SelectValue />
+                      </SelectTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Which source the agent queries</TooltipContent>
+                  </Tooltip>
+                  <SelectContent>
+                    <SelectItem value={ALL_SOURCES}>All sources</SelectItem>
+                    {sources.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {/* source label is operator-configured → plain text. */}
+                        {sourceLabel(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null}
               {hasModels ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <Select value={model} onValueChange={setModel}>
-                        <SelectTrigger
-                          className="h-8 gap-1.5 text-xs"
-                          aria-label="Model"
-                          style={{ minWidth: compact ? 150 : 200 }}
-                        >
-                          <Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
-                          {modelOptions.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>
-                              {/* model id is operator-configured → plain text. */}
-                              {o.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>Model for this conversation</TooltipContent>
-                </Tooltip>
+                <Select value={model} onValueChange={setModel}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <SelectTrigger
+                        className="h-8 gap-1.5 text-xs"
+                        aria-label="Model"
+                        style={{ minWidth: compact ? 150 : 200 }}
+                      >
+                        <Cpu className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        <SelectValue />
+                      </SelectTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent>Model for this conversation</TooltipContent>
+                  </Tooltip>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT_MODEL}>Default model</SelectItem>
+                    {modelOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {/* model id is operator-configured → plain text. */}
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : null}
             </div>
           </div>

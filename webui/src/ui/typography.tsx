@@ -29,7 +29,7 @@ const HEADING_STYLES: Record<HeadingLevel, string> = {
   1: 'text-3xl text-foreground', // 24/30 — page H1 (weight 650 from scale)
   2: 'text-2xl text-foreground', // 20/26 — section/page heading (weight 600 from scale)
   3: 'text-xl text-foreground', // 18/24 — card title (weight 600 from scale)
-  4: 'text-base font-semibold text-foreground', // 16/20 — sub-card heading
+  4: 'text-lg font-semibold text-foreground', // 16/24 — sub-card heading (§2.4)
 };
 
 const HEADING_TAG: Record<HeadingLevel, 'h1' | 'h2' | 'h3' | 'h4'> = {
@@ -96,7 +96,7 @@ export interface EyebrowProps extends React.HTMLAttributes<HTMLParagraphElement>
 export const Eyebrow = React.forwardRef<HTMLParagraphElement, EyebrowProps>(({ className, ...rest }, ref) => (
   <p
     ref={ref}
-    className={cn('text-2xs font-semibold uppercase tracking-[0.06em] text-muted-foreground', className)}
+    className={cn('text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground', className)}
     {...rest}
   />
 ));

@@ -23,7 +23,6 @@ import {
   GitBranch,
   Lock,
   MessageSquare,
-  RefreshCw,
   ShieldCheck,
   Terminal,
 } from 'lucide-react';
@@ -32,11 +31,10 @@ import { cn } from '@/lib/cn';
 import { DASH, fmtMoney, fmtTokens, formatTimestamp, humanizeToken } from '@/lib/format';
 
 import { Badge } from '@/ui/badge';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
-import { Button } from '@/ui/button';
 import { Skeleton } from '@/ui/skeleton';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 
 import type { DecisionPayload, TimelineResponse, TraceSpan } from '@/soc/pages/CaseDetail.api';
 
@@ -201,7 +199,9 @@ const DecisionStep: React.FC<{ span: TraceSpan }> = ({ span }) => {
 
 const DecisionFact: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="rounded-md border border-border bg-card px-2.5 py-2">
-    <div className="text-[0.6rem] font-semibold uppercase tracking-widest text-muted-foreground">
+    {/* Same micro-label size as the "Policy clause evaluated" eyebrow above and the rest
+        of the app's uppercase eyebrows — was an off-scale text-[0.6rem] (9.6px) outlier. */}
+    <div className="text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
       {label}
     </div>
     <div className="mt-0.5 truncate font-mono text-sm text-foreground">{value}</div>
@@ -310,18 +310,7 @@ export const TraceTimeline: React.FC<TraceTimelineProps> = ({ data, loading, err
   if (error) {
     return (
       <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not load the timeline</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'Something went wrong.'}
-          </AlertDescription>
-        </Alert>
-        {onRetry ? (
-          <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
-            <RefreshCw className="h-4 w-4" /> Retry
-          </Button>
-        ) : null}
+        <LoadError error={error} title="Could not load the timeline" onRetry={onRetry} />
       </div>
     );
   }

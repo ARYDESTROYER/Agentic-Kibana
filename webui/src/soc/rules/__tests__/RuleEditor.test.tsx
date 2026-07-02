@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { TooltipProvider } from '@/ui/tooltip';
 
 import { RuleEditor } from '../RuleEditor';
@@ -82,5 +83,29 @@ describe('RuleEditor — config-writer behaviour', () => {
     renderEditor(newRuleForm('detection_match'), { allowTierChange: true, onTierChange });
     // the tier selector is present (aria-label "Rule type")
     expect(screen.getByLabelText('Rule type')).toBeInTheDocument();
+  });
+});
+
+describe('RuleEditor — case-automation About identity (#25)', () => {
+  it('a NEW case-automation rule has an editable Name (becomes its id) and no dead Description', async () => {
+    const { onChange } = renderEditor(newRuleForm('case_automation'), { allowTierChange: true });
+    await userEvent.click(screen.getByRole('tab', { name: 'About' }));
+    const name = screen.getByPlaceholderText('e.g. tag-confirmed-true-positives');
+    fireEvent.change(name, { target: { value: 'tag-tps' } });
+    expect(onChange).toHaveBeenCalled();
+    // Description has no case-automation wire home → it is hidden (no dead field).
+    expect(screen.queryByPlaceholderText('Optional context for the on-call analyst.')).toBeNull();
+  });
+
+  it('an EXISTING case-automation rule shows its id READ-ONLY, not a discarded Name input', async () => {
+    const form = newRuleForm('case_automation') as Extract<RuleForm, { tier: 'case_automation' }>;
+    form.about.name = 'rule-xyz';
+    renderEditor(form); // no allowTierChange → edit mode
+    await userEvent.click(screen.getByRole('tab', { name: 'About' }));
+    const id = screen.getByDisplayValue('rule-xyz');
+    expect(id).toBeDisabled();
+    expect(screen.getByText('Identifier')).toBeInTheDocument();
+    // no editable case-automation Name input in edit mode
+    expect(screen.queryByPlaceholderText('e.g. tag-confirmed-true-positives')).toBeNull();
   });
 });

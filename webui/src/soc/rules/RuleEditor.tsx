@@ -58,6 +58,7 @@ import {
   VERDICT_CONDITION_LABELS,
   VERDICT_CONDITION_VALUES,
   hasImpossibleVerdict,
+  normalizedVerdictCondition,
 } from './constants';
 
 const ANY = '__any__';
@@ -75,35 +76,63 @@ export interface RuleEditorProps {
 
 /* ------------------------------------------------------------- About tab --- */
 
-function AboutTab({ value, onChange, readOnly }: RuleEditorProps) {
+function AboutTab({ value, onChange, readOnly, allowTierChange }: RuleEditorProps) {
   const about = value.about;
   const setAbout = (patch: Partial<typeof about>) => onChange({ ...value, about: { ...about, ...patch } } as RuleForm);
   const isDetection = RULE_TIER_BY_ID[value.tier].detection;
+  // A case-automation rule is keyed on the wire ONLY by `id` (there is no `name`/
+  // `description` field on `CaseAutomationRule`). So instead of a required Name input
+  // whose value is silently discarded and replaced by an opaque machine id (#25), a NEW
+  // case-automation rule's Name becomes its identifier, and an EXISTING one shows that
+  // id read-only (ids are stable and cannot be renamed).
+  const isCaseAutomation = value.tier === 'case_automation';
+  const isNewRule = Boolean(allowTierChange);
 
   return (
     <div className="space-y-4">
-      <Field
-        label="Name"
-        required
-        description="A human-facing rule name. Rendered as plain text everywhere."
-      >
-        <Input
-          value={about.name}
-          disabled={readOnly}
-          placeholder="e.g. SSH brute-force from a single source"
-          onChange={(e) => setAbout({ name: e.target.value })}
-        />
-      </Field>
+      {isCaseAutomation && !isNewRule ? (
+        <Field
+          label="Identifier"
+          description="The rule's stable id, set when it was created. It cannot be renamed."
+        >
+          <Input value={about.name} disabled readOnly className="font-mono text-sm" />
+        </Field>
+      ) : (
+        <Field
+          label="Name"
+          required={!isCaseAutomation}
+          description={
+            isCaseAutomation
+              ? "Also becomes this rule's stable identifier, shown in the rules list. Leave blank to auto-generate one."
+              : 'A human-facing rule name. Rendered as plain text everywhere.'
+          }
+        >
+          <Input
+            value={about.name}
+            disabled={readOnly}
+            placeholder={
+              isCaseAutomation
+                ? 'e.g. tag-confirmed-true-positives'
+                : 'e.g. SSH brute-force from a single source'
+            }
+            onChange={(e) => setAbout({ name: e.target.value })}
+          />
+        </Field>
+      )}
 
-      <Field label="Description" description="What this rule detects and why it matters.">
-        <Textarea
-          value={about.description}
-          disabled={readOnly}
-          rows={3}
-          placeholder="Optional context for the on-call analyst."
-          onChange={(e) => setAbout({ description: e.target.value })}
-        />
-      </Field>
+      {/* Description persists for detection tiers only — the case-automation wire has no
+          description field — so it is hidden for case-automation to avoid a dead input (#25). */}
+      {isCaseAutomation ? null : (
+        <Field label="Description" description="What this rule detects and why it matters.">
+          <Textarea
+            value={about.description}
+            disabled={readOnly}
+            rows={3}
+            placeholder="Optional context for the on-call analyst."
+            onChange={(e) => setAbout({ description: e.target.value })}
+          />
+        </Field>
+      )}
 
       <NumberField
         label="Priority"
@@ -120,7 +149,7 @@ function AboutTab({ value, onChange, readOnly }: RuleEditorProps) {
       {isDetection ? (
         <TagInput
           label="MITRE technique ids (advisory)"
-          description="Advisory only — feeds the coverage heatmap. Never changes the verdict (#3)."
+          description="Advisory metadata — not yet saved to the engine or the coverage heatmap. Never changes the verdict (#3)."
           value={about.mitre ?? []}
           disabled={readOnly}
           placeholder="e.g. T1110"
@@ -269,6 +298,19 @@ function SuppressionCard({
       </div>
       {on && sup ? (
         <div className="space-y-4">
+          {/* Honest disclosure (parity with the multi-predicate note): the wire
+              `RuleDefinition` has no suppression field yet, so these settings are kept
+              in the editor for the upcoming wave but are not yet applied by the engine.
+              Never claim persistence a save cannot deliver (#3-safe framing). */}
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" aria-hidden />
+            <AlertTitle>Suppression is not applied yet</AlertTitle>
+            <AlertDescription>
+              These suppression settings are kept in the editor for an upcoming wave — the detection
+              engine does not yet apply them, and they are not persisted on save. Use the Threshold
+              group-by to collapse storms today.
+            </AlertDescription>
+          </Alert>
           <TagInput
             label="Suppress by (up to 3 fields)"
             description="Collapse events that share these fields."
@@ -428,6 +470,9 @@ function DefineCaseAutomation({
   const setCond = (patch: Partial<typeof cond>) =>
     onChange({ ...form, automation: { ...form.automation, conditions: { ...cond, ...patch } } });
   const invalidVerdict = hasImpossibleVerdict(cond.verdict);
+  // Map a valid-but-uppercase wire verdict to its lowercase Select item; empty → ANY
+  // sentinel; an invalid value stays raw and is surfaced via the disabled fallback (#28).
+  const verdictSelectValue = normalizedVerdictCondition(cond.verdict) || ANY;
 
   return (
     <div className="space-y-5">
@@ -455,7 +500,7 @@ function DefineCaseAutomation({
           >
             {({ id, labelledBy, describedBy, invalid }) => (
               <Select
-                value={cond.verdict || ANY}
+                value={verdictSelectValue}
                 disabled={readOnly}
                 onValueChange={(v) => setCond({ verdict: v === ANY ? undefined : v })}
               >
@@ -597,8 +642,9 @@ function ScheduleTab({ value, onChange, readOnly }: RuleEditorProps) {
         <Info className="h-4 w-4" aria-hidden />
         <AlertTitle>Cadence comes from the source feed</AlertTitle>
         <AlertDescription>
-          Detection rules run on the poller&apos;s durable per-feed cursor. These are optional
-          per-rule overrides; leave blank to inherit the feed schedule.
+          Detection rules run on the poller&apos;s durable per-feed cursor. Per-rule schedule
+          overrides are not applied yet — they are not persisted on save; today every rule inherits
+          its feed&apos;s cadence.
         </AlertDescription>
       </Alert>
       <NumberField

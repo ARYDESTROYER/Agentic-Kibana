@@ -9,7 +9,7 @@ import { BarChart3, Bot } from 'lucide-react';
 
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { DonutChart, type DonutSegment } from '@/soc/components/charts';
-import { semanticColor } from '@/soc/components/palette';
+import { token } from '@/soc/components/palette';
 import { humanizeToken, fmtNumber } from '@/lib/format';
 
 import { useDashboardSource } from '@/soc/dashboard/DashboardDataProvider';
@@ -63,24 +63,45 @@ export function OpenBySeverityWidget(props: WidgetProps) {
 }
 
 // --------------------------------------------------------------------------- //
-// Autonomous-vs-human split — auto-closed vs escalated/needs-human, from the
-// server posture QUALITY rollup (honest counts, never client-derived).
+// Autonomous-vs-human split — of the RESOLVED (terminal) cases, how many the agent
+// auto-closed vs. a human resolved. Derived from the server posture QUALITY rollup
+// (honest counts, never client-derived) — the same denominator as automation_rate.
 // --------------------------------------------------------------------------- //
+
+/** The posture-quality fields this split reads (a subset of `PostureQuality`). */
+export interface AutonomyQuality {
+  terminal_cases?: number;
+  auto_closed_cases?: number;
+}
+
+/**
+ * Build the auto-resolved vs human-handled donut segments from the posture quality
+ * rollup. Both buckets are subsets of `terminal_cases`, so they are MUTUALLY EXCLUSIVE
+ * (no double-count) and their sum is the resolved total — the same denominator as
+ * `automation_rate`. `escalated`/`needs_human` are deliberately NOT used: they overlap
+ * each other and include OPEN cases, which would over-count the human arc and mislabel
+ * the total as resolved. Distinct token colors keep the two arcs readable apart
+ * (`semanticColor()` only resolves SOC labels, so it collapsed both to one color).
+ */
+export function autonomySegments(q: AutonomyQuality | null | undefined): DonutSegment[] {
+  if (!q) return [];
+  const terminal = Math.max(0, q.terminal_cases || 0);
+  const auto = Math.max(0, Math.min(terminal, q.auto_closed_cases || 0));
+  const human = Math.max(0, terminal - auto);
+  const out: DonutSegment[] = [];
+  if (auto > 0) out.push({ label: 'Auto-resolved', value: auto, color: token('success') });
+  if (human > 0) out.push({ label: 'Human-handled', value: human, color: token('warning') });
+  return out;
+}
+
 export function AutonomousVsHumanWidget(props: WidgetProps) {
   const { loading, data, error } = useDashboardSource('posture');
   const title = resolveTitle(props, 'Autonomous vs human');
 
-  const segments: DonutSegment[] = React.useMemo(() => {
-    const q = data?.quality;
-    if (!q) return [];
-    const auto = Math.max(0, q.auto_closed_cases || 0);
-    // "Touched a human" = escalated ∪ still needing a human decision.
-    const human = Math.max(0, (q.escalated_cases || 0) + (q.needs_human_cases || 0));
-    const out: DonutSegment[] = [];
-    if (auto > 0) out.push({ label: 'Auto-resolved', value: auto, color: semanticColor('success') });
-    if (human > 0) out.push({ label: 'Human-handled', value: human, color: semanticColor('warning') });
-    return out;
-  }, [data]);
+  const segments: DonutSegment[] = React.useMemo(
+    () => autonomySegments(data?.quality),
+    [data],
+  );
 
   const total = segments.reduce((a, s) => a + s.value, 0);
   const empty =

@@ -14,9 +14,45 @@
  * (e.g. a transient "Copied" badge vs. a toast).
  */
 
+/** iOS Safari won't select a read-only, programmatically-created <textarea> via
+ * `select()`, so `execCommand('copy')` copies nothing there — a Range over editable
+ * content is required. Detect iOS (incl. iPadOS, which may still report "iPad"). */
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iP(ad|hone|od)/.test(navigator.userAgent);
+}
+
+/** Select the whole textarea robustly across desktop and iOS Safari. */
+function selectAll(ta: HTMLTextAreaElement, length: number): void {
+  if (isIOS()) {
+    // iOS: make it editable and drive the selection through a Range +
+    // window.getSelection(), which iOS honours where select() on a readOnly
+    // textarea does not.
+    ta.contentEditable = 'true';
+    ta.readOnly = false;
+    const range = document.createRange();
+    range.selectNodeContents(ta);
+    const sel = window.getSelection();
+    if (sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    ta.setSelectionRange(0, length);
+  } else {
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, length);
+  }
+}
+
 /** Legacy fallback: copy via a hidden, off-screen, read-only <textarea> + execCommand. */
 function execCommandCopy(text: string): boolean {
   if (typeof document === 'undefined') return false;
+  // Remember where focus was BEFORE we steal it. The async Clipboard API path keeps
+  // focus put; this fallback (the plain-HTTP path, the documented common deployment)
+  // must too, or keyboard/screen-reader users lose their place on every copy and never
+  // hear the activating control's "Copied" state change (WCAG 2.4.3 Focus Order).
+  const previouslyFocused = document.activeElement as HTMLElement | null;
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.readOnly = true;
@@ -36,14 +72,21 @@ function execCommandCopy(text: string): boolean {
   document.body.appendChild(ta);
   let ok = false;
   try {
-    ta.focus();
-    ta.select();
-    ta.setSelectionRange(0, text.length);
+    selectAll(ta, text.length);
     ok = document.execCommand('copy');
   } catch {
     ok = false;
   } finally {
     document.body.removeChild(ta);
+    // Restore focus to the control the user activated (e.g. the CodeBlock copy button)
+    // so its aria-label toggle to "Copied" is announced. Skip <body>/detached nodes.
+    if (
+      previouslyFocused &&
+      previouslyFocused !== document.body &&
+      typeof previouslyFocused.focus === 'function'
+    ) {
+      previouslyFocused.focus();
+    }
   }
   return ok;
 }

@@ -44,7 +44,8 @@ import { Badge } from '@/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
 
-import { BarList, type BarListItem } from '@/soc/components/BarList';
+import { type BarListItem } from '@/soc/components/BarList';
+import { scoreBand, type ScoreBand } from '@/soc/components/palette';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import {
@@ -55,7 +56,9 @@ import {
   ConfidenceBadge,
 } from '@/soc/components/badges';
 import { CaseTriageHeader } from '@/soc/components/CaseTriageHeader';
+import { BaselineSignatureCard } from '@/soc/components/BaselineGauge';
 import type { TriageChips } from '@/soc/pages/CaseDetail.api';
+import { baselineApi, type BaselineSignature } from '@/soc/Baseline.api';
 import type { Navigate } from '@/soc/router';
 
 import {
@@ -244,8 +247,9 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, o
                 key={sid}
                 className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
               >
-                {/* UNTRUSTED source id — plain text, truncated. */}
-                <dt className="truncate font-mono text-xs text-foreground" title={sid}>
+                {/* UNTRUSTED source id — plain text, truncated. `min-w-0` lets the flex
+                    child shrink below content width so `truncate` actually ellipsizes. */}
+                <dt className="min-w-0 truncate font-mono text-xs text-foreground" title={sid}>
                   {sid}
                 </dt>
                 <dd className="shrink-0">
@@ -336,6 +340,111 @@ const AutomationApplied: React.FC<{ c: Case }> = ({ c }) => {
   );
 };
 
+/**
+ * The severity-token bar color for a 0-100 risk FACTOR. Uses the ONE palette ladder
+ * (`scoreBand` — 74/48/22) so a factor bar shares cut-points with every other
+ * risk-coloured element (RiskBadge/RiskGauge/posture) instead of a local ad-hoc
+ * 80/60/35 ladder. Literal class strings so the Tailwind JIT emits them.
+ */
+const FACTOR_BAR_COLOR: Record<ScoreBand, string> = {
+  critical: 'bg-critical',
+  high: 'bg-high',
+  medium: 'bg-medium',
+  low: 'bg-low',
+};
+
+export function riskFactorBarColor(value: number): string {
+  return FACTOR_BAR_COLOR[scoreBand(value)];
+}
+
+/**
+ * Risk-factor breakdown bars. Each factor is an ABSOLUTE 0-100 score, so the bar
+ * width is the score itself — NOT normalised to the largest factor (the old BarList
+ * `showPercent` did that, drawing e.g. Volume 40 as a full "100%" bar). This keeps
+ * these bars consistent with the triage RiskCard, which draws the same risk_breakdown
+ * as `width: value%`.
+ */
+const RiskFactorBars: React.FC<{ items: BarListItem[] }> = ({ items }) => (
+  <ul className="flex flex-col gap-3.5">
+    {items.map((it, i) => {
+      const value = Math.max(0, Math.min(100, it.value || 0));
+      return (
+        <li key={`${it.label}-${i}`} className="min-w-0">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="truncate text-sm font-medium text-foreground">{it.label}</span>
+            <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-foreground">
+              {Math.round(value)}
+            </span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('h-full rounded-full', it.color ?? 'bg-accent-bar')}
+              style={{ width: `${value}%` }}
+              role="progressbar"
+              aria-valuenow={Math.round(value)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={it.label}
+            />
+          </div>
+        </li>
+      );
+    })}
+  </ul>
+);
+
+/* ----------------------------------------------- anomaly baseline (advisory) */
+
+/**
+ * Advisory anomaly-baseline panel (#4). When the case has a cluster signature AND the
+ * baseline has recorded stats for it, this embeds the ready-made `BaselineSignatureCard`
+ * so an operator can audit the warm-up state + learned percentiles inline on the case.
+ *
+ * Fully additive + FAIL-QUIET, mirroring `RelatedCrossSource`'s best-effort pattern:
+ * no cluster signature, a disabled baseline, an unseen signature (`found=false`), or a
+ * fetch error all render NOTHING — the baseline is off by default, so the common case
+ * never grows a stray empty section. READ-ONLY / advisory (#3/#4): a warm-up state can
+ * never close or escalate a case. `signature` is source-derived and the card renders it
+ * as a plain text node only (#9).
+ */
+const BaselineAdvisory: React.FC<{ c: Case }> = ({ c }) => {
+  const signature =
+    typeof c.cluster_signature === 'string' ? c.cluster_signature.trim() : '';
+  const [data, setData] = React.useState<BaselineSignature | null>(null);
+
+  React.useEffect(() => {
+    if (!signature) {
+      setData(null);
+      return;
+    }
+    let cancelled = false;
+    // Best-effort (a synchronous stub failure surfaces as a rejection via the
+    // Promise.resolve() in Baseline.api) — a failure/disabled baseline just renders
+    // nothing rather than breaking the overview.
+    void baselineApi
+      .signature(signature)
+      .then((res) => {
+        if (!cancelled) setData(res);
+      })
+      .catch(() => {
+        if (!cancelled) setData(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [signature]);
+
+  // Fail-quiet: only surface the panel once the baseline actually has data for this
+  // signature (never the "no baseline recorded" shell, and never while disabled).
+  if (!signature || !data || !data.found) return null;
+
+  return (
+    <PanelCard>
+      <BaselineSignatureCard data={data} embedded />
+    </PanelCard>
+  );
+};
+
 export const OverviewPanel: React.FC<{
   c: Case;
   fpPolicy: FpPolicy;
@@ -416,9 +525,7 @@ export const OverviewPanel: React.FC<{
       { label: 'Diversity', value: rb.diversity ?? 0 },
       { label: 'Asset criticality', value: rb.asset_criticality ?? 0 },
     ];
-    const barColor = (n: number) =>
-      n >= 80 ? 'bg-critical' : n >= 60 ? 'bg-high' : n >= 35 ? 'bg-medium' : 'bg-low';
-    return comps.map((x) => ({ ...x, color: barColor(x.value) }));
+    return comps.map((x) => ({ ...x, color: riskFactorBarColor(x.value) }));
   }, [rb]);
 
   // Affected-asset KV rows (hostname/user from entity + enrichment scalars).
@@ -532,8 +639,9 @@ export const OverviewPanel: React.FC<{
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {row.k}
                   </dt>
-                  {/* UNTRUSTED value — plain text node, mono. */}
-                  <dd className="truncate text-right font-mono text-sm text-foreground">
+                  {/* UNTRUSTED value — plain text node, mono. `min-w-0` lets the flex
+                      child shrink so `truncate` engages instead of overflowing the card. */}
+                  <dd className="min-w-0 truncate text-right font-mono text-sm text-foreground">
                     {row.v}
                   </dd>
                 </div>
@@ -554,8 +662,10 @@ export const OverviewPanel: React.FC<{
                 .filter((e) => e.query)
                 .map((e, i) => (
                   <div key={i} className="space-y-1.5">
+                    {/* These are the read-only ES/log search queries the es_query tool ran
+                        (Evidence.query) — NOT shell command lines executed on a host. */}
                     <Badge variant="outline" className="font-mono">
-                      Command Line
+                      Search query
                     </Badge>
                     {/* UNTRUSTED query — inside CodeBlock fence. */}
                     <CodeBlock value={e.query} copyable wrap maxHeightClassName="max-h-40" />
@@ -617,12 +727,14 @@ export const OverviewPanel: React.FC<{
                 </div>
                 <dl className="space-y-2 text-sm">
                   {c.entity?.value ? (
-                    <div className="grid grid-cols-[7rem_1fr] gap-2">
+                    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
                       <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                         Subject
                       </dt>
-                      {/* UNTRUSTED — plain text. */}
-                      <dd className="font-mono text-foreground">{c.entity.value}</dd>
+                      {/* UNTRUSTED — plain text. `min-w-0 break-all` lets an unbreakable
+                          IOC (64-char hash / long URL) wrap instead of forcing the card
+                          wider than the sheet. */}
+                      <dd className="min-w-0 break-all font-mono text-foreground">{c.entity.value}</dd>
                     </div>
                   ) : null}
                   {ev.query ? (
@@ -690,7 +802,7 @@ export const OverviewPanel: React.FC<{
             Risk breakdown
           </SectionHeading>
           {riskItems.length ? (
-            <BarList items={riskItems} format={(n) => String(Math.round(n))} showPercent />
+            <RiskFactorBars items={riskItems} />
           ) : (
             <p className="text-sm text-muted-foreground">No risk breakdown recorded.</p>
           )}
@@ -699,12 +811,15 @@ export const OverviewPanel: React.FC<{
               <Separator className="my-3" />
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Total</span>
-                <RiskBadge score={rb.total} label="" />
+                <RiskBadge score={rb.total} />
               </div>
             </>
           ) : null}
         </PanelCard>
       </div>
+
+      {/* ------------------------- anomaly baseline (advisory, #4) */}
+      <BaselineAdvisory c={c} />
 
       {/* ------------------------------------------- MITRE */}
       {mitre.length ? (

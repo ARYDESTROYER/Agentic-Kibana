@@ -32,7 +32,10 @@ export function GeneralSection({
 }: SecProps & { onNavigate?: NavigateFn }) {
   return (
     <SectionShell
-      title="General & data scope"
+      // Match the Round-5 rail label (SETTINGS_SECTIONS_META title = 'Data scope') so the
+      // nav item and the body heading agree; the longer phrasing lives in `sub` (mirrors
+      // the detection.tsx fix).
+      title="Data scope"
       sub="The index pattern, the fields the agent maps entities from, and how the durable poller pulls new events."
       toc={GENERAL_TOC}
     >

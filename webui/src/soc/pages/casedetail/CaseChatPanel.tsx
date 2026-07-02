@@ -36,6 +36,7 @@ export const ChatTab: React.FC<{
   const [sending, setSending] = React.useState(false);
   const [err, setErr] = React.useState<unknown>(null);
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
+  const bottomRef = React.useRef<HTMLDivElement | null>(null);
 
   const starters = [
     'Summarize this case',
@@ -66,7 +67,12 @@ export const ChatTab: React.FC<{
   );
 
   React.useEffect(() => {
+    // If the transcript is itself the scroll container (bounded height), pin it to the
+    // bottom. In the case-detail tab the transcript is auto-height and the OUTER sheet
+    // body is the scroller, so `scrollTop` there is a no-op — also bring the latest turn
+    // + composer into view by scrolling the nearest scrollable ancestor.
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    bottomRef.current?.scrollIntoView({ block: 'end' });
   }, [history, sending]);
 
   return (
@@ -161,6 +167,9 @@ export const ChatTab: React.FC<{
           Send
         </Button>
       </form>
+      {/* Scroll anchor: after a send, this is scrolled into view so the latest reply and
+          the composer stay visible whether the transcript or the outer sheet scrolls. */}
+      <div ref={bottomRef} aria-hidden />
     </div>
   );
 };

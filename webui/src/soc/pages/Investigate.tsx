@@ -52,6 +52,7 @@ import { Skeleton } from '@/ui/skeleton';
 import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { CodeBlock, InlineCode } from '@/soc/components/CodeBlock';
 import {
@@ -472,6 +473,9 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
     setResult(r.case);
     setNoEvents(null);
     setError(null);
+    // The field is now repopulated with a valid value — clear any stale
+    // empty-submit validation state so the red border/message don't linger.
+    setEmptySubmit(false);
   }, []);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -490,9 +494,7 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
   return (
     <div className="animate-fade-in space-y-7">
       {embedded ? (
-        viewCasesAction ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">{viewCasesAction}</div>
-        ) : null
+        <div className="flex flex-wrap items-center justify-end gap-2">{viewCasesAction}</div>
       ) : (
         <PageHeader
           icon={Telescope}
@@ -506,39 +508,24 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
       {/* Form */}
       <Card>
         <CardContent className="p-6">
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-12 md:items-end">
+          {/* items-start keeps the controls aligned to the top of the row so the
+              entity-value validation message (which grows the cell) never shifts
+              the Lookback/Run cells down (they top-align, not bottom-align). */}
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-12 md:items-start">
             {/* Entity type */}
             <div className="space-y-1.5 md:col-span-4">
               <Label>Entity type</Label>
-              <div
-                role="radiogroup"
+              <SegmentedControl<EntityType>
+                fitted
                 aria-label="Entity type"
-                className="inline-flex w-full rounded-md border border-border bg-muted/40 p-1"
-              >
-                {ENTITY_OPTIONS.map((o) => {
-                  const Icon = o.icon;
-                  const active = o.id === entityType;
-                  return (
-                    <button
-                      key={o.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() => setEntityType(o.id)}
-                      className={cn(
-                        'inline-flex flex-1 items-center justify-center gap-1.5 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        active
-                          ? 'bg-card text-foreground shadow-elev1'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      <Icon className="h-4 w-4" aria-hidden />
-                      {o.label}
-                    </button>
-                  );
-                })}
-              </div>
+                value={entityType}
+                onValueChange={setEntityType}
+                options={ENTITY_OPTIONS.map((o) => ({
+                  value: o.id,
+                  label: o.label,
+                  icon: <o.icon className="h-4 w-4" />,
+                }))}
+              />
             </div>
 
             {/* Entity value */}
@@ -554,11 +541,16 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
                 }}
                 onKeyDown={onKeyDown}
                 aria-invalid={emptySubmit || undefined}
+                aria-describedby={emptySubmit ? 'investigate-entity-error' : undefined}
                 aria-label={`${selected.label} to investigate`}
                 className={cn(emptySubmit && 'border-critical focus-visible:ring-critical')}
               />
               {emptySubmit ? (
-                <p className="text-xs text-critical">
+                <p
+                  id="investigate-entity-error"
+                  role="alert"
+                  className="text-xs font-medium text-critical-text"
+                >
                   Enter a {selected.label.toLowerCase()} value to investigate.
                 </p>
               ) : null}
@@ -581,8 +573,12 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
               </Select>
             </div>
 
-            {/* Run */}
-            <div className="md:col-span-2">
+            {/* Run — the invisible md-only spacer label reserves the label row so
+                the button aligns with the other controls under items-start. */}
+            <div className="space-y-1.5 md:col-span-2">
+              <Label aria-hidden="true" className="invisible hidden md:block">
+                Run
+              </Label>
               <Button
                 className="w-full"
                 onClick={() => void run()}
@@ -677,43 +673,39 @@ export default function Investigate({ onNavigate, embedded = false }: Investigat
               const Icon = entityIcon(r.entity.type);
               return (
                 <li key={r.id}>
-                  <Card
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => replayRecent(r)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        replayRecent(r);
-                      }
-                    }}
-                    className={cn(
-                      'flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors',
-                      'hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    )}
-                  >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-primary">
-                      <Icon className="h-4 w-4" aria-hidden />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {humanizeToken(r.entity.type)}:{r.entity.value}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {r.case.title || r.case.case_id} ·{' '}
-                        {lookbackLabelFor(r.lookback)}
-                      </p>
-                    </div>
+                  {/* The Card is a plain container: the replay affordance and the
+                      "Open" button are separate controls so we never nest an
+                      interactive element inside another (invalid a11y semantics). */}
+                  <Card className="flex items-center gap-3 px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => replayRecent(r)}
+                      aria-label={`Replay ${humanizeToken(r.entity.type)}:${r.entity.value}`}
+                      className={cn(
+                        'flex min-w-0 flex-1 items-center gap-3 rounded-md text-left transition-colors',
+                        'hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      )}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-primary">
+                        <Icon className="h-4 w-4" aria-hidden />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {humanizeToken(r.entity.type)}:{r.entity.value}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {r.case.title || r.case.case_id} ·{' '}
+                          {lookbackLabelFor(r.lookback)}
+                        </p>
+                      </div>
+                    </button>
                     <VerdictBadge verdict={r.case.verdict} />
                     <RiskBadge score={r.case.risk_score} />
                     {r.case.case_id ? (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setOpenCaseId(r.case.case_id);
-                        }}
+                        onClick={() => setOpenCaseId(r.case.case_id)}
                         aria-label={`Open case ${r.case.case_id}`}
                       >
                         <ExternalLink className="h-4 w-4" />

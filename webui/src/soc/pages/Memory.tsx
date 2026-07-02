@@ -36,7 +36,7 @@ import { toast } from 'sonner';
 
 import { api, type MemoryPatch } from '@/lib/api';
 import type { MemoryEntry } from '@/lib/types';
-import { DASH, fmtNumber, formatTimestamp, humanizeAge, humanizeToken } from '@/lib/format';
+import { fmtNumber, formatTimestamp, humanizeAge, humanizeToken } from '@/lib/format';
 import { errorMessage } from '@/lib/errorMessage';
 import { cn } from '@/lib/cn';
 
@@ -69,6 +69,7 @@ import {
 import { PageHeader } from '@/soc/components/PageHeader';
 import { KpiTile } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 
 /** Uncategorised facts collect under this stable bucket label. */
 const UNCATEGORISED = 'Uncategorised';
@@ -101,6 +102,15 @@ const ACTIVE_OPTIONS: Array<{ value: ActiveFilter; label: string }> = [
 
 function isAgentEntry(e: MemoryEntry): boolean {
   return (e.source || '').toLowerCase() === 'agent';
+}
+
+/**
+ * Merge a typed-but-uncommitted tag into the committed list (trimmed, de-duplicated),
+ * so a tag typed into the box but not Enter-committed isn't silently dropped on save.
+ */
+export function mergePendingTag(tags: string[], pending: string): string[] {
+  const v = pending.trim();
+  return v && !tags.includes(v) ? [...tags, v] : tags;
 }
 
 /* --------------------------------------------------------------- source badge -- */
@@ -156,12 +166,14 @@ function AddMemoryCard({
   const submit = React.useCallback(async () => {
     const body = text.trim();
     if (!body) return;
+    // Flush a typed-but-not-yet-committed tag so it isn't silently dropped on save.
+    const allTags = mergePendingTag(tags, tagInput);
     setSubmitting(true);
     try {
       const entry = await api.addMemory({
         text: body,
         category: category.trim() || undefined,
-        tags: tags.length ? tags : undefined,
+        tags: allTags.length ? allTags : undefined,
       });
       onAdded(entry);
       setText('');
@@ -174,7 +186,7 @@ function AddMemoryCard({
     } finally {
       setSubmitting(false);
     }
-  }, [text, category, tags, onAdded]);
+  }, [text, category, tags, tagInput, onAdded]);
 
   return (
     <Card>
@@ -319,20 +331,23 @@ function MemoryRow({
 
   const save = React.useCallback(async () => {
     if (!text.trim()) return;
+    // Flush a typed-but-not-yet-committed tag so it isn't silently dropped on save.
+    const allTags = mergePendingTag(tags, tagInput);
     setSaving(true);
     try {
       await onSave(entry.id, {
         text: text.trim(),
         category: category.trim(),
-        tags,
+        tags: allTags,
       });
+      setTagInput('');
       setEditing(false);
     } catch {
       /* toast surfaced by caller; keep the editor open */
     } finally {
       setSaving(false);
     }
-  }, [entry.id, text, category, tags, onSave]);
+  }, [entry.id, text, category, tags, tagInput, onSave]);
 
   if (editing) {
     return (
@@ -346,12 +361,17 @@ function MemoryRow({
           />
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Category</Label>
-              <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+              <Label htmlFor={`mem-edit-cat-${entry.id}`}>Category</Label>
+              <Input
+                id={`mem-edit-cat-${entry.id}`}
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>Tags</Label>
+              <Label htmlFor={`mem-edit-tags-${entry.id}`}>Tags</Label>
               <Input
+                id={`mem-edit-tags-${entry.id}`}
                 placeholder="Type a tag and press Enter"
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
@@ -536,6 +556,9 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
   }, [load]);
 
   const upsertLocal = React.useCallback((next: MemoryEntry) => {
+    // A successful mutation means the backend is reachable — clear any stale load
+    // error so the freshly-added/updated row is not hidden behind the error panel.
+    setError(null);
     setEntries((prev) => {
       const i = prev.findIndex((e) => e.id === next.id);
       if (i === -1) return [next, ...prev];
@@ -707,6 +730,10 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
     </Button>
   );
 
+  // A hard load failure with no cached data: show one clean LoadError panel instead
+  // of zeroed KPI tiles + an interactive add-card whose new rows would be invisible.
+  const showLoadFail = !!error && entries.length === 0;
+
   return (
     <div className="space-y-8">
       {embedded ? (
@@ -738,7 +765,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
       </Alert>
 
       {/* summary tiles */}
-      {loading && entries.length === 0 ? (
+      {showLoadFail ? null : loading && entries.length === 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-24 w-full" />
@@ -769,9 +796,10 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         </div>
       )}
 
-      <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />
+      {showLoadFail ? null : <AddMemoryCard categories={categoryFacet} onAdded={onAdded} />}
 
       {/* saved memories header + controls */}
+      {showLoadFail ? null : (
       <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-baseline gap-2.5">
           <h2 className="text-base font-semibold text-foreground">Saved memories</h2>
@@ -805,6 +833,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
           </Select>
         </div>
       </div>
+      )}
 
       {/* filter toolbar */}
       {!error && entries.length > 0 ? (
@@ -872,10 +901,12 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
 
       {/* list / states */}
       {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Could not load memory</AlertTitle>
-          <AlertDescription>{errorMessage(error, 'An unexpected error occurred.')}</AlertDescription>
-        </Alert>
+        <LoadError
+          error={error}
+          title="Could not load memory"
+          fallback="An unexpected error occurred."
+          onRetry={() => void load()}
+        />
       ) : loading && entries.length === 0 ? (
         <div className="space-y-2">
           {[0, 1, 2, 3].map((i) => (
@@ -926,7 +957,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
         Inactive memories are retained but not injected into prompts — toggle{' '}
         <strong className="font-semibold text-foreground">Active</strong> off to retire a fact
         without deleting it. Agent-authored facts are treated as untrusted text and rendered as
-        plain text. {DASH}
+        plain text.
       </p>
 
       {/* delete confirm */}

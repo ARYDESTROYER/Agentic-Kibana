@@ -72,21 +72,38 @@ type SeverityBand = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
 /** Normalise a numeric severity into a band via the ONE 0-100 ladder (palette.ts
  *  scoreBand: 0-21 low / 22-47 medium / 48-73 high / 74-100 critical). A value at
- *  or below the low floor with no signal reads as `info`. */
-function severityBandFromNumber(n: number): SeverityBand {
-  // Small-bucket scales (e.g. Wazuh-ish 0..15, or 1..5): scale up to 0..100.
-  const scaled = n <= 5 ? (n / 5) * 100 : n <= 15 ? (n / 15) * 100 : n;
+ *  or below the low floor with no signal reads as `info`.
+ *
+ *  The number is interpreted on an EXPLICIT `[0, scaleMax]` scale (default the ONE
+ *  0-100 ladder). Magnitude-based scale INFERENCE was removed — it was non-monotonic
+ *  (a raw 15 scaled to 100 → Critical while 16 stayed 16 → Low, so a smaller number
+ *  could read as a HIGHER band). A caller with a known small-bucket scale (e.g. Wazuh
+ *  rule.level on 0-15, or a 1-5 bucket) passes `scaleMax` so the mapping stays
+ *  monotonic without guessing from the value's magnitude. */
+export function severityBandFromNumber(n: number, scaleMax = 100): SeverityBand {
+  const max = scaleMax > 0 ? scaleMax : 100;
+  const scaled = Math.max(0, Math.min(100, (n / max) * 100));
   const band: ScoreBand = scoreBand(scaled);
   // A genuinely-nil score reads as informational, not a "low" alert.
   if (band === 'low' && scaled < 8) return 'info';
   return band;
 }
 
-function severityBand(severity: number | string | null | undefined): SeverityBand | null {
+/**
+ * The ONE severity-band authority: normalise a numeric OR string severity onto a
+ * single band (or null when absent). Exported so list surfaces (filter/sort) and the
+ * SeverityBadge share ONE ladder and can never drift (fixes the "shown Critical but
+ * filtered as High" class of bug). Accepts the string aliases the badge accepts
+ * (crit/med/moderate/informational/none).
+ */
+export function severityBand(
+  severity: number | string | null | undefined,
+  scaleMax = 100,
+): SeverityBand | null {
   if (severity === null || severity === undefined || severity === '') return null;
   if (typeof severity === 'number') {
     if (Number.isNaN(severity)) return null;
-    return severityBandFromNumber(severity);
+    return severityBandFromNumber(severity, scaleMax);
   }
   const t = severity.trim().toLowerCase();
   if (t === 'critical' || t === 'crit') return 'critical';
@@ -95,9 +112,18 @@ function severityBand(severity: number | string | null | undefined): SeverityBan
   if (t === 'low') return 'low';
   if (t === 'info' || t === 'informational' || t === 'none') return 'info';
   const asNum = Number(t);
-  if (!Number.isNaN(asNum)) return severityBandFromNumber(asNum);
+  if (!Number.isNaN(asNum)) return severityBandFromNumber(asNum, scaleMax);
   return null;
 }
+
+/** The band ORDERING (ascending) — shared so a severity sort agrees with the badge. */
+export const SEVERITY_BAND_ORDER: readonly SeverityBand[] = [
+  'info',
+  'low',
+  'medium',
+  'high',
+  'critical',
+];
 
 // Derived from the ONE SEVERITY_COLOR authority (palette.ts, §1.6) → Badge variants,
 // so the severity chip color can never drift from the chart/legend color.
@@ -124,13 +150,23 @@ export interface SeverityBadgeProps {
   showValue?: boolean;
   /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
   icon?: boolean;
+  /** The maximum of the numeric severity scale (default the ONE 0-100 ladder). Pass a
+   *  smaller max for a known small-bucket source (e.g. 15 for Wazuh rule.level) so a
+   *  numeric reading stays monotonic without magnitude-based scale inference. */
+  scaleMax?: number;
 }
 
-export function SeverityBadge({ severity, className, showValue, icon = true }: SeverityBadgeProps) {
-  const band = severityBand(severity);
+export function SeverityBadge({
+  severity,
+  className,
+  showValue,
+  icon = true,
+  scaleMax = 100,
+}: SeverityBadgeProps) {
+  const band = severityBand(severity, scaleMax);
   if (!band) {
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
         {DASH}
       </Badge>
     );
@@ -200,7 +236,7 @@ export interface StatusBadgeProps {
 export function StatusBadge({ status, className, icon = true }: StatusBadgeProps) {
   if (!status) {
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
         {DASH}
       </Badge>
     );
@@ -277,8 +313,11 @@ export interface VerdictBadgeProps {
 
 export function VerdictBadge({ verdict, className, icon = true }: VerdictBadgeProps) {
   if (!verdict || verdict.trim().toLowerCase() === 'none') {
+    // Match DispositionBadge's "no outcome yet" grammar: muted + the undetermined
+    // glyph (both badges live on the same investigative-outcome value-space, §6.1).
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
+        <SemanticGlyph iconKey="undetermined" show={icon} />
         Unverdicted
       </Badge>
     );
@@ -307,7 +346,7 @@ export interface ConfidenceBadgeProps {
 export function ConfidenceBadge({ confidence, threshold, note, className }: ConfidenceBadgeProps) {
   if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
         {DASH}
       </Badge>
     );
@@ -349,7 +388,7 @@ export interface RiskBadgeProps {
 export function RiskBadge({ score, className, label = 'Risk', icon = true }: RiskBadgeProps) {
   if (typeof score !== 'number' || Number.isNaN(score)) {
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
         {label} {DASH}
       </Badge>
     );
@@ -429,7 +468,7 @@ export function PostureBadge({ posture, className, icon = true }: PostureBadgePr
   const band = postureBand(posture);
   if (!band) {
     return (
-      <Badge variant="outline" className={className}>
+      <Badge variant="outline" className={cn('text-muted-foreground', className)}>
         {DASH}
       </Badge>
     );

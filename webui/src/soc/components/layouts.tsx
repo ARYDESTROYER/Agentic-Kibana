@@ -59,7 +59,11 @@ export interface WorklistLayoutProps {
   aside?: React.ReactNode;
   /** Place the aside on the right instead of the left. */
   asideSide?: 'left' | 'right';
-  /** Width of the aside rail (Tailwind width class). Default `w-64`. */
+  /**
+   * Width of the aside rail at the two-column breakpoint (Tailwind width class,
+   * `lg:`-prefixed). Default `lg:w-64`. The rail is always full-width when the layout
+   * stacks below `lg`, so a fixed width never pins the rail on small screens.
+   */
   asideWidth?: string;
   /** The main worklist/table region. */
   children?: React.ReactNode;
@@ -74,13 +78,17 @@ export function WorklistLayout({
   header,
   aside,
   asideSide = 'left',
-  asideWidth = 'w-64',
+  asideWidth = 'lg:w-64',
   children,
   className,
 }: WorklistLayoutProps) {
   const railFirst = asideSide === 'left';
+  // Full-width when stacked (< lg); the fixed `asideWidth` applies only at `lg` where
+  // the body becomes a row — so the rail never stays pinned to 256px on small screens.
   const rail = aside ? (
-    <aside className={cn('shrink-0 lg:sticky lg:top-20 lg:self-start', asideWidth)}>{aside}</aside>
+    <aside className={cn('w-full shrink-0 lg:sticky lg:top-20 lg:self-start', asideWidth)}>
+      {aside}
+    </aside>
   ) : null;
   return (
     <div className={cn('flex flex-col gap-6', className)}>
@@ -103,7 +111,11 @@ export interface InvestigationLayoutProps {
   header: PageHeaderProps;
   /** The right-hand context rail (entity/threat/timeline panels). */
   context?: React.ReactNode;
-  /** Context rail width (Tailwind width class). Default `w-80`. */
+  /**
+   * Context rail width at the two-column breakpoint (Tailwind width class,
+   * `xl:`-prefixed). Default `xl:w-80`. The rail is always full-width when the layout
+   * stacks below `xl`, so a fixed width never pins the rail on small screens.
+   */
   contextWidth?: string;
   /** The main investigation column. */
   children?: React.ReactNode;
@@ -118,7 +130,7 @@ export interface InvestigationLayoutProps {
 export function InvestigationLayout({
   header,
   context,
-  contextWidth = 'w-80',
+  contextWidth = 'xl:w-80',
   children,
   className,
 }: InvestigationLayoutProps) {
@@ -128,7 +140,9 @@ export function InvestigationLayout({
       <div className="flex flex-col gap-6 xl:flex-row">
         <div className="min-w-0 flex-1">{children}</div>
         {context ? (
-          <aside className={cn('shrink-0 xl:sticky xl:top-20 xl:self-start', contextWidth)}>
+          // Full-width when stacked (< xl); the fixed `contextWidth` applies only at
+          // `xl` where the body becomes a row.
+          <aside className={cn('w-full shrink-0 xl:sticky xl:top-20 xl:self-start', contextWidth)}>
             {context}
           </aside>
         ) : null}

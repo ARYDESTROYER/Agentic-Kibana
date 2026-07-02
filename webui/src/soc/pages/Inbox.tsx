@@ -43,6 +43,7 @@ import {
 } from '@/soc/pages/Inbox.api';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { SegmentedControl } from '@/soc/components/SegmentedControl';
@@ -259,19 +260,34 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
   // ids with an in-flight per-row action (mark-read / dismiss) — disables their buttons.
   const [busyIds, setBusyIds] = React.useState<Set<string>>(() => new Set());
 
+  // Monotonic request id + mounted flag: only the newest in-flight `load` may write
+  // state, so a slow earlier response (e.g. after a fast Unread↔All toggle) — or a
+  // resolve after unmount — can never clobber the current view with stale items.
+  const seqRef = React.useRef(0);
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const load = React.useCallback(
     async (opts?: { unread?: boolean }) => {
       const unread = opts?.unread ?? unreadOnly;
+      const seq = ++seqRef.current;
       setLoading(true);
       setError(null);
       try {
         const res = await inboxApi.list({ unread_only: unread, limit: PAGE_SIZE, offset: 0 });
+        if (!mountedRef.current || seq !== seqRef.current) return; // superseded / unmounted
         setItems(res.items ?? []);
         setTotal(res.total ?? (res.items?.length ?? 0));
       } catch (e) {
+        if (!mountedRef.current || seq !== seqRef.current) return;
         setError(e);
       } finally {
-        setLoading(false);
+        if (mountedRef.current && seq === seqRef.current) setLoading(false);
       }
     },
     [unreadOnly],
@@ -390,6 +406,21 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
   const unreadCount = React.useMemo(() => items.filter(isUnread).length, [items]);
   const hasMore = items.length < total;
 
+  // If clearing (dismiss / mark-read) empties the loaded page while the server still
+  // has more, pull the next page instead of falsely showing "your inbox is empty".
+  // `autoLoadedRef` guards against a refetch loop if the server ever reports more
+  // (`total`) but returns an empty page — we auto-load once, then wait for real items.
+  const autoLoadedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (loading || loadingMore) return;
+    if (items.length === 0 && hasMore && !autoLoadedRef.current) {
+      autoLoadedRef.current = true;
+      void load();
+    } else if (items.length > 0) {
+      autoLoadedRef.current = false;
+    }
+  }, [loading, loadingMore, items.length, hasMore, load]);
+
   const grouped = React.useMemo(() => {
     const byCat = new Map<string, InboxItem[]>();
     for (const it of items) {
@@ -431,7 +462,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
         )}
         {unreadOnly ? 'Unread only' : 'All'}
       </Button>
-      <Button variant="outline" size="sm" onClick={() => void markAllRead()} disabled={unreadCount === 0}>
+      <Button variant="outline" size="sm" onClick={() => void markAllRead()} disabled={total === 0}>
         <CheckCheck className="size-4" aria-hidden />
         Mark all read
       </Button>
@@ -447,7 +478,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
   );
 
   return (
-    <div className="space-y-8">
+    <PageContainer variant="wide" className="space-y-8">
       <PageHeader
         icon={InboxIcon}
         eyebrow="Notifications"
@@ -465,7 +496,10 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
         />
       ) : null}
 
-      {loading ? (
+      {/* Full skeleton only on the FIRST load (no items yet). Refresh / filter-toggle
+          reloads keep the current list on screen (stale-while-revalidate) with the
+          Refresh button's own spinner signalling the in-flight fetch. */}
+      {loading && items.length === 0 ? (
         <Card>
           <CardContent className="space-y-3 p-4">
             {[0, 1, 2, 3, 4].map((i) => (
@@ -473,7 +507,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
             ))}
           </CardContent>
         </Card>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !hasMore ? (
         <Card>
           <EmptyState
             icon={InboxIcon}
@@ -492,6 +526,14 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
               ) : undefined
             }
           />
+        </Card>
+      ) : items.length === 0 ? (
+        // Page cleared but more exist server-side — the effect above is fetching them.
+        <Card>
+          <CardContent className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+            <RefreshCw className="size-4 animate-spin" aria-hidden />
+            Loading more…
+          </CardContent>
         </Card>
       ) : groupMode === 'category' ? (
         <div className="space-y-6">
@@ -568,18 +610,21 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
 
       {/* preferences slide-over */}
       <Sheet open={prefsOpen} onOpenChange={setPrefsOpen}>
-        <SheetContent side="right" size="lg" className="overflow-y-auto">
+        {/* Header (with the built-in close X) stays pinned; only the inner body
+            scrolls — never overflow-y-auto on SheetContent itself or the absolute X
+            scrolls away (#19). */}
+        <SheetContent side="right" size="lg" className="flex flex-col">
           <SheetHeader>
             <SheetTitle>Notification preferences</SheetTitle>
             <SheetDescription>
               Choose how each kind of notification reaches you across channels.
             </SheetDescription>
           </SheetHeader>
-          <div className="px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <NotificationPrefs />
           </div>
         </SheetContent>
       </Sheet>
-    </div>
+    </PageContainer>
   );
 }

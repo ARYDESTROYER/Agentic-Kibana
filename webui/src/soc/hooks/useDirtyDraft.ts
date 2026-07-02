@@ -62,6 +62,11 @@ export function useDirtyDraft<T>(initial: T): DirtyDraft<T> {
   // Track the identity of the last `initial` we seeded from, so we only re-seed when the
   // caller hands us a genuinely new object (not on every render).
   const seededRef = useRef<T>(initial);
+  // Mirror the latest draft so `commit()` can read it without a stale closure — and
+  // without nesting one setter inside another setter's updater (impure updaters are
+  // double-invoked in React 18 StrictMode). Assigning a ref during render is safe.
+  const draftRef = useRef<T>(draft);
+  draftRef.current = draft;
   const dirty = !deepEqual(draft, saved);
 
   useEffect(() => {
@@ -97,15 +102,12 @@ export function useDirtyDraft<T>(initial: T): DirtyDraft<T> {
   }, [saved]);
 
   const commit = useCallback((next?: T) => {
-    // Read the current draft from state (functional updater) so an explicit
-    // `next` OR the latest draft is persisted without a stale-closure snapshot:
-    // saved ← next ?? current-draft, and the draft snaps to that same value so
-    // `dirty` clears.
-    setDraftState((currentDraft) => {
-      const value = clone(next === undefined ? currentDraft : next);
-      setSaved(value);
-      return clone(value);
-    });
+    // Persist an explicit `next` OR the latest draft (read via ref, no stale-closure
+    // snapshot): saved ← next ?? current-draft, and the draft snaps to that same value
+    // so `dirty` clears. Both setters run at the top level (each updater stays pure).
+    const value = clone(next === undefined ? draftRef.current : next);
+    setSaved(value);
+    setDraftState(clone(value));
   }, []);
 
   return { draft, saved, dirty, setDraft, update, reset, commit };

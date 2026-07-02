@@ -27,9 +27,10 @@ vi.mock('@/soc/pages/Campaigns.api', async (importOriginal) => {
   };
 });
 
-// The local campaignConfigApi in Campaigns.tsx calls api.get/api.put directly.
+// Campaigns loads/saves its config through the shared `api.campaign` client
+// (getConfig/putConfig → GET/PUT campaigns/config).
 vi.mock('@/lib/api', () => ({
-  api: { get: getMock, put: putMock, post: vi.fn() },
+  api: { campaign: { getConfig: getMock, putConfig: putMock }, post: vi.fn() },
 }));
 
 // A configurable permission gate. `admin` toggles the users:manage grant that gates

@@ -13,6 +13,8 @@ prompt), so an entity carrying a fence-like payload is echoed verbatim as data.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from app.api.routes_baseline import baseline_for_signature, baseline_stats
@@ -26,6 +28,12 @@ from app.constants import CaseStatus, EntityType, SourceSurface, Verdict
 from app.engine.signatures import cluster_signature
 from app.models import BaselineState, Campaign, CampaignEntity, Case, Entity
 
+# A RECENT default timestamp (relative to now, not a hardcoded calendar day) so the
+# recorrelate pass's trailing daily window (`_read_recent_cases`, 24h) always sees the
+# fixture cases as "today's cases". A fixed date is a time-bomb once real time moves
+# past the window.
+_RECENT_TS = (datetime.now(timezone.utc) - timedelta(hours=2)).replace(microsecond=0).isoformat()
+
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -37,7 +45,7 @@ def _case(
     mitre: list[str] | None = None,
     status: CaseStatus = CaseStatus.OPEN,
     verdict: Verdict | None = None,
-    ts: str = "2026-07-01T10:00:00+00:00",
+    ts: str = _RECENT_TS,
     severity_band: str | None = "high",
 ) -> Case:
     return Case(

@@ -21,6 +21,7 @@ import {
   Telescope,
   Tags,
   ShieldAlert,
+  EyeOff,
   KeyRound,
   Loader2,
   Plug,
@@ -40,6 +41,8 @@ import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
+import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { Stagger } from '@/soc/components/Stagger';
@@ -60,7 +63,6 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '@/ui/dialog';
 
 /** Human label for an entity strategy (matches the editor's choices). */
@@ -79,7 +81,12 @@ function summarisePatterns(cfg: Record<string, unknown> | undefined): IndexPatte
   if (Array.isArray(ip) && ip.length) {
     return ip
       .filter((p): p is IndexPattern => !!p && typeof (p as IndexPattern).pattern === 'string')
-      .map((p) => ({ pattern: String(p.pattern), role: p.role === 'alerts' ? 'alerts' : 'events' }));
+      .map((p) => ({
+        pattern: String(p.pattern),
+        // Preserve the real per-feed role. 'ignore' feeds are EXCLUDED at ingest — never
+        // collapse them into 'events' (which would imply the agent reads them).
+        role: p.role === 'alerts' ? 'alerts' : p.role === 'ignore' ? 'ignore' : 'events',
+      }));
   }
   const single = cfg.data_view_pattern;
   if (typeof single === 'string' && single.trim()) {
@@ -147,8 +154,9 @@ export default function Sources(_props: SourcesProps) {
       });
       toast.success(`${s.display_name || s.source_type} is now the primary source`);
       await load();
-    } catch (e) {
-      setError(e);
+    } catch {
+      // Toast-only for action failures — never raise the page-level LoadError banner
+      // (which is reserved for the initial list load; its Retry re-fetches the list).
       toast.error('Could not change the primary source');
     } finally {
       setBusyId(null);
@@ -162,8 +170,8 @@ export default function Sources(_props: SourcesProps) {
       await api.deleteSource(s.id);
       toast.success('Source removed');
       await load();
-    } catch (e) {
-      setError(e);
+    } catch {
+      // Toast-only (see setPrimary): action failures never raise the page LoadError.
       toast.error('Could not remove the source');
     } finally {
       setBusyId(null);
@@ -176,7 +184,7 @@ export default function Sources(_props: SourcesProps) {
     : `${sources.length} source${sources.length === 1 ? '' : 's'} configured — the systems the agent reads security events from.`;
 
   return (
-    <div className="space-y-6">
+    <PageContainer variant="fixed" className="space-y-6">
       <PageHeader
         icon={Database}
         eyebrow="Platform"
@@ -274,21 +282,31 @@ export default function Sources(_props: SourcesProps) {
 
                     {patterns.length || strategy !== 'auto' || messageField ? (
                       <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                        {patterns.slice(0, 4).map((p, i) => (
-                          <Badge
-                            key={`${p.pattern}-${i}`}
-                            variant={p.role === 'alerts' ? 'warning' : 'outline'}
-                            className="gap-1 font-mono text-2xs"
-                            title={`${p.role === 'alerts' ? 'Alerts' : 'Events'} pattern`}
-                          >
-                            {p.role === 'alerts' ? (
-                              <ShieldAlert className="h-3 w-3" aria-hidden />
-                            ) : (
-                              <Database className="h-3 w-3" aria-hidden />
-                            )}
-                            {p.pattern}
-                          </Badge>
-                        ))}
+                        {patterns.slice(0, 4).map((p, i) => {
+                          const isAlerts = p.role === 'alerts';
+                          const isIgnore = p.role === 'ignore';
+                          const PatternIcon = isAlerts ? ShieldAlert : isIgnore ? EyeOff : Database;
+                          return (
+                            <Badge
+                              key={`${p.pattern}-${i}`}
+                              variant={isAlerts ? 'warning' : 'outline'}
+                              className={cn(
+                                'gap-1 font-mono text-2xs',
+                                isIgnore && 'text-muted-foreground line-through decoration-muted-foreground/60',
+                              )}
+                              title={
+                                isAlerts
+                                  ? 'Alerts pattern'
+                                  : isIgnore
+                                    ? 'Ignored (excluded — the agent does not read this)'
+                                    : 'Events pattern'
+                              }
+                            >
+                              <PatternIcon className="h-3 w-3" aria-hidden />
+                              {p.pattern}
+                            </Badge>
+                          );
+                        })}
                         {patterns.length > 4 ? (
                           <Badge variant="outline">+{patterns.length - 4} more</Badge>
                         ) : null}
@@ -382,93 +400,56 @@ export default function Sources(_props: SourcesProps) {
       <SourceLogsSheet source={logsSource} onClose={() => setLogsSource(null)} />
 
       {/* Make-primary confirm */}
-      <Dialog open={!!pendingPrimary} onOpenChange={(o) => !o && setPendingPrimary(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Star className="h-5 w-5 text-primary" aria-hidden /> Make this the primary source?
-            </DialogTitle>
-            <DialogDescription>
-              The agent reads new events from the primary source.
-            </DialogDescription>
-          </DialogHeader>
-          {pendingPrimary ? (
-            <p className="text-sm text-muted-foreground">
-              Switching to{' '}
-              <span className="font-medium text-foreground">
-                {pendingPrimary.display_name || pendingPrimary.source_type}
-              </span>{' '}
-              repoints ingestion to it; the current primary becomes a non-primary source (it is
-              not deleted).
-            </p>
-          ) : null}
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setPendingPrimary(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => pendingPrimary && void setPrimary(pendingPrimary)}
-              disabled={!!pendingPrimary && busyId === pendingPrimary.id}
-            >
-              {pendingPrimary && busyId === pendingPrimary.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <Star className="h-4 w-4" aria-hidden />
-              )}
-              Make primary
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={!!pendingPrimary}
+        onOpenChange={(o) => !o && setPendingPrimary(null)}
+        onConfirm={() => pendingPrimary && void setPrimary(pendingPrimary)}
+        title="Make this the primary source?"
+        description="The agent reads new events from the primary source."
+        confirmLabel="Make primary"
+      >
+        {pendingPrimary ? (
+          <p className="text-sm text-muted-foreground">
+            Switching to{' '}
+            <span className="font-medium text-foreground">
+              {pendingPrimary.display_name || pendingPrimary.source_type}
+            </span>{' '}
+            repoints ingestion to it; the current primary becomes a non-primary source (it is
+            not deleted).
+          </p>
+        ) : null}
+      </ConfirmDialog>
 
-      {/* Remove confirm (destructive) */}
-      <Dialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Trash2 className="h-5 w-5 text-critical" aria-hidden /> Remove this source?
-            </DialogTitle>
-            <DialogDescription>This cannot be undone.</DialogDescription>
-          </DialogHeader>
-          {pendingDelete ? (
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">
-                {pendingDelete.display_name || pendingDelete.source_type}
-              </span>{' '}
-              will be removed and the agent will stop reading events from it. Existing cases are
-              kept; its stored secrets are discarded.
-            </p>
-          ) : null}
-          {pendingDelete?.configured_secrets?.length ? (
-            <Alert variant="warning">
-              <KeyRound className="h-4 w-4" aria-hidden />
-              <AlertTitle>Stored secrets will be discarded</AlertTitle>
-              <AlertDescription>
-                {pendingDelete.configured_secrets.length} configured secret
-                {pendingDelete.configured_secrets.length === 1 ? '' : 's'} for this source will be
-                removed.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setPendingDelete(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => pendingDelete && void remove(pendingDelete)}
-              disabled={!!pendingDelete && busyId === pendingDelete.id}
-            >
-              {pendingDelete && busyId === pendingDelete.id ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : (
-                <Trash2 className="h-4 w-4" aria-hidden />
-              )}
-              Remove source
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+      {/* Remove confirm (destructive — role=alertdialog, no overlay/Escape dismissal) */}
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => !o && setPendingDelete(null)}
+        onConfirm={() => pendingDelete && void remove(pendingDelete)}
+        destructive
+        title="Remove this source?"
+        confirmLabel="Remove source"
+      >
+        {pendingDelete ? (
+          <p className="text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {pendingDelete.display_name || pendingDelete.source_type}
+            </span>{' '}
+            will be removed and the agent will stop reading events from it. Existing cases are
+            kept; its stored secrets are discarded. This cannot be undone.
+          </p>
+        ) : null}
+        {pendingDelete?.configured_secrets?.length ? (
+          <Alert variant="warning">
+            <KeyRound className="h-4 w-4" aria-hidden />
+            <AlertTitle>Stored secrets will be discarded</AlertTitle>
+            <AlertDescription>
+              {pendingDelete.configured_secrets.length} configured secret
+              {pendingDelete.configured_secrets.length === 1 ? '' : 's'} for this source will be
+              removed.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </ConfirmDialog>
+    </PageContainer>
   );
 }

@@ -15,8 +15,12 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 max-w-xs overflow-hidden rounded-md border border-border bg-popover px-2.5 py-1.5 ' +
-          'text-xs leading-snug text-popover-foreground shadow-elev1',
+        // Match the shared floating-portal surface (rounded-lg + shadow-overlay), like
+        // Popover/HoverCard/DropdownMenu/Select — Tooltip is a detached portal, not a
+        // resting tile (DESIGN_STANDARD §1.5). The data-[state=delayed-open]/instant-open
+        // animation classes stay bespoke (Radix Tooltip emits those, not open/closed).
+        'z-50 max-w-xs overflow-hidden rounded-lg border border-border bg-popover px-2.5 py-1.5 ' +
+          'text-xs leading-snug text-popover-foreground shadow-overlay',
         'data-[state=delayed-open]:animate-in data-[state=instant-open]:animate-in',
         'data-[state=delayed-open]:fade-in-0 data-[state=instant-open]:fade-in-0',
         'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',

@@ -59,10 +59,17 @@ export default function Intelligence({ onNavigate, tab }: IntelligenceProps = {}
           content: <Memory embedded onNavigate={navigate} />,
         },
         {
+          // Label MUST match the nav child + the `#/playbooks` breadcrumb leaf
+          // (navLabel('playbooks') === 'Playbooks'). Round-6 #32: the tab formerly read
+          // 'Playbooks & Agents' while the rail child + breadcrumb read 'Playbooks',
+          // so a `#/playbooks` deep-link showed three disagreeing labels. Aligned on the
+          // short 'Playbooks' (matching the Knowledge/Memory sibling pattern where each
+          // tab label equals its disclosure-child label). The "& Agents" content stays
+          // discoverable inside the Catalog page's own Agents section.
           value: 'catalog',
-          label: 'Playbooks & Agents',
+          label: 'Playbooks',
           icon: BookOpenCheck,
-          content: <Catalog embedded onNavigate={navigate} />,
+          content: <Catalog embedded />,
         },
       ]}
     />

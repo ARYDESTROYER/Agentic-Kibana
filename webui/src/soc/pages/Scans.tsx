@@ -54,9 +54,11 @@ import {
 } from '@/ui/select';
 
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
+import { SegmentedControl } from '@/soc/components/SegmentedControl';
 import { Stagger } from '@/soc/components/Stagger';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
@@ -124,6 +126,24 @@ function needsHuman(c: Case): boolean {
   const s = (c.status || '').toLowerCase();
   const v = (c.verdict || '').toUpperCase();
   return s === 'needs_human' || v.includes('NEEDS_HUMAN') || v.includes('INCONCLUSIVE');
+}
+
+/** A terminal (closed/resolved/auto-closed) case, across the extended taxonomy. */
+function isClosed(c: Case): boolean {
+  const s = (c.status || '').toLowerCase();
+  return s === 'closed' || s === 'resolved' || s === 'auto_closed';
+}
+
+/**
+ * The status tab a case belongs to. The three buckets PARTITION every case
+ * (closed → needs-human → open) so the pill counts always sum to "All", and
+ * "Open" captures the extended taxonomy (new/investigating/escalated/on_hold),
+ * not just the literal 'open' status.
+ */
+function statusBucket(c: Case): Exclude<StatusTab, 'all'> {
+  if (isClosed(c)) return 'closed';
+  if (needsHuman(c)) return 'needs_human';
+  return 'open';
 }
 
 /** A case the agent ran the investigator on (it produced a real verdict). */
@@ -242,7 +262,9 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
 
   const kpis = React.useMemo(() => {
     const total = cases.length;
-    const human = cases.filter(needsHuman).length;
+    // Count with the SAME bucket predicate the "Needs human" tab filters on, so
+    // clicking the tile lands on a grid whose row/pill count matches the tile.
+    const human = cases.filter((c) => statusBucket(c) === 'needs_human').length;
     const investigated = cases.filter(isInvestigated).length;
     const candidates = cases.filter(isTruePositive).length;
     return { total, human, investigated, candidates };
@@ -257,10 +279,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
       closed: 0,
     };
     for (const c of cases) {
-      const s = (c.status || '').toLowerCase();
-      if (s === 'open') counts.open += 1;
-      else if (s === 'needs_human') counts.needs_human += 1;
-      else if (s === 'closed' || s === 'resolved' || s === 'auto_closed') counts.closed += 1;
+      counts[statusBucket(c)] += 1;
     }
     return counts;
   }, [cases]);
@@ -299,13 +318,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
     const q = search.trim().toLowerCase();
     let rows = cases;
     if (statusTab !== 'all') {
-      rows = rows.filter((c) => {
-        const s = (c.status || '').toLowerCase();
-        if (statusTab === 'closed') {
-          return s === 'closed' || s === 'resolved' || s === 'auto_closed';
-        }
-        return s === statusTab;
-      });
+      rows = rows.filter((c) => statusBucket(c) === statusTab);
     }
     rows = rows.filter((c) => {
       if (verdict !== ANY && (c.verdict || '') !== verdict) return false;
@@ -367,7 +380,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
   /* ------------------------------------------------------------- render --- */
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <PageContainer variant="wide" className="space-y-8 animate-fade-in">
       <PageHeader
         eyebrow="AUTOMATION"
         icon={ScanSearch}
@@ -404,6 +417,8 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
         }
       />
 
+      {/* On a fetch failure show ONLY the error — not zeroed KPIs, a "0 of 0"
+          toolbar, and a "scans are off" empty state that misattributes the cause. */}
       {error ? (
         <LoadError
           error={error}
@@ -411,8 +426,8 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           fallback="Something went wrong loading scans."
           onRetry={() => void load()}
         />
-      ) : null}
-
+      ) : (
+        <>
       {/* ---------------------------------------------------------- KPIs */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {loading ? (
@@ -455,44 +470,33 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
       </div>
 
       {/* ----------------------------------------------- controls toolbar */}
+      {loading && cases.length === 0 ? (
+        // Skeleton while the first fetch is in flight — never flash "0 of 0" or
+        // all-zero tab counts next to the KPI/grid skeletons.
+        <Skeleton className="h-[6.5rem] w-full rounded-lg" />
+      ) : (
       <Card className="space-y-4 p-4">
-        {/* status tab pills + result count */}
-        <div
-          className="flex flex-wrap items-center gap-2"
-          role="tablist"
-          aria-label="Status filter"
-        >
-          {STATUS_TABS.map((t) => {
-            const active = statusTab === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setStatusTab(t.key)}
-                className={cn(
-                  'inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                  active
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border bg-surface text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                {t.label}
-                <span
-                  className={cn(
-                    'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-xs font-semibold tabular-nums',
-                    active
-                      ? 'bg-primary-foreground/20 text-primary-foreground'
-                      : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {tabCounts[t.key]}
+        {/* status tab filter + result count. SegmentedControl (Radix Tabs) gives
+            roving arrow-key focus + role=tab/aria-selected for free — the counts
+            ride along as plain-text badges inside each option label. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl<StatusTab>
+            size="sm"
+            value={statusTab}
+            onValueChange={setStatusTab}
+            aria-label="Status filter"
+            options={STATUS_TABS.map((t) => ({
+              value: t.key,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  <span className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-muted px-1 text-[0.6875rem] font-semibold tabular-nums text-muted-foreground">
+                    {tabCounts[t.key]}
+                  </span>
                 </span>
-              </button>
-            );
-          })}
+              ),
+            }))}
+          />
           <span className="ml-auto text-xs text-muted-foreground">
             Showing <span className="font-semibold tabular-nums text-foreground">{visible.length}</span> of{' '}
             <span className="tabular-nums">{cases.length}</span>
@@ -568,6 +572,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           </div>
         </div>
       </Card>
+      )}
 
       {/* --------------------------------------------------- card grid */}
       {loading ? (
@@ -605,6 +610,8 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           ))}
         </Stagger>
       )}
+        </>
+      )}
 
       <CaseDetail
         caseId={openCaseId}
@@ -614,7 +621,7 @@ export const ScansPage: React.FC<ScansPageProps> = () => {
           void load();
         }}
       />
-    </div>
+    </PageContainer>
   );
 };
 

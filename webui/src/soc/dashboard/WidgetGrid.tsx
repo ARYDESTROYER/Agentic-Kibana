@@ -56,6 +56,7 @@ import { getWidgetDef } from './registry';
 import type { WidgetProps } from './widgets/common';
 import {
   GRID_COLS,
+  packWidgets,
   widgetId,
   widgetOptions,
   type GridItemShape,
@@ -147,7 +148,11 @@ const WidgetCard = React.memo(function WidgetCard({
           onFocusWidget={() => onFocusWidget?.(id)}
         />
       ) : null}
-      <div className="min-h-0 flex-1">
+      {/* `overflow-hidden` clips a tall body to its cell so it can never spill over the
+          widget below (the WidgetShell ChartCard is `h-full` and scroll-safe). In edit
+          mode `pt-8` reserves room for the absolutely-positioned toolbar so it never
+          occludes the widget's own card header. */}
+      <div className={cn('min-h-0 flex-1 overflow-hidden', editing && 'pt-8')}>
         <React.Suspense
           fallback={
             <div className="space-y-2.5 p-4" aria-busy="true">
@@ -185,8 +190,13 @@ function WidgetEditToolbar({
   tabbable,
   onFocusWidget,
 }: WidgetEditToolbarProps) {
-  // Roving tabindex: only the active widget's grip is in the tab order; arrow keys on
-  // the grip move the widget (WCAG 2.5.7 non-drag alternative). Shift+arrows resize.
+  // Roving tabindex: EVERY widget's grip stays in the tab order (tabIndex 0) so a
+  // keyboard-only user can Tab to any widget's grip and operate it — focusing a grip
+  // marks that widget active, which brings its move/resize/menu controls into the tab
+  // order (those roving on `tabbable`). Without a tabbable grip per widget, arrow keys
+  // (captured to MOVE, below) would leave every widget after the first unreachable
+  // (WCAG 2.1.1). Arrow keys on the grip move the widget (WCAG 2.5.7 non-drag
+  // alternative); Shift+arrows resize.
   const onGripKeyDown = (e: React.KeyboardEvent) => {
     const dirMap: Record<string, MoveDir> = {
       ArrowLeft: 'left',
@@ -218,7 +228,9 @@ function WidgetEditToolbar({
           'text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         )}
-        tabIndex={tabbable ? 0 : -1}
+        // ALWAYS tabbable so keyboard users can reach every widget's grip (focusing it
+        // makes this widget active, exposing its roving toolbar controls).
+        tabIndex={0}
         aria-label={`Move or resize ${title}. Use arrow keys to move, shift + arrow keys to resize.`}
         onKeyDown={onGripKeyDown}
         onFocus={onFocusWidget}
@@ -363,10 +375,17 @@ export function WidgetGrid({
   editActions,
   className,
 }: WidgetGridProps) {
-  // Roving tabindex across widgets in edit mode: only the active widget is tab-reachable.
+  // Roving tabindex across widgets in edit mode: the active widget's toolbar controls
+  // are tab-reachable. Re-point `activeId` whenever it no longer names a present widget
+  // (e.g. the operator removed the active widget) so a stale id can never strand the
+  // keyboard user with zero reachable move/resize controls.
   const [activeId, setActiveId] = React.useState<string | null>(null);
   React.useEffect(() => {
-    if (!activeId && widgets.length) setActiveId(widgetId(widgets[0]));
+    if (widgets.length) {
+      if (!widgets.some((w) => widgetId(w) === activeId)) setActiveId(widgetId(widgets[0]));
+    } else if (activeId !== null) {
+      setActiveId(null);
+    }
   }, [widgets, activeId]);
 
   if (!widgets.length) {
@@ -420,7 +439,28 @@ export function WidgetGrid({
 
   // ------- VIEW: plain CSS grid — ZERO grid JS. -------
   // Position each widget by its persisted {x,y,w,h} over a `cols`-track grid. Row
-  // height is fixed so the CSS grid visually matches the RGL edit grid.
+  // height is fixed so the CSS grid visually matches the RGL edit grid. `packWidgets`
+  // is the view-mode analogue of RGL compaction: it flows an UNPLACED default (every
+  // widget at 0,0 — the per-role landing dashboard) into a coherent grid and repairs
+  // any overlap, while returning a valid saved layout unchanged (idempotent).
+  return (
+    <ViewGrid widgets={widgets} cols={cols} rowHeight={rowHeight} className={className} />
+  );
+}
+
+/** VIEW-mode CSS grid (extracted so the packing memo has a stable hook position). */
+function ViewGrid({
+  widgets,
+  cols,
+  rowHeight,
+  className,
+}: {
+  widgets: DashboardWidget[];
+  cols: number;
+  rowHeight: number;
+  className?: string;
+}) {
+  const placed = React.useMemo(() => packWidgets(widgets, cols), [widgets, cols]);
   return (
     <div
       className={cn('w-full', className)}
@@ -432,7 +472,7 @@ export function WidgetGrid({
         gap: '16px',
       }}
     >
-      {widgets.map((w) => {
+      {placed.map((w) => {
         const anyW = w as Record<string, number | undefined>;
         const x = Math.max(0, Math.min(cols - 1, anyW.x ?? 0));
         const width = Math.max(1, Math.min(cols - x, anyW.w ?? 4));

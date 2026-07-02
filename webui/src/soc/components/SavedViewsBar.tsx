@@ -146,31 +146,37 @@ export const SavedViewsBar: React.FC<SavedViewsBarProps> = ({
               <DropdownMenuLabel className="text-[11px] font-normal text-muted-foreground">
                 Manage
               </DropdownMenuLabel>
+              {/* Clone/Delete are real DropdownMenuItems (not raw <button>s) so they
+                  join Radix's arrow-key roving focus — a keyboard user reaches them the
+                  same way as the switch items above. onSelect preventDefault keeps the
+                  menu open after the action. */}
               {views.map((v) => (
-                <div
-                  key={`mng-${v.id}`}
-                  className="flex items-center gap-1 px-2 py-1 text-sm"
-                >
-                  <span className="flex-1 truncate text-muted-foreground">{v.name}</span>
-                  <button
-                    type="button"
-                    className="rounded p-1 hover:bg-accent"
+                <React.Fragment key={`mng-${v.id}`}>
+                  <DropdownMenuItem
+                    className="gap-2"
                     aria-label={`Clone ${v.name}`}
-                    onClick={() => void handleClone(v)}
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      void handleClone(v);
+                    }}
                   >
-                    <Copy className="size-3.5" aria-hidden />
-                  </button>
+                    <Copy className="size-3.5 text-muted-foreground" aria-hidden />
+                    <span className="flex-1 truncate">Clone “{v.name}”</span>
+                  </DropdownMenuItem>
                   {!v.shared ? (
-                    <button
-                      type="button"
-                      className="rounded p-1 text-critical hover:bg-accent"
+                    <DropdownMenuItem
+                      className="gap-2 text-critical focus:text-critical"
                       aria-label={`Delete ${v.name}`}
-                      onClick={() => void handleDelete(v)}
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void handleDelete(v);
+                      }}
                     >
                       <Trash2 className="size-3.5" aria-hidden />
-                    </button>
+                      <span className="flex-1 truncate">Delete “{v.name}”</span>
+                    </DropdownMenuItem>
                   ) : null}
-                </div>
+                </React.Fragment>
               ))}
             </>
           ) : null}

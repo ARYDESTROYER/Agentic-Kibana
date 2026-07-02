@@ -125,7 +125,7 @@ export const LabeledSlider = React.forwardRef<HTMLDivElement, LabeledSliderProps
           </div>
         }
       >
-        {({ describedBy, invalid }) => (
+        {({ labelledBy, describedBy, invalid }) => (
           <div className="pt-1">
             <Slider
               value={[value]}
@@ -133,6 +133,10 @@ export const LabeledSlider = React.forwardRef<HTMLDivElement, LabeledSliderProps
               max={max}
               step={step}
               disabled={disabled}
+              // The Slider primitive forwards these to the role="slider" Thumb.
+              // `aria-labelledby` points at Field's visible <label>, so the thumb is
+              // named even when `label` is a ReactNode (aria-label is string-only).
+              aria-labelledby={labelledBy}
               aria-label={typeof label === 'string' ? label : undefined}
               aria-describedby={describedBy}
               aria-invalid={invalid}

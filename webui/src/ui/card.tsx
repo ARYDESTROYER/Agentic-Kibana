@@ -5,10 +5,10 @@
  * byte-identical until they opt in):
  *  - `padding`  'sm' | 'md' | 'lg'  → the sanctioned 8px rhythm (p-4 / p-6 / p-8).
  *               `sm` (16) for dense/nested cards; `md` (24) for top-level page /
- *               KPI cards. Replaces the off-grid `px-5` (20). When set on <Card>,
- *               it cascades to CardHeader/CardContent/CardFooter via context so the
- *               whole card shares one rhythm. When UNSET the legacy px-5/py-4/pb-5
- *               padding is preserved exactly.
+ *               KPI cards. When set on <Card>, it cascades to CardHeader/CardContent/
+ *               CardFooter via context so the whole card shares one rhythm. When UNSET
+ *               the default is the on-grid 'md' rhythm (px-6 py-4) — the off-grid
+ *               `px-5` (20) the overhaul set out to kill (§3.2).
  *  - `density`  'default' | 'compact'  → compact tightens header/content/footer for
  *               dense surfaces (only meaningful together with `padding`).
  *  - `elevation` 'none' | 'sm'  → 'none' drops the resting shadow (border-first,
@@ -62,10 +62,12 @@ Card.displayName = 'Card';
 const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => {
     const { padding, density } = React.useContext(CardContext);
-    // Legacy (padding unset): keep px-5 py-4 byte-identical.
+    // Default (padding unset) is the on-grid 'md' rhythm (px-6 py-4) — the off-grid
+    // px-5 (20px) the overhaul set out to kill (DESIGN_STANDARD §3.2). `padding='sm'`
+    // still opts down to px-4 for dense/nested cards.
     const cls = padding
       ? cn(PADDING_X[padding], density === 'compact' ? 'py-3' : 'py-4')
-      : 'px-5 py-4';
+      : 'px-6 py-4';
     return (
       <div ref={ref} className={cn('flex flex-col space-y-1', cls, className)} {...props} />
     );
@@ -83,7 +85,9 @@ const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTML
     return (
       <h3
         ref={ref}
-        className={cn('text-base font-semibold leading-tight tracking-tight text-foreground', className)}
+        // text-lg (16/24 — the standard's card-title step, §2.4) not text-base (14, =body).
+        // No leading-tight: inherit the type step's on-grid 24px line-height.
+        className={cn('text-lg font-semibold tracking-tight text-foreground', className)}
         {...props}
       >
         {children}
@@ -110,7 +114,7 @@ const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
     const { padding, density } = React.useContext(CardContext);
     const cls = padding
       ? cn(PADDING_X[padding], density === 'compact' ? 'pb-4' : 'pb-6', 'pt-0')
-      : 'px-5 pb-5 pt-0';
+      : 'px-6 pb-6 pt-0';
     return <div ref={ref} className={cn(cls, className)} {...props} />;
   },
 );
@@ -121,7 +125,7 @@ const CardFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
     const { padding, density } = React.useContext(CardContext);
     const cls = padding
       ? cn(PADDING_X[padding], density === 'compact' ? 'pb-4' : 'pb-6', 'pt-0')
-      : 'px-5 pb-5 pt-0';
+      : 'px-6 pb-6 pt-0';
     return <div ref={ref} className={cn('flex items-center', cls, className)} {...props} />;
   },
 );

@@ -105,20 +105,24 @@ export const BarList = React.forwardRef<HTMLDivElement, BarListProps>(
                         aria-label={it.label}
                       />
                     </div>
-                    <div className="mt-1 flex items-baseline justify-between gap-3">
-                      {it.sub ? (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {it.sub}
-                        </span>
-                      ) : (
-                        <span />
-                      )}
-                      {showPercent ? (
-                        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                          {Math.round(pct)}%
-                        </span>
-                      ) : null}
-                    </div>
+                    {/* Only render the footer row when there is something to show, so
+                        bars without a sub or a percent don't accrue a stray 4px trailer. */}
+                    {it.sub || showPercent ? (
+                      <div className="mt-1 flex items-baseline justify-between gap-3">
+                        {it.sub ? (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {it.sub}
+                          </span>
+                        ) : (
+                          <span />
+                        )}
+                        {showPercent ? (
+                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                            {Math.round(pct)}%
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </li>
               );

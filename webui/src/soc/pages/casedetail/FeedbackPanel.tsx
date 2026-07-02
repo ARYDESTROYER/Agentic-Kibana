@@ -42,8 +42,9 @@ import {
   SelectContent,
   SelectItem,
 } from '@/ui/select';
-import { Slider } from '@/ui/slider';
 import { Separator } from '@/ui/separator';
+
+import { LabeledSlider } from '@/soc/components/LabeledSlider';
 
 import { type ScoreTone, TONE_BORDER, TONE_TEXT, PanelCard, SectionHeading, tsValue } from './shared';
 
@@ -176,7 +177,10 @@ export const FeedbackTab: React.FC<{
   // sibling Collaboration tab (CollaborationThreadTab). This Feedback tab is
   // intentionally scoped to grading the AI decision ONLY — no duplication.
 
+  // A non-default assessment (Disagree / Partially) is itself a submittable signal —
+  // picking it alone must enable Submit (it is always sent in the body).
   const gradingDirty =
+    assessment !== 'agree' ||
     accuracy > 0 ||
     reasoning > 0 ||
     appropriateness > 0 ||
@@ -275,14 +279,18 @@ export const FeedbackTab: React.FC<{
           </div>
         </div>
 
-        <div className="mt-4 space-y-1.5">
-          <Label className="text-xs">Analyst time saved: {timeSaved} min</Label>
-          <Slider
+        {/* Shared LabeledSlider wires the accessible name + aria-valuetext ("N min") so
+            AT announces a meaningful value (a bare Radix Slider had neither). */}
+        <div className="mt-4">
+          <LabeledSlider
+            label="Analyst time saved"
+            value={timeSaved}
+            onChange={setTimeSaved}
             min={0}
             max={120}
             step={5}
-            value={[timeSaved]}
-            onValueChange={(v) => setTimeSaved(v[0] ?? 0)}
+            editable={false}
+            formatValue={(v) => `${v} min`}
           />
         </div>
 

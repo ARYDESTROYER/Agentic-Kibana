@@ -48,6 +48,9 @@ export function MitreHeatmapWidget(props: WidgetProps) {
       accentClass="text-critical"
       loading={loading && !data}
       emptyMessage={empty}
+      // The tactic×technique heatmap can be taller than a small cell → scroll it
+      // internally instead of clipping the lower tactics.
+      scrollBody
     >
       <MitreHeatmap columns={columns} ariaLabel="MITRE ATT&CK coverage" />
     </WidgetShell>

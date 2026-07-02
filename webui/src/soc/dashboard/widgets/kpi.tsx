@@ -31,13 +31,15 @@ export function NeedsHumanQueueWidget(props: WidgetProps) {
       loading={loading && !data}
       emptyMessage={error && !data ? 'Metrics unavailable' : undefined}
     >
+      {/* No inner card frame or icon: the WidgetShell ChartCard already supplies the
+          bordered card + the icon chip in its header (ONE card grammar). */}
       <KpiTile
         label="Awaiting a human decision"
         value={count == null ? DASH : fmtNumber(count)}
         sub={open == null ? undefined : `${fmtNumber(open)} open cases total`}
         accent="high"
         goodDirection="down"
-        icon={UserCheck}
+        className="border-0 bg-transparent p-0 shadow-none"
       />
     </WidgetShell>
   );
@@ -66,13 +68,15 @@ export function CostBudgetWidget(props: WidgetProps) {
       loading={loading && !data}
       emptyMessage={error && !data ? 'Cost data unavailable' : undefined}
     >
+      {/* No inner card frame or icon: the WidgetShell ChartCard already supplies the
+          bordered card + the icon chip in its header (ONE card grammar). */}
       <KpiTile
         label="Spend in this window"
         value={totalCost == null ? DASH : fmtMoney(totalCost, currency)}
         sub={calls == null ? undefined : `${fmtNumber(calls)} LLM calls`}
         accent="success"
         goodDirection="down"
-        icon={CircleDollarSign}
+        className="border-0 bg-transparent p-0 shadow-none"
       />
     </WidgetShell>
   );

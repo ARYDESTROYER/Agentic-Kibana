@@ -56,11 +56,16 @@ const WINDOW_PRESETS: WindowPreset[] = [
   { value: '14d', label: 'Last 14 days', days: 14, bucketMinutes: 60, displayMinutes: 1440 },
 ];
 
-/** Format a bucket-start ISO string for the histogram axis (plain, locale-agnostic). */
-function bucketLabel(iso: string, displayMinutes: number): string {
+/** Hard cap on rendered bars so a wide window can never balloon the chart height (#29). */
+const MAX_BARS = 60;
+
+/** Format a bucket-start ISO string for the histogram axis (plain, locale-agnostic).
+ * `widthMinutes` is the EFFECTIVE bucket width (after any bar-cap widening), so the
+ * label granularity always matches what a bar actually spans. */
+function bucketLabel(iso: string, widthMinutes: number): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.slice(0, 16);
-  if (displayMinutes >= 1440) {
+  if (widthMinutes >= 1440) {
     // day bucket → YYYY-MM-DD
     return d.toISOString().slice(0, 10);
   }
@@ -70,27 +75,39 @@ function bucketLabel(iso: string, displayMinutes: number): string {
 
 /**
  * Re-aggregate the server's histogram (fixed hourly buckets) into coarser display
- * buckets. Pure: floors each bucket-start to `displayMinutes` and sums counts.
+ * buckets. Pure: floors each bucket-start to `displayMinutes` and sums counts. If the
+ * result still exceeds {@link MAX_BARS} bars (e.g. a wide window shown at fine
+ * granularity), the bucket width is doubled until the chart is legible — so the
+ * histogram can never grow to thousands of px of scroll (#29).
  */
 function toHistogramData(
   result: RulePreviewResult | null,
   displayMinutes: number,
 ): HBarDatum[] {
   if (!result || !result.histogram || result.histogram.length === 0) return [];
-  const widthMs = Math.max(1, displayMinutes) * 60_000;
-  const sums = new Map<number, number>();
-  for (const b of result.histogram) {
-    const t = new Date(b.bucket).getTime();
-    if (Number.isNaN(t)) continue;
-    const floored = Math.floor(t / widthMs) * widthMs;
-    sums.set(floored, (sums.get(floored) ?? 0) + (b.count || 0));
+  const bucketize = (widthMs: number): Map<number, number> => {
+    const sums = new Map<number, number>();
+    for (const b of result.histogram) {
+      const t = new Date(b.bucket).getTime();
+      if (Number.isNaN(t)) continue;
+      const floored = Math.floor(t / widthMs) * widthMs;
+      sums.set(floored, (sums.get(floored) ?? 0) + (b.count || 0));
+    }
+    return sums;
+  };
+  let widthMs = Math.max(1, displayMinutes) * 60_000;
+  let sums = bucketize(widthMs);
+  while (sums.size > MAX_BARS) {
+    widthMs *= 2;
+    sums = bucketize(widthMs);
   }
+  const widthMinutes = widthMs / 60_000;
   return Array.from(sums.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([ms, count]) => ({
       // Bar color comes from the ONE token authority via the chart's `colorToken`
       // prop (DESIGN_STANDARD §1.6/§5.4) — not an inlined `hsl(var(--…))` literal.
-      label: bucketLabel(new Date(ms).toISOString(), displayMinutes),
+      label: bucketLabel(new Date(ms).toISOString(), widthMinutes),
       value: count,
     }));
 }
@@ -119,8 +136,16 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<unknown>(null);
   const [result, setResult] = React.useState<RulePreviewResult | null>(null);
+  // The window preset the CURRENT `result` was actually run for. The histogram buckets
+  // + summary must reflect THAT window, not whatever the SegmentedControl now shows —
+  // otherwise switching the window (without re-running) re-buckets a stale result at a
+  // mismatched granularity and can balloon the chart (#29).
+  const [ranWindow, setRanWindow] = React.useState<string | null>(null);
 
   const preset = WINDOW_PRESETS.find((p) => p.value === windowValue) ?? WINDOW_PRESETS[1];
+  const resultPreset =
+    WINDOW_PRESETS.find((p) => p.value === ranWindow) ?? preset;
+  const windowChangedSinceRun = result !== null && ranWindow !== null && ranWindow !== windowValue;
   const predicates = React.useMemo(() => predicatesForPreview(rule), [rule]);
   const previewable = predicates.length > 0;
 
@@ -133,9 +158,13 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
         source_id: sourceId,
         from: `now-${preset.days}d`,
         bucket_minutes: preset.bucketMinutes,
-        limit: 1000,
+        // Must stay within the backend cap (`_PreviewIn.limit` is `le=200`, the same
+        // hard cap `GET /api/logs` uses). Sending >200 makes FastAPI reject the whole
+        // request with a 422 before the handler runs, so the preview never returns.
+        limit: 200,
       });
       setResult(res);
+      setRanWindow(windowValue);
       onResult?.(res);
     } catch (e) {
       setError(e);
@@ -143,11 +172,11 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
     } finally {
       setLoading(false);
     }
-  }, [predicates, sourceId, preset.days, preset.bucketMinutes, onResult, onError]);
+  }, [predicates, sourceId, preset.days, preset.bucketMinutes, windowValue, onResult, onError]);
 
   const histogram = React.useMemo(
-    () => toHistogramData(result, preset.displayMinutes),
-    [result, preset.displayMinutes],
+    () => toHistogramData(result, resultPreset.displayMinutes),
+    [result, resultPreset.displayMinutes],
   );
 
   if (!previewable) {
@@ -198,6 +227,12 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
       {result ? (
         <Card padding="sm">
           <CardContent className="space-y-3 pt-4">
+            {windowChangedSinceRun ? (
+              <p className="text-xs text-warning-text">
+                Showing the last run over <span className="font-medium">{resultPreset.label}</span>.
+                Click “Run preview” to refresh for <span className="font-medium">{preset.label}</span>.
+              </p>
+            ) : null}
             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-sm">
               <span>
                 <span className="text-2xl font-semibold tabular-nums text-foreground">
@@ -224,13 +259,16 @@ export function RulePreviewPanel({ rule, sourceId, onResult, onError }: RulePrev
                 evaluates only the first row too (they match). Flag the ignored rows so
                 the count is honestly a preview of what actually deploys. */}
             {result.predicates > (result.predicates_evaluated ?? result.predicates) ? (
-              <p className="text-xs text-warning-text">
-                Only the first condition is saved and previewed — the other{' '}
-                {result.predicates - (result.predicates_evaluated ?? 1)} condition
-                {result.predicates - (result.predicates_evaluated ?? 1) === 1 ? '' : 's'} are not
-                yet applied (nested AND/OR is coming). This count reflects the rule as it will
-                deploy.
-              </p>
+              (() => {
+                const extra = result.predicates - (result.predicates_evaluated ?? 1);
+                return (
+                  <p className="text-xs text-warning-text">
+                    Only the first condition is saved and previewed — the other {extra}{' '}
+                    {extra === 1 ? 'condition is' : 'conditions are'} not yet applied (nested
+                    AND/OR is coming). This count reflects the rule as it will deploy.
+                  </p>
+                );
+              })()
             ) : null}
 
             {histogram.length > 0 ? (

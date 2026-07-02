@@ -30,7 +30,9 @@ import { Label } from '@/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Separator } from '@/ui/separator';
 import { PageHeader } from '@/soc/components/PageHeader';
+import { PageContainer } from '@/soc/components/PageContainer';
 import { StatCard } from '@/soc/components/StatCard';
+import { Skeleton } from '@/ui/skeleton';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
@@ -230,7 +232,7 @@ export function BatchJobsInner() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <PageContainer variant="wide" className="flex flex-col gap-6">
       <PageHeader
         icon={Layers}
         eyebrow="Models"
@@ -240,10 +242,10 @@ export function BatchJobsInner() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              void load();
-              void cfg.reload();
-            }}
+            // Refresh only re-loads the read-only jobs table; it must NOT reload the
+            // config (that would silently clobber unsaved policy edits — the editor
+            // has its own load-on-mount + LoadError retry).
+            onClick={() => void load()}
             disabled={loading}
           >
             {loading ? (
@@ -259,12 +261,15 @@ export function BatchJobsInner() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Total jobs" value={fmtNumber(totals.total)} accent="primary" icon={Layers} />
         <StatCard label="In flight" value={fmtNumber(totals.active)} accent="info" />
-        <StatCard label="Retrieved" value={fmtNumber(totals.done)} accent="success" />
+        {/* `done` counts JOBS whose state is `retrieved`; `retrieved` sums individual
+            REQUESTS retrieved. Label each by its granularity so "retrieved" is not
+            overloaded across the two adjacent tiles. */}
+        <StatCard label="Jobs done" value={fmtNumber(totals.done)} accent="success" />
         <StatCard
-          label="Requests"
+          label="Requests retrieved"
           value={fmtNumber(totals.retrieved)}
-          sub={`of ${fmtNumber(totals.requests)} retrieved`}
-          accent="medium"
+          sub={`of ${fmtNumber(totals.requests)} total`}
+          accent="primary"
         />
       </div>
 
@@ -313,6 +318,13 @@ export function BatchJobsInner() {
             description="Route low-urgency investigations through a provider's discounted async batch API. Default off — an off policy keeps every call synchronous."
             wide
           >
+            {cfg.loading ? (
+              // Don't flash the default-valued form while the persisted policy loads.
+              <div className="space-y-4" aria-busy="true">
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : (
             <fieldset disabled={!canManage} className="space-y-6">
               <Alert>
                 <Info className="h-4 w-4" aria-hidden />
@@ -405,6 +417,7 @@ export function BatchJobsInner() {
                 </p>
               ) : null}
             </fieldset>
+            )}
           </SettingsCard>
         </SettingsGrid>
       )}
@@ -418,6 +431,6 @@ export function BatchJobsInner() {
           onDiscard={cfg.discard}
         />
       </Can>
-    </div>
+    </PageContainer>
   );
 }

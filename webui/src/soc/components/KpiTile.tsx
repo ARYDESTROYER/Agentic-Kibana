@@ -101,15 +101,26 @@ const ACCENT_BAR: Record<KpiAccent, string> = {
  */
 function resolveDelta(delta: KpiDelta, goodDirection: KpiGoodDirection) {
   const rising = delta.value >= 0;
+  // A zero / no-change delta (incl. the "new" badge that carries value 0) is NEUTRAL —
+  // never an improvement OR a regression (DESIGN_STANDARD §5.3). Only a real move is
+  // judged, so a fresh appearance of a bad metric can't render as a green "improved".
+  const flat = delta.value === 0;
   const improved =
-    goodDirection === 'none'
+    flat || goodDirection === 'none'
       ? null
       : goodDirection === 'up'
         ? rising
         : /* 'down' */ !rising;
 
+  // Use the AA-tuned standalone `-text` companions: the fill tokens (`text-success` /
+  // `text-critical`) fail 4.5:1 as small text on the card in the light theme
+  // (DESIGN_STANDARD §1.3, matching badges.tsx), so this 12px delta must use `-text`.
   const colorClass =
-    improved === null ? 'text-muted-foreground' : improved ? 'text-success' : 'text-critical';
+    improved === null
+      ? 'text-muted-foreground'
+      : improved
+        ? 'text-success-text'
+        : 'text-critical-text';
 
   const Arrow = rising ? ArrowUpRight : ArrowDownRight;
   const directionWord = rising ? 'up' : 'down';
@@ -152,6 +163,11 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
 
     const deltaNode = deltaFacts ? (
       <span
+        // `role="img"` makes `aria-label` a valid accessible name on this element (a
+        // bare span maps to the generic role, where aria-label is prohibited/ignored —
+        // axe `aria-prohibited-attr`). With the visible value aria-hidden, this is the
+        // ONLY reliable announcement of the trend direction + judgement (Round-5 §6.1).
+        role="img"
         className={cn(
           'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
           deltaFacts.colorClass,

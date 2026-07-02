@@ -1418,3 +1418,24 @@
 - Tests: VERIFIED GREEN (2026-07-02) — backend **1601 pytest** (was 1461); webui tsc+vite build clean, entry chunk **264 kB** (was 537); **625 Vitest** (was 273); eslint **0 errors** (4 warnings; jsx-a11y 48→0); route_auth_coverage green; design-gate green; **engine/case_manager.py decide() BYTE-IDENTICAL vs the pre-Round-5 baseline 27f0983 (#3 held throughout)**; #6/#9/#2/#10 upheld; PUT /api/settings deep-MERGE intact; all API paths byte-identical.
 - Status: done — **ROUND 5 COMPLETE**. 12 commits 5ab7c05→0e99c76→9854c36→7c86706→f50e0b2→3e447da→b661bc8→830e836→d3801f9→a9e2b49→8b91fc0→05552c7 on `Testing`; **LOCAL only, NOT pushed** (per project convention — push when the user asks).
 - Next: optional — push to remote (on request); the standing backlog (Splunk/Sentinel connectors, ARQ/KEDA scale-out, Helm, OTEL; the pre-Round-3 Tier-2/3 items — API keys UI, SLA timers, watchlists, scheduled reports, hunting/saved-query builder).
+
+### 2026-07-02 06:08Z — orchestrator (Fable) — Round 6 START: verify + glitch-hunt + fix fleet
+- Context: user re-issued the Round-5 brief with a screenshot of the post-Round-5 Dashboards page glitching (widgets stacked, clipped right-edge control, wasted space) + "a tonne of UI glitches". Round 5 already complete, so Round 6 = full-app Opus audit fleet -> fix fleet -> re-verify. Tracker: ROUND6_TRACKER.md.
+- Did: confirmed flagship bug inline — dashboard/registry.ts buildDefaultWidgets()+reconcileWidgets() emit x:0,y:0 for ALL widgets; VIEW-mode WidgetGrid renders persisted coords in a plain CSS grid (no compaction) so default widgets STACK on one cell. Launched the ~90-finder Opus audit workflow (file groups + 12 thematic + 4 API-contract auditors, each adversarially verified); pytest/vitest/build/lint baselines running in background.
+- Tests: baselines in progress (expect 1601 pytest / 625 vitest / clean build / 0 lint errors).
+- Status: in-progress.
+- Next: read fleet findings -> fix-fleet batches -> re-verify -> commit on Testing (NO co-author per user) -> delete tracker.
+
+### 2026-07-02 12:15Z — orchestrator (Fable) — Round 6: audit fleet COMPLETE (464 findings), fix fleet LAUNCHED
+- Context: Round-6 P2 audit fleet finished after a session-limit pause + resume: 155/155 units (213 agents on resume, ~18M subagent tokens total), 466 claimed -> 464 verified findings (21 high / 240 medium / 203 low; criticals downgraded to high on verification, 2 refuted). Saved to ROUND6_FINDINGS.json.
+- Did: partitioned all 464 findings into 30 conflict-free fix batches (exclusive file ownership, staged sequencing for batches >24 findings) under the session scratchpad round6-batches/; launched the round6-fix-fleet workflow (wf_fd3f1a7a-76c): 37 Opus fixers, verify-first, root-cause fixes + tests, scoped tsc self-checks, handoffs instead of foreign-file edits. Headline fixes in flight: dashboard packing + curated per-role default layouts, AppShell/PageContainer single width authority, nav flyout clipping, PUT-vs-PATCH 405s, rules anomaly-save + version ledger + preview 422, connector secret drops, KPI delta inversions, recommended-automation onboarding feature.
+- Tests: baselines all green pre-fleet (webui build/625 vitest/0 lint errors; backend pytest exit 0). Full gate re-runs after the fleet.
+- Status: in-progress (fix fleet running).
+- Next: orchestrator gate (tsc+vitest+lint+pytest), process handoffs, adversarial diff review, docs, commit on Testing (NO co-author).
+
+### 2026-07-02 17:24Z — orchestrator (Fable) — Round 6 COMPLETE: fleet glitch-hunt + integration polish shipped
+- Context: closed out Round 6 (user brief: fix "a tonne of UI glitches" incl. the dashboards stacking screenshot, with 100s of Opus agents; verify everything).
+- Did: audit fleet 155/155 units -> 464 adversarially-verified findings; fix fleet 30 conflict-free batches (379 fixed) + handoff/closer wave (44 more; 47 total refuted as not-real). Flagship: packWidgets + curated per-role default dashboard layouts (view-mode stacking bug); PageContainer single width authority; api.patch 405 fixes; rules version ledger now records (rollback live); anomaly-rule saves persisted; SecretField unification + connector-secret drop fixes; honest KPI deltas; WCAG-AA both themes; AutomationNudge one-click beginner automation; window-scoped cases + severity drills; baseline/campaign mounts on CaseDetail. Docs: CLAUDE.md + CHANGELOG + docs/research/2026-07-round6/IMPLEMENTATION.md. decide() untouched; API paths byte-identical (additive only); ZERO new deps.
+- Tests: backend 1613 pytest green; webui 1051 Vitest / 199 files green; lint 0 errors (3 warnings); build clean entry 281.61 kB; design-gate + route_auth_coverage green (verified independently twice).
+- Status: done.
+- Next: push when the user asks; optional live-run visual check (./scripts/run-demo.sh) to admire the fixed dashboards; deferred nits listed in IMPLEMENTATION.md §Deferred.

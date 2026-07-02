@@ -24,7 +24,7 @@ const avatarVariants = cva('relative flex shrink-0 overflow-hidden rounded-full'
 });
 
 const FALLBACK_TEXT: Record<AvatarSize, string> = {
-  sm: 'text-[10px]',
+  sm: 'text-2xs', // 11px scale token (was an off-scale arbitrary text-[10px])
   md: 'text-xs',
   lg: 'text-sm',
   xl: 'text-base',

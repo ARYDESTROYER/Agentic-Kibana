@@ -38,7 +38,6 @@ import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { Switch } from '@/ui/switch';
 import { Label } from '@/ui/label';
-import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 import {
   Select,
@@ -57,6 +56,7 @@ import {
 } from '@/ui/table';
 import { CodeBlock } from '@/soc/components/CodeBlock';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { SeverityBadge } from '@/soc/components/badges';
 
 /** Auto-refresh cadence for the "Live tail" switch (ms). */
@@ -72,11 +72,6 @@ const TIME_RANGES: Array<{ value: string; label: string }> = [
   { value: 'now-24h', label: 'Last 24 hours' },
   { value: 'now-7d', label: 'Last 7 days' },
 ];
-
-function errorMessage(e: unknown): string {
-  if (e instanceof Error) return e.message || 'Could not load logs.';
-  return 'Could not load logs.';
-}
 
 export interface SourceLogsSheetProps {
   /** The source whose logs to browse; null/undefined keeps the sheet closed. */
@@ -94,7 +89,7 @@ export const SourceLogsSheet: React.FC<SourceLogsSheetProps> = ({ source, onClos
         className="flex w-full flex-col p-0 sm:max-w-3xl"
         aria-describedby={undefined}
       >
-        {source ? <SourceLogsBody source={source} /> : null}
+        {source ? <SourceLogsBody key={source.id} source={source} /> : null}
       </SheetContent>
     </Sheet>
   );
@@ -150,9 +145,12 @@ const SourceLogsBody: React.FC<{ source: SourceInstance }> = ({ source }) => {
     loadRef.current = load;
   }, [load]);
 
+  // Load on mount, on source change, and when the time range changes — but NOT on every
+  // keystroke. Typing only updates `query` (via a fresh `load` identity); the search
+  // fires solely on Enter / Refresh. Reading through `loadRef` uses the latest `query`.
   React.useEffect(() => {
-    void load(true);
-  }, [load]);
+    void loadRef.current(true);
+  }, [source.id, start]);
 
   // Live-tail polling.
   React.useEffect(() => {
@@ -254,15 +252,12 @@ const SourceLogsBody: React.FC<{ source: SourceInstance }> = ({ source }) => {
 
       <div className="flex-1 overflow-y-auto p-6">
         {error ? (
-          <div className="space-y-3">
-            <Alert variant="destructive">
-              <AlertTitle>Could not load logs</AlertTitle>
-              <AlertDescription>{errorMessage(error)}</AlertDescription>
-            </Alert>
-            <Button variant="outline" size="sm" onClick={() => void load(true)}>
-              <RefreshCw className="h-4 w-4" aria-hidden /> Retry
-            </Button>
-          </div>
+          <LoadError
+            error={error}
+            title="Could not load logs"
+            fallback="Could not load logs."
+            onRetry={() => void load(true)}
+          />
         ) : loading ? (
           <div className="space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (

@@ -8,7 +8,23 @@ import * as React from 'react';
 import { Plug, ListChecks, CheckCircle2, XCircle } from 'lucide-react';
 
 import { DataTable, type DataTableColumn } from '@/soc/components/DataTable';
+import { VerdictBadge } from '@/soc/components/badges';
 import { fmtNumber, humanizeAge, humanizeToken, DASH } from '@/lib/format';
+
+// DataTable draws its own bordered/elevated card; inside a WidgetShell ChartCard that
+// would double the frame. This strips DataTable's chrome (twMerge wins) so only the
+// ChartCard frame shows — ONE card grammar.
+const FLAT_TABLE = 'rounded-none border-0 bg-transparent shadow-none';
+
+/**
+ * Render a millis epoch as a relative age, guarding the ISO conversion: a non-finite
+ * or out-of-range value (> ±8.64e15) makes `new Date(ms).toISOString()` THROW, which
+ * would crash the whole table render. Degrade to a dash instead.
+ */
+function ageFromMillis(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0 || Math.abs(ms) > 8.64e15) return DASH;
+  return humanizeAge(new Date(ms).toISOString());
+}
 
 import {
   useDashboardSource,
@@ -44,9 +60,9 @@ export function ConnectorHealthWidget(props: WidgetProps) {
         align: 'center',
         cell: (r) =>
           r.enabled ? (
-            <CheckCircle2 className="mx-auto h-4 w-4 text-success" aria-label="Enabled" />
+            <CheckCircle2 role="img" className="mx-auto h-4 w-4 text-success" aria-label="Enabled" />
           ) : (
-            <XCircle className="mx-auto h-4 w-4 text-muted-foreground" aria-label="Disabled" />
+            <XCircle role="img" className="mx-auto h-4 w-4 text-muted-foreground" aria-label="Disabled" />
           ),
       },
       {
@@ -61,7 +77,7 @@ export function ConnectorHealthWidget(props: WidgetProps) {
           if (r.last_poll_millis > 0) {
             return (
               <span className="tabular-nums text-muted-foreground">
-                {humanizeAge(new Date(r.last_poll_millis).toISOString())}
+                {ageFromMillis(r.last_poll_millis)}
               </span>
             );
           }
@@ -86,6 +102,8 @@ export function ConnectorHealthWidget(props: WidgetProps) {
       accentClass="text-info"
       loading={loading && !data}
       emptyMessage={empty}
+      // A long connector list scrolls inside the cell rather than being cut off.
+      scrollBody
     >
       <DataTable
         columns={columns}
@@ -93,6 +111,7 @@ export function ConnectorHealthWidget(props: WidgetProps) {
         getRowId={(r) => r.source_id}
         density="compact"
         ariaLabel="Connector health"
+        className={FLAT_TABLE}
       />
     </WidgetShell>
   );
@@ -132,9 +151,12 @@ export function RecentCasesWidget(props: WidgetProps) {
       {
         id: 'verdict',
         header: 'Verdict',
-        cell: (c) => (
-          <span>{c.verdict ? humanizeToken(c.verdict) : DASH}</span>
-        ),
+        cell: (c) =>
+          c.verdict ? (
+            <VerdictBadge verdict={c.verdict} />
+          ) : (
+            <span className="text-muted-foreground">{DASH}</span>
+          ),
       },
       {
         id: 'age',
@@ -162,6 +184,8 @@ export function RecentCasesWidget(props: WidgetProps) {
       accentClass="text-primary"
       loading={loading && !data}
       emptyMessage={empty}
+      // A long recent-cases list scrolls inside the cell rather than being cut off.
+      scrollBody
     >
       <DataTable
         columns={columns}
@@ -169,6 +193,7 @@ export function RecentCasesWidget(props: WidgetProps) {
         getRowId={(c) => c.case_id}
         density="compact"
         ariaLabel="Recent cases"
+        className={FLAT_TABLE}
       />
     </WidgetShell>
   );

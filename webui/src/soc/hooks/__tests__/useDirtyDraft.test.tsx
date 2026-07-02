@@ -5,6 +5,7 @@
  *   2. a background `initial` change re-seeds when clean but preserves in-progress edits.
  *   3. useUnsavedChanges registers/removes the beforeunload guard by dirty state.
  */
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
@@ -46,6 +47,28 @@ describe('useDirtyDraft', () => {
     expect(result.current.saved).toEqual({ a: 3 });
     expect(result.current.draft).toEqual({ a: 99 });
     expect(result.current.dirty).toBe(true);
+  });
+
+  it('commit() clears dirty and updates saved under StrictMode (pure updaters)', () => {
+    // StrictMode double-invokes state updaters in dev to surface impurities. commit()
+    // must not rely on a setter nested inside another setter's updater.
+    const { result } = renderHook(() => useDirtyDraft({ a: 1, b: 'x' }), {
+      wrapper: StrictMode,
+    });
+
+    act(() => result.current.update({ a: 2 }));
+    expect(result.current.dirty).toBe(true);
+
+    act(() => result.current.commit());
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.saved).toEqual({ a: 2, b: 'x' });
+    expect(result.current.draft).toEqual({ a: 2, b: 'x' });
+
+    // Committing an explicit value persists that value (not the draft).
+    act(() => result.current.commit({ a: 7, b: 'z' }));
+    expect(result.current.dirty).toBe(false);
+    expect(result.current.saved).toEqual({ a: 7, b: 'z' });
+    expect(result.current.draft).toEqual({ a: 7, b: 'z' });
   });
 });
 

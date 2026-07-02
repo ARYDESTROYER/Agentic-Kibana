@@ -37,6 +37,7 @@ const EXPECTED_IDS = [
   'detection',
   'detection_rules', // NEW (Round-5 G6 R2: unified "Detection & rules" home)
   'cases',
+  'case_policy', // NEW (Round-6: mounts the orphaned G6 SLA / priority / suppression editors)
   'automation',
   'standup',
   'notifications',
@@ -100,7 +101,7 @@ describe('grouped rail derivation (Round-5 Sett-B: 5 groups, Security promoted)'
   });
 
   it('preserves the registry order within a group', () => {
-    // General group: general, models, detection, cases, automation, standup.
+    // General group order (Round-6 inserts case_policy after cases).
     const general = SECTION_GROUPS.find((g) => g.id === 'general')!;
     expect(general.sections.map((s) => s.id)).toEqual([
       'general',
@@ -108,6 +109,7 @@ describe('grouped rail derivation (Round-5 Sett-B: 5 groups, Security promoted)'
       'detection',
       'detection_rules',
       'cases',
+      'case_policy',
       'automation',
       'standup',
     ]);
@@ -167,23 +169,51 @@ describe('SECTION_KEYS is derived from ownedKeys (kills the 3-file hand-sync)', 
   it('leaves the embedded / self-saving sections out of the dirty map', () => {
     // These manage their own save lifecycle (embedded bodies, write-only keys,
     // enrichment's self-contained provider editor, roles matrix, danger-zone resets).
-    for (const id of ['profile', 'account_security', 'sessions', 'customization', 'keys', 'admin_users', 'roles', 'admin_sessions', 'appearance', 'demo', 'danger']) {
+    for (const id of ['profile', 'account_security', 'sessions', 'customization', 'keys', 'enrichment', 'admin_users', 'roles', 'admin_sessions', 'appearance', 'demo', 'danger']) {
       expect(id in SECTION_KEYS).toBe(false);
     }
   });
 });
 
-describe('GRID_SECTIONS (full-width, no outer Card) — incl. the automation double-wrap fix', () => {
-  it('includes the multi-card grid sections AND automation', () => {
-    // general/detection/knowledge/advanced render their own SettingsGrid; automation
-    // was moved here in Sett-A so its bordered rule cards no longer sit in a card-in-a-card.
-    for (const id of ['general', 'detection', 'knowledge', 'advanced', 'automation']) {
+describe('Round-6 de-dup — automation links to the single rule editor (deep-links intact)', () => {
+  it('keeps automation AND the new case_policy as deep-linkable sections (no route deleted)', () => {
+    // The automation section is retained (not retired) so `#/settings?s=automation`
+    // still resolves; case_policy is the new mount point for the orphaned G6 editors.
+    for (const id of ['automation', 'case_policy']) {
+      expect(isSectionId(id)).toBe(true);
+      expect(SECTION_BY_ID[id]).toBeTruthy();
+    }
+  });
+
+  it('the automation link-card target (detection_rules) is a real, deep-linkable section', () => {
+    // AutomationSection routes via setSection('detection_rules'); that target must exist.
+    expect(isSectionId('detection_rules')).toBe(true);
+    expect(SECTION_BY_ID.detection_rules).toBeTruthy();
+  });
+
+  it('the case_policy section owns exactly the three orphaned G6 editor keys', () => {
+    expect(SECTION_KEYS.case_policy).toEqual(['sla', 'priority_matrix', 'suppression_rules']);
+  });
+
+  it('detection owns the asset-criticality keys (its new Asset criticality card)', () => {
+    expect(SECTION_KEYS.detection).toContain('asset_networks');
+    expect(SECTION_KEYS.detection).toContain('asset_criticality');
+  });
+});
+
+describe('GRID_SECTIONS (full-width, no outer Card)', () => {
+  it('includes the multi-card grid sections (general/detection/knowledge/advanced/case_policy)', () => {
+    // These render their own SettingsGrid full-width (no card-in-a-card). Round-6 adds
+    // case_policy (SLA / priority / suppression editor cards).
+    for (const id of ['general', 'detection', 'knowledge', 'advanced', 'case_policy']) {
       expect(GRID_SECTIONS.has(id)).toBe(true);
     }
   });
 
-  it('excludes the single-card sections', () => {
-    for (const id of ['models', 'keys', 'cases', 'standup', 'enrichment', 'security']) {
+  it('excludes the single-card sections (incl. automation after Round-6 de-dup)', () => {
+    // Round-6: with the embedded rule cards gone, automation is a simple single-card
+    // section again (master toggle + link card) — no longer a grid section.
+    for (const id of ['models', 'keys', 'cases', 'standup', 'enrichment', 'security', 'automation']) {
       expect(GRID_SECTIONS.has(id)).toBe(false);
     }
   });

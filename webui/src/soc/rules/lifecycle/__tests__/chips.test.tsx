@@ -28,6 +28,15 @@ describe('deriveHealth', () => {
     expect(deriveHealth({ state: 'disabled' }).status).toBe('unknown');
   });
 
+  it('labels a disabled rule distinctly from the state chip — "Not evaluated", not "Disabled" (#45)', () => {
+    // Even after a preview (matched counts present), a disabled rule stays "Not evaluated"
+    // so the header does not render two identical grey "Disabled" chips side by side.
+    const h = deriveHealth({ state: 'disabled', lastMatched: 12, lastScanned: 100 });
+    expect(h.status).toBe('unknown');
+    expect(h.label).toBe('Not evaluated');
+    expect(h.label).not.toBe('Disabled');
+  });
+
   it('warns an enabled rule with zero recent matches, ok when matching', () => {
     expect(deriveHealth({ state: 'enabled', lastScanned: 500, lastMatched: 0 }).status).toBe('warning');
     expect(deriveHealth({ state: 'enabled', lastScanned: 500, lastMatched: 12 }).status).toBe('ok');

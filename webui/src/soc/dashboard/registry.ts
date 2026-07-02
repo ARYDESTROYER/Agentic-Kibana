@@ -171,7 +171,11 @@ const DEFS: WidgetDef[] = [
     Component: CostBudgetWidget,
     defaultSize: { w: 3, h: 3, minW: 2, minH: 2 },
     sources: ['metrics'],
-    requires: { resource: 'cost', action: 'read' },
+    // The canonical cost grant is `cost:view` (rbac/policy.py). `cost:read` is not a
+    // real action, so it can NEVER be granted (custom roles strip it) — the widget
+    // would be permanently hidden/dropped for every non-super_admin role that in fact
+    // holds `cost:view`. Pin to the real action.
+    requires: { resource: 'cost', action: 'view' },
     configFields: [TITLE_FIELD],
   },
   {

@@ -100,10 +100,15 @@ export const ALLOWED_TOKENS: ReadonlySet<string> = new Set([
 
 /** Allow-listed display font families (vetted for AA legibility + availability). */
 const FONT_ALLOWLIST: Record<string, string> = {
-  inter: "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+  // Lead with the ACTUALLY-bundled family 'Inter Variable' (@fontsource-variable/inter).
+  // The static 'Inter' family is NOT self-hosted, so leading with it silently fell back
+  // to the OS font — an operator selecting "Inter" then DOWNGRADED the app's typography.
+  inter: "'Inter Variable', 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   system: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
   mono: "'JetBrains Mono', SFMono-Regular, Consolas, Menlo, monospace",
-  grotesk: "'Space Grotesk', Inter, ui-sans-serif, system-ui, sans-serif",
+  // Space Grotesk is not self-hosted either; fall back to the bundled Inter Variable
+  // (not the OS font) when it isn't locally installed.
+  grotesk: "'Space Grotesk', 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif",
 };
 
 /**

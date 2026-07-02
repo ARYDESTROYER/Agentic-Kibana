@@ -65,4 +65,18 @@ describe('NumberField', () => {
     fireEvent.click(screen.getByLabelText('Increase'));
     expect(onChange).toHaveBeenCalledWith(7);
   });
+
+  it('shows a reset affordance (≥24px target) that restores the default value', () => {
+    const { onChange } = renderField({ defaultValue: 5, value: 8 });
+    const reset = screen.getByRole('button', { name: /reset/i });
+    // WCAG 2.5.8 target size — the reset must clear the 24px floor like the steppers.
+    expect(reset.className).toMatch(/min-h-6/);
+    fireEvent.click(reset);
+    expect(onChange).toHaveBeenCalledWith(5);
+  });
+
+  it('hides the reset affordance when the value equals its default', () => {
+    renderField({ defaultValue: 5, value: 5 });
+    expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument();
+  });
 });

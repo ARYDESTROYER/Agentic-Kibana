@@ -155,6 +155,19 @@ describe('NavSidebar — WAI-ARIA disclosure', () => {
     expect(screen.getByRole('button', { name: 'Workspace' })).not.toHaveAttribute('aria-current');
   });
 
+  // For a shared-id host (id === one of its children), the child <ul> that carries the
+  // canonical aria-current is ONLY mounted when the disclosure is OPEN. When the group
+  // is COLLAPSED and the current page IS that host, the parent button must carry the
+  // marker itself — otherwise the current page has NO aria-current at all for a screen
+  // reader (regression guard: parent formerly ALWAYS suppressed it for shared-id hosts).
+  it('keeps aria-current on the parent host button when a shared-id group is COLLAPSED', () => {
+    renderExpanded({ page: 'metrics', openGroups: new Set<string>() });
+    // The child <ul> is not rendered (group closed), so exactly one marker survives…
+    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+    // …and it rides the parent host button (Analytics → navigates to `metrics`).
+    expect(screen.getByTestId('nav-metrics')).toHaveAttribute('aria-current', 'page');
+  });
+
   it('clicking the parent label navigates AND opens its group (per the documented contract)', () => {
     // Overview host group is closed (default openGroups=empty). Click the parent LABEL
     // (the first 'Overview' button — the primary destination), not the chevron.
@@ -195,6 +208,18 @@ describe('NavSidebar — collapsed icon rail', () => {
     expect(dashboard).not.toHaveAttribute('tabindex', '-1');
     // The active leaf still carries aria-current=page inside the fly-out.
     expect(standup).toHaveAttribute('aria-current', 'page');
+  });
+
+  // Regression: the collapsed fly-out lives inside the <nav>, which is a scroll clip
+  // container on BOTH axes (`overflow-y-auto overflow-x-hidden`). An `absolute` fly-out
+  // is clipped to the ~64px rail and becomes invisible/unreachable; a `position: fixed`
+  // one is positioned against the viewport and escapes that clip. jsdom does no layout,
+  // so we assert the load-bearing style directly.
+  it('positions the collapsed fly-out with position:fixed so it escapes the nav overflow clip', () => {
+    renderExpanded({ collapsed: true, page: 'standup' });
+    const flyout = document.getElementById('nav-fly-overview');
+    expect(flyout).not.toBeNull();
+    expect((flyout as HTMLElement).style.position).toBe('fixed');
   });
 });
 

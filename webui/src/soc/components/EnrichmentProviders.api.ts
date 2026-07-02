@@ -114,20 +114,25 @@ export const enrichmentApi = {
     ),
 
   /**
-   * Flip one provider's `use_*` toggle (and/or the master enable / fusion flag) via
-   * the shared settings PUT. The body is an additive partial of `prefs.enrichment`;
-   * the proxy forwards arbitrary JSON. Returns the saved Preferences subtree shape
-   * loosely (we only read it to confirm success).
+   * Flip one provider's `use_*` toggle (and/or the master enable / fusion flag, or the
+   * numeric `cache_ttl_seconds`) via the shared settings PUT. The body is an additive
+   * partial of `prefs.enrichment`; the proxy forwards arbitrary JSON. Returns the saved
+   * Preferences subtree shape loosely (we only read it to confirm success).
    */
-  setEnrichmentConfig: (patch: Record<string, boolean>) =>
+  setEnrichmentConfig: (patch: Record<string, boolean | number>) =>
     api.put<{ ok: boolean; prefs?: { enrichment?: Record<string, unknown> } }>('settings', {
       enrichment: patch,
     }),
 };
 
-/** Indicator kinds accepted by the "try a lookup" box (mirrors backend IndicatorKind). */
+/**
+ * Indicator kinds accepted by the "try a lookup" box (mirrors backend IndicatorKind).
+ * The auto-detect option uses a non-empty sentinel value (`'auto'`) because Radix
+ * Select treats an empty-string value as the cleared/placeholder state, which would
+ * render the trigger blank even when Auto-detect is the effective selection.
+ */
 export const INDICATOR_KINDS: readonly { value: string; label: string }[] = [
-  { value: '', label: 'Auto-detect' },
+  { value: 'auto', label: 'Auto-detect' },
   { value: 'ip', label: 'IP address' },
   { value: 'domain', label: 'Domain' },
   { value: 'url', label: 'URL' },

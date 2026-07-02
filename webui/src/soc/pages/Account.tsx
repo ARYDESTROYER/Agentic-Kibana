@@ -393,7 +393,9 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                       </Badge>
                     ) : null}
                     {profile?.mfa_enabled ? (
-                      <Badge variant="outline" className="gap-1 border-success/40 font-normal text-success">
+                      // Semantic success badge → AA-tuned `text-success-text` (the plain
+                      // `text-success` FILL fails 4.5:1 as small text on the card).
+                      <Badge variant="success" className="gap-1 font-normal">
                         <ShieldCheck className="h-3 w-3" aria-hidden />
                         2FA on
                       </Badge>
@@ -486,12 +488,17 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                 <Separator />
 
                 <div className="grid gap-5 sm:grid-cols-2">
-                  {/* Username (read-only identity). */}
+                  {/* Username (read-only identity). A readOnly Input (not a bare div)
+                      so the Label associates via htmlFor and AT announces it as a
+                      labelled, read-only field the user can still select/copy. */}
                   <div className="space-y-1.5">
-                    <Label>Username</Label>
-                    <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
-                      {shownUser || DASH}
-                    </div>
+                    <Label htmlFor="acct-username">Username</Label>
+                    <Input
+                      id="acct-username"
+                      value={shownUser || DASH}
+                      readOnly
+                      className="bg-muted/40 text-muted-foreground"
+                    />
                     <p className="text-xs text-muted-foreground">Managed by your administrator.</p>
                   </div>
 
@@ -535,6 +542,12 @@ export function AccountInner({ onNavigateToSecurity }: AccountInnerProps) {
                       </SelectTrigger>
                       <SelectContent className="max-h-72">
                         <SelectItem value={NONE}>System default</SelectItem>
+                        {/* Surface a stored, off-list zone so it's never silently lost
+                            (mirrors the Locale handling below) — e.g. a valid IANA zone
+                            on a runtime without Intl.supportedValuesOf. */}
+                        {timezone && !tzOptions.includes(timezone) ? (
+                          <SelectItem value={timezone}>{timezone}</SelectItem>
+                        ) : null}
                         {tzOptions.map((tz) => (
                           <SelectItem key={tz} value={tz}>
                             {tz}

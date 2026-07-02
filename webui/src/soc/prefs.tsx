@@ -130,8 +130,11 @@ export const PrefsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const eff = await api.prefs.effective();
       applyEffective(eff);
     } catch {
-      // Legacy / unreachable backend → keep the local defaults (no-op gate).
-      setPrefs(EMPTY_EFFECTIVE);
+      // Legacy / unreachable backend → fall back to defaults but PRESERVE the resolved
+      // `theme_mode` so the Appearance / account-menu picker keeps matching the colour
+      // mode ThemeProvider is actually applying (owned by localStorage). Resetting it to
+      // EMPTY_EFFECTIVE's 'system' desynced the control from the visible theme.
+      setPrefs((p) => ({ ...EMPTY_EFFECTIVE, theme_mode: p.theme_mode }));
     }
   }, [applyEffective]);
 
@@ -194,9 +197,15 @@ export const PrefsProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }));
       return true;
     } catch (e) {
-      // A 404 (already gone) still reconciles local state.
+      // A 404 (already gone) still reconciles local state — treat it as a successful
+      // removal so the caller confirms it (rather than showing a spurious error / nothing).
       if (e instanceof ApiError && e.status === 404) {
-        setPrefs((p) => ({ ...p, saved_views: p.saved_views.filter((v) => v.id !== id) }));
+        setPrefs((p) => ({
+          ...p,
+          saved_views: p.saved_views.filter((v) => v.id !== id),
+          pinned_view_ids: p.pinned_view_ids.filter((pid) => pid !== id),
+        }));
+        return true;
       }
       return false;
     }

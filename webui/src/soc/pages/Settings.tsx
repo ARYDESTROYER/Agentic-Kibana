@@ -250,6 +250,10 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
       const res = await api.putSettings(patch as Partial<Preferences>);
       setPrefs(res.prefs);
       setSavedPrefs(res.prefs);
+      // Re-derive the settings lock from the saved response (mirrors the backend's
+      // `read_only` = `read_only_settings_mode`), so toggling the lock ON/OFF takes
+      // effect immediately instead of only after a full reload.
+      setReadOnly(Boolean((res.prefs as Record<string, unknown>).read_only_settings_mode));
       toast.success('Settings saved.');
     } catch (e) {
       toast.error(errMsg(e, 'Could not save settings.'));
@@ -310,11 +314,14 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   );
 
   // If a search/RBAC change hides the active section, jump to the first visible one.
+  // Use `setSection` (the hash-writing callback) — NOT the bare `setSectionState` — so
+  // the `#/settings?s=<id>` hash stays in sync with the auto-selected section (otherwise
+  // a reload / back-forward would snap back to the now-hidden section id).
   React.useEffect(() => {
     if (flatVisible.length && !flatVisible.some((s) => s.id === section)) {
-      setSectionState(flatVisible[0].id as SectionId);
+      setSection(flatVisible[0].id as SectionId);
     }
-  }, [flatVisible, section]);
+  }, [flatVisible, section, setSection]);
 
   /* ------------------------------------------------------------- states ---- */
 
@@ -322,7 +329,7 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
     return (
       <PageContainer variant="fixed" className="space-y-6">
         <PageHeader icon={SettingsIcon} eyebrow="Platform" title="Settings" />
-        <div className="grid gap-6 lg:grid-cols-[224px_minmax(0,1fr)]">
+        <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
           <div className="space-y-1.5">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-9 w-full" />
@@ -406,6 +413,14 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
   const activeDef = SECTION_BY_ID[section] ?? SECTION_BY_ID.general;
   const isGrid = GRID_SECTIONS.has(activeDef.id);
 
+  // When the settings lock is ON, Save is disabled — EXCEPT when the operator's pending
+  // draft turns the lock itself back OFF. That is the one PUT the backend explicitly
+  // permits while locked (`read_only_settings_mode: false`), so blocking it would make
+  // the lock a one-way trap only recoverable via a raw API call.
+  const unlockingNow =
+    readOnly && (prefs as Record<string, unknown>).read_only_settings_mode === false;
+  const saveLocked = readOnly && !unlockingNow;
+
   return (
     <PageContainer variant="fixed" className="space-y-6">
       <PageHeader
@@ -436,14 +451,18 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
           <Lock className="h-4 w-4" aria-hidden />
           <AlertTitle>Read-only mode</AlertTitle>
           <AlertDescription>
-            Settings are read-only in this deployment. Edits cannot be saved.
+            Settings are read-only in this deployment. Edits cannot be saved — turn the
+            lock off in Advanced › Settings lock to make changes again.
           </AlertDescription>
         </Alert>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[256px_minmax(0,1fr)]">
         {/* Section nav: searchable, grouped, RBAC-aware. */}
-        <nav aria-label="Settings sections" className="lg:sticky lg:top-4 lg:self-start">
+        <nav
+          aria-label="Settings sections"
+          className="lg:sticky lg:top-[calc(var(--header-h)+1rem)] lg:self-start"
+        >
           <div className="space-y-3">
             <div className="relative">
               <Search
@@ -554,14 +573,16 @@ export default function Settings({ onRerunWizard, onNavigate: onNavigateProp }: 
           <StickySaveBar
             visible={dirty}
             busy={saving}
-            saveDisabled={readOnly}
+            saveDisabled={saveLocked}
             onSave={() => void save()}
             onDiscard={discard}
-            saveLabel="Save settings"
+            saveLabel={unlockingNow ? 'Unlock settings' : 'Save settings'}
             message={
-              readOnly
-                ? 'Settings are read-only — changes cannot be saved.'
-                : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
+              saveLocked
+                ? 'Settings are read-only — turn the lock off (Advanced › Settings lock) to save.'
+                : unlockingNow
+                  ? 'Saving will unlock settings for editing.'
+                  : `${changedCount} unsaved ${changedCount === 1 ? 'change' : 'changes'}.`
             }
           />
         </div>

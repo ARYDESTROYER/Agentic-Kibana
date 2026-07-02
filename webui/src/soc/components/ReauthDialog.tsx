@@ -90,7 +90,19 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        // While a re-auth request is in flight, block Escape / overlay-click dismissal
+        // (matching the disabled Cancel button): otherwise settle(false) clears the
+        // parked waiters, so a request that then succeeds has nothing to retry and the
+        // gated action fails despite a correct password.
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldQuestion className="h-5 w-5 text-primary" aria-hidden />

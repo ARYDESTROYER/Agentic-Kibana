@@ -138,6 +138,9 @@ import {
 
 import type { Navigate } from '@/soc/router';
 
+import { campaignsApi, type Campaign } from '@/soc/pages/Campaigns.api';
+import { CampaignChip } from '@/soc/pages/Campaigns';
+
 import {
   type ActionDef,
   type FpPolicy,
@@ -168,9 +171,24 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const open = Boolean(caseId && caseId.trim());
   const id = caseId || '';
 
+  // Staleness guard: the LATEST requested case id. Every id-keyed loader captures its
+  // own `id` in a closure and applies its result ONLY if the case has not changed
+  // mid-flight — the SAME CaseDetail instance is reused across cases (related-case
+  // drill-through, reopening the sheet on a different row), so a slow response for
+  // case A must never overwrite the freshly-opened case B.
+  const activeIdRef = React.useRef(id);
+  React.useEffect(() => {
+    activeIdRef.current = id;
+  }, [id]);
+
   const [c, setC] = React.useState<Case | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
+
+  // Campaign membership (#51) — the cross-case campaign this case belongs to, if any.
+  // Advisory only (#3/#4): a campaign is a reporting grouping that never closes /
+  // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
+  const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [tab, setTab] = React.useState<
     'overview' | 'why' | 'threat' | 'trace' | 'collab' | 'feedback' | 'chat'
   >('overview');
@@ -255,11 +273,13 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setError(null);
     try {
       const res = await api.getCase(id);
+      if (activeIdRef.current !== id) return; // a newer case is loading — drop the stale result
       setC(res);
     } catch (e) {
+      if (activeIdRef.current !== id) return;
       setError(e);
     } finally {
-      setLoading(false);
+      if (activeIdRef.current === id) setLoading(false);
     }
   }, [id]);
 
@@ -278,6 +298,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setTasks(null);
     setTasksBusyId(null);
     setActivity(null);
+    // Threat context is lazy-loaded and guarded by `threat === null`; resetting it
+    // (and its error) here is what makes the Threat tab refetch for the newly-opened
+    // case instead of showing the previous case's IOC/MITRE data.
+    setThreat(null);
+    setThreatError(null);
     setTab('overview');
     void loadCase();
   }, [open, id, loadCase]);
@@ -290,17 +315,40 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setTriageLoading(true);
     try {
       const res = await getTriage(id);
+      if (activeIdRef.current !== id) return;
       setTriage(res.chips || null);
     } catch {
-      setTriage(null);
+      if (activeIdRef.current === id) setTriage(null);
     } finally {
-      setTriageLoading(false);
+      if (activeIdRef.current === id) setTriageLoading(false);
     }
   }, [id]);
 
   React.useEffect(() => {
     if (open && id) void loadTriage();
   }, [open, id, loadTriage]);
+
+  // Campaign membership (#51) — fetch the campaign this case belongs to, keyed on the
+  // open case. Fail-open: a disabled/absent campaigns feature (or any error) simply
+  // clears the chip. Reset to null immediately so a newly-opened case never shows the
+  // previous case's campaign while the fetch is in flight. Wrapped in try/catch so a
+  // synchronous stub failure is handled the same as a rejection.
+  React.useEffect(() => {
+    setCampaign(null);
+    if (!(open && id)) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await campaignsApi.forCase(id);
+        if (alive) setCampaign(res.campaign);
+      } catch {
+        if (alive) setCampaign(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [open, id]);
 
   // Users for the picker + @mention autocomplete (best-effort, once per open).
   React.useEffect(() => {
@@ -321,19 +369,24 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setTimelineError(null);
     try {
       const res = await getTimeline(id);
+      if (activeIdRef.current !== id) return;
       setTimeline(res);
     } catch (e) {
-      setTimelineError(e);
+      if (activeIdRef.current === id) setTimelineError(e);
     } finally {
-      setTimelineLoading(false);
+      if (activeIdRef.current === id) setTimelineLoading(false);
     }
   }, [id]);
 
+  // Lazy on the Trace tab. `!timelineError` in the guard stops a failed fetch from
+  // re-firing forever (the loading flag flips back to false on failure, which would
+  // otherwise re-satisfy `timeline === null && !loading` and hammer the backend). The
+  // Retry affordance still works — loadTimeline clears the error before refetching.
   React.useEffect(() => {
-    if (open && tab === 'trace' && timeline === null && !timelineLoading) {
+    if (open && tab === 'trace' && timeline === null && !timelineLoading && !timelineError) {
       void loadTimeline();
     }
-  }, [open, tab, timeline, timelineLoading, loadTimeline]);
+  }, [open, tab, timeline, timelineLoading, timelineError, loadTimeline]);
 
   // ---- Collaboration: thread + tasks + activity (#4) -------------------- //
   const loadThread = React.useCallback(async () => {
@@ -342,11 +395,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setThreadError(null);
     try {
       const res = await getThread(id);
+      if (activeIdRef.current !== id) return;
       setThread(res.messages || []);
     } catch (e) {
-      setThreadError(e);
+      if (activeIdRef.current === id) setThreadError(e);
     } finally {
-      setThreadLoading(false);
+      if (activeIdRef.current === id) setThreadLoading(false);
     }
   }, [id]);
 
@@ -354,9 +408,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     if (!id) return;
     try {
       const res = await getTasks(id);
+      if (activeIdRef.current !== id) return;
       setTasks(res.tasks || []);
     } catch {
-      setTasks([]);
+      if (activeIdRef.current === id) setTasks([]);
     }
   }, [id]);
 
@@ -365,11 +420,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setActivityLoading(true);
     try {
       const res = await getActivity(id);
+      if (activeIdRef.current !== id) return;
       setActivity(res.activity || []);
     } catch {
-      setActivity([]);
+      if (activeIdRef.current === id) setActivity([]);
     } finally {
-      setActivityLoading(false);
+      if (activeIdRef.current === id) setActivityLoading(false);
     }
   }, [id]);
 
@@ -402,7 +458,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
 
   React.useEffect(() => {
     if (open && tab === 'collab') {
-      if (thread === null && !threadLoading) void loadThread();
+      // `!threadError` stops a failed thread fetch from re-firing forever (Retry still
+      // works — loadThread clears the error before refetching). tasks/activity set []
+      // on failure so their `=== null` guard already self-terminates.
+      if (thread === null && !threadLoading && !threadError) void loadThread();
       if (tasks === null) void loadTasks();
       if (activity === null && !activityLoading) void loadActivity();
     }
@@ -411,6 +470,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     tab,
     thread,
     threadLoading,
+    threadError,
     tasks,
     activity,
     activityLoading,
@@ -545,19 +605,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setRationaleError(null);
     try {
       const res = await api.caseRationale(id);
+      if (activeIdRef.current !== id) return;
       setRationale(res);
     } catch (e) {
-      setRationaleError(e);
+      if (activeIdRef.current === id) setRationaleError(e);
     } finally {
-      setRationaleLoading(false);
+      if (activeIdRef.current === id) setRationaleLoading(false);
     }
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'why' && rationale === null && !rationaleLoading) {
+    if (open && tab === 'why' && rationale === null && !rationaleLoading && !rationaleError) {
       void loadRationale();
     }
-  }, [open, tab, rationale, rationaleLoading, loadRationale]);
+  }, [open, tab, rationale, rationaleLoading, rationaleError, loadRationale]);
 
   const loadThreat = React.useCallback(async () => {
     if (!id) return;
@@ -565,19 +626,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setThreatError(null);
     try {
       const res = await api.cases.threatContext(id);
+      if (activeIdRef.current !== id) return;
       setThreat(res);
     } catch (e) {
-      setThreatError(e);
+      if (activeIdRef.current === id) setThreatError(e);
     } finally {
-      setThreatLoading(false);
+      if (activeIdRef.current === id) setThreatLoading(false);
     }
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'threat' && threat === null && !threatLoading) {
+    if (open && tab === 'threat' && threat === null && !threatLoading && !threatError) {
       void loadThreat();
     }
-  }, [open, tab, threat, threatLoading, loadThreat]);
+  }, [open, tab, threat, threatLoading, threatError, loadThreat]);
 
   // Playbook catalog for the run-a-playbook picker (best-effort).
   React.useEffect(() => {
@@ -744,7 +806,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       void loadTriage();
       if (activity !== null) void loadActivity();
     } catch (e) {
-      setError(e);
+      // A failed lifecycle action is a MUTATION failure, not a case-load failure — use a
+      // toast (like postMessage/notify) so we never mislabel it as "Could not load case".
+      toast.error(e instanceof Error ? e.message : 'The action could not be completed.');
       setPending(null);
     } finally {
       setActing(false);
@@ -777,7 +841,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setTimeline(null);
       void loadTriage();
     } catch (e) {
-      setError(e);
+      toast.error(e instanceof Error ? e.message : 'The reinvestigation could not be started.');
     } finally {
       setReinvesting(false);
     }
@@ -800,7 +864,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       } catch (e) {
-        setError(e);
+        toast.error(e instanceof Error ? e.message : 'The export could not be generated.');
       } finally {
         setExporting(null);
       }
@@ -865,6 +929,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         <Badge variant="critical" className="gap-1">
                           <Bell className="h-3 w-3" /> L{c.escalation_level}
                         </Badge>
+                      ) : null}
+                      {/* Campaign membership (#51) — plain text (#9); clicking deep-links
+                          to the Campaigns surface. Renders nothing when uncampaigned. */}
+                      {campaign ? (
+                        <CampaignChip
+                          campaign={campaign}
+                          onOpen={onNavigate ? () => onNavigate('campaigns') : undefined}
+                        />
                       ) : null}
                     </div>
                   </>

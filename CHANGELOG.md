@@ -7,6 +7,22 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-02 — Round 6: fleet glitch-hunt + integration polish (464 adversarially-verified findings fixed)
+
+A sixth round driven by a ~500-agent Opus fleet: every webui source file audited
+(155 units incl. 12 thematic deep-dives + 4 API-contract audits), every finding
+adversarially verified (466 claimed -> 464 confirmed -> 423 fixed, 47 refuted at
+verify/fix time), fixes applied in 30 conflict-free exclusively-owned batches +
+a handoff/closer wave. Flagship: the custom-dashboard view-mode stacking bug
+(pure `packWidgets` + curated per-role default layouts), PageContainer as the ONE
+width authority across all pages, CaseDetail PATCH 405s, the rules version ledger
+made real (rollback live), anomaly-rule saves persisted, SecretField unification
+(+ per-source connector secrets no longer dropped), honest KPI deltas, WCAG-AA
+contrast in both themes, and the new beginner `AutomationNudge` (one-click
+recommended automation; #3-safe). Additive wire changes only; `decide()`
+byte-identical. Green: **1613 pytest / 1051 Vitest (199 files) / lint 0 errors /
+entry 281.6 kB / zero new deps**. See `docs/research/2026-07-round6/IMPLEMENTATION.md`.
+
 ## [Unreleased] — 2026-07-02 — Round 5: UI/UX overhaul (cohesive color system + ONE shadcn/Radix design standard), Settings declutter, denser wide dashboard + compact hero, rules customization, custom dashboards, loose coupling, a11y + adversarial audit
 
 A fifth multi-wave round — **"UI/UX overhaul + rules customization + custom dashboards +

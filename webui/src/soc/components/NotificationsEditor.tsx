@@ -79,6 +79,8 @@ import { Textarea } from '@/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
 
 import { HelpTip } from './HelpTip';
+import { IconButton } from './IconButton';
+import { SecretField } from './SecretField';
 
 /* ---------------------------------------------------------------- helpers --- */
 
@@ -213,13 +215,26 @@ function FieldRow({
   helpLink?: string;
   children: React.ReactNode;
 }) {
+  const id = React.useId();
+  // Associate the visible <Label> with the first native <Input> so clicking the label
+  // focuses it and screen readers announce a name (G9 a11y). Selects in a FieldRow
+  // already carry an aria-label on their trigger, so we only wire Inputs here.
+  const kids = React.Children.toArray(children);
+  let wired = false;
+  const withId = kids.map((c) => {
+    if (!wired && React.isValidElement(c) && c.type === Input && !(c.props as { id?: string }).id) {
+      wired = true;
+      return React.cloneElement(c as React.ReactElement<{ id?: string }>, { id });
+    }
+    return c;
+  });
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <Label>{label}</Label>
+        <Label htmlFor={wired ? id : undefined}>{label}</Label>
         {help ? <HelpTip text={help} link={helpLink} label={`${label} help`} /> : null}
       </div>
-      {children}
+      {withId}
     </div>
   );
 }
@@ -254,11 +269,18 @@ function ChannelEditor({
   channel,
   presets,
   onChange,
+  onSecretApplied,
   onRemove,
 }: {
   channel: NotificationChannel;
   presets: EmailPreset[];
   onChange: (next: NotificationChannel) => void;
+  /**
+   * Apply a secret-save/clear result (the configured-key names) by CHANNEL ID against
+   * the freshest config in the parent — never by spreading the render-captured `channel`
+   * (which would revert any edit made during the network round-trip).
+   */
+  onSecretApplied: (configuredSecrets: string[]) => void;
   onRemove: () => void;
 }) {
   const Icon = channelIcon(channel.type);
@@ -306,7 +328,7 @@ function ChannelEditor({
     setSavingSecret(true);
     try {
       const res = await api.notifications.channelSecret(channel.id, v);
-      onChange({ ...channel, configured_secrets: res.configured_secrets });
+      onSecretApplied(res.configured_secrets);
       setSecretDraft('');
       toast.success(`${meta?.secretLabel ?? 'Secret'} saved.`);
     } catch (e) {
@@ -320,7 +342,7 @@ function ChannelEditor({
     setSavingSecret(true);
     try {
       const res = await api.notifications.channelSecret(channel.id, null);
-      onChange({ ...channel, configured_secrets: res.configured_secrets });
+      onSecretApplied(res.configured_secrets);
       toast.success('Secret cleared.');
     } catch (e) {
       toast.error(errMsg(e, 'Could not clear the secret.'));
@@ -441,9 +463,17 @@ function ChannelEditor({
                 <FieldRow label="Port">
                   <Input
                     type="number"
-                    value={Number(cfg.port || selectedPreset?.port || 587)}
+                    min={1}
+                    max={65535}
+                    // Nullish (not `||`) so a stored 0 shows 0 (not the 587 default), and
+                    // clearing stores `undefined` (use-default) rather than a bogus 0 — the
+                    // displayed value never diverges from what Save persists.
+                    value={Number(cfg.port ?? selectedPreset?.port ?? 587)}
                     disabled={Boolean(cfg.provider && cfg.provider !== 'custom')}
-                    onChange={(e) => setCfg({ port: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCfg({ port: raw === '' ? undefined : Number(raw) });
+                    }}
                   />
                 </FieldRow>
                 <FieldRow label="Security">
@@ -536,16 +566,17 @@ function ChannelEditor({
             {recipients.length ? (
               <div className="flex flex-wrap gap-1.5 pt-1.5">
                 {recipients.map((r) => (
-                  <Badge key={r} variant="outline" className="gap-1 pr-1">
+                  <Badge key={r} variant="outline" className="gap-1 pr-0.5">
                     <span className="truncate">{r}</span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${r}`}
-                      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                    <IconButton
+                      label={`Remove ${r}`}
+                      tooltip={false}
+                      size="sm"
+                      variant="ghost"
                       onClick={() => setCfg({ recipients: recipients.filter((x) => x !== r) })}
                     >
-                      <X className="h-3 w-3" aria-hidden />
-                    </button>
+                      <X aria-hidden />
+                    </IconButton>
                   </Badge>
                 ))}
               </div>
@@ -590,48 +621,28 @@ function ChannelEditor({
         </FieldRow>
       ) : null}
 
-      {/* Write-only secret */}
+      {/* Write-only secret — the shared SecretField primitive (uniform reveal toggle +
+          boolean status pill + explicit clear). An empty Save is blocked by saveSecret()
+          so a stored secret can never be clobbered with a blank value. */}
       <Separator />
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Label>{meta?.secretLabel ?? 'Secret'}</Label>
-          {meta?.secretHelp ? <HelpTip text={meta.secretHelp} label="Secret help" /> : null}
-          {configured ? (
-            <Badge variant="success" className="gap-1">
-              <Check className="h-3 w-3" aria-hidden />
-              Configured
-            </Badge>
-          ) : (
-            <Badge variant="outline" className="text-muted-foreground">
-              Not set
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Input
-            type="password"
-            autoComplete="new-password"
-            placeholder={configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
-            value={secretDraft}
-            onChange={(e) => setSecretDraft(e.target.value)}
-          />
-          <Button size="sm" variant="outline" disabled={savingSecret} onClick={() => void saveSecret()}>
-            {savingSecret ? 'Saving…' : 'Save'}
-          </Button>
-          {configured ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={savingSecret}
-              onClick={() => void clearSecret()}
-            >
-              Clear
-            </Button>
-          ) : null}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Write-only — the console only ever knows whether it is configured, never the value.
-        </p>
+      <div className="space-y-2">
+        <SecretField
+          label={meta?.secretLabel ?? 'Secret'}
+          labelAction={
+            meta?.secretHelp ? <HelpTip text={meta.secretHelp} label="Secret help" /> : undefined
+          }
+          description="Write-only — the console only ever knows whether it is configured, never the value."
+          configured={configured}
+          value={secretDraft}
+          onChange={setSecretDraft}
+          disabled={savingSecret}
+          placeholder={configured ? '•••••••• (enter a new value to replace)' : 'Enter a value'}
+          onClear={configured ? () => void clearSecret() : undefined}
+          configuredLabel="Configured"
+        />
+        <Button size="sm" variant="outline" disabled={savingSecret} onClick={() => void saveSecret()}>
+          {savingSecret ? 'Saving…' : 'Save'}
+        </Button>
       </div>
 
       {/* Send test — disabled in demo mode (would deliver a real notification). */}
@@ -1028,10 +1039,25 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
 
   const presets: EmailPreset[] = providers?.email_presets || [];
 
+  // Freshest notifications config, for async callbacks (secret save/clear) that resolve
+  // after the operator may have edited another field. Reading this ref instead of the
+  // render-captured `notif` avoids clobbering concurrent edits made during the round-trip.
+  const notifRef = React.useRef(notif);
+  notifRef.current = notif;
+
   const setChannel = (idx: number, next: NotificationChannel) => {
     const list = channels.slice();
     list[idx] = next;
     setNotif({ channels: list });
+  };
+
+  // Merge a secret-save result into the channel BY ID against the freshest config.
+  const applyChannelSecret = (channelId: string, configuredSecrets: string[]) => {
+    const cur = notifRef.current;
+    const list = (cur.channels || []).map((c) =>
+      c.id === channelId ? { ...c, configured_secrets: configuredSecrets } : c,
+    );
+    update({ notifications: { ...cur, channels: list } });
   };
   const removeChannel = (idx: number) => {
     setNotif({ channels: channels.filter((_, i) => i !== idx) });
@@ -1118,6 +1144,7 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
                   channel={ch}
                   presets={presets}
                   onChange={(next) => setChannel(idx, next)}
+                  onSecretApplied={(secrets) => applyChannelSecret(ch.id, secrets)}
                   onRemove={() => removeChannel(idx)}
                 />
               ))}
@@ -1268,18 +1295,19 @@ export function NotificationsEditor({ prefs, update }: NotificationsEditorProps)
             {defaultRecipients.length ? (
               <div className="flex flex-wrap gap-1.5 pt-1.5">
                 {defaultRecipients.map((r) => (
-                  <Badge key={r} variant="outline" className="gap-1 pr-1">
+                  <Badge key={r} variant="outline" className="gap-1 pr-0.5">
                     <span className="truncate">{r}</span>
-                    <button
-                      type="button"
-                      aria-label={`Remove ${r}`}
-                      className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+                    <IconButton
+                      label={`Remove ${r}`}
+                      tooltip={false}
+                      size="sm"
+                      variant="ghost"
                       onClick={() =>
                         setNotif({ default_recipients: defaultRecipients.filter((x) => x !== r) })
                       }
                     >
-                      <X className="h-3 w-3" aria-hidden />
-                    </button>
+                      <X aria-hidden />
+                    </IconButton>
                   </Badge>
                 ))}
               </div>

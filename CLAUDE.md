@@ -377,17 +377,17 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1601 tests (see Journal for the exact per-wave count)
+# Backend tests (offline; MUST stay green) — currently 1613 tests (see Journal for the exact per-wave count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1601 passed (rises as harden-wave tests land; see Journal)
+python -m pytest -q                         # -> 1613 passed (rises as harden-wave tests land; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~264 kB)
-npx vitest run                             # -> 625 passed (see Journal for the current count)
-npm run lint                               # 0 errors (4 benign warnings OK; jsx-a11y at error)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~282 kB)
+npx vitest run                             # -> 1051 passed (see Journal for the current count)
+npm run lint                               # 0 errors (3 benign warnings OK; jsx-a11y at error)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
 ./scripts/run-demo.sh
@@ -429,8 +429,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1601) + `npm run build` clean
-  + `vitest run` (625) + `npm run lint` (0 errors, jsx-a11y at error) before every commit.
+- **Tests:** add/keep offline tests; `pytest -q` green (1613) + `npm run build` clean
+  + `vitest run` (1051) + `npm run lint` (0 errors, jsx-a11y at error) before every commit.
   (Counts rise each wave — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -448,7 +448,7 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: **Round 1 + Round 2 + Round 3 + Round 4 + Round 5 overhauls COMPLETE**
+Current: **Round 1 + Round 2 + Round 3 + Round 4 + Round 5 + Round 6 overhauls COMPLETE**
 (committed on `Testing`, local only — **not pushed**). Phase-1 spine + vendor-agnostic
 transition + the Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul**
 (W1–W7) + **Round 2** (account self-service, sessions + token policy, Settings-centric
@@ -460,8 +460,37 @@ ALERT/EVENT ingestion, adaptive threshold auto-tuning, campaign correlation, ent
 baselining, LLM batch/flex + cache pricing, tiered reset + OOBE) + **Round 5**
 ("UI/UX overhaul + rules customization + custom dashboards + loose coupling": one
 cohesive design standard, decluttered Settings + wider dashboard, a full rules-editor
-home, per-user custom dashboards, and a registry-driven loosely-coupled shell) all
-shipped.
+home, per-user custom dashboards, and a registry-driven loosely-coupled shell) + **Round 6**
+(fleet glitch-hunt + integration polish: 464 adversarially-verified findings fixed)
+all shipped.
+
+**Round 6 (2026-07-02, one commit) — "fleet glitch-hunt + integration polish": a
+~500-agent Opus fleet audited EVERY webui file (155 units: file groups + 12 thematic
++ 4 API-contract auditors, each adversarially verified) -> 464 real findings; 30
+conflict-free fix batches + a handoff/closer wave resolved them (423 fixed, 47
+verified-not-real). `decide()` untouched; API paths byte-identical (additive only:
+optional GET /api/cases from/to, GET /api/roles raw defs, per-provider SSO
+configured map, CaseAutomationRule.name).** Headlines: custom-dashboard VIEW-mode
+packing (`packWidgets` + curated per-role default layouts filling 12 cols — default
+dashboards no longer stack at (0,0)); PageContainer = the single width authority,
+wide-variant adopted on every bare page; NavSidebar collapsed-rail flyout unclipped;
+CaseDetail thread-edit/task-patch 405s fixed (new `api.patch`); rules — anomaly-tier
+Save persisted, version ledger actually RECORDS (settings-path hook -> diff/rollback
+live), preview 422 fixed; Settings — Automation section defers to Detection & Rules
+(one editor), read-only-mode trap + enrichment dual-save + org-prefs clobber fixed;
+secrets — per-source connector secrets no longer dropped, ONE SecretField everywhere
+(empty save can never clobber a stored secret); KPI delta arrows honest on
+lower-is-better metrics; fmtMoney symbols; WCAG-AA contrast fixes in BOTH themes;
+beginner journey — `AutomationNudge` one-click recommended automation (wizard final
+step + Overview nudge; enables tuning/baseline/campaign with safe bounds, #3-safe);
+Overview TimeRangePicker window-scopes cases; severity KPI drill-downs; baseline
+gauge + campaign chips mounted on CaseDetail; dashboard immediate Save + 60s
+visibility-aware data refresh. See `docs/research/2026-07-round6/IMPLEMENTATION.md`.
+
+**GREEN BASELINE (verified 2026-07-02):** backend **1613 pytest**; webui **1051
+Vitest** specs / 199 files (was 625/98); build clean, entry **281.6 kB**; eslint
+**0 errors** (3 warnings); design-gate regenerated + route_auth_coverage green;
+**ZERO new deps**.
 
 **Round 5 (commits `5ab7c05 → 0e99c76 → 9854c36 → 7c86706 → f50e0b2 → 3e447da →
 b661bc8 → 830e836 → d3801f9 → a9e2b49 → 8b91fc0 → 05552c7`) — "UI/UX overhaul + rules

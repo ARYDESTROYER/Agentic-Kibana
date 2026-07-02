@@ -32,12 +32,14 @@ const Progress = React.forwardRef<
   return (
     <ProgressPrimitive.Root
       ref={ref}
-      // A sensible accessible default when the consumer didn't supply one.
-      aria-valuenow={props['aria-valuenow'] ?? Math.round(pct)}
-      aria-valuemin={props['aria-valuemin'] ?? 0}
-      aria-valuemax={props['aria-valuemax'] ?? 100}
       className={cn('relative h-2 w-full overflow-hidden rounded-full bg-muted', className)}
-      value={value}
+      // Pass the CLAMPED value to Radix so the visible fill, data-state, and the
+      // Radix-derived aria-valuenow/min/max stay consistent. Forwarding a raw
+      // out-of-range value made Radix console.error + flip data-state to
+      // "indeterminate" (dropping aria-valuenow) while the bar still showed a full
+      // fill — display and a11y disagreed. Consumer aria-* overrides still win via
+      // the {...props} spread below.
+      value={pct}
       {...props}
     >
       <ProgressPrimitive.Indicator

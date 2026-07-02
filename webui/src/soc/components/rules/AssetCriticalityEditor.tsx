@@ -65,6 +65,34 @@ export interface AssetCriticalityEditorProps {
   disabled?: boolean;
 }
 
+/** One editable exact-value pair (may hold a transient empty entity mid-edit). */
+interface ExactPair {
+  entity: string;
+  score: number;
+}
+
+/** Map → ordered editable pair list (preserves the map's own key order). */
+function toPairs(map: AssetCriticalityMap | undefined): ExactPair[] {
+  return Object.entries(map ?? {}).map(([entity, v]) => ({ entity, score: Number(v) || 0 }));
+}
+
+/** Fold a pair list → the wire map, DROPPING empty-entity (in-progress) rows. */
+function foldPairs(pairs: ExactPair[]): AssetCriticalityMap {
+  const next: AssetCriticalityMap = {};
+  for (const p of pairs) {
+    const k = p.entity.trim();
+    if (k) next[k] = p.score;
+  }
+  return next;
+}
+
+/** Shallow key+value equality for two criticality maps. */
+function sameMap(a: AssetCriticalityMap, b: AssetCriticalityMap): boolean {
+  const ak = Object.keys(a);
+  if (ak.length !== Object.keys(b).length) return false;
+  return ak.every((k) => b[k] === a[k]);
+}
+
 /** One editable CIDR row: cidr text + a 0..100 criticality NumberField + remove. */
 function NetworkRow({
   net,
@@ -177,20 +205,22 @@ export function AssetCriticalityEditor({
   onExactChange,
   disabled,
 }: AssetCriticalityEditorProps) {
-  // The exact map is edited as an ordered pair list so a key can be renamed without a
-  // remount (React would key on the object key otherwise). We keep it controlled.
-  const exactPairs = React.useMemo(
-    () => Object.entries(exact ?? {}).map(([k, v]) => ({ entity: k, score: Number(v) || 0 })),
-    [exact],
-  );
+  // The exact map is edited as an ordered pair list held in LOCAL state (not derived
+  // purely from the `exact` prop), so an in-progress empty row survives long enough to
+  // type into — otherwise "Add asset" is a no-op and clearing an entity to retype it
+  // instantly deletes the row (#34). We fold non-empty rows back to the wire map on every
+  // edit, and only resync from the prop on an EXTERNAL change (load/reset).
+  const [pairs, setPairs] = React.useState<ExactPair[]>(() => toPairs(exact));
 
-  const commitPairs = (pairs: { entity: string; score: number }[]) => {
-    const next: AssetCriticalityMap = {};
-    for (const p of pairs) {
-      const k = p.entity.trim();
-      if (k) next[k] = p.score;
-    }
-    onExactChange(next);
+  React.useEffect(() => {
+    const incoming = exact ?? {};
+    setPairs((cur) => (sameMap(incoming, foldPairs(cur)) ? cur : toPairs(incoming)));
+  }, [exact]);
+
+  /** Update local rows AND emit the folded wire map (drops empty rows). */
+  const commitPairs = (next: ExactPair[]) => {
+    setPairs(next);
+    onExactChange(foldPairs(next));
   };
 
   return (
@@ -255,27 +285,29 @@ export function AssetCriticalityEditor({
             size="sm"
             variant="outline"
             disabled={disabled}
-            onClick={() => commitPairs([...exactPairs, { entity: '', score: 50 }])}
+            // Push a real, renderable empty row (local state) — do NOT fold it away, or the
+            // button appears to do nothing (#34). It joins the wire map once an entity is typed.
+            onClick={() => setPairs((cur) => [...cur, { entity: '', score: 50 }])}
           >
             <Plus className="mr-1 h-3.5 w-3.5" aria-hidden />
             Add asset
           </Button>
         </div>
-        {exactPairs.length ? (
+        {pairs.length ? (
           <div className="space-y-2">
-            {exactPairs.map((p, i) => (
+            {pairs.map((p, i) => (
               <ExactRow
                 key={i}
                 entity={p.entity}
                 score={p.score}
                 disabled={disabled}
                 onValueChange={(v) =>
-                  commitPairs(exactPairs.map((x, idx) => (idx === i ? { ...x, entity: v } : x)))
+                  commitPairs(pairs.map((x, idx) => (idx === i ? { ...x, entity: v } : x)))
                 }
                 onScoreChange={(v) =>
-                  commitPairs(exactPairs.map((x, idx) => (idx === i ? { ...x, score: v } : x)))
+                  commitPairs(pairs.map((x, idx) => (idx === i ? { ...x, score: v } : x)))
                 }
-                onRemove={() => commitPairs(exactPairs.filter((_, idx) => idx !== i))}
+                onRemove={() => commitPairs(pairs.filter((_, idx) => idx !== i))}
               />
             ))}
           </div>

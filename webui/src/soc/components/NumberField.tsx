@@ -129,13 +129,18 @@ export const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
     const atMax = max != null && value >= max;
 
     const resetSlot = canReset ? (
+      // A real ≥24px (min-h-6) target with the `text-xs` label token — the reset is an
+      // interactive affordance, so it must clear WCAG 2.5.8 Target Size like the steppers.
       <button
         type="button"
         onClick={() => onChange(defaultValue as number)}
         disabled={disabled}
-        className={cn('inline-flex items-center gap-1 rounded-sm text-2xs text-muted-foreground hover:text-foreground', focusRing)}
+        className={cn(
+          'inline-flex min-h-6 items-center gap-1 rounded-sm px-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50',
+          focusRing,
+        )}
       >
-        <RotateCcw className="h-3 w-3" aria-hidden="true" />
+        <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
         reset
       </button>
     ) : null;
@@ -160,7 +165,7 @@ export const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
           <div className="flex items-center gap-1">
             <IconButton
               label="Decrease"
-              size="sm"
+              size="md"
               variant="outline"
               onClick={() => bump(-1)}
               disabled={disabled || atMin}
@@ -198,9 +203,9 @@ export const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
                   }
                 }}
                 className={cn(
-                  'flex h-8 w-full rounded-md border bg-background px-3 py-1 text-sm tabular-nums text-foreground transition-colors',
+                  'flex h-9 w-full rounded-md border bg-background px-3 py-1 text-sm tabular-nums text-foreground transition-colors',
                   unit && 'pr-10',
-                  invalid ? 'border-critical' : 'border-input hover:border-border',
+                  invalid ? 'border-critical' : 'border-input hover:border-border-strong',
                   'focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50',
                   focusRing,
                 )}
@@ -213,7 +218,7 @@ export const NumberField = React.forwardRef<HTMLInputElement, NumberFieldProps>(
             </div>
             <IconButton
               label="Increase"
-              size="sm"
+              size="md"
               variant="outline"
               onClick={() => bump(1)}
               disabled={disabled || atMax}

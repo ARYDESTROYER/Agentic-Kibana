@@ -11,6 +11,7 @@ import * as React from 'react';
 import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { copyText } from '@/lib/clipboard';
+import { focusRing } from '@/lib/ui-recipes';
 
 /** Coerce arbitrary content to a safe display string (never throws). */
 function toText(value: unknown): string {
@@ -40,7 +41,7 @@ export const InlineCode = React.forwardRef<HTMLElement, InlineCodeProps>(
       <code
         ref={ref}
         className={cn(
-          'rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.8125rem] ' +
+          'rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-sm ' +
             'text-foreground break-all',
           className,
         )}
@@ -129,8 +130,8 @@ export const CodeBlock = React.forwardRef<HTMLDivElement, CodeBlockProps>(
                 aria-label={copied ? 'Copied' : 'Copy to clipboard'}
                 className={cn(
                   'inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs ' +
-                    'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground ' +
-                    'focus:outline-none focus:ring-2 focus:ring-ring',
+                    'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+                  focusRing,
                 )}
               >
                 {copied ? (
@@ -145,7 +146,7 @@ export const CodeBlock = React.forwardRef<HTMLDivElement, CodeBlockProps>(
         )}
         <pre
           className={cn(
-            'overflow-auto p-3 font-mono text-[0.8125rem] leading-relaxed text-foreground',
+            'overflow-auto p-3 font-mono text-sm leading-relaxed text-foreground',
             wrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
             maxHeightClassName,
           )}

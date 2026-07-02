@@ -47,7 +47,7 @@ import { useAuth } from '@/soc/auth';
 import { usePrefs } from '@/soc/prefs';
 import { useTheme } from '@/soc/theme';
 import { useDemo } from '@/soc/demo';
-import { NAV_GROUPS, isPageId, type NavGroup, type PageId } from '@/soc/nav';
+import { NAV_GROUPS, isPageId, type PageId } from '@/soc/nav';
 import type { Navigate } from '@/soc/router';
 // The always-on command palette needs only the section SEARCH metadata, never a
 // Settings renderer — import from the COMPONENT-FREE meta module so the heavy Settings
@@ -163,15 +163,35 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
     [onNavigate, onOpenChange],
   );
 
-  // RBAC-filtered rail nav (mirrors the shell): drop perm-gated items the user lacks.
-  const navGroups = React.useMemo<NavGroup[]>(
+  // RBAC-filtered nav jump targets (mirrors the shell): each group's visible top-level
+  // items PLUS their disclosure children — each child gated on its OWN perm — flattened
+  // so EVERY routable page is a Cmd-K target, not just the rail hosts. Without this the
+  // children-only destinations (Cost, Models, Baseline, Batch jobs, Standup, Knowledge,
+  // Memory, Investigate, Playbooks) were unreachable from the palette. A parent host and
+  // a child can share a PageId (e.g. `chat`), so targets carry a unique `key`/`value`
+  // (host = `nav-<id>`, child = `navc-<parent>-<id>`) — the `nav-<id>` host values are
+  // relied on by the command-palette spec.
+  const navGroups = React.useMemo<
+    { id: string; label: string; targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] }[]
+  >(
     () =>
-      NAV_GROUPS.map((g) => ({
-        ...g,
-        items: g.items.filter(
-          (it) => !it.perm || hasPermission(it.perm.resource, it.perm.action),
-        ),
-      })).filter((g) => g.items.length > 0),
+      NAV_GROUPS.map((group) => {
+        const targets: { id: PageId; label: string; icon?: LucideIcon; key: string }[] = [];
+        for (const item of group.items) {
+          if (item.perm && !hasPermission(item.perm.resource, item.perm.action)) continue;
+          targets.push({ id: item.id, label: item.label, icon: item.icon, key: `nav-${item.id}` });
+          for (const child of item.children ?? []) {
+            if (child.perm && !hasPermission(child.perm.resource, child.perm.action)) continue;
+            targets.push({
+              id: child.id,
+              label: child.label,
+              icon: child.icon ?? item.icon,
+              key: `navc-${item.id}-${child.id}`,
+            });
+          }
+        }
+        return { id: group.id, label: group.label, targets };
+      }).filter((g) => g.targets.length > 0),
     [hasPermission],
   );
 
@@ -204,7 +224,9 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-xl">
+      {/* hideClose: the palette's full-bleed search input owns the top row, so the
+          built-in top-right X would overlap it — suppress it (#14). */}
+      <DialogContent hideClose className="overflow-hidden p-0 sm:max-w-xl">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <DialogDescription className="sr-only">
           Jump to a page, search cases and sources, or run a quick action.
@@ -372,22 +394,26 @@ export function CommandPalette({ open, onOpenChange, onNavigate }: CommandPalett
 
             <CommandSeparator />
 
-            {/* Nav targets (RBAC-filtered rail groups + local substring match). */}
+            {/* Nav targets (RBAC-filtered rail groups + their children + local match). */}
             {navGroups.map((group) => {
-              const items = group.items.filter((it) => localMatch('page', it.label, it.id));
+              const items = group.targets.filter((t) => localMatch('page', t.label, t.id));
               if (!items.length) return null;
               return (
                 <CommandGroup key={`nav-${group.id}`} heading={group.label}>
-                  {items.map((item) => {
-                    const Icon = item.icon as LucideIcon;
+                  {items.map((t) => {
+                    const Icon = t.icon;
                     return (
+                      // `group` here is load-bearing: the ArrowRight below reveals via the
+                      // `group-data-[selected=true]` variant, which needs an ancestor with
+                      // the literal `group` class carrying cmdk's `data-selected`.
                       <CommandItem
-                        key={`nav-${item.id}`}
-                        value={`nav-${item.id}`}
-                        onSelect={() => go(item.id, item.label)}
+                        key={t.key}
+                        value={t.key}
+                        className="group"
+                        onSelect={() => go(t.id, t.label)}
                       >
-                        <Icon aria-hidden />
-                        <span>{item.label}</span>
+                        {Icon ? <Icon aria-hidden /> : null}
+                        <span>{t.label}</span>
                         <ArrowRight
                           className="ml-auto opacity-0 group-data-[selected=true]:opacity-60"
                           aria-hidden

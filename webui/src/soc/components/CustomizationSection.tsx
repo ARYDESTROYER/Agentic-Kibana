@@ -20,6 +20,7 @@ import { api, ApiError } from '@/lib/api';
 import type { OrgCustomization, ThemeMode } from '@/lib/types';
 import { usePrefs, DEFAULT_TERMS } from '@/soc/prefs';
 import { Can, useCan } from '@/soc/components/Can';
+import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
@@ -57,6 +58,11 @@ export const CustomizationSection: React.FC = () => {
   // ORG terminology draft (admin). Hydrated from the org prefs on mount.
   const [terms, setTerms] = React.useState<Record<string, string>>({});
   const [orgTheme, setOrgTheme] = React.useState<ThemeMode>('system');
+  // The FULL org customization as last loaded, so a partial save (e.g. "Save default"
+  // theme) can round-trip the fields this panel has no editor for — org saved views,
+  // pinned view ids, and per-role default dashboards. `PUT /api/prefs/org` REPLACES the
+  // whole object (no server-side merge), so omitting them would silently wipe them.
+  const [orgFull, setOrgFull] = React.useState<OrgCustomization>({});
   const [orgLoaded, setOrgLoaded] = React.useState(false);
   const [savingOrg, setSavingOrg] = React.useState(false);
 
@@ -66,6 +72,7 @@ export const CustomizationSection: React.FC = () => {
       try {
         const org = await api.prefs.getOrg();
         if (!alive) return;
+        setOrgFull(org);
         setTerms({ ...(org.terminology ?? {}) });
         setOrgTheme((org.default_theme as ThemeMode) ?? 'system');
       } catch {
@@ -82,15 +89,21 @@ export const CustomizationSection: React.FC = () => {
   const setTerm = (key: string, value: string) =>
     setTerms((t) => ({ ...t, [key]: value }));
 
-  const saveTerminology = async () => {
-    setSavingOrg(true);
-    // Drop blank labels so they fall back to the built-in default.
+  // Drop blank labels so they fall back to the built-in default.
+  const cleanTerms = (raw: Record<string, string>): Record<string, string> => {
     const cleaned: Record<string, string> = {};
-    for (const [k, v] of Object.entries(terms)) {
+    for (const [k, v] of Object.entries(raw)) {
       if (v && v.trim()) cleaned[k] = v;
     }
+    return cleaned;
+  };
+
+  const saveTerminology = async () => {
+    setSavingOrg(true);
+    const cleaned = cleanTerms(terms);
     try {
       await api.terminology.put(cleaned);
+      setOrgFull((o) => ({ ...o, terminology: cleaned }));
       await refresh();
       toast.success('Terminology saved');
     } catch (e) {
@@ -104,8 +117,16 @@ export const CustomizationSection: React.FC = () => {
   const saveOrgDefaults = async () => {
     setSavingOrg(true);
     try {
-      const patch: OrgCustomization = { default_theme: orgTheme };
-      await api.prefs.putOrg(patch);
+      // Spread the full loaded org so the REPLACE PUT preserves fields with no editor
+      // here (saved views / pinned ids / default dashboards); override only the theme,
+      // and carry the latest terminology draft so an unsaved rename isn't reverted.
+      const patch: OrgCustomization = {
+        ...orgFull,
+        terminology: cleanTerms(terms),
+        default_theme: orgTheme,
+      };
+      const saved = await api.prefs.putOrg(patch);
+      setOrgFull(saved);
       await refresh();
       toast.success('Org defaults saved');
     } catch (e) {
@@ -123,8 +144,9 @@ export const CustomizationSection: React.FC = () => {
         <div>
           <h3 className="text-sm font-semibold text-foreground">Theme</h3>
           <p className="text-sm text-muted-foreground">
-            Your personal colour mode. “System” follows your device. Saved to your
-            account, so it follows you across devices.
+            Your personal colour mode, saved to your account so it follows you across
+            devices. “System” follows the organization default theme when one is set,
+            otherwise your device setting.
           </p>
         </div>
         <RadioGroup
@@ -172,17 +194,23 @@ export const CustomizationSection: React.FC = () => {
                   </span>
                 </span>
                 {v.shared ? (
-                  <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                  <Badge variant="secondary" className="gap-1">
                     <Users className="size-3" aria-hidden />
                     Shared
-                  </span>
+                  </Badge>
                 ) : null}
                 <Button
                   variant="ghost"
                   size="icon"
                   className="size-8"
                   aria-label={`Clone ${v.name}`}
-                  onClick={() => void cloneView(v.id).then((c) => c && toast.success(`Cloned “${v.name}”`))}
+                  onClick={() =>
+                    void cloneView(v.id).then((c) =>
+                      c
+                        ? toast.success(`Cloned “${v.name}”`)
+                        : toast.error(`Could not clone “${v.name}”`),
+                    )
+                  }
                 >
                   <Copy className="size-4" aria-hidden />
                 </Button>
@@ -193,7 +221,11 @@ export const CustomizationSection: React.FC = () => {
                     className="size-8 text-critical hover:text-critical"
                     aria-label={`Delete ${v.name}`}
                     onClick={() =>
-                      void deleteView(v.id).then((ok) => ok && toast.success(`Deleted “${v.name}”`))
+                      void deleteView(v.id).then((ok) =>
+                        ok
+                          ? toast.success(`Deleted “${v.name}”`)
+                          : toast.error(`Could not delete “${v.name}”`),
+                      )
                     }
                   >
                     <Trash2 className="size-4" aria-hidden />

@@ -39,6 +39,25 @@ describe('ConfirmDialog (controlled)', () => {
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
+
+  // The destructive dismiss-guard is now delegated to AlertDialogContent's
+  // `dismissible` switch (dismissible={!destructive}) — the single source of truth —
+  // rather than hand-rolled onEscapeKeyDown/onPointerDownOutside handlers.
+  it('does NOT dismiss a destructive gate on Escape', () => {
+    const onOpenChange = vi.fn();
+    render(
+      <ConfirmDialog open onOpenChange={onOpenChange} onConfirm={() => {}} title="Delete role?" destructive />,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('DOES dismiss a non-destructive dialog on Escape', () => {
+    const onOpenChange = vi.fn();
+    render(<ConfirmDialog open onOpenChange={onOpenChange} onConfirm={() => {}} title="Sure?" />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
 });
 
 describe('useConfirm (imperative)', () => {

@@ -74,3 +74,26 @@ describe('MitreHeatmap — sr-only data table alignment (#2)', () => {
     expect(getByRole('img')).toHaveAttribute('aria-label', expect.stringContaining('no data'));
   });
 });
+
+describe('MitreHeatmap — viridis magnitude ramp, never a severity hue (round-6 #2/#6)', () => {
+  it('fills populated cells with the viridis sequential() rgb() ramp, not the --critical token', () => {
+    const { container } = render(<MitreHeatmap columns={COLUMNS} />);
+    const bgs = Array.from(container.querySelectorAll('div[style*="background"]'))
+      .map((el) => (el as HTMLElement).style.backgroundColor)
+      .filter(Boolean);
+    expect(bgs.length).toBeGreaterThan(0);
+    // At least one populated cell renders a concrete viridis rgb() color.
+    expect(bgs.some((b) => b.startsWith('rgb('))).toBe(true);
+    // A COUNT is a magnitude, not a severity — never recycle the --critical token as the ramp.
+    expect(bgs.every((b) => !b.includes('--critical'))).toBe(true);
+  });
+
+  it('ignores the deprecated colorToken override (magnitude stays viridis)', () => {
+    const { container } = render(<MitreHeatmap columns={COLUMNS} colorToken="critical" />);
+    const bgs = Array.from(container.querySelectorAll('div[style*="background"]')).map(
+      (el) => (el as HTMLElement).style.backgroundColor,
+    );
+    expect(bgs.some((b) => b.startsWith('rgb('))).toBe(true);
+    expect(bgs.every((b) => !b.includes('--critical'))).toBe(true);
+  });
+});

@@ -87,7 +87,7 @@ export const DemoBanner: React.FC = () => {
         type="button"
         onClick={() => setCollapsedPersisted(false)}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-full border border-warning/50 bg-warning/10 px-3 py-1 text-xs font-medium text-warning',
+          'inline-flex items-center gap-1.5 rounded-full border border-warning/50 bg-warning/10 px-3 py-1 text-xs font-medium text-warning-text',
           'transition-colors hover:bg-warning/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         )}
         aria-label="Demo mode active — expand details"
@@ -115,7 +115,7 @@ export const DemoBanner: React.FC = () => {
         <Button
           variant="outline"
           size="sm"
-          className="h-8 border-warning/50 text-warning hover:bg-warning/10"
+          className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
           onClick={() => void onReset()}
           disabled={busy !== null}
         >
@@ -125,7 +125,7 @@ export const DemoBanner: React.FC = () => {
         <Button
           variant="outline"
           size="sm"
-          className="h-8 border-warning/50 text-warning hover:bg-warning/10"
+          className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
           onClick={() => void onDisable()}
           disabled={busy !== null}
         >
@@ -134,7 +134,7 @@ export const DemoBanner: React.FC = () => {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 text-warning hover:bg-warning/10"
+          className="h-8 w-8 text-warning-text hover:bg-warning/10"
           onClick={() => setCollapsedPersisted(true)}
           aria-label="Collapse demo banner"
         >

@@ -16,7 +16,10 @@ const SelectTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground transition-colors',
-      'placeholder:text-muted-foreground hover:border-border',
+      // Radix marks the empty trigger with data-placeholder (a <button> has no
+      // ::placeholder pseudo, so `placeholder:` was a no-op) → dim the whole trigger
+      // when unset so an empty Select doesn't read like a chosen value.
+      'data-[placeholder]:text-muted-foreground hover:border-border-strong',
       focusRing,
       'data-[state=open]:border-ring',
       'disabled:cursor-not-allowed disabled:opacity-50',
@@ -115,7 +118,7 @@ const SelectItem = React.forwardRef<
     ref={ref}
     className={cn(
       'relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm text-foreground outline-none transition-colors',
-      'focus:bg-muted focus:text-foreground data-[state=checked]:font-medium',
+      'focus:bg-accent focus:text-accent-foreground data-[state=checked]:font-medium',
       'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}

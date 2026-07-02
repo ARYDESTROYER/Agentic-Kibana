@@ -46,8 +46,14 @@ const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeaderProps>(
     <thead
       ref={ref}
       className={cn(
-        'bg-surface/50 [&_tr]:border-b [&_tr]:border-border',
-        sticky && 'sticky top-0 z-10 bg-surface backdrop-blur supports-[backdrop-filter]:bg-surface/85',
+        '[&_tr]:border-b [&_tr]:border-border',
+        // Non-sticky keeps the translucent wash (byte-identical). Sticky needs an
+        // OPAQUE background so scrolled rows don't bleed through the pinned header —
+        // so it must NOT also carry `bg-surface/50` (that /50 rule wins the cascade
+        // over the opaque base and defeats the sticky bg).
+        sticky
+          ? 'sticky top-0 z-10 bg-surface backdrop-blur supports-[backdrop-filter]:bg-surface/85'
+          : 'bg-surface/50',
         className,
       )}
       {...props}

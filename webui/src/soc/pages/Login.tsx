@@ -132,6 +132,9 @@ export default function Login({ onAuthenticated }: LoginProps) {
   const loginIllustration = asLoginIllustration(branding.login_illustration);
 
   const [status, setStatus] = React.useState<SetupStatus | null>(null);
+  // Whether the initial setup-status probe has settled (resolved OR failed). Gates
+  // the first paint so a first-run install doesn't flash 'signin' before 'setup'.
+  const [statusResolved, setStatusResolved] = React.useState(false);
   const [mode, setMode] = React.useState<Mode>('signin');
   const [username, setUsername] = React.useState('');
   const [displayName, setDisplayName] = React.useState('');
@@ -161,6 +164,8 @@ export default function Login({ onAuthenticated }: LoginProps) {
         if (s.needs_user) setMode('setup');
       } catch {
         /* fall back to normal sign-in */
+      } finally {
+        if (alive) setStatusResolved(true);
       }
     })();
     return () => {
@@ -389,17 +394,22 @@ export default function Login({ onAuthenticated }: LoginProps) {
     illustration: loginIllustration,
   };
 
-  // The form CARD + support/footer — identical across layouts. On the 'full' and
-  // 'centered' layouts the compact brand header is ALWAYS shown (there is no side
-  // hero on small screens); on 'split' it is shown only below lg (the hero covers lg+).
+  // The form CARD + support/footer. In the 'full' layout the form floats over the
+  // ALWAYS-DARK brand hero (which itself carries the wordmark/tagline/footer), so the
+  // peripheral brand/help copy must NOT use theme tokens tuned for a card/canvas
+  // surface — in light theme they'd be dark-on-dark (fails WCAG-AA). We hide the
+  // (duplicated) compact header there and render the remaining copy on-dark.
+  const onDarkHero = loginLayout === 'full';
   const formInner = (
     <div className="relative z-10 w-full max-w-sm animate-rise-in">
       {/* Compact brand header — hidden on lg for 'split' (the side hero carries it),
-          always shown for 'centered'/'full'. */}
+          hidden entirely for 'full' (the full-bleed hero carries the wordmark),
+          shown for 'centered' (the backdrop band carries no copy). */}
       <div
         className={cn(
           'mb-8 flex flex-col items-center text-center',
           loginLayout === 'split' && 'lg:hidden',
+          onDarkHero && 'hidden',
         )}
       >
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card shadow-elev1">
@@ -531,7 +541,9 @@ export default function Login({ onAuthenticated }: LoginProps) {
               {/* ---- Mode: OPTIONAL MFA enrollment after account creation ---- */}
               {mode === 'mfa-enroll' ? (
                 <div className="space-y-4">
-                  <MfaSetupCard enabled={false} onChanged={onAuthenticated} />
+                  {/* frameless: the outer login Card already supplies the frame +
+                      the "Secure your account" heading — avoid a card-in-card. */}
+                  <MfaSetupCard enabled={false} frameless onChanged={onAuthenticated} />
                   <Button
                     type="button"
                     variant="ghost"
@@ -626,7 +638,11 @@ export default function Login({ onAuthenticated }: LoginProps) {
               {mode === 'mfa' ? (
                 <form onSubmit={submitMfa} className="space-y-4" noValidate>
                   <div className="space-y-2">
-                    <Label htmlFor="mfa-code">
+                    {/* htmlFor only in the recovery branch (id="mfa-code" is the text
+                        Input there). In the OTP branch the control is the segmented
+                        OtpInput group, which carries its own aria-label — a htmlFor
+                        pointing at a non-existent id would be a dead association. */}
+                    <Label htmlFor={useRecovery ? 'mfa-code' : undefined}>
                       {useRecovery ? 'Recovery code' : 'Authentication code'}
                     </Label>
                     {useRecovery ? (
@@ -738,7 +754,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
             </CardContent>
           </Card>
 
-          <p className="mt-6 text-center text-xs text-muted-foreground">
+          <p
+            className={cn(
+              'mt-6 text-center text-xs',
+              onDarkHero ? 'text-white/60' : 'text-muted-foreground',
+            )}
+          >
             Audited, cost-metered agentic triage.
           </p>
 
@@ -749,9 +770,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground',
-                  'transition-colors hover:text-foreground focus-visible:outline-none',
-                  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
+                  'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs',
+                  'transition-colors focus-visible:outline-none',
+                  onDarkHero
+                    ? 'text-white/70 hover:text-white focus-visible:ring-offset-transparent'
+                    : 'text-muted-foreground hover:text-foreground focus-visible:ring-offset-canvas',
+                  'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                 )}
               >
                 <ExternalLink className="h-3.5 w-3.5" aria-hidden />
@@ -775,6 +799,23 @@ export default function Login({ onAuthenticated }: LoginProps) {
         ) : null}
     </div>
   );
+
+  // Hold first paint until the setup-status probe settles, so a first-run install
+  // never flashes the sign-in form before switching to the create-admin form. A
+  // failed probe still flips statusResolved (→ we fall back to the sign-in form).
+  if (!statusResolved) {
+    return (
+      <div
+        className="flex min-h-screen items-center justify-center bg-canvas text-muted-foreground"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+        <span className="sr-only">Loading sign-in…</span>
+      </div>
+    );
+  }
 
   // ---- Layout shells ------------------------------------------------------ //
   // 'centered': a single centred column over a decorative backdrop band (no copy).

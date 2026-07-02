@@ -47,6 +47,13 @@ export interface MfaSetupCardProps {
   enabled: boolean;
   /** Called after a successful enable/disable so the parent can refresh the session. */
   onChanged?: () => void;
+  /**
+   * Render WITHOUT the outer `<Card>` frame + the internal title/description/badge
+   * header, for when a parent already supplies the card frame + heading (e.g. the
+   * login MFA-enroll step, which wraps this in its own titled Card). Avoids the
+   * card-in-card double frame + duplicate heading (DESIGN_STANDARD "ONE card grammar").
+   */
+  frameless?: boolean;
 }
 
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
@@ -79,7 +86,7 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
   );
 }
 
-export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
+export function MfaSetupCard({ enabled, onChanged, frameless = false }: MfaSetupCardProps) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   // Enroll state.
@@ -154,13 +161,13 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <Card>
-      <CardContent className="space-y-5 p-6">
+  const body = (
+    <>
+      {frameless ? null : (
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-primary">
-              {enabled ? <ShieldCheck className="h-4.5 w-4.5" aria-hidden /> : <KeyRound className="h-4.5 w-4.5" aria-hidden />}
+              {enabled ? <ShieldCheck className="h-5 w-5" aria-hidden /> : <KeyRound className="h-5 w-5" aria-hidden />}
             </span>
             <div>
               <h3 className="text-sm font-semibold text-foreground">Two-factor authentication</h3>
@@ -171,6 +178,7 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
           </div>
           <Badge variant={enabled ? 'default' : 'outline'}>{enabled ? 'Enabled' : 'Disabled'}</Badge>
         </div>
+      )}
 
         {error ? (
           <Alert variant="destructive">
@@ -281,7 +289,7 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
                 Each code works once if you lose your device. Store them somewhere safe — they
                 are shown only now.
               </p>
-              <div className="grid grid-cols-2 gap-1.5 font-mono text-xs sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-1.5 font-mono text-xs">
                 {enroll.recovery_codes.map((c) => (
                   <span key={c} className="rounded border border-border bg-card px-2 py-1">{c}</span>
                 ))}
@@ -320,7 +328,16 @@ export function MfaSetupCard({ enabled, onChanged }: MfaSetupCardProps) {
             </form>
           </div>
         ) : null}
-      </CardContent>
+    </>
+  );
+
+  // Frameless: a parent supplies the card frame + heading (login MFA-enroll step),
+  // so render just the body to avoid a double frame + duplicate heading.
+  if (frameless) return <div className="space-y-5">{body}</div>;
+
+  return (
+    <Card>
+      <CardContent className="space-y-5 p-6">{body}</CardContent>
     </Card>
   );
 }

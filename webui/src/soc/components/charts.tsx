@@ -72,7 +72,9 @@ function ChartTooltip({ active, payload, label, format, hideLabel }: ChartToolti
           <li key={i} className="flex items-center gap-2">
             <span
               className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: p.color }}
+              // A Bar colored only via per-<Cell> fill leaves p.color undefined (recharts
+              // reads the Bar's own fill), so fall back to the datum's resolved color.
+              style={{ background: p.color ?? p.payload?.color ?? p.payload?.fill }}
               aria-hidden
             />
             <SeriesGlyph name={p.name} className="text-muted-foreground" />
@@ -202,18 +204,23 @@ export interface HBarChartProps {
   format?: (v: number) => string;
   /** Single bar color token name (e.g. 'primary') applied to all bars. */
   colorToken?: string;
+  /** Tooltip series name for the value row (default 'Count') — else it reads "value". */
+  valueLabel?: string;
   ariaLabel?: string;
   className?: string;
 }
 
 /** Horizontal bar chart (ranked categories). */
 export const HBarChart = React.forwardRef<HTMLDivElement, HBarChartProps>(
-  ({ data, height, labelWidth = 120, format, colorToken, ariaLabel, className }, ref) => {
+  ({ data, height, labelWidth = 120, format, colorToken, valueLabel = 'Count', ariaLabel, className }, ref) => {
     const rows = data ?? [];
     const h = height ?? Math.max(120, rows.length * 34 + 16);
     const label =
       ariaLabel ?? `Horizontal bar chart with ${rows.length} categor${rows.length === 1 ? 'y' : 'ies'}`;
     const barFill = colorToken ? token(colorToken) : undefined;
+    // Resolve each bar's color INTO the datum so the tooltip swatch can recover it
+    // (the Bar itself has no `fill`; color lives only on the per-row <Cell>).
+    const resolved = rows.map((d, i) => ({ ...d, color: d.color ?? barFill ?? categorical(i) }));
 
     if (rows.length === 0) {
       return (
@@ -233,7 +240,7 @@ export const HBarChart = React.forwardRef<HTMLDivElement, HBarChartProps>(
       <div ref={ref} role="img" aria-label={label} className={className} style={{ height: h }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
-            data={rows}
+            data={resolved}
             layout="vertical"
             margin={{ top: 4, right: 12, bottom: 4, left: 4 }}
             barCategoryGap={8}
@@ -251,9 +258,9 @@ export const HBarChart = React.forwardRef<HTMLDivElement, HBarChartProps>(
               content={<ChartTooltip format={format} />}
               cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
             />
-            <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-              {rows.map((d, i) => (
-                <Cell key={i} fill={d.color ?? barFill ?? categorical(i)} />
+            <Bar dataKey="value" name={valueLabel} radius={[0, 4, 4, 0]} isAnimationActive={false}>
+              {resolved.map((d, i) => (
+                <Cell key={i} fill={d.color} />
               ))}
             </Bar>
           </BarChart>

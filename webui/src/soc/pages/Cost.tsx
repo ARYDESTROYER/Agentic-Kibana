@@ -21,6 +21,7 @@ import {
   Cpu,
   Gauge,
   LayoutGrid,
+  Minus,
   RefreshCw,
   TrendingDown,
   TrendingUp,
@@ -43,7 +44,7 @@ import { cn } from '@/lib/cn';
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
-import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
+import { KpiTile, type KpiAccent, type KpiGoodDirection } from '@/soc/components/KpiTile';
 import { StatCard, type StatAccent } from '@/soc/components/StatCard';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { DonutChart, TrendArea, type DonutSegment } from '@/soc/components/charts';
@@ -165,15 +166,55 @@ function metricSegments(
 }
 
 /**
- * Roll a long tail of small segments into a single "Other" slice so the donut
- * stays legible. Keeps the top `keep` segments by value (already sorted).
+ * Build the cost-composition donut segments AND a raw-key → color map so the ledger
+ * swatch / share-bar and the donut agree on color-as-identity. The top `MAX-1` keys by
+ * cost keep a distinct categorical color; the tail folds into a single grey "Other"
+ * slice. The color map is keyed by the RAW row key (not the re-sorted table position),
+ * so re-sorting the ledger never recolors a key away from its donut slice.
+ *
+ * For the `drivers` dimension the rows are only the TOP-N cost drivers — a SUBSET of
+ * spend — so a residual "Other cost" slice (= totalCost − shown) is appended and the
+ * tail keys fold into it, making the ring + legend read share-of-TOTAL (matching the
+ * "total cost" center) rather than share-of-drivers.
  */
-function withOtherBucket(segments: DonutSegment[], keep = MAX_DONUT_SLICES): DonutSegment[] {
-  if (segments.length <= keep) return segments;
-  const head = segments.slice(0, keep - 1);
-  const tail = segments.slice(keep - 1);
-  const otherValue = tail.reduce((s, x) => s + Math.max(0, x.value), 0);
-  return [...head, { label: `Other (${tail.length})`, value: otherValue, color: categorical(keep) }];
+export function buildComposition(
+  rows: UsageRow[] | undefined,
+  dimension: Dimension,
+  verbatim: boolean,
+  totalCost: number,
+): { segments: DonutSegment[]; colorByKey: Map<string, string> } {
+  const sorted = sortRows(rows, 'cost').filter((r) => r && typeof r.cost === 'number');
+  const colorByKey = new Map<string, string>();
+  const segments: DonutSegment[] = [];
+  const otherColor = categorical(MAX_DONUT_SLICES);
+  const foldAt = MAX_DONUT_SLICES - 1;
+  const labelFor = (r: UsageRow) => (verbatim ? r.key : (humanizeToken(r.key) ?? r.key));
+
+  const isDrivers = dimension === 'drivers';
+  const willFold = isDrivers || sorted.length > MAX_DONUT_SLICES;
+  const head = willFold ? sorted.slice(0, foldAt) : sorted;
+
+  let shown = 0;
+  head.forEach((r, i) => {
+    const color = categorical(i);
+    colorByKey.set(r.key, color);
+    const value = num(r.cost);
+    shown += value;
+    segments.push({ label: labelFor(r), value, color });
+  });
+
+  if (willFold) {
+    const tail = sorted.slice(foldAt);
+    tail.forEach((r) => colorByKey.set(r.key, otherColor));
+    if (isDrivers) {
+      const residual = Math.max(0, totalCost - shown);
+      if (residual > 1e-9) segments.push({ label: 'Other cost', value: residual, color: otherColor });
+    } else if (tail.length) {
+      const otherValue = tail.reduce((s, x) => s + Math.max(0, num(x.cost)), 0);
+      segments.push({ label: `Other (${tail.length})`, value: otherValue, color: otherColor });
+    }
+  }
+  return { segments, colorByKey };
 }
 
 /** Enrich + cost-order ledger rows with the derived efficiency columns. */
@@ -223,14 +264,14 @@ function SectionTitle({
 }
 
 /** A tiny inline "% of total" bar used inside the ledger table cell. */
-function ShareBar({ share, colorIndex }: { share: number; colorIndex: number }) {
+function ShareBar({ share, color }: { share: number; color: string }) {
   const pct = Math.max(0, Math.min(100, share * 100));
   return (
     <div className="flex items-center gap-2.5">
       <div className="h-1.5 min-w-[36px] flex-1 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full opacity-80"
-          style={{ width: `${Math.max(pct > 0 ? 2 : 0, pct)}%`, background: categorical(colorIndex) }}
+          style={{ width: `${Math.max(pct > 0 ? 2 : 0, pct)}%`, background: color }}
         />
       </div>
       <span className="w-9 shrink-0 text-right font-mono text-xs tabular-nums text-muted-foreground">
@@ -271,15 +312,21 @@ export default function Cost({ embedded = false }: CostProps = {}) {
   const hours = WINDOWS.find((w) => w.key === windowKey)?.hours ?? 24;
   const windowLabel = WINDOWS.find((w) => w.key === windowKey)?.label ?? '24h';
 
+  // Guard against a window-switch fetch race: each load takes a monotonic ticket and only
+  // the LATEST-issued request may commit, so a slow earlier window can never clobber the
+  // current one (nor apply after unmount).
+  const reqRef = React.useRef(0);
   const load = React.useCallback(async () => {
+    const reqId = ++reqRef.current;
     setLoading(true);
     setError(null);
     try {
-      setData(await api.usageSummary(hours));
+      const summary = await api.usageSummary(hours);
+      if (reqId === reqRef.current) setData(summary);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load usage.');
+      if (reqId === reqRef.current) setError(e instanceof Error ? e.message : 'Failed to load usage.');
     } finally {
-      setLoading(false);
+      if (reqId === reqRef.current) setLoading(false);
     }
   }, [hours]);
 
@@ -383,10 +430,16 @@ export default function Cost({ embedded = false }: CostProps = {}) {
     });
   }, [dimensionRows, totalCost, ledgerSort]);
 
-  /** Composition donut segments for the active dimension, with "Other" roll-up. */
-  const compositionSegments = React.useMemo(
-    () => withOtherBucket(metricSegments(dimensionRows, 'cost', dimMeta.verbatim)),
-    [dimensionRows, dimMeta.verbatim],
+  /** Composition donut segments + a stable raw-key → color map (shared with the ledger). */
+  const composition = React.useMemo(
+    () => buildComposition(dimensionRows, dimension, dimMeta.verbatim, totalCost),
+    [dimensionRows, dimension, dimMeta.verbatim, totalCost],
+  );
+  const compositionSegments = composition.segments;
+  /** The donut color for a ledger key (color-as-identity), falling back to its position. */
+  const rowColor = React.useCallback(
+    (key: string, fallbackIndex: number) => composition.colorByKey.get(key) ?? categorical(fallbackIndex),
+    [composition],
   );
 
   // ----- Efficiency aggregates ------------------------------------------- //
@@ -405,7 +458,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
           <div className="flex min-w-0 items-center gap-2">
             <span
               className="size-2 shrink-0 rounded-sm"
-              style={{ background: categorical(ledger.indexOf(r)) }}
+              style={{ background: rowColor(r.key, ledger.indexOf(r)) }}
               aria-hidden
             />
             {dimMeta.verbatim ? (
@@ -433,7 +486,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
         header: '% of total',
         sortable: true,
         width: '11rem',
-        cell: (r) => <ShareBar share={r.share} colorIndex={ledger.indexOf(r)} />,
+        cell: (r) => <ShareBar share={r.share} color={rowColor(r.key, ledger.indexOf(r))} />,
       },
       {
         id: 'tokens',
@@ -484,7 +537,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
           ),
       },
     ],
-    [currency, dimMeta.label, dimMeta.verbatim, ledger],
+    [currency, dimMeta.label, dimMeta.verbatim, ledger, rowColor],
   );
 
   const hasAny =
@@ -498,6 +551,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
     icon: typeof Coins;
     accent: KpiAccent;
     delta?: { value: number; label: string };
+    goodDirection?: KpiGoodDirection;
   }[] = React.useMemo(
     () => [
       {
@@ -508,10 +562,14 @@ export default function Cost({ embedded = false }: CostProps = {}) {
         }`,
         icon: CircleDollarSign,
         accent: 'primary',
+        // Spend is lower-is-better: the ARROW tracks the true change (up = rose) and the
+        // COLOR reads red on a rise / green on a fall (goodDirection='down'). Do NOT
+        // pre-negate the value — that flips the arrow away from the real change.
         delta:
-          typeof spendDelta === 'number'
-            ? { value: -spendDelta, label: `${Math.abs(spendDelta)}%` }
+          typeof spendDelta === 'number' && spendDelta !== 0
+            ? { value: spendDelta, label: `${spendDelta > 0 ? '+' : ''}${spendDelta}%` }
             : undefined,
+        goodDirection: 'down',
       },
       {
         label: 'Total tokens',
@@ -657,7 +715,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
         <LoadError error={error} title="Could not load usage" onRetry={() => void load()} />
       ) : null}
 
-      {!hasAny ? (
+      {error && !hasAny ? null : !hasAny ? (
         <Card>
           <CardContent className="pt-6">
             <EmptyState
@@ -683,6 +741,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
                 icon={k.icon}
                 accent={k.accent}
                 delta={k.delta}
+                goodDirection={k.goodDirection}
               />
             ))}
           </Stagger>
@@ -691,7 +750,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
           <Card>
             <CardHeader className="pb-3">
               <SectionTitle
-                icon={spendDelta != null && spendDelta > 0 ? TrendingUp : TrendingDown}
+                icon={spendDelta == null ? Minus : spendDelta > 0 ? TrendingUp : TrendingDown}
                 meta={`${series.length} bucket${series.length === 1 ? '' : 's'} · last ${windowLabel}`}
               >
                 Spend over time

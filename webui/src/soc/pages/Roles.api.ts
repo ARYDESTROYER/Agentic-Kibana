@@ -37,6 +37,16 @@ export interface RolesMatrixResponse {
   default_role: string;
   rbac_enabled: boolean;
   matrix: Record<string, GrantMap>;
+  /**
+   * The RAW operator-defined custom-role definitions (Round-6 #20): the exact
+   * `name`/`description`/`inherits`/`grants`/`denies` as stored, so the editor can
+   * restore a faithful draft on Edit/Clone. The `matrix` above is the RESOLVED view
+   * (inheritance flattened into explicit grants, no description) — prefer these raw
+   * defs when seeding a draft. Additive + optional (an older backend omits it → the
+   * page falls back to `matrix`). #9: names/descriptions/grant maps are rendered
+   * escaped, never fed to a prompt.
+   */
+  custom_roles?: CustomRole[];
 }
 
 /** The per-resource action diff a draft would produce vs the current matrix. */

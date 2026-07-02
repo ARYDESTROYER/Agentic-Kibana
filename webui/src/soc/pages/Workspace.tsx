@@ -44,10 +44,13 @@ export default function Workspace({ onNavigate, tab }: WorkspaceProps = {}) {
       onValueChange={(next) => navigate('chat', { tab: next })}
       tabs={[
         {
+          // Chat never consumes `onNavigate` (it destructures only `embedded`), so it is
+          // NOT threaded here (Round-6 #50 — drop the dead prop). Investigate below DOES
+          // use it, so `navigate` is still resolved for that tab + the tab round-trip.
           value: 'chat',
           label: 'Chat',
           icon: MessageSquare,
-          content: <Chat embedded onNavigate={navigate} />,
+          content: <Chat embedded />,
         },
         {
           value: 'investigate',

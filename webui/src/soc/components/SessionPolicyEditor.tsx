@@ -44,6 +44,7 @@ function DurationField({
   seconds,
   unit,
   unitLabel,
+  defaultSeconds,
   onChange,
   disabled,
 }: {
@@ -53,10 +54,32 @@ function DurationField({
   seconds: number;
   unit: number;
   unitLabel: string;
+  /** The safe fallback committed when the field is cleared / non-positive. */
+  defaultSeconds: number;
   onChange: (seconds: number) => void;
   disabled?: boolean;
 }) {
-  const value = seconds > 0 ? String(Math.round(seconds / unit)) : '';
+  const asText = React.useCallback(
+    (s: number) => String(Math.round((s > 0 ? s : defaultSeconds) / unit)),
+    [defaultSeconds, unit],
+  );
+  // A raw text buffer so the field can be CLEARED and retyped; we only parse/clamp on
+  // commit (blur / Enter). A cleared or <=0 value commits the safe default — persisting
+  // 0 would immediately idle-out / expire every live session (a lockout footgun).
+  const [text, setText] = React.useState(() => asText(seconds));
+  const [editing, setEditing] = React.useState(false);
+  React.useEffect(() => {
+    if (!editing) setText(asText(seconds));
+  }, [seconds, editing, asText]);
+
+  const commit = (raw: string) => {
+    const n = Number(raw);
+    const next = Number.isFinite(n) && n > 0 ? Math.round(n * unit) : defaultSeconds;
+    setEditing(false);
+    setText(asText(next));
+    if (next !== seconds) onChange(next);
+  };
+
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs">
@@ -68,11 +91,16 @@ function DurationField({
           type="number"
           min={1}
           className="h-9 w-28"
-          value={value}
+          value={text}
           disabled={disabled}
+          onFocus={() => setEditing(true)}
           onChange={(e) => {
-            const n = Number(e.target.value);
-            onChange(Number.isFinite(n) && n > 0 ? Math.round(n * unit) : 0);
+            setEditing(true);
+            setText(e.target.value);
+          }}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit((e.target as HTMLInputElement).value);
           }}
         />
         <span className="text-xs text-muted-foreground">{unitLabel}</span>
@@ -159,6 +187,7 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
             seconds={policy.access_ttl ?? DEFAULTS.access_ttl}
             unit={60}
             unitLabel="minutes"
+            defaultSeconds={DEFAULTS.access_ttl}
             onChange={(v) => set({ access_ttl: v })}
             disabled={saving}
           />
@@ -169,6 +198,7 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
             seconds={policy.idle_timeout ?? DEFAULTS.idle_timeout}
             unit={60}
             unitLabel="minutes"
+            defaultSeconds={DEFAULTS.idle_timeout}
             onChange={(v) => set({ idle_timeout: v })}
             disabled={saving}
           />
@@ -179,6 +209,7 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
             seconds={policy.absolute_lifetime ?? DEFAULTS.absolute_lifetime}
             unit={3600}
             unitLabel="hours"
+            defaultSeconds={DEFAULTS.absolute_lifetime}
             onChange={(v) => set({ absolute_lifetime: v })}
             disabled={saving}
           />
@@ -189,6 +220,7 @@ export function SessionPolicyEditor({ policy: controlledPolicy, onChange }: Sess
             seconds={policy.sudo_reauth_window ?? DEFAULTS.sudo_reauth_window}
             unit={60}
             unitLabel="minutes"
+            defaultSeconds={DEFAULTS.sudo_reauth_window}
             onChange={(v) => set({ sudo_reauth_window: v })}
             disabled={saving}
           />

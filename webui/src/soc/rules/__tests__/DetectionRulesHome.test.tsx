@@ -21,9 +21,9 @@ vi.mock('@/soc/components/Can', async () => {
   return { ...actual, useCan: () => true };
 });
 
-import { DetectionRulesHome } from '../DetectionRulesHome';
+import { DetectionRulesHome, automationIdFromName } from '../DetectionRulesHome';
 import { RULES_PERM, RULES_READ_PERM } from '../types';
-import type { Preferences } from '@/lib/types';
+import type { AutomationRule, Preferences } from '@/lib/types';
 
 import {
   SECTION_BY_ID,
@@ -70,7 +70,10 @@ describe('DetectionRulesHome', () => {
 
   it('deleting a detection rule writes rule_catalog via the deep-merge buffer (never decide())', () => {
     const { update } = renderHome();
+    // Delete is confirm-gated (no single-misclick data loss) — click through the dialog.
     fireEvent.click(screen.getByLabelText('Delete ssh-bruteforce'));
+    expect(update).not.toHaveBeenCalled(); // nothing written until confirmed
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }));
     expect(update).toHaveBeenCalledTimes(1);
     const patch = update.mock.calls[0][0] as Partial<Preferences>;
     expect(patch).toHaveProperty('rule_catalog');
@@ -82,6 +85,7 @@ describe('DetectionRulesHome', () => {
   it('deleting a case-automation rule writes threshold_automation.rules only', () => {
     const { update } = renderHome();
     fireEvent.click(screen.getByLabelText('Delete rule-tag'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }));
     const patch = update.mock.calls[0][0] as Partial<Preferences>;
     expect(patch.threshold_automation?.rules).toEqual([]);
     // the master `enabled` flag is preserved (deep-merge friendly)
@@ -92,6 +96,81 @@ describe('DetectionRulesHome', () => {
     renderHome();
     fireEvent.click(screen.getByRole('button', { name: 'ssh-bruteforce' }));
     expect(screen.getByRole('tab', { name: 'Define' })).toBeInTheDocument();
+  });
+
+  it('surfaces a validation message (not a silent no-op) when a new detection rule has no name/condition', () => {
+    const { update } = renderHome();
+    fireEvent.click(screen.getByRole('button', { name: 'New rule' }));
+    // A fresh detection_match rule has an empty name + empty first condition → invalid.
+    fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    expect(update).not.toHaveBeenCalled();
+    expect(screen.getByText(/Can't save yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/at least one condition/i)).toBeInTheDocument();
+  });
+
+  it('cancelling the delete confirmation does not write anything', () => {
+    const { update } = renderHome();
+    fireEvent.click(screen.getByLabelText('Delete ssh-bruteforce'));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('deletes exactly the clicked row when two detection rules share a name (#24)', () => {
+    const dupPrefs: Preferences = {
+      rule_catalog: [
+        {
+          name: 'dup',
+          enabled: true,
+          description: 'first',
+          match: { field: 'a', op: 'equals', value: '1' },
+          correlation: { mode: 'threshold', n: 5, window_seconds: 120, group_by: 'ip' },
+          priority: 100,
+        },
+        {
+          name: 'dup',
+          enabled: true,
+          description: 'second',
+          match: { field: 'b', op: 'equals', value: '2' },
+          correlation: { mode: 'threshold', n: 5, window_seconds: 120, group_by: 'ip' },
+          priority: 110,
+        },
+      ],
+    };
+    const { update } = renderHome(dupPrefs);
+    // Both rows carry the same "Delete dup" label — a name filter would wipe BOTH.
+    const deletes = screen.getAllByLabelText('Delete dup');
+    expect(deletes).toHaveLength(2);
+    fireEvent.click(deletes[0]); // the priority-100 row (sourceIndex 0, "first")
+    fireEvent.click(screen.getByRole('button', { name: 'Delete rule' }));
+    const patch = update.mock.calls[0][0] as Partial<Preferences>;
+    // Exactly ONE rule removed — the one clicked — leaving the other same-named rule.
+    expect(patch.rule_catalog).toHaveLength(1);
+    expect(patch.rule_catalog?.[0].description).toBe('second');
+  });
+});
+
+describe('automationIdFromName (#25 — the typed Name becomes the rule id)', () => {
+  const rule = (id: string): AutomationRule => ({
+    id,
+    enabled: true,
+    priority: 100,
+    conditions: {},
+    action: 'tag',
+    payload: {},
+  });
+
+  it('uses the trimmed typed name as the id', () => {
+    expect(automationIdFromName('  tag-true-positives  ', [])).toBe('tag-true-positives');
+  });
+
+  it('auto-generates an id when the name is blank', () => {
+    expect(automationIdFromName('', [])).toMatch(/^rule-/);
+    expect(automationIdFromName('   ', [])).toMatch(/^rule-/);
+  });
+
+  it('suffixes on a collision with an existing id (never overwrites another rule)', () => {
+    expect(automationIdFromName('dup', [rule('dup')])).toBe('dup (2)');
+    expect(automationIdFromName('dup', [rule('dup'), rule('dup (2)')])).toBe('dup (3)');
   });
 });
 
