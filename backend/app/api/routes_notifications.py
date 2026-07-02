@@ -37,7 +37,7 @@ class NotificationProvidersResponse(BaseModel):
     """The notification providers catalog envelope (no secrets — names/ids only)."""
 
     email_presets: list[dict[str, Any]] = Field(default_factory=list)
-    channel_types: list[dict[str, Any]] = Field(default_factory=list)
+    channel_types: list[str] = Field(default_factory=list)
     template_ids: list[str] = Field(default_factory=list)
 
 
