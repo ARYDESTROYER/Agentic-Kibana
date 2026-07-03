@@ -35,7 +35,7 @@ from ..config import AutoClosePolicy
 from ..constants import ActionType, CaseStatus, Verdict
 from ..engine.case_manager import decide
 from ..engine.priority import derive_triage
-from ..models import TraceSpan
+from ..models import StageState, StageStep, TimelineStage, TimelineStagesResponse, TraceSpan
 from .deps import get_state, require_permission
 
 router = APIRouter(prefix="/api")
@@ -470,3 +470,181 @@ async def _usage_attribution(
         cost_by_role[key] = float(entry.get("cost", 0.0) or 0.0)
         tokens_by_role[key] = int(entry.get("tokens", 0) or 0)
     return cost_by_role, tokens_by_role
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/cases/{id}/stages — the six-stage Timeline narrative (read-time #3/#9)
+# --------------------------------------------------------------------------- #
+# The canonical ordered spine (kind, label, deterministic) — the skeleton returned
+# for an unknown case so the UI always has six stages to render.
+_CANON_STAGES: tuple[tuple[str, str, bool], ...] = (
+    ("input", "Alert received", False),
+    ("correlate", "Correlate", True),
+    ("risk", "Risk", True),
+    ("triage", "Triage", False),
+    ("investigate", "Investigate", False),
+    ("decide", "Decide", True),
+)
+
+
+def _humanize(token: Any) -> str:
+    """A lowercased snake/enum token → spaced words (backend-side, display only)."""
+    return str(token or "").replace("_", " ").strip()
+
+
+def _span_to_step(span: TraceSpan) -> StageStep:
+    """Reframe a projected TraceSpan as a nested StageStep (preserves the trust flag)."""
+    kind = "tool" if span.kind == "execute_tool" else ("reasoning" if span.trusted else "note")
+    return StageStep(kind=kind, label=span.name or kind, body=span.summary, trusted=span.trusted,
+                     ts=span.ts or None)
+
+
+def _decide_headline(pr: dict[str, Any]) -> str:
+    """A one-line TRUSTED headline for the deterministic decision, from its clause."""
+    if pr.get("escalate"):
+        return "Escalated by policy"
+    status = str(pr.get("decision_status") or "")
+    if status in (CaseStatus.RESOLVED.value, "closed", "resolved"):
+        return "Auto-closed by policy" if str(pr.get("decision_by")) != "human" else "Closed"
+    if status in (CaseStatus.NEEDS_HUMAN.value, "needs_human", CaseStatus.ON_HOLD.value):
+        return "Held for human review"
+    return _humanize(status).capitalize() or "Decision recorded"
+
+
+def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[TimelineStage]:
+    """Project a case + its audit rows into the six ordered narrative stages. Pure /
+    read-time / mutates nothing (#3); untrusted source/log text is fenced in steps (#9)."""
+    n = len(case.member_event_ids) or len(case.evidence)
+    plural = "s" if n != 1 else ""
+    src = case.source_name or "the configured source"
+    include_prompts = getattr(getattr(state.prefs, "trace", None), "include_prompts", True)
+
+    # 1 — input (the raw alert as the SIEM sent it)
+    input_steps: list[StageStep] = []
+    if case.evidence and getattr(case.evidence[0], "summary", ""):
+        input_steps.append(StageStep(kind="note", label="evidence",
+                                     body=str(case.evidence[0].summary), trusted=False))
+    input_stage = TimelineStage(
+        id="input", kind="input", label="Alert received", status="done", deterministic=False,
+        ts=case.created_at or None,
+        headline=(f"{n} alert{plural} from {src}" if n else f"Alert from {src}"),
+        state=StageState(severity_band=case.severity_band, severity_source=case.severity_source),
+        steps=input_steps,
+    )
+
+    # 2 — correlate (deterministic clustering)
+    corr_steps: list[StageStep] = []
+    if case.cluster_signature:
+        corr_steps.append(StageStep(kind="note", label="cluster signature",
+                                    body=str(case.cluster_signature), trusted=False))
+    correlate_stage = TimelineStage(
+        id="correlate", kind="correlate", label="Correlate", status="done", deterministic=True,
+        ts=case.created_at or None,
+        headline=(f"{n} alerts clustered into one case" if n > 1 else "Single-alert case (no cluster)"),
+        steps=corr_steps,
+    )
+
+    # 3 — risk (deterministic scoring)
+    rb = case.risk_breakdown
+    factors = [("volume", rb.volume), ("velocity", rb.velocity), ("reputation", rb.reputation),
+               ("diversity", rb.diversity), ("asset criticality", rb.asset_criticality)]
+    nz = [f"{k} {round(float(v), 1)}" for k, v in factors if v]
+    risk_stage = TimelineStage(
+        id="risk", kind="risk", label="Risk", status="done", deterministic=True,
+        ts=case.created_at or None,
+        headline=f"Risk {round(float(case.risk_score))}/100",
+        state=StageState(risk_score=round(float(case.risk_score), 2)),
+        steps=([StageStep(kind="note", label="risk factors", body=" · ".join(nz), trusted=True)] if nz else []),
+    )
+
+    # partition audit rows: CONTEXT (the basis given) → triage; agent/tool rows → investigate
+    context_rows: list[Any] = []
+    agent_rows: list[Any] = []
+    for row in rows:
+        at = str(_get(row, "action_type", "") or "")
+        actor = str(_get(row, "actor", "") or "")
+        if actor == "case_manager" and at == ActionType.DECISION.value:
+            continue
+        if at == ActionType.CONTEXT.value:
+            context_rows.append(row)
+        elif at in _KIND_BY_ACTION:
+            agent_rows.append(row)
+
+    # 4 — triage (specialist routing + the basis given)
+    persona = case.agent_persona or ""
+    triage_steps = [_span_to_step(_row_to_span(case_id, r, i, include_prompts, {}, {}, {}))
+                    for i, r in enumerate(context_rows)]
+    triage_done = bool(persona or context_rows)
+    triage_stage = TimelineStage(
+        id="triage", kind="triage", label="Triage", status=("done" if triage_done else "skipped"),
+        deterministic=False,
+        ts=(str(_get(context_rows[0], "ts", "")) if context_rows else case.created_at) or None,
+        headline=(f"Routed to {_humanize(persona)} specialist" if persona and persona != "generalist"
+                  else ("Triaged" if triage_done else "No specialist routing")),
+        steps=triage_steps,
+    )
+
+    # 5 — investigate (the ReAct loop: tool calls + reasoning → verdict)
+    inv_steps = [_span_to_step(_row_to_span(case_id, r, i, include_prompts, {}, {}, {}))
+                 for i, r in enumerate(agent_rows)]
+    if case.verdict is not None:
+        inv_status, inv_headline = "done", (
+            f"Verdict: {_humanize(case.verdict.value).lower()} · conf {round(float(case.confidence) * 100)}%")
+    elif agent_rows:
+        inv_status, inv_headline = "done", "Investigated (no verdict recorded)"
+    else:
+        inv_status, inv_headline = "skipped", "No investigation ran"
+    investigate_stage = TimelineStage(
+        id="investigate", kind="investigate", label="Investigate", status=inv_status,
+        deterministic=False,
+        ts=(str(_get(agent_rows[0], "ts", "")) if agent_rows else None) or None,
+        headline=inv_headline,
+        state=StageState(verdict=(case.verdict.value if case.verdict else None),
+                         confidence=(round(float(case.confidence), 4) if case.verdict else None)),
+        steps=inv_steps,
+    )
+
+    # 6 — decide (re-derive decide() for the EXACT deterministic clause; #3 made visible)
+    dspan = _decision_span(case_id, case, state, 0)
+    if dspan is not None:
+        pr = dspan.payload_ref
+        decide_stage = TimelineStage(
+            id="decide", kind="decide", label="Decide", status="done", deterministic=True,
+            ts=dspan.ts or None, headline=_decide_headline(pr),
+            state=StageState(verdict=pr.get("verdict"), confidence=pr.get("confidence"),
+                             risk_score=pr.get("risk_score")),
+            steps=([StageStep(kind="note", label="decision rationale", body=dspan.summary, trusted=True)]
+                   if dspan.summary else []),
+        )
+    else:
+        decide_stage = TimelineStage(
+            id="decide", kind="decide", label="Decide", status="pending", deterministic=True,
+            headline="Awaiting decision",
+        )
+
+    return [input_stage, correlate_stage, risk_stage, triage_stage, investigate_stage, decide_stage]
+
+
+@router.get("/cases/{case_id}/stages")
+async def case_stages(
+    case_id: str,
+    state: "Any" = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """The six-stage Timeline narrative for a case (the ``TimelineStage`` shape).
+
+    A pure read-time projection over the Case + its audit rows (the SAME facts the
+    ``/timeline`` span view reads), reframed into ``input → correlate → risk → triage
+    → investigate → decide``. Advisory/observability ONLY — re-derives ``decide()`` to
+    DISPLAY the clause, mutates nothing (#3); untrusted source/log text is fenced in
+    steps (#9). NEVER 404s — an unknown case returns the six-stage skeleton."""
+    case = await state.cases.get(case_id)
+    if case is None:
+        skeleton = [TimelineStage(id=k, kind=k, label=lbl, status="skipped", deterministic=det)
+                    for k, lbl, det in _CANON_STAGES]
+        return TimelineStagesResponse(case_id=case_id, stages=skeleton,
+                                      total=len(skeleton)).model_dump(mode="json")
+    rows = await state.audit.records_for_case(case_id)
+    stages = _build_stages(case_id, case, rows, state)
+    return TimelineStagesResponse(case_id=case_id, stages=stages,
+                                  total=len(stages)).model_dump(mode="json")
