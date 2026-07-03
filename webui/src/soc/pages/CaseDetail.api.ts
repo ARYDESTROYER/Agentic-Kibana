@@ -140,6 +140,56 @@ export function getTimeline(caseId: string): Promise<TimelineResponse> {
   return api.get<TimelineResponse>(`cases/${encodeURIComponent(caseId)}/timeline`);
 }
 
+/* ----------------------------------------------------------- stages (Timeline) -- */
+
+export type TimelineStageKind =
+  | 'input' | 'correlate' | 'risk' | 'triage' | 'investigate' | 'decide' | string;
+export type TimelineStageStatus = 'done' | 'skipped' | 'pending' | string;
+export type StageStepKind = 'reasoning' | 'tool' | 'knowledge' | 'memory' | 'note' | string;
+
+/** Derived scalars/labels at a stage — safe to render inline (never raw source text). */
+export interface StageState {
+  severity?: number | null;
+  severity_band?: string | null;
+  severity_source?: string | null; // "source_asserted" | "derived"
+  risk_score?: number | null;
+  verdict?: string | null;
+  confidence?: number | null;
+}
+
+/** A chronological sub-step under a stage. `trusted=false` ⇒ body is fenced UNTRUSTED (#9). */
+export interface StageStep {
+  kind: StageStepKind;
+  label: string;
+  body: string;
+  trusted: boolean;
+  ts?: string | null;
+}
+
+/** One of the six ordered pipeline stages (mirrors backend `TimelineStage`). */
+export interface TimelineStage {
+  id: string;
+  kind: TimelineStageKind;
+  label: string;
+  status: TimelineStageStatus;
+  deterministic: boolean;
+  ts?: string | null;
+  headline: string;
+  state: StageState;
+  steps: StageStep[];
+}
+
+export interface TimelineStagesResponse {
+  case_id: string;
+  stages: TimelineStage[];
+  total: number;
+}
+
+/** GET /api/cases/{id}/stages — the six-stage narrative projection. */
+export function getCaseStages(caseId: string): Promise<TimelineStagesResponse> {
+  return api.get<TimelineStagesResponse>(`cases/${encodeURIComponent(caseId)}/stages`);
+}
+
 /* ----------------------------------------------------------------- thread -- */
 
 export type AuthorType = 'human' | 'ai' | 'system';
