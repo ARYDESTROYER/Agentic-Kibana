@@ -30,6 +30,7 @@ import { Badge } from '@/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collapsible';
 import { Skeleton } from '@/ui/skeleton';
 import { CodeBlock } from '@/soc/components/CodeBlock';
+import { Markdown } from '@/soc/components/Markdown';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 
@@ -96,28 +97,47 @@ const StateChips: React.FC<{ state: StageState }> = ({ state }) => {
 
 /* ----------------------------------------------------------------- one step -- */
 
-const StepItem: React.FC<{ step: StageStep }> = ({ step }) => (
-  <div className="rounded-md border border-border bg-muted/30 p-3">
-    <div className="mb-1.5 flex items-center gap-1.5">
-      <Badge variant={step.trusted ? 'info' : 'medium'} className="gap-1">
-        {step.trusted ? null : <Lock className="h-3 w-3" />}
-        {step.label || humanizeToken(step.kind) || 'Step'}
-      </Badge>
-      {step.trusted ? null : (
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">untrusted</span>
-      )}
+/** A trusted prose body longer than this gets clamped to a few lines + "Show more". */
+const CLAMP_CHARS = 320;
+
+const StepItem: React.FC<{ step: StageStep }> = ({ step }) => {
+  const [open, setOpen] = React.useState(false);
+  const isLong = step.trusted && step.body.length > CLAMP_CHARS;
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-3">
+      <div className="mb-1.5 flex items-center gap-1.5">
+        <Badge variant={step.trusted ? 'info' : 'medium'} className="gap-1">
+          {step.trusted ? null : <Lock className="h-3 w-3" />}
+          {step.label || humanizeToken(step.kind) || 'Step'}
+        </Badge>
+        {step.trusted ? null : (
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">untrusted</span>
+        )}
+      </div>
+      {step.body ? (
+        step.trusted ? (
+
+          <>
+            <div className={cn('text-foreground/90', isLong && !open && 'max-h-28 overflow-hidden')}>
+              <Markdown text={step.body} className="space-y-1 text-sm leading-relaxed" />
+            </div>
+            {isLong ? (
+              <button
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                className="mt-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {open ? 'Show less' : 'Show more'}
+              </button>
+            ) : null}
+          </>
+        ) : (
+          <CodeBlock value={step.body} wrap copyable maxHeightClassName="max-h-40" />
+        )
+      ) : null}
     </div>
-    {step.body ? (
-      step.trusted ? (
-        /* TRUSTED — our prose, plain text. */
-        <p className="whitespace-pre-wrap text-xs text-foreground/90">{step.body}</p>
-      ) : (
-        /* UNTRUSTED — fenced in an escaped code block (#9). */
-        <CodeBlock value={step.body} wrap copyable maxHeightClassName="max-h-40" />
-      )
-    ) : null}
-  </div>
-);
+  );
+};
 
 /* ---------------------------------------------------------------- one stage -- */
 

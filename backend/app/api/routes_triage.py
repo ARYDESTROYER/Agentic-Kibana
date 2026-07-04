@@ -592,9 +592,13 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
         elif at in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
             tool_rows.append(row)
         elif at == ActionType.VERDICT.value and not reasoning:
-            rs = str(_get(row, "result_summary", "") or "")
-            if "reasoning=" in rs:
-                reasoning = rs.split("reasoning=", 1)[1].strip()
+            ti = _get(row, "tool_input")
+            if isinstance(ti, dict) and str(ti.get("reasoning") or "").strip():
+                reasoning = str(ti["reasoning"]).strip()
+            else:
+                rs = str(_get(row, "result_summary", "") or "")
+                if "reasoning=" in rs:
+                    reasoning = rs.split("reasoning=", 1)[1].strip()
 
     # 4 — triage (specialist routing + the basis given: playbook + operator memory)
     persona = case.agent_persona or ""

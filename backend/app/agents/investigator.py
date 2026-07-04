@@ -298,10 +298,13 @@ class Investigator:
             if not verdict.reproduce_query:
                 verdict.reproduce_query = entity_kql(cluster, prefs)
 
-            # Carry a reasoning excerpt onto the VERDICT record so the chain-of-thought
-            # summary is visible in the trace/rationale (truncated; the investigator's
-            # own analysis prose, not attacker-controlled log data).
+            # Carry the reasoning onto the VERDICT record (the investigator's own analysis
+            # prose, not attacker-controlled log data). ``result_summary`` keeps a compact
+            # 600-char excerpt for the one-line trace; the FULLER reasoning is stashed in
+            # ``tool_input`` (NOT clipped by the audit layer) so the Timeline can show it
+            # in full behind a "show more".
             reasoning_excerpt = truncate(reasoning, 600) if reasoning else ""
+            reasoning_full = truncate(reasoning, 4000) if reasoning else ""
             await self._audit.record(
                 action_type=ActionType.VERDICT, surface=surface, actor=Role.INVESTIGATOR.value,
                 case_id=case_id, model=model_cfg.model,
@@ -309,6 +312,7 @@ class Investigator:
                     f"verdict={verdict.verdict.value} confidence={verdict.confidence}"
                     + (f" reasoning={reasoning_excerpt}" if reasoning_excerpt else "")
                 ),
+                tool_input=({"reasoning": reasoning_full} if reasoning_full else None),
             )
             return verdict, cost
         except Exception as exc:  # noqa: BLE001 — never drop an alert

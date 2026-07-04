@@ -169,10 +169,30 @@ async def test_stages_fold_why_content_into_expansions(app_state):
     # investigate — the work: reasoning + tool + knowledge (fenced) + enrichment
     inv = by["investigate"]["steps"]
     assert any(st["kind"] == "reasoning" and "N fails" in st["body"] for st in inv)
+    # the reasoning came from result_summary here (no tool_input) — covered fully below
     assert any(st["kind"] == "tool" and st["trusted"] is False for st in inv)
     know = [st for st in inv if st["kind"] == "knowledge"]
     assert know and know[0]["trusted"] is False and "lock the account" in know[0]["body"]
     assert any(st["kind"] == "note" and st["label"] == "enrichment" and "reputation 80" in st["body"] for st in inv)
+
+
+async def test_stages_reasoning_prefers_full_tool_input(app_state):
+    """The full reasoning is read from the VERDICT row's tool_input (untruncated),
+    not the compact 600-char result_summary excerpt."""
+    state = app_state
+    await state.cases.save(_mk_case(case_id="case-s-reason"))
+    full = "GPT full reasoning. " * 60  # ~1200 chars, longer than the excerpt
+    await state.audit.write(AuditDoc(
+        ts="2026-06-16T10:00:02+00:00", case_id="case-s-reason", actor="investigator",
+        action_type=ActionType.VERDICT,
+        result_summary="verdict=TRUE_POSITIVE reasoning=short excerpt only",
+        tool_input={"reasoning": full},
+    ))
+    res = await case_stages("case-s-reason", state)
+    inv = next(s for s in res["stages"] if s["kind"] == "investigate")
+    body = next(st["body"] for st in inv["steps"] if st["kind"] == "reasoning")
+    assert body == full.strip()
+    assert len(body) > 600  # not clipped to the excerpt
 
 
 async def test_stages_decide_reflects_deterministic_decide(app_state):
