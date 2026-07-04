@@ -492,11 +492,16 @@ def _humanize(token: Any) -> str:
     return str(token or "").replace("_", " ").strip()
 
 
-def _span_to_step(span: TraceSpan) -> StageStep:
-    """Reframe a projected TraceSpan as a nested StageStep (preserves the trust flag)."""
-    kind = "tool" if span.kind == "execute_tool" else ("reasoning" if span.trusted else "note")
-    return StageStep(kind=kind, label=span.name or kind, body=span.summary, trusted=span.trusted,
-                     ts=span.ts or None)
+def _enrichment_line(enr: dict[str, Any]) -> str:
+    """A compact TRUSTED one-liner from an enrichment result (our derived scalars)."""
+    bits: list[str] = []
+    if enr.get("reputation_score") is not None:
+        bits.append(f"reputation {enr['reputation_score']}")
+    if enr.get("is_malicious") is not None:
+        bits.append("flagged malicious" if enr["is_malicious"] else "not flagged malicious")
+    if enr.get("country"):
+        bits.append(f"country {enr['country']}")
+    return " · ".join(bits)
 
 
 def _decide_headline(pr: dict[str, Any]) -> str:
@@ -517,7 +522,6 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
     n = len(case.member_event_ids) or len(case.evidence)
     plural = "s" if n != 1 else ""
     src = case.source_name or "the configured source"
-    include_prompts = getattr(getattr(state.prefs, "trace", None), "include_prompts", True)
 
     # 1 — input (the raw alert as the SIEM sent it)
     input_steps: list[StageStep] = []
@@ -557,47 +561,87 @@ def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[Timeli
         steps=([StageStep(kind="note", label="risk factors", body=" · ".join(nz), trusted=True)] if nz else []),
     )
 
-    # partition audit rows: CONTEXT (the basis given) → triage; agent/tool rows → investigate
-    context_rows: list[Any] = []
-    agent_rows: list[Any] = []
+    # Extract the "why" pieces from the SAME audit rows the rationale endpoint reads:
+    # CONTEXT.tool_input → knowledge/memory/enrichment (the basis given); TOOL_CALL/
+    # ES_QUERY → commands run; VERDICT "reasoning=" → the reasoning excerpt; the
+    # playbook_selector DECISION → why that playbook. Self-contained; pure/defensive.
+    knowledge: list[dict[str, str]] = []
+    memory_facts: list[str] = []
+    enrichment: dict[str, Any] | None = None
+    tool_rows: list[Any] = []
+    reasoning = ""
+    playbook_reason = ""
+    context_seen = False
     for row in rows:
         at = str(_get(row, "action_type", "") or "")
-        actor = str(_get(row, "actor", "") or "")
-        if actor == "case_manager" and at == ActionType.DECISION.value:
-            continue
-        if at == ActionType.CONTEXT.value:
-            context_rows.append(row)
-        elif at in _KIND_BY_ACTION:
-            agent_rows.append(row)
+        if _get(row, "actor") == "playbook_selector" and not playbook_reason:
+            playbook_reason = str(_get(row, "result_summary", "") or "")
+        if at == ActionType.CONTEXT.value and not context_seen:
+            context_seen = True
+            ti = _get(row, "tool_input") or {}
+            if isinstance(ti, dict):
+                for k in (ti.get("knowledge") or []):
+                    if isinstance(k, dict):
+                        knowledge.append({"source": str(k.get("source", "knowledge")),
+                                          "snippet": str(k.get("snippet", ""))})
+                for m in (ti.get("memory") or []):
+                    if isinstance(m, str) and m.strip():
+                        memory_facts.append(m)
+                if isinstance(ti.get("enrichment"), dict):
+                    enrichment = ti["enrichment"]
+        elif at in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
+            tool_rows.append(row)
+        elif at == ActionType.VERDICT.value and not reasoning:
+            rs = str(_get(row, "result_summary", "") or "")
+            if "reasoning=" in rs:
+                reasoning = rs.split("reasoning=", 1)[1].strip()
 
-    # 4 — triage (specialist routing + the basis given)
+    # 4 — triage (specialist routing + the basis given: playbook + operator memory)
     persona = case.agent_persona or ""
-    triage_steps = [_span_to_step(_row_to_span(case_id, r, i, include_prompts, {}, {}, {}))
-                    for i, r in enumerate(context_rows)]
-    triage_done = bool(persona or context_rows)
+    playbook_id = getattr(case, "playbook_id", "") or ""
+    triage_steps: list[StageStep] = []
+    if playbook_id:
+        triage_steps.append(StageStep(
+            kind="note", label="playbook",
+            body=(f"{playbook_id} — {playbook_reason}" if playbook_reason else str(playbook_id)),
+            trusted=True))
+    triage_steps.extend(StageStep(kind="memory", label="memory", body=m, trusted=True)
+                        for m in memory_facts)
+    triage_done = bool(persona or playbook_id or memory_facts)
     triage_stage = TimelineStage(
         id="triage", kind="triage", label="Triage", status=("done" if triage_done else "skipped"),
-        deterministic=False,
-        ts=(str(_get(context_rows[0], "ts", "")) if context_rows else case.created_at) or None,
+        deterministic=False, ts=case.created_at or None,
         headline=(f"Routed to {_humanize(persona)} specialist" if persona and persona != "generalist"
                   else ("Triaged" if triage_done else "No specialist routing")),
         steps=triage_steps,
     )
 
-    # 5 — investigate (the ReAct loop: tool calls + reasoning → verdict)
-    inv_steps = [_span_to_step(_row_to_span(case_id, r, i, include_prompts, {}, {}, {}))
-                 for i, r in enumerate(agent_rows)]
+    # 5 — investigate (the ReAct loop: reasoning + commands + knowledge + enrichment)
+    inv_steps: list[StageStep] = []
+    if reasoning:
+        inv_steps.append(StageStep(kind="reasoning", label="reasoning", body=reasoning, trusted=True))
+    for r in tool_rows:
+        at = str(_get(r, "action_type", "") or "")
+        tool = _get(r, "tool_name") or ("es_query" if at == ActionType.ES_QUERY.value else "tool")
+        inv_steps.append(StageStep(kind="tool", label=str(tool),
+                                   body=str(_get(r, "query_text", "") or ""), trusted=False,
+                                   ts=str(_get(r, "ts", "")) or None))
+    inv_steps.extend(StageStep(kind="knowledge", label=(k["source"] or "knowledge"),
+                               body=k["snippet"], trusted=False) for k in knowledge)
+    if enrichment and (line := _enrichment_line(enrichment)):
+        inv_steps.append(StageStep(kind="note", label="enrichment", body=line, trusted=True))
+    has_work = bool(reasoning or tool_rows or knowledge or enrichment)
     if case.verdict is not None:
         inv_status, inv_headline = "done", (
             f"Verdict: {_humanize(case.verdict.value).lower()} · conf {round(float(case.confidence) * 100)}%")
-    elif agent_rows:
+    elif has_work:
         inv_status, inv_headline = "done", "Investigated (no verdict recorded)"
     else:
         inv_status, inv_headline = "skipped", "No investigation ran"
     investigate_stage = TimelineStage(
         id="investigate", kind="investigate", label="Investigate", status=inv_status,
         deterministic=False,
-        ts=(str(_get(agent_rows[0], "ts", "")) if agent_rows else None) or None,
+        ts=(str(_get(tool_rows[0], "ts", "")) if tool_rows else None) or None,
         headline=inv_headline,
         state=StageState(verdict=(case.verdict.value if case.verdict else None),
                          confidence=(round(float(case.confidence), 4) if case.verdict else None)),

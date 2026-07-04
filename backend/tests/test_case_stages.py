@@ -24,6 +24,7 @@ def _mk_case(
     risk: float = 72.0,
     members: int = 6,
     persona: str = "identity",
+    playbook_id: str = "",
 ) -> Case:
     return Case(
         case_id=case_id,
@@ -39,6 +40,7 @@ def _mk_case(
         confidence=confidence,
         status=CaseStatus.OPEN,
         agent_persona=persona,
+        playbook_id=playbook_id,
         severity_band="high",
         severity_source="source_asserted",
     )
@@ -127,6 +129,50 @@ async def test_stages_fence_untrusted_text(app_state):
     assert tool_steps and tool_steps[0]["trusted"] is False
     assert "ignore previous instructions" not in tool_steps[0]["body"]
     assert "ignore previous instructions" not in by["investigate"]["headline"]
+
+
+async def test_stages_fold_why_content_into_expansions(app_state):
+    """Task 5: the Why dossier (knowledge / memory / enrichment / reasoning / playbook)
+    is folded into the right stage's steps — triage gets the basis, investigate the work."""
+    state = app_state
+    await state.cases.save(_mk_case(case_id="case-s-why", playbook_id="brute_force_response"))
+    await state.audit.write(AuditDoc(
+        ts="2026-06-16T10:00:00+00:00", case_id="case-s-why", actor="playbook_selector",
+        action_type=ActionType.DECISION, result_summary="matched the brute_force cluster",
+    ))
+    await state.audit.write(AuditDoc(
+        ts="2026-06-16T10:00:01+00:00", case_id="case-s-why", actor="investigator",
+        action_type=ActionType.CONTEXT, result_summary="context injected",
+        tool_input={
+            "knowledge": [{"source": "runbook:brute_force", "snippet": "lock the account after N fails"}],
+            "memory": ["jdoe is a known infra admin"],
+            "enrichment": {"reputation_score": 80, "is_malicious": True, "country": "RU"},
+        },
+    ))
+    await state.audit.write(AuditDoc(
+        ts="2026-06-16T10:00:02+00:00", case_id="case-s-why", actor="investigator",
+        action_type=ActionType.ES_QUERY, query_text='user:"jdoe"', tool_output_summary="42 hits",
+    ))
+    await state.audit.write(AuditDoc(
+        ts="2026-06-16T10:00:03+00:00", case_id="case-s-why", actor="investigator",
+        action_type=ActionType.VERDICT, result_summary="verdict=TRUE_POSITIVE reasoning=N fails then a success",
+    ))
+
+    res = await case_stages("case-s-why", state)
+    by = {s["kind"]: s for s in res["stages"]}
+
+    # triage — the basis: playbook + operator memory
+    triage_kinds = {(st["kind"], st["label"]) for st in by["triage"]["steps"]}
+    assert ("note", "playbook") in triage_kinds
+    assert any(st["kind"] == "memory" and "known infra admin" in st["body"] for st in by["triage"]["steps"])
+
+    # investigate — the work: reasoning + tool + knowledge (fenced) + enrichment
+    inv = by["investigate"]["steps"]
+    assert any(st["kind"] == "reasoning" and "N fails" in st["body"] for st in inv)
+    assert any(st["kind"] == "tool" and st["trusted"] is False for st in inv)
+    know = [st for st in inv if st["kind"] == "knowledge"]
+    assert know and know[0]["trusted"] is False and "lock the account" in know[0]["body"]
+    assert any(st["kind"] == "note" and st["label"] == "enrichment" and "reputation 80" in st["body"] for st in inv)
 
 
 async def test_stages_decide_reflects_deterministic_decide(app_state):
