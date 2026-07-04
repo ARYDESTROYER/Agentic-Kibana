@@ -122,6 +122,20 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
     risks = [c.risk_score for c in cases if isinstance(c.risk_score, (int, float))]
     avg_risk = round(sum(risks) / len(risks), 1) if risks else 0.0
 
+    # Active Risk Index: the mean deterministic risk_score over LIVE (non-terminal)
+    # cases only — the single "how hot is the board right now?" instrument (the UI's
+    # ActiveRiskIndex gauge reads this). Terminal (resolved/closed) cases are excluded
+    # so a pile of cleared low-risk cases can't drag the headline down. 0.0 when the
+    # board is empty (honest zero, not a divide-by-zero).
+    active_risks = [
+        c.risk_score
+        for c in cases
+        if isinstance(c.risk_score, (int, float))
+        and (c.status.value if c.status else "") not in TERMINAL_CASE_STATUSES
+    ]
+    active_risk_index = round(sum(active_risks) / len(active_risks), 1) if active_risks else 0.0
+    active_risk_case_count = len(active_risks)
+
     # Coarse MTTR: resolution latency of CLOSED cases (updated_at - created_at).
     resolution_minutes: list[float] = []
     for c in cases:
@@ -155,6 +169,8 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
         "persona_usage": dict(by_persona),
         "playbook_usage": dict(by_playbook),
         "avg_risk_score": avg_risk,
+        "active_risk_index": active_risk_index,
+        "active_risk_case_count": active_risk_case_count,
         "mttr_minutes": mttr,
         "resolved_count": len(resolution_minutes),
         "cases_per_day": [{"date": d, "count": n} for d, n in trend],
@@ -214,7 +230,14 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
       the ``first_response_at`` anchor).
 
     Each is a ``_stat_block``; when NO case ever made the transition the block is a
-    labelled DASH with a reason (honest — never a fake 0)."""
+    labelled DASH with a reason (honest — never a fake 0).
+
+    The webui renders these three intervals under the honest labels + formula help in
+    ``webui/src/soc/pages/posture.format.ts`` (``LIFECYCLE_METRICS``) — the SINGLE
+    source of the MTTA / MTTR / dwell copy. NOTE (DECISIONS #2): dwell is
+    time-to-first-response, NOT an ``MTTD`` (mean-time-to-detect) — we do not measure
+    detection latency, so this rollup deliberately exposes no ``mttd`` key (guarded by
+    ``test_round3_wave5_posture.py::test_posture_has_no_mttd_field``)."""
     mtta: list[float] = []
     mttr: list[float] = []
     dwell: list[float] = []

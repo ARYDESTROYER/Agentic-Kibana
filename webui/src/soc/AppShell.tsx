@@ -36,7 +36,7 @@ import {
   ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
-  Command as CommandIcon,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
@@ -539,20 +539,44 @@ export const AppShell: React.FC<AppShellProps> = ({
             <span className="truncate text-muted-foreground">{pageLabel}</span>
           </nav>
 
+          {/* Wide search trigger — an input-styled button that spans the bar and
+              opens the command palette (Cmd-K). It grows to fill the space between
+              the breadcrumb and the right cluster; on the narrowest widths it is
+              hidden and the `sm:hidden` icon opener in the right cluster takes over.
+              The visible placeholder is decorative — the accessible name comes from
+              `aria-label` so it stays distinct from the mobile "Open search" opener. */}
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search cases, sources, and actions"
+            aria-keyshortcuts="Control+K Meta+K"
+            className={cn(
+              'hidden h-9 min-w-0 max-w-md flex-1 items-center gap-2 rounded-md border border-input bg-background/60 px-3 text-sm text-muted-foreground transition-colors sm:flex lg:max-w-lg',
+              'hover:border-border-strong hover:text-foreground',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            )}
+          >
+            <Search className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate text-left">
+              Search cases, sources, actions…
+            </span>
+            <kbd className="ml-1 hidden shrink-0 rounded border border-border bg-muted px-1 text-[10px] font-medium md:inline-block">
+              ⌘K
+            </kbd>
+          </button>
+
           <div className="ml-auto flex items-center gap-2">
-            {/* Cmd-K hint / palette opener */}
+            {/* Compact search opener for the narrowest widths, where the wide trigger
+                above is hidden (`sm:hidden`). Opens the same command palette. */}
             <Button
-              variant="outline"
-              size="sm"
-              className="hidden h-8 gap-1.5 text-muted-foreground sm:inline-flex"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:hidden"
               onClick={() => setPaletteOpen(true)}
-              aria-label="Open command palette"
+              aria-label="Open search"
+              aria-keyshortcuts="Control+K Meta+K"
             >
-              <CommandIcon className="h-3.5 w-3.5" aria-hidden />
-              <span className="text-xs">Search</span>
-              <kbd className="ml-1 rounded border border-border bg-muted px-1 text-[10px] font-medium">
-                ⌘K
-              </kbd>
+              <Search className="h-4 w-4" aria-hidden />
             </Button>
 
             {/* In-app notification bell (#8) — self-contained: polls the unread

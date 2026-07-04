@@ -24,6 +24,7 @@ All assertions are deterministic; advisory only — none of this is read by
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -132,6 +133,34 @@ def test_navigator_layer_records_truncation_in_metadata() -> None:
     layer_full = MC.navigator_layer(cases, store_total=1)
     meta_full = {m["name"]: m["value"] for m in layer_full["metadata"]}
     assert meta_full["truncated"] == "false"
+
+
+# --------------------------------------------------------------------------- #
+# Honesty lock — the lifecycle rollup exposes MTTA / MTTR / dwell only, never "MTTD"
+# (DECISIONS #2). dwell is time-to-first-response, NOT a detection-latency metric we
+# cannot honestly compute; the frontend copy lives in webui posture.format.ts
+# (LIFECYCLE_METRICS) and must stay grounded in these exact interval keys.
+# --------------------------------------------------------------------------- #
+def test_posture_has_no_mttd_field() -> None:
+    cases = [
+        _case(
+            "life-1",
+            created="2026-06-30T06:00:00+00:00",
+            updated="2026-06-30T08:00:00+00:00",
+            status=CaseStatus.CLOSED,
+            history=[
+                ("open", "investigating", "2026-06-30T06:30:00+00:00"),
+                ("investigating", "closed", "2026-06-30T08:00:00+00:00"),
+            ],
+        ),
+    ]
+    # The three interval keys are EXACTLY mtta/mttr/dwell — no invented "mttd".
+    intervals = M.lifecycle_intervals(cases)
+    assert set(intervals.keys()) == {"mtta_minutes", "mttr_minutes", "dwell_minutes"}
+
+    # And no 'mttd' substring leaks anywhere into the serialized posture payload.
+    roll = M.posture_metrics(cases, window_hours=720, compare="prev", now=NOW)
+    assert "mttd" not in json.dumps(roll).lower()
 
 
 # --------------------------------------------------------------------------- #

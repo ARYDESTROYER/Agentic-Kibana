@@ -24,6 +24,12 @@ from ..connectors.base import PullConnector
 from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, SourceSurface
 from ..engine.ingest import attach_cluster, dedup_by_id, handle_clusters
+from ..engine.noise_counters import (
+    count_clusters_by_band,
+    count_events_by_band,
+    severity_scale_for_source,
+    zero_bands,
+)
 from ..es.base import BaseESClient
 from ..models import Cursor, RawEvent
 from ..stores.cursor_store import CursorStore
@@ -103,6 +109,14 @@ class Poller:
         # feed's durable cursor still advances over the full scanned window (#4 no-skip)
         # regardless of which path handles the events.
         self._event_funnel: Callable | None = None
+        # Round-7 Noise-Reduction counters: an OPTIONAL fail-open sink that records this
+        # poll tick's raw-alert-by-severity tally (ingested/clustered/suppressed/ignored)
+        # into the durable NoiseCounterStore. Wired by AppState (fanned out via
+        # PollerManager.set_noise_sink) as a SEPARATE hook from ``_event_funnel`` (P0 name
+        # collision avoidance). ``async (delta: dict) -> None`` and NEVER raises into the
+        # poll cycle. None (the default) → no counters recorded (byte-identical poll path);
+        # advisory presentation state only, never feeds ``decide()`` (#3).
+        self._noise_sink: Callable | None = None
         # The durable cursor key used by the LEGACY / un-fed union path (a source with
         # no ``index_patterns`` feeds). Defaults to ``"primary"`` so a single-source
         # deployment reads the legacy ``CURSOR_DOC_ID`` doc unchanged (#4 — no
@@ -306,6 +320,15 @@ class Poller:
         # a second, read-only window over the SAME in-scope log surface (#1, #12).
         # We only do the wider read when there is genuinely new activity, so a quiet
         # poll stays cheap and we never re-correlate an unchanged window.
+        #
+        # Round-7 Noise-Reduction counters (fail-open; never slows the poll path, #H W0.8):
+        # the clustered/suppressed/ignored bands are computed INSIDE the ``if new_events:``
+        # block below (where ``clusters``/``cluster_stats``/``own_source`` are in scope);
+        # the ingested band + the sink invocation are ALWAYS-in-scope after it, so an
+        # events-only / quiet tick can never UnboundLocalError on those block-locals.
+        noise_clustered = zero_bands()
+        noise_suppressed = 0
+        noise_ignored = 0
         if new_events:
             from ..engine.correlation import correlate  # local import avoids cycle at import time
 
@@ -347,6 +370,17 @@ class Poller:
                 source_surface=SourceSurface.AUTOMATED_SCAN,
             )
             stats.update(cluster_stats)
+            # Round-7: band THIS tick's clusters + record the drops, INSIDE the block where
+            # ``clusters``/``cluster_stats``/``own_source`` are in scope. Only when a counter
+            # sink is wired (byte-identical poll path otherwise); best-effort, never raises.
+            if self._noise_sink is not None:
+                try:
+                    _sink_scale = severity_scale_for_source(own_source)
+                    noise_clustered = count_clusters_by_band(clusters, _sink_scale)
+                    noise_suppressed = int(cluster_stats.get("suppressed", 0) or 0)
+                    noise_ignored = int(cluster_stats.get("ignored", 0) or 0)
+                except Exception:  # noqa: BLE001 — counters are advisory, never break a poll
+                    pass
             # Opt-in cross-source correlation (Wave 5 / F6): link open cases sharing an
             # entity across sources as RELATED (never merged). No-op when disabled.
             if prefs.cross_source_correlation.enabled:
@@ -358,6 +392,31 @@ class Poller:
                     )
                 except Exception as exc:  # noqa: BLE001 — never break the poll loop
                     logger.warning("cross-source correlation failed: %s", exc)
+
+        # Round-7: ingested = ALL new alerts this tick (new_events + funnel-routed events),
+        # banded by the source's declared severity scale. The source instance is re-resolved
+        # SEPARATELY here (NOT the if-block-local ``own_source``) so this path is always in
+        # scope — an events-only feed (new_events empty, funnel_events non-empty) still tallies
+        # its ingested volume. Then fan the assembled delta to the noise sink UNCONDITIONALLY:
+        # fail-open, using ONLY the pre-computed dict (never the if-block locals).
+        if self._noise_sink is not None:
+            noise_ingested = zero_bands()
+            try:
+                _ns_source = prefs.source_by_id(getattr(self._source, "connector_id", None))
+                noise_ingested = count_events_by_band(
+                    new_events + funnel_events, severity_scale_for_source(_ns_source)
+                )
+            except Exception:  # noqa: BLE001 — counters are advisory, never break a poll
+                pass
+            try:
+                await self._noise_sink({
+                    "ingested": noise_ingested,
+                    "clustered": noise_clustered,
+                    "suppressed": noise_suppressed,
+                    "ignored": noise_ignored,
+                })
+            except Exception as exc:  # noqa: BLE001 — the sink must never break a poll cycle
+                logger.debug("noise-counter sink failed: %s", exc)
 
         # Persist EACH feed's advanced cursor durably + independently (#4 — a slow
         # feed's cursor is never dragged forward by a fast feed's events). The advanced

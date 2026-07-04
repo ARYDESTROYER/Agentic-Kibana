@@ -13,6 +13,63 @@
 import { DASH } from '@/lib/format';
 import type { CompareBlock, StatBlock } from './Metrics.posture.api';
 
+// --------------------------------------------------------------------------- //
+// Lifecycle-timing copy — the SINGLE honest source of MTTA / MTTR / Dwell labels
+// --------------------------------------------------------------------------- //
+
+/** The three lifecycle-timing intervals the backend rollup exposes, keyed to the
+ * `lifecycle_intervals` StatBlocks (`mtta_minutes` / `mttr_minutes` / `dwell_minutes`). */
+export type LifecycleMetricKey = 'mtta' | 'mttr' | 'dwell';
+
+interface LifecycleMetricCopy {
+  /** Short KPI-tile label (the acronym). */
+  label: string;
+  /** Plain-English expansion for the tile sub-line / column sub-title. */
+  sub: string;
+  /** One-sentence formula help (what interval is measured), grounded verbatim in
+   * `backend/app/engine/metrics.py::lifecycle_intervals`. */
+  help: string;
+}
+
+/**
+ * The ONE honest source of the lifecycle-timing copy shared by the Overview
+ * ("Security Command Center") + Metrics posture surfaces. It mirrors exactly what
+ * `engine/metrics.py::lifecycle_intervals` measures — no invented "MTTD".
+ *
+ * The backend measures each interval from case CREATION (or the explicit detection
+ * anchor when populated) to a status-history transition, and reports p50 / p90 / mean:
+ *   • MTTA  → first ACK transition (investigating / escalated / on-hold).
+ *   • MTTR  → first TERMINAL transition (resolved / closed).
+ *   • Dwell → first RESPONSE transition (investigating / escalated / on-hold /
+ *             resolved / closed) — i.e. time-to-first-response.
+ *
+ * ⚠ Dwell is deliberately NOT labelled "MTTD" (mean-time-to-detect): we do not measure
+ * log-arrival→detection latency, so surfacing it as detection time would be dishonest.
+ * The backend has NO `mttd` key (locked by `test_posture_has_no_mttd_field`).
+ */
+export const LIFECYCLE_METRICS: Record<LifecycleMetricKey, LifecycleMetricCopy> = {
+  mtta: {
+    label: 'MTTA',
+    sub: 'Time to acknowledge',
+    help: 'Median (p50) time from case creation — or detection when known — to the first analyst acknowledgement (the case entering investigating, escalated, or on-hold).',
+  },
+  mttr: {
+    label: 'MTTR',
+    sub: 'Time to resolve',
+    help: 'Median (p50) time from case creation — or detection when known — to the first terminal transition (resolved or closed).',
+  },
+  dwell: {
+    label: 'Dwell',
+    sub: 'Time to first response',
+    help: 'Median (p50) time from case creation — or detection when known — to the first active response (investigating, escalated, on-hold, resolved, or closed). This is time-to-first-response, not time-to-detect.',
+  },
+};
+
+/** The short KPI label for a lifecycle metric (e.g. `'mtta'` → `"MTTA"`). */
+export function kpiLabel(key: LifecycleMetricKey): string {
+  return LIFECYCLE_METRICS[key].label;
+}
+
 /** True when a value is a finite number we can render/compute on. */
 export function isNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);

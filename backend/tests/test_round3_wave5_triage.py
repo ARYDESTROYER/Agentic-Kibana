@@ -117,7 +117,7 @@ def test_ocsf_informational_is_not_high() -> None:
     sev = severity_band_from_events(case, prefs)
     assert sev["scale"] == "ocsf_0_100"
     assert sev["value"] == 10.0          # NOT 100.0 — no double-scale
-    assert sev["band"] == "low"          # 10 < 40 medium cut -> low (was 'high' pre-fix)
+    assert sev["band"] == "low"          # 8 <= 10 < 22 medium cut -> low (was 'high' pre-fix)
     assert sev["band"] != "high"
 
 
@@ -132,19 +132,22 @@ def test_ocsf_benign_zero_one_not_high() -> None:
 
 
 def test_wazuh_high_levels_render_high() -> None:
-    """Wazuh ``rule.level`` 11/12/15 (the upper end of the 0-15 ladder) must render HIGH —
-    the old heuristic left 11-15 unscaled (LOW). In particular level 12 (Wazuh CRITICAL)
-    -> 80 -> HIGH, not LOW (the load-bearing inversion the audit found). The linear
-    ``level/15*100`` projection is monotonic, so the 70+ band starts at level 11
-    (73.3) — level 7 sits mid-ladder (46.67 -> MEDIUM), see the dedicated test below."""
+    """Wazuh ``rule.level`` 11/12/15 (the upper end of the 0-15 ladder) must render at or
+    above HIGH — the old heuristic left 11-15 unscaled (LOW). On the 5-band severity ladder
+    (74/48/22/8) the linear ``level/15*100`` projection lands level 11 (73.3) on HIGH and
+    levels 12 (80) / 15 (100) on CRITICAL — never the LOW inversion the audit found. Level 7
+    sits mid-ladder (46.67 -> MEDIUM), see the dedicated test below."""
     prefs = _wazuh_prefs()
     for lvl in (11, 12, 15):
         sev = severity_band_from_events(_wazuh_case(rule_level=lvl), prefs)
         assert sev["scale"] == "wazuh_0_15"
-        assert sev["band"] == "high", f"wazuh level {lvl} should be HIGH, got {sev}"
-    # level 12 -> 12/15*100 = 80.0 exactly; the CRITICAL inversion (was 12 -> LOW) is gone.
+        assert sev["band"] in ("high", "critical"), (
+            f"wazuh level {lvl} should be >= HIGH, got {sev}"
+        )
+    # level 12 -> 12/15*100 = 80.0 exactly -> CRITICAL (>= 74); the LOW inversion is gone.
     sev12 = severity_band_from_events(_wazuh_case(rule_level=12), prefs)
     assert sev12["value"] == 80.0
+    assert sev12["band"] == "critical"
 
 
 def test_wazuh_mid_ladder_is_medium_not_low() -> None:
@@ -158,11 +161,14 @@ def test_wazuh_mid_ladder_is_medium_not_low() -> None:
 
 
 def test_wazuh_low_levels_render_low() -> None:
-    """The low end of the Wazuh ladder stays low (no inversion the other way)."""
+    """The low end of the Wazuh ladder stays low/info (no inversion the other way).
+
+    On the 5-band ladder levels 0/1 (0 and 6.67) sit below the <8 info floor -> INFO,
+    while 2/3 (13.3/20) land LOW — never HIGH."""
     prefs = _wazuh_prefs()
     for lvl in (0, 1, 2, 3):
         sev = severity_band_from_events(_wazuh_case(rule_level=lvl), prefs)
-        assert sev["band"] in ("low", "medium")
+        assert sev["band"] in ("info", "low", "medium")
         assert sev["band"] != "high"
 
 
@@ -193,13 +199,14 @@ def test_severity_value_monotonic_across_ocsf_scores() -> None:
 def test_unknown_scale_preserves_legacy_heuristic() -> None:
     """No prefs / unconfigured source -> the legacy heuristic still applies, keeping old
     stored cases + the no-prefs callers byte-identical (back-compat)."""
-    # severity_max=8.0, no prefs -> <=10 -> *10 -> 80 (high), scale 'unknown'.
+    # severity_max=8.0, no prefs -> <=10 -> *10 -> 80 (critical on the 5-band ladder),
+    # scale 'unknown'.
     sev = severity_band_from_events(_case(severity_max=8.0))
     assert sev["scale"] == "unknown"
-    assert sev["value"] == 80.0 and sev["band"] == "high"
+    assert sev["value"] == 80.0 and sev["band"] == "critical"
     # An already-0-100 value with no provenance is not doubled.
     sev2 = severity_band_from_events(_case(severity_max=90.0))
-    assert sev2["value"] == 90.0 and sev2["band"] == "high"
+    assert sev2["value"] == 90.0 and sev2["band"] == "critical"
     # An unconfigured source_id (not in prefs.sources) also falls back to legacy.
     sev3 = severity_band_from_events(
         _case(severity_max=8.0, source_id="ghost"), Preferences()
@@ -241,7 +248,7 @@ def test_decide_invariant_to_severity_scale() -> None:
     wz = severity_band_from_events(_wazuh_case(rule_level=12), _wazuh_prefs())
     ocsf = severity_band_from_events(_case(severity_max=10.0, source_id="wh1"),
                                      _ocsf_push_prefs())
-    assert wz["band"] == "high" and ocsf["band"] == "low"   # bands genuinely differ
+    assert wz["band"] == "critical" and ocsf["band"] == "low"   # bands genuinely differ
     again = decide(Verdict.TRUE_POSITIVE, 0.8, 30.0, prefs.auto_close,
                    escalation_confidence=prefs.escalation_confidence,
                    critical_severity=prefs.critical_severity)

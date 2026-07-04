@@ -29,6 +29,7 @@ from ..constants import (
 )
 from ..engine.correlation import cluster_from_events
 from ..engine.metrics import compute_metrics, feedback_stats
+from ..engine.priority import advisory_bands
 from ..es.querybuilder import entity_query, ids_query, scope_filters, scope_must_not
 from ..llm.pricing import models_by_provider
 from ..models import (
@@ -2763,6 +2764,20 @@ def _window_cases_by_created(
     return out
 
 
+def _with_advisory_bands(case: Case, prefs: Preferences) -> Case:
+    """Populate the five READ-TIME advisory band fields (severity/impact/urgency/
+    priority) on a Case copy for the presentation surfaces (Round-7 W0.7).
+
+    ADDITIVE + FAIL-OPEN: derives the bands via the pure ``engine.priority.advisory_bands``
+    and returns a ``model_copy`` update (never mutating the stored case). On ANY error the
+    ORIGINAL case is returned unchanged so ``GET /api/cases`` + ``/{id}`` can never 500 on a
+    malformed case. NONE of these bands feeds ``case_manager.decide()`` (#3)."""
+    try:
+        return case.model_copy(update=advisory_bands(case, prefs))
+    except Exception:  # noqa: BLE001 — advisory only; never break the endpoint
+        return case
+
+
 @router.get("/cases", response_model=CaseListResponse)
 async def list_cases(
     status: str | None = None,
@@ -2788,6 +2803,10 @@ async def list_cases(
     if from_ or to:
         cases = _window_cases_by_created(cases, from_, to)
         total = len(cases)
+    # ADDITIVE (Round-7 W0.7): populate the read-time advisory bands (severity/impact/
+    # urgency/priority) for the list surface. Fail-open per case — never 500 (#3).
+    prefs = state.prefs
+    cases = [_with_advisory_bands(c, prefs) for c in cases]
     return CaseListResponse(cases=cases, total=total)
 
 
@@ -2800,7 +2819,8 @@ async def get_case(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return case
+    # ADDITIVE (Round-7 W0.7): read-time advisory bands, fail-open (never 500) (#3).
+    return _with_advisory_bands(case, state.prefs)
 
 
 class CaseAction(BaseModel):

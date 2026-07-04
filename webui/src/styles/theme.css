@@ -148,6 +148,10 @@
     --motion-base: 200ms; /* popover/tooltip/tab-switch/row-expand */
     --motion-slow: 280ms; /* Sheet/Dialog/drawer enter */
     --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    /* Round-7 W0.1 — the "premium" entrance curve (confident, slight overshoot-free
+       ease-out). Formalised as a token so `ease-premium` in Tailwind + the fade/rise/
+       scale keyframes all read from ONE place. */
+    --motion-ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .dark {
@@ -367,6 +371,33 @@
     opacity: var(--grid-opacity);
     mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
     -webkit-mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
+  }
+}
+
+@layer utilities {
+  /* Round-7 W0.1 — subtle interaction affordances for clickable tiles/cards.
+     `.hover-lift` raises a card 2px + adds the resting elevation shadow on hover;
+     `.press-scale` nudges it down on active-press. Both TRANSITION unconditionally
+     (so returning to rest is smooth) but the actual transform/shadow is GATED behind
+     `(prefers-reduced-motion: no-preference)`, so reduced-motion users get a flat,
+     motionless control (the global reset only zeroes durations — it does not remove
+     the transform, hence the explicit gate here). 2px, not 8px (DESIGN_DIRECTION). */
+  .hover-lift {
+    transition:
+      transform var(--motion-fast) var(--motion-ease-standard),
+      box-shadow var(--motion-fast) var(--motion-ease-standard);
+  }
+  .press-scale {
+    transition: transform var(--motion-fast) var(--motion-ease-standard);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .hover-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--elev-1);
+    }
+    .press-scale:active {
+      transform: scale(0.97);
+    }
   }
 }
 

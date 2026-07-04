@@ -1,0 +1,341 @@
+"""Round 7 — Noise-Reduction counters: store + banding engine + endpoint (offline).
+
+Covers ★a's backend for the Noise-Reduction funnel ("total alerts by severity → what
+the AI reduced it to"):
+
+* the durable :class:`app.stores.noise_counters.NoiseCounterStore` — record/read_window/
+  clear, CAS-concurrency (no lost update under ``asyncio.gather``), skip-empty, and the
+  warming-up / ``incomplete`` honesty flags;
+* the pure banding + rollup helpers in :mod:`app.engine.noise_counters` (importing the
+  ONE 74/48/22/8 severity classifier in ``priority.py`` — never re-declared);
+* the ``build_noise_reduction`` §D report contract (MECE outcomes that SUM to
+  ``cases.total``; null ingested + DASH reduction when counters warm up);
+* the ``GET /api/metrics/noise-reduction`` route's truncation honesty.
+
+Fully offline (fake ES + no LLM). Advisory only — nothing here is read by
+``case_manager.decide()`` (#3)."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
+
+from app.constants import (
+    CaseStatus,
+    DecisionBy,
+    EntityType,
+    IngestMode,
+    SEVERITY_BANDS,
+    SourceSurface,
+    SourceType,
+    Verdict,
+)
+from app.engine import noise_counters as EN
+from app.engine.priority import severity_scale_for_source
+from app.models import Case, Entity, RawEvent
+from app.state import AppState
+from app.stores.noise_counters import NoiseCounterStore
+
+asyncio_mark = pytest.mark.asyncio
+
+NOW = datetime(2026, 7, 5, 12, 0, 0, tzinfo=timezone.utc)
+
+
+# --------------------------------------------------------------------------- #
+# severity_scale_for_source — the classifier extracted from priority._scale_for_case
+# --------------------------------------------------------------------------- #
+def test_severity_scale_for_source_none_is_unknown() -> None:
+    # Both the priority home + the engine re-export resolve None → the legacy heuristic.
+    assert severity_scale_for_source(None) == "unknown"
+    assert EN.severity_scale_for_source(None) == "unknown"
+
+
+def test_severity_scale_for_source_classifies_by_type_and_mode() -> None:
+    wazuh = SimpleNamespace(source_type=SourceType.WAZUH, ingest_mode=IngestMode.PULL)
+    push = SimpleNamespace(source_type=SourceType.WEBHOOK, ingest_mode=IngestMode.PUSH_HTTP)
+    pull = SimpleNamespace(source_type=SourceType.ELASTICSEARCH, ingest_mode=IngestMode.PULL)
+    assert severity_scale_for_source(wazuh) == "wazuh_0_15"
+    assert severity_scale_for_source(push) == "ocsf_0_100"
+    assert severity_scale_for_source(pull) == "0_10"
+
+
+# --------------------------------------------------------------------------- #
+# Banding + rollup helpers (import the ONE priority classifier — no re-declared cuts)
+# --------------------------------------------------------------------------- #
+def test_band_for_severity_ocsf_identity_scale() -> None:
+    # ocsf_0_100 is identity: the 74/48/22/8 cuts land exactly as in priority.py.
+    assert EN.band_for_severity(90, "ocsf_0_100") == "critical"
+    assert EN.band_for_severity(50, "ocsf_0_100") == "high"
+    assert EN.band_for_severity(30, "ocsf_0_100") == "medium"
+    assert EN.band_for_severity(10, "ocsf_0_100") == "low"
+    assert EN.band_for_severity(5, "ocsf_0_100") == "info"
+    assert EN.band_for_severity(None, "ocsf_0_100") == "info"
+
+
+def test_count_events_by_band_uses_source_scale() -> None:
+    evs = [RawEvent(id=f"e{i}", index="ix", severity=s)
+           for i, s in enumerate([8.0, 5.0, 2.0, 0.0])]
+    # Under the suite 0-10 scale: 80→critical, 50→high, 20→low, 0→info.
+    counts = EN.count_events_by_band(evs, "0_10")
+    assert counts == {"critical": 1, "high": 1, "medium": 0, "low": 1, "info": 1}
+    assert EN.count_events_by_band([], "0_10") == EN.zero_bands()
+
+
+def test_count_clusters_by_band_prefers_trigger_reason() -> None:
+    from app.models import Cluster, TriggerReason
+
+    hot = Cluster(signature="s1", entity=Entity(type=EntityType.IP, value="1.1.1.1"),
+                  group_by=EntityType.IP, trigger_reason=TriggerReason(severity_max=90.0))
+    warm = Cluster(signature="s2", entity=Entity(type=EntityType.IP, value="2.2.2.2"),
+                   group_by=EntityType.IP,
+                   member_events=[RawEvent(id="m1", index="ix", severity=50.0)])
+    counts = EN.count_clusters_by_band([hot, warm], "ocsf_0_100")
+    assert counts["critical"] == 1 and counts["high"] == 1
+
+
+def test_merge_bands_and_empty_delta() -> None:
+    a = {"critical": 2, "high": 1}
+    b = {"critical": 3, "low": 4}
+    assert EN.merge_bands(a, b) == {"critical": 5, "high": 1, "medium": 0, "low": 4, "info": 0}
+    assert EN.merge_bands(None, None) == EN.zero_bands()
+    delta = EN.empty_noise_delta()
+    assert delta["ingested"] == EN.zero_bands() and delta["suppressed"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# NoiseCounterStore — record / read_window / clear / warming-up
+# --------------------------------------------------------------------------- #
+@asyncio_mark
+async def test_store_record_and_read_window(app_state: AppState) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    # Warming up: nothing recorded yet → not available, all-zero window.
+    warm = await store.read_window(24, now=NOW)
+    assert warm["available"] is False
+    assert warm["since"] is None
+    assert warm["ingested"] == EN.zero_bands()
+
+    await store.record({"ingested": {"critical": 3, "high": 2}, "clustered": {"high": 1},
+                        "suppressed": 4, "ignored": 2}, now=NOW)
+    await store.record({"ingested": {"critical": 1}, "clustered": {"medium": 5}}, now=NOW)
+
+    w = await store.read_window(24, now=NOW)
+    assert w["available"] is True
+    assert w["since"] is not None
+    assert w["ingested"]["critical"] == 4 and w["ingested"]["high"] == 2
+    assert w["clustered"] == {"critical": 0, "high": 1, "medium": 5, "low": 0, "info": 0}
+    assert w["suppressed"] == 4 and w["ignored"] == 2
+
+
+@asyncio_mark
+async def test_store_record_skips_empty_delta(app_state: AppState) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    await store.record({"ingested": EN.zero_bands(), "clustered": EN.zero_bands(),
+                        "suppressed": 0, "ignored": 0}, now=NOW)
+    await store.record({}, now=NOW)
+    # An all-zero tick is a NO-OP: the store never leaves "warming up".
+    w = await store.read_window(24, now=NOW)
+    assert w["available"] is False
+
+
+@asyncio_mark
+async def test_store_window_scopes_by_hour(app_state: AppState) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    old = NOW - timedelta(hours=48)
+    await store.record({"ingested": {"low": 7}}, now=old)   # 48h ago
+    await store.record({"ingested": {"low": 3}}, now=NOW)   # now
+    # A 24h window sees ONLY the recent record...
+    recent = await store.read_window(24, now=NOW)
+    assert recent["ingested"]["low"] == 3
+    # ...but a 72h window sees both.
+    wide = await store.read_window(72, now=NOW)
+    assert wide["ingested"]["low"] == 10
+    # window_hours<=0 → the whole tally.
+    allw = await store.read_window(0, now=NOW)
+    assert allw["ingested"]["low"] == 10
+
+
+@asyncio_mark
+async def test_store_incomplete_flag(app_state: AppState) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    await store.record({"ingested": {"high": 1}}, now=NOW)
+    # A window whose start reaches BEFORE ``since`` is only partially covered.
+    partial = await store.read_window(24, now=NOW)  # since==NOW > NOW-24h
+    assert partial["available"] is True and partial["incomplete"] is True
+    # Read far in the future so the window fully post-dates ``since`` → complete.
+    later = NOW + timedelta(hours=48)
+    complete = await store.read_window(1, now=later)  # window_from = later-1h > since
+    assert complete["incomplete"] is False
+
+
+@asyncio_mark
+async def test_store_clear(app_state: AppState) -> None:
+    store = NoiseCounterStore(app_state._kv)
+    await store.record({"ingested": {"critical": 5}}, now=NOW)
+    assert (await store.read_window(24, now=NOW))["available"] is True
+    await store.clear()
+    after = await store.read_window(24, now=NOW)
+    assert after["available"] is False and after["ingested"] == EN.zero_bands()
+
+
+@asyncio_mark
+async def test_store_cas_concurrency_no_lost_update(app_state: AppState) -> None:
+    """Two store instances over the SAME KV, records fired concurrently via
+    ``asyncio.gather`` — the ``_rev`` CAS retry means NOT ONE increment is lost."""
+    store_a = NoiseCounterStore(app_state._kv)
+    store_b = NoiseCounterStore(app_state._kv)
+    n = 30
+
+    async def _bump(store: NoiseCounterStore) -> None:
+        await store.record({"ingested": {"critical": 1}}, now=NOW)
+
+    await asyncio.gather(*[_bump(store_a) for _ in range(n)],
+                         *[_bump(store_b) for _ in range(n)])
+    w = await store_a.read_window(24, now=NOW)
+    assert w["ingested"]["critical"] == 2 * n
+
+
+# --------------------------------------------------------------------------- #
+# build_noise_reduction — the §D report contract
+# --------------------------------------------------------------------------- #
+def _case(cid: str, *, status: CaseStatus, verdict: Verdict | None = None,
+          decision_by: DecisionBy | None = None, severity_band: str = "high",
+          escalation_level: int = 0) -> Case:
+    return Case(
+        case_id=cid, cluster_signature=f"sig-{cid}",
+        source_surface=SourceSurface.AUTOMATED_SCAN,
+        entity=Entity(type=EntityType.IP, value="1.2.3.4"),
+        created_at=NOW.isoformat(), updated_at=NOW.isoformat(),
+        status=status, verdict=verdict, decision_by=decision_by,
+        severity_band=severity_band, escalation_level=escalation_level,
+        risk_score=50.0, confidence=0.9,
+    )
+
+
+def _mece_cases() -> list[Case]:
+    return [
+        _case("nh1", status=CaseStatus.CLOSED, verdict=Verdict.NEEDS_HUMAN),  # needs_human (verdict)
+        _case("nh2", status=CaseStatus.OPEN),                                 # needs_human (non-terminal)
+        _case("esc", status=CaseStatus.ESCALATED, verdict=Verdict.TRUE_POSITIVE),  # escalated
+        _case("ac", status=CaseStatus.CLOSED, verdict=Verdict.FALSE_POSITIVE,
+              decision_by=DecisionBy.AGENT),                                  # auto_cleared
+        _case("tp", status=CaseStatus.RESOLVED, verdict=Verdict.TRUE_POSITIVE,
+              decision_by=DecisionBy.ANALYST),                               # true_positive residual
+    ]
+
+
+_COUNTERS_AVAILABLE = {
+    "available": True, "since": NOW.isoformat(), "incomplete": False,
+    "ingested": {"critical": 100, "high": 50, "medium": 30, "low": 20, "info": 10},
+    "clustered": {"critical": 5, "high": 3, "medium": 2, "low": 1, "info": 0},
+    "suppressed": 12, "ignored": 4,
+}
+
+
+def test_build_noise_reduction_contract_shape() -> None:
+    rep = EN.build_noise_reduction(
+        _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
+        fetched_count=5, prefs=None, generated_at="2026-07-05T12:00:00+00:00", now=NOW,
+    )
+    assert rep["window_hours"] == 0
+    assert rep["bands"] == list(SEVERITY_BANDS)
+    assert [s["key"] for s in rep["stages"]] == [
+        "ingested", "clustered", "cases", "auto_cleared", "escalated", "needs_human",
+    ]
+    det = {s["key"]: s["deterministic"] for s in rep["stages"]}
+    assert det["cases"] is False and det["ingested"] is True and det["needs_human"] is True
+    src = {s["key"]: s["source"] for s in rep["stages"]}
+    assert src["ingested"] == "counters" and src["cases"] == "cases"
+    assert rep["drops"] == {"suppressed": 12, "ignored": 4}
+
+
+def test_build_noise_reduction_mece_sums_to_cases_total() -> None:
+    rep = EN.build_noise_reduction(
+        _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
+        fetched_count=5, generated_at="g", now=NOW,
+    )
+    stage = {s["key"]: s["total"] for s in rep["stages"]}
+    assert stage["cases"] == 5
+    assert stage["needs_human"] == 2
+    assert stage["escalated"] == 1
+    assert stage["auto_cleared"] == 1
+    residual_tp = stage["cases"] - stage["needs_human"] - stage["escalated"] - stage["auto_cleared"]
+    assert residual_tp == 1  # the client-derived true_positive bar
+    # ingested/clustered from the durable counters.
+    assert stage["ingested"] == 210 and stage["clustered"] == 11
+    # headline: overall = 1 - needs_human/ingested; human = 1 - needs_human/cases.
+    assert rep["reduction"]["overall_pct"] == round(1 - 2 / 210, 4)
+    assert rep["reduction"]["human_reduction_pct"] == round(1 - 2 / 5, 4)
+
+
+def test_build_noise_reduction_by_severity_bands() -> None:
+    rep = EN.build_noise_reduction(
+        _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
+        fetched_count=5, generated_at="g", now=NOW,
+    )
+    by = {s["key"]: s["by_severity"] for s in rep["stages"]}
+    # every _case defaults severity_band='high' → the 5 cases all land in the high band.
+    assert by["cases"]["high"] == 5
+    assert by["needs_human"]["high"] == 2
+    assert by["ingested"] == _COUNTERS_AVAILABLE["ingested"]
+
+
+def test_build_noise_reduction_warming_up_degrades() -> None:
+    rep = EN.build_noise_reduction(
+        _mece_cases(), {"available": False}, window_hours=0, store_total=5,
+        fetched_count=5, generated_at="g", now=NOW,
+    )
+    stage = {s["key"]: s for s in rep["stages"]}
+    # Counters warming up → null ingested/clustered totals + DASH overall reduction.
+    assert stage["ingested"]["total"] is None
+    assert stage["ingested"]["by_severity"] is None
+    assert stage["clustered"]["total"] is None
+    assert rep["reduction"]["overall_pct"] == "—"
+    # ...but the case-only funnel still works (human reduction from cases).
+    assert stage["cases"]["total"] == 5
+    assert rep["reduction"]["human_reduction_pct"] == round(1 - 2 / 5, 4)
+    assert rep["counters"]["available"] is False
+
+
+def test_build_noise_reduction_reports_truncation() -> None:
+    # store held MORE than we fetched → the case-tally is a lower bound, flagged honestly.
+    rep = EN.build_noise_reduction(
+        _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=999,
+        fetched_count=5, generated_at="g", now=NOW,
+    )
+    assert rep["cases_meta"] == {"truncated": True, "store_total": 999, "fetched": 5}
+
+
+# --------------------------------------------------------------------------- #
+# Route-level: GET /api/metrics/noise-reduction truncation + warming-up honesty
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def metrics_client(app_state):
+    from app.api.deps import require_auth
+    from app.api.routes_metrics import router
+
+    api = FastAPI()
+    api.state.tlsoc = app_state
+    api.include_router(router, dependencies=[Depends(require_auth)])
+    return TestClient(api)
+
+
+@asyncio_mark
+async def test_noise_reduction_endpoint_truncation_and_warmup(metrics_client, app_state, monkeypatch):
+    monkeypatch.setattr("app.api.routes_metrics._STORE_FETCH_LIMIT", 2)
+    for i in range(3):
+        await app_state.cases.save(_case(f"n{i}", status=CaseStatus.OPEN))
+    r = metrics_client.get("/api/metrics/noise-reduction?window_hours=24")
+    assert r.status_code == 200
+    body = r.json()
+    # Truncation reported honestly (store had 3, fetch bound was 2).
+    assert body["cases_meta"] == {"truncated": True, "store_total": 3, "fetched": 2}
+    # No poll/ingest ran → counters are warming up → null ingested + DASH reduction.
+    assert body["counters"]["available"] is False
+    ingested = next(s for s in body["stages"] if s["key"] == "ingested")
+    assert ingested["total"] is None
+    assert body["reduction"]["overall_pct"] == "—"

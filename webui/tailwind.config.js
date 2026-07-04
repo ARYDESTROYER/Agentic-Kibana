@@ -168,12 +168,32 @@ export default {
           'radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.07) 0%, transparent 60%), radial-gradient(120% 140% at 100% 0%, hsl(var(--accent) / 0.05) 0%, transparent 60%)',
         'accent-bar': 'linear-gradient(90deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%)',
       },
+      /** Round-7 W0.1 — the app-wide motion dial. The `--motion-*` tokens live in
+          theme.css (one place to retune tempo); these named utilities wire them into
+          Tailwind so authors write `duration-base ease-premium` instead of ad-hoc
+          `duration-200`. `standard` = the calm UI easing; `premium` = the confident
+          entrance curve (cubic-bezier(0.16,1,0.3,1)) already used by fade/rise. Both
+          resolve through a token with a literal fallback so they work even if theme.css
+          has not defined the var. Reduced-motion is neutralised globally (theme.css). */
+      transitionDuration: {
+        fast: 'var(--motion-fast)',
+        base: 'var(--motion-base)',
+        slow: 'var(--motion-slow)',
+      },
+      transitionTimingFunction: {
+        standard: 'var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1))',
+        premium: 'var(--motion-ease-premium, cubic-bezier(0.16, 1, 0.3, 1))',
+      },
       keyframes: {
         'accordion-down': { from: { height: '0' }, to: { height: 'var(--radix-accordion-content-height)' } },
         'accordion-up': { from: { height: 'var(--radix-accordion-content-height)' }, to: { height: '0' } },
         shimmer: { '100%': { transform: 'translateX(100%)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
         'rise-in': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        /* Round-7 W0.1 — a gentle grow-in for cards/gauges/count-up tiles. Opacity +
+           a small scale (never below 0.96 so text stays legible mid-tween). Paired
+           with the `animate-scale-in` util below; reduced-motion collapses it. */
+        'scale-in': { from: { opacity: '0', transform: 'scale(0.96)' }, to: { opacity: '1', transform: 'scale(1)' } },
         'bar-indeterminate': { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'translateX(350%)' } },
         pulse: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.55' } },
         /* Round-5 Sett-C — the deep-link (`&a=<anchor>`) card highlight: a brief ring
@@ -210,6 +230,7 @@ export default {
         shimmer: 'shimmer 1.8s ease-in-out infinite',
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
+        'scale-in': 'scale-in 0.2s cubic-bezier(0.16,1,0.3,1) both',
         'bar-indeterminate': 'bar-indeterminate 1.1s ease-in-out infinite',
         'settings-highlight': 'settings-highlight 1.6s cubic-bezier(0.16,1,0.3,1) both',
         'hero-in-down': 'hero-in-down 0.5s cubic-bezier(0.16,1,0.3,1) both',

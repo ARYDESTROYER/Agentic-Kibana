@@ -13,10 +13,10 @@
  * (`aria-hidden`) — the badge TEXT already carries the meaning — and can be turned
  * off per call with `icon={false}` for the rare space-constrained inline use.
  */
-import type { LucideIcon } from 'lucide-react';
+import { Bot, type LucideIcon } from 'lucide-react';
 import { Badge, type BadgeProps } from '@/ui/badge';
 import { cn } from '@/lib/cn';
-import { DASH, humanizeToken, fmtPercent, toPercentValue } from '@/lib/format';
+import { DASH, humanizeToken, fmtPercent, toPercentValue, formatTimestamp } from '@/lib/format';
 import {
   SEVERITY_COLOR,
   STATUS_COLOR,
@@ -197,8 +197,6 @@ function statusVariant(status: string): Variant {
     case 'needs_human':
       // Legacy alias of "open · awaiting analyst" — an open/attention state.
       return 'high';
-    case 'auto_closed':
-      return 'success';
     case 'reopened':
       return 'warning';
     case 'error':
@@ -221,7 +219,6 @@ function statusLabel(status: string): string {
 /** Normalise a status string to a SEMANTIC_ICON key (§6.1 non-color signaling). */
 function statusIconKey(status: string): string {
   const t = status.trim().toLowerCase();
-  if (t === 'auto_closed') return 'closed';
   if (t === 'reopened') return 'investigating';
   return t;
 }
@@ -511,7 +508,7 @@ export function CategoryBadge({ category, className }: CategoryBadgeProps) {
 // --------------------------------------------------------------------------- //
 type UrgencyBand = 'critical' | 'high' | 'medium' | 'low';
 
-const CLOSED_STATUSES = new Set(['closed', 'resolved', 'auto_closed']);
+const CLOSED_STATUSES = new Set(['closed', 'resolved']);
 
 function ageHours(createdAt?: string | null): number | null {
   if (!createdAt) return null;
@@ -586,6 +583,80 @@ export function UrgencyPill({ createdAt, riskScore, status, className, icon = tr
       {/* UrgencyBand keys (critical/high/medium/low) are SEMANTIC_ICON keys. */}
       <SemanticGlyph iconKey={u.band} show={icon} />
       {u.label}
+    </Badge>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// AutoClosedBadge — surfaces when the AI auto-closed a case (Round-7 #11). There
+// is no `auto_closed` STATUS in the backend: a case is auto-closed by the AI when
+// it reached a terminal lifecycle state (closed/resolved) AND the deterministic
+// close decision was recorded to the `agent` actor (`decision_by === 'agent'`).
+// This is the ONE predicate for that reading — the old dead `'auto'`/`'auto_closed'`
+// status branches were removed. Note: the CLOSE is still made only by the
+// deterministic `decide()` policy (#3); this badge is a read-only presentation of
+// who the recorded decider was, it never changes lifecycle.
+// --------------------------------------------------------------------------- //
+
+const AUTO_CLOSED_TERMINAL = new Set(['closed', 'resolved']);
+
+/**
+ * True when a case was auto-closed by the AI: a terminal status
+ * (`closed`/`resolved`) whose recorded close decision came from the `agent` actor.
+ * An analyst/system/manual close (`decision_by !== 'agent'`) or a still-open case
+ * returns false. Case/whitespace tolerant on both inputs.
+ */
+export function isAutoClosedByAI(
+  status?: string | null,
+  decisionBy?: string | null,
+): boolean {
+  if (!status || !decisionBy) return false;
+  return (
+    AUTO_CLOSED_TERMINAL.has(status.trim().toLowerCase()) &&
+    decisionBy.trim().toLowerCase() === 'agent'
+  );
+}
+
+/** True when `iso` parses to a moment strictly after now (an open objection window). */
+function isFutureInstant(iso?: string | null): boolean {
+  if (!iso) return false;
+  const ms = Date.parse(iso);
+  return !Number.isNaN(ms) && ms > Date.now();
+}
+
+export interface AutoClosedBadgeProps {
+  status?: string | null;
+  decisionBy?: string | null;
+  /** ISO end of the operator objection window; only surfaced when still in the future. */
+  objectionWindowExpiresAt?: string | null;
+  /** Opt in to the trailing "reopen before {time}" note (default off — compact badge). */
+  showObjection?: boolean;
+  className?: string;
+}
+
+/**
+ * Self-hiding badge: renders `null` unless {@link isAutoClosedByAI}. When shown it
+ * reads "Auto-closed by AI" with the Bot glyph (info variant). If `showObjection`
+ * is set and the objection window is still open, it appends "· reopen before {time}"
+ * so an analyst knows how long they have to reverse the automated close.
+ */
+export function AutoClosedBadge({
+  status,
+  decisionBy,
+  objectionWindowExpiresAt,
+  showObjection = false,
+  className,
+}: AutoClosedBadgeProps) {
+  if (!isAutoClosedByAI(status, decisionBy)) return null;
+  const objection =
+    showObjection && isFutureInstant(objectionWindowExpiresAt)
+      ? ` · reopen before ${formatTimestamp(objectionWindowExpiresAt)}`
+      : '';
+  return (
+    <Badge variant="info" className={className}>
+      <Bot className="size-3 shrink-0" aria-hidden />
+      Auto-closed by AI
+      {objection}
     </Badge>
   );
 }

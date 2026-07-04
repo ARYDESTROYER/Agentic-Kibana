@@ -9,6 +9,21 @@ export interface RiskGaugeProps {
   label?: string;
   /** Optional pixel size of the gauge (width). Defaults to 160 (compact). */
   size?: number;
+  /**
+   * Round-7 W0.1 — when true, the coloured arc DRAWS IN from empty to `score` on
+   * mount (via the existing `stroke-dashoffset` CSS transition). Defaults to false so
+   * every current call site renders byte-identically (the arc is filled immediately).
+   * Reduced motion is honoured globally (the transition collapses to ~0ms).
+   */
+  animateValue?: boolean;
+  /**
+   * Round-7 W0.1 — optional 0-100 threshold marker drawn as a small radial tick on
+   * the MUTED track (e.g. the auto-escalate boundary). Drawn only when provided; the
+   * gauge callers do not pass it this wave (the notch render + band HelpTip land in
+   * Wave 2). It is a `<line>`, never a `<path>`, so it does not affect the 2-path arc
+   * geometry other components assert on.
+   */
+  notch?: number;
   className?: string;
 }
 
@@ -59,7 +74,7 @@ const BAND_LABEL: Record<ScoreBand, string> = {
  *    external label below the svg.
  */
 export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
-  ({ score, label, size = 160, className }, ref) => {
+  ({ score, label, size = 160, animateValue = false, notch, className }, ref) => {
     const clamped = Math.max(0, Math.min(100, Number.isFinite(score) ? score : 0));
     const w = size;
     const stroke = Math.max(8, Math.round(size * 0.07));
@@ -77,6 +92,39 @@ export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
     )} 0 0 1 ${(cx + r).toFixed(3)} ${cy.toFixed(3)}`;
     const len = Math.PI * r;
     const dashOffset = (1 - clamped / 100) * len;
+
+    // Round-7 W0.1 — optional mount draw-in. `drawn` starts true when animation is off,
+    // so the default render is byte-identical (offset = dashOffset immediately). When on,
+    // the first paint shows the EMPTY arc (offset = len) then a rAF flips `drawn`, and the
+    // element's existing `transition-[stroke-dashoffset]` animates the fill.
+    const [drawn, setDrawn] = React.useState(!animateValue);
+    React.useEffect(() => {
+      if (!animateValue) return;
+      const id = requestAnimationFrame(() => setDrawn(true));
+      return () => cancelAnimationFrame(id);
+    }, [animateValue]);
+    const renderedOffset = animateValue && !drawn ? len : dashOffset;
+
+    // Round-7 W0.1 — optional threshold notch geometry. The semicircle sweeps from the
+    // left baseline (value 0, θ=π) over the top to the right baseline (value 100, θ=0);
+    // a value maps to θ = π·(1 − f). The tick spans the stroke thickness radially.
+    const notchLine =
+      typeof notch === 'number' && Number.isFinite(notch)
+        ? (() => {
+            const f = Math.max(0, Math.min(100, notch)) / 100;
+            const theta = Math.PI * (1 - f);
+            const cos = Math.cos(theta);
+            const sin = Math.sin(theta);
+            const inner = r - stroke / 2;
+            const outer = r + stroke / 2;
+            return {
+              x1: cx + inner * cos,
+              y1: cy - inner * sin,
+              x2: cx + outer * cos,
+              y2: cy - outer * sin,
+            };
+          })()
+        : null;
 
     const band = scoreBand(clamped);
     const titleId = `gauge-title-${React.useId().replace(/:/g, '')}`;
@@ -105,9 +153,22 @@ export const RiskGauge = React.forwardRef<HTMLDivElement, RiskGaugeProps>(
               strokeWidth={stroke}
               strokeLinecap="round"
               strokeDasharray={len}
-              strokeDashoffset={dashOffset}
+              strokeDashoffset={renderedOffset}
               className={cn('transition-[stroke-dashoffset] duration-500', TEXT_CLASS[band])}
             />
+            {/* Optional threshold notch — a short radial tick across the track only. */}
+            {notchLine ? (
+              <line
+                x1={notchLine.x1.toFixed(3)}
+                y1={notchLine.y1.toFixed(3)}
+                x2={notchLine.x2.toFixed(3)}
+                y2={notchLine.y2.toFixed(3)}
+                strokeWidth={2}
+                strokeLinecap="round"
+                className="stroke-muted-foreground"
+                aria-hidden
+              />
+            ) : null}
           </svg>
 
           {/* Centred value overlay — height-bounded to the bowl, single line. */}

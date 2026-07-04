@@ -67,11 +67,12 @@ def _case(
 # PURE derivation — severity / impact / urgency / priority
 # --------------------------------------------------------------------------- #
 def test_severity_band_is_source_asserted_not_risk():
-    # severity_max=8.0 (0-10 scale) -> 80 magnitude -> high, flagged source_asserted.
+    # severity_max=8.0 (0-10 scale) -> 80 magnitude -> critical (5-band ladder), flagged
+    # source_asserted.
     case = _case(severity_max=8.0, risk=10.0)
     sev = severity_band_from_events(case)
     assert sev["source"] == "source_asserted"
-    assert sev["band"] == "high"
+    assert sev["band"] == "critical"
     assert sev["value"] == 80.0
     assert sev["raw"] == 8.0
     # It must NOT track the (low) risk score — proving severity != risk.
@@ -83,7 +84,7 @@ def test_severity_band_already_0_100_scale_not_doubled():
     case = _case(severity_max=90.0)
     sev = severity_band_from_events(case)
     assert sev["value"] == 90.0
-    assert sev["band"] == "high"
+    assert sev["band"] == "critical"       # 90 >= 74 critical cut (5-band ladder)
 
 
 def test_severity_band_derived_when_no_source_severity():
@@ -113,8 +114,9 @@ def test_impact_band_uses_asset_networks_cidr():
 
 def test_urgency_band_tracks_risk_and_escalation():
     prefs = Preferences()
+    # 3-band 48/22 projection: >=48 high, >=22 medium, else low.
     assert urgency_band(_case(risk=80.0), prefs)["band"] == "high"
-    assert urgency_band(_case(risk=50.0), prefs)["band"] == "medium"
+    assert urgency_band(_case(risk=30.0), prefs)["band"] == "medium"
     assert urgency_band(_case(risk=10.0), prefs)["band"] == "low"
     # An escalated low-risk case is bumped to HIGH urgency.
     esc = urgency_band(_case(risk=10.0, escalation_level=1), prefs)

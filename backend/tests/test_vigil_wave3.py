@@ -116,6 +116,22 @@ def test_compute_metrics() -> None:
     assert m["mttr_minutes"] == 60.0  # the one closed case spans 1h
     assert m["resolved_count"] == 1
     assert isinstance(m["cases_per_day"], list)
+    # Active Risk Index = mean risk over LIVE (non-terminal) cases only: m1 (80,
+    # NEEDS_HUMAN) + m3 (40, OPEN) → 60.0; m2 (10, CLOSED) is terminal → excluded.
+    assert m["active_risk_index"] == 60.0
+    assert m["active_risk_case_count"] == 2
+
+
+def test_compute_metrics_active_risk_all_terminal() -> None:
+    # When every case is terminal (resolved/closed) there are no LIVE cases, so the
+    # Active Risk Index is an honest 0.0 over a 0 count (never a divide-by-zero).
+    cases = [
+        _case("t1", status=CaseStatus.CLOSED, risk=90),
+        _case("t2", status=CaseStatus.RESOLVED, risk=70),
+    ]
+    m = compute_metrics(cases)
+    assert m["active_risk_index"] == 0.0
+    assert m["active_risk_case_count"] == 0
 
 
 async def test_metrics_endpoint(client) -> None:
@@ -123,6 +139,7 @@ async def test_metrics_endpoint(client) -> None:
     assert r.status_code == 200
     body = r.json()
     assert "total_cases" in body and "by_verdict" in body and "feedback" in body
+    assert "active_risk_index" in body and "active_risk_case_count" in body
 
 
 # --------------------------------------------------------------------------- #

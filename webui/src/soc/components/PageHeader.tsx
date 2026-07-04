@@ -10,11 +10,12 @@ export interface Crumb {
 
 export interface PageHeaderProps {
   /**
-   * `'dense'` (default) — a compact ~52px header band (breadcrumb over a
-   * `text-lg/xl` title, small icon chip, actions right).
-   * `'hero'` — a compacted posture band (`p-6`, `text-2xl`, whisper `bg-hero-glow`
-   * wash) that folds a KPI/meta summary into the `meta`/`tabs` slots. NOT the old
-   * ~176px marketing hero.
+   * `'dense'` (default) — a compact ~52-68px header band (breadcrumb over a
+   * `text-lg/xl` title, small icon chip, actions right, a 2-line-clamped description).
+   * `'hero'` — the SAME compact rhythm plus a rounded `border` + a whisper
+   * `bg-hero-glow` accent wash (`text-xl` title, a 1-line-clamped description). The
+   * `actions` (right) + `meta` (beside title) are the ONLY control slots — no second
+   * band. NOT the old ~176px marketing hero.
    */
   variant?: 'dense' | 'hero';
   /** Breadcrumb trail above the title (plain text). Preferred over `eyebrow`. */
@@ -91,7 +92,8 @@ function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
  * Standard page header. `variant='dense'` (default) is a single compact band —
  * breadcrumb/eyebrow over the title, a small icon chip, meta beside the title, and
  * a right-aligned actions slot, with optional section `tabs` on the bottom edge.
- * `variant='hero'` is the compacted posture band (whisper wash, `text-2xl`).
+ * `variant='hero'` is the SAME compact band plus a rounded border + a whisper
+ * `bg-hero-glow` wash (`text-xl` title).
  *
  * All text renders as plain (UNTRUSTED-safe, #9); never `dangerouslySetInnerHTML`.
  */
@@ -143,10 +145,10 @@ export function PageHeader({
       <div
         className={cn(
           'relative flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between',
-          hero && 'gap-4 p-6 sm:gap-5',
+          hero && 'gap-3 px-5 py-3.5 sm:gap-4',
         )}
       >
-        <div className={cn('flex min-w-0 items-start', hero ? 'gap-3.5' : 'gap-3')}>
+        <div className="flex min-w-0 items-start gap-3">
           {Icon ? (
             <span
               className={cn(
@@ -163,7 +165,7 @@ export function PageHeader({
               <h1
                 className={cn(
                   'truncate font-semibold tracking-tight text-foreground',
-                  hero ? 'text-2xl' : 'text-lg sm:text-xl',
+                  hero ? 'text-xl' : 'text-lg sm:text-xl',
                 )}
               >
                 {title}
@@ -174,7 +176,7 @@ export function PageHeader({
               <p
                 className={cn(
                   'mt-1 max-w-2xl leading-relaxed text-muted-foreground',
-                  hero ? 'text-sm' : 'text-xs sm:text-sm',
+                  hero ? 'line-clamp-1 text-sm' : 'line-clamp-2 text-xs sm:text-sm',
                 )}
               >
                 {description}
@@ -187,8 +189,8 @@ export function PageHeader({
         ) : null}
       </div>
 
-      {tabs ? <div className={cn('relative', hero && 'px-6')}>{tabs}</div> : null}
-      {hero && children ? <div className="relative px-6 pb-6">{children}</div> : null}
+      {tabs ? <div className={cn('relative', hero && 'px-5')}>{tabs}</div> : null}
+      {hero && children ? <div className="relative px-5 pb-4">{children}</div> : null}
     </section>
   );
 }

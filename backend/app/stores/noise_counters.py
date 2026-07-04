@@ -1,0 +1,258 @@
+"""Durable NOISE-REDUCTION counters — raw-alert-by-severity ingest tallies (Round 7).
+
+The Noise-Reduction funnel ("total alerts by severity → what the AI reduced it to")
+needs a DURABLE count of how many raw alerts were ingested (by severity band) versus how
+many survived correlation / actually reached a human — something the case store alone
+cannot answer once low-value events are dropped/suppressed at ingest. This store persists
+those small per-hour counters so the funnel reflects the TRUE inbound volume, not just the
+cases that happened to be created.
+
+Backend-agnostic by construction — the SAME single-KV-document pattern as
+:mod:`app.stores.baseline`: the WHOLE set of hourly buckets is ONE KV document
+(``ns="noise_counters"``, ``key="noise_counters"``) persisted through the existing
+:class:`KVStore` abstraction, so it needs NO new ES index / SQL table / migration. The ES
+backend stores it as a doc in the config index; the SQL backend uses the shared KV table.
+
+The KV value is::
+
+    {"buckets": {"<epoch_hour>": {"ingested": {band: int}, "clustered": {band: int},
+                                  "suppressed": int, "ignored": int}, ...},
+     "since": "<iso of first record>"}
+
+Writes go through :func:`app.stores.base.kv_mutate` (per-store lock + ``_rev`` CAS) so
+concurrent poller children / push receivers can't silently clobber one another. Buckets
+older than :data:`_RETENTION_HOURS` are pruned on every write, and a hard cap bounds the
+document, so the doc stays small regardless of uptime.
+
+Invariants: this store holds ONLY advisory presentation/accounting counters — it NEVER
+imports ``case_manager``, calls ``decide()`` (#3), reads risk weights, or recomputes a
+``cluster_signature`` (#4). Every method is fail-open: a load/save glitch degrades to an
+empty tally / best-effort write and is logged, so a counter hiccup can never drop an event
+or break the poll/ingest path.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from ..constants import NOISE_KEY, NOISE_NS, SEVERITY_BANDS
+from ..utils import now_utc
+from .base import KVStore, kv_mutate
+
+logger = logging.getLogger("tlsoc.stores.noise_counters")
+
+# Keep at most this many trailing hours of buckets (90 days). Pruned on every write so
+# the single KV document stays bounded no matter how long the process runs. A dashboard
+# window never exceeds a few days in practice; this leaves ample slack.
+_RETENTION_HOURS = 24 * 90
+# Defensive hard cap on distinct buckets (should never be hit given the retention prune,
+# but guarantees the doc can never grow unbounded even under clock skew).
+_MAX_BUCKETS = _RETENTION_HOURS + 48
+
+
+def _zero_bands() -> dict[str, int]:
+    """A fresh ``{band: 0}`` dict over the canonical 5-band severity ladder."""
+    return {b: 0 for b in SEVERITY_BANDS}
+
+
+def _safe_int(value: Any) -> int | None:
+    """Coerce a bucket key / count to int, or None when it can't be (skip corrupt)."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm_bucket(raw: Any) -> dict[str, Any]:
+    """Parse one stored bucket into a well-formed ``{ingested, clustered, suppressed,
+    ignored}`` dict, coercing every band count to a non-negative int and dropping any
+    unknown band. Never raises — a corrupt bucket reads as all-zero."""
+    ingested = _zero_bands()
+    clustered = _zero_bands()
+    suppressed = 0
+    ignored = 0
+    if isinstance(raw, dict):
+        for band, n in (raw.get("ingested") or {}).items():
+            if band in ingested:
+                ingested[band] = max(0, _safe_int(n) or 0)
+        for band, n in (raw.get("clustered") or {}).items():
+            if band in clustered:
+                clustered[band] = max(0, _safe_int(n) or 0)
+        suppressed = max(0, _safe_int(raw.get("suppressed")) or 0)
+        ignored = max(0, _safe_int(raw.get("ignored")) or 0)
+    return {"ingested": ingested, "clustered": clustered,
+            "suppressed": suppressed, "ignored": ignored}
+
+
+def _delta_is_empty(delta: dict[str, Any]) -> bool:
+    """True when a delta carries no ingested/clustered/suppressed/ignored activity — an
+    empty tick is a NO-OP (no write, no bucket created), so a quiet deployment never
+    churns the KV doc and ``since`` marks the first REAL observation."""
+    if not isinstance(delta, dict):
+        return True
+    for key in ("ingested", "clustered"):
+        for n in (delta.get(key) or {}).values():
+            if (_safe_int(n) or 0) > 0:
+                return False
+    return (_safe_int(delta.get("suppressed")) or 0) <= 0 and \
+           (_safe_int(delta.get("ignored")) or 0) <= 0
+
+
+def _merge_delta(bucket: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+    """Fold ``delta`` into a normalised ``bucket`` (returns a fresh dict). Unknown bands
+    are ignored; counts are clamped non-negative."""
+    out = _norm_bucket(bucket)
+    for band, n in (delta.get("ingested") or {}).items():
+        if band in out["ingested"]:
+            out["ingested"][band] += max(0, _safe_int(n) or 0)
+    for band, n in (delta.get("clustered") or {}).items():
+        if band in out["clustered"]:
+            out["clustered"][band] += max(0, _safe_int(n) or 0)
+    out["suppressed"] += max(0, _safe_int(delta.get("suppressed")) or 0)
+    out["ignored"] += max(0, _safe_int(delta.get("ignored")) or 0)
+    return out
+
+
+def _parse_iso_ts(value: Any) -> float | None:
+    """Best-effort epoch seconds for an ISO ``since`` string (None when unparseable)."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+class NoiseCounterStore:
+    """Durable per-hour raw-alert-by-severity counters, persisted as ONE KV document.
+
+    Read-modify-write over the single ``buckets`` map — fine at our scale (a compact
+    per-hour tally over a bounded retention window, NOT log volume). None raises: a
+    failure logs and returns a safe default. Mirrors :class:`app.stores.baseline.BaselineStore`.
+    """
+
+    def __init__(self, kv: KVStore) -> None:
+        self._kv = kv
+        self._lock = asyncio.Lock()
+
+    async def _load(self) -> dict[str, Any]:
+        try:
+            doc = await self._kv.get(NOISE_NS, NOISE_KEY)
+        except Exception as exc:  # noqa: BLE001 — counters are best-effort
+            logger.warning("Loading noise counters failed (%s); using empty tally", exc)
+            return {}
+        return doc if isinstance(doc, dict) else {}
+
+    async def record(self, delta: dict[str, Any], now: datetime | None = None) -> None:
+        """Fold one ingest/poll tick's counter ``delta`` into the current epoch-hour
+        bucket (CAS-safe read-modify-write). ``delta`` is
+        ``{"ingested": {band:int}, "clustered": {band:int}, "suppressed": int, "ignored":
+        int}``. An empty delta is a NO-OP. Never raises — a persistence glitch degrades to
+        a best-effort write, so a counter hiccup can never break the poll/ingest path."""
+        if _delta_is_empty(delta):
+            return
+        moment = now or now_utc()
+        try:
+            hour = int(moment.timestamp() // 3600)
+            stamp = moment.isoformat()
+        except Exception:  # noqa: BLE001 — a bad clock never breaks ingest
+            return
+
+        def _change(current: dict | None) -> dict:
+            doc = current if isinstance(current, dict) else {}
+            raw_buckets = doc.get("buckets")
+            buckets = dict(raw_buckets) if isinstance(raw_buckets, dict) else {}
+            hkey = str(hour)
+            buckets[hkey] = _merge_delta(buckets.get(hkey), delta)
+            # Prune buckets older than the retention window (keeps the doc bounded).
+            cutoff = hour - _RETENTION_HOURS
+            buckets = {
+                k: v for k, v in buckets.items()
+                if (_safe_int(k) is not None and _safe_int(k) >= cutoff)
+            }
+            # Defensive hard cap: keep only the newest _MAX_BUCKETS by hour.
+            if len(buckets) > _MAX_BUCKETS:
+                newest = sorted(buckets, key=lambda k: _safe_int(k) or 0)[-_MAX_BUCKETS:]
+                buckets = {k: buckets[k] for k in newest}
+            since = doc.get("since") or stamp
+            return {"buckets": buckets, "since": since}
+
+        try:
+            await kv_mutate(self._kv, NOISE_NS, NOISE_KEY, _change, lock=self._lock)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Persisting noise counters failed (%s); continuing", exc)
+
+    async def read_window(self, hours: int, now: datetime | None = None) -> dict[str, Any]:
+        """Sum the counters over the trailing ``hours`` (``hours<=0`` → the WHOLE tally).
+
+        Returns ``{available, since, incomplete, ingested{band:int}, clustered{band:int},
+        suppressed, ignored}`` where:
+
+        * ``available`` — whether ANY real observation has been recorded (False → the
+          counters are "warming up"; the endpoint reports null ingested + degrades to a
+          case-only funnel);
+        * ``since`` — the ISO time of the first recorded observation (None when none);
+        * ``incomplete`` — True when the requested window reaches BEFORE ``since`` (the
+          counters cover only part of it, so the reduction% is a partial view).
+
+        Never raises: a load glitch degrades to an empty (unavailable) tally."""
+        moment = now or now_utc()
+        doc = await self._load()
+        since = doc.get("since")
+        raw_buckets = doc.get("buckets")
+        buckets = raw_buckets if isinstance(raw_buckets, dict) else {}
+        available = bool(buckets) and isinstance(since, str) and bool(since)
+
+        now_ts = moment.timestamp()
+        hours = max(0, int(hours or 0))
+        window_from_ts = (now_ts - hours * 3600.0) if hours > 0 else 0.0
+        from_hour = int(window_from_ts // 3600) if hours > 0 else None
+
+        ingested = _zero_bands()
+        clustered = _zero_bands()
+        suppressed = 0
+        ignored = 0
+        for k, raw in buckets.items():
+            h = _safe_int(k)
+            if h is None:
+                continue
+            if from_hour is not None and h < from_hour:
+                continue
+            nb = _norm_bucket(raw)
+            for band in SEVERITY_BANDS:
+                ingested[band] += nb["ingested"][band]
+                clustered[band] += nb["clustered"][band]
+            suppressed += nb["suppressed"]
+            ignored += nb["ignored"]
+
+        incomplete = False
+        if available and hours > 0:
+            since_ts = _parse_iso_ts(since)
+            if since_ts is not None and since_ts > window_from_ts:
+                incomplete = True
+
+        return {
+            "available": available,
+            "since": since if available else None,
+            "incomplete": incomplete,
+            "ingested": ingested,
+            "clustered": clustered,
+            "suppressed": suppressed,
+            "ignored": ignored,
+        }
+
+    async def clear(self) -> None:
+        """Drop ALL counters (a cases/logs-tier reset). Never raises."""
+        def _change(_current: dict | None) -> dict:
+            return {"buckets": {}, "since": None}
+
+        try:
+            await kv_mutate(self._kv, NOISE_NS, NOISE_KEY, _change, lock=self._lock)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Clearing noise counters failed (%s); continuing", exc)

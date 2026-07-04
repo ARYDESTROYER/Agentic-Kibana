@@ -1,6 +1,20 @@
 import * as React from 'react';
 import { cn } from '@/lib/cn';
 import { ArrowDownRight, ArrowUpRight, type LucideIcon } from 'lucide-react';
+import { CountUp } from './CountUp';
+import { HelpTip } from './HelpTip';
+
+/**
+ * Round-7 W0.1 — the optional sparkline is LAZY. `<Sparkline>` lives in `charts.tsx`
+ * which imports recharts (~422 kB); statically importing it here would risk dragging
+ * recharts toward the first-paint graph. A `React.lazy` dynamic import keeps recharts
+ * out of KpiTile's static import graph entirely — it only loads when a tile is actually
+ * given a `spark` series (no consumers this round; forward-looking). Decorative +
+ * aria-hidden, so a `null` Suspense fallback is correct.
+ */
+const LazySparkline = React.lazy(() =>
+  import('./charts').then((m) => ({ default: m.Sparkline })),
+);
 
 export type KpiAccent =
   | 'primary'
@@ -59,6 +73,30 @@ export interface KpiTileProps {
    * from the label (slugified), so every tile is test-addressable without churn.
    */
   testId?: string;
+  /**
+   * Round-7 W0.1 — when set (a finite number), the big value ROLLS to this integer
+   * via `<CountUp>` (static on first mount; animates on change; snaps under reduced
+   * motion). INTEGERS ONLY — leave unset for money / percentages and pass a formatted
+   * `value` instead. When set it replaces `value` as the rendered numeral.
+   */
+  countTo?: number;
+  /** Formatter for `countTo` (default `String`). e.g. `(n) => n.toLocaleString()`. */
+  format?: (n: number) => string;
+  /**
+   * Round-7 W0.1 — an optional decorative trend sparkline under the value. Rendered
+   * ONLY when at least 5 real points are supplied (fewer reads as noise) and always
+   * `aria-hidden` (the delta chip carries the accessible trend). Lazy-loaded.
+   */
+  spark?: number[];
+  /**
+   * Round-7 W0.1 — optional plain-text help shown via an inline `HelpTip` (?) beside
+   * the label (e.g. the exact MTTA/MTTR formula). Rendered only on the NON-clickable
+   * tile (a clickable tile is itself a button — nesting the HelpTip button would be
+   * invalid); clickable summary tiles drill down instead of explaining.
+   */
+  help?: string;
+  /** Accessible label for the help trigger (default `About <label>`). */
+  helpLabel?: string;
   className?: string;
 }
 
@@ -151,6 +189,11 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
       variant = 'default',
       onClick,
       testId,
+      countTo,
+      format,
+      spark,
+      help,
+      helpLabel,
       className,
     },
     ref,
@@ -160,6 +203,35 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const bar = variant === 'bar';
 
     const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
+
+    // The rendered numeral: roll to `countTo` when it's a finite integer, else the
+    // caller-supplied `value` (string or node) unchanged.
+    const valueNode =
+      typeof countTo === 'number' && Number.isFinite(countTo) ? (
+        <CountUp value={countTo} format={format} as="span" />
+      ) : (
+        value
+      );
+
+    // Sparkline gate: ≥5 real points; decorative + aria-hidden. Lazy (no recharts here).
+    const sparkNode =
+      spark && spark.length >= 5 ? (
+        <div className="mt-3 -mb-1 h-7" aria-hidden>
+          <React.Suspense fallback={null}>
+            <LazySparkline data={spark} height={28} colorToken={accent} fill />
+          </React.Suspense>
+        </div>
+      ) : null;
+
+    // Inline help (?) — only on the non-clickable tile (see prop doc: no nested button).
+    const helpNode =
+      help && !clickable ? (
+        <HelpTip
+          text={help}
+          label={helpLabel ?? `About ${label}`}
+          className="-my-1 text-muted-foreground/70"
+        />
+      ) : null;
 
     const deltaNode = deltaFacts ? (
       <span
@@ -182,8 +254,9 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const inner = (
       <>
         <div className="flex items-start justify-between gap-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {label}
+            {helpNode}
           </span>
           {Icon && !bar ? (
             <span
@@ -200,10 +273,11 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
         </div>
         <div className="mt-3 flex items-end gap-2">
           <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
-            {value}
+            {valueNode}
           </span>
           {deltaNode}
         </div>
+        {sparkNode}
         {sub ? <span className="mt-2 block text-xs text-muted-foreground">{sub}</span> : null}
       </>
     );
