@@ -85,6 +85,7 @@ import {
   AccordionTrigger,
 } from '@/ui/accordion';
 import { CodeBlock, InlineCode } from './CodeBlock';
+import { Markdown } from './Markdown';
 
 /* ------------------------------------------------------------------ types -- */
 
@@ -126,90 +127,6 @@ const ALL_SOURCES = '__all__';
 const DEFAULT_MODEL = '__default__';
 /** Cap the rows we render from a single chat result table. */
 const MAX_TABLE_ROWS = 50;
-
-/* ------------------------------------------------ inline markdown (React) -- */
-
-/**
- * Parse a SINGLE line of text into React nodes with light inline markdown:
- * `code` spans first (so their contents are not further formatted), then **bold**.
- * EVERYTHING is a React text node or one of our own known elements — there is no
- * HTML string anywhere, so UNTRUSTED content can never inject live markup.
- */
-function renderInline(text: string, keyBase: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  // Split on `code` spans first; odd indices are code contents.
-  const codeParts = text.split(/`([^`]+)`/g);
-  codeParts.forEach((part, i) => {
-    if (i % 2 === 1) {
-      nodes.push(
-        <code
-          key={`${keyBase}-c${i}`}
-          className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-xs text-foreground"
-        >
-          {part}
-        </code>,
-      );
-      return;
-    }
-    // **bold** within the non-code segments.
-    const boldParts = part.split(/\*\*([^*]+)\*\*/g);
-    boldParts.forEach((bp, j) => {
-      if (!bp) return;
-      if (j % 2 === 1) {
-        nodes.push(
-          <strong key={`${keyBase}-b${i}-${j}`} className="font-semibold text-foreground">
-            {bp}
-          </strong>,
-        );
-      } else {
-        nodes.push(<React.Fragment key={`${keyBase}-t${i}-${j}`}>{bp}</React.Fragment>);
-      }
-    });
-  });
-  return nodes;
-}
-
-/**
- * Render an assistant answer as React nodes supporting **bold**, `code`, bullet
- * lines (`- ` / `* `) and paragraph breaks. Dependency-free; no HTML injection.
- */
-const Markdown: React.FC<{ text: string }> = ({ text }) => {
-  const blocks: React.ReactNode[] = [];
-  const lines = text.split('\n');
-  let listBuf: string[] = [];
-
-  const flushList = (key: string) => {
-    if (!listBuf.length) return;
-    const items = listBuf;
-    listBuf = [];
-    blocks.push(
-      <ul key={key} className="my-1 list-disc space-y-0.5 pl-5">
-        {items.map((li, i) => (
-          <li key={i}>{renderInline(li, `${key}-${i}`)}</li>
-        ))}
-      </ul>,
-    );
-  };
-
-  lines.forEach((line, idx) => {
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-    if (bullet) {
-      listBuf.push(bullet[1]);
-      return;
-    }
-    flushList(`ul-${idx}`);
-    if (line.trim() === '') {
-      blocks.push(<div key={`sp-${idx}`} className="h-2" aria-hidden />);
-    } else {
-      blocks.push(<p key={`p-${idx}`} className="leading-relaxed">{renderInline(line, `p-${idx}`)}</p>);
-    }
-  });
-  flushList('ul-end');
-
-  // Running prose (DESIGN_STANDARD §2.6): the comfortable reading scale (15px), never
-  // the dense table `text-sm`.
-  return <div className="space-y-0.5 text-md">{blocks}</div>;
-};
 
 /* --------------------------------------------------------------- helpers --- */
 

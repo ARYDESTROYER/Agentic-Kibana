@@ -247,6 +247,9 @@ INVESTIGATOR_SYSTEM = (
     '"mitre": ["T1110", ...], '
     '"recommended_action": "<text>", '
     '"reproduce_query": "<kql to reproduce the finding in Discover>"}}}}\n'
+    "Structure the `reasoning` string for a human analyst: a one-sentence summary, then a "
+    "NUMBERED list of the key indicators (each on its own line: `1.`, `2.`, ...), then a "
+    "final line starting `Recommendation:`. Separate the lines with \\n. "
     "Be efficient: only call tools that add real evidence. If evidence is insufficient or "
     "contradictory, return verdict NEEDS_HUMAN. Never fabricate event ids or queries."
 )
