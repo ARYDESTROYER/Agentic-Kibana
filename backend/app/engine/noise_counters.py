@@ -212,10 +212,13 @@ def _stage(key: str, label: str, *, source: str, deterministic: bool,
 
 
 def _reduction(numer: int, denom: int) -> Any:
-    """``1 - numer/denom`` as a fraction in [0,1] (rounded); DASH when denom is 0."""
+    """``(1 - numer/denom)`` as a 0-100 PERCENT (rounded to 0.1); DASH when denom is 0.
+
+    The contract field is ``*_pct`` and the TS type + ``NoiseFunnel`` render it as
+    ``{value}%``, so this returns a percentage in [0,100], never a fraction."""
     if denom <= 0:
         return DASH
-    return round(max(0.0, 1.0 - (numer / denom)), 4)
+    return round(max(0.0, 1.0 - (numer / denom)) * 100, 1)
 
 
 def build_noise_reduction(

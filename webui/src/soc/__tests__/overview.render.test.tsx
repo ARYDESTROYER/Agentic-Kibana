@@ -203,14 +203,30 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(fetchPostureMock).toHaveBeenCalledWith(expect.any(Number), 'prev');
   });
 
-  it('wires KPI deltas from the server compare block + states the window once', async () => {
+  it('attaches a delta ONLY to a unit-matched tile (FP-rate), never to the count tiles', async () => {
     fetchPostureMock.mockResolvedValue(POSTURE_CMP);
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // Escalation-rate fell 20% → the Escalated tile shows a "-20%" delta chip.
+    // The False-Positive-RATE tile is unit-matched to `compare.false_positive_rate` (a
+    // rate → a rate), so it carries the "-16.7%" delta chip.
     await waitFor(() =>
-      expect(within(screen.getByTestId('kpi-escalated-to-human')).getByText('-20%')).toBeInTheDocument(),
+      expect(
+        within(screen.getByTestId('kpi-false-positive-rate')).getByText('-16.7%'),
+      ).toBeInTheDocument(),
     );
+    // The COUNT tiles must NOT borrow a rate/total delta (a unit mismatch whose
+    // arrow/colour/number could contradict the shown count). A KpiTile delta renders as
+    // the ONLY role="img" element in the tile, so its absence proves no delta is drawn —
+    // Open Cases (count vs `case_count` TOTAL), Escalated (count vs `escalation_rate`),
+    // Auto-Resolved (count vs `automation_rate`).
+    expect(within(screen.getByTestId('kpi-open-cases')).queryByRole('img')).toBeNull();
+    expect(within(screen.getByTestId('kpi-escalated-to-human')).queryByRole('img')).toBeNull();
+    expect(within(screen.getByTestId('kpi-auto-resolved')).queryByRole('img')).toBeNull();
+    // The mismatched raw deltas are nowhere in the strip.
+    const strip = screen.getByTestId('kpi-strip');
+    expect(within(strip).queryByText('-20%')).toBeNull(); // escalation_rate
+    expect(within(strip).queryByText('+25%')).toBeNull(); // automation_rate
+    expect(within(strip).queryByText('-25%')).toBeNull(); // case_count
     // The comparison window is stated ONCE under the strip (not per tile).
     expect(screen.getByText(/Deltas compare the previous/i)).toBeInTheDocument();
   });
@@ -291,6 +307,34 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(within(lowRow).getByText('1')).toBeInTheDocument();
   });
 
+  // Round-7 QA (severity drill regression) — the Cases severity FILTER now prefers the
+  // source-asserted `severity_band`, so the Overview severity widget must bucket by the
+  // SAME preference (severity_band, else the risk band). Otherwise a source_asserted case
+  // counts under its risk band here but filters under its asserted band in Cases, and the
+  // drilled list can never reconcile with the widget's count.
+  it('buckets a source_asserted case by severity_band, not the risk band (drill reconcile)', async () => {
+    listCasesMock.mockResolvedValue({
+      cases: [
+        // risk_score 20 would band LOW, but the source asserts CRITICAL → must count Critical.
+        {
+          case_id: 's1', status: 'open',
+          severity_band: 'critical', severity_source: 'source_asserted', risk_score: 20,
+        },
+        { case_id: 's2', status: 'open', risk_score: 65 }, // high (no severity_band → risk band)
+      ] as unknown as Case[],
+      total: 2,
+    });
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    const criticalRow = await screen.findByRole('button', { name: /view Critical severity cases/i });
+    const highRow = screen.getByRole('button', { name: /view High severity cases/i });
+    const lowRow = screen.getByRole('button', { name: /view Low severity cases/i });
+    // The asserted-critical case lands in Critical (NOT Low, where its risk_score 20 sits).
+    await waitFor(() => expect(within(criticalRow).getByText('1')).toBeInTheDocument());
+    expect(within(highRow).getByText('1')).toBeInTheDocument();
+    expect(within(lowRow).getByText('0')).toBeInTheDocument();
+  });
+
   it('renders the autonomy trust surface + the named widget bands (incl. the new ones)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
@@ -307,18 +351,23 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(screen.getByRole('region', { name: /Top entities/i })).toBeInTheDocument();
   });
 
-  it('the loading skeleton mirrors the final layout (6 KPI tiles + a reserved funnel row)', () => {
+  it('the loading skeleton mirrors the final layout (6 KPI tiles + funnel + 4 widget rows)', () => {
     // Never-resolving data calls → the page stays in its loading skeleton.
     listCasesMock.mockReturnValue(new Promise(() => {}));
     getMetricsMock.mockReturnValue(new Promise(() => {}));
     usageMock.mockReturnValue(new Promise(() => {}));
     fetchPostureMock.mockReturnValue(new Promise(() => {}));
     render(<Overview onNavigate={vi.fn()} />);
-    expect(screen.getByLabelText('Loading dashboard')).toBeInTheDocument();
+    const loading = screen.getByLabelText('Loading dashboard');
+    expect(loading).toBeInTheDocument();
     // 6 KPI skeleton tiles in the same responsive grid as the real strip.
     const stripSkeleton = screen.getByTestId('kpi-strip-skeleton');
     expect(stripSkeleton.children).toHaveLength(6);
     // A reserved full-width band for the Noise-Reduction funnel.
     expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
+    // FOUR widget-row grids in LOCKSTEP with the real layout: Row A (2) · Row B (3) ·
+    // Row C (2) · Row D (2, Top signatures / Top entities). The KPI strip uses gap-4, so
+    // the gap-6 rows are exactly the widget rows.
+    expect(loading.querySelectorAll('.grid.gap-6')).toHaveLength(4);
   });
 });

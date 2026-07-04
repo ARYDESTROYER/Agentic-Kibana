@@ -209,3 +209,56 @@ async def test_noise_sink_survives_events_only_quiet_tick(app_state: AppState):
     assert sum(w["ingested"].values()) == 6
     # No cluster on the realtime path → clustered band tally stays zero this tick.
     assert sum(w["clustered"].values()) == 0
+
+
+# --------------------------------------------------------------------------- #
+# 5. THE OVER-COUNT FIX — clustered/suppressed/ignored are per-tick deltas, not a
+#    re-tally of the FULL re-scanned look-back window on every straggler tick.
+# --------------------------------------------------------------------------- #
+@asyncio_mark
+async def test_clustered_counter_is_a_per_tick_delta_not_window_rescan(app_state: AppState):
+    """Round-7 over-count fix: ``correlate`` runs over the FULL sliding look-back window
+    every active tick, so a burst that stays inside that window must NOT re-inflate the
+    ``clustered`` band on each subsequent (straggler) tick while ``ingested`` is only the
+    per-tick cursor delta (which would invert the funnel).
+
+    Drive ``poll_once`` across TWO ticks: tick 1 ingests a 3-event burst that clusters
+    (threshold n=3); tick 2 ingests ONE straggler for a DIFFERENT entity that never
+    reaches threshold (so it forms NO new cluster) while the tick-1 burst is STILL inside
+    the look-back window and is re-scanned. ``clustered`` must stay the tick-1 delta (before
+    the fix it doubled to 2), and ``ingested`` must dominate ``clustered`` over the window."""
+    await _set_threshold(app_state, 3)
+    base = to_millis(now_utc()) - 60_000
+    # Tick-1 burst: 3 events for the SAME IP → exactly one cluster.
+    for i in range(3):
+        app_state.es.add_log(
+            "nx-logs", make_log_event(ip="10.9.0.1", ts_millis=base + i * 1000),
+            doc_id=f"burst-{i}",
+        )
+    await _configure(app_state, [
+        _fed_source("s1", [{"pattern": "nx-logs*", "role": "alerts"}], primary=True),
+    ])
+
+    await app_state.poller.poll_once(app_state.prefs)          # TICK 1
+    w1 = await app_state.noise_counters.read_window(24)
+    clustered_1 = sum(w1["clustered"].values())
+    assert clustered_1 == 1                                    # the burst clustered ONCE
+
+    # A lone straggler for a DIFFERENT IP arrives AFTER tick 1 — below threshold, so it
+    # never forms its own cluster, yet the tick-1 burst (still inside the look-back window)
+    # is re-scanned whole by correlate on tick 2.
+    app_state.es.add_log(
+        "nx-logs", make_log_event(ip="10.9.0.9", ts_millis=base + 10_000),
+        doc_id="straggler-0",
+    )
+    await app_state.poller.poll_once(app_state.prefs)          # TICK 2
+    w2 = await app_state.noise_counters.read_window(24)
+    clustered_2 = sum(w2["clustered"].values())
+    ingested_2 = sum(w2["ingested"].values())
+
+    # The straggler tick did NOT re-count the re-scanned burst → clustered is a per-tick
+    # delta (before the fix this would be 2). Ingested (3 burst + 1 straggler = 4) still
+    # dominates clustered, so the funnel can never invert under sustained load.
+    assert clustered_2 == clustered_1 == 1
+    assert ingested_2 == 4
+    assert ingested_2 >= clustered_2

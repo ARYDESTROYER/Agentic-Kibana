@@ -267,9 +267,10 @@ def test_build_noise_reduction_mece_sums_to_cases_total() -> None:
     assert residual_tp == 1  # the client-derived true_positive bar
     # ingested/clustered from the durable counters.
     assert stage["ingested"] == 210 and stage["clustered"] == 11
-    # headline: overall = 1 - needs_human/ingested; human = 1 - needs_human/cases.
-    assert rep["reduction"]["overall_pct"] == round(1 - 2 / 210, 4)
-    assert rep["reduction"]["human_reduction_pct"] == round(1 - 2 / 5, 4)
+    # headline (0-100 percent): overall = (1 - needs_human/ingested)*100;
+    # human = (1 - needs_human/cases)*100.
+    assert rep["reduction"]["overall_pct"] == round((1 - 2 / 210) * 100, 1)
+    assert rep["reduction"]["human_reduction_pct"] == round((1 - 2 / 5) * 100, 1)
 
 
 def test_build_noise_reduction_by_severity_bands() -> None:
@@ -295,9 +296,9 @@ def test_build_noise_reduction_warming_up_degrades() -> None:
     assert stage["ingested"]["by_severity"] is None
     assert stage["clustered"]["total"] is None
     assert rep["reduction"]["overall_pct"] == "—"
-    # ...but the case-only funnel still works (human reduction from cases).
+    # ...but the case-only funnel still works (human reduction from cases, 0-100 percent).
     assert stage["cases"]["total"] == 5
-    assert rep["reduction"]["human_reduction_pct"] == round(1 - 2 / 5, 4)
+    assert rep["reduction"]["human_reduction_pct"] == round((1 - 2 / 5) * 100, 1)
     assert rep["counters"]["available"] is False
 
 

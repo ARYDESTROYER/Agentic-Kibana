@@ -23,7 +23,13 @@ from ..config import Preferences
 from ..connectors.base import PullConnector
 from ..connectors.elastic import ElasticConnector
 from ..constants import ActionType, SourceSurface
-from ..engine.ingest import attach_cluster, dedup_by_id, handle_clusters
+from ..engine.cost_gate import passes_suppression
+from ..engine.ingest import (
+    _is_ignored_cluster,
+    attach_cluster,
+    dedup_by_id,
+    handle_clusters,
+)
 from ..engine.noise_counters import (
     count_clusters_by_band,
     count_events_by_band,
@@ -376,9 +382,30 @@ class Poller:
             if self._noise_sink is not None:
                 try:
                     _sink_scale = severity_scale_for_source(own_source)
-                    noise_clustered = count_clusters_by_band(clusters, _sink_scale)
-                    noise_suppressed = int(cluster_stats.get("suppressed", 0) or 0)
-                    noise_ignored = int(cluster_stats.get("ignored", 0) or 0)
+                    # Round-7 over-count fix: ``clusters``/``cluster_stats`` reflect the FULL
+                    # re-scanned look-back window (``correlate`` ran over ``window_events``),
+                    # so counting them re-tallies a straggler burst on EVERY subsequent tick
+                    # while ``ingested`` is only this tick's cursor delta — inverting the
+                    # funnel under sustained PULL load. Scope the cluster-derived bands to the
+                    # clusters that contain at least one JUST-ARRIVED event id (this tick's
+                    # ``new_events``) so clustered/suppressed/ignored stay per-tick deltas, and
+                    # re-derive suppressed/ignored with the SAME predicates ``handle_clusters``
+                    # uses (ignored takes priority, mirroring its loop).
+                    _new_ids = {e.id for e in new_events}
+                    _tick_clusters = [
+                        cl for cl in clusters
+                        if _new_ids.intersection(cl.member_event_ids)
+                    ]
+                    noise_clustered = count_clusters_by_band(_tick_clusters, _sink_scale)
+                    _tick_ignored = 0
+                    _tick_suppressed = 0
+                    for _cl in _tick_clusters:
+                        if _is_ignored_cluster(_cl, prefs):
+                            _tick_ignored += 1
+                        elif not passes_suppression(_cl, prefs):
+                            _tick_suppressed += 1
+                    noise_suppressed = _tick_suppressed
+                    noise_ignored = _tick_ignored
                 except Exception:  # noqa: BLE001 — counters are advisory, never break a poll
                     pass
             # Opt-in cross-source correlation (Wave 5 / F6): link open cases sharing an

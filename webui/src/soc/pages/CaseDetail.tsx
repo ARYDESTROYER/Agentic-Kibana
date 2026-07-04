@@ -157,6 +157,7 @@ import { CollaborationThreadTab } from './casedetail/CollaborationPanel';
 import { ChatTab } from './casedetail/CaseChatPanel';
 import { ConfirmActionDialog } from './casedetail/ConfirmActionDialog';
 import {
+  deriveAgreement,
   emptyGradingDraft,
   gradingToFeedbackInput,
   type GradingDraft,
@@ -857,17 +858,30 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       // diff by GradingFields and kept synced in `grading`. The typeof-guard keeps
       // callers/tests that don't wire `caseFeedback` working, and a rejected grading
       // never surfaces as a close failure.
-      const gradedVerdict = String(next.verdict ?? c?.verdict ?? '')
-        .trim()
-        .toLowerCase();
+      const gradedVerdictRaw = next.verdict ?? c?.verdict ?? '';
+      const gradedVerdict = String(gradedVerdictRaw).trim().toLowerCase();
       if (
         pending.fields.includes('grading') &&
         gradedVerdict &&
         gradedVerdict !== 'none' &&
         typeof api.caseFeedback === 'function'
       ) {
+        // Derive the agree/override assessment AT SUBMIT TIME from the disposition being
+        // committed on close ↔ the AI verdict — do NOT trust `grading.assessment`. That
+        // field is synced by an effect inside GradingFields, which is unmounted when the
+        // analyst collapses the grading section; a later disposition change would then
+        // POST a STALE assessment into the AI-eval loop. `confirm_fp` carries no
+        // disposition picker: its committed outcome is FALSE_POSITIVE (mirrors the dialog).
+        const committedDisposition =
+          pending.key === 'confirm_fp' ? 'false_positive' : actionDisposition;
+        const derived = deriveAgreement(gradedVerdictRaw, committedDisposition);
+        const freshAssessment = derived.kind === 'none' ? undefined : derived.assessment;
+        const feedbackBody = gradingToFeedbackInput(
+          { ...grading, assessment: freshAssessment },
+          currentUser || undefined,
+        );
         void api
-          .caseFeedback(id, gradingToFeedbackInput(grading, currentUser || undefined))
+          .caseFeedback(id, feedbackBody)
           .then((updated) => {
             // Reflect the just-recorded grading in the prior-gradings history, but only
             // if this CaseDetail is still showing the same case.

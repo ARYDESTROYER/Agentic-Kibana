@@ -78,7 +78,7 @@ import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
 import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
 import { Reveal } from '@/soc/components/Reveal';
 import { TrendArea } from '@/soc/components/charts';
-import { isAutoClosedByAI, severityBandFromNumber } from '@/soc/components/badges';
+import { isAutoClosedByAI, severityBand, severityBandFromNumber } from '@/soc/components/badges';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -171,13 +171,19 @@ const SEV_LABEL: Record<SevKey, string> = {
   info: 'Informational',
 };
 
-/** Normalise a case risk_score into a severity band. Delegates to the ONE SEVERITY
- *  authority (`badges.ts severityBandFromNumber`, the 74/48/22/8 ladder) so this widget
- *  and every SeverityBadge share ONE ladder and can never drift (Round-7 W2.c). The
- *  name/signature is preserved so `sevCounts` + the "Open cases by severity" widget are
- *  untouched; only the cut-points fold onto the single authority. */
-function bandOf(score?: number): SevKey {
-  const s = typeof score === 'number' && Number.isFinite(score) ? score : 0;
+/** Normalise a CASE into a severity band, using the SAME preference order as the Cases
+ *  severity FILTER (`Cases.tsx caseSeverityBand`): prefer the source-asserted advisory
+ *  `severity_band`, then fall back to the deterministic `risk_score` on the ONE SEVERITY
+ *  authority (`badges.ts` — severityBand/severityBandFromNumber, the 74/48/22/8 ladder).
+ *
+ *  Bucketing here MUST agree with that filter so the "Open cases by severity" widget
+ *  count reconciles with the drilled Cases list even for source_asserted cases where
+ *  `severity_band` disagrees with `bandOf(risk_score)` (Round-7 QA drill regression). The
+ *  risk-band fallback keeps the exact prior behaviour for cases with no `severity_band`. */
+function bandOfCase(k: Case): SevKey {
+  const explicit = severityBand(k.severity_band);
+  if (explicit) return explicit;
+  const s = typeof k.risk_score === 'number' && Number.isFinite(k.risk_score) ? k.risk_score : 0;
   return severityBandFromNumber(s);
 }
 
@@ -382,7 +388,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
       const st = (k.status || '').toLowerCase();
       if (OPEN_STATUSES.has(st)) open += 1;
 
-      const band = bandOf(k.risk_score);
+      const band = bandOfCase(k);
       sevCounts[band] += 1;
       if (band === 'critical') critical += 1;
       if (band === 'critical' || band === 'high') criticalHighAlerts += 1;
@@ -583,8 +589,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   // ----- KPI strip — ~5 signal tiles + spend (trimmed from the old 7) ------ //
   // Integer tiles roll via <CountUp> (`countTo`); % / money render a formatted string.
-  // Deltas come from the server `posture.compare` block (period-over-period), stated
-  // once under the strip. Every tile drills through to a filtered destination.
+  // A period-over-period delta from `posture.compare` is attached ONLY when the tile's
+  // displayed value and the compare metric share the SAME UNIT — so the False-Positive
+  // RATE tile carries `false_positive_rate`, but the COUNT tiles (Open / Escalated /
+  // Auto-Resolved) carry no delta rather than a rate/total delta that could contradict
+  // the number. The comparison window is stated once under the strip. Every tile drills
+  // through to a filtered destination.
   const kpis: KpiItem[] = React.useMemo(() => {
     const compare = posture?.compare;
     const fpRate = posture?.quality?.false_positive_rate;
@@ -600,7 +610,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: Inbox,
         accent: 'critical',
         goodDirection: 'down', // fewer open cases is better
-        delta: toKpiDelta(deltaView(compare?.case_count)),
+        // No delta: this tile shows the OPEN count, but the only case-count compare
+        // metric is `case_count` (TOTAL cases) — a unit mismatch whose arrow/colour
+        // could contradict the shown number. Show no delta rather than a misleading one.
         onClick: navigate
           ? () => navigate('cases', { status: 'open', window: navWindow })
           : undefined,
@@ -634,7 +646,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: Workflow,
         accent: 'low',
         goodDirection: 'down',
-        delta: toKpiDelta(deltaView(compare?.escalation_rate)),
+        // No delta: this tile shows a COUNT but the only escalation compare metric is
+        // `escalation_rate` (a RATE) — a unit mismatch whose delta could contradict the
+        // count. Show no delta rather than a misleading one.
         onClick: navigate
           ? () => navigate('cases', { status: 'needs_human', window: navWindow })
           : undefined,
@@ -661,7 +675,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
         icon: ShieldCheck,
         accent: 'success',
         goodDirection: 'up', // more autonomous resolution is better
-        delta: toKpiDelta(deltaView(compare?.automation_rate)),
+        // No delta: this tile shows a COUNT but the only automation compare metric is
+        // `automation_rate` (a RATE) — a unit mismatch whose delta could contradict the
+        // count. Show no delta rather than a misleading one.
         onClick: navigate
           ? () => navigate('cases', { status: 'closed', window: navWindow })
           : undefined,
@@ -735,7 +751,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
   // ----- States ----------------------------------------------------------- //
   // Loading skeleton mirrors the FINAL three-zone layout in LOCKSTEP so nothing shifts:
   // a compact hero, the ~6-tile KPI strip, a reserved full-width Noise-Reduction band,
-  // then the widget rows (Row A: 2 · Row B: 3 · Row C: 2).
+  // then the widget rows (Row A: 2 · Row B: 3 · Row C: 2 · Row D: 2).
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
@@ -753,7 +769,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </div>
           {/* reserved Noise-Reduction funnel band (full width) */}
           <Skeleton data-testid="noise-skeleton-row" className="h-44 w-full rounded-lg" />
-          {/* widget grid — Row A (2) + Row B (3) + Row C (2), in LOCKSTEP. */}
+          {/* widget grid — Row A (2) + Row B (3) + Row C (2) + Row D (2), in LOCKSTEP. */}
           <div className="grid gap-6 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
@@ -764,6 +780,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <Skeleton key={i} className="h-56 rounded-lg" />
             ))}
           </div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-56 rounded-lg" />
+            ))}
+          </div>
+          {/* Row D — Top signatures / Top entities (the ranked-list band). */}
           <div className="grid gap-6 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-56 rounded-lg" />

@@ -146,6 +146,61 @@ describe('CaseDetail — feedback-into-close (two separate POSTs, #3)', () => {
     expect(feedbackBody.assessment).toBe('agree');
   });
 
+  it('POSTs the assessment DERIVED from the FINAL disposition even if the grading section was collapsed first', async () => {
+    // Regression: the derived agree/override was previously synced into parent state by
+    // an effect INSIDE GradingFields, which unmounts when the analyst collapses the
+    // grading section. A later disposition change then never re-derived, and runAction
+    // POSTed a STALE assessment. The fix derives it AT SUBMIT from the committed
+    // disposition ↔ verdict, so a pre-submit collapse can no longer freeze it.
+    getCase.mockResolvedValue({ ...BASE_CASE, verdict: 'true_positive' });
+    caseActionExec.mockResolvedValue({
+      ...BASE_CASE,
+      verdict: 'true_positive',
+      status: 'closed',
+      disposition: 'false_positive',
+    });
+    caseFeedback.mockResolvedValue({
+      ...BASE_CASE,
+      verdict: 'true_positive',
+      status: 'closed',
+      disposition: 'false_positive',
+      feedback: [{ assessment: 'disagree' }],
+    });
+
+    renderWithProviders(<CaseDetail caseId="case-91" onClose={vi.fn()} />);
+    // Open + pick TP first: TP↔TP derives 'agree' and (section open by default) the
+    // in-GradingFields effect syncs grading.assessment = 'agree'.
+    const dialog = await openCloseDialogAndPick(/True positive/i);
+    await screen.findByText(/Matches AI verdict/i);
+
+    // Collapse the grading section — GradingFields (which holds the derive effect)
+    // UNMOUNTS, freezing grading.assessment at the now-stale 'agree'.
+    fireEvent.click(within(dialog).getByRole('button', { name: /grade the ai decision/i }));
+    await waitFor(() =>
+      expect(within(dialog).queryByText(/Matches AI verdict/i)).not.toBeInTheDocument(),
+    );
+
+    // Flip the disposition to an OVERRIDE (false_positive of a TP verdict). The section
+    // is unmounted, so the stale-effect model can't re-derive.
+    const combos = within(dialog).getAllByRole('combobox');
+    fireEvent.click(combos[0]);
+    fireEvent.click(await screen.findByRole('option', { name: /False positive/i }));
+
+    const submit = within(dialog).getByRole('button', { name: /^close case/i });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+
+    // The deterministic close carries the final disposition.
+    await waitFor(() => expect(caseActionExec).toHaveBeenCalledTimes(1));
+    expect(caseActionExec.mock.calls[0][1].disposition).toBe('false_positive');
+
+    // The grading POST must carry the assessment DERIVED AT SUBMIT from the FINAL
+    // disposition (false_positive) ↔ verdict (true_positive) = 'disagree' — NOT the stale
+    // 'agree' frozen when the section unmounted.
+    await waitFor(() => expect(caseFeedback).toHaveBeenCalledTimes(1));
+    expect(caseFeedback.mock.calls[0][1].assessment).toBe('disagree');
+  });
+
   it('CANCELLING the close dialog issues NEITHER the action nor the feedback POST', async () => {
     getCase.mockResolvedValue({ ...BASE_CASE, verdict: 'true_positive' });
 
