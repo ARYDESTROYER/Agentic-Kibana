@@ -35,7 +35,7 @@ from ..config import AutoClosePolicy
 from ..constants import ActionType, CaseStatus, Verdict
 from ..engine.case_manager import decide
 from ..engine.priority import derive_triage
-from ..models import TraceSpan
+from ..models import StageState, StageStep, TimelineStage, TimelineStagesResponse, TraceSpan
 from .deps import get_state, require_permission
 
 router = APIRouter(prefix="/api")
@@ -470,3 +470,229 @@ async def _usage_attribution(
         cost_by_role[key] = float(entry.get("cost", 0.0) or 0.0)
         tokens_by_role[key] = int(entry.get("tokens", 0) or 0)
     return cost_by_role, tokens_by_role
+
+
+# --------------------------------------------------------------------------- #
+# GET /api/cases/{id}/stages — the six-stage Timeline narrative (read-time #3/#9)
+# --------------------------------------------------------------------------- #
+# The canonical ordered spine (kind, label, deterministic) — the skeleton returned
+# for an unknown case so the UI always has six stages to render.
+_CANON_STAGES: tuple[tuple[str, str, bool], ...] = (
+    ("input", "Alert received", False),
+    ("correlate", "Correlate", True),
+    ("risk", "Risk", True),
+    ("triage", "Triage", False),
+    ("investigate", "Investigate", False),
+    ("decide", "Decide", True),
+)
+
+
+def _humanize(token: Any) -> str:
+    """A lowercased snake/enum token → spaced words (backend-side, display only)."""
+    return str(token or "").replace("_", " ").strip()
+
+
+def _enrichment_line(enr: dict[str, Any]) -> str:
+    """A compact TRUSTED one-liner from an enrichment result (our derived scalars)."""
+    bits: list[str] = []
+    if enr.get("reputation_score") is not None:
+        bits.append(f"reputation {enr['reputation_score']}")
+    if enr.get("is_malicious") is not None:
+        bits.append("flagged malicious" if enr["is_malicious"] else "not flagged malicious")
+    if enr.get("country"):
+        bits.append(f"country {enr['country']}")
+    return " · ".join(bits)
+
+
+def _decide_headline(pr: dict[str, Any]) -> str:
+    """A one-line TRUSTED headline for the deterministic decision, from its clause."""
+    if pr.get("escalate"):
+        return "Escalated by policy"
+    status = str(pr.get("decision_status") or "")
+    if status in (CaseStatus.RESOLVED.value, "closed", "resolved"):
+        return "Auto-closed by policy" if str(pr.get("decision_by")) != "human" else "Closed"
+    if status in (CaseStatus.NEEDS_HUMAN.value, "needs_human", CaseStatus.ON_HOLD.value):
+        return "Held for human review"
+    return _humanize(status).capitalize() or "Decision recorded"
+
+
+def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[TimelineStage]:
+    """Project a case + its audit rows into the six ordered narrative stages. Pure /
+    read-time / mutates nothing (#3); untrusted source/log text is fenced in steps (#9)."""
+    n = len(case.member_event_ids) or len(case.evidence)
+    plural = "s" if n != 1 else ""
+    src = case.source_name or "the configured source"
+
+    # 1 — input (the raw alert as the SIEM sent it)
+    input_steps: list[StageStep] = []
+    if case.evidence and getattr(case.evidence[0], "summary", ""):
+        input_steps.append(StageStep(kind="note", label="evidence",
+                                     body=str(case.evidence[0].summary), trusted=False))
+    input_stage = TimelineStage(
+        id="input", kind="input", label="Alert received", status="done", deterministic=False,
+        ts=case.created_at or None,
+        headline=(f"{n} alert{plural} from {src}" if n else f"Alert from {src}"),
+        state=StageState(severity_band=case.severity_band, severity_source=case.severity_source),
+        steps=input_steps,
+    )
+
+    # 2 — correlate (deterministic clustering)
+    corr_steps: list[StageStep] = []
+    if case.cluster_signature:
+        corr_steps.append(StageStep(kind="note", label="cluster signature",
+                                    body=str(case.cluster_signature), trusted=False))
+    correlate_stage = TimelineStage(
+        id="correlate", kind="correlate", label="Correlate", status="done", deterministic=True,
+        ts=case.created_at or None,
+        headline=(f"{n} alerts clustered into one case" if n > 1 else "Single-alert case (no cluster)"),
+        steps=corr_steps,
+    )
+
+    # 3 — risk (deterministic scoring)
+    rb = case.risk_breakdown
+    factors = [("volume", rb.volume), ("velocity", rb.velocity), ("reputation", rb.reputation),
+               ("diversity", rb.diversity), ("asset criticality", rb.asset_criticality)]
+    nz = [f"{k} {round(float(v), 1)}" for k, v in factors if v]
+    risk_stage = TimelineStage(
+        id="risk", kind="risk", label="Risk", status="done", deterministic=True,
+        ts=case.created_at or None,
+        headline=f"Risk {round(float(case.risk_score))}/100",
+        state=StageState(risk_score=round(float(case.risk_score), 2)),
+        steps=([StageStep(kind="note", label="risk factors", body=" · ".join(nz), trusted=True)] if nz else []),
+    )
+
+    # Extract the "why" pieces from the SAME audit rows the rationale endpoint reads:
+    # CONTEXT.tool_input → knowledge/memory/enrichment (the basis given); TOOL_CALL/
+    # ES_QUERY → commands run; VERDICT "reasoning=" → the reasoning excerpt; the
+    # playbook_selector DECISION → why that playbook. Self-contained; pure/defensive.
+    knowledge: list[dict[str, str]] = []
+    memory_facts: list[str] = []
+    enrichment: dict[str, Any] | None = None
+    tool_rows: list[Any] = []
+    reasoning = ""
+    playbook_reason = ""
+    context_seen = False
+    for row in rows:
+        at = str(_get(row, "action_type", "") or "")
+        if _get(row, "actor") == "playbook_selector" and not playbook_reason:
+            playbook_reason = str(_get(row, "result_summary", "") or "")
+        if at == ActionType.CONTEXT.value and not context_seen:
+            context_seen = True
+            ti = _get(row, "tool_input") or {}
+            if isinstance(ti, dict):
+                for k in (ti.get("knowledge") or []):
+                    if isinstance(k, dict):
+                        knowledge.append({"source": str(k.get("source", "knowledge")),
+                                          "snippet": str(k.get("snippet", ""))})
+                for m in (ti.get("memory") or []):
+                    if isinstance(m, str) and m.strip():
+                        memory_facts.append(m)
+                if isinstance(ti.get("enrichment"), dict):
+                    enrichment = ti["enrichment"]
+        elif at in (ActionType.TOOL_CALL.value, ActionType.ES_QUERY.value):
+            tool_rows.append(row)
+        elif at == ActionType.VERDICT.value and not reasoning:
+            ti = _get(row, "tool_input")
+            if isinstance(ti, dict) and str(ti.get("reasoning") or "").strip():
+                reasoning = str(ti["reasoning"]).strip()
+            else:
+                rs = str(_get(row, "result_summary", "") or "")
+                if "reasoning=" in rs:
+                    reasoning = rs.split("reasoning=", 1)[1].strip()
+
+    # 4 — triage (specialist routing + the basis given: playbook + operator memory)
+    persona = case.agent_persona or ""
+    playbook_id = getattr(case, "playbook_id", "") or ""
+    triage_steps: list[StageStep] = []
+    if playbook_id:
+        triage_steps.append(StageStep(
+            kind="note", label="playbook",
+            body=(f"{playbook_id} — {playbook_reason}" if playbook_reason else str(playbook_id)),
+            trusted=True))
+    triage_steps.extend(StageStep(kind="memory", label="memory", body=m, trusted=True)
+                        for m in memory_facts)
+    triage_done = bool(persona or playbook_id or memory_facts)
+    triage_stage = TimelineStage(
+        id="triage", kind="triage", label="Triage", status=("done" if triage_done else "skipped"),
+        deterministic=False, ts=case.created_at or None,
+        headline=(f"Routed to {_humanize(persona)} specialist" if persona and persona != "generalist"
+                  else ("Triaged" if triage_done else "No specialist routing")),
+        steps=triage_steps,
+    )
+
+    # 5 — investigate (the ReAct loop: reasoning + commands + knowledge + enrichment)
+    inv_steps: list[StageStep] = []
+    if reasoning:
+        inv_steps.append(StageStep(kind="reasoning", label="reasoning", body=reasoning, trusted=True))
+    for r in tool_rows:
+        at = str(_get(r, "action_type", "") or "")
+        tool = _get(r, "tool_name") or ("es_query" if at == ActionType.ES_QUERY.value else "tool")
+        inv_steps.append(StageStep(kind="tool", label=str(tool),
+                                   body=str(_get(r, "query_text", "") or ""), trusted=False,
+                                   ts=str(_get(r, "ts", "")) or None))
+    inv_steps.extend(StageStep(kind="knowledge", label=(k["source"] or "knowledge"),
+                               body=k["snippet"], trusted=False) for k in knowledge)
+    if enrichment and (line := _enrichment_line(enrichment)):
+        inv_steps.append(StageStep(kind="note", label="enrichment", body=line, trusted=True))
+    has_work = bool(reasoning or tool_rows or knowledge or enrichment)
+    if case.verdict is not None:
+        inv_status, inv_headline = "done", (
+            f"Verdict: {_humanize(case.verdict.value).lower()} · conf {round(float(case.confidence) * 100)}%")
+    elif has_work:
+        inv_status, inv_headline = "done", "Investigated (no verdict recorded)"
+    else:
+        inv_status, inv_headline = "skipped", "No investigation ran"
+    investigate_stage = TimelineStage(
+        id="investigate", kind="investigate", label="Investigate", status=inv_status,
+        deterministic=False,
+        ts=(str(_get(tool_rows[0], "ts", "")) if tool_rows else None) or None,
+        headline=inv_headline,
+        state=StageState(verdict=(case.verdict.value if case.verdict else None),
+                         confidence=(round(float(case.confidence), 4) if case.verdict else None)),
+        steps=inv_steps,
+    )
+
+    # 6 — decide (re-derive decide() for the EXACT deterministic clause; #3 made visible)
+    dspan = _decision_span(case_id, case, state, 0)
+    if dspan is not None:
+        pr = dspan.payload_ref
+        decide_stage = TimelineStage(
+            id="decide", kind="decide", label="Decide", status="done", deterministic=True,
+            ts=dspan.ts or None, headline=_decide_headline(pr),
+            state=StageState(verdict=pr.get("verdict"), confidence=pr.get("confidence"),
+                             risk_score=pr.get("risk_score")),
+            steps=([StageStep(kind="note", label="decision rationale", body=dspan.summary, trusted=True)]
+                   if dspan.summary else []),
+        )
+    else:
+        decide_stage = TimelineStage(
+            id="decide", kind="decide", label="Decide", status="pending", deterministic=True,
+            headline="Awaiting decision",
+        )
+
+    return [input_stage, correlate_stage, risk_stage, triage_stage, investigate_stage, decide_stage]
+
+
+@router.get("/cases/{case_id}/stages")
+async def case_stages(
+    case_id: str,
+    state: "Any" = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
+    """The six-stage Timeline narrative for a case (the ``TimelineStage`` shape).
+
+    A pure read-time projection over the Case + its audit rows (the SAME facts the
+    ``/timeline`` span view reads), reframed into ``input → correlate → risk → triage
+    → investigate → decide``. Advisory/observability ONLY — re-derives ``decide()`` to
+    DISPLAY the clause, mutates nothing (#3); untrusted source/log text is fenced in
+    steps (#9). NEVER 404s — an unknown case returns the six-stage skeleton."""
+    case = await state.cases.get(case_id)
+    if case is None:
+        skeleton = [TimelineStage(id=k, kind=k, label=lbl, status="skipped", deterministic=det)
+                    for k, lbl, det in _CANON_STAGES]
+        return TimelineStagesResponse(case_id=case_id, stages=skeleton,
+                                      total=len(skeleton)).model_dump(mode="json")
+    rows = await state.audit.records_for_case(case_id)
+    stages = _build_stages(case_id, case, rows, state)
+    return TimelineStagesResponse(case_id=case_id, stages=stages,
+                                  total=len(stages)).model_dump(mode="json")

@@ -907,6 +907,51 @@ class TraceSpan(BaseModel):
     payload_ref: dict[str, Any] = Field(default_factory=dict)
 
 
+class StageState(BaseModel):
+    """Derived scalars/labels at a stage (safe to render inline; never raw source text)."""
+
+    severity: float | None = None
+    severity_band: str | None = None
+    severity_source: str | None = None       # "source_asserted" | "derived"
+    risk_score: float | None = None
+    verdict: str | None = None
+    confidence: float | None = None
+
+
+class StageStep(BaseModel):
+    """A chronological sub-step under a stage. trusted=False ⇒ body is fenced UNTRUSTED (#9)."""
+
+    kind: str = ""            # reasoning | tool | knowledge | memory | note
+    label: str = ""
+    body: str = ""
+    trusted: bool = True
+    ts: str | None = None
+
+
+class TimelineStage(BaseModel):
+    """One of the six ordered pipeline stages of the Timeline narrative. Read-time
+    projection over Case + audit rows; advisory only, never feeds decide() (#3).
+    ``headline`` is always our TRUSTED prose (source specifics go in a fenced step)."""
+
+    id: str = ""
+    kind: str = ""            # input | correlate | risk | triage | investigate | decide
+    label: str = ""
+    status: str = "done"      # done | skipped | pending
+    deterministic: bool = False
+    ts: str | None = None
+    headline: str = ""
+    state: StageState = Field(default_factory=StageState)
+    steps: list[StageStep] = Field(default_factory=list)
+
+
+class TimelineStagesResponse(BaseModel):
+    """``GET /api/cases/{id}/stages`` — the six ordered stages. Never 404s."""
+
+    case_id: str = ""
+    stages: list[TimelineStage] = Field(default_factory=list)
+    total: int = 0
+
+
 # --------------------------------------------------------------------------- #
 # Round 4 scaffolding — cross-case campaigns / anomaly-baseline sketch state /
 # batch-inference jobs / a unified detection-rule carrier. ALL of these are NEW

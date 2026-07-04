@@ -38,6 +38,7 @@ import {
   Download,
   FileText,
   GitBranch,
+  ListTree,
   Globe,
   History,
   MessageSquare,
@@ -113,9 +114,11 @@ import { Can, useCan } from '@/soc/components/Can';
 import { useAuth } from '@/soc/auth';
 
 import { TraceTimeline } from '@/soc/components/TraceTimeline';
+import { StageTimeline } from './casedetail/StageTimeline';
 import {
   getTriage,
   getTimeline,
+  getCaseStages,
   getThread,
   postThread,
   editThreadMessage,
@@ -129,6 +132,7 @@ import {
   listPickableUsers,
   type TriageChips,
   type TimelineResponse,
+  type TimelineStagesResponse,
   type CaseMessage as ThreadMessage,
   type CaseTask as CaseTaskItem,
   type CaseActivityItem,
@@ -190,7 +194,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'why' | 'threat' | 'trace' | 'collab' | 'feedback' | 'chat'
+    'overview' | 'timeline' | 'why' | 'threat' | 'trace' | 'collab' | 'feedback' | 'chat'
   >('overview');
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
@@ -201,6 +205,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [timeline, setTimeline] = React.useState<TimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = React.useState(false);
   const [timelineError, setTimelineError] = React.useState<unknown>(null);
+
+  // Six-stage narrative, lazy on the Timeline tab.
+  const [stages, setStages] = React.useState<TimelineStagesResponse | null>(null);
+  const [stagesLoading, setStagesLoading] = React.useState(false);
+  const [stagesError, setStagesError] = React.useState<unknown>(null);
 
   // Round 3 — collaboration thread (#4), lazy on the Thread tab.
   const [thread, setThread] = React.useState<ThreadMessage[] | null>(null);
@@ -292,6 +301,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setTriage(null);
     setTimeline(null);
     setTimelineError(null);
+    setStages(null);
+    setStagesError(null);
     setThread(null);
     setThreadError(null);
     setThreadBusyId(null);
@@ -387,6 +398,28 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       void loadTimeline();
     }
   }, [open, tab, timeline, timelineLoading, timelineError, loadTimeline]);
+
+  const loadStages = React.useCallback(async () => {
+    if (!id) return;
+    setStagesLoading(true);
+    setStagesError(null);
+    try {
+      const res = await getCaseStages(id);
+      if (activeIdRef.current !== id) return;
+      setStages(res);
+    } catch (e) {
+      if (activeIdRef.current === id) setStagesError(e);
+    } finally {
+      if (activeIdRef.current === id) setStagesLoading(false);
+    }
+  }, [id]);
+
+  // Lazy on the Timeline tab (same error-guard rationale as loadTimeline above).
+  React.useEffect(() => {
+    if (open && tab === 'timeline' && stages === null && !stagesLoading && !stagesError) {
+      void loadStages();
+    }
+  }, [open, tab, stages, stagesLoading, stagesError, loadStages]);
 
   // ---- Collaboration: thread + tasks + activity (#4) -------------------- //
   const loadThread = React.useCallback(async () => {
@@ -670,6 +703,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setRationale(null);
       setThreat(null);
       setTimeline(null);
+      setStages(null);
       void loadTriage();
       toast.success('Playbook applied — the case was re-investigated with it as context.');
     } catch (e) {
@@ -802,6 +836,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       resetActionFields();
       setRationale(null);
       setTimeline(null);
+      setStages(null);
       // A lifecycle action re-derives the chips + leaves an activity row.
       void loadTriage();
       if (activity !== null) void loadActivity();
@@ -839,6 +874,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       setReinvestOpen(false);
       setRationale(null);
       setTimeline(null);
+      setStages(null);
       void loadTriage();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'The reinvestigation could not be started.');
@@ -1292,6 +1328,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="overview" className="gap-1.5 text-xs">
                         <FileText className="h-3.5 w-3.5" /> Overview
                       </TabsTrigger>
+                      <TabsTrigger value="timeline" className="gap-1.5 text-xs">
+                        <ListTree className="h-3.5 w-3.5" /> Timeline
+                      </TabsTrigger>
                       <TabsTrigger value="why" className="gap-1.5 text-xs">
                         <Brain className="h-3.5 w-3.5" /> Why
                       </TabsTrigger>
@@ -1321,6 +1360,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         triage={triage}
                         triageLoading={triageLoading}
                         onNavigate={onNavigate}
+                      />
+                    </TabsContent>
+                    <TabsContent value="timeline" className="mt-0 animate-fade-in">
+                      <StageTimeline
+                        data={stages}
+                        loading={stagesLoading}
+                        error={stagesError}
+                        onRetry={loadStages}
                       />
                     </TabsContent>
                     <TabsContent value="why" className="mt-0 animate-fade-in">
