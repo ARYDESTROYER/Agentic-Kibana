@@ -30,6 +30,7 @@ import { Skeleton } from '@/ui/skeleton';
 import { RiskGauge } from '@/soc/components/RiskGauge';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { scoreBand } from '@/soc/components/palette';
+import { severityBandFromNumber } from '@/soc/components/badges';
 import { RISK_FACTOR_HELP, RISK_HELP_TEXT } from '@/soc/components/riskCopy';
 
 // Re-exported so the existing `import { RISK_HELP_TEXT, RISK_FACTOR_HELP } from
@@ -87,13 +88,13 @@ function toneForBand(band?: string): ChipTone {
   }
 }
 
-/** Map a 0-100 magnitude → a chip tone (for the risk number specifically). */
+/** Map a 0-100 magnitude → a chip tone. Delegates to the ONE SEVERITY authority
+ *  (`badges.ts severityBandFromNumber`, the 74/48/22/8 ladder) so the risk-factor bar
+ *  tones share ONE ladder with every SeverityBadge and can never drift (Round-7 W2.c).
+ *  (RiskCard's accent stripe intentionally stays on `scoreBand` — the 4-band RISK ladder
+ *  the embedded RiskGauge uses; that is a separate axis and is left untouched.) */
 function toneForScore(score: number): ChipTone {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  if (score >= 15) return 'low';
-  return 'info';
+  return severityBandFromNumber(score);
 }
 
 /** Title-case a band/level token for display ("high" → "High", "P1" → "P1"). */

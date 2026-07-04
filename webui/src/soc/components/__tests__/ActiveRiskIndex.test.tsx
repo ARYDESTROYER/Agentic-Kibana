@@ -10,6 +10,7 @@ import { render, screen } from '@testing-library/react';
 
 import { ActiveRiskIndex } from '../ActiveRiskIndex';
 import { ACTIVE_RISK_HELP_TEXT } from '../riskCopy';
+import { SCORE_BANDS } from '../palette';
 
 describe('ActiveRiskIndex (#1 Command-Center risk instrument)', () => {
   it('renders the RiskGauge with the score when there are open cases (count > 0)', () => {
@@ -25,6 +26,25 @@ describe('ActiveRiskIndex (#1 Command-Center risk instrument)', () => {
 
     // No empty placeholder when there are open cases.
     expect(screen.queryByTestId('active-risk-empty')).toBeNull();
+  });
+
+  it('marks the critical band cut with a decorative notch on the header gauge (W2.b)', () => {
+    const { container } = render(<ActiveRiskIndex score={62} count={7} size={120} />);
+
+    // The gauge draws a single decorative <line> notch at the critical boundary (74).
+    const line = container.querySelector('line');
+    expect(line).not.toBeNull();
+    expect(line!.getAttribute('aria-hidden')).toBe('true');
+
+    // The notch value is the ONE-source-of-truth critical floor (74), not a magic number.
+    expect(SCORE_BANDS.critical[0]).toBe(74);
+    // 74 > 50 → the tick sits on the RIGHT half of the compact gauge (x > centre).
+    expect(Number(line!.getAttribute('x1'))).toBeGreaterThan(120 / 2);
+  });
+
+  it('draws no notch on the empty ("no open cases") placeholder', () => {
+    const { container } = render(<ActiveRiskIndex score={0} count={0} />);
+    expect(container.querySelector('line')).toBeNull();
   });
 
   it('renders a DASH "no open cases" placeholder (not a zero gauge) when count is 0', () => {

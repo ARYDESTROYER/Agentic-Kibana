@@ -17,11 +17,13 @@ export interface RiskGaugeProps {
    */
   animateValue?: boolean;
   /**
-   * Round-7 W0.1 — optional 0-100 threshold marker drawn as a small radial tick on
-   * the MUTED track (e.g. the auto-escalate boundary). Drawn only when provided; the
-   * gauge callers do not pass it this wave (the notch render + band HelpTip land in
-   * Wave 2). It is a `<line>`, never a `<path>`, so it does not affect the 2-path arc
-   * geometry other components assert on.
+   * Round-7 W0.1/W2.b — optional 0-100 threshold marker drawn as a small radial tick on
+   * the MUTED track (e.g. the `critical` auto-escalate boundary). Drawn only when
+   * provided; the Active-Risk-Index instrument passes it (W2.b, `notch={74}`) so the
+   * header gauge shows how close active pressure sits to critical. It is a `<line>`,
+   * never a `<path>`, so it does not affect the 2-path arc geometry other components
+   * assert on, and it is decorative (`aria-hidden`) — the value/band already carry the
+   * meaning for assistive tech.
    */
   notch?: number;
   className?: string;

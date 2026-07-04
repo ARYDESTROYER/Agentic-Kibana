@@ -78,7 +78,7 @@ import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
 import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
 import { Reveal } from '@/soc/components/Reveal';
 import { TrendArea } from '@/soc/components/charts';
-import { isAutoClosedByAI } from '@/soc/components/badges';
+import { isAutoClosedByAI, severityBandFromNumber } from '@/soc/components/badges';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -171,14 +171,14 @@ const SEV_LABEL: Record<SevKey, string> = {
   info: 'Informational',
 };
 
-/** Normalise a case risk_score into a severity band (matches RiskBadge bands). */
+/** Normalise a case risk_score into a severity band. Delegates to the ONE SEVERITY
+ *  authority (`badges.ts severityBandFromNumber`, the 74/48/22/8 ladder) so this widget
+ *  and every SeverityBadge share ONE ladder and can never drift (Round-7 W2.c). The
+ *  name/signature is preserved so `sevCounts` + the "Open cases by severity" widget are
+ *  untouched; only the cut-points fold onto the single authority. */
 function bandOf(score?: number): SevKey {
   const s = typeof score === 'number' && Number.isFinite(score) ? score : 0;
-  if (s >= 80) return 'critical';
-  if (s >= 60) return 'high';
-  if (s >= 35) return 'medium';
-  if (s >= 15) return 'low';
-  return 'info';
+  return severityBandFromNumber(s);
 }
 
 /** Workload-status → bar color token. */

@@ -111,7 +111,7 @@ const StepItem: React.FC<{ step: StageStep }> = ({ step }) => {
           {step.label || humanizeToken(step.kind) || 'Step'}
         </Badge>
         {step.trusted ? null : (
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">untrusted</span>
+          <span className="text-2xs uppercase tracking-wide text-muted-foreground">untrusted</span>
         )}
       </div>
       {step.body ? (
@@ -181,7 +181,7 @@ const StageRow: React.FC<{ stage: TimelineStage; last: boolean }> = ({ stage, la
           {skipped ? <Badge variant="outline">skipped</Badge> : null}
           {pending ? <Badge variant="outline">pending</Badge> : null}
           {stage.ts ? (
-            <span className="text-[11px] text-muted-foreground">{formatTimestamp(stage.ts)}</span>
+            <span className="text-2xs text-muted-foreground">{formatTimestamp(stage.ts)}</span>
           ) : null}
         </div>
 

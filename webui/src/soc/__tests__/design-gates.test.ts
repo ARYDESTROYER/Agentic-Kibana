@@ -18,8 +18,8 @@
 import { describe, it, expect } from 'vitest';
 // The gate checkers live under webui/scripts/ (node ESM). Import their pure functions.
 import { checkTokenExistence } from '../../../scripts/gate-tokens.mjs';
-import { checkContrast } from '../../../scripts/gate-contrast.mjs';
-import { checkCvd } from '../../../scripts/gate-cvd.mjs';
+import { checkContrast, SEMANTIC_FILL_AXES } from '../../../scripts/gate-contrast.mjs';
+import { checkCvd, CHART_TOKENS, SEMANTIC_AXES } from '../../../scripts/gate-cvd.mjs';
 import { checkGrepGuards, loadBaseline } from '../../../scripts/lib/grep-guard.mjs';
 
 describe('design gate: token existence (theme.css ⇄ ALLOWED_TOKENS ⇄ palette)', () => {
@@ -44,6 +44,21 @@ describe('design gate: WCAG contrast (both themes)', () => {
     expect(results.some((r) => r.theme === 'dark')).toBe(true);
   });
 
+  it('every severity/status/verdict base fill clears WCAG 1.4.11 (3:1) on --card in both themes', () => {
+    // Round-7 W2 — the semantic SOLID fills (badge chip / timeline node / gauge arc) are
+    // graphical objects; each `--<axis>` must clear 3:1 vs the card it sits on. `--medium`
+    // light was 2.97:1 (below the bar) until it was nudged; this pins the fix.
+    const { results } = checkContrast();
+    const fills = results.filter((r) => / fill on card$/.test(r.name));
+    // 7 fills × 2 themes, all passing.
+    expect(fills.length).toBe(SEMANTIC_FILL_AXES.length * 2);
+    const fillFailures = fills.filter((r) => !r.pass);
+    expect(fillFailures, JSON.stringify(fillFailures, null, 2)).toEqual([]);
+    // Guard the exact token that regressed: --medium on the light card must clear 3:1.
+    const mediumLight = fills.find((r) => r.theme === 'light' && r.name === 'medium fill on card');
+    expect(mediumLight?.ratio).toBeGreaterThanOrEqual(3);
+  });
+
   it('a below-threshold pair is reported as a failure (checker is not a no-op)', () => {
     // Guard against the checker silently passing everything: assert the measured
     // ratios are real numbers and at least one axis has margin above its bar.
@@ -53,10 +68,16 @@ describe('design gate: WCAG contrast (both themes)', () => {
   });
 });
 
-describe('design gate: CVD safety of the --chart-* ramp', () => {
-  it('all 8 chart tokens resolve in both themes and stay ≥ JND apart under 3 dichromacies', () => {
+describe('design gate: CVD safety of the chart ramp + semantic axes', () => {
+  it('chart tokens + severity/status/verdict axes resolve and stay ≥ JND apart under 3 dichromacies', () => {
     const { ok, problems, resolved } = checkCvd();
-    expect(resolved).toBe(16); // 8 chart tokens × 2 themes
+    // Round-7 W2 — coverage now spans the chart ramp AND each semantic axis (checked
+    // per-axis; cross-axis token reuse is intentional). Expected resolved-token count is
+    // derived from the SAME constants the checker uses, so adding an axis token forces a
+    // deliberate re-review rather than silently shrinking coverage.
+    const semanticTokens = Object.values(SEMANTIC_AXES).reduce((n, toks) => n + toks.length, 0);
+    expect(resolved).toBe((CHART_TOKENS.length + semanticTokens) * 2); // × 2 themes
+    expect(resolved).toBeGreaterThan(16); // strictly more than the pre-Round-7 chart-only gate
     expect(problems, JSON.stringify(problems, null, 2)).toEqual([]);
     expect(ok).toBe(true);
   });
@@ -95,6 +116,9 @@ describe('design gate: grep baseline only ratchets DOWN (M1 anti-grandfather)', 
     'src/soc/pages/casedetail/FeedbackPanel.tsx',
     'src/soc/pages/casedetail/shared.tsx',
     'src/soc/pages/settings/automation.tsx',
+    // Round-7 W2 — the two off-scale sizes (text-[10px]/[11px]) were migrated to
+    // `text-2xs`; pin it at zero so the pre-existing gate failure can never re-grandfather.
+    'src/soc/pages/casedetail/StageTimeline.tsx',
   ];
 
   it.each(MUST_BE_ZERO)('grandfathers zero arbitrary text sizes for %s', (file) => {

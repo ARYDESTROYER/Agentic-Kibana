@@ -262,6 +262,35 @@ describe('Overview — Security Command Center (W1.A)', () => {
     );
   });
 
+  // Round-7 W2.c — the severity widget's `bandOf` now folds onto the ONE severity
+  // authority (badges.ts severityBandFromNumber, the 74/48/22/8 ladder) instead of its
+  // old private 80/60/35/15 cuts. This LOCKS the unification: a risk_score of 76 must
+  // band CRITICAL (it read HIGH under the old 80-cut), while 88/65/20 keep classifying
+  // critical/high/low (both ladders agree on those). If the widget ever drifts back to
+  // the 80-cut, `Critical` would drop to 1 and `High` rise to 2 and this test fails.
+  it('bands a risk_score of 76 as CRITICAL on the severity widget (W2.c unification)', async () => {
+    listCasesMock.mockResolvedValue({
+      cases: [
+        { case_id: 'u1', status: 'open', risk_score: 88 }, // critical (both ladders agree)
+        { case_id: 'u2', status: 'open', risk_score: 76 }, // critical NOW (was high @ 80-cut)
+        { case_id: 'u3', status: 'open', risk_score: 65 }, // high (both ladders agree)
+        { case_id: 'u4', status: 'open', risk_score: 20 }, // low (both ladders agree)
+      ] as unknown as Case[],
+      total: 4,
+    });
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    const criticalRow = await screen.findByRole('button', { name: /view Critical severity cases/i });
+    const highRow = screen.getByRole('button', { name: /view High severity cases/i });
+    const lowRow = screen.getByRole('button', { name: /view Low severity cases/i });
+    // 88 + 76 BOTH land in Critical (only 65 in High, only 20 in Low). Under the old
+    // 80-cut, 76 would have fallen into High (Critical=1 / High=2) — asserting the new
+    // 74-cut here is what locks the deferred ladder unification.
+    await waitFor(() => expect(within(criticalRow).getByText('2')).toBeInTheDocument());
+    expect(within(highRow).getByText('1')).toBeInTheDocument();
+    expect(within(lowRow).getByText('1')).toBeInTheDocument();
+  });
+
   it('renders the autonomy trust surface + the named widget bands (incl. the new ones)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');

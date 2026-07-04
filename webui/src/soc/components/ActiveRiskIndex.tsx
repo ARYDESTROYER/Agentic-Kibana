@@ -15,8 +15,10 @@
  * author-controlled — both render as plain text only. #3: the Active Risk Index is
  * ranking-only and was never fed to the deterministic decide().
  *
- * NOTE (W0.3): no threshold notch here — the band-cut markers on the gauge arc are
- * deferred to Wave 2 (#12). The band cuts are documented in the HelpTip copy instead.
+ * NOTE (W2.b): the gauge draws a small decorative notch at the `critical` band cut
+ * (score 74 = `SCORE_BANDS.critical[0]`) so the operator sees at a glance how close
+ * active pressure sits to critical; the full band-cut ladder is also spelled out in the
+ * HelpTip copy (ACTIVE_RISK_HELP_TEXT: Critical ≥74 · High ≥48 · Medium ≥22 · Low <22).
  */
 import * as React from 'react';
 
@@ -26,7 +28,15 @@ import { DASH } from '@/lib/format';
 import { Skeleton } from '@/ui/skeleton';
 import { RiskGauge } from '@/soc/components/RiskGauge';
 import { HelpTip } from '@/soc/components/HelpTip';
+import { SCORE_BANDS } from '@/soc/components/palette';
 import { ACTIVE_RISK_HELP_TEXT } from '@/soc/components/riskCopy';
+
+/**
+ * The `critical` band floor (74) on the ONE 0-100 ladder (`palette.scoreBand`) — the
+ * escalation boundary the header gauge marks with a decorative notch. Derived from the
+ * single band authority so it can never drift from the `scoreBand`/HelpTip ladder.
+ */
+const CRITICAL_NOTCH = SCORE_BANDS.critical[0];
 
 export interface ActiveRiskIndexProps {
   /** Mean deterministic risk (0-100) over the open cases; null when unknown/loading. */
@@ -75,7 +85,7 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
           data-testid="active-risk-loading"
         />
       ) : hasOpen ? (
-        <RiskGauge score={score as number} size={size} />
+        <RiskGauge score={score as number} size={size} notch={CRITICAL_NOTCH} />
       ) : (
         <div
           data-testid="active-risk-empty"
