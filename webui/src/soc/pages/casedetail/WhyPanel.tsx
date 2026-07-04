@@ -53,7 +53,21 @@ export const WhyPanel: React.FC<{
   loading: boolean;
   error: unknown;
   onRetry: () => void;
-}> = ({ c, rationale, loading, error, onRetry }) => {
+  /**
+   * Omit the leading "Decision" summary card (verdict/status/decided-by + the
+   * deterministic-decision Alert). Used by the merged InvestigationPanel, where the
+   * pinned <DecisionCard> is the single authority for the decision lane (#3) so the
+   * AI-assessment lane shows only reasoning / knowledge / tools / enrichment. Default
+   * false → the standalone "Why" surface keeps the decision summary.
+   */
+  hideDecision?: boolean;
+  /**
+   * Omit the trailing MITRE ATT&CK card. Used by InvestigationPanel, where MITRE is
+   * surfaced once (in the Threat / Overview lane) instead of repeated here. Default
+   * false → the standalone surface keeps MITRE.
+   */
+  hideMitre?: boolean;
+}> = ({ c, rationale, loading, error, onRetry, hideDecision = false, hideMitre = false }) => {
   if (loading) {
     return (
       <div className="space-y-4 p-6">
@@ -107,38 +121,40 @@ export const WhyPanel: React.FC<{
   return (
     <div className="space-y-6 p-6">
       {/* ------------------------------------------- decision summary */}
-      <PanelCard>
-        <SectionHeading icon={Brain}>
-          Decision
-        </SectionHeading>
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <VerdictBadge verdict={verdict} />
-          <StatusBadge status={status} />
-          {typeof confidence === 'number' ? (
-            <ConfidenceBadge confidence={confidence} />
-          ) : null}
-          <Badge variant={decision.isHuman ? 'success' : 'info'} className="gap-1">
-            {decision.isHuman ? <User className="h-3 w-3" /> : <Brain className="h-3 w-3" />}
-            Decided by {decision.text}
-          </Badge>
-          {persona && persona !== 'generalist' ? (
-            <Badge variant="outline" className="gap-1">
-              <User className="h-3 w-3" />
-              {humanizeToken(persona)}
+      {hideDecision ? null : (
+        <PanelCard>
+          <SectionHeading icon={Brain}>
+            Decision
+          </SectionHeading>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <VerdictBadge verdict={verdict} />
+            <StatusBadge status={status} />
+            {typeof confidence === 'number' ? (
+              <ConfidenceBadge confidence={confidence} />
+            ) : null}
+            <Badge variant={decision.isHuman ? 'success' : 'info'} className="gap-1">
+              {decision.isHuman ? <User className="h-3 w-3" /> : <Brain className="h-3 w-3" />}
+              Decided by {decision.text}
             </Badge>
-          ) : null}
-        </div>
-        <Alert>
-          <GitBranch className="h-4 w-4" />
-          <AlertTitle>Deterministic decision</AlertTitle>
-          {/* UNTRUSTED — plain text. */}
-          <AlertDescription className="whitespace-pre-wrap">
-            {r.decision_rationale
-              ? r.decision_rationale
-              : 'The close / escalate decision is made by deterministic code against the operator-configured auto-close policy — never by raw model output. No rationale string was recorded for this case.'}
-          </AlertDescription>
-        </Alert>
-      </PanelCard>
+            {persona && persona !== 'generalist' ? (
+              <Badge variant="outline" className="gap-1">
+                <User className="h-3 w-3" />
+                {humanizeToken(persona)}
+              </Badge>
+            ) : null}
+          </div>
+          <Alert>
+            <GitBranch className="h-4 w-4" />
+            <AlertTitle>Deterministic decision</AlertTitle>
+            {/* UNTRUSTED — plain text. */}
+            <AlertDescription className="whitespace-pre-wrap">
+              {r.decision_rationale
+                ? r.decision_rationale
+                : 'The close / escalate decision is made by deterministic code against the operator-configured auto-close policy — never by raw model output. No rationale string was recorded for this case.'}
+            </AlertDescription>
+          </Alert>
+        </PanelCard>
+      )}
 
       {/* ------------------------------------------- agent reasoning */}
       <PanelCard>
@@ -311,7 +327,7 @@ export const WhyPanel: React.FC<{
       ) : null}
 
       {/* ------------------------------------------- MITRE */}
-      {mitre.length ? (
+      {!hideMitre && mitre.length ? (
         <PanelCard>
           <SectionHeading icon={Shield}>
             MITRE ATT&amp;CK techniques

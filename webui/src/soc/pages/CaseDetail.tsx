@@ -5,14 +5,17 @@
  * WIDE right-side Sheet modeled on the reference "case report" page:
  *   - a header (title, created/updated, action buttons: reinvestigate / run-playbook /
  *     refresh / chat / history / export / notify),
- *   - the tabbed body — one lazy panel per tab (Overview / Why / Threat context /
- *     Trace / Collaboration / Feedback / Chat),
+ *   - the tabbed body — one lazy panel per tab (Overview / Investigation / Threat
+ *     context / Collaboration / Chat). Round-7 #9a collapsed the old 8-tab shell:
+ *     the Timeline / Why / Trace panels now compose INSIDE the InvestigationPanel
+ *     (Facts → AI assessment → pinned deterministic DecisionCard + a collapsible
+ *     full trace), and the standalone Feedback tab was retired,
  *   - a footer with ONE context-dependent primary CTA, ONE unified Close-with-
  *     disposition secondary, and an overflow "More" menu,
  *   - the shared confirm-action dialog (every lifecycle action) + a Notify dialog.
  *
  * COUPLING-D SPLIT: the conceptual panels now live in `soc/pages/casedetail/*`
- * (OverviewPanel · WhyPanel · ThreatContextPanel · CollaborationPanel · FeedbackPanel ·
+ * (OverviewPanel · InvestigationPanel · ThreatContextPanel · CollaborationPanel ·
  * CaseChatPanel), the lifecycle action model + small building blocks in `./shared`,
  * and the close-with-disposition dialog in `./ConfirmActionDialog`. This file is the
  * ORCHESTRATOR: it owns the fetch/lazy-load/mutation state and wires it to the panels.
@@ -33,11 +36,9 @@ import {
   AlertTriangle,
   Bell,
   BookOpen,
-  Brain,
   Check,
   Download,
   FileText,
-  GitBranch,
   ListTree,
   Globe,
   History,
@@ -48,7 +49,6 @@ import {
   Search,
   Send,
   Shield,
-  Star,
   Users,
   X,
   Zap,
@@ -108,13 +108,11 @@ import {
 } from '@/ui/tooltip';
 import { Skeleton, SkeletonCard } from '@/ui/skeleton';
 
-import { StatusBadge, DispositionBadge } from '@/soc/components/badges';
+import { StatusBadge, DispositionBadge, AutoClosedBadge } from '@/soc/components/badges';
 import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import { Can, useCan } from '@/soc/components/Can';
 import { useAuth } from '@/soc/auth';
 
-import { TraceTimeline } from '@/soc/components/TraceTimeline';
-import { StageTimeline } from './casedetail/StageTimeline';
 import {
   getTriage,
   getTimeline,
@@ -153,12 +151,16 @@ import {
   actionPlanForStatus,
 } from './casedetail/shared';
 import { OverviewPanel } from './casedetail/OverviewPanel';
-import { WhyPanel } from './casedetail/WhyPanel';
+import { InvestigationPanel } from './casedetail/InvestigationPanel';
 import { ThreatContextPanel } from './casedetail/ThreatContextPanel';
 import { CollaborationThreadTab } from './casedetail/CollaborationPanel';
-import { FeedbackTab } from './casedetail/FeedbackPanel';
 import { ChatTab } from './casedetail/CaseChatPanel';
 import { ConfirmActionDialog } from './casedetail/ConfirmActionDialog';
+import {
+  emptyGradingDraft,
+  gradingToFeedbackInput,
+  type GradingDraft,
+} from './casedetail/grading';
 
 // Re-export the co-located API types so existing importers keep working.
 export type { ThreadMessage };
@@ -194,19 +196,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'timeline' | 'why' | 'threat' | 'trace' | 'collab' | 'feedback' | 'chat'
+    'overview' | 'investigation' | 'threat' | 'collab' | 'chat'
   >('overview');
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
   const [triage, setTriage] = React.useState<TriageChips | null>(null);
   const [triageLoading, setTriageLoading] = React.useState(false);
 
-  // Round 3 — typed ReAct timeline (#12), lazy on the Trace tab.
+  // Round 3 — typed ReAct timeline (#12), lazy on the Investigation tab (powers the
+  // DecisionCard's policy clause + the collapsible full trace).
   const [timeline, setTimeline] = React.useState<TimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = React.useState(false);
   const [timelineError, setTimelineError] = React.useState<unknown>(null);
 
-  // Six-stage narrative, lazy on the Timeline tab.
+  // Six-stage narrative, lazy on the Investigation tab.
   const [stages, setStages] = React.useState<TimelineStagesResponse | null>(null);
   const [stagesLoading, setStagesLoading] = React.useState(false);
   const [stagesError, setStagesError] = React.useState<unknown>(null);
@@ -255,6 +258,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   const [actionTagDraft, setActionTagDraft] = React.useState('');
   const [actionDisposition, setActionDisposition] = React.useState('');
   const [actionReason, setActionReason] = React.useState('');
+  // Round-7 #10 (feedback-into-close): the in-dialog AI-decision grading draft. Grading
+  // actions (close / confirm-FP / resolve / set-disposition) POST it as a SEPARATE
+  // `caseFeedback` call after the deterministic close — never through `decide()` (#3).
+  const [grading, setGrading] = React.useState<GradingDraft>(emptyGradingDraft());
   const [acting, setActing] = React.useState(false);
 
   // Reinvestigate.
@@ -373,7 +380,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     };
   }, [open]);
 
-  // Typed ReAct timeline (#12) — lazy on the Trace tab.
+  // Typed ReAct timeline (#12) — lazy on the Investigation tab.
   const loadTimeline = React.useCallback(async () => {
     if (!id) return;
     setTimelineLoading(true);
@@ -389,12 +396,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     }
   }, [id]);
 
-  // Lazy on the Trace tab. `!timelineError` in the guard stops a failed fetch from
-  // re-firing forever (the loading flag flips back to false on failure, which would
-  // otherwise re-satisfy `timeline === null && !loading` and hammer the backend). The
-  // Retry affordance still works — loadTimeline clears the error before refetching.
+  // Lazy on the Investigation tab. `!timelineError` in the guard stops a failed fetch
+  // from re-firing forever (the loading flag flips back to false on failure, which
+  // would otherwise re-satisfy `timeline === null && !loading` and hammer the backend).
+  // The Retry affordance still works — loadTimeline clears the error before refetching.
   React.useEffect(() => {
-    if (open && tab === 'trace' && timeline === null && !timelineLoading && !timelineError) {
+    if (open && tab === 'investigation' && timeline === null && !timelineLoading && !timelineError) {
       void loadTimeline();
     }
   }, [open, tab, timeline, timelineLoading, timelineError, loadTimeline]);
@@ -414,9 +421,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     }
   }, [id]);
 
-  // Lazy on the Timeline tab (same error-guard rationale as loadTimeline above).
+  // Lazy on the Investigation tab (same error-guard rationale as loadTimeline above).
   React.useEffect(() => {
-    if (open && tab === 'timeline' && stages === null && !stagesLoading && !stagesError) {
+    if (open && tab === 'investigation' && stages === null && !stagesLoading && !stagesError) {
       void loadStages();
     }
   }, [open, tab, stages, stagesLoading, stagesError, loadStages]);
@@ -648,7 +655,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'why' && rationale === null && !rationaleLoading && !rationaleError) {
+    if (open && tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError) {
       void loadRationale();
     }
   }, [open, tab, rationale, rationaleLoading, rationaleError, loadRationale]);
@@ -787,6 +794,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     setActionTagDraft('');
     setActionDisposition('');
     setActionReason('');
+    setGrading(emptyGradingDraft());
   }, []);
 
   const openAction = React.useCallback(
@@ -840,6 +848,35 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
       // A lifecycle action re-derives the chips + leaves an activity row.
       void loadTriage();
       if (activity !== null) void loadActivity();
+
+      // Feedback-into-close (#10): grading the AI decision is a SEPARATE, best-effort
+      // POST from the deterministic close above — decide()/apply() ran ONLY inside
+      // `caseActionExec` (two distinct calls, #3). Fire it only for a grading action on a
+      // case that carried an AI verdict to grade (skip NEEDS-noverdict / non-grading
+      // actions); the assessment is DERIVED (agree/override) from the disposition↔verdict
+      // diff by GradingFields and kept synced in `grading`. The typeof-guard keeps
+      // callers/tests that don't wire `caseFeedback` working, and a rejected grading
+      // never surfaces as a close failure.
+      const gradedVerdict = String(next.verdict ?? c?.verdict ?? '')
+        .trim()
+        .toLowerCase();
+      if (
+        pending.fields.includes('grading') &&
+        gradedVerdict &&
+        gradedVerdict !== 'none' &&
+        typeof api.caseFeedback === 'function'
+      ) {
+        void api
+          .caseFeedback(id, gradingToFeedbackInput(grading, currentUser || undefined))
+          .then((updated) => {
+            // Reflect the just-recorded grading in the prior-gradings history, but only
+            // if this CaseDetail is still showing the same case.
+            if (updated && activeIdRef.current === id) setC(updated);
+          })
+          .catch(() => {
+            /* grading is best-effort; never surface as a close failure (#3). */
+          });
+      }
     } catch (e) {
       // A failed lifecycle action is a MUTATION failure, not a case-load failure — use a
       // toast (like postMessage/notify) so we never mislabel it as "Could not load case".
@@ -858,6 +895,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     actionDisposition,
     actionReason,
     id,
+    c,
+    grading,
+    currentUser,
     resetActionFields,
     loadTriage,
     loadActivity,
@@ -961,6 +1001,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
                       <StatusBadge status={c.status} />
                       <DispositionBadge disposition={c.disposition ?? null} />
+                      {/* Round-7 #11 — self-hiding: shows only when the AI auto-closed
+                          this case (terminal status + decision_by === 'agent'). */}
+                      <AutoClosedBadge status={c.status} decisionBy={c.decision_by} />
                       {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
                         <Badge variant="critical" className="gap-1">
                           <Bell className="h-3 w-3" /> L{c.escalation_level}
@@ -1214,19 +1257,19 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   <TooltipContent>Ask about this case</TooltipContent>
                 </Tooltip>
 
-                {/* History → trace tab */}
+                {/* History → the Investigation tab (Facts → AI → decision + full trace) */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label="Decision trace"
-                      onClick={() => setTab('trace')}
+                      aria-label="Investigation trace"
+                      onClick={() => setTab('investigation')}
                     >
                       <History className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Decision trace</TooltipContent>
+                  <TooltipContent>Investigation trace</TooltipContent>
                 </Tooltip>
 
                 {/* Export */}
@@ -1328,23 +1371,14 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="overview" className="gap-1.5 text-xs">
                         <FileText className="h-3.5 w-3.5" /> Overview
                       </TabsTrigger>
-                      <TabsTrigger value="timeline" className="gap-1.5 text-xs">
-                        <ListTree className="h-3.5 w-3.5" /> Timeline
-                      </TabsTrigger>
-                      <TabsTrigger value="why" className="gap-1.5 text-xs">
-                        <Brain className="h-3.5 w-3.5" /> Why
+                      <TabsTrigger value="investigation" className="gap-1.5 text-xs">
+                        <ListTree className="h-3.5 w-3.5" /> Investigation
                       </TabsTrigger>
                       <TabsTrigger value="threat" className="gap-1.5 text-xs">
                         <Globe className="h-3.5 w-3.5" /> Threat context
                       </TabsTrigger>
-                      <TabsTrigger value="trace" className="gap-1.5 text-xs">
-                        <GitBranch className="h-3.5 w-3.5" /> Trace
-                      </TabsTrigger>
                       <TabsTrigger value="collab" className="gap-1.5 text-xs">
                         <Users className="h-3.5 w-3.5" /> Collaboration
-                      </TabsTrigger>
-                      <TabsTrigger value="feedback" className="gap-1.5 text-xs">
-                        <Star className="h-3.5 w-3.5" /> Feedback
                       </TabsTrigger>
                       <TabsTrigger value="chat" className="gap-1.5 text-xs">
                         <MessageSquare className="h-3.5 w-3.5" /> Chat
@@ -1362,21 +1396,25 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onNavigate={onNavigate}
                       />
                     </TabsContent>
-                    <TabsContent value="timeline" className="mt-0 animate-fade-in">
-                      <StageTimeline
-                        data={stages}
-                        loading={stagesLoading}
-                        error={stagesError}
-                        onRetry={loadStages}
-                      />
-                    </TabsContent>
-                    <TabsContent value="why" className="mt-0 animate-fade-in">
-                      <WhyPanel
+                    <TabsContent value="investigation" className="mt-0 animate-fade-in">
+                      {/* Facts → AI assessment → pinned deterministic DecisionCard, plus a
+                          collapsible full ReAct trace. stages/rationale/timeline are fetched
+                          on first visit by the lazy effects above; DecisionCard reads its
+                          policy_clause off the timeline. */}
+                      <InvestigationPanel
                         c={c}
+                        stages={stages}
+                        stagesLoading={stagesLoading}
+                        stagesError={stagesError}
+                        onRetryStages={loadStages}
                         rationale={rationale}
-                        loading={rationaleLoading}
-                        error={rationaleError}
-                        onRetry={loadRationale}
+                        rationaleLoading={rationaleLoading}
+                        rationaleError={rationaleError}
+                        onRetryRationale={loadRationale}
+                        timeline={timeline}
+                        timelineLoading={timelineLoading}
+                        timelineError={timelineError}
+                        onRetryTimeline={loadTimeline}
                       />
                     </TabsContent>
                     <TabsContent value="threat" className="mt-0 animate-fade-in">
@@ -1387,14 +1425,6 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         error={threatError}
                         onRetry={loadThreat}
                         onNavigate={onNavigate}
-                      />
-                    </TabsContent>
-                    <TabsContent value="trace" className="mt-0 animate-fade-in">
-                      <TraceTimeline
-                        data={timeline}
-                        loading={timelineLoading}
-                        error={timelineError}
-                        onRetry={loadTimeline}
                       />
                     </TabsContent>
                     <TabsContent value="collab" className="mt-0 animate-fade-in">
@@ -1429,9 +1459,6 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onLiveThread={liveRefreshThread}
                         onLiveActivity={liveRefreshActivity}
                       />
-                    </TabsContent>
-                    <TabsContent value="feedback" className="mt-0 animate-fade-in">
-                      <FeedbackTab c={c} onUpdated={(next) => setC(next)} />
                     </TabsContent>
                     <TabsContent value="chat" className="mt-0 animate-fade-in">
                       <ChatTab c={c} onNavigate={onNavigate} onClose={onClose} />
@@ -1570,6 +1597,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
         onDispositionChange={setActionDisposition}
         reason={actionReason}
         onReasonChange={setActionReason}
+        verdict={c?.verdict ?? null}
+        grading={grading}
+        onGradingChange={setGrading}
       />
 
       {/* Notify (manual send) dialog — F5/Wave 4. Picks one configured channel or

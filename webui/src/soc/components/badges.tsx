@@ -358,7 +358,8 @@ export function ConfidenceBadge({ confidence, threshold, note, className }: Conf
   }
   return (
     <Badge variant={variant} className={className}>
-      {fmtPercent(confidence)}
+      {/* tabular-nums so the percentage digits stay column-aligned down a dense list (#8). */}
+      <span className="tabular-nums">{fmtPercent(confidence)}</span>
       {note ? ` · ${note}` : ''}
     </Badge>
   );
@@ -394,7 +395,8 @@ export function RiskBadge({ score, className, label = 'Risk', icon = true }: Ris
   return (
     <Badge variant={riskVariant(rounded)} className={className}>
       <SemanticGlyph iconKey={scoreBand(rounded)} show={icon} />
-      {label} {rounded}
+      {/* tabular-nums so the digits stay column-aligned down a dense list (#8). */}
+      <span className="tabular-nums">{label} {rounded}</span>
     </Badge>
   );
 }
@@ -544,14 +546,15 @@ function computeUrgency(
   else if (urgency >= 35) band = 'medium';
   else band = 'low';
 
-  const LABEL: Record<UrgencyBand, string> = {
-    critical: 'Urgent',
-    high: 'High',
-    medium: 'Medium',
-    low: 'Low',
-  };
-  return { band, label: LABEL[band] };
+  return { band, label: URGENCY_LABEL[band] };
 }
+
+const URGENCY_LABEL: Record<UrgencyBand, string> = {
+  critical: 'Urgent',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
 
 const URGENCY_VARIANT: Record<UrgencyBand, Variant> = {
   critical: 'critical',
@@ -560,17 +563,41 @@ const URGENCY_VARIANT: Record<UrgencyBand, Variant> = {
   low: 'low',
 };
 
+/** Coerce an advisory band string (from the backend `urgency_band`) to a known
+ *  UrgencyBand, or null when absent/unrecognised. Tolerant of case/whitespace. */
+function asUrgencyBand(band?: string | null): UrgencyBand | null {
+  if (!band) return null;
+  const t = band.trim().toLowerCase();
+  return (['critical', 'high', 'medium', 'low'] as readonly string[]).includes(t)
+    ? (t as UrgencyBand)
+    : null;
+}
+
 export interface UrgencyPillProps {
   createdAt?: string | null;
   riskScore?: number | null;
   status?: string | null;
+  /**
+   * Advisory urgency band from the backend (`Case.urgency_band`, engine/priority.py).
+   * When a recognised band is supplied AND the case is not closed/resolved, it is
+   * shown VERBATIM (the advisory reading wins); otherwise the pill falls back to the
+   * client-derived urgency (age + risk + escalation). Omitting it preserves the
+   * pre-existing behaviour exactly (back-compatible).
+   */
+  band?: string | null;
   className?: string;
   /** Show the beside-color SEMANTIC_ICON shape (§6.1). Default true. */
   icon?: boolean;
 }
 
-export function UrgencyPill({ createdAt, riskScore, status, className, icon = true }: UrgencyPillProps) {
-  const u = computeUrgency(createdAt, riskScore, status);
+export function UrgencyPill({ createdAt, riskScore, status, band, className, icon = true }: UrgencyPillProps) {
+  // A closed/resolved case is never urgent — mirror computeUrgency's guard so an
+  // explicit advisory band can't resurrect an "Urgent" pill on a terminal case.
+  const closed = status ? CLOSED_STATUSES.has(status.trim().toLowerCase()) : false;
+  const advisory = closed ? null : asUrgencyBand(band);
+  const u = advisory
+    ? { band: advisory, label: URGENCY_LABEL[advisory] }
+    : computeUrgency(createdAt, riskScore, status);
   if (!u) {
     return (
       <Badge variant="outline" className={cn('text-muted-foreground', className)}>

@@ -84,9 +84,11 @@ import {
   ConfidenceBadge,
   CategoryBadge,
   UrgencyPill,
+  AutoClosedBadge,
   severityBand,
   SEVERITY_BAND_ORDER,
 } from '@/soc/components/badges';
+import { ProvenanceTag, severityProvenance } from '@/soc/components/ProvenanceTag';
 
 import type { Navigate } from '@/soc/router';
 import { useRoute } from '@/soc/router';
@@ -100,6 +102,24 @@ const LIST_LIMIT = 200;
 const CASES_TABLE_ID = 'cases';
 /** The surface scope saved views on this page belong to. */
 const CASES_VIEW_SCOPE = 'cases';
+
+/**
+ * Columns hidden by DEFAULT — but ONLY when the user has never customized this table
+ * (no stored ColumnState). Round-7 #8 collapses the overlapping "how bad / how sure"
+ * secondary signals (disposition, category, urgency) and the per-case count columns
+ * (alerts, playbooks, enrichments) behind the Columns menu, so the list opens clean on
+ * the dominant Case ID · Title · Status · Severity · Confidence · Verdict · Risk ·
+ * Entity · Updated set. Fully reversible via <ColumnsMenu>; the instant the user toggles
+ * any column their explicit stored state wins verbatim (this default no longer applies).
+ */
+const CASES_DEFAULT_HIDDEN = [
+  'disposition',
+  'alerts',
+  'playbooks',
+  'enrichments',
+  'category',
+  'urgency',
+] as const;
 
 /** Sentinel for "any" in the single-select filters (Radix Select forbids ""). */
 const ANY = '__any__';
@@ -146,16 +166,20 @@ function caseCategory(c: Case): string | undefined {
   return undefined;
 }
 
-/** AI-derived severity proxy: the normalised risk score (0..100). */
-function aiSeverity(c: Case): number | null {
-  return typeof c.risk_score === 'number' ? c.risk_score : null;
-}
-
-/** Severity proxy from the source: highest event/rule severity, else risk band. */
-function caseSeverity(c: Case): number | string | null {
-  const sev = (c as Record<string, unknown>).severity;
-  if (typeof sev === 'number' || typeof sev === 'string') return sev;
-  return typeof c.risk_score === 'number' ? c.risk_score : null;
+/**
+ * The case's SEVERITY band (string), preferring the backend advisory `severity_band`
+ * (the 5-band ladder critical/high/medium/low/info; WHO graded it is carried
+ * separately in `severity_source`), else derived from the deterministic `risk_score`
+ * via the ONE `severityBand` ladder authority (badges.tsx). Returns null when neither
+ * is available. The filter, the sort comparator, and the visible <SeverityBadge> all
+ * share this ONE band so they can never disagree (a risk 50 can't render "High" but
+ * filter as "Medium"). The `risk_score` fallback is load-bearing — the #38 severity
+ * drill-through + `cases-severity-drill.round6` depend on it.
+ */
+function caseSeverityBand(c: Case) {
+  const explicit = severityBand(c.severity_band);
+  if (explicit) return explicit;
+  return severityBand(typeof c.risk_score === 'number' ? c.risk_score : null);
 }
 
 const TIME_RANGE_MS: Record<Exclude<TimeRange, 'all'>, number> = {
@@ -238,18 +262,6 @@ function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
   return next;
 }
 
-/**
- * Map a numeric/string severity onto a coarse band for filtering/sorting.
- *
- * Delegates to the ONE `severityBand` authority (badges.tsx → palette.ts scoreBand)
- * so the filter, the sort comparator, and the visible <SeverityBadge> share a single
- * ladder and can never disagree (previously a risk 50 rendered "High" but filtered as
- * "Medium"). It also picks up the badge's string aliases (crit/med/moderate/…).
- */
-function severityBandKey(severity: number | string | null): string | null {
-  return severityBand(severity);
-}
-
 function applyFilters(cases: Case[], f: CaseFilters): Case[] {
   const q = f.search.trim().toLowerCase();
   const now = Date.now();
@@ -261,7 +273,7 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
     if (f.relatedOnly && !isCrossSourceLinked(c)) return false;
 
     if (f.severity !== ANY) {
-      if (severityBandKey(caseSeverity(c)) !== f.severity) return false;
+      if (caseSeverityBand(c) !== f.severity) return false;
     }
 
     if (f.assignee !== ANY) {
@@ -366,7 +378,6 @@ type SortId =
   | 'disposition'
   | 'category'
   | 'severity'
-  | 'severity_ai'
   | 'confidence'
   | 'updated_at';
 
@@ -379,9 +390,8 @@ const sortComparators: Record<SortId, (a: Case, b: Case) => number> = {
     (a.disposition || '￿').localeCompare(b.disposition || '￿'),
   category: (a, b) => (caseCategory(a) || '￿').localeCompare(caseCategory(b) || '￿'),
   severity: (a, b) =>
-    SEVERITY_BAND_ORDER.indexOf(severityBand(caseSeverity(a)) ?? 'info') -
-    SEVERITY_BAND_ORDER.indexOf(severityBand(caseSeverity(b)) ?? 'info'),
-  severity_ai: (a, b) => (aiSeverity(a) ?? -1) - (aiSeverity(b) ?? -1),
+    SEVERITY_BAND_ORDER.indexOf(caseSeverityBand(a) ?? 'info') -
+    SEVERITY_BAND_ORDER.indexOf(caseSeverityBand(b) ?? 'info'),
   confidence: (a, b) => (a.confidence ?? -1) - (b.confidence ?? -1),
   updated_at: (a, b) =>
     (a.updated_at || a.created_at || '').localeCompare(b.updated_at || b.created_at || ''),
@@ -504,7 +514,12 @@ export default function Cases({
   // Pervasive customization (Wave 7): terminology labels + saved views + per-table
   // column state, all keyed to the caller (the 'default' bucket when auth is off).
   const { t, tableColumns, updateTableColumns } = usePrefs();
-  const columnState = tableColumns(CASES_TABLE_ID) ?? {};
+  // `tableColumns` returns undefined when the user has never customized this table.
+  // In that (only) case we open with the curated default-hidden set (#8); any stored
+  // state — the moment they toggle a column via <ColumnsMenu> — is respected verbatim.
+  const storedColumnState = tableColumns(CASES_TABLE_ID);
+  const effectiveColumnState: ColumnState =
+    storedColumnState ?? { hidden: [...CASES_DEFAULT_HIDDEN] };
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
 
   // The per-row Close affordance mirrors the bulk bar's RBAC gate: hide it entirely
@@ -824,11 +839,25 @@ export default function Cases({
       ),
     },
     {
+      // Lifecycle status, plus a self-hiding "Auto-closed by AI" badge stacked beneath
+      // it when the deterministic close was recorded to the `agent` actor (Round-7 #11).
+      // AutoClosedBadge renders null for analyst/system/open cases, so the common cell is
+      // just the StatusBadge; the CLOSE itself is still decide()'s call (#3) — this badge
+      // is a read-only presentation of who the recorded decider was.
       id: 'status',
       header: 'Status',
       sortable: true,
-      width: '9rem',
-      cell: (c) => <StatusBadge status={c.status} />,
+      width: '10.5rem',
+      cell: (c) => (
+        <div className="flex flex-col items-start gap-1">
+          <StatusBadge status={c.status} />
+          <AutoClosedBadge
+            status={c.status}
+            decisionBy={c.decision_by}
+            objectionWindowExpiresAt={c.objection_window_expires_at}
+          />
+        </div>
+      ),
     },
     {
       id: 'disposition',
@@ -881,23 +910,25 @@ export default function Cases({
       cell: (c) => <CategoryBadge category={caseCategory(c)} />,
     },
     {
+      // Severity's provenance FLIPS per row (SIEM-asserted vs code-derived), so the
+      // ProvenanceTag lives PER-CELL beside the badge — NOT at the column header like the
+      // constant-provenance columns below (Round-7 #9b, DECISIONS §A.5/§A.10).
       id: 'severity',
       header: 'Severity',
       sortable: true,
-      width: '7rem',
-      cell: (c) => <SeverityBadge severity={caseSeverity(c)} />,
-    },
-    {
-      id: 'severity_ai',
-      header: 'Severity (AI)',
-      sortable: true,
-      width: '7.5rem',
+      width: '9rem',
       cell: (c) => {
-        const s = aiSeverity(c);
-        return s === null ? (
-          <span className="text-muted-foreground">{DASH}</span>
-        ) : (
-          <SeverityBadge severity={s} />
+        const band = caseSeverityBand(c);
+        return (
+          <div className="flex items-center gap-1.5">
+            <SeverityBadge severity={band} />
+            {band ? (
+              <ProvenanceTag
+                kind={severityProvenance(c.severity_source)}
+                variant="icon"
+              />
+            ) : null}
+          </div>
         );
       },
     },
@@ -906,18 +937,25 @@ export default function Cases({
       header: 'Confidence',
       sortable: true,
       width: '7rem',
+      // The confidence score is an AI (LLM) judgement — constant provenance for the
+      // whole column, declared once at the header.
+      provenance: 'ai',
       cell: (c) => <ConfidenceBadge confidence={c.confidence} />,
     },
     {
       id: 'verdict',
       header: 'Verdict',
       width: '8rem',
+      // The verdict is an AI (LLM) judgement — constant column provenance.
+      provenance: 'ai',
       cell: (c) => <VerdictBadge verdict={c.verdict} />,
     },
     {
       id: 'risk',
       header: 'Risk',
       width: '6rem',
+      // Risk is the DETERMINISTIC risk_score — constant column provenance.
+      provenance: 'code',
       cell: (c) => <RiskBadge score={c.risk_score} />,
     },
     {
@@ -925,7 +963,12 @@ export default function Cases({
       header: 'Urgency',
       width: '6rem',
       cell: (c) => (
-        <UrgencyPill createdAt={c.created_at} riskScore={c.risk_score} status={c.status} />
+        <UrgencyPill
+          createdAt={c.created_at}
+          riskScore={c.risk_score}
+          status={c.status}
+          band={c.urgency_band}
+        />
       ),
     },
     {
@@ -1233,7 +1276,7 @@ export default function Cases({
         {/* Column customization — folded into the filter bar (formerly a standalone row). */}
         <ColumnsMenu
           columns={columnMenuItems}
-          state={columnState}
+          state={effectiveColumnState}
           onChange={handleColumnState}
         />
       </Card>
@@ -1275,9 +1318,14 @@ export default function Cases({
       <DataTable<Case>
         ariaLabel="Cases"
         columns={columns}
-        columnState={columnState}
+        columnState={effectiveColumnState}
         rows={pageRows}
         getRowId={(c) => c.case_id}
+        // 3px left-edge severity band per row (#8) — scan severity down the margin
+        // without a dedicated column; shares the ONE band ladder with the filter/sort.
+        rowAccent={(c) => caseSeverityBand(c)}
+        // Pin the header under the app bar while the list scrolls (#8).
+        sticky
         sort={sort}
         onSortChange={setSort}
         page={page}

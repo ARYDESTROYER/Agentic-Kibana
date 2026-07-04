@@ -13,8 +13,10 @@ import { cn } from '@/lib/cn';
  * create a second, clipping scroll context (map §3.9). `containerClassName` lets
  * callers style the wrapper without a second nested div.
  *
- * `TableHeader` gains `sticky` — pins the header row to the top of its scroll
- * container (`sticky top-0 z-10` + the surface bg so rows don't bleed through).
+ * `TableHeader` gains `sticky` — pins the header row so it parks UNDER the app bar
+ * (`sticky top-[var(--header-h)] z-10` + an opaque surface bg so rows don't bleed
+ * through). The offset matches the AppShell top bar height so the header never hides
+ * behind it (WCAG 2.4.11); a plain `top-0` would tuck it behind the app bar.
  */
 type Density = 'normal' | 'compact';
 
@@ -52,7 +54,7 @@ const TableHeader = React.forwardRef<HTMLTableSectionElement, TableHeaderProps>(
         // so it must NOT also carry `bg-surface/50` (that /50 rule wins the cascade
         // over the opaque base and defeats the sticky bg).
         sticky
-          ? 'sticky top-0 z-10 bg-surface backdrop-blur supports-[backdrop-filter]:bg-surface/85'
+          ? 'sticky top-[var(--header-h)] z-10 bg-surface backdrop-blur supports-[backdrop-filter]:bg-surface/85'
           : 'bg-surface/50',
         className,
       )}

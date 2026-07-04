@@ -148,6 +148,14 @@ export interface DataTableProps<T> {
   /** Caption / aria-label for the table (a11y). */
   ariaLabel?: string;
 
+  /**
+   * Pin the header row while the body scrolls (Round-7 #8). OFF by default
+   * (back-compatible). Passes through to the `<TableHeader sticky>` primitive, which
+   * parks the header under the app bar (`top-[var(--header-h)]`) with an OPAQUE
+   * background so scrolled rows never bleed through it.
+   */
+  sticky?: boolean;
+
   // ---- Column customization (Wave 7; optional + back-compatible) --------- //
   /**
    * Controlled per-table column state (show/hide/reorder). When provided, the table
@@ -284,6 +292,7 @@ export function DataTable<T>({
   density = 'normal',
   className,
   ariaLabel,
+  sticky = false,
   columnState,
   rowAccent,
 }: DataTableProps<T>) {
@@ -376,7 +385,7 @@ export function DataTable<T>({
       )}
     >
       <Table aria-label={ariaLabel}>
-        <TableHeader>
+        <TableHeader sticky={sticky}>
           <TableRow className="hover:bg-transparent">
             {selectable && (
               <TableHead className="w-10 px-4">

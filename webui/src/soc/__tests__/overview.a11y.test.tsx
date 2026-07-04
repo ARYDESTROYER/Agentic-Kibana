@@ -1,13 +1,18 @@
 /**
- * Overview (Security Posture Dashboard) — jest-axe accessibility smoke (Round-5 G9 ·
- * DESIGN_STANDARD §6).
+ * Overview (Security Command Center) — jest-axe accessibility smoke (Round-7 W1.A).
  *
- * The landing surface: a compact hero, a KPI strip of drill-down tiles, named widget
- * regions (autonomy split, response timing, connector health), and the server-posture
- * timing trio. It mixes headings, regions, labelled tiles and status chips — a good
- * broad guard for heading order / region labelling / non-color signalling regressions.
- * We render the real <Overview/> with an offline-mocked api + posture fetch, wait for
- * the KPI strip, and assert no axe violations.
+ * The landing surface: a compact hero (one h1), a TRIMMED KPI strip of drill-down tiles,
+ * named widget regions (autonomy split, response timing, connector health, case volume,
+ * top signatures/entities), and the server-posture timing trio. It mixes headings,
+ * regions, labelled tiles and status chips — a broad guard for heading order / region
+ * labelling / non-color signalling / nested-interactive regressions. We render the real
+ * <Overview/> with an offline-mocked api + posture fetch, wait for the KPI strip, and
+ * assert exactly one h1 + no axe violations (all default rules, incl. heading-order +
+ * nested-interactive).
+ *
+ * The Noise-Reduction funnel is intentionally NOT mocked here so the band self-omits: its
+ * own a11y (nested-interactive + labels) is covered by `NoiseFunnel.test`. This keeps the
+ * main-layout heading order (h1 → h2 groups) under full axe.
  *
  * Offline: no network, no #3 / runtime behaviour touched.
  */
@@ -25,11 +30,10 @@ vi.mock('../pages/Metrics.posture.api', async () => {
   return { ...actual, fetchPosture: fetchPostureMock };
 });
 
-const { listCasesMock, getMetricsMock, usageMock, ragMock } = vi.hoisted(() => ({
+const { listCasesMock, getMetricsMock, usageMock } = vi.hoisted(() => ({
   listCasesMock: vi.fn(),
   getMetricsMock: vi.fn(),
   usageMock: vi.fn(),
-  ragMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -37,7 +41,6 @@ vi.mock('@/lib/api', () => ({
     listCases: listCasesMock,
     getMetrics: getMetricsMock,
     usageSummary: usageMock,
-    ragStats: ragMock,
   },
 }));
 
@@ -88,20 +91,20 @@ describe('Overview — a11y smoke (jest-axe)', () => {
     listCasesMock.mockReset();
     getMetricsMock.mockReset();
     usageMock.mockReset();
-    ragMock.mockReset();
     fetchPostureMock.mockResolvedValue(POSTURE);
     listCasesMock.mockResolvedValue({ cases: CASES, total: CASES.length });
     getMetricsMock.mockResolvedValue(METRICS);
     usageMock.mockResolvedValue({ total_cost: 1.25, total_tokens: 12000, call_count: 8, currency: 'USD' });
-    ragMock.mockResolvedValue({ document_count: 5, total_chunks: 42 });
   });
 
-  it('has no axe violations on the loaded posture dashboard', async () => {
+  it('has exactly one h1 and no axe violations on the loaded command center', async () => {
     const { container } = render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument(), {
       timeout: 5000,
     });
+    // Exactly one page-level h1 (the hero title); widget groups are h2.
+    expect(container.querySelectorAll('h1')).toHaveLength(1);
     expect(await axe(container)).toHaveNoViolations();
   });
 });

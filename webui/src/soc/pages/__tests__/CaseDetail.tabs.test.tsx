@@ -1,44 +1,37 @@
 /**
- * CaseDetail — Collaboration vs Feedback tab wiring (Wave-0 swap/duplication fix).
+ * CaseDetail — 5-tab story shell (Round-7 #9a: 8 → 5 tabs).
  *
- * Regression lock for a mis-wiring where the Collaboration and Feedback tabs had
- * their value/label/rendered-component out of agreement, and the Feedback surface
- * duplicated the Collaboration tab's ownership + notes content. This spec pins:
+ * The old 8-tab shell (Overview / Timeline / Why / Threat / Trace / Collaboration /
+ * Feedback / Chat) collapsed into a 5-tab story spine:
  *
- *   1. Each TabsTrigger's `value` matches its label:
- *        value="collab"   ↔ "Collaboration"
- *        value="feedback" ↔ "Feedback"
- *   2. Each TabsContent renders the RIGHT, DISTINCT component:
- *        collab   → <CollaborationThreadTab>  (threads / tasks / ownership — ONE surface)
- *        feedback → <FeedbackTab>             (AI-decision grading ONLY)
- *      and the two components are DIFFERENT (no shared/duplicated surface).
- *   3. The Feedback tab does NOT duplicate the Collaboration ownership+notes block:
- *      the grading-only FeedbackTab carries no thread/task/assignee props, and the
- *      source documents the no-duplication contract.
+ *     overview · investigation · threat · collab · chat
  *
- * Static source assertions (same approach as CaseDetail.live.test.tsx): CaseDetail
- * is a large sheet with heavy prop/api coupling, so we assert the wiring on the
- * source of truth rather than fully mounting it. #9 is unaffected (no rendering of
- * attacker-influenceable text is introduced here).
+ * The Timeline + Why + Trace panels are no longer standalone tabs — they compose
+ * INSIDE <InvestigationPanel> (Facts → AI assessment → pinned deterministic
+ * DecisionCard + a collapsible full trace). The standalone Feedback tab was retired
+ * (grading folds into the close dialog in a later batch; the aggregate stays in
+ * Metrics). This spec pins:
  *
- * COUPLING-D: the panels now live in `soc/pages/casedetail/*`. The tab
- * TRIGGERS + the MOUNT SITES stay in `CaseDetail.tsx` (the orchestrator); the panel
- * COMPONENT DEFINITIONS live in their own files (CollaborationPanel / FeedbackPanel).
- * These path constants point each assertion at the right file.
+ *   1. The `tab` union is EXACTLY the 5 story tabs — the 4 removed values are gone.
+ *   2. Exactly 5 <TabsTrigger>, each `value` matching its human label.
+ *   3. Each <TabsContent> renders the RIGHT, DISTINCT panel; the merged sub-panels
+ *      (StageTimeline / WhyPanel / TraceTimeline) and the retired FeedbackTab are NOT
+ *      mounted directly in the shell.
+ *   4. <InvestigationPanel> is wired the stages / rationale / timeline state + retries,
+ *      and those payloads lazy-load on the `investigation` tab (so the DecisionCard can
+ *      read its policy clause).
+ *   5. The header carries a self-hiding <AutoClosedBadge> (Round-7 #11).
+ *
+ * CaseDetail is a large sheet with heavy prop/api coupling, so — like the sibling
+ * CaseDetail.*.test.tsx specs — these are STATIC assertions on the orchestrator source
+ * (the load-bearing tab wiring), not a full mount. #9 is unaffected (no
+ * attacker-influenceable text is rendered here).
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const src = readFileSync(path.resolve(__dirname, '..', 'CaseDetail.tsx'), 'utf8');
-const collabSrc = readFileSync(
-  path.resolve(__dirname, '..', 'casedetail', 'CollaborationPanel.tsx'),
-  'utf8',
-);
-const feedbackSrc = readFileSync(
-  path.resolve(__dirname, '..', 'casedetail', 'FeedbackPanel.tsx'),
-  'utf8',
-);
 
 /** Slice from the first occurrence of `needle` to the next `end` (exclusive). */
 function slice(text: string, needle: string, end: string): string {
@@ -48,63 +41,116 @@ function slice(text: string, needle: string, end: string): string {
   return text.slice(i, j === -1 ? text.length : j);
 }
 
-describe('CaseDetail — Collaboration / Feedback tab wiring', () => {
-  it('each TabsTrigger value matches its human label', () => {
-    // The Collaboration trigger carries value="collab".
-    const collabTrigger = slice(src, 'value="collab"', 'TabsTrigger>');
-    expect(collabTrigger).toMatch(/Collaboration/);
-    expect(collabTrigger).not.toMatch(/Feedback/);
+const TAB_VALUES = ['overview', 'investigation', 'threat', 'collab', 'chat'] as const;
+const REMOVED_TABS = ['timeline', 'why', 'trace', 'feedback'] as const;
 
-    // The Feedback trigger carries value="feedback".
-    const feedbackTrigger = slice(src, 'value="feedback"', 'TabsTrigger>');
-    expect(feedbackTrigger).toMatch(/Feedback/);
-    expect(feedbackTrigger).not.toMatch(/Collaboration/);
+/** value → expected human label + the panel component mounted for it. */
+const TAB_LABEL: Record<(typeof TAB_VALUES)[number], string> = {
+  overview: 'Overview',
+  investigation: 'Investigation',
+  threat: 'Threat context',
+  collab: 'Collaboration',
+  chat: 'Chat',
+};
+const TAB_PANEL: Record<(typeof TAB_VALUES)[number], string> = {
+  overview: 'OverviewPanel',
+  investigation: 'InvestigationPanel',
+  threat: 'ThreatContextPanel',
+  collab: 'CollaborationThreadTab',
+  chat: 'ChatTab',
+};
+
+describe('CaseDetail — 5-tab story shell', () => {
+  it('the tab union is exactly the 5 story tabs (the removed 4 are gone)', () => {
+    const union = slice(src, 'const [tab, setTab] = React.useState<', ">('overview')");
+    for (const v of TAB_VALUES) expect(union, `union should include '${v}'`).toContain(`'${v}'`);
+    for (const v of REMOVED_TABS) {
+      expect(union, `union should NOT include the removed '${v}'`).not.toContain(`'${v}'`);
+    }
   });
 
-  it('each TabsContent renders the correct, DISTINCT component (no duplication)', () => {
-    const collabContent = slice(src, '<TabsContent value="collab"', '</TabsContent>');
-    const feedbackContent = slice(src, '<TabsContent value="feedback"', '</TabsContent>');
+  it('renders exactly 5 TabsTrigger, each value matching its human label', () => {
+    const tabsList = slice(src, '<TabsList', '</TabsList>');
+    const triggers = tabsList.match(/<TabsTrigger value="[^"]+"/g) || [];
+    expect(triggers.length).toBe(5);
 
-    // Collaboration → the thread/tasks/ownership surface.
-    expect(collabContent).toMatch(/<CollaborationThreadTab/);
-    // Feedback → the grading-only surface.
-    expect(feedbackContent).toMatch(/<FeedbackTab/);
-
-    // The two tabs render DIFFERENT components — no shared/duplicated surface.
-    expect(collabContent).not.toMatch(/<FeedbackTab/);
-    expect(feedbackContent).not.toMatch(/<CollaborationThreadTab/);
-
-    // Exactly one Collaboration surface and exactly one Feedback surface mounted.
-    expect((src.match(/<CollaborationThreadTab\b/g) || []).length).toBe(1);
-    expect((src.match(/<FeedbackTab\b/g) || []).length).toBe(1);
+    for (const v of TAB_VALUES) {
+      const trigger = slice(tabsList, `value="${v}"`, 'TabsTrigger>');
+      expect(trigger, `trigger '${v}' should be labeled "${TAB_LABEL[v]}"`).toContain(
+        TAB_LABEL[v],
+      );
+    }
+    // No stale trigger for a removed tab.
+    for (const v of REMOVED_TABS) {
+      expect(tabsList).not.toContain(`value="${v}"`);
+    }
   });
 
-  it('the Feedback tab does NOT duplicate the Collaboration ownership+notes block', () => {
-    // The grading-only FeedbackTab receives ONLY the case + an onUpdated callback —
-    // none of the thread/task/assignee wiring that the Collaboration tab owns.
-    const feedbackContent = slice(src, '<TabsContent value="feedback"', '</TabsContent>');
-    expect(feedbackContent).not.toMatch(/thread=/);
-    expect(feedbackContent).not.toMatch(/tasks=/);
-    expect(feedbackContent).not.toMatch(/onAssigned=/);
-    expect(feedbackContent).not.toMatch(/onPost=/);
-
-    // The FeedbackTab component is scoped to AI-decision grading (submits feedback),
-    // and is a SEPARATE component from the thread tab (each in its own panel file).
-    expect(feedbackSrc).toMatch(/const FeedbackTab: React\.FC<\{/);
-    expect(collabSrc).toMatch(/const CollaborationThreadTab: React\.FC<\{/);
-
-    // The no-duplication contract is documented in the FeedbackPanel, which submits
-    // AI-decision feedback and owns none of the collaboration ownership+notes block.
-    expect(feedbackSrc).toMatch(/no duplication/i);
-    expect(feedbackSrc).toMatch(/api\.caseFeedback/);
+  it('each TabsContent mounts the correct, DISTINCT panel', () => {
+    for (const v of TAB_VALUES) {
+      const content = slice(src, `<TabsContent value="${v}"`, '</TabsContent>');
+      expect(content, `TabsContent '${v}' should mount <${TAB_PANEL[v]}>`).toContain(
+        `<${TAB_PANEL[v]}`,
+      );
+    }
+    // Exactly one mount site per panel.
+    for (const comp of Object.values(TAB_PANEL)) {
+      expect((src.match(new RegExp(`<${comp}\\b`, 'g')) || []).length).toBe(1);
+    }
   });
 
-  it('the misleading legacy component name is gone (grading tab is FeedbackTab, not CollaborationTab)', () => {
-    // A bare `CollaborationTab` (word boundary — excludes CollaborationThreadTab)
-    // must no longer exist in the orchestrator OR the panel files; it was the source
-    // of the swap confusion.
-    expect(src).not.toMatch(/\bCollaborationTab\b/);
-    expect(collabSrc).not.toMatch(/\bCollaborationTab\b/);
-    expect(feedbackSrc).not.toMatch(/\bCollaborationTab\b/);
+  it('the merged sub-panels + retired Feedback tab are not mounted in the shell', () => {
+    // StageTimeline / WhyPanel / TraceTimeline now live INSIDE <InvestigationPanel>,
+    // not as standalone tabs; FeedbackTab was retired entirely.
+    for (const gone of ['StageTimeline', 'WhyPanel', 'TraceTimeline', 'FeedbackTab']) {
+      expect(src, `${gone} must not be referenced by the shell`).not.toContain(gone);
+    }
+  });
+
+  it('InvestigationPanel is wired the stages/rationale/timeline state + retries', () => {
+    const content = slice(src, '<TabsContent value="investigation"', '</TabsContent>');
+    for (const prop of [
+      'stages={stages}',
+      'onRetryStages={loadStages}',
+      'rationale={rationale}',
+      'onRetryRationale={loadRationale}',
+      'timeline={timeline}',
+      'onRetryTimeline={loadTimeline}',
+    ]) {
+      expect(content, `investigation panel should receive ${prop}`).toContain(prop);
+    }
+  });
+
+  it('stages/rationale/timeline lazy-load on the investigation tab', () => {
+    // Each lazy effect fires on tab === 'investigation' with an error guard so a failed
+    // fetch never re-fires forever.
+    expect(src).toContain(
+      "tab === 'investigation' && stages === null && !stagesLoading && !stagesError",
+    );
+    expect(src).toContain(
+      "tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError",
+    );
+    expect(src).toContain(
+      "tab === 'investigation' && timeline === null && !timelineLoading && !timelineError",
+    );
+    // No lingering effect keyed on a removed tab value.
+    for (const v of REMOVED_TABS) {
+      expect(src).not.toContain(`tab === '${v}'`);
+    }
+  });
+
+  it('the header carries a self-hiding AutoClosedBadge (Round-7 #11)', () => {
+    expect(src).toContain(
+      '<AutoClosedBadge status={c.status} decisionBy={c.decision_by} />',
+    );
+    // It is imported from the shared badges module.
+    expect(src).toMatch(
+      /import \{[^}]*AutoClosedBadge[^}]*\} from '@\/soc\/components\/badges'/,
+    );
+  });
+
+  it('the header History control targets the Investigation tab', () => {
+    const historyBtn = slice(src, 'aria-label="Investigation trace"', 'Button>');
+    expect(historyBtn).toContain("setTab('investigation')");
   });
 });

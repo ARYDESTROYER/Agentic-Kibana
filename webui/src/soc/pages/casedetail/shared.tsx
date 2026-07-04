@@ -26,12 +26,14 @@ import {
   X,
 } from 'lucide-react';
 
+import type { Case } from '@/lib/types';
 import { DASH, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
 
 import { Input } from '@/ui/input';
 import { Badge } from '@/ui/badge';
 import { Card } from '@/ui/card';
+import { isAutoClosedByAI } from '@/soc/components/badges';
 
 /* --------------------------------------------------------------- contracts -- */
 
@@ -59,7 +61,18 @@ export type ActionKind =
   // backend `close` verb via `ActionDef.wireAction` (never a new verb) and always
   // carries a disposition, so `decide()`/`apply()` still run server-side (#3).
   | 'close_disposition';
-export type ActionField = 'resolution' | 'tags' | 'assignee' | 'priority' | 'disposition' | 'reason';
+export type ActionField =
+  | 'resolution'
+  | 'tags'
+  | 'assignee'
+  | 'priority'
+  | 'disposition'
+  | 'reason'
+  // Round-7 #10 (feedback-into-close): when present, the confirm dialog renders the
+  // in-line AI-decision grading section (`GradingSection`). It carries NO wire payload
+  // — the grading is POSTed as a SEPARATE `caseFeedback` call in `runAction`, so the
+  // deterministic close (`decide()`) is untouched (#3).
+  | 'grading';
 
 /** The RBAC grant an action needs: close-class moves need cases:close, the rest
  *  cases:write. The footer gates each button with <Can> using this. */
@@ -124,7 +137,7 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     confirmBody:
       'Close the case as a FALSE POSITIVE. The resolved case is fed into the RAG baseline memory so future triage learns from it.',
     help: 'Close as FALSE_POSITIVE; also feeds the resolved case into RAG baseline memory.',
-    fields: ['resolution', 'tags'],
+    fields: ['resolution', 'tags', 'grading'],
   },
   // ONE unified close flow: pick the investigative disposition (true/false
   // positive, benign, …) + an optional note, then close. Posts the EXISTING
@@ -140,7 +153,7 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     confirmBody:
       'Choose the investigative outcome, then close this case. The close/escalate decision is still made by deterministic code — this records your disposition and closes the case.',
     help: 'Pick a disposition and close the case.',
-    fields: ['disposition', 'resolution', 'tags'],
+    fields: ['disposition', 'resolution', 'tags', 'grading'],
   },
   escalate: {
     key: 'escalate',
@@ -205,7 +218,7 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     confirmTitle: 'Mark this case resolved?',
     confirmBody: 'Mark the case RESOLVED — worked to completion, pending final close / audit.',
     help: 'RESOLVED — worked to completion, pending final close.',
-    fields: ['reason', 'tags'],
+    fields: ['reason', 'tags', 'grading'],
   },
   deescalate: {
     key: 'deescalate',
@@ -226,7 +239,7 @@ export const ALL_ACTIONS: Record<ActionKind, ActionDef> = {
     confirmBody:
       'Record the investigative OUTCOME (true/false positive, benign, suspicious, …). This does not change the lifecycle status.',
     help: 'Record the investigative outcome (true/false positive, benign, …).',
-    fields: ['disposition', 'reason'],
+    fields: ['disposition', 'reason', 'grading'],
   },
 };
 
@@ -271,7 +284,7 @@ export function actionPlanForStatus(status?: string): ActionPlan {
   const close = ALL_ACTIONS.close_disposition;
 
   // Terminal states: only reopen (and re-classify) is legal — no close.
-  if (s === 'closed' || s === 'auto_closed') {
+  if (s === 'closed') {
     return {
       primary: { ...ALL_ACTIONS.reopen, fill: true },
       close: null,
@@ -316,6 +329,16 @@ export function actionPlanForStatus(status?: string): ActionPlan {
     overflow: [ALL_ACTIONS.acknowledge, ALL_ACTIONS.resolve, ALL_ACTIONS.hold],
   };
 }
+
+/**
+ * Adapter: was this case auto-closed by the AI? A thin `Case`-shaped wrapper over the
+ * shared {@link isAutoClosedByAI} predicate (terminal status + `decision_by === 'agent'`).
+ * There is no `auto_closed` STATUS in the backend — this is a read-only presentation of
+ * WHO the recorded decider was. Presentation-only (#3): the close was still made by the
+ * deterministic `decide()` policy, never by this helper.
+ */
+export const isAutoClosed = (c: Case): boolean =>
+  isAutoClosedByAI(c.status, c.decision_by);
 
 /* ------------------------------------------------------------------ helpers -- */
 
