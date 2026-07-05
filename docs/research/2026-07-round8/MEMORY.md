@@ -65,9 +65,10 @@ Additive; decide() BYTE-IDENTICAL (#3); #9 fencing; ZERO new deps; design tokens
 
 ## PROGRESS
 - [x] Diagnose + Plan fleet (wbrgndwi1) → PLAN.md + Research fleet (w0igg4ycp) → RESEARCH.md
-- [ ] Wave A implement (opus)
-- [ ] Wave B Overview integration
-- [ ] QA + fixes + green
+- [x] Wave A DONE (10 agents) — GREEN (vitest 1238), committed **58745fa**
+- [~] Wave B Overview integration — RUNNING (bg agent a08088a...); plain header + ARI card top-right + ribbon full-width + collapse deeper-analytics
+- [ ] QA review fleet + fixes + green baseline + commit Wave B
+- [ ] Update docs (CLAUDE/CHANGELOG/HANDOFF?) + brief + PR ask + **delete this MEMORY.md**
 - [ ] Implement (opus ≥30)
 - [ ] QA review + fixes
 - [ ] Green baseline + update docs + brief + PR ask

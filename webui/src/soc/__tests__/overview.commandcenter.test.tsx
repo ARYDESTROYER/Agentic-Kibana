@@ -3,7 +3,8 @@
  *
  * Pins the four command-center signatures the batch calls out:
  *   1. the page is titled "Security Command Center";
- *   2. the Active Risk Index (#1 — the ONE risk instrument) lives in the hero header;
+ *   2. the Active Risk Index (#1 — the ONE risk instrument) is its OWN card in the masthead
+ *      top-right, a SIBLING of the plain header (Round-8 #1/#7), never nested inside it;
  *   3. the Noise-Reduction funnel (feature ★) is mounted as a full-width band (fetched via
  *      the typeof-guarded `api.noiseReduction`);
  *   4. the KPI strip is trimmed to ~5 signal tiles + spend (the demoted Artifacts/Knowledge/
@@ -121,12 +122,15 @@ describe('Overview — Security Command Center', () => {
     expect(hero).toHaveTextContent('Security Command Center');
   });
 
-  it('mounts the Active Risk Index (#1) in the hero header', async () => {
+  it('mounts the Active Risk Index (#1) as its own card beside the plain header', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
-    expect(within(hero).getByTestId('active-risk-index')).toBeInTheDocument();
-    // It is the ONLY risk gauge in the header (no second instrument in a row).
-    expect(within(hero).getAllByTestId('active-risk-index')).toHaveLength(1);
+    const ari = screen.getByTestId('active-risk-index');
+    expect(ari).toBeInTheDocument();
+    // #1/#7: the risk card is its OWN card, a SIBLING of the header — NOT nested inside it.
+    expect(within(hero).queryByTestId('active-risk-index')).toBeNull();
+    // It is the ONLY risk instrument on the page.
+    expect(screen.getAllByTestId('active-risk-index')).toHaveLength(1);
   });
 
   it('mounts the Noise-Reduction funnel band (fetched via the typeof-guarded api)', async () => {

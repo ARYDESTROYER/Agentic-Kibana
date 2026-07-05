@@ -5,17 +5,21 @@
  * three-zone operational dashboard that uses ultrawide real estate instead of a
  * marketing hero over a crammed nested grid.
  *
- *   ┌ HERO ──── compact <PageHeader variant="hero"> (~64px). Its top-right `actions`
- *   │           slot carries the Active Risk Index (#1 — the ONE risk instrument) beside
- *   │           the <TimeRangePicker> (relative ES date-math) + auto-refresh (default Off,
- *   │           cost-metered) + a manual refresh pulse. There is NO second control band.
+ *   ┌ MASTHEAD ─ a PLAIN, dense <PageHeader> (no card / no glow — the big title sits flush
+ *   │           on the page background, like the Sources page, #7) on the left, carrying the
+ *   │           <TimeRangePicker> (relative ES date-math) + auto-refresh (default Off,
+ *   │           cost-metered) + a manual refresh pulse in its `actions` slot; the Active Risk
+ *   │           Index (#1 — the ONE risk instrument, in its OWN bordered card, gauge size
+ *   │           128) is pinned top-right. There is NO second control band.
  *   ├ KPI STRIP ─── a flat, un-nested responsive grid of ~5 signal + spend KpiTiles, each
  *   │               with the correct `goodDirection`, a count-up on the integer tiles, and
  *   │               a period-over-period delta wired from the server `posture.compare`.
- *   └ WIDGET GRID ─ a full-width Noise-Reduction funnel band on top, then named collapsible
- *                   <DashboardGroup> bands (severity, attention queue, autonomous-vs-human
- *                   split [#3 trust surface], timing, case-volume trend, connector health,
- *                   workload, top signatures/entities).
+ *   └ WIDGET GRID ─ the wide Noise-Reduction ribbon on top (the value-prop headline), then
+ *                   the leading bands (severity mix, attention queue) open, with the rest
+ *                   (autonomous-vs-human split [#3 trust surface], timing, case-volume trend,
+ *                   connector health, workload, top signatures/entities) folded into ONE
+ *                   "Deeper analytics" <DashboardGroup> COLLAPSED by default (#4 — an
+ *                   inverted-pyramid landing view).
  *
  * Data: `usePosture(hours, 'prev')` is the AUTHORITATIVE server-side lifecycle rollup
  * (MTTA/MTTR/dwell p50 + SLA + quality rates + period-over-period `compare` deltas). The
@@ -721,9 +725,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
   );
 
   // ----- The header control cluster (#6 — folded into PageHeader.actions) -- //
-  // Time range + auto-refresh + a manual refresh pulse. Lives in the compact hero's
-  // `actions` slot beside the Active Risk Index — there is no second full-width control
-  // band under the header (DESIGN_DIRECTION header-compaction).
+  // Time range + auto-refresh + a manual refresh pulse. Lives in the plain header's
+  // `actions` slot; the Active Risk Index is its own card top-right (#1) — there is no
+  // second full-width control band under the header (DESIGN_DIRECTION header-compaction).
   const headerControls = (
     <>
       <TimeRangePicker
@@ -749,15 +753,19 @@ export default function Overview({ onNavigate }: OverviewProps) {
   );
 
   // ----- States ----------------------------------------------------------- //
-  // Loading skeleton mirrors the FINAL three-zone layout in LOCKSTEP so nothing shifts:
-  // a compact hero, the ~6-tile KPI strip, a reserved full-width Noise-Reduction band,
-  // then the widget rows (Row A: 2 · Row B: 3 · Row C: 2 · Row D: 2).
+  // Loading skeleton mirrors the FINAL layout in LOCKSTEP so nothing shifts on load: the
+  // masthead (plain header + the Active Risk Index card top-right), the ~6-tile KPI strip,
+  // a reserved full-width Noise-Reduction ribbon band, the leading severity/attention row,
+  // and the collapsed "Deeper analytics" group header (its content stays hidden — #4).
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
         <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
-          {/* hero */}
-          <Skeleton className="h-16 w-full rounded-lg" />
+          {/* masthead — plain header (left) + the Active Risk Index card (top-right) */}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+            <Skeleton className="h-16 flex-1 rounded-lg" />
+            <Skeleton className="h-40 w-full rounded-lg lg:w-44" />
+          </div>
           {/* KPI strip — ~6 tiles, same responsive grid as the real strip */}
           <div
             data-testid="kpi-strip-skeleton"
@@ -767,30 +775,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <Skeleton key={i} className="h-[104px] rounded-lg" />
             ))}
           </div>
-          {/* reserved Noise-Reduction funnel band (full width) */}
+          {/* reserved Noise-Reduction ribbon band (full width) */}
           <Skeleton data-testid="noise-skeleton-row" className="h-44 w-full rounded-lg" />
-          {/* widget grid — Row A (2) + Row B (3) + Row C (2) + Row D (2), in LOCKSTEP. */}
+          {/* leading widget row — severity mix + attention queue (the only band open by
+              default; the rest is folded into the collapsed "Deeper analytics" group). */}
           <div className="grid gap-6 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
             ))}
           </div>
-          <div className="grid gap-6 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-56 rounded-lg" />
-            ))}
-          </div>
-          <div className="grid gap-6 xl:grid-cols-2">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-56 rounded-lg" />
-            ))}
-          </div>
-          {/* Row D — Top signatures / Top entities (the ranked-list band). */}
-          <div className="grid gap-6 xl:grid-cols-2">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-56 rounded-lg" />
-            ))}
-          </div>
+          {/* collapsed "Deeper analytics" group header (content hidden until expanded). */}
+          <Skeleton data-testid="deeper-analytics-skeleton" className="h-9 w-64 rounded-md" />
         </div>
       </PageContainer>
     );
@@ -803,41 +798,44 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   return (
     <PageContainer variant="wide" className="space-y-6">
-      {/* ---- ZONE 1: compact hero (~64px) with the Active Risk Index + controls
-             folded into the actions slot (top-right) — no second control band ---- */}
-      <PageHeader
-        variant="hero"
-        className="hero-display"
-        data-testid="page-hero"
-        icon={Radar}
-        title={PAGE_TITLE}
-        description="Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases."
-        meta={
-          slaPosture ? (
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums',
-                slaPosture.breached > 0
-                  ? 'border-critical/40 bg-critical/10 text-critical'
-                  : slaPosture.atRisk > 0
-                    ? 'border-high/40 bg-high/10 text-high'
-                    : 'border-success/40 bg-success/10 text-success',
-              )}
-              title="SLA attainment vs the per-priority response/resolve targets"
-            >
-              SLA {ratioPct(slaPosture.attainment / 100)}
-            </span>
-          ) : undefined
-        }
-        actions={
-          <>
-            {/* #1: the ONE risk instrument — mean deterministic risk over open cases,
-                with a (?) explaining the math. Compact (size 64) for the hero. */}
-            <ActiveRiskIndex score={activeRisk.score} count={activeRisk.count} size={64} />
-            {headerControls}
-          </>
-        }
-      />
+      {/* ---- ZONE 1: masthead — a PLAIN, dense header (#7, like the Sources page: no
+             card, no glow wash; the big title sits flush on the page background) on the
+             left with the time-range + refresh controls in its `actions` slot, and the ONE
+             risk instrument (#1, its own bordered card) pinned top-right. No second band. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <PageHeader
+          className="flex-1"
+          data-testid="page-hero"
+          icon={Radar}
+          title={PAGE_TITLE}
+          description="Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases."
+          meta={
+            slaPosture ? (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums',
+                  slaPosture.breached > 0
+                    ? 'border-critical/40 bg-critical/10 text-critical'
+                    : slaPosture.atRisk > 0
+                      ? 'border-high/40 bg-high/10 text-high'
+                      : 'border-success/40 bg-success/10 text-success',
+                )}
+                title="SLA attainment vs the per-priority response/resolve targets"
+              >
+                SLA {ratioPct(slaPosture.attainment / 100)}
+              </span>
+            ) : undefined
+          }
+          actions={headerControls}
+        />
+        {/* #1: the ONE risk instrument — mean deterministic risk over the open cases, in
+            its OWN bordered card top-right (default gauge size 128, no notch). */}
+        <ActiveRiskIndex
+          score={activeRisk.score}
+          count={activeRisk.count}
+          className="w-full lg:w-auto shrink-0"
+        />
+      </div>
 
       {/* Recommended-automation nudge — only in the non-empty state, only for a
           principal who can act (AutomationNudge self-hides otherwise). */}
@@ -910,8 +908,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
           {/* ---- ZONE 3: widget grid ---- */}
 
-          {/* Noise-Reduction funnel — the value-prop headline, full-width at the top of
-              Zone 3. Self-omits when the feature is off / counters are unavailable. */}
+          {/* Noise-Reduction ribbon — the value-prop headline, a WIDE horizontal band at
+              the top of Zone 3 (full container width). Self-omits when the feature is off
+              / counters are unavailable. */}
           {noise ? (
             <Reveal variant="rise">
               <NoiseFunnel
@@ -924,8 +923,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </Reveal>
           ) : null}
 
-          {/* Row A: open-by-severity · attention queue (the Active Risk Index moved
-              to the hero top-right, #1). */}
+          {/* Row A: open-by-severity · attention queue (the leading band, kept OPEN; the
+              Active Risk Index is its own card in the masthead top-right, #1). */}
           <Reveal variant="rise" delay={60} className="grid gap-6 xl:grid-cols-2">
             {/* Open cases by severity */}
             <DashboardGroup title="Open cases by severity" count={derived.open}>
@@ -1054,6 +1053,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </DashboardGroup>
           </Reveal>
 
+          {/* ---- Deeper analytics (#4 — inverted pyramid): fold the lower-priority bands
+                 (autonomy split, timing, case volume, connector health, workload, top
+                 contributors) into ONE group collapsed by default, so the page LEADS with
+                 the ribbon + severity mix + attention queue and the rest is one click
+                 away. ---- */}
+          <DashboardGroup
+            title="Deeper analytics"
+            defaultOpen={false}
+            description="volume, timing, connectors, workload & top contributors"
+            contentClassName="space-y-6"
+          >
           {/* Row B: autonomy split (#3) · timing trio · case-volume trend */}
           <Reveal variant="rise" delay={120} className="grid gap-6 xl:grid-cols-3">
             {/* Autonomous vs human — the #3 trust surface */}
@@ -1288,6 +1298,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
               </Card>
             </DashboardGroup>
           </Reveal>
+          </DashboardGroup>
         </div>
       )}
     </PageContainer>
