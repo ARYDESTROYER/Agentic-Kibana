@@ -158,7 +158,7 @@ export const CaseActivityFeed: React.FC<CaseActivityFeedProps> = ({
               <Icon className="h-3 w-3" />
             </span>
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <Badge variant="outline" className="px-1.5 py-0 text-[0.65rem]">
+              <Badge variant="outline" className="px-1.5 py-0 text-2xs">
                 {humanizeToken(it.kind) || 'Event'}
               </Badge>
               {it.actor ? (
@@ -179,7 +179,7 @@ export const CaseActivityFeed: React.FC<CaseActivityFeedProps> = ({
             ) : null}
             {refStr ? (
               /* UNTRUSTED ref bits — plain text, mono. */
-              <p className="mt-0.5 font-mono text-[0.65rem] text-muted-foreground/80">{refStr}</p>
+              <p className="mt-0.5 font-mono text-2xs text-muted-foreground/80">{refStr}</p>
             ) : null}
           </li>
         );

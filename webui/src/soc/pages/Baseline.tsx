@@ -226,7 +226,7 @@ export function BaselineInner() {
                 />
               </div>
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <NumberField
                   label="Half-life (days)"
                   description="EWMA decay half-life. Longer remembers more history."

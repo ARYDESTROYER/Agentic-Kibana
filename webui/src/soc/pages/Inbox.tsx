@@ -478,7 +478,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
   );
 
   return (
-    <PageContainer variant="wide" className="space-y-8">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={InboxIcon}
         eyebrow="Notifications"
@@ -620,7 +620,7 @@ export default function Inbox({ onNavigate }: InboxProps = {}) {
               Choose how each kind of notification reaches you across channels.
             </SheetDescription>
           </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
             <NotificationPrefs />
           </div>
         </SheetContent>

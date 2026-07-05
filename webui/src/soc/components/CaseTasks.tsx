@@ -37,6 +37,7 @@ import {
 } from '@/ui/select';
 import { Popover, PopoverTrigger, PopoverContent } from '@/ui/popover';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { SectionHeading } from '@/soc/pages/casedetail/shared';
 
 import type { CaseTask, TaskStatus } from '@/soc/pages/CaseDetail.api';
 
@@ -186,7 +187,7 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, canWrite, busy, onStatus, onLog
                         <p className="whitespace-pre-wrap break-words text-foreground/90">
                           {String(l?.note ?? '')}
                         </p>
-                        <p className="mt-0.5 text-[0.65rem] text-muted-foreground">
+                        <p className="mt-0.5 text-2xs text-muted-foreground">
                           {l?.by ? `${String(l.by)} · ` : ''}
                           {l?.ts ? humanizeAge(String(l.ts)) : ''}
                         </p>
@@ -235,7 +236,7 @@ const TaskRow: React.FC<TaskRowProps> = ({ task, canWrite, busy, onStatus, onLog
               <p className="whitespace-pre-wrap break-words text-foreground/90">
                 {String(l?.note ?? '')}
               </p>
-              <p className="text-[0.65rem] text-muted-foreground">
+              <p className="text-2xs text-muted-foreground">
                 {l?.by ? `${String(l.by)} · ` : ''}
                 {l?.ts ? humanizeAge(String(l.ts)) : ''}
               </p>
@@ -295,17 +296,18 @@ export const CaseTasks: React.FC<CaseTasksProps> = ({
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ListChecks className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">Tasks</span>
-          {ordered.length ? (
+      <SectionHeading
+        icon={ListChecks}
+        actions={
+          ordered.length ? (
             <Badge variant="outline" className="tabular-nums">
               {doneCount}/{ordered.length} done
             </Badge>
-          ) : null}
-        </div>
-      </div>
+          ) : undefined
+        }
+      >
+        Tasks
+      </SectionHeading>
 
       {ordered.length === 0 ? (
         <EmptyState

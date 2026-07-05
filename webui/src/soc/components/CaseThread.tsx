@@ -378,7 +378,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </Badge>
             ) : null}
             {msg.kind && msg.kind !== 'comment' ? (
-              <Badge variant="outline" className="px-1.5 py-0 text-[0.65rem]">
+              <Badge variant="outline" className="px-1.5 py-0 text-2xs">
                 {msg.kind}
               </Badge>
             ) : null}
@@ -716,7 +716,7 @@ export const CaseThread: React.FC<CaseThreadProps> = ({
 
       {canComment ? (
         <div className="rounded-lg border border-border bg-muted/20 p-3">
-          <div className="mb-2 flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-widest text-muted-foreground">
+          <div className="mb-2 flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
             <Check className="h-3 w-3" />
             New message
           </div>

@@ -680,7 +680,7 @@ function SlaCard({
 
 function MiniStat({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div className="rounded-md border border-border bg-surface px-3 py-2.5">
+    <div className="rounded-md border border-border bg-surface px-3 py-2">
       <div className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={cn('mt-1 font-mono text-xl font-semibold tabular-nums', accent)}>{value}</div>
     </div>
@@ -841,7 +841,7 @@ function ActionItemsCard({
         ) : (
           <ul className="flex flex-col divide-y divide-border" aria-label="Action items">
             {items.map((item) => (
-              <li key={item.id} className="flex items-center gap-2 py-2.5">
+              <li key={item.id} className="flex items-center gap-2 py-2">
                 <div className="min-w-0 flex-1">
                   {/* Title + note — UNTRUSTED, plain text. */}
                   <p

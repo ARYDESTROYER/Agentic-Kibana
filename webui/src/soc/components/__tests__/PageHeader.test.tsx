@@ -2,14 +2,16 @@
  * PageHeader — Round-7 W0.9 header-compaction spec (#6).
  *
  * The header collapses the old marketing hero into a single compact ~52-68px band.
- * `dense` and `hero` share that rhythm; `hero` differs ONLY by a rounded border + a
- * whisper `bg-hero-glow` accent wash (its title is `text-xl`, its description clamps to
- * one line vs the dense two). `actions` (right) + `meta` (beside title) are the only
- * control slots — there is no second band.
+ * `dense` and `hero` share that rhythm; both share a `text-2xl sm:text-3xl` title that
+ * outranks card titles (the single app-wide authority lever, Round-8 #4/#7). `hero`
+ * differs ONLY by a rounded border + a whisper `bg-hero-glow` accent wash (its
+ * description clamps to one line vs the dense two). `actions` (right) + `meta` (beside
+ * title) are the only control slots — there is no second band.
  *
  * We lock: (1) a real hero≠dense visual discriminator (border + glow wash present on
  * hero, absent on dense); (2) exactly one <h1> per instance + no axe violations (heading
- * order / a11y); (3) the description carries a `line-clamp-*` utility in both variants.
+ * order / a11y); (3) the description carries a `line-clamp-*` utility in both variants;
+ * (4) the title reads at `text-2xl sm:text-3xl` (bigger than a card title) in both.
  *
  * Offline: pure render, no network, no #3 / runtime behaviour touched. All header text
  * renders plain (UNTRUSTED-safe, #9).
@@ -41,11 +43,20 @@ describe('PageHeader — W0.9 compaction', () => {
     expect(dense.querySelector('.bg-hero-glow')).toBeNull();
   });
 
-  it('hero title is text-xl (compacted from the old text-2xl marketing hero)', () => {
-    render(<PageHeader variant="hero" title="Command Center" />);
-    const h1 = screen.getByRole('heading', { level: 1 });
-    expect(h1.className).toMatch(/\btext-xl\b/);
-    expect(h1.className).not.toMatch(/text-2xl/);
+  it('title outranks card titles — text-2xl sm:text-3xl in both variants', () => {
+    const { unmount } = render(<PageHeader variant="hero" title="Command Center" />);
+    let h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.className).toMatch(/\btext-2xl\b/);
+    expect(h1.className).toMatch(/\bsm:text-3xl\b/);
+    // No longer sized like a card title (text-lg / text-xl).
+    expect(h1.className).not.toMatch(/\btext-lg\b/);
+    expect(h1.className).not.toMatch(/\btext-xl\b/);
+    unmount();
+
+    render(<PageHeader variant="dense" title="Cases" />);
+    h1 = screen.getByRole('heading', { level: 1 });
+    expect(h1.className).toMatch(/\btext-2xl\b/);
+    expect(h1.className).toMatch(/\bsm:text-3xl\b/);
   });
 
   it('renders exactly one <h1> per instance (dense and hero)', () => {

@@ -403,7 +403,7 @@ export default function MetricsPage({
 
   // ---- knowledge base & memory section (operational tab footer) --------- //
   const knowledgeSection = hasKnowledge ? (
-    <section className="space-y-5 pt-2">
+    <section className="space-y-6 pt-2">
       <Separator />
       <div className="flex items-start gap-3.5">
         <span className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
@@ -420,7 +420,7 @@ export default function MetricsPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <KpiTile label="RAG documents" value={fmtNumber(rag?.document_count)} icon={FileText} accent="primary" />
         <KpiTile label="RAG chunks" value={fmtNumber(rag?.total_chunks)} icon={Database} accent="info" />
         <KpiTile
@@ -446,7 +446,7 @@ export default function MetricsPage({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ChartCard title="Corpus by source" icon={Database}>
           {corpusItems.length ? (
             <BarList items={corpusItems} format={(n) => fmtNumber(n)} showPercent />
@@ -551,7 +551,7 @@ export default function MetricsPage({
       // misleading "No cases yet" empty state (the two contradict each other).
       null
     ) : !hasAny ? (
-      <div className="space-y-8">
+      <div className="space-y-6">
         <Card>
           <CardContent className="py-4">
             <EmptyState
@@ -564,7 +564,7 @@ export default function MetricsPage({
         {knowledgeSection}
       </div>
     ) : (
-      <div className="space-y-8">
+      <div className="space-y-6">
         <Stagger className={KPI_GRID} step={40} itemClassName="h-full">
           {kpis.map((k) => (
             <KpiTile
@@ -702,7 +702,7 @@ export default function MetricsPage({
         {/* Analyst feedback quality — LLM cost moved to the dedicated Cost tab so
             spend lives in ONE place (the designated single cost home). A compact
             "LLM spend" pointer sits alongside for at-a-glance context + a jump. */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <ChartCard
             title="Analyst feedback quality"
             icon={ThumbsUp}
@@ -878,7 +878,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
   if (loading) {
     return (
       <div className="space-y-6" aria-busy="true" aria-label="Loading performance metrics">
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <SkeletonCard key={i} lines={1} />
           ))}
@@ -923,13 +923,13 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Lifecycle p50 KPI tiles with deltas */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Lifecycle timing ({windowLabel})
         </h2>
-        <Stagger className="grid grid-cols-1 gap-5 sm:grid-cols-3" step={40} itemClassName="h-full">
+        <Stagger className="grid grid-cols-1 gap-4 sm:grid-cols-3" step={40} itemClassName="h-full">
           {lifecycleTiles.map((t) => {
             const dv = t.cmp ? deltaView(compare?.[t.cmp]) : { show: false, label: '' };
             return (
@@ -957,7 +957,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Percentile distribution
         </h2>
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <PercentileCard title="Time to acknowledge" icon={Clock} block={lifecycle.mtta_minutes} />
           <PercentileCard title="Time to resolve" icon={Timer} block={lifecycle.mttr_minutes} />
           <PercentileCard title="Time to first response" icon={Activity} block={lifecycle.dwell_minutes} />
@@ -969,7 +969,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Triage quality
         </h2>
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
           <QualityTile
             label="FP rate"
             value={ratioPct(quality.false_positive_rate)}
@@ -1049,7 +1049,7 @@ function PercentileCard({ title, icon: Icon, block }: PercentileCardProps) {
               ['max', block.max],
             ] as Array<[string, number | string]>
           ).map(([k, v]) => (
-            <div key={k} className="rounded-md border border-border bg-surface px-3 py-2.5">
+            <div key={k} className="rounded-md border border-border bg-surface px-3 py-2">
               <dt className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">{k}</dt>
               <dd className="mt-1 font-mono text-base font-semibold tabular-nums text-foreground">
                 {humanizeMins(v)}
@@ -1115,7 +1115,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
   if (loading) {
     return (
       <div className="space-y-6" aria-busy="true" aria-label="Loading posture">
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {Array.from({ length: 6 }).map((_, i) => (
             <SkeletonCard key={i} lines={1} />
           ))}
@@ -1165,7 +1165,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
       : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Aging + queue depth tiles */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1173,7 +1173,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
         </h2>
         {aging ? (
           <>
-            <Stagger className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6" step={40} itemClassName="h-full">
+            <Stagger className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6" step={40} itemClassName="h-full">
               <StatCard label="Queue depth" value={fmtNumber(aging.queue_depth)} accent="info" />
               <StatCard label="Backlog" value={fmtNumber(aging.backlog)} accent="medium" />
               <StatCard label="Arrivals" value={fmtNumber(aging.arrivals)} accent="primary" />
@@ -1186,7 +1186,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
               />
             </Stagger>
 
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ChartCard title="Age distribution" icon={Layers}>
                 {ageBars.some((b) => b.value > 0) ? (
                   <BarList items={ageBars} format={(n) => fmtNumber(n)} showPercent />
@@ -1258,7 +1258,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
         </h2>
         {sla?.enabled ? (
           <>
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
               <StatCard label="Attainment" value={ratioPct((sla.attainment_pct ?? 0) / 100)} accent="success" />
               <StatCard label="Evaluated" value={fmtNumber(sla.evaluated)} accent="info" />
               <StatCard label="Response breached" value={fmtNumber(sla.response_breached)} accent="critical" />

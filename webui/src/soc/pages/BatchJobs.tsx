@@ -353,7 +353,7 @@ export function BatchJobsInner() {
                 />
               </div>
 
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <LabeledSlider
                   label="Severity floor"
                   description="A candidate at or below this OCSF severity is batch-eligible; above it stays synchronous."

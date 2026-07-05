@@ -140,7 +140,7 @@ const BadgeRow: React.FC<{
 /* ----------------------------------------------------------- shared states --- */
 
 const GridSkeleton: React.FC = () => (
-  <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
     {Array.from({ length: 4 }).map((_, i) => (
       <Card key={i}>
         <CardHeader className="gap-3">
@@ -164,7 +164,7 @@ const GridSkeleton: React.FC = () => (
 
 /** Calm explanatory note above each catalog grid. */
 const CatalogNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="mb-5 max-w-3xl text-sm leading-relaxed text-muted-foreground">{children}</p>
+  <p className="mb-4 max-w-3xl text-sm leading-relaxed text-muted-foreground">{children}</p>
 );
 
 /* ---------------------------------------------------------------- personas --- */
@@ -264,7 +264,7 @@ const PersonasCatalog: React.FC = () => {
         The router deterministically selects one specialist per cluster; it specialises the single
         investigator with the persona&apos;s focus and tool emphasis.
       </CatalogNote>
-      <Stagger className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {personas.map((p) => (
           <PersonaCard key={p.id} persona={p} />
         ))}
@@ -499,7 +499,7 @@ const PlaybooksCatalog: React.FC = () => {
         Plain-text runbooks selected by match criteria and injected as TRUSTED guidance into the
         investigator (and indexed into RAG). Higher priority wins ties.
       </CatalogNote>
-      <Stagger className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <Stagger className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {playbooks.map((p) => (
           <PlaybookCard key={p.id} playbook={p} automationCount={automationByPlaybook[p.id] ?? 0} />
         ))}
@@ -521,7 +521,7 @@ export interface CatalogProps {
 
 export default function Catalog({ embedded = false }: CatalogProps = {}) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {embedded ? null : (
         <PageHeader
           icon={Library}
