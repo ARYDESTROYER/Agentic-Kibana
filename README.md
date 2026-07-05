@@ -269,6 +269,18 @@ the deterministic close/escalate decision and never alter it. See
   `FEATURES[]` registry derives the nav, routes, and command palette, and `React.lazy`
   code-splitting brought the entry bundle to **264 kB** — none of which changes any API path
   or the deterministic decision.
+- **The Security Command Center + Noise-Reduction funnel (Round 7).** The Overview became a
+  **Security Command Center**: an Active Risk Index with a `(?)` explainer, honest **MTTA /
+  MTTR / Dwell** tiles, live-delta KPIs, and Top-Contributors. A durable-counter **Noise
+  Reduction** view (`GET /api/metrics/noise-reduction`) shows how far the AI cut raw alert
+  volume down to cases. Every triage value carries a `source | ai | code` **provenance** tag,
+  the case view is retold as a clean story (facts → AI assessment → the pinned deterministic
+  `DecisionCard`), feedback is captured at close, and auto-closed cases are badged as such —
+  all additive, `decide()` byte-identical.
+- **UI cleanup pass (Round 8).** Glitch fixes + a visible declutter: the risk index in its own
+  card, a horizontal **QRadar-style Sankey ribbon** for Noise Reduction, a de-carded plain
+  big-title header, bigger page titles + tighter spacing app-wide, and reinvestigate that
+  rebuilds from a case's stored evidence when the log window has aged out.
 
 ## Quick start (deploy)
 
