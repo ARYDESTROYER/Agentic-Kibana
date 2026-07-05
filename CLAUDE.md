@@ -449,7 +449,32 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 ## 10. Current status & roadmap
 
 Current: **Rounds 1–6 overhauls COMPLETE** (on `Testing`) + **Round 7 + Round 8 COMPLETE**
-(branch `feature/round7-ui-overhaul`, off `Testing`; local only — **not pushed**).
+(branch `feature/round7-ui-overhaul`, off `Testing`; local only — **not pushed**) +
+**Round 9 COMPLETE** (branch `claude/ui-ux-improvements-7nq5be`, off + == `Testing` HEAD `1ab98f2`;
+**pushed** to origin).
+
+> **Round 9** (`709e758`→`d13b6f0`→`1adc5ce`→`26c4266`): an 11-ask UI/UX overhaul via a 12-agent
+> research + mapping fan-out → parallel disjoint-file implementers → 3× test → a 4-agent adversarial
+> validation → fix pass. Removed the redundant in-page tab strips that duplicated the left nav
+> (Overview/Workspace/Intelligence render the active sub-view by `tab` opt; no registry change);
+> Overview — LLM Spend OFF the hero (→5 alert/case KPIs; spend demoted to a Deeper-analytics tripwire)
+> + a bigger notch'd **Active Risk Index** card + tightened rhythm (the `xl:grid-cols-5` KPI strip
+> fixed the 1440px orphan-cell); **Noise-Reduction REDESIGNED** — the Round-8 Sankey ribbon (wrong for
+> a linear reduction) replaced by clean horizontal aligned stage bars + a part-to-whole disposition row
+> (kept `deriveFunnel()`/testids/`onStageClick`); **Sources** rebuilt as a QRadar "Log Source Management"
+> DataTable (search/filter/"+ New"/columns-gear/bulk-select/inline Enabled Switch/Status/Last Event via a
+> new `api.sourcesHealth()` over the existing `GET /api/sources/health`); **CaseDetail** — Investigation
+> tab → **Timeline** (what-happened + full trace) + Overview split into "Reported by source" vs "Our
+> assessment" provenance sections + a disagreement delta + pinned deterministic `DecisionCard`; **Login**
+> jank fixed (top-aligned card, SSO in the paint gate, reserved slots, faithful non-clipping branding
+> preview, pre-paint theme stamp) + **Wizard** decluttered; **local LiteLLM/OpenAI-compatible model
+> provider** added — reuses the existing `openai_compatible` path with a zero-migration custom-models KV
+> store + `POST/DELETE /api/llm/models/custom` + a non-metered `providers/test` probe + $0 pricing + a
+> `litellm_api_key` secret + an "Add local model" dialog. Validation also fixed a PRE-EXISTING bug: the
+> shared `POST /api/sources` dropped `configured_secrets`/`created_at` on every toggle/bulk/make-primary
+> (now carried forward + regression-tested). **GREEN (2026-07-05): backend 1696 pytest · webui 1252 vitest
+> / 227 files · build clean (entry ~278.7 kB) · eslint 0 errors (3 warnings) · `decide()` byte-identical
+> · ZERO new runtime deps.**
 
 > **Round 7** (`850600f`→`7355a9a`, `docs/research/2026-07-round7/`): Overview → **Security
 > Command Center** (12 UI changes + a durable-counter **Noise-Reduction** funnel
