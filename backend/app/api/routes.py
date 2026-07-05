@@ -170,6 +170,9 @@ class SecretsUpdate(BaseModel):
     es_ca_cert: str | None = None
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
+    # Optional self-hosted / LiteLLM (OpenAI-compatible) endpoint key — SECRET tier
+    # (in-memory), set from the "Add local model" dialog. Never persisted / returned.
+    litellm_api_key: str | None = None
     abuseipdb_api_key: str | None = None
     virustotal_api_key: str | None = None
     embedding_api_key: str | None = None
@@ -1109,7 +1112,30 @@ async def overview(body: OverviewRequest, state: AppState = Depends(get_state)) 
 # --------------------------------------------------------------------------- #
 @router.get("/models")
 async def models(state: AppState = Depends(get_state)) -> dict[str, Any]:
-    return {"providers": models_by_provider(), "configured": state.secrets.configured_status()}
+    grouped = models_by_provider()
+    # Merge the operator's runtime-registered self-hosted / LiteLLM (OpenAI-compatible)
+    # models so a locally-added model is selectable in the per-role picker, and expose a
+    # ``base_urls`` map so the picker can thread each custom model's endpoint onto the
+    # saved ModelConfig (the gateway also resolves it from the store as a fallback #10).
+    # Best-effort: a store glitch never breaks the built-in picker. #9: ids are plain data.
+    base_urls: dict[str, str] = {}
+    try:
+        for row in await state.custom_models.list_models():
+            mid = str(row.get("id", ""))
+            base = str(row.get("base_url", "") or "")
+            if not mid or not base:
+                continue
+            bucket = grouped.setdefault(str(row.get("provider") or "openai_compatible"), [])
+            if mid not in bucket:
+                bucket.append(mid)
+            base_urls[mid] = base
+    except Exception:  # noqa: BLE001 — custom store advisory to the picker
+        pass
+    return {
+        "providers": {p: sorted(set(m)) for p, m in grouped.items()},
+        "base_urls": base_urls,
+        "configured": state.secrets.configured_status(),
+    }
 
 
 # --------------------------------------------------------------------------- #
