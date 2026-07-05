@@ -591,14 +591,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
       .map(([status, value]) => ({ status, value }));
   }, [metrics, cases]);
 
-  // ----- KPI strip — ~5 signal tiles + spend (trimmed from the old 7) ------ //
-  // Integer tiles roll via <CountUp> (`countTo`); % / money render a formatted string.
+  // ----- KPI strip — 5 alert/case-centric signal tiles (spend demoted, Task 4) --- //
+  // Integer tiles roll via <CountUp> (`countTo`); the % tile renders a formatted string.
   // A period-over-period delta from `posture.compare` is attached ONLY when the tile's
   // displayed value and the compare metric share the SAME UNIT — so the False-Positive
   // RATE tile carries `false_positive_rate`, but the COUNT tiles (Open / Escalated /
   // Auto-Resolved) carry no delta rather than a rate/total delta that could contradict
   // the number. The comparison window is stated once under the strip. Every tile drills
-  // through to a filtered destination.
+  // through to a filtered destination. (LLM spend is no longer a hero tile — see below.)
   const kpis: KpiItem[] = React.useMemo(() => {
     const compare = posture?.compare;
     const fpRate = posture?.quality?.false_positive_rate;
@@ -686,20 +686,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
           ? () => navigate('cases', { status: 'closed', window: navWindow })
           : undefined,
       },
-      {
-        label: 'LLM Spend',
-        value: fmtMoney(usage?.total_cost, usage?.currency),
-        sub:
-          typeof usage?.total_tokens === 'number'
-            ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls`
-            : 'No spend recorded',
-        icon: CircleDollarSign,
-        accent: 'primary',
-        goodDirection: 'down', // lower spend is better
-        onClick: navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined,
-      },
+      // NOTE (Round-8 Task 4): LLM SPEND was DEMOTED off the hero. Cost is an
+      // executive/periodic KPI — none of the SOC leaders (Sentinel / Splunk ES / QRadar /
+      // Chronicle / XSIAM) hero $ on the operational overview; it belongs on the Cost page.
+      // The hero row answers "is anything on fire + what does a human still have to do",
+      // not "how is the machine performing". Spend now lives as a quiet health tile inside
+      // the collapsed "Deeper analytics" group (a runaway-spend tripwire), not the hero.
     ];
-  }, [derived, metrics, cases.length, usage, navWindow, autonomy.escalated, autonomy.autoClosed, posture, navigate]);
+  }, [derived, metrics, cases.length, navWindow, autonomy.escalated, autonomy.autoClosed, posture, navigate]);
 
   // ----- Noise-Reduction funnel drill-through ----------------------------- //
   // Each stage deep-links into the pre-filtered Cases list (only NavOpts-valid keys —
@@ -754,32 +748,32 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   // ----- States ----------------------------------------------------------- //
   // Loading skeleton mirrors the FINAL layout in LOCKSTEP so nothing shifts on load: the
-  // masthead (plain header + the Active Risk Index card top-right), the ~6-tile KPI strip,
-  // a reserved full-width Noise-Reduction ribbon band, the leading severity/attention row,
+  // masthead (plain header + the enlarged Active Risk Index card top-right), the 5-tile KPI
+  // strip, a reserved full-width Noise-Reduction band, the leading severity/attention row,
   // and the collapsed "Deeper analytics" group header (its content stays hidden — #4).
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
-        <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
-          {/* masthead — plain header (left) + the Active Risk Index card (top-right) */}
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
+          {/* masthead — plain header (left) + the enlarged Active Risk Index card (right) */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
             <Skeleton className="h-16 flex-1 rounded-lg" />
-            <Skeleton className="h-40 w-full rounded-lg lg:w-44" />
+            <Skeleton className="h-48 w-full rounded-lg lg:w-72" />
           </div>
-          {/* KPI strip — ~6 tiles, same responsive grid as the real strip */}
+          {/* KPI strip — 5 tiles, same responsive grid as the real strip */}
           <div
             data-testid="kpi-strip-skeleton"
-            className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6"
+            className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-5"
           >
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-[104px] rounded-lg" />
             ))}
           </div>
-          {/* reserved Noise-Reduction ribbon band (full width) */}
+          {/* reserved Noise-Reduction band (full width) */}
           <Skeleton data-testid="noise-skeleton-row" className="h-44 w-full rounded-lg" />
           {/* leading widget row — severity mix + attention queue (the only band open by
               default; the rest is folded into the collapsed "Deeper analytics" group). */}
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-4 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
             ))}
@@ -797,12 +791,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const totalCases = cases.length || 1;
 
   return (
-    <PageContainer variant="wide" className="space-y-6">
+    <PageContainer variant="wide" className="space-y-4">
       {/* ---- ZONE 1: masthead — a PLAIN, dense header (#7, like the Sources page: no
              card, no glow wash; the big title sits flush on the page background) on the
              left with the time-range + refresh controls in its `actions` slot, and the ONE
              risk instrument (#1, its own bordered card) pinned top-right. No second band. */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
         <PageHeader
           className="flex-1"
           data-testid="page-hero"
@@ -829,11 +823,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
           actions={headerControls}
         />
         {/* #1: the ONE risk instrument — mean deterministic risk over the open cases, in
-            its OWN bordered card top-right (default gauge size 128, no notch). */}
+            its OWN bordered card top-right. Task 4: a bigger, more prominent card (gauge
+            size 180 + a critical-boundary notch at 74). */}
         <ActiveRiskIndex
           score={activeRisk.score}
           count={activeRisk.count}
-          className="w-full lg:w-auto shrink-0"
+          size={180}
+          className="w-full shrink-0 lg:w-72"
         />
       </div>
 
@@ -874,12 +870,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </CardContent>
         </Card>
       ) : (
-        <div className="animate-fade-in space-y-6">
+        <div className="animate-fade-in space-y-4">
           {/* ---- ZONE 2: KPI strip — flat, un-nested, responsive by COLUMN COUNT ---- */}
           <div className="space-y-1.5">
             <Stagger
               data-testid="kpi-strip"
-              className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6"
+              className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-5"
               itemClassName="h-full"
             >
               {kpis.map((kpi) => (
@@ -925,7 +921,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
           {/* Row A: open-by-severity · attention queue (the leading band, kept OPEN; the
               Active Risk Index is its own card in the masthead top-right, #1). */}
-          <Reveal variant="rise" delay={60} className="grid gap-6 xl:grid-cols-2">
+          <Reveal variant="rise" delay={60} className="grid gap-4 xl:grid-cols-2">
             {/* Open cases by severity */}
             <DashboardGroup title="Open cases by severity" count={derived.open}>
               <Card>
@@ -1061,11 +1057,31 @@ export default function Overview({ onNavigate }: OverviewProps) {
           <DashboardGroup
             title="Deeper analytics"
             defaultOpen={false}
-            description="volume, timing, connectors, workload & top contributors"
-            contentClassName="space-y-6"
+            description="cost, volume, timing, connectors, workload & top contributors"
+            contentClassName="space-y-4"
           >
+          {/* LLM spend — DEMOTED off the hero (Task 4): a quiet runaway-spend tripwire, not
+              a SOC hero KPI. Matches the project's "Cost as the single home" decision — the
+              tile drills through to the full cost ledger. Compact + bounded width. */}
+          <KpiTile
+            variant="bar"
+            testId="llm-spend-detail"
+            label="LLM spend"
+            value={fmtMoney(usage?.total_cost, usage?.currency)}
+            sub={
+              typeof usage?.total_tokens === 'number'
+                ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls · past ${windowLabel(hours)}`
+                : 'No spend recorded'
+            }
+            icon={CircleDollarSign}
+            accent="primary"
+            goodDirection="down"
+            className="sm:max-w-xs"
+            onClick={navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined}
+          />
+
           {/* Row B: autonomy split (#3) · timing trio · case-volume trend */}
-          <Reveal variant="rise" delay={120} className="grid gap-6 xl:grid-cols-3">
+          <Reveal variant="rise" delay={120} className="grid gap-4 xl:grid-cols-3">
             {/* Autonomous vs human — the #3 trust surface */}
             <DashboardGroup
               title="Autonomous vs human"
@@ -1174,7 +1190,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </Reveal>
 
           {/* Row C: connector health (source signals) · workload state */}
-          <Reveal variant="rise" delay={180} className="grid gap-6 xl:grid-cols-2">
+          <Reveal variant="rise" delay={180} className="grid gap-4 xl:grid-cols-2">
             {/* Connector / source health — per-source case telemetry */}
             <DashboardGroup
               title="Connector health"
@@ -1263,7 +1279,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
           </Reveal>
 
           {/* Row D: top contributors — signatures · entities (ranked lists) */}
-          <Reveal variant="rise" delay={240} className="grid gap-6 xl:grid-cols-2">
+          <Reveal variant="rise" delay={240} className="grid gap-4 xl:grid-cols-2">
             <DashboardGroup
               title="Top signatures"
               count={signatureItems.length}

@@ -38,26 +38,37 @@ import { TraceTimeline } from '@/soc/components/TraceTimeline';
 
 /* --------------------------------------------------------------- zone header -- */
 
-/** A lane header — an icon chip + title + subtitle, optionally flagged "AI". */
+/** A lane header — an icon chip + title + subtitle, optionally flagged "AI". `lead`
+ *  bumps the chip + title so the FACTS lane reads as the prominent story opener at the
+ *  top of the Timeline tab. */
 const ZoneHeader: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   subtitle: string;
   ai?: boolean;
-}> = ({ icon: Icon, title, subtitle, ai = false }) => (
+  lead?: boolean;
+}> = ({ icon: Icon, title, subtitle, ai = false, lead = false }) => (
   <div className="flex items-center gap-2.5">
     <span
       className={cn(
-        'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
+        'flex shrink-0 items-center justify-center rounded-md border',
+        lead ? 'h-9 w-9' : 'h-7 w-7',
         ai ? 'border-info/40 bg-info/10 text-info' : 'border-border bg-muted text-muted-foreground',
       )}
       aria-hidden
     >
-      <Icon className="h-4 w-4" />
+      <Icon className={cn(lead ? 'h-5 w-5' : 'h-4 w-4')} />
     </span>
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
-        <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
+        <h3
+          className={cn(
+            'font-semibold tracking-tight text-foreground',
+            lead ? 'text-lg' : 'text-sm',
+          )}
+        >
+          {title}
+        </h3>
         {ai ? (
           <Badge variant="info" className="gap-1">
             <Bot className="size-3 shrink-0" aria-hidden />
@@ -65,7 +76,7 @@ const ZoneHeader: React.FC<{
           </Badge>
         ) : null}
       </div>
-      <p className="text-xs text-muted-foreground">{subtitle}</p>
+      <p className={cn('text-muted-foreground', lead ? 'text-sm' : 'text-xs')}>{subtitle}</p>
     </div>
   </div>
 );
@@ -131,6 +142,7 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
           icon={GitMerge}
           title="What happened"
           subtitle="Source-asserted + deterministic engine facts — the spine of the case."
+          lead
         />
         {/* StageTimeline carries its own padding + skeleton/error/empty states. */}
         <div className="rounded-lg border border-border bg-card">

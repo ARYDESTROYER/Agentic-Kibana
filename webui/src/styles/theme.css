@@ -413,6 +413,32 @@
   }
 }
 
+/* Browser autofill polish (WS-F task 8c) — additive. Chrome/Safari paint a pale
+   yellow/blue field over autofilled inputs, which reads as a light box on the dark
+   card (and fights the token surface in light theme too). Pin the autofilled field's
+   background + text to the SAME tokens the <Input> uses (`--background` fill,
+   `--foreground` text) in BOTH themes, via the box-shadow-inset hack + the very-long
+   background-color transition that defeats the UA's fade-to-yellow. Purely visual;
+   the tokens re-resolve under `.dark`, so no per-theme override is needed. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:focus {
+  /* Repaint the pale UA fill with the input's own surface token. */
+  -webkit-box-shadow: 0 0 0 100rem hsl(var(--background)) inset !important;
+  box-shadow: 0 0 0 100rem hsl(var(--background)) inset !important;
+  /* Keep the typed text on the token foreground (the box-shadow hides `background`). */
+  -webkit-text-fill-color: hsl(var(--foreground)) !important;
+  caret-color: hsl(var(--foreground));
+  /* Defeat the UA's animated fade back to the yellow autofill background. */
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 /* Respect reduced-transparency: when the OS asks for solid surfaces, neutralise
    every glass/glow/grid effect GLOBALLY (defence-in-depth — GlassSurface also
    guards in component CSS). The backdrop-filter is dropped and the panel becomes

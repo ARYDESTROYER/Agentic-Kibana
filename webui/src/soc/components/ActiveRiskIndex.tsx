@@ -34,7 +34,7 @@ export interface ActiveRiskIndexProps {
   count?: number;
   /** Show a placeholder while the metric is loading. */
   loading?: boolean;
-  /** Gauge width in px (default 128 — a self-contained top-right instrument card). */
+  /** Gauge width in px (default 180 — a prominent, self-contained instrument card). */
   size?: number;
   className?: string;
 }
@@ -56,7 +56,7 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
   score,
   count,
   loading,
-  size = 128,
+  size = 180,
   className,
 }) => {
   const hasOpen = (count ?? 0) > 0 && score != null && Number.isFinite(score);
@@ -64,7 +64,7 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
   return (
     <Card
       data-testid="active-risk-index"
-      className={cn('flex flex-col items-center gap-2 p-4', className)}
+      className={cn('flex flex-col items-center gap-2 p-5', className)}
     >
       <Caption />
       {loading ? (
@@ -74,7 +74,9 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
           data-testid="active-risk-loading"
         />
       ) : hasOpen ? (
-        <RiskGauge score={score as number} size={size} />
+        // `notch={74}` marks the critical auto-escalate boundary on the track so the
+        // gauge reads active pressure AGAINST the escalation threshold, not in a vacuum.
+        <RiskGauge score={score as number} size={size} notch={74} />
       ) : (
         <div
           data-testid="active-risk-empty"

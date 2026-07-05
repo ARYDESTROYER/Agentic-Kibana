@@ -1,24 +1,25 @@
 /**
- * CaseDetail — 5-tab story shell (Round-7 #9a: 8 → 5 tabs).
+ * CaseDetail — 5-tab story shell (Round-7 #9a: 8 → 5 tabs; task 5: rename Investigation
+ * → Timeline).
  *
  * The old 8-tab shell (Overview / Timeline / Why / Threat / Trace / Collaboration /
- * Feedback / Chat) collapsed into a 5-tab story spine:
+ * Feedback / Chat) collapsed into a 5-tab story spine, and the merged investigation tab
+ * was renamed to Timeline (task 5) and sits right after Overview:
  *
- *     overview · investigation · threat · collab · chat
+ *     overview · timeline · threat · collab · chat
  *
- * The Timeline + Why + Trace panels are no longer standalone tabs — they compose
- * INSIDE <InvestigationPanel> (Facts → AI assessment → pinned deterministic
+ * The Timeline tab's panel is still <InvestigationPanel> — the Timeline + Why + Trace
+ * panels compose INSIDE it (Facts "What happened" → AI assessment → pinned deterministic
  * DecisionCard + a collapsible full trace). The standalone Feedback tab was retired
- * (grading folds into the close dialog in a later batch; the aggregate stays in
- * Metrics). This spec pins:
+ * (grading folds into the close dialog; the aggregate stays in Metrics). This spec pins:
  *
- *   1. The `tab` union is EXACTLY the 5 story tabs — the 4 removed values are gone.
+ *   1. The `tab` union is EXACTLY the 5 story tabs — the removed values are gone.
  *   2. Exactly 5 <TabsTrigger>, each `value` matching its human label.
  *   3. Each <TabsContent> renders the RIGHT, DISTINCT panel; the merged sub-panels
  *      (StageTimeline / WhyPanel / TraceTimeline) and the retired FeedbackTab are NOT
  *      mounted directly in the shell.
  *   4. <InvestigationPanel> is wired the stages / rationale / timeline state + retries,
- *      and those payloads lazy-load on the `investigation` tab (so the DecisionCard can
+ *      and those payloads lazy-load on the `timeline` tab (so the DecisionCard can
  *      read its policy clause).
  *   5. The header carries a self-hiding <AutoClosedBadge> (Round-7 #11).
  *
@@ -41,20 +42,20 @@ function slice(text: string, needle: string, end: string): string {
   return text.slice(i, j === -1 ? text.length : j);
 }
 
-const TAB_VALUES = ['overview', 'investigation', 'threat', 'collab', 'chat'] as const;
-const REMOVED_TABS = ['timeline', 'why', 'trace', 'feedback'] as const;
+const TAB_VALUES = ['overview', 'timeline', 'threat', 'collab', 'chat'] as const;
+const REMOVED_TABS = ['investigation', 'why', 'trace', 'feedback'] as const;
 
 /** value → expected human label + the panel component mounted for it. */
 const TAB_LABEL: Record<(typeof TAB_VALUES)[number], string> = {
   overview: 'Overview',
-  investigation: 'Investigation',
+  timeline: 'Timeline',
   threat: 'Threat context',
   collab: 'Collaboration',
   chat: 'Chat',
 };
 const TAB_PANEL: Record<(typeof TAB_VALUES)[number], string> = {
   overview: 'OverviewPanel',
-  investigation: 'InvestigationPanel',
+  timeline: 'InvestigationPanel',
   threat: 'ThreatContextPanel',
   collab: 'CollaborationThreadTab',
   chat: 'ChatTab',
@@ -108,7 +109,7 @@ describe('CaseDetail — 5-tab story shell', () => {
   });
 
   it('InvestigationPanel is wired the stages/rationale/timeline state + retries', () => {
-    const content = slice(src, '<TabsContent value="investigation"', '</TabsContent>');
+    const content = slice(src, '<TabsContent value="timeline"', '</TabsContent>');
     for (const prop of [
       'stages={stages}',
       'onRetryStages={loadStages}',
@@ -121,17 +122,17 @@ describe('CaseDetail — 5-tab story shell', () => {
     }
   });
 
-  it('stages/rationale/timeline lazy-load on the investigation tab', () => {
-    // Each lazy effect fires on tab === 'investigation' with an error guard so a failed
+  it('stages/rationale/timeline lazy-load on the timeline tab', () => {
+    // Each lazy effect fires on tab === 'timeline' with an error guard so a failed
     // fetch never re-fires forever.
     expect(src).toContain(
-      "tab === 'investigation' && stages === null && !stagesLoading && !stagesError",
+      "tab === 'timeline' && stages === null && !stagesLoading && !stagesError",
     );
     expect(src).toContain(
-      "tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError",
+      "tab === 'timeline' && rationale === null && !rationaleLoading && !rationaleError",
     );
     expect(src).toContain(
-      "tab === 'investigation' && timeline === null && !timelineLoading && !timelineError",
+      "tab === 'timeline' && timeline === null && !timelineLoading && !timelineError",
     );
     // No lingering effect keyed on a removed tab value.
     for (const v of REMOVED_TABS) {
@@ -149,8 +150,8 @@ describe('CaseDetail — 5-tab story shell', () => {
     );
   });
 
-  it('the header History control targets the Investigation tab', () => {
-    const historyBtn = slice(src, 'aria-label="Investigation trace"', 'Button>');
-    expect(historyBtn).toContain("setTab('investigation')");
+  it('the header History control targets the Timeline tab', () => {
+    const historyBtn = slice(src, 'aria-label="Timeline"', 'Button>');
+    expect(historyBtn).toContain("setTab('timeline')");
   });
 });

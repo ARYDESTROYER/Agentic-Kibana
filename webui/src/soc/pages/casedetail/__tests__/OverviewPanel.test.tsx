@@ -13,8 +13,12 @@
  *        context tab.
  *   Round-8 #3: de-duped the panel — the legacy Verdict/Confidence HeadlinePanel duo and
  *        the standalone risk badge (already owned by the RiskCard gauge) were dropped;
- *        headings sentence-cased; "IOC Indicators" → "Search queries"; the ~13 sections
- *        grouped into three scannable bands (Summary / Evidence / Provenance & activity).
+ *        headings sentence-cased; "IOC Indicators" → "Search queries".
+ *   Task 6: the overview now separates "Reported by source" (SIEM facts: source-asserted
+ *        severity + provenance tag, detection rules, source name/time, trigger, affected
+ *        assets, search queries) from "Our assessment" (risk/impact/priority + AI verdict/
+ *        confidence + the pinned deterministic DecisionCard), with a delta cue when the
+ *        source severity and our risk band disagree — four bands total.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -69,25 +73,79 @@ describe('OverviewPanel', () => {
   });
 });
 
-describe('OverviewPanel — header strip provenance (Round-7 #9b / D1b, Round-8 #3)', () => {
-  it('tags verdict + confidence as AI, and no longer repeats risk as a standalone code badge', () => {
+describe('OverviewPanel — source-vs-assessment provenance (task 6)', () => {
+  it('labels the two peer sections: a SIEM (source) legend and an AI+Code assessment legend', () => {
     renderOverview(CASE);
-    // Two AI provenance tags (verdict + confidence).
-    expect(screen.getAllByText('AI')).toHaveLength(2);
-    // Round-8 #3: the standalone RiskBadge + its "Code" provenance tag were dropped from
-    // the strip — risk is owned by the RiskCard gauge in the triage header, so it is no
-    // longer duplicated in this strip.
-    expect(screen.queryByText('Code')).toBeNull();
+    // "Reported by source" header carries the SIEM (source) provenance tag.
+    expect(screen.getByText('SIEM')).toBeInTheDocument();
+    // "Our assessment" verdict + confidence are AI-tagged; the assessment header legend
+    // also carries one AI + one Code tag → three AI tags, one Code tag total.
+    expect(screen.getAllByText('AI')).toHaveLength(3);
+    expect(screen.getAllByText('Code')).toHaveLength(1);
   });
 
-  it('shows the "Auto-closed by AI" marker only when the AI closed the case (#11)', () => {
+  it('shows the "Auto-closed by AI" marker (on the pinned DecisionCard) only when the AI closed the case (#11)', () => {
     // Open case decided by the pipeline → NOT auto-closed → no marker.
     renderOverview(CASE);
     expect(screen.queryByText('Auto-closed by AI')).toBeNull();
 
-    // Terminal status + decision_by === 'agent' → the AI auto-closed it.
+    // Terminal status + decision_by === 'agent' → the AI auto-closed it (shown once, on
+    // the DecisionCard — the assessment strip no longer duplicates the marker).
     renderOverview({ ...CASE, status: 'closed', decision_by: 'agent' } as unknown as Case);
     expect(screen.getByText('Auto-closed by AI')).toBeInTheDocument();
+  });
+});
+
+describe('OverviewPanel — source severity vs. our risk delta cue (task 6)', () => {
+  it('surfaces the source-asserted severity with a SIEM provenance tag under "Reported by source"', () => {
+    renderOverview({
+      ...CASE,
+      severity_band: 'high',
+      severity_source: 'source_asserted',
+    } as unknown as Case);
+    // The plain-text sentence spells out what the source reported.
+    expect(screen.getByText(/The source rated this alert High severity\./)).toBeInTheDocument();
+    // Source-asserted severity → a source (SIEM) provenance tag beside the band. The
+    // section header also carries one, so there are two SIEM tags.
+    expect(screen.getAllByText('SIEM')).toHaveLength(2);
+  });
+
+  it('shows the delta cue when the source severity and our risk band DISAGREE', () => {
+    // Source says High; risk 40 lands in the Medium band → they disagree.
+    renderOverview({
+      ...CASE,
+      risk_score: 40,
+      severity_band: 'high',
+      severity_source: 'source_asserted',
+    } as unknown as Case);
+    const delta = screen.getByTestId('source-assessment-delta');
+    expect(delta.textContent).toContain('High');
+    expect(delta.textContent).toContain('Medium');
+  });
+
+  it('hides the delta cue when the source severity and our risk band AGREE', () => {
+    // Source says High; risk 50 also lands in the High band → no delta.
+    renderOverview({
+      ...CASE,
+      risk_score: 50,
+      severity_band: 'high',
+      severity_source: 'source_asserted',
+    } as unknown as Case);
+    expect(screen.queryByTestId('source-assessment-delta')).toBeNull();
+  });
+
+  it('never shows the delta cue for a DERIVED (non-source-asserted) severity', () => {
+    renderOverview({
+      ...CASE,
+      risk_score: 40,
+      severity_band: 'high',
+      severity_source: 'derived',
+    } as unknown as Case);
+    // Derived → the honest "no source severity" note + a Code provenance tag, no delta.
+    expect(screen.queryByTestId('source-assessment-delta')).toBeNull();
+    expect(
+      screen.getByText(/No source severity was supplied/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -111,10 +169,15 @@ describe('OverviewPanel — compact MITRE summary (D1b)', () => {
 });
 
 describe('OverviewPanel — Round-8 #3 cleanup (dedup, sentence-case, bands)', () => {
-  it('groups the sections into three scannable bands', () => {
+  it('groups the sections into four scannable bands (source vs. assessment split, task 6)', () => {
     renderOverview(CASE);
     const labels = screen.getAllByTestId('overview-band-label').map((el) => el.textContent);
-    expect(labels).toEqual(['Summary', 'Evidence', 'Provenance & activity']);
+    expect(labels).toEqual([
+      'Reported by source',
+      'Our assessment',
+      'Evidence',
+      'Provenance & activity',
+    ]);
   });
 
   it('sentence-cases the always-present headings and renames "IOC Indicators" → "Search queries"', () => {

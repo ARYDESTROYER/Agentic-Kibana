@@ -7,8 +7,8 @@
  *      top-right, a SIBLING of the plain header (Round-8 #1/#7), never nested inside it;
  *   3. the Noise-Reduction funnel (feature ★) is mounted as a full-width band (fetched via
  *      the typeof-guarded `api.noiseReduction`);
- *   4. the KPI strip is trimmed to ~5 signal tiles + spend (the demoted Artifacts/Knowledge/
- *      Total tiles are gone).
+ *   4. the KPI strip is trimmed to 5 alert/case tiles (the demoted Artifacts/Knowledge/Total
+ *      tiles are gone AND LLM spend is demoted off the hero — Round-8 Task 4).
  *
  * Offline — the api + posture fetch are mocked; no auth, no #3 behaviour touched.
  */
@@ -153,25 +153,26 @@ describe('Overview — Security Command Center', () => {
     );
   });
 
-  it('renders a trimmed KPI strip of ~5 signal tiles + spend', async () => {
+  it('renders a trimmed KPI strip of 5 alert/case tiles (LLM spend demoted off the hero)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument());
     const strip = screen.getByTestId('kpi-strip');
     const tiles = strip.querySelectorAll('[data-testid^="kpi-"]');
-    // The trimmed strip: 5 signal tiles + spend (was 7 in the pre-Round-7 layout).
-    expect(tiles.length).toBeGreaterThanOrEqual(5);
-    expect(tiles.length).toBeLessThanOrEqual(6);
+    // The trimmed strip: EXACTLY 5 alert/case tiles (was 7 pre-Round-7, 6-with-spend in
+    // Round-7; spend was demoted off the hero in Round-8 Task 4).
+    expect(tiles.length).toBe(5);
     for (const id of [
       'kpi-open-cases',
       'kpi-critical-high',
       'kpi-escalated-to-human',
       'kpi-false-positive-rate',
       'kpi-auto-resolved',
-      'kpi-llm-spend',
     ]) {
       expect(within(strip).getByTestId(id)).toBeInTheDocument();
     }
+    // LLM spend is no longer a hero tile.
+    expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
     // The demoted tiles are gone.
     expect(screen.queryByTestId('kpi-artifacts-in-scope')).not.toBeInTheDocument();
     expect(screen.queryByTestId('kpi-knowledge-signals')).not.toBeInTheDocument();

@@ -15,6 +15,30 @@
       crossorigin
     />
     <title>Agentic SOC Console</title>
+    <!-- Pre-paint theme stamp (WS-F task 8c). The body background is
+         `hsl(var(--canvas))`, which differs light↔dark, so a dark-preferring user
+         would flash a light body before React's first commit stamps `.dark`. This
+         tiny BLOCKING script stamps the SAME `.dark` class + `colorScheme` the
+         ThemeProvider uses (storage key `soc.theme`; 'system'/unset → OS), BEFORE
+         first paint, so there is no flash. It is intentionally a pure mirror of
+         theme.tsx's readStoredMode()+resolveDark(no branding)+applyDarkClass. -->
+    <script>
+      (function () {
+        try {
+          var m = window.localStorage.getItem('soc.theme');
+          var dark =
+            m === 'dark' ||
+            ((m === 'system' || m === null || m === undefined) &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          var el = document.documentElement;
+          el.classList.toggle('dark', !!dark);
+          el.style.colorScheme = dark ? 'dark' : 'light';
+        } catch (e) {
+          /* storage/matchMedia unavailable — leave the default light theme */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

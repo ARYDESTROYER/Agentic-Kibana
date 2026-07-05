@@ -74,6 +74,12 @@ export interface ModelCatalogRow {
   pricing_source: PricingSource | string;
   assigned_roles: string[];
   price_overridden: boolean;
+  /**
+   * True for an operator-registered self-hosted / LiteLLM (OpenAI-compatible) model
+   * added at runtime (task 7). Such rows are FREE ($0), carry a `base_url`, and can be
+   * removed. Additive — older backends omit it (treat absent as `false`).
+   */
+  is_custom?: boolean;
 }
 
 /**
@@ -165,11 +171,53 @@ export interface BudgetStatus {
   monthly: BudgetWindowStatus;
 }
 
+/** Body for POST /api/llm/models/custom (register a self-hosted / LiteLLM model). */
+export interface CustomModelInput {
+  model_id: string;
+  base_url: string;
+  label?: string;
+  context_window?: number;
+  api_key?: string;
+}
+
+/** One registered custom-model row echoed by POST /api/llm/models/custom. */
+export interface CustomModelRow {
+  id: string;
+  label: string;
+  base_url: string;
+  provider: string;
+  context_window: number;
+  input_per_million: number;
+  output_per_million: number;
+}
+
+/** POST /api/llm/providers/test — a NON-metered reachability + fetch-models probe. */
+export interface ProviderTestResult {
+  ok: boolean;
+  models: string[];
+  message?: string;
+  error?: string;
+}
+
 export const modelsApi = {
   catalog: () => api.get<ModelsCatalogResponse>('llm/models'),
   providers: () => api.get<ProvidersResponse>('llm/providers'),
   test: (body: { model: string; provider?: string; prompt?: string }) =>
     api.post<ModelTestResult>('llm/models/test', body),
+  /** Register a self-hosted / LiteLLM (OpenAI-compatible) model at runtime ($0). */
+  addCustom: (body: CustomModelInput) =>
+    api.post<{ ok: boolean; model: CustomModelRow; configured: Record<string, boolean> }>(
+      'llm/models/custom',
+      body,
+    ),
+  /** Remove a registered custom model (+ clears its $0 overlay server-side). */
+  removeCustom: (modelId: string) =>
+    api.del<{ ok: boolean; model: string; removed: boolean }>(
+      `llm/models/custom/${encodeURIComponent(modelId)}`,
+    ),
+  /** NON-metered reachability + "fetch models" probe for an OpenAI-compatible endpoint. */
+  providersTest: (base_url: string, api_key?: string) =>
+    api.post<ProviderTestResult>('llm/providers/test', { base_url, api_key }),
   setPricing: (modelId: string, input_per_million: number, output_per_million: number) =>
     api.put<{ ok: boolean; model: string; pricing: { input: number; output: number }; pricing_source: string }>(
       `llm/models/${encodeURIComponent(modelId)}/pricing`,

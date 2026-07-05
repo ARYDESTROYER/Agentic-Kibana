@@ -292,11 +292,17 @@ export function ModelPicker({
         value={current || undefined}
         onValueChange={(v) => {
           const sel = options.find((o) => o.value === v);
+          // Thread a self-hosted / LiteLLM model's endpoint onto the saved config so a
+          // role bound to a custom model routes to the right server (the gateway also
+          // resolves it from the custom-model store as a fallback). Selecting a normal
+          // model clears any stale base_url so it can't pin the wrong endpoint (task 7).
+          const baseUrl = models?.base_urls?.[v];
           onChange({
             provider: sel?.provider || value?.provider || 'anthropic',
             model: v,
             temperature: value?.temperature,
             max_tokens: value?.max_tokens,
+            base_url: baseUrl || undefined,
           });
         }}
       >

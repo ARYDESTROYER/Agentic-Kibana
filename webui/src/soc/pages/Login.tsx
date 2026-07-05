@@ -151,6 +151,10 @@ export default function Login({ onAuthenticated }: LoginProps) {
 
   // SSO providers (Wave 2): the enabled "Sign in with …" buttons.
   const [ssoProviders, setSsoProviders] = React.useState<SsoProviderPublic[]>([]);
+  // Whether the SSO-providers probe has settled. Folded into the first-paint gate so
+  // the "or continue with" divider + provider buttons never POP IN ~1 RTT after the
+  // form paints (which grew/re-centred the card). Fails safe: set on both ok + error.
+  const [ssoResolved, setSsoResolved] = React.useState(false);
   const [ssoBusy, setSsoBusy] = React.useState<string | null>(null);
 
   // Detect the first-run OOBE state once on mount.
@@ -173,7 +177,10 @@ export default function Login({ onAuthenticated }: LoginProps) {
     };
   }, []);
 
-  // Load the enabled SSO providers (best-effort; empty when SSO is off).
+  // Load the enabled SSO providers (best-effort; empty when SSO is off). This runs in
+  // PARALLEL with the setup-status probe above (both fire on mount), and both gate the
+  // first paint, so painting waits for the slower of the two — no extra serial latency,
+  // and the SSO block is present from the first frame instead of popping in late.
   React.useEffect(() => {
     let alive = true;
     void (async () => {
@@ -182,6 +189,8 @@ export default function Login({ onAuthenticated }: LoginProps) {
         if (alive) setSsoProviders(res.providers ?? []);
       } catch {
         if (alive) setSsoProviders([]);
+      } finally {
+        if (alive) setSsoResolved(true);
       }
     })();
     return () => {
@@ -499,7 +508,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         disabled={busy}
                       />
                     </div>
-                    <PasswordStrengthMeter password={password} className="pt-0.5" />
+                    {/* Reserve a fixed-height slot for the strength meter so the FIRST
+                        keystroke (meter appears) never shoves the fields/button below
+                        it downward (reserve-space; the meter is null until typing). */}
+                    <div className="min-h-[1.75rem] pt-0.5">
+                      <PasswordStrengthMeter password={password} />
+                    </div>
                     {/* Policy hint mirrors the server gate (min 12, ≠ username, not common). */}
                     <p
                       id="setup-password-help"
@@ -527,9 +541,13 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         disabled={busy}
                       />
                     </div>
-                    {confirm && password !== confirm ? (
-                      <p className="text-xs text-critical">Passwords do not match.</p>
-                    ) : null}
+                    {/* Reserved slot: the mismatch line inserts on a typing mismatch —
+                        keep its height always so it never shoves the submit button. */}
+                    <div className="min-h-[1rem]" aria-live="polite">
+                      {confirm && password !== confirm ? (
+                        <p className="text-xs text-critical">Passwords do not match.</p>
+                      ) : null}
+                    </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={!canSubmitSetup}>
                     {busy ? <Loader2 className="animate-spin" aria-hidden /> : <UserPlus aria-hidden />}
@@ -542,8 +560,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
               {mode === 'mfa-enroll' ? (
                 <div className="space-y-4">
                   {/* frameless: the outer login Card already supplies the frame +
-                      the "Secure your account" heading — avoid a card-in-card. */}
-                  <MfaSetupCard enabled={false} frameless onChanged={onAuthenticated} />
+                      the "Secure your account" heading — avoid a card-in-card.
+                      Reserve the QR area's height so the second grow (when the
+                      enrollment QR resolves after mount) is absorbed, not a jump. */}
+                  <div className="min-h-[24rem]">
+                    <MfaSetupCard enabled={false} frameless onChanged={onAuthenticated} />
+                  </div>
                   <Button
                     type="button"
                     variant="ghost"
@@ -724,7 +746,10 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         autoFocus
                       />
                     </div>
-                    <PasswordStrengthMeter password={newPassword} className="pt-0.5" />
+                    {/* Reserved slot — same reserve-space treatment as the setup form. */}
+                    <div className="min-h-[1.75rem] pt-0.5">
+                      <PasswordStrengthMeter password={newPassword} />
+                    </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="change-confirm">Confirm new password</Label>
@@ -800,10 +825,13 @@ export default function Login({ onAuthenticated }: LoginProps) {
     </div>
   );
 
-  // Hold first paint until the setup-status probe settles, so a first-run install
-  // never flashes the sign-in form before switching to the create-admin form. A
-  // failed probe still flips statusResolved (→ we fall back to the sign-in form).
-  if (!statusResolved) {
+  // Hold first paint until BOTH the setup-status probe AND the SSO-providers probe
+  // settle, so a first-run install never flashes the sign-in form before switching to
+  // the create-admin form, AND the SSO block never pops in a beat after the form (it is
+  // present from the first painted frame). Both probes fire on mount in parallel, so
+  // this waits for the slower one, not their sum. Each fails safe (its flag flips on
+  // error too), so an unreachable backend still resolves to the fallback form.
+  if (!statusResolved || !ssoResolved) {
     return (
       <div
         className="flex min-h-screen items-center justify-center bg-canvas text-muted-foreground"
@@ -818,10 +846,16 @@ export default function Login({ onAuthenticated }: LoginProps) {
   }
 
   // ---- Layout shells ------------------------------------------------------ //
+  // Every shell TOP-ALIGNs the form column (`items-start` + a top offset) rather than
+  // vertically centring it. Centring re-centres the whole card whenever a mode switch
+  // (signin ↔ mfa ↔ setup ↔ mfa-enroll ↔ change) changes its height — the visible
+  // vertical "hop". Top-aligned, a height change grows DOWNWARD from a fixed top edge,
+  // so the card header never moves (reserve-space / CLS≈0 on this screen).
+  //
   // 'centered': a single centred column over a decorative backdrop band (no copy).
   if (loginLayout === 'centered') {
     return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+      <div className="relative flex min-h-screen items-start justify-center overflow-hidden bg-canvas px-6 pb-12 pt-[10vh]">
         <BrandHero {...heroProps} variant="backdrop" />
         <div
           className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-canvas/60 to-canvas"
@@ -838,7 +872,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
       <div className="relative min-h-screen overflow-hidden bg-canvas">
         <BrandHero {...heroProps} variant="full" />
         <div className="pointer-events-none absolute inset-0 bg-black/30" aria-hidden />
-        <div className="relative z-10 flex min-h-screen items-center justify-center px-6 py-12 lg:justify-end lg:pr-[8vw]">
+        <div className="relative z-10 flex min-h-screen items-start justify-center px-6 pb-12 pt-[10vh] lg:justify-end lg:pr-[8vw]">
           {formInner}
         </div>
       </div>
@@ -849,7 +883,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <BrandHero {...heroProps} variant="panel" />
-      <div className="relative flex items-center justify-center overflow-hidden bg-canvas px-6 py-12">
+      <div className="relative flex items-start justify-center overflow-hidden bg-canvas px-6 pb-12 pt-[10vh]">
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-hero-glow lg:hidden"
           aria-hidden

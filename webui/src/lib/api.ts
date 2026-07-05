@@ -81,6 +81,7 @@ import type {
   SourceInstance,
   SourceLogsQuery,
   SourceLogsResponse,
+  SourcesHealthResponse,
   SourcesResponse,
   SourceUpsert,
   StandupResponse,
@@ -932,6 +933,10 @@ export const api = {
     request<SourceLogsResponse>('GET', `sources/${encodeURIComponent(sourceId)}/logs`, {
       query: params as Record<string, unknown> | undefined,
     }),
+  // Per-source runtime health for the Log Sources table (GET /api/sources/health):
+  // enabled/kind/browse-capability + a PULL source's durable poll position and a
+  // PUSH source's live-tail buffer depth. Read-only; NEVER returns a secret (#10).
+  sourcesHealth: () => request<SourcesHealthResponse>('GET', 'sources/health'),
   // Source-scoped helpers (F9). `analyzeSample` posts a pasted sample record and
   // gets back suggested field mappings + discovered field paths. The sample is
   // sanitized server-side and NEVER persisted to the source config.

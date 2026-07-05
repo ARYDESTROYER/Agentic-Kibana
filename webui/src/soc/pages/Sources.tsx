@@ -1,15 +1,22 @@
 /**
- * Sources — manage the systems the agent reads security events from.
+ * Log Sources — the QRadar-style "Log Source Management" surface.
  *
- * Lists configured sources as cards (primary/enabled badges, connector type, at-a-
- * glance triage config: index patterns + roles, entity strategy, message field),
- * with per-source actions: browse Logs (a right Sheet), make primary (confirm),
- * edit, and remove (confirm). "Add source" / "Edit" open the SourceEditor inside a
- * Dialog — the same dynamic, manifest-driven form the wizard uses.
+ * The systems the agent reads security events from, presented as a dense, sortable
+ * DataTable (was a vertical card stack): a toolbar (faceted filter + search + a live
+ * "Log Sources (N)" count + a prominent "+ New Log Source" + a Manage-Columns gear),
+ * bulk-select with an Enable / Disable / Remove strip, and per-row Status dot, Last
+ * Event, an inline Enabled toggle, and a kebab actions menu (Browse logs · Make
+ * primary · Edit · Remove). Status + Last Event are honestly derived from the
+ * read-only GET /api/sources/health signal (durable poll cursor for PULL sources,
+ * live-tail buffer depth for PUSH receivers).
+ *
+ * Add/Edit open the manifest-driven <SourceEditor> in a Dialog (the same form the
+ * wizard uses); Browse opens the <SourceLogsSheet>.
  *
  * Security: connector/source text is operator- or backend-provided and rendered as
- * plain text; secrets are never shown (only `N secret(s)` counts). Log values in
- * the Logs sheet are UNTRUSTED and fenced there.
+ * plain text; secrets are NEVER shown (only `N secret(s)` counts, #10). Log values in
+ * the Logs sheet are UNTRUSTED and fenced there. All manage affordances (New / Edit /
+ * Remove / the Enabled toggle / Make primary / bulk) are RBAC-gated (`sources:manage`).
  */
 import * as React from 'react';
 import {
@@ -19,24 +26,24 @@ import {
   Trash2,
   Star,
   Telescope,
-  Tags,
-  ShieldAlert,
-  EyeOff,
-  KeyRound,
-  Loader2,
   Plug,
   Link2,
+  Search,
+  X,
+  Filter,
+  MoreHorizontal,
+  RefreshCw,
+  KeyRound,
+  Check,
 } from 'lucide-react';
 import type { Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
 import type {
   ConnectorManifest,
-  EntityStrategy,
-  IndexPattern,
-  SourceConfigExtras,
+  SourceHealthRow,
   SourceInstance,
 } from '@/lib/types';
-import { humanizeToken } from '@/lib/format';
+import { humanizeToken, humanizeAge, formatTimestamp, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -45,17 +52,24 @@ import { PageContainer } from '@/soc/components/PageContainer';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
-import { Stagger } from '@/soc/components/Stagger';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { SourceLogsSheet } from '@/soc/components/SourceLogsSheet';
 import { categoryMeta } from '@/soc/components/ConnectorPicker';
-import { Can } from '@/soc/components/Can';
+import { Can, useCan } from '@/soc/components/Can';
 import { HelpTip } from '@/soc/components/HelpTip';
+import {
+  DataTable,
+  type DataTableColumn,
+  type SortState,
+  type ColumnState,
+} from '@/soc/components/DataTable';
+import { ColumnsMenu, type ColumnMenuItem } from '@/soc/components/ColumnsMenu';
+import { usePrefs } from '@/soc/prefs';
 
 import { Button } from '@/ui/button';
-import { Card } from '@/ui/card';
 import { Badge } from '@/ui/badge';
-import { SkeletonCard } from '@/ui/skeleton';
+import { Input } from '@/ui/input';
+import { Switch } from '@/ui/switch';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import {
   Dialog,
@@ -64,39 +78,93 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/ui/dropdown-menu';
+import { Popover, PopoverTrigger, PopoverContent } from '@/ui/popover';
 
-/** Human label for an entity strategy (matches the editor's choices). */
-const ENTITY_LABELS: Record<string, string> = {
-  auto: 'Auto entity',
-  ip: 'Entity: IP',
-  host: 'Entity: Host',
-  user: 'Entity: User',
-  rule: 'Entity: Rule',
+/* --------------------------------------------------------------- helpers --- */
+
+/** Stable id for the Log Sources table's per-user column state (Wave 7). */
+const SOURCES_TABLE_ID = 'sources';
+
+/**
+ * Columns hidden by DEFAULT (only until the user customizes this table). The dense
+ * default opens on Name · Type · Status · Enabled · Last Event · Protocol · ⋯; the
+ * secondary QRadar-fidelity columns (ID, Groups, Creation Date, and the loose
+ * Coalescing / Store Payload / Internal booleans) live behind the Manage-Columns gear.
+ */
+const SOURCES_DEFAULT_HIDDEN = [
+  'id',
+  'groups',
+  'created_at',
+  'coalescing',
+  'store_payload',
+  'internal',
+] as const;
+
+/** Sentinel "any" value for the single-value facets. */
+const ANY = '__any__';
+
+type SourceSortId = 'name' | 'type' | 'status' | 'last_event' | 'protocol' | 'created_at';
+
+interface SourceFilters {
+  search: string;
+  enabled: 'any' | 'enabled' | 'disabled';
+  kind: 'any' | 'push' | 'pull';
+  type: string; // ANY | a source_type
+}
+
+const EMPTY_FILTERS: SourceFilters = {
+  search: '',
+  enabled: 'any',
+  kind: 'any',
+  type: ANY,
 };
 
-/** Derive the index patterns + roles a source reads (for the at-a-glance summary). */
-function summarisePatterns(cfg: Record<string, unknown> | undefined): IndexPattern[] {
-  if (!cfg) return [];
-  const ip = cfg.index_patterns;
-  if (Array.isArray(ip) && ip.length) {
-    return ip
-      .filter((p): p is IndexPattern => !!p && typeof (p as IndexPattern).pattern === 'string')
-      .map((p) => ({
-        pattern: String(p.pattern),
-        // Preserve the real per-feed role. 'ignore' feeds are EXCLUDED at ingest — never
-        // collapse them into 'events' (which would imply the agent reads them).
-        role: p.role === 'alerts' ? 'alerts' : p.role === 'ignore' ? 'ignore' : 'events',
-      }));
-  }
-  const single = cfg.data_view_pattern;
-  if (typeof single === 'string' && single.trim()) {
-    return single
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((pattern): IndexPattern => ({ pattern, role: 'events' }));
-  }
-  return [];
+/** The display label for a source (never a secret). */
+function sourceLabel(s: SourceInstance, meta?: ConnectorManifest): string {
+  return s.display_name || meta?.display_name || s.source_type;
+}
+
+/** A loose-config string value (Groups etc.), or '' when absent/non-string. */
+function looseString(cfg: SourceInstance['config'], key: string): string {
+  const v = cfg?.[key];
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** A loose-config boolean (Coalescing / Internal), or undefined when absent. */
+function looseBool(cfg: SourceInstance['config'], key: string): boolean | undefined {
+  const v = cfg?.[key];
+  return typeof v === 'boolean' ? v : undefined;
+}
+
+type StatusKind = 'disabled' | 'ok' | 'idle';
+
+/**
+ * HONEST status derivation from the health signal (no fake health):
+ *  - disabled  → the source is turned off;
+ *  - ok        → enabled AND the source has seen activity (a poll cursor moved, or a
+ *                PUSH receiver holds buffered events);
+ *  - idle      → enabled but no activity observed yet.
+ */
+function sourceStatus(s: SourceInstance, h?: SourceHealthRow): { kind: StatusKind; label: string } {
+  if (s.enabled === false) return { kind: 'disabled', label: 'Disabled' };
+  const active = !!h && (h.last_poll_millis > 0 || h.buffer_depth > 0);
+  return active ? { kind: 'ok', label: 'OK' } : { kind: 'idle', label: 'Idle' };
+}
+
+/** Millis-since-epoch of a source's last observed activity (0 when none). */
+function lastEventMillis(h?: SourceHealthRow): number {
+  if (!h) return 0;
+  if (h.last_poll_millis > 0) return h.last_poll_millis;
+  // A PUSH receiver has no poll cursor; treat any buffered depth as "recent" so it
+  // sorts above never-active sources without inventing a timestamp.
+  return h.buffer_depth > 0 ? Date.now() : 0;
 }
 
 type EditorState = { mode: 'add' } | { mode: 'edit'; source: SourceInstance } | null;
@@ -106,23 +174,47 @@ export interface SourcesProps {
 }
 
 export default function Sources(_props: SourcesProps) {
+  const canManage = useCan('sources', 'manage');
+  const { tableColumns, updateTableColumns } = usePrefs();
+
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
   const [sources, setSources] = React.useState<SourceInstance[]>([]);
+  const [health, setHealth] = React.useState<Record<string, SourceHealthRow>>({});
+
   const [editor, setEditor] = React.useState<EditorState>(null);
   const [logsSource, setLogsSource] = React.useState<SourceInstance | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = React.useState<SourceInstance | null>(null);
   const [pendingPrimary, setPendingPrimary] = React.useState<SourceInstance | null>(null);
+  const [pendingBulkRemove, setPendingBulkRemove] = React.useState(false);
+
+  const [filters, setFilters] = React.useState<SourceFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = React.useState<SortState>({ id: 'last_event', dir: 'desc' });
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [pageSize, setPageSize] = React.useState(25);
+  const [page, setPage] = React.useState(1);
+  const [bulkBusy, setBulkBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [conns, src] = await Promise.all([api.listConnectors(), api.listSources()]);
+      const [conns, src, healthRes] = await Promise.all([
+        api.listConnectors(),
+        api.listSources(),
+        // Best-effort: a health failure (or an older/mocked client) must NEVER fail
+        // the page — the list still renders, just without Status/Last-Event detail.
+        typeof api.sourcesHealth === 'function'
+          ? api.sourcesHealth().catch(() => ({ sources: [] as SourceHealthRow[] }))
+          : Promise.resolve({ sources: [] as SourceHealthRow[] }),
+      ]);
       setConnectors(conns.connectors);
       setSources(src.sources);
+      const map: Record<string, SourceHealthRow> = {};
+      for (const row of healthRes.sources) map[row.source_id] = row;
+      setHealth(map);
     } catch (e) {
       setError(e);
     } finally {
@@ -152,7 +244,7 @@ export default function Sources(_props: SourcesProps) {
         ingest_mode: s.ingest_mode ?? null,
         config: (s.config as Record<string, unknown>) || {},
       });
-      toast.success(`${s.display_name || s.source_type} is now the primary source`);
+      toast.success(`${sourceLabel(s)} is now the primary source`);
       await load();
     } catch {
       // Toast-only for action failures — never raise the page-level LoadError banner
@@ -179,23 +271,495 @@ export default function Sources(_props: SourcesProps) {
     }
   };
 
-  const description = loading
-    ? 'Connect and manage the systems the agent reads security events from.'
-    : `${sources.length} source${sources.length === 1 ? '' : 's'} configured — the systems the agent reads security events from.`;
+  // Inline per-row Enabled toggle. Optimistic local flip, then round-trip the whole
+  // source (mirrors the setPrimary upsert shape so no config is dropped). NO backend
+  // change — this rides the existing POST /api/sources upsert.
+  const toggleEnabled = async (s: SourceInstance, next: boolean) => {
+    setBusyId(s.id);
+    setSources((prev) => prev.map((x) => (x.id === s.id ? { ...x, enabled: next } : x)));
+    try {
+      await api.upsertSource({
+        id: s.id,
+        source_type: s.source_type,
+        display_name: s.display_name,
+        enabled: next,
+        is_primary: s.is_primary,
+        ingest_mode: s.ingest_mode ?? null,
+        config: (s.config as Record<string, unknown>) || {},
+      });
+      toast.success(`${sourceLabel(s)} ${next ? 'enabled' : 'disabled'}`);
+      await load();
+    } catch {
+      // Revert the optimistic flip and surface a toast.
+      setSources((prev) => prev.map((x) => (x.id === s.id ? { ...x, enabled: s.enabled } : x)));
+      toast.error('Could not update the source');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /* ----------------------------------------------------------- filtering --- */
+
+  const connectorFor = React.useCallback(
+    (s: SourceInstance) => connectors.find((c) => c.source_type === s.source_type),
+    [connectors],
+  );
+
+  const typeLabel = React.useCallback(
+    (s: SourceInstance) => connectorFor(s)?.display_name || humanizeToken(s.source_type),
+    [connectorFor],
+  );
+
+  const canBrowse = React.useCallback(
+    (s: SourceInstance) =>
+      !!connectorFor(s)?.capabilities?.includes('browse') || !!health[s.id]?.can_browse,
+    [connectorFor, health],
+  );
+
+  // Distinct source types present (for the Type facet).
+  const typeOptions = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sources) map.set(s.source_type, typeLabel(s));
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [sources, typeLabel]);
+
+  const filtered = React.useMemo(() => {
+    const q = filters.search.trim().toLowerCase();
+    return sources.filter((s) => {
+      if (filters.enabled === 'enabled' && s.enabled === false) return false;
+      if (filters.enabled === 'disabled' && s.enabled !== false) return false;
+      if (filters.type !== ANY && s.source_type !== filters.type) return false;
+      if (filters.kind !== 'any') {
+        const kind = health[s.id]?.kind;
+        if (kind !== filters.kind) return false;
+      }
+      if (q) {
+        const hay = [s.display_name, s.source_type, s.id, typeLabel(s)]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [sources, filters, health, typeLabel]);
+
+  const filteredSorted = React.useMemo(() => {
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const cmp = (a: SourceInstance, b: SourceInstance): number => {
+      switch (sort.id as SourceSortId) {
+        case 'name':
+          return sourceLabel(a, connectorFor(a)).localeCompare(sourceLabel(b, connectorFor(b)));
+        case 'type':
+          return typeLabel(a).localeCompare(typeLabel(b));
+        case 'status': {
+          const rank = (s: SourceInstance) => {
+            const k = sourceStatus(s, health[s.id]).kind;
+            return k === 'ok' ? 0 : k === 'idle' ? 1 : 2;
+          };
+          return rank(a) - rank(b);
+        }
+        case 'protocol':
+          return humanizeToken(a.ingest_mode).localeCompare(humanizeToken(b.ingest_mode));
+        case 'created_at':
+          return (a.created_at || '').localeCompare(b.created_at || '');
+        case 'last_event':
+        default:
+          return lastEventMillis(health[a.id]) - lastEventMillis(health[b.id]);
+      }
+    };
+    return [...filtered].sort((a, b) => cmp(a, b) * dir);
+  }, [filtered, sort, connectorFor, typeLabel, health]);
+
+  // Reset to page 1 whenever the filtered set or page size changes.
+  React.useEffect(() => {
+    setPage(1);
+  }, [filters, pageSize]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredSorted.length / pageSize));
+  React.useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
+
+  const pageRows = React.useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredSorted.slice(start, start + pageSize);
+  }, [filteredSorted, page, pageSize]);
+
+  // Drop any selection no longer visible so the bulk strip can't act on hidden rows.
+  React.useEffect(() => {
+    setSelected((sel) => {
+      if (!sel.length) return sel;
+      const visible = new Set(filteredSorted.map((s) => s.id));
+      const next = sel.filter((id) => visible.has(id));
+      return next.length === sel.length ? sel : next;
+    });
+  }, [filteredSorted]);
+
+  const selectedSources = React.useMemo(() => {
+    const set = new Set(selected);
+    return filteredSorted.filter((s) => set.has(s.id));
+  }, [selected, filteredSorted]);
+
+  const activeFilters =
+    (filters.search.trim() ? 1 : 0) +
+    (filters.enabled !== 'any' ? 1 : 0) +
+    (filters.kind !== 'any' ? 1 : 0) +
+    (filters.type !== ANY ? 1 : 0);
+
+  const setFilter = <K extends keyof SourceFilters>(key: K, value: SourceFilters[K]) =>
+    setFilters((f) => ({ ...f, [key]: value }));
+
+  const clearFilters = () => setFilters(EMPTY_FILTERS);
+
+  /* ---------------------------------------------------- bulk operations --- */
+
+  const bulkSetEnabled = React.useCallback(
+    async (next: boolean) => {
+      const targets = selectedSources;
+      if (!targets.length || bulkBusy) return;
+      setBulkBusy(true);
+      let ok = 0;
+      let failed = 0;
+      for (const s of targets) {
+        try {
+          await api.upsertSource({
+            id: s.id,
+            source_type: s.source_type,
+            display_name: s.display_name,
+            enabled: next,
+            is_primary: s.is_primary,
+            ingest_mode: s.ingest_mode ?? null,
+            config: (s.config as Record<string, unknown>) || {},
+          });
+          ok += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed) toast.warning(`${ok} updated, ${failed} failed`);
+      else toast.success(`${ok} source${ok === 1 ? '' : 's'} ${next ? 'enabled' : 'disabled'}`);
+      setSelected([]);
+      await load();
+      setBulkBusy(false);
+    },
+    [selectedSources, bulkBusy, load],
+  );
+
+  const bulkRemove = React.useCallback(async () => {
+    const targets = selectedSources;
+    if (!targets.length) return;
+    setBulkBusy(true);
+    let ok = 0;
+    let failed = 0;
+    for (const s of targets) {
+      try {
+        await api.deleteSource(s.id);
+        ok += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    if (failed) toast.warning(`${ok} removed, ${failed} failed`);
+    else toast.success(`${ok} source${ok === 1 ? '' : 's'} removed`);
+    setSelected([]);
+    setPendingBulkRemove(false);
+    await load();
+    setBulkBusy(false);
+  }, [selectedSources, load]);
+
+  /* ------------------------------------------------------ column state ---- */
+
+  const storedColumnState = tableColumns(SOURCES_TABLE_ID);
+  const effectiveColumnState: ColumnState =
+    storedColumnState ?? { hidden: [...SOURCES_DEFAULT_HIDDEN] };
+  const handleColumnState = React.useCallback(
+    (next: ColumnState) => {
+      void updateTableColumns(SOURCES_TABLE_ID, next);
+    },
+    [updateTableColumns],
+  );
+
+  /* ------------------------------------------------------------ columns --- */
+
+  const columns: DataTableColumn<SourceInstance>[] = [
+    {
+      id: 'id',
+      header: 'ID',
+      menuLabel: 'ID',
+      width: '9rem',
+      cell: (s) => (
+        <span className="block max-w-[9rem] truncate font-mono text-xs text-muted-foreground" title={s.id}>
+          {s.id}
+        </span>
+      ),
+    },
+    {
+      id: 'name',
+      header: 'Name',
+      sortable: true,
+      lockVisible: true,
+      cell: (s) => {
+        const meta = connectorFor(s);
+        const name = sourceLabel(s, meta);
+        const secretCount = s.configured_secrets?.length || 0;
+        const subline = [humanizeToken(s.source_type), humanizeToken(s.ingest_mode)]
+          .filter((v) => v && v !== DASH)
+          .join(' · ');
+        return (
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              {canManage ? (
+                <button
+                  type="button"
+                  onClick={() => setEditor({ mode: 'edit', source: s })}
+                  className="max-w-[16rem] truncate rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  title={name}
+                >
+                  {name}
+                </button>
+              ) : (
+                <span className="max-w-[16rem] truncate text-sm font-semibold text-foreground" title={name}>
+                  {name}
+                </span>
+              )}
+              {s.is_primary ? <Badge variant="default">Primary</Badge> : null}
+            </div>
+            <p className="truncate text-xs text-muted-foreground">
+              {subline}
+              {secretCount ? ` · ${secretCount} secret${secretCount === 1 ? '' : 's'}` : ''}
+            </p>
+          </div>
+        );
+      },
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      sortable: true,
+      width: '13rem',
+      cell: (s) => {
+        const meta = connectorFor(s);
+        const cat = categoryMeta(meta?.category);
+        const CatIcon = cat.icon;
+        return (
+          <span className="inline-flex items-center gap-2">
+            <span
+              className={cn(
+                'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-surface',
+                cat.tone,
+              )}
+            >
+              <CatIcon className="h-3.5 w-3.5" aria-hidden />
+            </span>
+            <span className="truncate text-sm text-foreground">{typeLabel(s)}</span>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortable: true,
+      width: '8rem',
+      cell: (s) => {
+        const h = health[s.id];
+        const st = sourceStatus(s, h);
+        const dotCls =
+          st.kind === 'ok' ? 'bg-success' : st.kind === 'idle' ? 'bg-warning' : 'bg-muted-foreground/60';
+        const textCls =
+          st.kind === 'ok'
+            ? 'text-success-text'
+            : st.kind === 'idle'
+              ? 'text-warning-text'
+              : 'text-muted-foreground';
+        const title =
+          st.kind === 'disabled'
+            ? 'Source is disabled'
+            : st.kind === 'ok'
+              ? `Active${h?.kind ? ` · ${humanizeToken(h.kind)} source` : ''}`
+              : 'Enabled, no events observed yet';
+        return (
+          <span className="inline-flex items-center gap-1.5" title={title}>
+            <span className={cn('h-2 w-2 shrink-0 rounded-full', dotCls)} aria-hidden />
+            <span className={cn('text-sm font-medium', textCls)}>{st.label}</span>
+          </span>
+        );
+      },
+    },
+    {
+      id: 'enabled',
+      header: 'Enabled',
+      width: '6.5rem',
+      cell: (s) => (
+        <Switch
+          checked={s.enabled !== false}
+          disabled={!canManage || busyId === s.id}
+          onCheckedChange={(next) => void toggleEnabled(s, next)}
+          aria-label={`Enable ${sourceLabel(s, connectorFor(s))}`}
+        />
+      ),
+    },
+    {
+      id: 'last_event',
+      header: 'Last Event',
+      sortable: true,
+      width: '9rem',
+      cell: (s) => {
+        const h = health[s.id];
+        if (h && h.last_poll_millis > 0) {
+          const iso = new Date(h.last_poll_millis).toISOString();
+          const ageMs = Date.now() - h.last_poll_millis;
+          const staleCls =
+            ageMs > 24 * 3600 * 1000
+              ? 'text-critical'
+              : ageMs > 3600 * 1000
+                ? 'text-warning-text'
+                : 'text-muted-foreground';
+          return (
+            <span className={cn('whitespace-nowrap text-sm', staleCls)} title={formatTimestamp(iso)}>
+              {humanizeAge(iso)}
+            </span>
+          );
+        }
+        if (h && h.buffer_depth > 0) {
+          return (
+            <span className="whitespace-nowrap text-sm text-muted-foreground">
+              {h.buffer_depth} buffered
+            </span>
+          );
+        }
+        return <span className="text-muted-foreground">{DASH}</span>;
+      },
+    },
+    {
+      id: 'protocol',
+      header: 'Protocol',
+      sortable: true,
+      width: '8rem',
+      cell: (s) => <span className="text-sm text-foreground">{humanizeToken(s.ingest_mode)}</span>,
+    },
+    {
+      id: 'groups',
+      header: 'Groups',
+      width: '8rem',
+      cell: (s) => {
+        const g = looseString(s.config, 'group') || looseString(s.config, 'groups');
+        return g ? (
+          <span className="truncate text-sm text-foreground" title={g}>
+            {g}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">{DASH}</span>
+        );
+      },
+    },
+    {
+      id: 'created_at',
+      header: 'Creation Date',
+      sortable: true,
+      width: '11rem',
+      cell: (s) => (
+        <span className="whitespace-nowrap text-sm text-muted-foreground">
+          {formatTimestamp(s.created_at)}
+        </span>
+      ),
+    },
+    {
+      id: 'coalescing',
+      header: 'Coalescing',
+      width: '7rem',
+      cell: (s) => <BoolCell value={looseBool(s.config, 'coalescing')} />,
+    },
+    {
+      id: 'store_payload',
+      header: 'Store Payload',
+      width: '8rem',
+      // Derived honestly from the health browse-capability: a browse-capable source
+      // retains queryable event payloads. Absent health → unknown (—).
+      cell: (s) => <BoolCell value={health[s.id]?.can_browse} />,
+    },
+    {
+      id: 'internal',
+      header: 'Internal',
+      width: '6.5rem',
+      cell: (s) => <BoolCell value={looseBool(s.config, 'internal')} />,
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      align: 'right',
+      width: '4rem',
+      lockVisible: true,
+      cell: (s) => (
+        <div className="flex justify-end">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                aria-label={`Actions for ${sourceLabel(s, connectorFor(s))}`}
+              >
+                <MoreHorizontal className="size-4" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {canBrowse(s) ? (
+                <DropdownMenuItem onSelect={() => setLogsSource(s)}>
+                  <Telescope className="size-4" aria-hidden /> Browse logs
+                </DropdownMenuItem>
+              ) : null}
+              {canManage ? (
+                <>
+                  {!s.is_primary ? (
+                    <DropdownMenuItem onSelect={() => setPendingPrimary(s)}>
+                      <Star className="size-4" aria-hidden /> Make primary
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem onSelect={() => setEditor({ mode: 'edit', source: s })}>
+                    <Pencil className="size-4" aria-hidden /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setPendingDelete(s)}
+                    className="text-critical focus:text-critical"
+                  >
+                    <Trash2 className="size-4" aria-hidden /> Remove
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ),
+    },
+  ];
+
+  const columnMenuItems: ColumnMenuItem[] = columns.map((c) => ({
+    id: c.id,
+    label: c.menuLabel ?? (typeof c.header === 'string' ? c.header : c.id),
+    lockVisible: c.lockVisible,
+  }));
+
+  /* ------------------------------------------------------------- render --- */
+
+  const firstRun = !loading && !error && sources.length === 0;
 
   return (
-    <PageContainer variant="fixed" className="space-y-6">
+    <PageContainer variant="wide" className="space-y-6">
       <PageHeader
         icon={Database}
         eyebrow="Platform"
-        title="Sources"
-        description={description}
+        title="Log Sources"
+        description="Connect and manage the systems the agent reads security events from."
         actions={
-          <Can resource="sources" action="manage">
-            <Button onClick={() => setEditor({ mode: 'add' })}>
-              <Plus className="h-4 w-4" aria-hidden /> Add source
-            </Button>
-          </Can>
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+            <RefreshCw className={cn('mr-1.5 size-4', loading && 'animate-spin')} aria-hidden />
+            Refresh
+          </Button>
         }
       />
 
@@ -203,16 +767,10 @@ export default function Sources(_props: SourcesProps) {
         <LoadError error={error} title="Something went wrong" onRetry={() => void load()} />
       ) : null}
 
-      {loading ? (
-        <div className="space-y-4" aria-busy="true" aria-label="Loading sources">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <SkeletonCard key={i} lines={2} />
-          ))}
-        </div>
-      ) : sources.length === 0 ? (
+      {firstRun ? (
         <EmptyState
           icon={Plug}
-          title="Connect your first data source"
+          title="Connect your first log source"
           description="The agent triages security events from the systems you connect — a SIEM/log store (Elasticsearch, OpenSearch, Wazuh) or a push receiver (webhook, syslog, a queue, an object store). Pick a connector and we'll walk you through it, with a (?) guide on every step."
           action={
             <Can
@@ -227,7 +785,7 @@ export default function Sources(_props: SourcesProps) {
             >
               <span className="inline-flex items-center gap-1.5">
                 <Button onClick={() => setEditor({ mode: 'add' })}>
-                  <Plus className="h-4 w-4" aria-hidden /> Connect a source
+                  <Plus className="h-4 w-4" aria-hidden /> New Log Source
                 </Button>
                 <HelpTip
                   label="How adding a source works"
@@ -238,138 +796,207 @@ export default function Sources(_props: SourcesProps) {
           }
         />
       ) : (
-        <Stagger className="space-y-4">
-          {sources.map((s) => {
-            const meta = connectors.find((c) => c.source_type === s.source_type);
-            const canBrowse = !!meta?.capabilities?.includes('browse');
-            const cat = categoryMeta(meta?.category);
-            const CatIcon = cat.icon;
-            const cfg = s.config as (Record<string, unknown> & Partial<SourceConfigExtras>) | undefined;
-            const patterns = summarisePatterns(cfg);
-            const strategy = ((cfg?.entity_strategy as EntityStrategy | string) || 'auto') as string;
-            const messageField = (cfg?.message_field as string) || '';
-            const secretCount = s.configured_secrets?.length || 0;
-            const busy = busyId === s.id;
-
-            return (
-              <Card key={s.id} className="p-6">
-                <div className="flex flex-wrap items-start gap-4">
-                  <span
-                    className={cn(
-                      'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border bg-surface',
-                      s.is_primary ? 'border-primary text-primary' : cn('border-border', cat.tone),
-                    )}
+        <>
+          {/* Toolbar — funnel filter · search · count · + New · Manage-Columns gear. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" aria-label="Filter log sources">
+                  <Filter className="mr-1.5 size-4" aria-hidden />
+                  Filter
+                  {activeFilters > 0 ? (
+                    <span className="ml-1.5 rounded bg-muted px-1.5 text-2xs tabular-nums text-muted-foreground">
+                      {activeFilters}
+                    </span>
+                  ) : null}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64" align="start">
+                <div className="space-y-3">
+                  <FacetGroup
+                    label="Enabled"
+                    value={filters.enabled}
+                    options={[
+                      ['any', 'All'],
+                      ['enabled', 'Enabled'],
+                      ['disabled', 'Disabled'],
+                    ]}
+                    onChange={(v) => setFilter('enabled', v as SourceFilters['enabled'])}
+                  />
+                  <FacetGroup
+                    label="Kind"
+                    value={filters.kind}
+                    options={[
+                      ['any', 'All'],
+                      ['pull', 'Pull'],
+                      ['push', 'Push'],
+                    ]}
+                    onChange={(v) => setFilter('kind', v as SourceFilters['kind'])}
+                  />
+                  {typeOptions.length ? (
+                    <FacetGroup
+                      label="Type"
+                      value={filters.type}
+                      options={[
+                        [ANY, 'All types'] as [string, string],
+                        ...typeOptions.map((t) => [t.value, t.label] as [string, string]),
+                      ]}
+                      onChange={(v) => setFilter('type', v)}
+                    />
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={clearFilters}
+                    disabled={activeFilters === 0}
                   >
-                    <CatIcon className="h-5 w-5" aria-hidden />
-                  </span>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-md font-semibold text-foreground">
-                        {s.display_name || meta?.display_name || s.source_type}
-                      </span>
-                      {s.is_primary ? <Badge variant="default">Primary</Badge> : null}
-                      {s.enabled ? (
-                        <Badge variant="success">Enabled</Badge>
-                      ) : (
-                        <Badge variant="outline">Disabled</Badge>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {humanizeToken(s.source_type)} · {humanizeToken(s.ingest_mode)}
-                      {secretCount ? ` · ${secretCount} secret${secretCount === 1 ? '' : 's'}` : ''}
-                    </p>
-
-                    {patterns.length || strategy !== 'auto' || messageField ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                        {patterns.slice(0, 4).map((p, i) => {
-                          const isAlerts = p.role === 'alerts';
-                          const isIgnore = p.role === 'ignore';
-                          const PatternIcon = isAlerts ? ShieldAlert : isIgnore ? EyeOff : Database;
-                          return (
-                            <Badge
-                              key={`${p.pattern}-${i}`}
-                              variant={isAlerts ? 'warning' : 'outline'}
-                              className={cn(
-                                'gap-1 font-mono text-2xs',
-                                isIgnore && 'text-muted-foreground line-through decoration-muted-foreground/60',
-                              )}
-                              title={
-                                isAlerts
-                                  ? 'Alerts pattern'
-                                  : isIgnore
-                                    ? 'Ignored (excluded — the agent does not read this)'
-                                    : 'Events pattern'
-                              }
-                            >
-                              <PatternIcon className="h-3 w-3" aria-hidden />
-                              {p.pattern}
-                            </Badge>
-                          );
-                        })}
-                        {patterns.length > 4 ? (
-                          <Badge variant="outline">+{patterns.length - 4} more</Badge>
-                        ) : null}
-                        {strategy !== 'auto' ? (
-                          <Badge variant="secondary">
-                            {ENTITY_LABELS[strategy] || `Entity: ${humanizeToken(strategy)}`}
-                          </Badge>
-                        ) : null}
-                        {messageField ? (
-                          <Badge variant="secondary" className="gap-1 font-mono text-2xs" title="Message field">
-                            <Tags className="h-3 w-3" aria-hidden />
-                            {messageField}
-                          </Badge>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1 sm:ml-auto">
-                    {canBrowse ? (
-                      <Button variant="ghost" size="sm" onClick={() => setLogsSource(s)}>
-                        <Telescope className="h-4 w-4" aria-hidden /> Logs
-                      </Button>
-                    ) : null}
-                    <Can resource="sources" action="manage">
-                      {!s.is_primary ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setPendingPrimary(s)}
-                          disabled={busy}
-                        >
-                          <Star className="h-4 w-4" aria-hidden /> Make primary
-                        </Button>
-                      ) : null}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setEditor({ mode: 'edit', source: s })}
-                      >
-                        <Pencil className="h-4 w-4" aria-hidden /> Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-critical hover:text-critical"
-                        onClick={() => setPendingDelete(s)}
-                        disabled={busy}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                        ) : (
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        )}
-                        Remove
-                      </Button>
-                    </Can>
-                  </div>
+                    <X className="mr-1.5 size-4" aria-hidden />
+                    Clear filters
+                  </Button>
                 </div>
-              </Card>
-            );
-          })}
-        </Stagger>
+              </PopoverContent>
+            </Popover>
+
+            <div className="relative min-w-[16rem] flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                value={filters.search}
+                onChange={(e) => setFilter('search', e.target.value)}
+                placeholder="Search name, type, or ID…"
+                aria-label="Search log sources"
+                className="pl-9 pr-9"
+              />
+              {filters.search ? (
+                <button
+                  type="button"
+                  onClick={() => setFilter('search', '')}
+                  aria-label="Clear search"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+
+            <Can resource="sources" action="manage">
+              <Button onClick={() => setEditor({ mode: 'add' })}>
+                <Plus className="mr-1.5 size-4" aria-hidden /> New Log Source
+              </Button>
+            </Can>
+
+            <ColumnsMenu
+              columns={columnMenuItems}
+              state={effectiveColumnState}
+              onChange={handleColumnState}
+            />
+          </div>
+
+          {/* Count line / bulk-action strip. */}
+          {selectedSources.length > 0 ? (
+            <div
+              role="region"
+              aria-label="Bulk actions"
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface/60 px-3 py-2"
+            >
+              <span
+                role="status"
+                aria-live="polite"
+                className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground"
+              >
+                {selectedSources.length} selected
+              </span>
+              <Can resource="sources" action="manage">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void bulkSetEnabled(true)}
+                  disabled={bulkBusy}
+                >
+                  <Check className="mr-1.5 size-4" aria-hidden /> Enable
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void bulkSetEnabled(false)}
+                  disabled={bulkBusy}
+                >
+                  <X className="mr-1.5 size-4" aria-hidden /> Disable
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setPendingBulkRemove(true)}
+                  disabled={bulkBusy}
+                >
+                  <Trash2 className="mr-1.5 size-4" aria-hidden /> Remove
+                </Button>
+              </Can>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto"
+                onClick={() => setSelected([])}
+                disabled={bulkBusy}
+              >
+                Clear
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center">
+              <h2 data-testid="sources-count" className="text-sm font-semibold text-foreground">
+                Log Sources{' '}
+                <span className="tabular-nums text-muted-foreground">
+                  ({filteredSorted.length})
+                </span>
+              </h2>
+              {activeFilters > 0 ? (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  of {sources.length} total
+                </span>
+              ) : null}
+            </div>
+          )}
+
+          <DataTable<SourceInstance>
+            ariaLabel="Log Sources"
+            columns={columns}
+            columnState={effectiveColumnState}
+            rows={pageRows}
+            getRowId={(s) => s.id}
+            sort={sort}
+            onSortChange={setSort}
+            page={page}
+            pageSize={pageSize}
+            total={filteredSorted.length}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            pageSizeOptions={[10, 25, 50, 100]}
+            selectable
+            selected={selected}
+            onSelectedChange={setSelected}
+            loading={loading}
+            loadingRows={6}
+            density="compact"
+            empty={
+              <EmptyState
+                compact
+                icon={Database}
+                title="No sources match your filters"
+                description="No configured source matches the current search or filters. Clear them to see all sources."
+                action={
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
+                    <X className="mr-1.5 size-4" aria-hidden />
+                    Clear filters
+                  </Button>
+                }
+              />
+            }
+          />
+        </>
       )}
 
       {/* Add / Edit editor (Dialog hosting the dynamic SourceEditor) */}
@@ -379,7 +1006,7 @@ export default function Sources(_props: SourcesProps) {
             <DialogTitle>
               {editor?.mode === 'edit'
                 ? `Edit ${editor.source.display_name || editor.source.source_type}`
-                : 'Add a source'}
+                : 'Add a log source'}
             </DialogTitle>
             <DialogDescription>
               Configure a system for the agent to read security events from.
@@ -450,6 +1077,65 @@ export default function Sources(_props: SourcesProps) {
           </Alert>
         ) : null}
       </ConfirmDialog>
+
+      {/* Bulk remove confirm (destructive) */}
+      <ConfirmDialog
+        open={pendingBulkRemove}
+        onOpenChange={(o) => !o && setPendingBulkRemove(false)}
+        onConfirm={() => void bulkRemove()}
+        destructive
+        title={`Remove ${selectedSources.length} source${selectedSources.length === 1 ? '' : 's'}?`}
+        confirmLabel="Remove sources"
+      >
+        <p className="text-sm text-muted-foreground">
+          The selected source{selectedSources.length === 1 ? '' : 's'} will be removed and the
+          agent will stop reading events from{' '}
+          {selectedSources.length === 1 ? 'it' : 'them'}. Existing cases are kept; stored secrets
+          are discarded. This cannot be undone.
+        </p>
+      </ConfirmDialog>
     </PageContainer>
   );
 }
+
+/* ------------------------------------------------------------- sub-parts --- */
+
+/** A plain Yes / No / — cell for an optional derived boolean (never fakes data). */
+const BoolCell: React.FC<{ value: boolean | undefined }> = ({ value }) => {
+  if (value === undefined) return <span className="text-muted-foreground">{DASH}</span>;
+  return value ? (
+    <Badge variant="success">Yes</Badge>
+  ) : (
+    <Badge variant="secondary">No</Badge>
+  );
+};
+
+/** A labelled single-select facet group (radio-style buttons) inside the filter popover. */
+const FacetGroup: React.FC<{
+  label: string;
+  value: string;
+  options: Array<[string, string]>;
+  onChange: (value: string) => void;
+}> = ({ label, value, options, onChange }) => (
+  <div>
+    <p className="mb-1.5 text-xs font-medium text-muted-foreground">{label}</p>
+    <div className="flex flex-col gap-0.5" role="group" aria-label={label}>
+      {options.map(([val, lbl]) => (
+        <button
+          key={val}
+          type="button"
+          aria-pressed={value === val}
+          onClick={() => onChange(val)}
+          className={cn(
+            'flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
+            'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            value === val ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          <span className="truncate">{lbl}</span>
+          {value === val ? <Check className="size-4 shrink-0" aria-hidden /> : null}
+        </button>
+      ))}
+    </div>
+  </div>
+);

@@ -4,15 +4,15 @@
  * Pins the load-bearing command-center contract:
  *   1. the PLAIN header (Round-8 #7) is present + addressable via `data-testid="page-hero"`,
  *      carries NO hero card chrome, and shows the `PAGE_TITLE`;
- *   2. the un-nested KPI STRIP is TRIMMED to ~5 signal tiles + spend (Open / Critical-High /
- *      Escalated / False-Positive-Rate / Auto-Resolved / Spend); the old Artifacts /
- *      Knowledge / Total tiles are GONE;
+ *   2. the un-nested KPI STRIP is TRIMMED to 5 alert/case tiles (Open / Critical-High /
+ *      Escalated / False-Positive-Rate / Auto-Resolved); the old Artifacts / Knowledge /
+ *      Total tiles are GONE and LLM spend is DEMOTED off the hero (Round-8 Task 4);
  *   3. the timing trio reads the SERVER posture (`usePosture` → `fetchPosture`), honouring
  *      the honest DASH for an unavailable block (never a fabricated client value);
  *   4. KPI deltas are wired from the server `posture.compare` block, stated once under the
  *      strip;
  *   5. tiles deep-link to the filtered case list carrying the window;
- *   6. the loading skeleton mirrors the final layout (6 KPI tiles + a reserved funnel row).
+ *   6. the loading skeleton mirrors the final layout (5 KPI tiles + a reserved funnel row).
  *
  * Fully offline — the page uses no auth; only the data calls + the posture fetch are
  * mocked. `noiseReduction` is intentionally omitted from the base mock so the funnel band
@@ -166,11 +166,11 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(hero.textContent).not.toContain(`${PAGE_TITLE}${PAGE_TITLE}`);
   });
 
-  it('renders the TRIMMED KPI strip: 5 signal tiles + spend, Artifacts/Knowledge/Total dropped', async () => {
+  it('renders the TRIMMED KPI strip: 5 alert/case tiles (LLM spend demoted off the hero)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument());
-    // The trimmed set (Round-7 #3).
+    // The trimmed, alert/case-centric set (Round-8 Task 4).
     const strip = screen.getByTestId('kpi-strip');
     for (const id of [
       'kpi-open-cases',
@@ -178,11 +178,14 @@ describe('Overview — Security Command Center (W1.A)', () => {
       'kpi-escalated-to-human',
       'kpi-false-positive-rate',
       'kpi-auto-resolved',
-      'kpi-llm-spend',
     ]) {
       expect(within(strip).getByTestId(id)).toBeInTheDocument();
     }
-    // The demoted tiles are GONE.
+    // EXACTLY 5 hero tiles now.
+    expect(strip.querySelectorAll('[data-testid^="kpi-"]')).toHaveLength(5);
+    // LLM spend was DEMOTED off the hero (Task 4) — no longer a strip tile.
+    expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
+    // The older demoted tiles are GONE.
     expect(screen.queryByTestId('kpi-artifacts-in-scope')).not.toBeInTheDocument();
     expect(screen.queryByTestId('kpi-knowledge-signals')).not.toBeInTheDocument();
     expect(screen.queryByTestId('kpi-total-cases')).not.toBeInTheDocument();
@@ -371,16 +374,16 @@ describe('Overview — Security Command Center (W1.A)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     const loading = screen.getByLabelText('Loading dashboard');
     expect(loading).toBeInTheDocument();
-    // 6 KPI skeleton tiles in the same responsive grid as the real strip.
+    // 5 KPI skeleton tiles in the same responsive grid as the real strip.
     const stripSkeleton = screen.getByTestId('kpi-strip-skeleton');
-    expect(stripSkeleton.children).toHaveLength(6);
-    // A reserved full-width band for the Noise-Reduction ribbon.
+    expect(stripSkeleton.children).toHaveLength(5);
+    // A reserved full-width band for the Noise-Reduction panel.
     expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
     // ONE widget-row grid in LOCKSTEP with the real layout: only the leading severity +
     // attention row is open; the rest is folded into the collapsed "Deeper analytics"
-    // group (its content stays hidden). The KPI strip uses gap-4, so the single gap-6 grid
-    // is exactly the leading widget row. (#4)
-    expect(loading.querySelectorAll('.grid.gap-6')).toHaveLength(1);
+    // group (its content stays hidden). Round-8 tightened the gutters, so the KPI strip
+    // uses gap-3 and the single gap-4 grid is exactly the leading widget row. (#4)
+    expect(loading.querySelectorAll('.grid.gap-4')).toHaveLength(1);
     expect(screen.getByTestId('deeper-analytics-skeleton')).toBeInTheDocument();
   });
 });
