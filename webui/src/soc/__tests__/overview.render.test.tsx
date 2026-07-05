@@ -2,8 +2,8 @@
  * Overview (Security Command Center) — Round-7 W1.A render test.
  *
  * Pins the load-bearing command-center contract:
- *   1. the compact HERO is present + addressable via `data-testid="page-hero"`, uses the
- *      hero variant (compact ~64px, `hero-display`), and shows the `PAGE_TITLE`;
+ *   1. the PLAIN header (Round-8 #7) is present + addressable via `data-testid="page-hero"`,
+ *      carries NO hero card chrome, and shows the `PAGE_TITLE`;
  *   2. the un-nested KPI STRIP is TRIMMED to ~5 signal tiles + spend (Open / Critical-High /
  *      Escalated / False-Positive-Rate / Auto-Resolved / Spend); the old Artifacts /
  *      Knowledge / Total tiles are GONE;
@@ -153,10 +153,14 @@ describe('Overview — Security Command Center (W1.A)', () => {
     usageMock.mockResolvedValue({ total_cost: 1.25, total_tokens: 12000, call_count: 8, currency: 'USD' });
   });
 
-  it('renders a COMPACT hero (page-hero testid, hero variant) carrying the title', async () => {
+  it('renders a PLAIN header (page-hero testid, no hero card chrome) carrying the title', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
-    expect(hero).toHaveClass('hero-display');
+    // #7: the header is now plain/dense (like the Sources page) — NO hero card wash.
+    expect(hero).not.toHaveClass('hero-display');
+    expect(hero).not.toHaveClass('bg-card');
+    // Exactly one page-level h1 (the title) lives in the header.
+    expect(hero.querySelectorAll('h1')).toHaveLength(1);
     expect(hero).toHaveTextContent(PAGE_TITLE);
     // The eyebrow must NOT restate the title (breadcrumb/eyebrow ≠ title).
     expect(hero.textContent).not.toContain(`${PAGE_TITLE}${PAGE_TITLE}`);
@@ -193,6 +197,9 @@ describe('Overview — Security Command Center (W1.A)', () => {
   it('reads timing from the SERVER posture (no client math), honoring the unavailable DASH', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
+    // The response-timing trio lives in the collapsed "Deeper analytics" group (#4) —
+    // expand it before asserting the server-posture values render.
+    await userEvent.click(await screen.findByRole('button', { name: /Deeper analytics/i }));
     await waitFor(() => expect(screen.getAllByText('45m').length).toBeGreaterThan(0));
     expect(screen.getAllByText('3h').length).toBeGreaterThan(0);
     expect(
@@ -335,9 +342,13 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(within(lowRow).getByText('0')).toBeInTheDocument();
   });
 
-  it('renders the autonomy trust surface + the named widget bands (incl. the new ones)', async () => {
+  it('renders the autonomy trust surface + the named widget bands (behind Deeper analytics)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
+    // #4 inverted pyramid: the lower-priority bands are folded into a collapsed
+    // "Deeper analytics" group — expand it, then assert the bands render.
+    const deeper = await screen.findByRole('button', { name: /Deeper analytics/i });
+    await userEvent.click(deeper);
     await waitFor(() =>
       expect(screen.getByRole('region', { name: /Autonomous vs human/i })).toBeInTheDocument(),
     );
@@ -351,7 +362,7 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(screen.getByRole('region', { name: /Top entities/i })).toBeInTheDocument();
   });
 
-  it('the loading skeleton mirrors the final layout (6 KPI tiles + funnel + 4 widget rows)', () => {
+  it('the loading skeleton mirrors the masthead + leading row + collapsed Deeper analytics', () => {
     // Never-resolving data calls → the page stays in its loading skeleton.
     listCasesMock.mockReturnValue(new Promise(() => {}));
     getMetricsMock.mockReturnValue(new Promise(() => {}));
@@ -363,11 +374,13 @@ describe('Overview — Security Command Center (W1.A)', () => {
     // 6 KPI skeleton tiles in the same responsive grid as the real strip.
     const stripSkeleton = screen.getByTestId('kpi-strip-skeleton');
     expect(stripSkeleton.children).toHaveLength(6);
-    // A reserved full-width band for the Noise-Reduction funnel.
+    // A reserved full-width band for the Noise-Reduction ribbon.
     expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
-    // FOUR widget-row grids in LOCKSTEP with the real layout: Row A (2) · Row B (3) ·
-    // Row C (2) · Row D (2, Top signatures / Top entities). The KPI strip uses gap-4, so
-    // the gap-6 rows are exactly the widget rows.
-    expect(loading.querySelectorAll('.grid.gap-6')).toHaveLength(4);
+    // ONE widget-row grid in LOCKSTEP with the real layout: only the leading severity +
+    // attention row is open; the rest is folded into the collapsed "Deeper analytics"
+    // group (its content stays hidden). The KPI strip uses gap-4, so the single gap-6 grid
+    // is exactly the leading widget row. (#4)
+    expect(loading.querySelectorAll('.grid.gap-6')).toHaveLength(1);
+    expect(screen.getByTestId('deeper-analytics-skeleton')).toBeInTheDocument();
   });
 });

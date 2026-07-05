@@ -159,7 +159,7 @@ export const ThreatContextPanel: React.FC<{
             description="No IOC reputation was available — enrichment may be off, uncached, or the indicators are internal."
           />
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {iocs.map((ioc, i) => (
               <div
                 key={`${ioc.indicator}-${i}`}
@@ -210,7 +210,7 @@ export const ThreatContextPanel: React.FC<{
             description="No MITRE ATT&CK techniques were resolved for this case."
           />
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             {techniques.map((t, i) => (
               <div key={`${t.id}-${i}`} className="rounded-md border border-border bg-muted/30 p-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -251,8 +251,6 @@ export const ThreatContextPanel: React.FC<{
         )}
       </PanelCard>
 
-      {/* Related cases moved to the Overview tab (Round-7 dedup). */}
-
       {/* ---------------------------------------------- asset context */}
       <PanelCard>
         <SectionHeading icon={Crosshair}>
@@ -268,7 +266,7 @@ export const ThreatContextPanel: React.FC<{
         ) : (
           <dl className="divide-y divide-border">
             {asset.entity ? (
-              <div className="flex items-center justify-between gap-3 py-2.5 first:pt-0">
+              <div className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {humanizeToken(asset.entity_type || 'Entity')}
                 </dt>
@@ -279,7 +277,7 @@ export const ThreatContextPanel: React.FC<{
               </div>
             ) : null}
             {asset.criticality ? (
-              <div className="flex items-center justify-between gap-3 py-2.5">
+              <div className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Criticality
                 </dt>
@@ -291,7 +289,7 @@ export const ThreatContextPanel: React.FC<{
             {assetAttrs.map(([k, v], i) => (
               <div
                 key={`${k}-${i}`}
-                className="flex items-center justify-between gap-3 py-2.5 last:pb-0"
+                className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
               >
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {humanizeToken(k)}
@@ -305,8 +303,6 @@ export const ThreatContextPanel: React.FC<{
           </dl>
         )}
       </PanelCard>
-
-      {/* Evidence moved to the Overview tab (Round-7 dedup). */}
 
       {!anySection ? (
         <p className="text-xs text-muted-foreground">

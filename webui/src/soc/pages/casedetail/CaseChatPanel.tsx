@@ -1,177 +1,71 @@
 /**
  * CaseDetail — per-case Chat panel (Coupling-D split).
  *
- * A lightweight, focused chat composer + transcript scoped to this case
- * (`api.chat` with the case id), plus a deep-link to the full Chat surface. The full
- * ChatPanel lives on the Chat page; this is the case-scoped view.
+ * A thin wrapper that embeds the SHARED <ChatPanel> (the ONE chat engine) in compact
+ * mode, scoped to this case, plus a slim deep-link to the full Chat surface. This
+ * deliberately REUSES ChatPanel instead of hand-rolling a second transcript + composer,
+ * so bubbles / avatars / markdown / provenance / the "thinking" indicator / scroll all
+ * stay identical to the standalone Chat page (Round-8 #6 declutter).
  *
- * SECURITY (#9): every assistant/user message renders as plain text (newlines
- * preserved) — never markup, never an href/CSS value. #3: chat is advisory; it never
- * decides or mutates the case.
+ * SECURITY (#9): ChatPanel renders every assistant / user / model-derived value as
+ * plain-text or parsed-markdown React nodes — never markup, never an href/CSS value.
+ * #3: chat is advisory; it never decides or mutates the case.
  */
 import * as React from 'react';
-import { AlertTriangle, MessageSquare, RefreshCw } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 
-import { api } from '@/lib/api';
 import type { Case } from '@/lib/types';
-import { cn } from '@/lib/cn';
 
-import { Textarea } from '@/ui/textarea';
 import { Button } from '@/ui/button';
-import { Alert, AlertTitle } from '@/ui/alert';
 
+import { ChatPanel } from '@/soc/components/ChatPanel';
 import type { Navigate } from '@/soc/router';
 
-import { SectionHeading } from './shared';
+import { PanelCard, SectionHeading } from './shared';
+
+/** Case-scoped starter prompts surfaced in the empty state. */
+const CASE_CHAT_STARTERS = [
+  'Summarize this case',
+  'Why was this flagged?',
+  'What should I check next?',
+  'Is this a known false positive?',
+];
 
 export const ChatTab: React.FC<{
   c: Case;
   onNavigate?: Navigate;
   onClose: () => void;
-}> = ({ c, onNavigate, onClose }) => {
-  const [history, setHistory] = React.useState<Array<{ role: 'user' | 'assistant'; content: string }>>(
-    [],
-  );
-  const [draft, setDraft] = React.useState('');
-  const [sending, setSending] = React.useState(false);
-  const [err, setErr] = React.useState<unknown>(null);
-  const scrollRef = React.useRef<HTMLDivElement | null>(null);
-  const bottomRef = React.useRef<HTMLDivElement | null>(null);
-
-  const starters = [
-    'Summarize this case',
-    'Why was this flagged?',
-    'What should I check next?',
-    'Is this a known false positive?',
-  ];
-
-  const send = React.useCallback(
-    async (text: string) => {
-      const message = text.trim();
-      if (!message || sending) return;
-      setErr(null);
-      const nextHistory = [...history, { role: 'user' as const, content: message }];
-      setHistory(nextHistory);
-      setDraft('');
-      setSending(true);
-      try {
-        const res = await api.chat(message, history, c.case_id);
-        setHistory([...nextHistory, { role: 'assistant', content: res.answer || '' }]);
-      } catch (e) {
-        setErr(e);
-      } finally {
-        setSending(false);
-      }
-    },
-    [history, sending, c.case_id],
-  );
-
-  React.useEffect(() => {
-    // If the transcript is itself the scroll container (bounded height), pin it to the
-    // bottom. In the case-detail tab the transcript is auto-height and the OUTER sheet
-    // body is the scroller, so `scrollTop` there is a no-op — also bring the latest turn
-    // + composer into view by scrolling the nearest scrollable ancestor.
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [history, sending]);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col p-6">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <SectionHeading icon={MessageSquare}>
-          Ask about this case
-        </SectionHeading>
-        {onNavigate ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              onClose();
-              onNavigate('chat', { caseId: c.case_id });
-            }}
-          >
-            <MessageSquare className="h-4 w-4" /> Open full chat
-          </Button>
-        ) : null}
-      </div>
-
-      <div
-        ref={scrollRef}
-        className="min-h-[16rem] flex-1 space-y-3 overflow-y-auto rounded-lg border border-border bg-muted/20 p-4"
-      >
-        {history.length === 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {starters.map((s) => (
-              <Button key={s} size="sm" variant="outline" onClick={() => void send(s)}>
-                {s}
-              </Button>
-            ))}
-          </div>
-        ) : (
-          history.map((m, i) => (
-            <div
-              key={i}
-              className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
+}> = ({ c, onNavigate, onClose }) => (
+  <div className="space-y-6 p-6">
+    <PanelCard>
+      <SectionHeading
+        icon={MessageSquare}
+        actions={
+          onNavigate ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                onClose();
+                onNavigate('chat', { caseId: c.case_id });
+              }}
             >
-              <div
-                className={cn(
-                  'max-w-[85%] rounded-lg px-3 py-2 text-sm',
-                  m.role === 'user'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'border border-border bg-card text-foreground',
-                )}
-              >
-                {/* UNTRUSTED — plain text, preserve newlines. */}
-                <p className="whitespace-pre-wrap break-words">{m.content}</p>
-              </div>
-            </div>
-          ))
-        )}
-        {sending ? (
-          <div className="flex justify-start">
-            <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
-              <RefreshCw className="inline h-3.5 w-3.5 animate-spin" /> Thinking…
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {err ? (
-        <Alert variant="destructive" className="mt-3">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Could not reach the assistant</AlertTitle>
-        </Alert>
-      ) : null}
-
-      <form
-        className="mt-3 flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(draft);
-        }}
+              <MessageSquare className="h-4 w-4" /> Open full chat
+            </Button>
+          ) : null
+        }
       >
-        <Textarea
-          rows={2}
-          className="flex-1 resize-none"
-          placeholder="Ask about this case…"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void send(draft);
-            }
-          }}
-        />
-        <Button type="submit" disabled={sending || !draft.trim()}>
-          Send
-        </Button>
-      </form>
-      {/* Scroll anchor: after a send, this is scrolled into view so the latest reply and
-          the composer stay visible whether the transcript or the outer sheet scrolls. */}
-      <div ref={bottomRef} aria-hidden />
-    </div>
-  );
-};
+        Case chat
+      </SectionHeading>
+
+      {/* The shared chat engine, embedded compact + scoped to this case. A definite
+          height gives ChatPanel's internal transcript scroll + bottom-pinned composer
+          a frame to work in (the transcript lane is the only scrolling region). */}
+      <div className="h-[60vh] min-h-[24rem]">
+        <ChatPanel caseId={c.case_id} compact starters={CASE_CHAT_STARTERS} />
+      </div>
+    </PanelCard>
+  </div>
+);
 
 export default ChatTab;

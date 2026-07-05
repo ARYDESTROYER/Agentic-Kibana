@@ -5,11 +5,11 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-07-02
-- **Status:** Round 1 + Round 2 + Round 3 + Round 4 + **Round 5** overhauls **complete and committed** (local `Testing`, **not pushed**).
-- **Green baseline (verified 2026-07-02):** backend **1601 pytest** pass · webui **build clean** (tsc + vite,
-  entry chunk **264 kB**) · **625 vitest** pass (counts rise each harden wave — see `Journal.md` for the
-  exact current totals) · **eslint 0 errors** (4 benign warnings) · `route_auth_coverage` +
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `feature/round7-ui-overhaul` (off `Testing`)  ·  **Date:** 2026-07-06
+- **Status:** Rounds 1–6 complete on `Testing`; **Round 7** (Security Command Center overhaul + Noise-Reduction funnel + `source|ai|code` provenance + CaseDetail 8→5 story) and **Round 8** (UI-cleanup + glitch fixes: risk-index card, Cases sticky fix, horizontal QRadar Sankey ribbon, de-carded header, reinvestigate stored-evidence fallback, chat/collab tidy) **complete and committed** on `feature/round7-ui-overhaul` (local, **not pushed** — awaiting the PR). See `docs/research/2026-07-round7/` + `docs/research/2026-07-round8/`.
+- **Green baseline (verified 2026-07-06):** backend **1678 pytest** pass · webui **build clean** (tsc + vite,
+  entry chunk **~282 kB**) · **1238 vitest** pass / 223 files (counts rise each round — see `Journal.md` for the
+  exact current totals) · **eslint 0 errors** (3 benign warnings) · `route_auth_coverage` +
   `design-gate` green · `engine/case_manager.py` `decide()` **byte-identical** to the pre-Round-5
   baseline `27f0983` · **one added webui runtime dep** in Round 5 (`react-grid-layout`, lazy-loaded
   in dashboard edit-mode only; backend added **zero**). The 12 non-negotiables held throughout (incl.

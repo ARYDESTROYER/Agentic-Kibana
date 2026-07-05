@@ -1,12 +1,18 @@
 /**
  * CaseDetail — Overview panel (Coupling-D split).
  *
- * The default tab: run-meta strip, four honest triage chips (#12), a concise
- * verdict/confidence/risk header strip with provenance tags (#9b), incident digest,
- * affected assets + IOC indicators, evidence findings, recommended action, a compact
- * MITRE summary (full detail lives on the Threat context tab), related cases + source
- * breakdown (F6), threshold automation applied (F10), and the append-only status
- * timeline (F8).
+ * The default tab, grouped into three visual bands so a reader can scan it at a glance:
+ *   SUMMARY   — run-meta strip, the four honest triage chips (#12), a concise
+ *               verdict/confidence header strip with provenance tags (#9b), incident
+ *               digest, recommended action, and a quiet auto-close policy note.
+ *   EVIDENCE  — affected assets + search queries, evidence findings, ruled-out / clean,
+ *               anomaly baseline, and a compact MITRE summary (full detail lives on the
+ *               Threat context tab).
+ *   PROVENANCE & ACTIVITY — related cases + source breakdown (F6), threshold automation
+ *               applied (F10), the append-only status timeline (F8), and run/cost meta.
+ *
+ * Verdict/confidence appear ONCE (the header strip) and risk is owned by the RiskCard
+ * gauge in the triage header — the panel no longer repeats them.
  *
  * SECURITY (#9): every case-derived value (title, summary, entity, IPs, rules,
  * queries, evidence, tags, source ids, enrichment) is UNTRUSTED — rendered as plain
@@ -50,7 +56,6 @@ import {
   VerdictBadge,
   StatusBadge,
   DispositionBadge,
-  RiskBadge,
   ConfidenceBadge,
   AutoClosedBadge,
 } from '@/soc/components/badges';
@@ -64,13 +69,10 @@ import type { Navigate } from '@/soc/router';
 import {
   type FpPolicy,
   type ScoreTone,
-  HeadlinePanel,
   MetaItem,
   PanelCard,
   SectionHeading,
   confidenceCalibration,
-  confidenceHeadline,
-  verdictHeadline,
 } from './shared';
 
 const RULED_OUT_RE =
@@ -79,6 +81,28 @@ const RULED_OUT_RE =
 function isRuledOut(summary?: string): boolean {
   return !!summary && RULED_OUT_RE.test(summary);
 }
+
+/* -------------------------------------------------------------------- band -- */
+
+/**
+ * A labelled visual band grouping related sections (Summary / Evidence / Provenance).
+ * Presentational only — a quiet uppercase divider plus consistent inner spacing so the
+ * ~13 overview sections read as three scannable zones instead of one long stack.
+ */
+const Band: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <section className="space-y-6">
+    <div className="flex items-center gap-3">
+      <span
+        data-testid="overview-band-label"
+        className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground"
+      >
+        {label}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-border" />
+    </div>
+    {children}
+  </section>
+);
 
 /* ------------------------------------------------------- status timeline -- */
 
@@ -130,7 +154,7 @@ const StatusTimeline: React.FC<{
           ))}
         </ol>
       ) : (
-        <p className="text-sm text-muted-foreground">No lifecycle transitions recorded yet.</p>
+        <EmptyState icon={History} compact title="No lifecycle transitions recorded yet" />
       )}
     </PanelCard>
   );
@@ -225,7 +249,7 @@ const RelatedCrossSource: React.FC<{ c: Case; onNavigate?: Navigate }> = ({ c, o
             </ul>
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">No related cases.</p>
+          <EmptyState icon={GitBranch} compact title="No related cases" />
         )}
         {c.cross_source_cluster_id ? (
           <p className="mt-3 text-xs text-muted-foreground">
@@ -425,11 +449,6 @@ export const OverviewPanel: React.FC<{
 
   const ruleIds = (c.rule_ids || []).filter((r) => typeof r === 'string' && r.trim());
 
-  // Verdict + confidence headline panels (kept). Severity / impact / priority are now
-  // the four-chip CaseTriageHeader (#12) — honestly distinct, no longer all = risk.
-  const verdictH = verdictHeadline(c.verdict);
-  const confH = confidenceHeadline(c.confidence);
-
   // Affected assets (entity + enrichment KV).
   const caseEnrichment =
     c.enrichment && typeof c.enrichment === 'object'
@@ -485,310 +504,301 @@ export const OverviewPanel: React.FC<{
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* ----------------------------------------------- run-meta strip */}
-      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-        <MetaItem label="Started" value={startedAt ? formatTimestamp(startedAt) : DASH} />
-        <MetaItem label="Completed" value={completedAt ? formatTimestamp(completedAt) : DASH} />
-        {ruleIds.length ? <MetaItem label="Trigger" value={ruleIds[0]} /> : null}
-        {profile ? <MetaItem label="Profile" value={profile} /> : null}
-      </div>
+    <div className="space-y-8 p-6">
+      {/* ============================================================ SUMMARY */}
+      <Band label="Summary">
+        {/* run-meta strip */}
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
+          <MetaItem label="Started" value={startedAt ? formatTimestamp(startedAt) : DASH} />
+          <MetaItem label="Completed" value={completedAt ? formatTimestamp(completedAt) : DASH} />
+          {ruleIds.length ? <MetaItem label="Trigger" value={ruleIds[0]} /> : null}
+          {profile ? <MetaItem label="Profile" value={profile} /> : null}
+        </div>
 
-      {/* ------------------------------- the four honest triage chips (#12) */}
-      <CaseTriageHeader chips={triage} loading={triageLoading} />
+        {/* the four honest triage chips (#12) — risk/severity/impact/priority. The
+            RiskCard gauge here OWNS the risk signal, so the strip below no longer
+            repeats a standalone risk badge. */}
+        <CaseTriageHeader chips={triage} loading={triageLoading} />
 
-      {/* verdict + confidence headline (kept; severity/impact/priority moved into
-          the four-chip header above so each signal is honestly distinct). */}
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-        <HeadlinePanel label="Verdict" value={verdictH.label} tone={verdictH.tone} />
-        <HeadlinePanel label="Confidence" value={confH.label} tone={confH.tone} />
-      </div>
-
-      {/* header strip — precise verdict/confidence (AI-graded) + risk (code-derived)
-          each tagged with its provenance (#9b: keeps the SIEM / AI / code lanes
-          honest), the lifecycle state, and a self-hiding "Auto-closed by AI" marker
-          (#11). All copy here is fixed/controlled — no UNTRUSTED text. */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="inline-flex items-center gap-1.5">
-          <VerdictBadge verdict={c.verdict} />
-          <ProvenanceTag kind="ai" />
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <ConfidenceBadge
-            confidence={c.confidence}
-            {...confidenceCalibration(fpPolicy, c.verdict)}
+        {/* header strip — verdict + confidence (AI-graded) each tagged with its
+            provenance (#9b), the lifecycle state, and a self-hiding "Auto-closed by AI"
+            marker (#11). Risk is intentionally absent (owned by the RiskCard gauge
+            above). All copy here is fixed/controlled — no UNTRUSTED text. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex items-center gap-1.5">
+            <VerdictBadge verdict={c.verdict} />
+            <ProvenanceTag kind="ai" />
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <ConfidenceBadge
+              confidence={c.confidence}
+              {...confidenceCalibration(fpPolicy, c.verdict)}
+            />
+            <ProvenanceTag kind="ai" />
+          </span>
+          <StatusBadge status={c.status} />
+          <DispositionBadge disposition={c.disposition ?? null} />
+          {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+            <Badge variant="critical" className="gap-1">
+              <Bell className="h-3 w-3" />
+              Escalation L{c.escalation_level}
+            </Badge>
+          ) : null}
+          <AutoClosedBadge
+            status={c.status}
+            decisionBy={c.decision_by}
+            objectionWindowExpiresAt={c.objection_window_expires_at}
           />
-          <ProvenanceTag kind="ai" />
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <RiskBadge score={c.risk_score} />
-          <ProvenanceTag kind="code" />
-        </span>
-        <StatusBadge status={c.status} />
-        <DispositionBadge disposition={c.disposition ?? null} />
-        {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
-          <Badge variant="critical" className="gap-1">
-            <Bell className="h-3 w-3" />
-            Escalation L{c.escalation_level}
-          </Badge>
+        </div>
+
+        {/* incident digest */}
+        {c.summary || triggerSentence ? (
+          <PanelCard>
+            <SectionHeading icon={FileText}>
+              Incident digest
+            </SectionHeading>
+            {triggerSentence ? (
+              <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+                {/* UNTRUSTED — plain text. */}
+                {triggerSentence}
+              </p>
+            ) : null}
+            {c.summary ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                {/* UNTRUSTED — plain text. */}
+                {c.summary}
+              </p>
+            ) : null}
+          </PanelCard>
         ) : null}
-        <AutoClosedBadge
-          status={c.status}
-          decisionBy={c.decision_by}
-          objectionWindowExpiresAt={c.objection_window_expires_at}
-        />
-      </div>
 
-      {/* ----------------------------------------------- incident digest */}
-      {c.summary || triggerSentence ? (
+        {/* recommended action — the top-line "what to do". The risk breakdown lives in
+            the investigation view; the composite score stays in the RiskCard gauge. */}
         <PanelCard>
-          <SectionHeading icon={FileText}>
-            Incident Digest
+          <SectionHeading icon={Activity}>
+            Recommended action
           </SectionHeading>
-          {triggerSentence ? (
-            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-              {/* UNTRUSTED — plain text. */}
-              {triggerSentence}
-            </p>
-          ) : null}
-          {c.summary ? (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-              {/* UNTRUSTED — plain text. */}
-              {c.summary}
-            </p>
-          ) : null}
-        </PanelCard>
-      ) : null}
-
-      {autoCloseLine ? (
-        <Alert>
-          <Lock className="h-4 w-4" />
-          <AlertTitle>Auto-close policy</AlertTitle>
-          <AlertDescription>{autoCloseLine}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {/* ------------------------------- affected assets + IOC indicators */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <PanelCard>
-          <SectionHeading icon={Crosshair}>
-            Affected Assets
-          </SectionHeading>
-          {assetRows.length ? (
-            <dl className="divide-y divide-border">
-              {assetRows.map((row, i) => (
-                <div
-                  key={`${row.k}-${i}`}
-                  className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
-                >
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    {row.k}
-                  </dt>
-                  {/* UNTRUSTED value — plain text node, mono. `min-w-0` lets the flex
-                      child shrink so `truncate` engages instead of overflowing the card. */}
-                  <dd className="min-w-0 truncate text-right font-mono text-sm text-foreground">
-                    {row.v}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p className="text-sm text-muted-foreground">No assets recorded.</p>
-          )}
+          {/* UNTRUSTED — plain text. */}
+          <p className="whitespace-pre-wrap text-sm text-foreground/90">
+            {c.recommended_action || DASH}
+          </p>
         </PanelCard>
 
-        <PanelCard>
-          <SectionHeading icon={Target}>
-            IOC Indicators
-          </SectionHeading>
-          {evidence.some((e) => e.query) || c.reproduce_query ? (
-            <div className="space-y-3">
-              {evidence
-                .filter((e) => e.query)
-                .map((e, i) => (
-                  <div key={i} className="space-y-1.5">
-                    {/* These are the read-only ES/log search queries the es_query tool ran
-                        (Evidence.query) — NOT shell command lines executed on a host. */}
-                    <Badge variant="outline" className="font-mono">
-                      Search query
-                    </Badge>
-                    {/* UNTRUSTED query — inside CodeBlock fence. */}
-                    <CodeBlock value={e.query} copyable wrap maxHeightClassName="max-h-40" />
-                    {e.summary ? (
-                      <p className="text-xs text-muted-foreground">{e.summary}</p>
-                    ) : null}
+        {/* auto-close policy — a quiet inline note, not a full alert. */}
+        {autoCloseLine ? (
+          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              <span className="font-medium text-foreground/80">Auto-close policy — </span>
+              {autoCloseLine}
+            </span>
+          </div>
+        ) : null}
+      </Band>
+
+      {/* =========================================================== EVIDENCE */}
+      <Band label="Evidence">
+        {/* affected assets + search queries */}
+        <div className="grid gap-6 lg:grid-cols-2">
+          <PanelCard>
+            <SectionHeading icon={Crosshair}>
+              Affected assets
+            </SectionHeading>
+            {assetRows.length ? (
+              <dl className="divide-y divide-border">
+                {assetRows.map((row, i) => (
+                  <div
+                    key={`${row.k}-${i}`}
+                    className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                  >
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {row.k}
+                    </dt>
+                    {/* UNTRUSTED value — plain text node, mono. `min-w-0` lets the flex
+                        child shrink so `truncate` engages instead of overflowing the card. */}
+                    <dd className="min-w-0 truncate text-right font-mono text-sm text-foreground">
+                      {row.v}
+                    </dd>
                   </div>
                 ))}
-              {c.reproduce_query ? (
-                <div className="space-y-1.5">
-                  <Badge variant="outline" className="font-mono">
-                    Reproduce query
-                  </Badge>
-                  <CodeBlock
-                    value={c.reproduce_query}
-                    caption="read-only"
-                    wrap
-                    maxHeightClassName="max-h-40"
-                  />
-                </div>
+              </dl>
+            ) : (
+              <EmptyState icon={Crosshair} compact title="No assets recorded" />
+            )}
+          </PanelCard>
+
+          <PanelCard>
+            <SectionHeading icon={Target}>
+              Search queries
+            </SectionHeading>
+            {evidence.some((e) => e.query) || c.reproduce_query ? (
+              <div className="space-y-3">
+                {evidence
+                  .filter((e) => e.query)
+                  .map((e, i) => (
+                    <div key={i} className="space-y-1.5">
+                      {/* These are the read-only ES/log search queries the es_query tool ran
+                          (Evidence.query) — NOT shell command lines executed on a host. */}
+                      <Badge variant="outline" className="font-mono">
+                        Search query
+                      </Badge>
+                      {/* UNTRUSTED query — inside CodeBlock fence. */}
+                      <CodeBlock value={e.query} copyable wrap maxHeightClassName="max-h-40" />
+                      {e.summary ? (
+                        <p className="text-xs text-muted-foreground">{e.summary}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                {c.reproduce_query ? (
+                  <div className="space-y-1.5">
+                    <Badge variant="outline" className="font-mono">
+                      Reproduce query
+                    </Badge>
+                    <CodeBlock
+                      value={c.reproduce_query}
+                      caption="read-only"
+                      wrap
+                      maxHeightClassName="max-h-40"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <EmptyState icon={Target} compact title="No indicators recorded" />
+            )}
+          </PanelCard>
+        </div>
+
+        {/* evidence findings */}
+        <div>
+          <SectionHeading icon={Search}>
+            Evidence findings
+          </SectionHeading>
+          {evidence.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              compact
+              title="No positive findings"
+              description={
+                ruledOut.length
+                  ? 'All evidence was checked and cleared (see "Checked & clean" below).'
+                  : 'No evidence recorded for this case.'
+              }
+            />
+          ) : (
+            <div className="space-y-3">
+              {evidence.map((ev, i) => (
+                <PanelCard key={i}>
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    {/* UNTRUSTED summary as the finding subject — plain text. */}
+                    <h4 className="text-sm font-semibold text-foreground">
+                      {ev.summary ? ev.summary.split('.')[0] : `Evidence ${i + 1}`}
+                    </h4>
+                    <Badge variant="info" className="shrink-0">
+                      {ev.event_ids && ev.event_ids.length
+                        ? `${ev.event_ids.length} event${ev.event_ids.length === 1 ? '' : 's'}`
+                        : 'Finding'}
+                    </Badge>
+                  </div>
+                  {/* The affected entity is shown once under "Affected assets" above — it is
+                      the same value on every finding, so it is not repeated per card here. */}
+                  <dl className="space-y-2 text-sm">
+                    {ev.query ? (
+                      <div className="grid grid-cols-[7rem_1fr] gap-2">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Evidence
+                        </dt>
+                        <dd>
+                          <CodeBlock value={ev.query} copyable wrap maxHeightClassName="max-h-32" />
+                        </dd>
+                      </div>
+                    ) : null}
+                    {ev.summary ? (
+                      <div className="grid grid-cols-[7rem_1fr] gap-2">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Conclusion
+                        </dt>
+                        {/* UNTRUSTED — plain text. */}
+                        <dd className="whitespace-pre-wrap text-muted-foreground">{ev.summary}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                </PanelCard>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ruled out / clean */}
+        {ruledOut.length ? (
+          <PanelCard>
+            <SectionHeading icon={CheckCircle2}>
+              Ruled out / Checked &amp; clean
+            </SectionHeading>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Negative findings — what the investigation checked and cleared.
+            </p>
+            <ul className="space-y-2">
+              {ruledOut.map((ev, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  {/* UNTRUSTED — plain text. */}
+                  <span className="whitespace-pre-wrap text-foreground/90">
+                    {ev.summary || `Checked item ${i + 1}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </PanelCard>
+        ) : null}
+
+        {/* anomaly baseline (advisory, #4) */}
+        <BaselineAdvisory c={c} />
+
+        {/* MITRE (compact summary — full detail on the Threat tab) */}
+        {mitre.length ? (
+          <PanelCard>
+            <SectionHeading icon={Shield}>
+              MITRE ATT&amp;CK
+            </SectionHeading>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Technique ids are source-influenceable — plain text nodes only (#9). */}
+              {mitre.slice(0, 6).map((m, i) => (
+                <Badge key={`${m}-${i}`} variant="outline" className="font-mono">
+                  {m}
+                </Badge>
+              ))}
+              {mitre.length > 6 ? (
+                <Badge variant="secondary" className="tabular-nums">
+                  +{mitre.length - 6} more
+                </Badge>
               ) : null}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No indicators recorded.</p>
-          )}
-        </PanelCard>
-      </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {mitre.length} technique{mitre.length === 1 ? '' : 's'} mapped — full tactics,
+              descriptions and ATT&amp;CK links are on the Threat context tab.
+            </p>
+          </PanelCard>
+        ) : null}
+      </Band>
 
-      {/* ------------------------------------------- evidence findings */}
-      <div>
-        <SectionHeading icon={Search}>
-          Evidence Findings
-        </SectionHeading>
-        {evidence.length === 0 ? (
-          <EmptyState
-            icon={Search}
-            compact
-            title="No positive findings"
-            description={
-              ruledOut.length
-                ? 'All evidence was checked and cleared (see "Checked & clean" below).'
-                : 'No evidence recorded for this case.'
-            }
-          />
-        ) : (
-          <div className="space-y-3">
-            {evidence.map((ev, i) => (
-              <PanelCard key={i}>
-                <div className="mb-3 flex items-start justify-between gap-3">
-                  {/* UNTRUSTED summary as the finding subject — plain text. */}
-                  <h4 className="text-sm font-semibold text-foreground">
-                    {ev.summary ? ev.summary.split('.')[0] : `Evidence ${i + 1}`}
-                  </h4>
-                  <Badge variant="info" className="shrink-0">
-                    {ev.event_ids && ev.event_ids.length
-                      ? `${ev.event_ids.length} event${ev.event_ids.length === 1 ? '' : 's'}`
-                      : 'Finding'}
-                  </Badge>
-                </div>
-                <dl className="space-y-2 text-sm">
-                  {c.entity?.value ? (
-                    <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Subject
-                      </dt>
-                      {/* UNTRUSTED — plain text. `min-w-0 break-all` lets an unbreakable
-                          IOC (64-char hash / long URL) wrap instead of forcing the card
-                          wider than the sheet. */}
-                      <dd className="min-w-0 break-all font-mono text-foreground">{c.entity.value}</dd>
-                    </div>
-                  ) : null}
-                  {ev.query ? (
-                    <div className="grid grid-cols-[7rem_1fr] gap-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Evidence
-                      </dt>
-                      <dd>
-                        <CodeBlock value={ev.query} copyable wrap maxHeightClassName="max-h-32" />
-                      </dd>
-                    </div>
-                  ) : null}
-                  {ev.summary ? (
-                    <div className="grid grid-cols-[7rem_1fr] gap-2">
-                      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Conclusion
-                      </dt>
-                      {/* UNTRUSTED — plain text. */}
-                      <dd className="whitespace-pre-wrap text-muted-foreground">{ev.summary}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </PanelCard>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ============================================== PROVENANCE & ACTIVITY */}
+      <Band label="Provenance & activity">
+        {/* related cases + source breakdown (F6) */}
+        <RelatedCrossSource c={c} onNavigate={onNavigate} />
 
-      {/* ------------------------------------------- ruled out / clean */}
-      {ruledOut.length ? (
-        <PanelCard>
-          <SectionHeading icon={CheckCircle2}>
-            Ruled out / Checked &amp; clean
-          </SectionHeading>
-          <p className="mb-3 text-xs text-muted-foreground">
-            Negative findings — what the investigation checked and cleared.
-          </p>
-          <ul className="space-y-2">
-            {ruledOut.map((ev, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-                {/* UNTRUSTED — plain text. */}
-                <span className="whitespace-pre-wrap text-foreground/90">
-                  {ev.summary || `Checked item ${i + 1}`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </PanelCard>
-      ) : null}
+        {/* threshold automation (F10) */}
+        <AutomationApplied c={c} />
 
-      {/* ------------------------------------------- recommended action */}
-      {/* The risk breakdown moved to the investigation view to keep the overview a
-          single, uncluttered story — the composite risk score + its provenance stay
-          in the header strip above. */}
-      <PanelCard>
-        <SectionHeading icon={Activity}>
-          Recommended action
-        </SectionHeading>
-        {/* UNTRUSTED — plain text. */}
-        <p className="whitespace-pre-wrap text-sm text-foreground/90">
-          {c.recommended_action || DASH}
-        </p>
-      </PanelCard>
+        {/* status timeline (F8) */}
+        <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
 
-      {/* ------------------------- anomaly baseline (advisory, #4) */}
-      <BaselineAdvisory c={c} />
-
-      {/* ------------------- MITRE (compact summary — full detail on the Threat tab) */}
-      {mitre.length ? (
-        <PanelCard>
-          <SectionHeading icon={Shield}>
-            MITRE ATT&amp;CK
-          </SectionHeading>
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Technique ids are source-influenceable — plain text nodes only (#9). */}
-            {mitre.slice(0, 6).map((m, i) => (
-              <Badge key={`${m}-${i}`} variant="outline" className="font-mono">
-                {m}
-              </Badge>
-            ))}
-            {mitre.length > 6 ? (
-              <Badge variant="secondary" className="tabular-nums">
-                +{mitre.length - 6} more
-              </Badge>
-            ) : null}
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {mitre.length} technique{mitre.length === 1 ? '' : 's'} mapped — full tactics,
-            descriptions and ATT&amp;CK links are on the Threat context tab.
-          </p>
-        </PanelCard>
-      ) : null}
-
-      {/* --------------------------- related cases + source breakdown (F6) */}
-      <RelatedCrossSource c={c} onNavigate={onNavigate} />
-
-      {/* ------------------------------- threshold automation (F10) */}
-      <AutomationApplied c={c} />
-
-      {/* ------------------------------------------- status timeline */}
-      <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
-
-      {/* ------------------------------------------- footer meta */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <span>Created {formatTimestamp(c.created_at)}</span>
-        <span>Token cost {fmtMoney(c.token_cost)}</span>
-        {c.decision_by ? <span>Decided by {humanizeToken(c.decision_by)}</span> : null}
-      </div>
+        {/* run/cost meta — created_at is shown once, as "Started" in the run-meta strip. */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+          <span>Token cost {fmtMoney(c.token_cost)}</span>
+          {c.decision_by ? <span>Decided by {humanizeToken(c.decision_by)}</span> : null}
+        </div>
+      </Band>
 
       {c.error ? (
         <Alert variant="destructive">

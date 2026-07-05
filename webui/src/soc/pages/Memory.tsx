@@ -190,7 +190,7 @@ function AddMemoryCard({
 
   return (
     <Card>
-      <CardContent className="space-y-5 p-6">
+      <CardContent className="space-y-4 p-6">
         <div className="flex items-center gap-3">
           <span className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted/40 text-primary">
             <Plus className="h-4 w-4" aria-hidden />
@@ -352,7 +352,7 @@ function MemoryRow({
   if (editing) {
     return (
       <Card className="border-primary/30 ring-1 ring-primary/10">
-        <CardContent className="space-y-4 p-5">
+        <CardContent className="space-y-4 p-4">
           <Textarea
             rows={2}
             value={text}
@@ -418,7 +418,7 @@ function MemoryRow({
 
   return (
     <Card className="transition-colors hover:border-border/80">
-      <CardContent className="p-5">
+      <CardContent className="p-4">
         <div className="flex items-start gap-4">
           {/* active accent rail */}
           <span
@@ -438,7 +438,7 @@ function MemoryRow({
             >
               {entry.text}
             </p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <SourceBadge source={entry.source} author={entry.author} />
               {entry.category ? (
                 <Badge variant="outline" className="gap-1">
@@ -735,7 +735,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
   const showLoadFail = !!error && entries.length === 0;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {embedded ? (
         <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
       ) : (
@@ -932,7 +932,7 @@ export default function Memory({ embedded = false }: MemoryPageProps = {}) {
           }
         />
       ) : groups ? (
-        <div className="space-y-8">
+        <div className="space-y-6">
           {groups.map(([label, rows]) => (
             <div key={label} className="space-y-3">
               <div className="flex items-center gap-2 border-b border-border pb-2">

@@ -241,7 +241,7 @@ const ChunkBlock: React.FC<{ chunk: RagChunk; index: number; rank?: number }> = 
   const chunkIdx = typeof chunk.chunk_index === 'number' ? chunk.chunk_index : index;
   return (
     <div className="rounded-md border border-border bg-surface p-3.5">
-      <div className="mb-2.5 flex flex-wrap items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         {typeof rank === 'number' ? (
           <Badge variant="default">#{rank}</Badge>
         ) : null}
@@ -641,7 +641,7 @@ const ImportCard: React.FC<{ onImported: () => void }> = ({ onImported }) => {
 
         {batching ? (
           <div className="rounded-md border border-border bg-surface p-3.5">
-            <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {fmtNumber(queue.length)} file{queue.length === 1 ? '' : 's'} queued
             </p>
             <ul className="flex flex-col gap-1.5">
@@ -910,7 +910,7 @@ const CorpusSourceSection: React.FC<{
             {rows.map((d) => (
               <li
                 key={d.document_id}
-                className="flex flex-wrap items-center gap-2 py-2.5 first:pt-0 last:pb-0"
+                className="flex flex-wrap items-center gap-2 py-2 first:pt-0 last:pb-0"
               >
                 <button
                   type="button"
@@ -1578,7 +1578,7 @@ export default function Knowledge({ embedded = false }: KnowledgeProps = {}) {
   );
 
   return (
-    <PageContainer variant="wide" className="space-y-8">
+    <PageContainer variant="wide" className="space-y-6">
       {embedded ? (
         <div className="flex flex-wrap items-center justify-end gap-2">{refreshAction}</div>
       ) : (

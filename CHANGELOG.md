@@ -7,6 +7,39 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
 kept). History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-05 — Round 8: UI cleanup + glitch fixes (from user feedback)
+
+A follow-up polish round on `feature/round7-ui-overhaul` (commits `58745fa`, `f56f812`)
+driven by user screenshots. Process: opus plan fleet → **sonnet-only** research fleet →
+Wave A (10 opus agents, disjoint files) → Wave B (Overview integration) → 10-agent
+adversarial QA (**0 findings**). Shipped: the **Active Risk Index** back in its own card
+top-right with the glitchy notch dropped; the **Cases** sticky-header glitch fixed
+(double-nested-overflow root cause → non-sticky header + uniform rows); the **Noise
+Reduction** funnel redesigned as a **horizontal QRadar-style Sankey ribbon** (reuses
+`deriveFunnel()` + the `/api/metrics/noise-reduction` contract unchanged); the **Security
+Command Center** header de-carded to a plain big title (Sources-style) with an inverted-
+pyramid "Deeper analytics" collapse; **CaseDetail** Overview/Threat tabs deduped and the
+**Chat** tab rebuilt on the shared `ChatPanel` (−~150 lines); **Collaboration** tidied;
+app-wide **PageHeader** title bump + a 12-page spacing sweep; and **reinvestigate** fixed to
+rebuild from a case's stored evidence when the log window has aged out. Additive; `decide()`
+**byte-identical**; ZERO new deps. Green: **pytest ✓ / Vitest 1238 / lint 0 errors / build ✓**.
+See `docs/research/2026-07-round8/IMPLEMENTATION.md`.
+
+## [Unreleased] — 2026-07-05 — Round 7: Security Command Center overhaul + Noise-Reduction funnel
+
+A UI/UX + product round (12 user changes + 1 feature) on `feature/round7-ui-overhaul`
+(commits `850600f` → `1b9ac90` → `e40f0bc` → `7355a9a`). Built by a ~130-agent pipeline
+(document → plan → verify → UX research → validate → implement in 3 waves → adversarial QA →
+fixes). Headlines: Overview reborn as the **Security Command Center** (Active Risk Index with
+a `(?)` explainer, honest **MTTA/MTTR/Dwell** tiles, live-delta KPIs, Top-Contributors); a
+durable-counter **"Noise Reduction"** alerts→cases funnel (`GET /api/metrics/noise-reduction`);
+**Cases** severity-column bug fixed (one source-asserted Severity + a `source|ai|code`
+**provenance** tag); **CaseDetail** retold as a clean story (8 tabs → 5: facts → AI assessment
+→ pinned deterministic `DecisionCard`); feedback folded into the close dialog; an **Auto-closed
+by AI** badge; and a real motion system (count-up/reveal). Additive; `decide()` **byte-identical**;
+zero new runtime deps. The final adversarial QA caught + fixed 8 real bugs (incl. two
+funnel-correctness bugs the green tests had masked). See `docs/research/2026-07-round7/`.
+
 ## [Unreleased] — 2026-07-02 — Round 6: fleet glitch-hunt + integration polish (464 adversarially-verified findings fixed)
 
 A sixth round driven by a ~500-agent Opus fleet: every webui source file audited

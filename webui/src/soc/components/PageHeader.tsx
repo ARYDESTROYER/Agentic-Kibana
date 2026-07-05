@@ -11,9 +11,11 @@ export interface Crumb {
 export interface PageHeaderProps {
   /**
    * `'dense'` (default) — a compact ~52-68px header band (breadcrumb over a
-   * `text-lg/xl` title, small icon chip, actions right, a 2-line-clamped description).
+   * `text-2xl/3xl` title that outranks card titles, small icon chip, actions right,
+   * a 2-line-clamped description).
    * `'hero'` — the SAME compact rhythm plus a rounded `border` + a whisper
-   * `bg-hero-glow` accent wash (`text-xl` title, a 1-line-clamped description). The
+   * `bg-hero-glow` accent wash (same `text-2xl/3xl` title, a 1-line-clamped
+   * description). The
    * `actions` (right) + `meta` (beside title) are the ONLY control slots — no second
    * band. NOT the old ~176px marketing hero.
    */
@@ -93,7 +95,8 @@ function Breadcrumbs({ crumbs }: { crumbs: Crumb[] }) {
  * breadcrumb/eyebrow over the title, a small icon chip, meta beside the title, and
  * a right-aligned actions slot, with optional section `tabs` on the bottom edge.
  * `variant='hero'` is the SAME compact band plus a rounded border + a whisper
- * `bg-hero-glow` wash (`text-xl` title).
+ * `bg-hero-glow` wash. Both variants share a `text-2xl sm:text-3xl` title that
+ * outranks card titles (the single app-wide authority lever).
  *
  * All text renders as plain (UNTRUSTED-safe, #9); never `dangerouslySetInnerHTML`.
  */
@@ -162,12 +165,7 @@ export function PageHeader({
           <div className="min-w-0">
             {overline}
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-              <h1
-                className={cn(
-                  'truncate font-semibold tracking-tight text-foreground',
-                  hero ? 'text-xl' : 'text-lg sm:text-xl',
-                )}
-              >
+              <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                 {title}
               </h1>
               {meta ? <div className="flex flex-wrap items-center gap-2">{meta}</div> : null}

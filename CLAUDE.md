@@ -448,8 +448,25 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-Current: **Round 1 + Round 2 + Round 3 + Round 4 + Round 5 + Round 6 overhauls COMPLETE**
-(committed on `Testing`, local only — **not pushed**). Phase-1 spine + vendor-agnostic
+Current: **Rounds 1–6 overhauls COMPLETE** (on `Testing`) + **Round 7 + Round 8 COMPLETE**
+(branch `feature/round7-ui-overhaul`, off `Testing`; local only — **not pushed**).
+
+> **Round 7** (`850600f`→`7355a9a`, `docs/research/2026-07-round7/`): Overview → **Security
+> Command Center** (12 UI changes + a durable-counter **Noise-Reduction** funnel
+> `GET /api/metrics/noise-reduction` + `stores/noise_counters.py` + `engine/noise_counters.py`
+> + a `_noise_sink` on the poller, separate from the Round-4 `_event_funnel`); a shared
+> `source|ai|code` **ProvenanceTag** + the Cases severity-column bug fixed; CaseDetail 8→5
+> tabs told as a story (facts → AI assessment → pinned deterministic `DecisionCard`);
+> feedback-at-close; Auto-closed-by-AI badge; a motion system. **Round 8**
+> (`58745fa`→`91aae40`, `docs/research/2026-07-round8/`): UI-cleanup + glitch fixes — risk-index
+> own-card, the Cases sticky-header glitch (double-nested-overflow root cause), a horizontal
+> **QRadar-style Sankey ribbon** for Noise-Reduction, a de-carded plain big-title header,
+> reinvestigate rebuilding from stored evidence when the log window aged out, and chat/collab
+> tidy. **GREEN (2026-07-06): backend 1678 pytest · webui 1238 vitest / 223 files · build clean
+> (entry ~282 kB) · eslint 0 errors (3 warnings) · `decide()` byte-identical · ZERO new runtime
+> deps in Rounds 7–8.**
+
+Phase-1 spine + vendor-agnostic
 transition + the Vigil-inspired overhaul (Waves 1–3) + the **7-wave SOC overhaul**
 (W1–W7) + **Round 2** (account self-service, sessions + token policy, Settings-centric
 IA, Demo Mode, source multi-feed, Resend/SES + email templates, per-user customization,

@@ -849,7 +849,11 @@ export default function Cases({
       sortable: true,
       width: '10.5rem',
       cell: (c) => (
-        <div className="flex flex-col items-start gap-1">
+        // Fixed min-height so a row is the SAME height whether or not the optional
+        // AutoClosedBadge renders — keeps compact rows uniform and the rowAccent inset
+        // bar even down the margin (Round-8 #2). `justify-center` keeps the StatusBadge
+        // vertically centred in the reserved space.
+        <div className="flex min-h-[2.25rem] flex-col items-start justify-center gap-1">
           <StatusBadge status={c.status} />
           <AutoClosedBadge
             status={c.status}
@@ -1324,8 +1328,10 @@ export default function Cases({
         // 3px left-edge severity band per row (#8) — scan severity down the margin
         // without a dedicated column; shares the ONE band ladder with the filter/sort.
         rowAccent={(c) => caseSeverityBand(c)}
-        // Pin the header under the app bar while the list scrolls (#8).
-        sticky
+        // NOTE: no `sticky` header here. DataTable's card is `overflow-hidden` and the
+        // inner Table wrapper is `overflow-auto`, so a sticky <thead> would pin against
+        // a never-scrolling ancestor and read as a broken, cut-off header row (Round-8
+        // #2). A plain non-sticky header is clean and correct at this list length.
         sort={sort}
         onSortChange={setSort}
         page={page}

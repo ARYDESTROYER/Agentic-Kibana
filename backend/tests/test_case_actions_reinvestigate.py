@@ -130,7 +130,10 @@ def test_reinvestigate_404_for_unknown_case(client):
     assert r.status_code == 404
 
 
-def test_reinvestigate_400_when_events_aged_out(client, mock_provider):
+def test_reinvestigate_reconstructs_from_stored_when_events_aged_out(client, mock_provider):
+    """When a case's originating events have aged out of the retained log window, a
+    reinvestigation rebuilds a MINIMAL cluster from the case's STORED evidence and
+    re-runs the LLM in place instead of dead-ending on a 400 (Round-8 #5)."""
     ip = "192.0.2.35"
     eid = _seed(client, ip=ip, ts_millis=_ms_ago(hours=1))
     _route_to_investigator(mock_provider)
@@ -138,13 +141,46 @@ def test_reinvestigate_400_when_events_aged_out(client, mock_provider):
     r1 = client.post("/api/investigate", json={"event_ids": [eid], "group_by": "ip"})
     case_id = r1.json()["case_id"]
 
+    # Age the originating event out of the retained log window.
     es = client.app.state.tlsoc.es
     for index in list(es.docs.keys()):
         es.docs[index].pop(eid, None)
 
+    # A DIFFERENT verdict on the re-run proves the pipeline genuinely re-investigated
+    # over the reconstructed stored evidence (not a cached passthrough).
+    _route_to_investigator(mock_provider)
+    mock_provider.push("investigator", _final_verdict("TRUE_POSITIVE", 0.9))
     r2 = client.post(f"/api/cases/{case_id}/reinvestigate")
-    assert r2.status_code == 400
-    assert "No events remain" in r2.json()["detail"]
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["case_id"] == case_id                 # same case, updated in place
+    assert body["verdict"] == "TRUE_POSITIVE"          # re-run over stored evidence
+    # The stored member id is preserved (merged), never dropped by the reconstruction.
+    assert eid in body["member_event_ids"]
+
+
+def test_reinvestigate_400_when_no_stored_evidence(client, mock_provider):
+    """A case with NO stored evidence at all (member ids + evidence cleared AND the
+    underlying logs aged out) still returns a NEUTRAL 400 — but now with the clearer
+    Round-8 message, since there is genuinely nothing to reconstruct."""
+    ip = "192.0.2.36"
+    case_id = _create_case(client, mock_provider, ip)
+
+    es = client.app.state.tlsoc.es
+    for index in list(es.docs.keys()):
+        for did in list(es.docs[index].keys()):
+            src = es.docs[index][did]
+            if did == case_id:
+                # Strip the case's own retained evidence...
+                src["member_event_ids"] = []
+                src["evidence"] = []
+            elif src.get("source", {}).get("ip") == ip:
+                # ...and age out every underlying log event for the entity.
+                es.docs[index].pop(did, None)
+
+    r = client.post(f"/api/cases/{case_id}/reinvestigate")
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == "This case has no stored evidence to reinvestigate."
 
 
 # --------------------------------------------------------------------------- #

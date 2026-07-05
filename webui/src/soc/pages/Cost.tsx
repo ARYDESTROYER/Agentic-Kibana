@@ -756,7 +756,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
                 Spend over time
               </SectionTitle>
             </CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent className="space-y-4">
               {series.length > 1 ? (
                 <>
                   <TrendArea
@@ -902,7 +902,7 @@ export default function Cost({ embedded = false }: CostProps = {}) {
                         </div>
                       }
                     />
-                    <ul className="mt-5 space-y-2.5 border-t border-border pt-4">
+                    <ul className="mt-4 space-y-2 border-t border-border pt-4">
                       {compositionSegments.map((s, i) => (
                         <li key={`${s.label}-${i}`} className="flex items-center gap-2 text-sm">
                           <span

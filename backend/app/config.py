@@ -1979,6 +1979,14 @@ class Preferences(BaseModel):
     # (this window -> now-7d -> now-30d -> now-1y) before giving up, so an entity
     # whose only activity is older than the default window still resolves.
     investigate_lookback: str = "now-24h"
+    # When a case's originating events have aged out of the retained log window, an
+    # operator-triggered re-investigation (reinvestigate / run-playbook) rebuilds a
+    # minimal cluster from the case's STORED evidence rather than failing. This flag
+    # is the (default-OFF) opt-in for the FUTURE auto-trigger — re-run key-blocked
+    # cases automatically when a model/provider API key is (re)provided. The one-shot
+    # manual reinvestigate-from-stored-evidence path is always available; only the
+    # automatic on-key-change trigger is gated here. (UI/wiring is a follow-up.)
+    reinvestigate_on_key_change: bool = False
 
     # --- Entity field mapping (Section 5.3) ---
     source_ip_field: str = "source.ip"

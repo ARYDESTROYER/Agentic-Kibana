@@ -194,6 +194,12 @@ export default {
            a small scale (never below 0.96 so text stays legible mid-tween). Paired
            with the `animate-scale-in` util below; reduced-motion collapses it. */
         'scale-in': { from: { opacity: '0', transform: 'scale(0.96)' }, to: { opacity: '1', transform: 'scale(1)' } },
+        /* Round-8 ★8 — the Noise-Reduction flow ribbons grow in L→R from their left
+           edge (paired with `transform-box:fill-box; transform-origin:0% 50%` inline
+           on each SVG <path>, plus a per-strand animation-delay stagger). Never scales
+           fully to 0 so a strand is briefly visible mid-tween; reduced-motion collapses
+           the duration globally (theme.css). */
+        'ribbon-grow': { from: { opacity: '0', transform: 'scaleX(0.04)' }, to: { opacity: '1', transform: 'scaleX(1)' } },
         'bar-indeterminate': { '0%': { transform: 'translateX(-100%)' }, '100%': { transform: 'translateX(350%)' } },
         pulse: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.55' } },
         /* Round-5 Sett-C — the deep-link (`&a=<anchor>`) card highlight: a brief ring
@@ -231,6 +237,7 @@ export default {
         'fade-in': 'fade-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'rise-in': 'rise-in 0.24s cubic-bezier(0.16,1,0.3,1) both',
         'scale-in': 'scale-in 0.2s cubic-bezier(0.16,1,0.3,1) both',
+        'ribbon-grow': 'ribbon-grow 0.5s cubic-bezier(0.16,1,0.3,1) both',
         'bar-indeterminate': 'bar-indeterminate 1.1s ease-in-out infinite',
         'settings-highlight': 'settings-highlight 1.6s cubic-bezier(0.16,1,0.3,1) both',
         'hero-in-down': 'hero-in-down 0.5s cubic-bezier(0.16,1,0.3,1) both',

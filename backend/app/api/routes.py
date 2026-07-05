@@ -3464,15 +3464,14 @@ async def case_reinvestigate(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    cluster = await _cluster_for_case(state, case)
+    # Rebuild the cluster from live logs; if the events aged out, fall back to a
+    # minimal reconstruction from the case's STORED evidence so the re-investigation
+    # runs over what we retained rather than dead-ending (#3 untouched).
+    cluster = await _cluster_for_case(state, case, allow_stored_reconstruction=True)
     if cluster is None:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"No events remain for {case.entity.type.value} {case.entity.value} "
-                f"in the last {state.prefs.investigate_lookback}; the activity may have "
-                "aged out of the retained log window."
-            ),
+            detail="This case has no stored evidence to reinvestigate.",
         )
     # Per-call model override (additive): swap the investigation-role models for this
     # run only. Unchanged when body.model is None.
@@ -3524,15 +3523,14 @@ async def case_run_playbook(
         raise HTTPException(status_code=404, detail="Case not found")
     if state.playbooks.get(body.playbook_id) is None:
         raise HTTPException(status_code=404, detail=f"Unknown playbook: {body.playbook_id}")
-    cluster = await _cluster_for_case(state, case)
+    # Rebuild the cluster from live logs; if the events aged out, fall back to a
+    # minimal reconstruction from the case's STORED evidence so the playbook can still
+    # be run over what we retained rather than dead-ending (#3 untouched).
+    cluster = await _cluster_for_case(state, case, allow_stored_reconstruction=True)
     if cluster is None:
         raise HTTPException(
             status_code=400,
-            detail=(
-                f"No events remain for {case.entity.type.value} {case.entity.value} "
-                f"in the last {state.prefs.investigate_lookback}; the activity may have "
-                "aged out of the retained log window."
-            ),
+            detail="This case has no stored evidence to reinvestigate.",
         )
     await state.audit.record(
         action_type=ActionType.DECISION, surface=case.source_surface.value,
@@ -3906,16 +3904,27 @@ async def _cluster_for_request(
     return cluster, window
 
 
-async def _cluster_for_case(state: AppState, case) -> Cluster | None:
+async def _cluster_for_case(
+    state: AppState, case, *, allow_stored_reconstruction: bool = False
+) -> Cluster | None:
     """Rebuild a cluster from a stored case for a human-triggered re-investigation.
 
     Prefers an exact id-based re-query of the case's member events; falls back to a
     config-windowed (``prefs.investigate_lookback``) entity re-query using the same
     scope filters as the manual investigate path. Read-only on the log surface.
 
+    When both live re-queries come back empty (the originating events aged out of the
+    retained log window) AND ``allow_stored_reconstruction`` is set, a MINIMAL cluster
+    is rebuilt from the case's STORED fields (see :func:`_reconstruct_cluster_from_case`)
+    so an operator-triggered re-investigation can still run the LLM over the retained
+    evidence instead of dead-ending on a 400. Callers that must NOT fabricate a cluster
+    from stale state (e.g. the read-only forwarding explainer) leave the flag off and
+    still get ``None``.
+
     The original deterministic trigger reason (if the case has one) is PRESERVED so
     a re-investigate never overwrites a scan-derived "Why this fired"; only a case
-    lacking one gets a synthesized MANUAL trigger reason."""
+    lacking one gets a synthesized MANUAL trigger reason. Nothing here touches the
+    deterministic close/escalate decision (#3)."""
     prefs = state.prefs
     entity_type, value = case.entity.type, case.entity.value
     has_trigger = case.trigger_reason is not None
@@ -3946,11 +3955,102 @@ async def _cluster_for_case(state: AppState, case) -> Cluster | None:
     events, window = await _entity_events_widening(
         state, entity_type, value, prefs.investigate_lookback
     )
-    if not events:
-        return None
-    members = [e for e in events if e.entity_value(entity_type) == value] or events
+    if events:
+        members = [e for e in events if e.entity_value(entity_type) == value] or events
+        cluster = cluster_from_events(entity_type, value, members)
+        return _finalize(cluster, window)
+
+    # Last resort: the live logs aged out of the retained window. For an operator-
+    # triggered re-investigation (reinvestigate / run-playbook), optionally rebuild a
+    # MINIMAL cluster from the case's STORED evidence so the LLM can still re-reason
+    # over what we retained. Read-only + fail-open; ``None`` only when the case carries
+    # NO stored evidence at all. #3 untouched — this only reassembles evidence.
+    if allow_stored_reconstruction:
+        reconstructed = _reconstruct_cluster_from_case(case)
+        if reconstructed is not None:
+            return _finalize(reconstructed, prefs.investigate_lookback)
+    return None
+
+
+def _reconstruct_cluster_from_case(case: Case) -> Cluster | None:
+    """Rebuild a MINIMAL cluster from a case's STORED fields when the live log
+    re-query is empty (the originating events aged out of the retained window).
+
+    Lets an operator-triggered re-investigation still run the investigator over the
+    case's retained evidence rather than dead-ending. Synthetic member events are
+    reconstructed (capped at 200) from the stored ``member_event_ids`` (falling back
+    to the ``evidence[].event_ids``), each carrying the case entity + a stored rule so
+    the investigator prompt and the deterministic risk model see faithful inputs. The
+    cluster SIGNATURE is PINNED to the case's stored ``cluster_signature`` so the
+    re-investigation updates THIS case in place and never mints a duplicate (#4).
+
+    Read-only + fail-open: returns ``None`` only when the case carries no stored
+    evidence at all. Nothing here touches the deterministic decision (#3)."""
+    entity_type = case.entity.type
+    value = case.entity.value
+
+    # Stored evidence ids: prefer the member events, else the verdict evidence ids.
+    raw_ids: list[str] = list(case.member_event_ids or [])
+    if not raw_ids:
+        for item in case.evidence:
+            raw_ids.extend(item.event_ids or [])
+    ordered_ids: list[str] = []
+    seen: set[str] = set()
+    for eid in raw_ids:
+        if eid and eid not in seen:
+            seen.add(eid)
+            ordered_ids.append(eid)
+        if len(ordered_ids) >= 200:
+            break
+    if not ordered_ids:
+        return None  # truly-empty case — nothing to reconstruct.
+
+    # Window from the stored trigger reason (else collapse to a point-in-time window).
+    tr = case.trigger_reason
+    win_start = int(tr.window_start) if (tr and tr.window_start) else 0
+    win_end = int(tr.window_end) if (tr and tr.window_end) else 0
+    if win_end < win_start:
+        win_start, win_end = win_end, win_start
+
+    rules = [r for r in (case.rule_ids or []) if r]
+    n = len(ordered_ids)
+    members: list[RawEvent] = []
+    for i, eid in enumerate(ordered_ids):
+        if win_start and win_end and n > 1:
+            ts = win_start + (win_end - win_start) * i // (n - 1)
+        else:
+            ts = win_start or win_end or 0
+        ev = RawEvent(
+            id=eid,
+            timestamp_millis=ts,
+            rule=(rules[i % len(rules)] if rules else None),
+            source={"reconstructed": True},
+        )
+        # Carry the case entity onto its projection field so the investigator prompt
+        # + reproduce query render the concrete entity (UNTRUSTED log data downstream).
+        if entity_type == EntityType.IP:
+            ev.ip = value
+        elif entity_type == EntityType.USER:
+            ev.user = value
+        elif entity_type == EntityType.HOST:
+            ev.host = value
+        members.append(ev)
+
     cluster = cluster_from_events(entity_type, value, members)
-    return _finalize(cluster, window)
+    # Preserve stored provenance + counts the synthetic events cannot carry, and PIN
+    # the signature so the re-investigation updates THIS case in place (#4).
+    cluster.signature = case.cluster_signature
+    if case.rule_ids:
+        cluster.rule_values = list(case.rule_ids)
+    cluster.source_id = case.source_id
+    cluster.source_name = case.source_name
+    # The stored member id list may exceed the 200-event synthetic cap — keep the
+    # faithful volume for the deterministic risk model (recomputed by the pipeline).
+    cluster.count = max(len(members), len(case.member_event_ids))
+    if case.risk_score:
+        cluster.risk_score = case.risk_score
+        cluster.risk_breakdown = case.risk_breakdown
+    return cluster
 
 
 def _manual_trigger_reason(cluster: Cluster, window: str) -> TriggerReason:

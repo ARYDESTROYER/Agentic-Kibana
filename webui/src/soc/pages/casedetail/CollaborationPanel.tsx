@@ -208,7 +208,7 @@ export const CollaborationThreadTab: React.FC<{
   onLiveActivity,
 }) => {
   return (
-    <div className="grid gap-6 p-6 lg:grid-cols-[1fr_20rem]">
+    <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
       {/* -------------------------------------------------- main: the thread */}
       <div className="min-w-0 space-y-6">
         <PanelCard>
@@ -265,7 +265,9 @@ export const CollaborationThreadTab: React.FC<{
       </div>
 
       {/* -------------------------------------------------- aside: ownership */}
-      <aside className="space-y-6">
+      {/* Sticky rail on lg+ so ownership/tasks/activity stay in view while the
+          thread scrolls; the rail itself scrolls when its own content overflows. */}
+      <aside className="space-y-6 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto">
         <PanelCard className="p-4">
           <SectionHeading icon={Users}>
             Ownership
