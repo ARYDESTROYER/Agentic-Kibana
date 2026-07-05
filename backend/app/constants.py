@@ -189,6 +189,20 @@ DASHBOARDS_NS = "dashboards"
 DASHBOARDS_KEY = "dashboards"
 DASHBOARDS_DOC_ID = "dashboards"        # ES doc id within CONFIG_INDEX
 
+# --------------------------------------------------------------------------- #
+# Round 7 KV-store namespace (durable NOISE-REDUCTION counters). Mirrors the same
+# single-KV-document pattern as BASELINE_NS above: one JSON document under
+# ``<NS>/<KEY>`` (the ES backend stores it in CONFIG_INDEX, the SQL backend in the
+# shared KV table) so it needs NO new ES index / SQL table / migration. Holds the
+# durable raw-alert-by-severity ingest counters ("total alerts by severity → what
+# the AI reduced it to") that back the Noise-Reduction funnel. Counters are advisory
+# presentation state only — they NEVER feed ``case_manager.decide()`` (#3) and the
+# increments are fail-open so they never slow or break the poll/ingest path.
+# --------------------------------------------------------------------------- #
+NOISE_NS = "noise_counters"
+NOISE_KEY = "noise_counters"
+NOISE_DOC_ID = "noise_counters"         # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""
@@ -616,3 +630,10 @@ OCSF_CLASS_BASE_EVENT = 0          # fallback when the source class is unknown
 
 # severity_id (OCSF standard 0..6) → a 0..100 score the risk engine uses.
 OCSF_SEVERITY_TO_SCORE = {0: 0.0, 1: 10.0, 2: 30.0, 3: 50.0, 4: 75.0, 5: 90.0, 6: 100.0}
+
+# Canonical 5-band SEVERITY ladder (highest → lowest). Names ONLY — the numeric
+# cut-points that map a 0..100 magnitude onto these bands live in
+# ``engine/priority.py`` (the single source of truth for the 74/48/22/8 cuts), NOT
+# here, so there is exactly one place to tune them. Used as the shared band vocabulary
+# for the advisory severity axis + the Noise-Reduction funnel's per-band buckets.
+SEVERITY_BANDS = ("critical", "high", "medium", "low", "info")

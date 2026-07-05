@@ -47,6 +47,7 @@ import {
 } from '@/ui/select';
 import { useAnnouncer } from './announcer';
 import { semanticColor } from './palette';
+import { ProvenanceTag, type Provenance } from './ProvenanceTag';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -95,6 +96,15 @@ export interface DataTableColumn<T> {
    * is a non-string node). Falls back to a string `header`, else the column id.
    */
   menuLabel?: string;
+  /**
+   * Provenance of this column's values (Round-7 #9b) — WHO produced them: the raw
+   * `source` (SIEM-asserted), the `ai` agent (LLM), or deterministic `code`. When set,
+   * a small `<ProvenanceTag variant="icon">` renders beside the header so the whole
+   * column is attributed at a glance. Use for columns whose provenance is CONSTANT
+   * (risk/verdict/confidence); per-row-varying provenance (severity) tags the cell
+   * instead. Absent → no tag (back-compatible).
+   */
+  provenance?: Provenance;
 }
 
 export interface DataTableProps<T> {
@@ -137,6 +147,14 @@ export interface DataTableProps<T> {
   className?: string;
   /** Caption / aria-label for the table (a11y). */
   ariaLabel?: string;
+
+  /**
+   * Pin the header row while the body scrolls (Round-7 #8). OFF by default
+   * (back-compatible). Passes through to the `<TableHeader sticky>` primitive, which
+   * parks the header under the app bar (`top-[var(--header-h)]`) with an OPAQUE
+   * background so scrolled rows never bleed through it.
+   */
+  sticky?: boolean;
 
   // ---- Column customization (Wave 7; optional + back-compatible) --------- //
   /**
@@ -274,6 +292,7 @@ export function DataTable<T>({
   density = 'normal',
   className,
   ariaLabel,
+  sticky = false,
   columnState,
   rowAccent,
 }: DataTableProps<T>) {
@@ -366,7 +385,7 @@ export function DataTable<T>({
       )}
     >
       <Table aria-label={ariaLabel}>
-        <TableHeader>
+        <TableHeader sticky={sticky}>
           <TableRow className="hover:bg-transparent">
             {selectable && (
               <TableHead className="w-10 px-4">
@@ -418,10 +437,22 @@ export function DataTable<T>({
                       )}
                     >
                       <span>{col.header}</span>
+                      {col.provenance && (
+                        <ProvenanceTag
+                          kind={col.provenance}
+                          variant="icon"
+                          className="ml-1"
+                        />
+                      )}
                       <SortIcon active={isActive} dir={sort?.dir} />
                     </button>
                   ) : (
-                    <span>{col.header}</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span>{col.header}</span>
+                      {col.provenance && (
+                        <ProvenanceTag kind={col.provenance} variant="icon" />
+                      )}
+                    </span>
                   )}
                 </TableHead>
               );

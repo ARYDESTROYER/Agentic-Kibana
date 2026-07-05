@@ -46,6 +46,7 @@ import {
   RESOLUTION_OPTIONS,
   TagInput,
 } from './shared';
+import { GradingSection, type GradingDraft } from './grading';
 
 export interface ConfirmActionDialogProps {
   /** The pending action, or null when the dialog is closed. */
@@ -74,6 +75,15 @@ export interface ConfirmActionDialogProps {
   onDispositionChange: (v: string) => void;
   reason: string;
   onReasonChange: (v: string) => void;
+
+  // Round-7 #10 (feedback-into-close). Only consumed when the pending action carries
+  // the `grading` field; the derived AI-decision grade is submitted as a SEPARATE
+  // `caseFeedback` POST by the orchestrator's `runAction` (never through `decide()`, #3).
+  /** The AI verdict on the case — feeds the derived agree/override grading badge. */
+  verdict?: string | null;
+  /** The in-dialog grading draft (owned by the orchestrator). */
+  grading: GradingDraft;
+  onGradingChange: (next: GradingDraft) => void;
 }
 
 export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
@@ -97,6 +107,9 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
   onDispositionChange,
   reason,
   onReasonChange,
+  verdict,
+  grading,
+  onGradingChange,
 }) => (
   <Dialog
     open={pending !== null}
@@ -105,7 +118,8 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
     }}
   >
     {pending ? (
-      <DialogContent className="max-w-md">
+      // Widen when grading is present so the derived badge + optional detail don't crowd.
+      <DialogContent className={pending.fields.includes('grading') ? 'max-w-lg' : 'max-w-md'}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <pending.icon className="h-5 w-5" />
@@ -222,6 +236,19 @@ export const ConfirmActionDialog: React.FC<ConfirmActionDialogProps> = ({
               onChange={(e) => onNoteChange(e.target.value)}
             />
           </div>
+
+          {/* Round-7 #10: grade the AI decision inline on close. The agree/override
+              signal is DERIVED from the disposition ↔ verdict diff (no "I agree"
+              button). `confirm_fp` carries no disposition picker, so its committed
+              outcome is FALSE_POSITIVE — feed that so the badge derives correctly. */}
+          {pending.fields.includes('grading') ? (
+            <GradingSection
+              verdict={verdict}
+              disposition={pending.key === 'confirm_fp' ? 'false_positive' : disposition}
+              draft={grading}
+              onChange={onGradingChange}
+            />
+          ) : null}
         </div>
 
         <DialogFooter>

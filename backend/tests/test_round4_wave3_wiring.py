@@ -175,6 +175,10 @@ async def test_round4_stores_survive_a_wire_rebuild():
         "app/stores/campaigns.py",
         "app/stores/baseline.py",
         "app/stores/batch_jobs.py",
+        # Round-7 Noise-Reduction counters (★a) — same #3 rail: pure banding + rollup +
+        # a durable counter store, never the case-manager.
+        "app/engine/noise_counters.py",
+        "app/stores/noise_counters.py",
     ],
 )
 def test_round4_modules_never_import_case_manager(module_path):

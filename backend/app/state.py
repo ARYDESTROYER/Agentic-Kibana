@@ -210,6 +210,12 @@ class AppState:
         # rebuild, exactly like the Round-3/4 stores. Advisory presentation state only
         # (#3-safe); never read by case_manager.decide().
         self._build_round5_stores()
+        # Round-7: durable Noise-Reduction counter store over the SAME shared KV — no new
+        # index/table/migration. Built here (BEFORE the poller/ingest service below) so its
+        # ``record`` is available to wire as their fail-open counter sink, and so a live
+        # handle survives every ``_wire()`` rebuild like the Round-3/4/5 stores. Advisory
+        # presentation state only (#3-safe); never read by case_manager.decide().
+        self._build_round7_stores()
         # Drop any memoised batch service so it re-binds to the freshly-built store +
         # gateway on the next access (a credential change rebuilds both).
         self._batch_service = None
@@ -358,6 +364,19 @@ class AppState:
             self.poller._primary._event_funnel = self._route_event_feed
         except Exception as exc:  # noqa: BLE001 — funnel wiring must never break a rewire
             logger.warning("event-funnel hook wiring failed (%s); routing disabled", exc)
+
+        # Round-7: wire the Noise-Reduction counter sink onto BOTH ingest paths as SEPARATE
+        # statements ALONGSIDE the EVENT-feed funnel above (P0 name-collision avoidance —
+        # this never replaces ``_event_funnel``). ``PollerManager.set_noise_sink`` fans the
+        # store's ``record`` out to EVERY child (primary + non-primary) and re-propagates it
+        # on ``rebuild()`` (so a source edit keeps it wired — no re-attach needed); the push
+        # ``IngestService`` records directly. Fail-open: the poll/ingest path is byte-identical
+        # when the sink is unset, and a counter-wiring glitch never breaks a rewire.
+        try:
+            self.poller.set_noise_sink(self.noise_counters.record)
+            self._real_ingest_service._noise_sink = self.noise_counters.record
+        except Exception as exc:  # noqa: BLE001 — counter wiring must never break a rewire
+            logger.warning("noise-counter sink wiring failed (%s); counters disabled", exc)
 
     async def _automation_notify(self, case, trigger: str) -> None:
         """Automation NOTIFY action → dispatch through the existing notification
@@ -589,6 +608,22 @@ class AppState:
 
         self.dashboards = DashboardStore(self._kv)
         self.rule_versions = RuleVersionStore(self._kv)
+
+    def _build_round7_stores(self) -> None:
+        """Construct the Round-7 KV-backed store over the active backend's KV (the SAME
+        shared ``self._kv`` the Round-3/4/5 stores use — works on ES + SQL, no new
+        index/table/migration). Built here so a live handle survives every ``_wire()``
+        rebuild, exactly like ``_build_round5_stores`` above.
+
+        * ``noise_counters`` — durable raw-alert-by-severity ingest counters backing the
+          Noise-Reduction funnel ("total alerts by severity → what the AI reduced it to").
+
+        ADVISORY accounting only: it NEVER feeds the deterministic ``case_manager.decide()``
+        (#3), recomputes a ``cluster_signature`` (#4), or slows the poll/ingest path (its
+        record path is fail-open)."""
+        from .stores.noise_counters import NoiseCounterStore
+
+        self.noise_counters = NoiseCounterStore(self._kv)
 
     @property
     def enrichment_registry(self):

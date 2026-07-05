@@ -17,8 +17,10 @@
  *      Badge/pill fills carry BOLD short text on a solid graphical fill — WCAG's
  *      3:1 large-text / UI-component bar governs (the primary-button axis is held to the
  *      stricter 4.5:1 since it is the main normal-weight CTA, and it clears it).
- *   3. NON-TEXT (focus ring, structural/interactive border, chart series) → ≥ 3:1
- *      (WCAG 1.4.11 graphical objects / UI components), measured on `--card`/`--background`.
+ *   3. NON-TEXT (focus ring, structural/interactive border, chart series, AND every
+ *      severity/status/verdict SOLID FILL used as a graphic — badge chip, timeline node,
+ *      gauge arc) → ≥ 3:1 (WCAG 1.4.11 graphical objects / UI components), measured on
+ *      `--card`/`--background`. (`--medium` light was 2.97:1 → nudged to clear the bar.)
  *
  * Usage:  node scripts/gate-contrast.mjs   (exit 0 = pass, 1 = fail)
  * Library: `checkContrast()` returns { ok, results[] } for the Vitest wiring.
@@ -76,6 +78,17 @@ const NON_TEXT_AXES = [
   { name: 'chart-8 on card', fg: '--chart-8', bg: '--card' },
 ];
 
+/**
+ * Severity / status / verdict SOLID FILLS (the `--<axis>` base token, NOT its `-text`
+ * tint) used as a NON-TEXT graphic — a badge chip, a StageTimeline node, a gauge arc,
+ * a severity dot. These carry meaning through color alone as a graphical object, so
+ * WCAG 1.4.11 (3:1 vs the adjacent `--card`) governs. Distinct from the on-fill bar,
+ * which measures the TEXT painted on top of the fill. Every distinct base token behind
+ * palette.ts SEVERITY_COLOR / STATUS_COLOR / VERDICT_COLOR: severity red→…→blue-grey,
+ * status green (success), status/verdict amber (warning).
+ */
+export const SEMANTIC_FILL_AXES = ['critical', 'high', 'medium', 'low', 'info', 'success', 'warning'];
+
 function push(results, theme, name, kind, bar, fg, bg) {
   if (!fg || !bg) {
     // A required contrast pair that does not resolve is itself a failure (the token
@@ -117,6 +130,18 @@ export function checkContrast() {
     // Bar 3 — non-text graphical/UI axes.
     for (const { name, fg, bg } of NON_TEXT_AXES) {
       push(results, theme, name, 'nontext', AA_NONTEXT, resolveTokenRgb(fg, map), resolveTokenRgb(bg, map));
+    }
+    // Bar 3 (cont.) — semantic base fills as a graphic on the card (WCAG 1.4.11).
+    for (const axis of SEMANTIC_FILL_AXES) {
+      push(
+        results,
+        theme,
+        `${axis} fill on card`,
+        'nontext',
+        AA_NONTEXT,
+        resolveTokenRgb(`--${axis}`, map),
+        resolveTokenRgb('--card', map),
+      );
     }
   }
   return { ok: results.every((r) => r.pass), results };

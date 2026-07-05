@@ -74,8 +74,10 @@ function kindMeta(kind: string): KindMeta {
 
 /* ----------------------------------------------------------- decision step -- */
 
-/** Read the typed decision payload off a terminal `decision` span (defensive). */
-function decisionPayload(span: TraceSpan): DecisionPayload {
+/** Read the typed decision payload off a terminal `decision` span (defensive).
+ *  Exported so the pinned DecisionCard (casedetail/DecisionCard.tsx) reads the exact
+ *  `policy_clause` from the same span shape without duplicating the coercion. */
+export function decisionPayload(span: TraceSpan): DecisionPayload {
   const p = span.payload_ref;
   return (p && typeof p === 'object' ? (p as DecisionPayload) : {}) as DecisionPayload;
 }

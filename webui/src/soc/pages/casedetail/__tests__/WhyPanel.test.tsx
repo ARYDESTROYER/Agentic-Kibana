@@ -60,6 +60,57 @@ describe('WhyPanel — knowledge source fallback (#31)', () => {
   });
 });
 
+describe('WhyPanel — hideDecision / hideMitre props (Round-7 D1b)', () => {
+  const rationale = {
+    verdict: 'true_positive',
+    status: 'open',
+    decision_rationale: 'closed by policy',
+    mitre: ['T1110'],
+  } as unknown as CaseRationale;
+
+  it('renders the Decision card and MITRE by default', () => {
+    render(
+      <WhyPanel c={CASE} rationale={rationale} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+    expect(screen.getByText('Decision')).toBeInTheDocument();
+    expect(screen.getByText('Deterministic decision')).toBeInTheDocument();
+    expect(screen.getByText('MITRE ATT&CK techniques')).toBeInTheDocument();
+  });
+
+  it('hides the Decision card when hideDecision is set (InvestigationPanel pins its own DecisionCard)', () => {
+    render(
+      <WhyPanel
+        c={CASE}
+        rationale={rationale}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        hideDecision
+      />,
+    );
+    expect(screen.queryByText('Decision')).toBeNull();
+    expect(screen.queryByText('Deterministic decision')).toBeNull();
+    // The rest of the reasoning lane still renders.
+    expect(screen.getByText('Agent reasoning')).toBeInTheDocument();
+  });
+
+  it('hides the MITRE card when hideMitre is set (surfaced once on the Threat tab)', () => {
+    render(
+      <WhyPanel
+        c={CASE}
+        rationale={rationale}
+        loading={false}
+        error={null}
+        onRetry={vi.fn()}
+        hideMitre
+      />,
+    );
+    expect(screen.queryByText('MITRE ATT&CK techniques')).toBeNull();
+    // Only MITRE is hidden — the Decision card stays.
+    expect(screen.getByText('Decision')).toBeInTheDocument();
+  });
+});
+
 describe('WhyPanel — error state (#33)', () => {
   it('renders the shared LoadError (coerced message + Retry) instead of a hand-rolled Alert', () => {
     const onRetry = vi.fn();

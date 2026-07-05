@@ -55,6 +55,26 @@ describe('ThreatContextPanel — MITRE technique links (#32)', () => {
   });
 });
 
+describe('ThreatContextPanel — Related cases + Evidence dedup (Round-7 D1b)', () => {
+  it('does not render Related cases or Evidence sections (they live on the Overview tab)', () => {
+    const panel = {
+      summary: 'suspicious brute force burst',
+      related_cases: [{ case_id: 'c2', title: 'Prior brute force' }],
+      evidence: [{ summary: 'evidence blob', query: 'event.action:login' }],
+    } as unknown as ThreatContextPanelData;
+    render(
+      <ThreatContextPanel c={CASE} panel={panel} loading={false} error={null} onRetry={vi.fn()} />,
+    );
+    // The duplicated sections are gone from this tab...
+    expect(screen.queryByText('Related cases')).toBeNull();
+    expect(screen.queryByText('Evidence')).toBeNull();
+    expect(screen.queryByText('Prior brute force')).toBeNull();
+    // ...but the threat summary still renders, so the panel isn't treated as empty.
+    expect(screen.getByText('suspicious brute force burst')).toBeInTheDocument();
+    expect(screen.queryByText(/produced no sections/i)).toBeNull();
+  });
+});
+
 describe('ThreatContextPanel — error state (#33)', () => {
   it('renders the shared LoadError (coerced message + Retry) instead of a hand-rolled Alert', () => {
     const onRetry = vi.fn();

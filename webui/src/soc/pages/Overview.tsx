@@ -1,40 +1,43 @@
 /**
- * Overview — the Security Posture Dashboard (default landing surface).
+ * Overview — the Security Command Center (default landing surface).
  *
- * Round-5 Dash-A/Dash-B rework (DESIGN_STANDARD §4.2/§4.3): a DENSE, three-zone
- * operational dashboard that uses ultrawide real estate instead of a marketing hero
- * over a crammed nested grid.
+ * Round-5 Dash-A/Dash-B rework + Round-7 W1.A command-center integration: a DENSE,
+ * three-zone operational dashboard that uses ultrawide real estate instead of a
+ * marketing hero over a crammed nested grid.
  *
- *   ┌ HERO ──── compact <PageHeader variant="hero"> (~64px), not a tall band.
- *   ├ CONTROL BAR ─ <TimeRangePicker> (relative ES date-math) + auto-refresh (default
- *   │               Off, cost-metered) + a last-refresh stamp.
- *   ├ KPI STRIP ─── a flat, un-nested responsive grid of drill-down KpiTiles, each with
- *   │               the correct `goodDirection` (lower-is-better for open/FP/MTTA/…).
- *   └ WIDGET GRID ─ named collapsible <DashboardGroup> bands (severity, attention queue,
- *                   autonomous-vs-human split [#3 trust surface], timing, cost/budget,
- *                   connector health, MITRE below the fold).
+ *   ┌ HERO ──── compact <PageHeader variant="hero"> (~64px). Its top-right `actions`
+ *   │           slot carries the Active Risk Index (#1 — the ONE risk instrument) beside
+ *   │           the <TimeRangePicker> (relative ES date-math) + auto-refresh (default Off,
+ *   │           cost-metered) + a manual refresh pulse. There is NO second control band.
+ *   ├ KPI STRIP ─── a flat, un-nested responsive grid of ~5 signal + spend KpiTiles, each
+ *   │               with the correct `goodDirection`, a count-up on the integer tiles, and
+ *   │               a period-over-period delta wired from the server `posture.compare`.
+ *   └ WIDGET GRID ─ a full-width Noise-Reduction funnel band on top, then named collapsible
+ *                   <DashboardGroup> bands (severity, attention queue, autonomous-vs-human
+ *                   split [#3 trust surface], timing, case-volume trend, connector health,
+ *                   workload, top signatures/entities).
  *
- * Data: `usePosture(hours)` is the AUTHORITATIVE server-side lifecycle rollup (MTTA/MTTR/
- * dwell p50 + SLA, with honest labelled DASH) — the old ~120 lines of client-side timing
- * math that shadowed it are GONE. `listCases`/`getMetrics`/`usageSummary`/`ragStats` are
- * fetched with allSettled so one failing call degrades a single widget, never the page.
+ * Data: `usePosture(hours, 'prev')` is the AUTHORITATIVE server-side lifecycle rollup
+ * (MTTA/MTTR/dwell p50 + SLA + quality rates + period-over-period `compare` deltas). The
+ * old ~120 lines of client-side timing math that shadowed it are GONE. `listCases` /
+ * `getMetrics` / `usageSummary` / `noiseReduction` are fetched with allSettled so one
+ * failing call degrades a single widget, never the page. `noiseReduction` is typeof-guarded
+ * so a minimal test/mock surface simply omits the funnel.
  *
  * Security (#9): every label/value here is a humanized enum, a formatted number, or
- * backend-derived text rendered as PLAIN text (BarList labels, source names). No untrusted
- * string is ever injected as markup.
+ * backend-derived text rendered as PLAIN text (BarList labels, source/signature/entity
+ * names). No untrusted string is ever injected as markup.
  *
  * Advisory (#3): NOTHING on this dashboard feeds `decide()` — it reads the outcome of
  * triage; it never influences close/escalate.
  */
 import * as React from 'react';
 import {
-  Boxes,
   CircleDollarSign,
   Clock3,
-  Database,
   Gauge,
   Inbox,
-  LayoutDashboard,
+  Percent,
   Plug,
   Radar,
   RefreshCw,
@@ -48,7 +51,7 @@ import { api } from '@/lib/api';
 import type {
   Case,
   Metrics,
-  RagStats,
+  NoiseReduction,
   UsageSummary,
 } from '@/lib/types';
 import {
@@ -62,7 +65,6 @@ import { cn } from '@/lib/cn';
 
 import { PageContainer } from '@/soc/components/PageContainer';
 import { PageHeader } from '@/soc/components/PageHeader';
-import { ControlBar } from '@/soc/components/ControlBar';
 import {
   TimeRangePicker,
   DEFAULT_RANGE,
@@ -71,8 +73,12 @@ import {
   type RefreshValue,
 } from '@/soc/components/TimeRangePicker';
 import { DashboardGroup } from '@/soc/components/DashboardGroup';
-import { KpiTile, type KpiAccent } from '@/soc/components/KpiTile';
-import { RiskGauge } from '@/soc/components/RiskGauge';
+import { KpiTile, type KpiAccent, type KpiDelta } from '@/soc/components/KpiTile';
+import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
+import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
+import { Reveal } from '@/soc/components/Reveal';
+import { TrendArea } from '@/soc/components/charts';
+import { isAutoClosedByAI, severityBand, severityBandFromNumber } from '@/soc/components/badges';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
@@ -86,7 +92,13 @@ import {
 import { Button } from '@/ui/button';
 import { Skeleton } from '@/ui/skeleton';
 
-import { humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
+import {
+  humanizeMinutes as humanizeMins,
+  ratioPct,
+  deltaView,
+  LIFECYCLE_METRICS,
+  type LifecycleMetricKey,
+} from './posture.format';
 
 /**
  * The Overview hero title — the app's white-screen boot guard anchors on it (the
@@ -94,7 +106,7 @@ import { humanizeMinutes as humanizeMins, ratioPct } from './posture.format';
  * constant so the title can be reworded here WITHOUT breaking the tests that check
  * "the app booted" (they import this constant rather than hardcoding the copy).
  */
-export const PAGE_TITLE = 'Security Posture Dashboard';
+export const PAGE_TITLE = 'Security Command Center';
 
 interface OverviewProps {
   /**
@@ -106,10 +118,24 @@ interface OverviewProps {
 }
 
 const OPEN_STATUSES = new Set(['open', 'investigating', 'in_progress', 'new', 'on_hold']);
-const CLOSED_STATUSES = new Set(['closed', 'resolved', 'auto_closed']);
+const CLOSED_STATUSES = new Set(['closed', 'resolved']);
 
 /** Per-browser dismissal flag for the recommended-automation nudge (onboarding). */
 const NUDGE_KEY = 'tlsoc.overview.automationNudge';
+/** Per-browser hide flag for the Noise-Reduction funnel band (the per-user hide toggle). */
+const NOISE_HIDE_KEY = 'tlsoc.overview.noiseFunnelHidden';
+
+/** Format an integer count for a count-up tile (thousands-separated). */
+const fmtInt = (n: number): string => fmtNumber(n);
+
+/**
+ * Adapt a `deltaView()` result to the KpiTile `delta` prop. Only render a delta when a
+ * real comparison exists; the "new growth" case (value undefined) carries a 0 so the
+ * tile draws a neutral (non-misleading) marker with the "new" label.
+ */
+function toKpiDelta(dv: ReturnType<typeof deltaView>): KpiDelta | undefined {
+  return dv.show ? { value: dv.value ?? 0, label: dv.label } : undefined;
+}
 
 /** Round a resolved range down to whole hours (min 1) for the window-scoped fetches. */
 function rangeHours(range: TimeRange): number {
@@ -145,14 +171,20 @@ const SEV_LABEL: Record<SevKey, string> = {
   info: 'Informational',
 };
 
-/** Normalise a case risk_score into a severity band (matches RiskBadge bands). */
-function bandOf(score?: number): SevKey {
-  const s = typeof score === 'number' && Number.isFinite(score) ? score : 0;
-  if (s >= 80) return 'critical';
-  if (s >= 60) return 'high';
-  if (s >= 35) return 'medium';
-  if (s >= 15) return 'low';
-  return 'info';
+/** Normalise a CASE into a severity band, using the SAME preference order as the Cases
+ *  severity FILTER (`Cases.tsx caseSeverityBand`): prefer the source-asserted advisory
+ *  `severity_band`, then fall back to the deterministic `risk_score` on the ONE SEVERITY
+ *  authority (`badges.ts` — severityBand/severityBandFromNumber, the 74/48/22/8 ladder).
+ *
+ *  Bucketing here MUST agree with that filter so the "Open cases by severity" widget
+ *  count reconciles with the drilled Cases list even for source_asserted cases where
+ *  `severity_band` disagrees with `bandOf(risk_score)` (Round-7 QA drill regression). The
+ *  risk-band fallback keeps the exact prior behaviour for cases with no `severity_band`. */
+function bandOfCase(k: Case): SevKey {
+  const explicit = severityBand(k.severity_band);
+  if (explicit) return explicit;
+  const s = typeof k.risk_score === 'number' && Number.isFinite(k.risk_score) ? k.risk_score : 0;
+  return severityBandFromNumber(s);
 }
 
 /** Workload-status → bar color token. */
@@ -163,6 +195,30 @@ function statusBar(status: string): string {
   if (CLOSED_STATUSES.has(t)) return 'bg-success';
   if (t === 'reopened') return 'bg-warning';
   return 'bg-accent-bar';
+}
+
+/** A compact, honest label for the selected window ("24 hours" / "7 days"). */
+function windowLabel(hours: number): string {
+  if (hours % 24 === 0) {
+    const d = hours / 24;
+    return `${d} day${d === 1 ? '' : 's'}`;
+  }
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
+/** One KPI-strip tile descriptor (built in a memo, rendered as a <KpiTile>). */
+interface KpiItem {
+  label: string;
+  value: React.ReactNode;
+  sub?: string;
+  icon: typeof Inbox;
+  accent: KpiAccent;
+  goodDirection: 'up' | 'down' | 'none';
+  onClick?: () => void;
+  delta?: KpiDelta;
+  /** When set, the value rolls to this integer via <CountUp>. Integers only. */
+  countTo?: number;
+  format?: (n: number) => string;
 }
 
 export default function Overview({ onNavigate }: OverviewProps) {
@@ -181,14 +237,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
   // ----- Dashboard data loads --------------------------------------------- //
   // NOTE (Round-6 #37): `listCases` now honours the selected range too — it is fetched
   // with a `from=now-${hours}h` created-at window, so every case-DERIVED widget below
-  // (open/severity/entities/connector-health/workload) reflects the TimeRangePicker,
-  // alongside `usageSummary` (cost ledger) + `usePosture` which already did. Only
-  // `getMetrics.total_cases` stays all-time (its `window_hours` scopes just the cost
-  // sub-block) — surfaced honestly as "Total Cases" (all tracked), never the range.
+  // (open/severity/signatures/entities/connector-health/workload) reflects the
+  // TimeRangePicker, alongside `usageSummary` (cost ledger) + `usePosture` (which already
+  // did). `getMetrics` supplies the by-status workload, the cases-per-day trend, and the
+  // all-time `total_cases` used only to distinguish the empty state.
   const [cases, setCases] = React.useState<Case[]>([]);
   const [metrics, setMetrics] = React.useState<Metrics | null>(null);
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
-  const [rag, setRag] = React.useState<RagStats | null>(null);
+  const [noise, setNoise] = React.useState<NoiseReduction | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [lastRefreshMs, setLastRefreshMs] = React.useState<number | null>(null);
@@ -197,19 +253,26 @@ export default function Overview({ onNavigate }: OverviewProps) {
     setLoading(true);
     setError(null);
     try {
-      const [c, m, u, r] = await Promise.allSettled([
+      // The Noise-Reduction funnel is a Round-7 feature; typeof-guard the call so a
+      // minimal test/mock surface (no `noiseReduction`) simply resolves null and the
+      // funnel band self-omits (mirrors the AutomationNudge guard below).
+      const noiseP: Promise<NoiseReduction | null> =
+        typeof api.noiseReduction === 'function'
+          ? api.noiseReduction(hours)
+          : Promise.resolve(null);
+      const [c, m, u, n] = await Promise.allSettled([
         // #37: window the case sample by created-at so the case-derived widgets honour
         // the range. Backend caps at 200 by created-desc, so this is the most-recent
         // slice within the window (what the KPI/severity/health widgets summarise).
         api.listCases({ limit: 200, from: `now-${hours}h` }),
         api.getMetrics(hours),
         api.usageSummary(hours),
-        api.ragStats(),
+        noiseP,
       ]);
       if (c.status === 'fulfilled') setCases(c.value.cases ?? []);
       if (m.status === 'fulfilled') setMetrics(m.value);
       if (u.status === 'fulfilled') setUsage(u.value);
-      if (r.status === 'fulfilled') setRag(r.value);
+      if (n.status === 'fulfilled') setNoise(n.value ?? null);
       // Only surface a page-level error if the load is wholly empty (the cases +
       // metrics calls both failed) — partial failures degrade per-widget.
       if (c.status === 'rejected' && m.status === 'rejected') {
@@ -228,15 +291,39 @@ export default function Overview({ onNavigate }: OverviewProps) {
   }, [load]);
 
   // Server-side posture rollup (Round 3) — the AUTHORITATIVE lifecycle (MTTA/MTTR/
-  // dwell p50 with an honest labelled DASH) + SLA. This REPLACES the deleted ~120
-  // lines of client-side timing derivation. `usePosture` (useAsync) reloads on `hours`.
-  const { data: posture, reload: reloadPosture } = usePosture(hours);
+  // dwell p50 with an honest labelled DASH) + SLA + quality rates. `'prev'` also asks
+  // for the period-over-period `compare` block that wires the KPI-strip deltas. This
+  // REPLACES the deleted ~120 lines of client-side timing derivation.
+  const { data: posture, reload: reloadPosture } = usePosture(hours, 'prev');
 
   /** One refresh pulse for the whole dashboard (control-bar button + auto-refresh tick). */
   const refreshAll = React.useCallback(() => {
     void load();
     void reloadPosture();
   }, [load, reloadPosture]);
+
+  // ----- Noise-Reduction funnel: per-user hide toggle (persisted) --------- //
+  // Persisted per-browser (localStorage) rather than the server UserPrefsStore because
+  // Overview is rendered provider-less in unit tests + the AutomationNudge precedent
+  // already uses localStorage. Satisfies the "per-user hide toggle" requirement.
+  const [noiseHidden, setNoiseHidden] = React.useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NOISE_HIDE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleNoiseHidden = React.useCallback(() => {
+    setNoiseHidden((h) => {
+      const next = !h;
+      try {
+        localStorage.setItem(NOISE_HIDE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore storage errors */
+      }
+      return next;
+    });
+  }, []);
 
   // ----- Recommended-automation nudge (onboarding-beginner) --------------- //
   // Shows ONCE when a source is enabled but threshold tuning is still off (and not
@@ -281,14 +368,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
   }, []);
 
   // ----- Derived case-shape breakdowns (NOT lifecycle timing) ------------- //
-  // Only what the server posture rollup does NOT provide: open-by-severity, distinct
-  // entities, per-source signal, and the status workload. All pure counts over the
-  // case sample — no timing math (that lives on the server now).
+  // Only what the server posture rollup does NOT provide: open-by-severity, per-source
+  // signal, and the status workload. All pure counts over the case sample — no timing
+  // math (that lives on the server now).
   const derived = React.useMemo(() => {
     let open = 0;
     let critical = 0;
     let criticalHighAlerts = 0;
-    const entities = new Set<string>();
     const sevCounts: Record<SevKey, number> = {
       critical: 0,
       high: 0,
@@ -302,12 +388,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
       const st = (k.status || '').toLowerCase();
       if (OPEN_STATUSES.has(st)) open += 1;
 
-      const band = bandOf(k.risk_score);
+      const band = bandOfCase(k);
       sevCounts[band] += 1;
       if (band === 'critical') critical += 1;
       if (band === 'critical' || band === 'high') criticalHighAlerts += 1;
-
-      if (k.entity?.value) entities.add(`${k.entity.type || 'entity'}:${k.entity.value}`);
 
       // Product / category signal = the originating source (plain backend text).
       const product = k.source_name || k.source_id || 'Unattributed';
@@ -318,7 +402,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
       open,
       critical,
       criticalHighAlerts,
-      entities: entities.size,
       sevCounts,
       productCounts,
     };
@@ -345,9 +428,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
     for (const k of cases) {
       const st = (k.status || '').toLowerCase();
       if (st === 'needs_human' || st === 'escalated') escalated += 1;
-      else if (st === 'auto_closed' || (CLOSED_STATUSES.has(st) && k.decision_by === 'auto')) {
-        autoClosed += 1;
-      }
+      // #11: "auto-closed by AI" = a terminal case whose recorded close decision came
+      // from the agent actor (there is no `auto_closed` status / `auto` decider in the
+      // backend). Shares the ONE predicate with AutoClosedBadge so the two never drift.
+      else if (isAutoClosedByAI(k.status, k.decision_by)) autoClosed += 1;
     }
     const total = autoClosed + escalated;
     return {
@@ -359,16 +443,22 @@ export default function Overview({ onNavigate }: OverviewProps) {
   }, [posture, cases]);
 
   // ----- Response-timing trio (server posture, honest DASH) --------------- //
+  // #4: honest labels + (?) help — the SINGLE `LIFECYCLE_METRICS` copy source gives
+  // Dwell / MTTA / MTTR their real labels + the exact-formula HelpTip text (no invented
+  // "MTTD"; Dwell is time-to-first-response, not time-to-detect). Values still come
+  // straight from the server posture rollup.
   const timing = React.useMemo(() => {
     const life = posture?.lifecycle;
     const block = (
-      label: string,
-      key: 'dwell_minutes' | 'mtta_minutes' | 'mttr_minutes',
+      metric: LifecycleMetricKey,
+      statKey: 'dwell_minutes' | 'mtta_minutes' | 'mttr_minutes',
       accent: KpiAccent,
     ) => {
-      const b = life?.[key];
+      const b = life?.[statKey];
+      const copy = LIFECYCLE_METRICS[metric];
       return {
-        label,
+        label: copy.label,
+        help: copy.help,
         value: b && b.available ? humanizeMins(b.p50) : DASH,
         sub:
           b && b.available
@@ -378,9 +468,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
       };
     };
     return [
-      block('MTTD (dwell)', 'dwell_minutes', 'info'),
-      block('MTTA', 'mtta_minutes', 'medium'),
-      block('MTTR', 'mttr_minutes', 'success'),
+      block('dwell', 'dwell_minutes', 'info'),
+      block('mtta', 'mtta_minutes', 'medium'),
+      block('mttr', 'mttr_minutes', 'success'),
     ];
   }, [posture]);
 
@@ -393,19 +483,34 @@ export default function Overview({ onNavigate }: OverviewProps) {
     return { atRisk, breached, attainment: sla.attainment_pct ?? 0 };
   }, [posture]);
 
-  // Weighted risk pressure (0..100) — average risk, lifted by critical density.
-  const riskIndex = React.useMemo(() => {
-    const avg =
-      typeof metrics?.avg_risk_score === 'number' && metrics.avg_risk_score > 0
-        ? metrics.avg_risk_score
-        : cases.length
-          ? cases.reduce((a, k) => a + (k.risk_score ?? 0), 0) / cases.length
-          : 0;
-    const total = cases.length || 1;
-    const criticalDensity = derived.critical / total; // 0..1
-    const score = avg * 0.7 + criticalDensity * 100 * 0.3;
-    return Math.max(0, Math.min(100, Math.round(score)));
-  }, [metrics, cases, derived.critical]);
+  // ----- Active Risk Index (#1) — the ONE Command-Center risk instrument -- //
+  // Canonical value = the mean deterministic `risk_score` over the currently OPEN
+  // (non-terminal) cases, computed server-side (`Metrics.active_risk_index`). When the
+  // backend has not populated it we fall back to the mean over the OPEN cases in the
+  // loaded sample, then to the all-case average — never a fabricated 0 (ActiveRiskIndex
+  // degrades to an honest DASH when there are no open cases). Advisory only (#3): the
+  // index is ranking presentation and was never fed to the deterministic decide().
+  const activeRisk = React.useMemo<{ score: number | null; count: number }>(() => {
+    if (
+      typeof metrics?.active_risk_index === 'number' &&
+      Number.isFinite(metrics.active_risk_index)
+    ) {
+      return {
+        score: Math.round(metrics.active_risk_index),
+        count: metrics.active_risk_case_count ?? derived.open,
+      };
+    }
+    const openCases = cases.filter((k) => OPEN_STATUSES.has((k.status || '').toLowerCase()));
+    if (openCases.length) {
+      const mean = openCases.reduce((a, k) => a + (k.risk_score ?? 0), 0) / openCases.length;
+      return { score: Math.round(mean), count: openCases.length };
+    }
+    const avg = metrics?.avg_risk_score;
+    return {
+      score: typeof avg === 'number' && Number.isFinite(avg) ? Math.round(avg) : null,
+      count: 0,
+    };
+  }, [metrics, cases, derived.open]);
 
   // ----- BarList datasets -------------------------------------------------- //
   const productItems: BarListItem[] = React.useMemo(() => {
@@ -419,6 +524,51 @@ export default function Overview({ onNavigate }: OverviewProps) {
         sub: `${Math.round((value / total) * 100)}% of case telemetry`,
       }));
   }, [derived.productCounts, cases.length]);
+
+  // Top signatures — the most-frequent detections (case title / cluster signature /
+  // rule). Labels are UNTRUSTED → BarList renders them as plain text (#9).
+  const signatureItems: BarListItem[] = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const k of cases) {
+      const label =
+        (k.title || k.cluster_signature || k.rule_ids?.[0] || 'Uncategorized').trim() ||
+        'Uncategorized';
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+    const total = cases.length || 1;
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([label, value]) => ({
+        label,
+        value,
+        sub: `${Math.round((value / total) * 100)}% of cases`,
+      }));
+  }, [cases]);
+
+  // Top entities — the most-implicated assets (ip/host/user/…). Entity value is
+  // UNTRUSTED → plain text (#9); the sub carries the humanized entity type.
+  const entityItems: BarListItem[] = React.useMemo(() => {
+    const counts: Record<string, { value: number; type: string }> = {};
+    for (const k of cases) {
+      const v = k.entity?.value;
+      if (!v) continue;
+      const type = k.entity?.type || k.entity_type || 'entity';
+      const key = String(v);
+      if (!counts[key]) counts[key] = { value: 0, type };
+      counts[key].value += 1;
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1].value - a[1].value)
+      .slice(0, 8)
+      .map(([label, info]) => ({ label, value: info.value, sub: humanizeToken(info.type) }));
+  }, [cases]);
+
+  // Case-volume trend — server `cases_per_day` mapped to the TrendArea point shape.
+  const caseVolume = React.useMemo(
+    () => (metrics?.cases_per_day ?? []).map((d) => ({ x: d.date, y: d.count })),
+    [metrics],
+  );
 
   const workloadItems = React.useMemo(() => {
     const byStatus = metrics?.by_status ?? {};
@@ -437,47 +587,44 @@ export default function Overview({ onNavigate }: OverviewProps) {
       .map(([status, value]) => ({ status, value }));
   }, [metrics, cases]);
 
-  // ----- KPI strip (4-6+ drill-down tiles) --------------------------------- //
-  const kpis: {
-    label: string;
-    value: React.ReactNode;
-    sub?: string;
-    icon: typeof Inbox;
-    accent: KpiAccent;
-    goodDirection: 'up' | 'down' | 'none';
-    onClick?: () => void;
-  }[] = React.useMemo(
-    () => [
+  // ----- KPI strip — ~5 signal tiles + spend (trimmed from the old 7) ------ //
+  // Integer tiles roll via <CountUp> (`countTo`); % / money render a formatted string.
+  // A period-over-period delta from `posture.compare` is attached ONLY when the tile's
+  // displayed value and the compare metric share the SAME UNIT — so the False-Positive
+  // RATE tile carries `false_positive_rate`, but the COUNT tiles (Open / Escalated /
+  // Auto-Resolved) carry no delta rather than a rate/total delta that could contradict
+  // the number. The comparison window is stated once under the strip. Every tile drills
+  // through to a filtered destination.
+  const kpis: KpiItem[] = React.useMemo(() => {
+    const compare = posture?.compare;
+    const fpRate = posture?.quality?.false_positive_rate;
+    const autoResolved = posture?.quality?.auto_closed_cases ?? autonomy.autoClosed;
+    const escalated = metrics?.needs_human_cases ?? autonomy.escalated;
+    return [
       {
         label: 'Open Cases',
         value: fmtNumber(derived.open),
+        countTo: derived.open,
+        format: fmtInt,
         sub: `${fmtNumber(cases.length)} cases tracked`,
         icon: Inbox,
         accent: 'critical',
         goodDirection: 'down', // fewer open cases is better
+        // No delta: this tile shows the OPEN count, but the only case-count compare
+        // metric is `case_count` (TOTAL cases) — a unit mismatch whose arrow/colour
+        // could contradict the shown number. Show no delta rather than a misleading one.
         onClick: navigate
           ? () => navigate('cases', { status: 'open', window: navWindow })
           : undefined,
       },
       {
-        // NOT window-scoped — `total_cases` is all-time (the recent-capped total), so
-        // this reads honestly as "Total Cases" rather than falsely implying the range.
-        label: 'Total Cases',
-        value: fmtNumber(metrics?.total_cases ?? cases.length),
-        sub: 'All tracked cases',
-        icon: LayoutDashboard,
-        accent: 'info',
-        goodDirection: 'none',
-        onClick: navigate ? () => navigate('cases') : undefined,
-      },
-      {
         // #38: deep-links to a severity-filtered Cases view. The tile aggregates TWO
         // bands (critical + high) but the Cases severity facet is single-band, so we
-        // drill to the WORST non-empty band — critical when any exist (worst-first, and
-        // matching the "N critical observed" sub), else high (which then equals the whole
-        // crit/high set). Carries the window so the list matches the selected range.
+        // drill to the WORST non-empty band — critical when any exist, else high.
         label: 'Critical / High',
         value: fmtNumber(derived.criticalHighAlerts),
+        countTo: derived.criticalHighAlerts,
+        format: fmtInt,
         sub: `${fmtNumber(derived.critical)} critical observed`,
         icon: ShieldAlert,
         accent: 'high',
@@ -492,32 +639,47 @@ export default function Overview({ onNavigate }: OverviewProps) {
       },
       {
         label: 'Escalated To Human',
-        value: fmtNumber(metrics?.needs_human_cases ?? autonomy.escalated),
+        value: fmtNumber(escalated),
+        countTo: escalated,
+        format: fmtInt,
         sub: 'Awaiting analyst review',
         icon: Workflow,
         accent: 'low',
         goodDirection: 'down',
+        // No delta: this tile shows a COUNT but the only escalation compare metric is
+        // `escalation_rate` (a RATE) — a unit mismatch whose delta could contradict the
+        // count. Show no delta rather than a misleading one.
         onClick: navigate
           ? () => navigate('cases', { status: 'needs_human', window: navWindow })
           : undefined,
       },
       {
-        label: 'Artifacts In Scope',
-        value: fmtNumber(derived.entities),
-        sub: 'Distinct entities linked to cases',
-        icon: Boxes,
+        // NEW (Round-7): the agent's precision signal — the server-computed share of
+        // cases closed as false positives. A rate → formatted string, no count-up.
+        label: 'False Positive Rate',
+        value: ratioPct(fpRate),
+        sub: 'Cases closed as false positives',
+        icon: Percent,
         accent: 'medium',
-        goodDirection: 'none',
+        goodDirection: 'down', // a lower FP rate is better
+        delta: toKpiDelta(deltaView(compare?.false_positive_rate)),
+        onClick: navigate ? () => navigate('metrics', { tab: 'posture' }) : undefined,
       },
       {
-        label: 'Knowledge Signals',
-        value: fmtNumber(rag?.document_count),
-        sub: `${fmtNumber(rag?.total_chunks)} indexed chunks`,
-        icon: Database,
+        // NEW (Round-7): how much the agent resolved on its own (the #3 payoff).
+        label: 'Auto-Resolved',
+        value: fmtNumber(autoResolved),
+        countTo: autoResolved,
+        format: fmtInt,
+        sub: 'Closed autonomously by the agent',
+        icon: ShieldCheck,
         accent: 'success',
-        goodDirection: 'up',
+        goodDirection: 'up', // more autonomous resolution is better
+        // No delta: this tile shows a COUNT but the only automation compare metric is
+        // `automation_rate` (a RATE) — a unit mismatch whose delta could contradict the
+        // count. Show no delta rather than a misleading one.
         onClick: navigate
-          ? () => navigate('intelligence', { tab: 'knowledge' })
+          ? () => navigate('cases', { status: 'closed', window: navWindow })
           : undefined,
       },
       {
@@ -532,61 +694,84 @@ export default function Overview({ onNavigate }: OverviewProps) {
         goodDirection: 'down', // lower spend is better
         onClick: navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined,
       },
-    ],
-    [derived, metrics, cases.length, rag, usage, navWindow, autonomy.escalated, navigate],
+    ];
+  }, [derived, metrics, cases.length, usage, navWindow, autonomy.escalated, autonomy.autoClosed, posture, navigate]);
+
+  // ----- Noise-Reduction funnel drill-through ----------------------------- //
+  // Each stage deep-links into the pre-filtered Cases list (only NavOpts-valid keys —
+  // status/window; the pre-case + true-positive stages carry the window only).
+  const onStageClick = React.useCallback(
+    (key: string) => {
+      if (!navigate) return;
+      switch (key) {
+        case 'needs_human':
+          navigate('cases', { status: 'needs_human', window: navWindow });
+          break;
+        case 'escalated':
+          navigate('cases', { status: 'escalated', window: navWindow });
+          break;
+        case 'auto_cleared':
+          navigate('cases', { status: 'closed', window: navWindow });
+          break;
+        default:
+          navigate('cases', { window: navWindow });
+      }
+    },
+    [navigate, navWindow],
   );
 
-  // ----- The compact control bar (shared across all three-zone dashboards) - //
-  const controlBar = (
-    <ControlBar
-      variant="flat"
-      label="Dashboard controls"
-      controls={
-        <>
-          <TimeRangePicker
-            value={range}
-            onChange={setRange}
-            refresh={refresh}
-            onRefreshChange={setRefresh}
-            onRefreshTick={refreshAll}
-            lastRefreshedMs={lastRefreshMs}
-            size="sm"
-          />
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={refreshAll}
-            aria-label="Refresh dashboard"
-            title="Refresh"
-            className="h-8 w-8"
-          >
-            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
-          </Button>
-        </>
-      }
-    />
+  // ----- The header control cluster (#6 — folded into PageHeader.actions) -- //
+  // Time range + auto-refresh + a manual refresh pulse. Lives in the compact hero's
+  // `actions` slot beside the Active Risk Index — there is no second full-width control
+  // band under the header (DESIGN_DIRECTION header-compaction).
+  const headerControls = (
+    <>
+      <TimeRangePicker
+        value={range}
+        onChange={setRange}
+        refresh={refresh}
+        onRefreshChange={setRefresh}
+        onRefreshTick={refreshAll}
+        lastRefreshedMs={lastRefreshMs}
+        size="sm"
+      />
+      <Button
+        variant="outline"
+        size="icon"
+        onClick={refreshAll}
+        aria-label="Refresh dashboard"
+        title="Refresh"
+        className="h-8 w-8"
+      >
+        <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
+      </Button>
+    </>
   );
 
   // ----- States ----------------------------------------------------------- //
-  // Loading skeleton mirrors the real three-zone layout in LOCKSTEP so nothing shifts.
+  // Loading skeleton mirrors the FINAL three-zone layout in LOCKSTEP so nothing shifts:
+  // a compact hero, the ~6-tile KPI strip, a reserved full-width Noise-Reduction band,
+  // then the widget rows (Row A: 2 · Row B: 3 · Row C: 2 · Row D: 2).
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
         <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
           {/* hero */}
           <Skeleton className="h-16 w-full rounded-lg" />
-          {/* control bar */}
-          <Skeleton className="h-9 w-72 rounded-md" />
-          {/* KPI strip — 7 tiles, same responsive grid as the real strip */}
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 2xl:grid-cols-7">
-            {Array.from({ length: 7 }).map((_, i) => (
+          {/* KPI strip — ~6 tiles, same responsive grid as the real strip */}
+          <div
+            data-testid="kpi-strip-skeleton"
+            className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6"
+          >
+            {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-[104px] rounded-lg" />
             ))}
           </div>
-          {/* widget grid — THREE rows in LOCKSTEP with the real layout: Row A + Row B
-              are xl:grid-cols-3, Row C is xl:grid-cols-2, so nothing shifts on load. */}
-          <div className="grid gap-6 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
+          {/* reserved Noise-Reduction funnel band (full width) */}
+          <Skeleton data-testid="noise-skeleton-row" className="h-44 w-full rounded-lg" />
+          {/* widget grid — Row A (2) + Row B (3) + Row C (2) + Row D (2), in LOCKSTEP. */}
+          <div className="grid gap-6 xl:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
             ))}
           </div>
@@ -595,6 +780,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <Skeleton key={i} className="h-56 rounded-lg" />
             ))}
           </div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Skeleton key={i} className="h-56 rounded-lg" />
+            ))}
+          </div>
+          {/* Row D — Top signatures / Top entities (the ranked-list band). */}
           <div className="grid gap-6 xl:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
               <Skeleton key={i} className="h-56 rounded-lg" />
@@ -612,12 +803,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
 
   return (
     <PageContainer variant="wide" className="space-y-6">
-      {/* ---- ZONE 1: compact hero (~64px) ---- */}
+      {/* ---- ZONE 1: compact hero (~64px) with the Active Risk Index + controls
+             folded into the actions slot (top-right) — no second control band ---- */}
       <PageHeader
         variant="hero"
         className="hero-display"
         data-testid="page-hero"
-        eyebrow="Security Command Center"
         icon={Radar}
         title={PAGE_TITLE}
         description="Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases."
@@ -638,10 +829,15 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </span>
           ) : undefined
         }
+        actions={
+          <>
+            {/* #1: the ONE risk instrument — mean deterministic risk over open cases,
+                with a (?) explaining the math. Compact (size 64) for the hero. */}
+            <ActiveRiskIndex score={activeRisk.score} count={activeRisk.count} size={64} />
+            {headerControls}
+          </>
+        }
       />
-
-      {/* ---- ZONE 1b: control bar (time range + auto-refresh + last-refresh) ---- */}
-      {controlBar}
 
       {/* Recommended-automation nudge — only in the non-empty state, only for a
           principal who can act (AutomationNudge self-hides otherwise). */}
@@ -682,61 +878,55 @@ export default function Overview({ onNavigate }: OverviewProps) {
       ) : (
         <div className="animate-fade-in space-y-6">
           {/* ---- ZONE 2: KPI strip — flat, un-nested, responsive by COLUMN COUNT ---- */}
-          <Stagger
-            className="grid grid-cols-2 gap-4 md:grid-cols-4 2xl:grid-cols-7"
-            itemClassName="h-full"
-          >
-            {kpis.map((kpi) => (
-              <KpiTile
-                key={kpi.label}
-                label={kpi.label}
-                value={kpi.value}
-                sub={kpi.sub}
-                icon={kpi.icon}
-                accent={kpi.accent}
-                goodDirection={kpi.goodDirection}
-                onClick={kpi.onClick}
+          <div className="space-y-1.5">
+            <Stagger
+              data-testid="kpi-strip"
+              className="grid grid-cols-2 gap-4 md:grid-cols-3 2xl:grid-cols-6"
+              itemClassName="h-full"
+            >
+              {kpis.map((kpi) => (
+                <KpiTile
+                  key={kpi.label}
+                  label={kpi.label}
+                  value={kpi.value}
+                  sub={kpi.sub}
+                  icon={kpi.icon}
+                  accent={kpi.accent}
+                  goodDirection={kpi.goodDirection}
+                  delta={kpi.delta}
+                  countTo={kpi.countTo}
+                  format={kpi.format}
+                  onClick={kpi.onClick}
+                />
+              ))}
+            </Stagger>
+            {/* State the comparison window ONCE under the strip (not per tile). */}
+            {posture?.compare ? (
+              <p className="px-0.5 text-2xs text-muted-foreground">
+                Deltas compare the previous {windowLabel(hours)}.
+              </p>
+            ) : null}
+          </div>
+
+          {/* ---- ZONE 3: widget grid ---- */}
+
+          {/* Noise-Reduction funnel — the value-prop headline, full-width at the top of
+              Zone 3. Self-omits when the feature is off / counters are unavailable. */}
+          {noise ? (
+            <Reveal variant="rise">
+              <NoiseFunnel
+                data={noise}
+                onStageClick={onStageClick}
+                hidden={noiseHidden}
+                onToggleHidden={toggleNoiseHidden}
+                className="w-full"
               />
-            ))}
-          </Stagger>
+            </Reveal>
+          ) : null}
 
-          {/* ---- ZONE 3: widget grid — named collapsible bands ---- */}
-
-          {/* Row A: risk gauge · open-by-severity · attention queue */}
-          <div className="grid gap-6 xl:grid-cols-3">
-            {/* Active Risk Index */}
-            <DashboardGroup title="Active Risk Index" description="weighted pressure">
-              <Card>
-                <CardContent className="flex flex-col items-center gap-3 py-5">
-                  <RiskGauge score={riskIndex} size={200} label="Weighted risk pressure" />
-                  <div className="grid w-full grid-cols-3 gap-2 pt-1">
-                    {[
-                      { k: 'Open', v: derived.open, accent: 'text-info' },
-                      { k: 'Critical', v: derived.critical, accent: 'text-critical' },
-                      { k: 'Crit / High', v: derived.criticalHighAlerts, accent: 'text-high' },
-                    ].map((row) => (
-                      <div
-                        key={row.k}
-                        className="rounded-md border border-border bg-surface px-2 py-2 text-center"
-                      >
-                        <div
-                          className={cn(
-                            'font-mono text-lg font-semibold tabular-nums',
-                            row.accent,
-                          )}
-                        >
-                          {fmtNumber(row.v)}
-                        </div>
-                        <div className="mt-0.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                          {row.k}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-
+          {/* Row A: open-by-severity · attention queue (the Active Risk Index moved
+              to the hero top-right, #1). */}
+          <Reveal variant="rise" delay={60} className="grid gap-6 xl:grid-cols-2">
             {/* Open cases by severity */}
             <DashboardGroup title="Open cases by severity" count={derived.open}>
               <Card>
@@ -862,10 +1052,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 </CardContent>
               </Card>
             </DashboardGroup>
-          </div>
+          </Reveal>
 
-          {/* Row B: autonomy split (#3) · timing trio · cost & budget */}
-          <div className="grid gap-6 xl:grid-cols-3">
+          {/* Row B: autonomy split (#3) · timing trio · case-volume trend */}
+          <Reveal variant="rise" delay={120} className="grid gap-6 xl:grid-cols-3">
             {/* Autonomous vs human — the #3 trust surface */}
             <DashboardGroup
               title="Autonomous vs human"
@@ -923,7 +1113,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
               </Card>
             </DashboardGroup>
 
-            {/* Response timing trio (MTTD / MTTA / MTTR) */}
+            {/* Response timing trio (Dwell / MTTA / MTTR) */}
             <DashboardGroup
               title="Response timing"
               description="p50, server-computed"
@@ -950,47 +1140,31 @@ export default function Overview({ onNavigate }: OverviewProps) {
                     accent={s.accent}
                     icon={Clock3}
                     goodDirection="down"
+                    help={s.help}
                   />
                 ))}
               </div>
             </DashboardGroup>
 
-            {/* Cost & budget */}
-            <DashboardGroup title="Cost & budget" description="LLM spend this window">
+            {/* Case volume trend (replaces the old Cost & budget widget; cost lives in
+                the KPI strip + the cost ledger drill-in). */}
+            <DashboardGroup title="Case volume" description="cases opened over time">
               <Card>
-                <CardContent className="space-y-4 py-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <div className="font-mono text-3xl font-semibold tabular-nums text-foreground">
-                        {fmtMoney(usage?.total_cost, usage?.currency)}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {typeof usage?.total_tokens === 'number'
-                          ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(
-                              usage.call_count,
-                            )} calls`
-                          : 'No spend recorded'}
-                      </div>
-                    </div>
-                    <CircleDollarSign className="h-8 w-8 text-primary/60" aria-hidden />
-                  </div>
-                  {navigate ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => navigate('metrics', { tab: 'cost' })}
-                    >
-                      Open cost ledger
-                    </Button>
-                  ) : null}
+                <CardContent className="py-4">
+                  <TrendArea
+                    data={caseVolume}
+                    height={180}
+                    colorToken="primary"
+                    format={(n) => fmtNumber(n)}
+                    ariaLabel="Case volume over time"
+                  />
                 </CardContent>
               </Card>
             </DashboardGroup>
-          </div>
+          </Reveal>
 
           {/* Row C: connector health (source signals) · workload state */}
-          <div className="grid gap-6 xl:grid-cols-2">
+          <Reveal variant="rise" delay={180} className="grid gap-6 xl:grid-cols-2">
             {/* Connector / source health — per-source case telemetry */}
             <DashboardGroup
               title="Connector health"
@@ -1076,7 +1250,44 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 </CardContent>
               </Card>
             </DashboardGroup>
-          </div>
+          </Reveal>
+
+          {/* Row D: top contributors — signatures · entities (ranked lists) */}
+          <Reveal variant="rise" delay={240} className="grid gap-6 xl:grid-cols-2">
+            <DashboardGroup
+              title="Top signatures"
+              count={signatureItems.length}
+              description="most frequent detections"
+            >
+              <Card>
+                <CardContent className="py-4">
+                  <BarList
+                    items={signatureItems}
+                    showRank
+                    showPercent
+                    emptyLabel="No signatures yet"
+                  />
+                </CardContent>
+              </Card>
+            </DashboardGroup>
+
+            <DashboardGroup
+              title="Top entities"
+              count={entityItems.length}
+              description="most-implicated assets"
+            >
+              <Card>
+                <CardContent className="py-4">
+                  <BarList
+                    items={entityItems}
+                    showRank
+                    showPercent
+                    emptyLabel="No entities yet"
+                  />
+                </CardContent>
+              </Card>
+            </DashboardGroup>
+          </Reveal>
         </div>
       )}
     </PageContainer>

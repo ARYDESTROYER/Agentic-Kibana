@@ -1,10 +1,12 @@
 /**
  * CaseDetail — Overview panel (Coupling-D split).
  *
- * The default tab: run-meta strip, four honest triage chips (#12), verdict/confidence
- * headlines, incident digest, affected assets + IOC indicators, evidence findings,
- * recommended action + risk breakdown, MITRE, related cases + source breakdown (F6),
- * threshold automation applied (F10), and the append-only status timeline (F8).
+ * The default tab: run-meta strip, four honest triage chips (#12), a concise
+ * verdict/confidence/risk header strip with provenance tags (#9b), incident digest,
+ * affected assets + IOC indicators, evidence findings, recommended action, a compact
+ * MITRE summary (full detail lives on the Threat context tab), related cases + source
+ * breakdown (F6), threshold automation applied (F10), and the append-only status
+ * timeline (F8).
  *
  * SECURITY (#9): every case-derived value (title, summary, entity, IPs, rules,
  * queries, evidence, tags, source ids, enrichment) is UNTRUSTED — rendered as plain
@@ -20,7 +22,6 @@ import {
   CheckCircle2,
   Crosshair,
   FileText,
-  Gauge,
   GitBranch,
   Globe,
   History,
@@ -31,7 +32,6 @@ import {
   Shield,
   Tag,
   Target,
-  User,
   Zap,
 } from 'lucide-react';
 
@@ -42,9 +42,7 @@ import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
-import { Separator } from '@/ui/separator';
 
-import { type BarListItem } from '@/soc/components/BarList';
 import { scoreBand, type ScoreBand } from '@/soc/components/palette';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { CodeBlock } from '@/soc/components/CodeBlock';
@@ -54,7 +52,9 @@ import {
   DispositionBadge,
   RiskBadge,
   ConfidenceBadge,
+  AutoClosedBadge,
 } from '@/soc/components/badges';
+import { ProvenanceTag } from '@/soc/components/ProvenanceTag';
 import { CaseTriageHeader } from '@/soc/components/CaseTriageHeader';
 import { BaselineSignatureCard } from '@/soc/components/BaselineGauge';
 import type { TriageChips } from '@/soc/pages/CaseDetail.api';
@@ -357,42 +357,6 @@ export function riskFactorBarColor(value: number): string {
   return FACTOR_BAR_COLOR[scoreBand(value)];
 }
 
-/**
- * Risk-factor breakdown bars. Each factor is an ABSOLUTE 0-100 score, so the bar
- * width is the score itself — NOT normalised to the largest factor (the old BarList
- * `showPercent` did that, drawing e.g. Volume 40 as a full "100%" bar). This keeps
- * these bars consistent with the triage RiskCard, which draws the same risk_breakdown
- * as `width: value%`.
- */
-const RiskFactorBars: React.FC<{ items: BarListItem[] }> = ({ items }) => (
-  <ul className="flex flex-col gap-3.5">
-    {items.map((it, i) => {
-      const value = Math.max(0, Math.min(100, it.value || 0));
-      return (
-        <li key={`${it.label}-${i}`} className="min-w-0">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-sm font-medium text-foreground">{it.label}</span>
-            <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-foreground">
-              {Math.round(value)}
-            </span>
-          </div>
-          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn('h-full rounded-full', it.color ?? 'bg-accent-bar')}
-              style={{ width: `${value}%` }}
-              role="progressbar"
-              aria-valuenow={Math.round(value)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label={it.label}
-            />
-          </div>
-        </li>
-      );
-    })}
-  </ul>
-);
-
 /* ----------------------------------------------- anomaly baseline (advisory) */
 
 /**
@@ -505,29 +469,6 @@ export const OverviewPanel: React.FC<{
     return 'Above the confidence bar but risk exceeds the auto-close ceiling — held for a human.';
   })();
 
-  const rb = c.risk_breakdown as
-    | {
-        volume?: number;
-        velocity?: number;
-        reputation?: number;
-        diversity?: number;
-        asset_criticality?: number;
-        total?: number;
-      }
-    | undefined;
-
-  const riskItems = React.useMemo<BarListItem[]>(() => {
-    if (!rb) return [];
-    const comps: Array<{ label: string; value: number }> = [
-      { label: 'Volume', value: rb.volume ?? 0 },
-      { label: 'Velocity', value: rb.velocity ?? 0 },
-      { label: 'Reputation', value: rb.reputation ?? 0 },
-      { label: 'Diversity', value: rb.diversity ?? 0 },
-      { label: 'Asset criticality', value: rb.asset_criticality ?? 0 },
-    ];
-    return comps.map((x) => ({ ...x, color: riskFactorBarColor(x.value) }));
-  }, [rb]);
-
   // Affected-asset KV rows (hostname/user from entity + enrichment scalars).
   const assetRows: Array<{ k: string; v: string }> = [];
   if (c.entity) {
@@ -563,9 +504,26 @@ export const OverviewPanel: React.FC<{
         <HeadlinePanel label="Confidence" value={confH.label} tone={confH.tone} />
       </div>
 
-      {/* secondary badge row (precise values) */}
-      <div className="flex flex-wrap items-center gap-2">
-        <VerdictBadge verdict={c.verdict} />
+      {/* header strip — precise verdict/confidence (AI-graded) + risk (code-derived)
+          each tagged with its provenance (#9b: keeps the SIEM / AI / code lanes
+          honest), the lifecycle state, and a self-hiding "Auto-closed by AI" marker
+          (#11). All copy here is fixed/controlled — no UNTRUSTED text. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <span className="inline-flex items-center gap-1.5">
+          <VerdictBadge verdict={c.verdict} />
+          <ProvenanceTag kind="ai" />
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <ConfidenceBadge
+            confidence={c.confidence}
+            {...confidenceCalibration(fpPolicy, c.verdict)}
+          />
+          <ProvenanceTag kind="ai" />
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <RiskBadge score={c.risk_score} />
+          <ProvenanceTag kind="code" />
+        </span>
         <StatusBadge status={c.status} />
         <DispositionBadge disposition={c.disposition ?? null} />
         {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
@@ -574,24 +532,11 @@ export const OverviewPanel: React.FC<{
             Escalation L{c.escalation_level}
           </Badge>
         ) : null}
-        <RiskBadge score={c.risk_score} />
-        <ConfidenceBadge
-          confidence={c.confidence}
-          {...confidenceCalibration(fpPolicy, c.verdict)}
+        <AutoClosedBadge
+          status={c.status}
+          decisionBy={c.decision_by}
+          objectionWindowExpiresAt={c.objection_window_expires_at}
         />
-        {c.source_name || c.source_id ? (
-          <Badge variant="outline" className="gap-1">
-            <Globe className="h-3 w-3" />
-            {/* UNTRUSTED source name — plain text node. */}
-            <span className="max-w-[12rem] truncate">{c.source_name || c.source_id}</span>
-          </Badge>
-        ) : null}
-        {c.agent_persona && c.agent_persona !== 'generalist' ? (
-          <Badge variant="outline" className="gap-1">
-            <User className="h-3 w-3" />
-            {humanizeToken(c.agent_persona)}
-          </Badge>
-        ) : null}
       </div>
 
       {/* ----------------------------------------------- incident digest */}
@@ -786,54 +731,46 @@ export const OverviewPanel: React.FC<{
         </PanelCard>
       ) : null}
 
-      {/* ------------------------------- recommended action + risk breakdown */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <PanelCard>
-          <SectionHeading icon={Activity}>
-            Recommended action
-          </SectionHeading>
-          {/* UNTRUSTED — plain text. */}
-          <p className="whitespace-pre-wrap text-sm text-foreground/90">
-            {c.recommended_action || DASH}
-          </p>
-        </PanelCard>
-        <PanelCard>
-          <SectionHeading icon={Gauge}>
-            Risk breakdown
-          </SectionHeading>
-          {riskItems.length ? (
-            <RiskFactorBars items={riskItems} />
-          ) : (
-            <p className="text-sm text-muted-foreground">No risk breakdown recorded.</p>
-          )}
-          {rb && typeof rb.total === 'number' ? (
-            <>
-              <Separator className="my-3" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Total</span>
-                <RiskBadge score={rb.total} />
-              </div>
-            </>
-          ) : null}
-        </PanelCard>
-      </div>
+      {/* ------------------------------------------- recommended action */}
+      {/* The risk breakdown moved to the investigation view to keep the overview a
+          single, uncluttered story — the composite risk score + its provenance stay
+          in the header strip above. */}
+      <PanelCard>
+        <SectionHeading icon={Activity}>
+          Recommended action
+        </SectionHeading>
+        {/* UNTRUSTED — plain text. */}
+        <p className="whitespace-pre-wrap text-sm text-foreground/90">
+          {c.recommended_action || DASH}
+        </p>
+      </PanelCard>
 
       {/* ------------------------- anomaly baseline (advisory, #4) */}
       <BaselineAdvisory c={c} />
 
-      {/* ------------------------------------------- MITRE */}
+      {/* ------------------- MITRE (compact summary — full detail on the Threat tab) */}
       {mitre.length ? (
         <PanelCard>
           <SectionHeading icon={Shield}>
-            MITRE ATT&amp;CK techniques
+            MITRE ATT&amp;CK
           </SectionHeading>
-          <div className="flex flex-wrap gap-2">
-            {mitre.map((m, i) => (
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Technique ids are source-influenceable — plain text nodes only (#9). */}
+            {mitre.slice(0, 6).map((m, i) => (
               <Badge key={`${m}-${i}`} variant="outline" className="font-mono">
                 {m}
               </Badge>
             ))}
+            {mitre.length > 6 ? (
+              <Badge variant="secondary" className="tabular-nums">
+                +{mitre.length - 6} more
+              </Badge>
+            ) : null}
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {mitre.length} technique{mitre.length === 1 ? '' : 's'} mapped — full tactics,
+            descriptions and ATT&amp;CK links are on the Threat context tab.
+          </p>
         </PanelCard>
       ) : null}
 

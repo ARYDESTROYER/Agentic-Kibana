@@ -48,6 +48,7 @@ import type {
   MemoryResponse,
   Metrics,
   ModelsResponse,
+  NoiseReduction,
   NotificationPreview,
   NotificationProviders,
   NotificationTemplate,
@@ -1012,6 +1013,18 @@ export const api = {
   getMetrics: (windowHours = 24) =>
     request<Metrics>('GET', 'metrics', { query: { window_hours: windowHours } }),
   getFeedbackStats: () => request<FeedbackStats>('GET', 'feedback/stats'),
+
+  // ---- Noise-Reduction funnel (Round-7 ★) ------------------------------ //
+  // GET /api/metrics/noise-reduction?window_hours= — the durable "raw alerts by
+  // severity → what the AI reduced it to" funnel (§D contract). metrics:view server-
+  // side. Every value is an aggregate count / fixed stage label (no raw log text, #9);
+  // the response degrades honestly (`counters.available:false`) while counters warm up.
+  // Kept typeof-guardable at the call site (W1.A mounts it as a typeof-guarded fetch),
+  // mirroring the AutomationNudge guard so a minimal test/mock surface never calls it.
+  noiseReduction: (windowHours = 24) =>
+    request<NoiseReduction>('GET', 'metrics/noise-reduction', {
+      query: { window_hours: windowHours },
+    }),
 
   // ---- Analytics surfaces ---------------------------------------------- //
   listCases: (query?: Record<string, unknown>) =>

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import collections
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..config import Preferences
 from ..constants import OPEN_CASE_STATUSES, ActionType, IndexRole, SourceSurface
@@ -433,6 +433,48 @@ class IngestService:
         # tail). Keyed by source_id; capped per source so memory stays bounded.
         self._recent: dict[str, collections.deque] = {}
         self._recent_max = 500
+        # Round-7 Noise-Reduction counters: an OPTIONAL fail-open sink recording each PUSH
+        # batch's raw-alert-by-severity tally into the durable NoiseCounterStore. Wired by
+        # AppState (``ingest_service._noise_sink = state.noise_counters.record``). None (the
+        # default) → no counters recorded (byte-identical ingest path); advisory only (#3).
+        self._noise_sink: Callable | None = None
+
+    async def record_noise(self, delta: dict[str, Any]) -> None:
+        """Record one Noise-Reduction counter ``delta`` (fail-open). No-op when unwired —
+        a counter glitch can NEVER crash a receiver or drop an event (#3-safe, advisory)."""
+        sink = self._noise_sink
+        if sink is None:
+            return
+        try:
+            await sink(delta)
+        except Exception as exc:  # noqa: BLE001 — counters never break a receiver
+            logger.debug("noise-counter record failed (ingest): %s", exc)
+
+    async def _record_ingest_noise(self, events, clusters, stats, src) -> None:
+        """Assemble + record the Noise-Reduction counter delta for a PUSH batch (fail-open).
+
+        Bands the raw events + the correlated clusters by the source's declared severity
+        scale (the SAME classifier the poller + the case severity chip use) and folds in the
+        suppressed/ignored drops. Never raises — a banding/persist glitch degrades to no
+        counter recorded, never a dropped event."""
+        if self._noise_sink is None:
+            return
+        try:
+            from .noise_counters import (
+                count_clusters_by_band,
+                count_events_by_band,
+                severity_scale_for_source,
+            )
+
+            scale = severity_scale_for_source(src)
+            await self.record_noise({
+                "ingested": count_events_by_band(events, scale),
+                "clustered": count_clusters_by_band(clusters or [], scale),
+                "suppressed": int((stats or {}).get("suppressed", 0) or 0),
+                "ignored": int((stats or {}).get("ignored", 0) or 0),
+            })
+        except Exception as exc:  # noqa: BLE001 — counters never break ingest
+            logger.debug("ingest noise-counter assembly failed: %s", exc)
 
     async def ingest(
         self,
@@ -476,6 +518,9 @@ class IngestService:
             # (no correlate, no case). This is the ONLY drop; a below-floor event is
             # never dropped (#4).
             if push_role == "ignore":
+                # Round-7: a wholesale-ignore batch still counts as INGESTED volume the AI
+                # dropped — record it as ingested + ignored (fail-open) before returning.
+                await self._record_ingest_noise(events, [], {"ignored": len(events)}, src)
                 return {**base, "received": len(events), "ignored": len(events)}
         try:
             # Honour the originating source's per-source entity strategy (entity-
@@ -505,6 +550,9 @@ class IngestService:
             )
             return {**base, "received": len(events)}
         stats["received"] = len(events)
+        # Round-7: record this batch's raw-alert-by-severity tally (fail-open; never blocks
+        # or breaks the receiver). ``clusters``/``src`` are in scope from the try above.
+        await self._record_ingest_noise(events, clusters, stats, src)
         await self._audit.record(
             action_type=ActionType.POLL, surface="ingest", actor="ingest",
             result_summary=(f"received={len(events)} clusters={stats['clusters']} "

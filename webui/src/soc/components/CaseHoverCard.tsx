@@ -3,7 +3,16 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/ui/hover-card';
 import type { Case } from '@/lib/types';
 import { humanizeAge, humanizeToken } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { StatusBadge, VerdictBadge, RiskBadge, ConfidenceBadge } from './badges';
+import {
+  StatusBadge,
+  VerdictBadge,
+  RiskBadge,
+  ConfidenceBadge,
+  SeverityBadge,
+  AutoClosedBadge,
+  severityBand,
+} from './badges';
+import { ProvenanceTag, severityProvenance } from './ProvenanceTag';
 import { InlineCode } from './CodeBlock';
 
 export interface CaseHoverCardProps {
@@ -30,6 +39,16 @@ export function CaseHoverCard({ case: c, children, openDelay = 280, className }:
     (children.props as { tabIndex?: number }).tabIndex === undefined
       ? React.cloneElement(children as React.ReactElement<{ tabIndex?: number }>, { tabIndex: 0 })
       : children;
+
+  // Mirror the Cases-list SEVERITY resolution so the hover preview tells the SAME
+  // provenance story (Round-7 #9b/#12): prefer the backend advisory `severity_band`,
+  // else derive from the deterministic `risk_score` via the ONE `severityBand` ladder.
+  // WHO graded it is carried separately in `severity_source` → the ProvenanceTag flips
+  // per case (SIEM-asserted vs code-derived).
+  const severityBandValue =
+    severityBand(c.severity_band) ??
+    severityBand(typeof c.risk_score === 'number' ? c.risk_score : null);
+
   return (
     <HoverCard openDelay={openDelay} closeDelay={120}>
       <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
@@ -43,9 +62,22 @@ export function CaseHoverCard({ case: c, children, openDelay = 280, className }:
         ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {severityBandValue ? (
+            <span className="inline-flex items-center gap-1">
+              <SeverityBadge severity={severityBandValue} />
+              <ProvenanceTag kind={severityProvenance(c.severity_source)} variant="icon" />
+            </span>
+          ) : null}
           {c.verdict ? <VerdictBadge verdict={c.verdict} /> : null}
           {typeof c.risk_score === 'number' ? <RiskBadge score={c.risk_score} /> : null}
           {typeof c.confidence === 'number' ? <ConfidenceBadge confidence={c.confidence} /> : null}
+          {/* Self-hiding: renders null unless the AI auto-closed the case (terminal +
+              decision_by==='agent'). The CLOSE itself is still decide()'s call (#3). */}
+          <AutoClosedBadge
+            status={c.status}
+            decisionBy={c.decision_by}
+            objectionWindowExpiresAt={c.objection_window_expires_at}
+          />
         </div>
 
         {c.entity?.value ? (

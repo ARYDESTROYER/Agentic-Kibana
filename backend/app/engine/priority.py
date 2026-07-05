@@ -38,24 +38,54 @@ from ..constants import SourceType
 from ..models import Case
 from .risk import _asset_criticality
 
-# Default three-band ladder (mirrors PriorityMatrix.levels). The thresholds below
-# map a 0-100 magnitude onto one of these bands. Operators tune the P-level grid via
+# Advisory band vocabulary. The SEVERITY axis uses the full 5-band ladder
+# (critical/high/medium/low/info); the impact/urgency/risk axes project onto the
+# 3-band {high, medium, low} subset. Operators tune the P-level grid via
 # Preferences.priority_matrix; the band CUTS here are deliberately fixed + documented
-# (advisory display), not a decision surface.
+# (advisory display), not a decision surface (#3).
+_CRITICAL = "critical"
 _HIGH = "high"
 _MEDIUM = "medium"
 _LOW = "low"
+_INFO = "info"
 
-# 0-100 magnitude cut points for the three bands. >=70 high, >=40 medium, else low.
-_BAND_HIGH_CUT = 70.0
-_BAND_MEDIUM_CUT = 40.0
+# 0-100 magnitude cut points — THE single source of truth for the advisory ladder
+# (``constants.SEVERITY_BANDS`` references these 74/48/22/8 cuts). They mirror the webui
+# ``badges.tsx::severityBandFromNumber`` (palette ``scoreBand`` 74/48/22 + an <8 info
+# floor) EXACTLY so the backend severity chip and the front-end badge never drift.
+_BAND_CRIT_CUT = 74.0    # >=74 -> critical
+_BAND_HIGH_CUT = 48.0    # >=48 -> high
+_BAND_MED_CUT = 22.0     # >=22 -> medium
+_BAND_INFO_CUT = 8.0     # >=8 -> low; <8 -> info (severity axis only)
+
+
+def _severity_band_from_magnitude(mag: float) -> str:
+    """Map a 0-100 magnitude onto the FULL 5-band SEVERITY ladder.
+
+    Mirrors the webui ``badges.tsx::severityBandFromNumber`` EXACTLY (the ONE front-end
+    severity authority): ``scoreBand`` gives critical>=74 / high>=48 / medium>=22 / low,
+    then a sub-8 magnitude reads as ``info`` (a genuinely-nil score is informational, not
+    a low alert). Advisory display only — never feeds ``decide()`` (#3)."""
+    if mag >= _BAND_CRIT_CUT:
+        return _CRITICAL
+    if mag >= _BAND_HIGH_CUT:
+        return _HIGH
+    if mag >= _BAND_MED_CUT:
+        return _MEDIUM
+    if mag >= _BAND_INFO_CUT:
+        return _LOW
+    return _INFO
 
 
 def _band_from_magnitude(magnitude: float) -> str:
-    """Map a 0-100 magnitude onto the high/medium/low ladder (advisory display)."""
+    """Map a 0-100 magnitude onto the 3-band high/medium/low ladder (advisory display).
+
+    Shares the severity ladder's 48/22 high/medium cuts so the impact/urgency/risk chips
+    order-agree with severity; it has no critical/info band (impact/urgency are
+    {high, medium, low} advisory chips). Never feeds ``decide()`` (#3)."""
     if magnitude >= _BAND_HIGH_CUT:
         return _HIGH
-    if magnitude >= _BAND_MEDIUM_CUT:
+    if magnitude >= _BAND_MED_CUT:
         return _MEDIUM
     return _LOW
 
@@ -67,6 +97,36 @@ _SCALE_OCSF_0_100 = "ocsf_0_100"   # OCSF severity_score (already 0-100; identit
 _SCALE_WAZUH_0_15 = "wazuh_0_15"   # Wazuh rule.level 0..15 -> level/15*100
 _SCALE_0_10 = "0_10"               # the suite's own 0-10 rating (critical_severity=7.0)
 _SCALE_UNKNOWN = "unknown"         # no resolvable scale -> legacy <=10?*10:raw heuristic
+
+
+def severity_scale_for_source(inst: Any) -> str:
+    """Resolve the SEVERITY SCALE a configured source *instance* asserts severity on.
+
+    Given a resolved :class:`app.config.SourceInstance` (or ``None`` when the source is
+    unknown / unconfigured), returns the native scale id used to project a raw source
+    severity onto 0-100 (see :func:`_normalise_severity`):
+
+    * ``None`` → ``unknown`` (the legacy magnitude heuristic — back-compat).
+    * Wazuh (``source_type == WAZUH``) → ``wazuh_0_15`` (``rule.level`` 0..15).
+    * PUSH-mode (non-``pull`` ``ingest_mode``) → ``ocsf_0_100`` (OCSF ``severity_score``).
+    * PULL Elastic/OpenSearch/generic → ``0_10`` (the suite's own 0-10 rating).
+
+    Extracted verbatim from :func:`_scale_for_case`'s classifier (below) so the SAME
+    resolution is reused by the Round-7 Noise-Reduction counters — which band raw ingest
+    events by the source's declared scale (:mod:`app.engine.noise_counters`). Advisory
+    display / accounting only — it never feeds ``case_manager.decide()`` (#3)."""
+    if inst is None:
+        return _SCALE_UNKNOWN
+    stype = getattr(inst, "source_type", None)
+    if stype == SourceType.WAZUH:
+        return _SCALE_WAZUH_0_15
+    # PUSH-mode sources flow through the OCSF normaliser (receivers/*) → 0-100.
+    ingest = getattr(inst, "ingest_mode", None)
+    mode_val = getattr(ingest, "value", ingest)
+    if isinstance(mode_val, str) and mode_val != "pull":
+        return _SCALE_OCSF_0_100
+    # PULL Elastic/OpenSearch/generic: the suite default rating is 0-10.
+    return _SCALE_0_10
 
 
 def _scale_for_case(case: Case, prefs: Preferences | None) -> str:
@@ -98,18 +158,7 @@ def _scale_for_case(case: Case, prefs: Preferences | None) -> str:
         if getattr(s, "id", None) == source_id:
             inst = s
             break
-    if inst is None:
-        return _SCALE_UNKNOWN
-    stype = getattr(inst, "source_type", None)
-    if stype == SourceType.WAZUH:
-        return _SCALE_WAZUH_0_15
-    # PUSH-mode sources flow through the OCSF normaliser (receivers/*) → 0-100.
-    ingest = getattr(inst, "ingest_mode", None)
-    mode_val = getattr(ingest, "value", ingest)
-    if isinstance(mode_val, str) and mode_val != "pull":
-        return _SCALE_OCSF_0_100
-    # PULL Elastic/OpenSearch/generic: the suite default rating is 0-10.
-    return _SCALE_0_10
+    return severity_scale_for_source(inst)
 
 
 def _normalise_severity(raw: float, scale: str = _SCALE_UNKNOWN) -> float:
@@ -166,7 +215,7 @@ def severity_band_from_events(case: Case, prefs: Preferences | None = None) -> d
         scale = _scale_for_case(case, prefs)
         mag = _normalise_severity(raw, scale)
         return {
-            "band": _band_from_magnitude(mag),
+            "band": _severity_band_from_magnitude(mag),
             "value": round(mag, 2),
             "raw": raw,
             "source": "source_asserted",
@@ -176,7 +225,7 @@ def severity_band_from_events(case: Case, prefs: Preferences | None = None) -> d
     # as DERIVED, never claimed to be source-asserted).
     mag = max(0.0, min(100.0, float(case.risk_score)))
     return {
-        "band": _band_from_magnitude(mag),
+        "band": _severity_band_from_magnitude(mag),
         "value": round(mag, 2),
         "raw": None,
         "source": "derived",
@@ -332,3 +381,56 @@ def derive_triage(case: Case, prefs: Preferences) -> dict[str, Any]:
         "impact": impact_chip,
         "priority": priority_chip,
     }
+
+
+def advisory_bands(case: Case, prefs: Preferences | None = None) -> dict[str, Any]:
+    """Read-time ADVISORY bands for the case PRESENTATION surfaces (list + detail).
+
+    Returns the five FLAT presentation fields the case-list / case-detail render onto a
+    :class:`app.models.Case`:
+
+    * ``severity_band`` — 5-band {critical/high/medium/low/info} SOURCE-asserted severity.
+    * ``severity_source`` — ``"source_asserted"`` or ``"derived"`` (honest provenance).
+    * ``impact_band`` — 3-band {high/medium/low} asset-criticality impact.
+    * ``urgency_band`` — 3-band {high/medium/low} risk-blended urgency.
+    * ``priority_level`` — the ITIL ``"P1".."P4"`` (or ``None`` when the matrix is off).
+
+    Pure + FAIL-OPEN: any missing/malformed field degrades to ``None`` instead of raising,
+    so a bad case can NEVER 500 the ``GET /api/cases`` endpoints. When ``prefs`` is None
+    only the (prefs-free) severity axis is resolved; impact/urgency/priority need the
+    operator's asset map + ITIL grid. NONE of this is read by ``case_manager.decide()``
+    (#3) — it is derived AFTER the fact, purely for display/ordering."""
+    out: dict[str, Any] = {
+        "severity_band": None,
+        "severity_source": None,
+        "impact_band": None,
+        "urgency_band": None,
+        "priority_level": None,
+    }
+    try:
+        sev = severity_band_from_events(case, prefs)
+        out["severity_band"] = sev.get("band")
+        out["severity_source"] = sev.get("source")
+    except Exception:  # noqa: BLE001 — advisory only; never raise on a bad case
+        pass
+    if prefs is None:
+        return out
+    imp_band: str | None = None
+    urg_band: str | None = None
+    try:
+        imp_band = impact_band(case, prefs).get("band")
+        out["impact_band"] = imp_band
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        urg_band = urgency_band(case, prefs).get("band")
+        out["urgency_band"] = urg_band
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        matrix = getattr(prefs, "priority_matrix", None)
+        if matrix is not None and imp_band and urg_band:
+            out["priority_level"] = derive_priority(imp_band, urg_band, matrix).get("level")
+    except Exception:  # noqa: BLE001
+        pass
+    return out

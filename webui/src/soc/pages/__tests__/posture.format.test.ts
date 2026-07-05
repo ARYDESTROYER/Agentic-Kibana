@@ -9,7 +9,12 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { deltaView } from '../posture.format';
+import {
+  deltaView,
+  kpiLabel,
+  LIFECYCLE_METRICS,
+  type LifecycleMetricKey,
+} from '../posture.format';
 import type { CompareBlock } from '../Metrics.posture.api';
 
 const block = (delta_pct: CompareBlock['delta_pct']): CompareBlock => ({
@@ -54,5 +59,56 @@ describe('deltaView', () => {
   it('draws no badge when there is no comparison', () => {
     expect(deltaView(undefined).show).toBe(false);
     expect(deltaView(block('—')).show).toBe(false);
+  });
+});
+
+describe('LIFECYCLE_METRICS (honest MTTA / MTTR / Dwell copy)', () => {
+  const KEYS: LifecycleMetricKey[] = ['mtta', 'mttr', 'dwell'];
+
+  it('exposes exactly the three lifecycle keys', () => {
+    expect(Object.keys(LIFECYCLE_METRICS).sort()).toEqual([...KEYS].sort());
+  });
+
+  it('every entry has a non-empty label, sub and help', () => {
+    for (const key of KEYS) {
+      const c = LIFECYCLE_METRICS[key];
+      expect(c.label.length).toBeGreaterThan(0);
+      expect(c.sub.length).toBeGreaterThan(0);
+      expect(c.help.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('uses the honest acronym labels + plain-English subs', () => {
+    expect(LIFECYCLE_METRICS.mtta.label).toBe('MTTA');
+    expect(LIFECYCLE_METRICS.mttr.label).toBe('MTTR');
+    expect(LIFECYCLE_METRICS.dwell.label).toBe('Dwell');
+    expect(LIFECYCLE_METRICS.mtta.sub).toBe('Time to acknowledge');
+    expect(LIFECYCLE_METRICS.mttr.sub).toBe('Time to resolve');
+    expect(LIFECYCLE_METRICS.dwell.sub).toBe('Time to first response');
+  });
+
+  it('never labels dwell as the dishonest "MTTD" (DECISIONS #2)', () => {
+    // No label may claim mean-time-to-detect; dwell must read as first-response, and
+    // its help disambiguates from detection latency explicitly.
+    for (const key of KEYS) {
+      expect(LIFECYCLE_METRICS[key].label).not.toBe('MTTD');
+    }
+    expect(LIFECYCLE_METRICS.dwell.help.toLowerCase()).toContain('time-to-first-response');
+    expect(LIFECYCLE_METRICS.dwell.help.toLowerCase()).toContain('not time-to-detect');
+  });
+
+  it('help copy is grounded in the real lifecycle intervals', () => {
+    expect(LIFECYCLE_METRICS.mtta.help.toLowerCase()).toContain('acknowledgement');
+    expect(LIFECYCLE_METRICS.mttr.help.toLowerCase()).toContain('terminal');
+    expect(LIFECYCLE_METRICS.dwell.help.toLowerCase()).toContain('response');
+  });
+
+  it('kpiLabel returns the short label for each key', () => {
+    expect(kpiLabel('mtta')).toBe('MTTA');
+    expect(kpiLabel('mttr')).toBe('MTTR');
+    expect(kpiLabel('dwell')).toBe('Dwell');
+    for (const key of KEYS) {
+      expect(kpiLabel(key)).toBe(LIFECYCLE_METRICS[key].label);
+    }
   });
 });

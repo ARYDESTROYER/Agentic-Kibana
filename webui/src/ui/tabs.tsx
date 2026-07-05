@@ -39,12 +39,21 @@ TabsTrigger.displayName = TabsPrimitive.Trigger.displayName;
 
 const TabsContent = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(({ className, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content> & {
+    /**
+     * Round-7 W0.1 — fade the panel in on mount / tab-switch (Radix mounts only the
+     * active panel, so this replays on each switch, not on every render). `true` by
+     * default; pass `animate={false}` to opt a panel out (e.g. one that owns its own
+     * enter animation). Reduced motion is neutralised globally by the theme.css reset.
+     */
+    animate?: boolean;
+  }
+>(({ className, animate = true, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
     className={cn(
       'mt-4 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+      animate && 'animate-fade-in',
       className,
     )}
     {...props}

@@ -2,38 +2,35 @@
  * CaseDetail — Threat context panel (Coupling-D split).
  *
  * The threat-context tab (F11): a threat summary banner, IOC reputation, MITRE
- * ATT&CK techniques (with canonical links), related cases, asset context, and
- * evidence. Fail-open: renders empty/disabled states when the panel is off or bare.
+ * ATT&CK techniques (with canonical links), and asset context. Fail-open: renders
+ * empty/disabled states when the panel is off or bare. Related cases + evidence are
+ * intentionally NOT repeated here — they live on the Overview tab (Round-7 dedup).
  *
- * SECURITY (#9): every indicator, country, entity, asset attribute, summary and
- * evidence string is UNTRUSTED — rendered plain text / inside <CodeBlock>. MITRE
- * technique NAMES are from the curated corpus (TRUSTED) but still rendered as plain
- * text nodes. #3: read-only projection; it never decides or mutates the case.
+ * SECURITY (#9): every indicator, country, entity, asset attribute and summary string
+ * is UNTRUSTED — rendered plain text / inside <CodeBlock>. MITRE technique NAMES are
+ * from the curated corpus (TRUSTED) but still rendered as plain text nodes. #3:
+ * read-only projection; it never decides or mutates the case.
  */
 import * as React from 'react';
 import {
   AlertTriangle,
   Crosshair,
   Gauge,
-  GitBranch,
   Globe,
   Link2,
-  Search,
   Shield,
   Target,
 } from 'lucide-react';
 
 import type { Case, ThreatContextPanel as ThreatContextPanelData } from '@/lib/types';
 import { humanizeAge, humanizeToken } from '@/lib/format';
-import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
 import { Skeleton } from '@/ui/skeleton';
 
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
-import { CodeBlock } from '@/soc/components/CodeBlock';
-import { VerdictBadge, StatusBadge, RiskBadge } from '@/soc/components/badges';
+import { VerdictBadge, RiskBadge } from '@/soc/components/badges';
 import type { Navigate } from '@/soc/router';
 
 import { PanelCard, SectionHeading } from './shared';
@@ -55,8 +52,13 @@ export const ThreatContextPanel: React.FC<{
   loading: boolean;
   error: unknown;
   onRetry: () => void;
+  /**
+   * Accepted for API stability with the CaseDetail shell, but no longer used: the
+   * only case-to-case navigation on this panel was the Related-cases list, which now
+   * lives on the Overview tab (Round-7 dedup). Kept optional so callers can pass it.
+   */
   onNavigate?: Navigate;
-}> = ({ c, panel, loading, error, onRetry, onNavigate }) => {
+}> = ({ c, panel, loading, error, onRetry }) => {
   if (loading) {
     return (
       <div className="space-y-4 p-6">
@@ -98,7 +100,6 @@ export const ThreatContextPanel: React.FC<{
 
   const iocs = (panel.ioc_reputation || []).filter((x) => x && x.indicator);
   const techniques = (panel.mitre_techniques || []).filter((t) => t && t.id);
-  const related = (panel.related_cases || []).filter((r) => r && r.case_id);
   const asset = panel.asset_context || null;
   const assetAttrs =
     asset && asset.attributes && typeof asset.attributes === 'object'
@@ -106,18 +107,10 @@ export const ThreatContextPanel: React.FC<{
           ([, v]) => v !== null && v !== undefined && typeof v !== 'object',
         )
       : [];
-  const evidence = (panel.evidence || []).filter((e) => e && (e.summary || e.query));
+  // Related cases + evidence are shown on the Overview tab, not repeated here
+  // (Round-7 dedup), so they no longer participate in the "any section" gate.
   const anySection =
-    !!panel.summary ||
-    iocs.length > 0 ||
-    techniques.length > 0 ||
-    related.length > 0 ||
-    !!asset ||
-    evidence.length > 0;
-
-  const openRelated = (rid: string) => {
-    if (onNavigate) onNavigate('cases', { caseId: rid });
-  };
+    !!panel.summary || iocs.length > 0 || techniques.length > 0 || !!asset;
 
   return (
     <div className="space-y-6 p-6">
@@ -258,52 +251,7 @@ export const ThreatContextPanel: React.FC<{
         )}
       </PanelCard>
 
-      {/* ---------------------------------------------- related cases */}
-      <PanelCard>
-        <SectionHeading icon={GitBranch}>
-          Related cases
-        </SectionHeading>
-        {related.length === 0 ? (
-          <EmptyState
-            icon={GitBranch}
-            compact
-            title="No related cases"
-            description="No prior or cross-source cases were linked to this one."
-          />
-        ) : (
-          <ul className="space-y-2">
-            {related.map((r) => (
-              <li
-                key={r.case_id}
-                className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-3"
-              >
-                <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <button
-                  type="button"
-                  onClick={() => openRelated(r.case_id)}
-                  disabled={!onNavigate}
-                  className={cn(
-                    'min-w-0 flex-1 truncate text-left text-sm',
-                    onNavigate
-                      ? 'text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-                      : 'cursor-default text-foreground',
-                  )}
-                  title={r.title || r.case_number || r.case_id}
-                >
-                  {/* UNTRUSTED — plain text. */}
-                  {r.title || r.case_number || r.case_id}
-                </button>
-                {r.verdict ? <VerdictBadge verdict={r.verdict} /> : null}
-                {r.status ? <StatusBadge status={r.status} /> : null}
-                {typeof r.risk_score === 'number' ? <RiskBadge score={r.risk_score} /> : null}
-                {r.reason ? (
-                  <span className="w-full text-xs text-muted-foreground">{r.reason}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </PanelCard>
+      {/* Related cases moved to the Overview tab (Round-7 dedup). */}
 
       {/* ---------------------------------------------- asset context */}
       <PanelCard>
@@ -358,33 +306,7 @@ export const ThreatContextPanel: React.FC<{
         )}
       </PanelCard>
 
-      {/* ---------------------------------------------- evidence */}
-      {evidence.length ? (
-        <PanelCard>
-          <SectionHeading icon={Search}>
-            Evidence
-          </SectionHeading>
-          <div className="space-y-3">
-            {evidence.map((ev, i) => (
-              <div key={i} className="rounded-md border border-border bg-muted/30 p-3">
-                {ev.summary ? (
-                  /* UNTRUSTED — plain text. */
-                  <p className="whitespace-pre-wrap text-sm text-foreground/90">{ev.summary}</p>
-                ) : null}
-                {ev.query ? (
-                  <CodeBlock
-                    value={ev.query}
-                    wrap
-                    copyable
-                    maxHeightClassName="max-h-40"
-                    className="mt-2"
-                  />
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </PanelCard>
-      ) : null}
+      {/* Evidence moved to the Overview tab (Round-7 dedup). */}
 
       {!anySection ? (
         <p className="text-xs text-muted-foreground">

@@ -1,21 +1,22 @@
 /**
- * Overview (Security Posture Dashboard) — Round-5 Dash-A/Dash-B render test.
+ * Overview (Security Command Center) — Round-7 W1.A render test.
  *
- * The Overview page previously had ZERO dedicated coverage (only the App smoke boot
- * guard). This pins the load-bearing rework contract:
+ * Pins the load-bearing command-center contract:
  *   1. the compact HERO is present + addressable via `data-testid="page-hero"`, uses the
  *      hero variant (compact ~64px, `hero-display`), and shows the `PAGE_TITLE`;
- *   2. the un-nested KPI STRIP renders as ONE responsive grid of drill-down tiles
- *      (`kpi-*` testids), NOT the old col-span-2 nested layout;
- *   3. the ~120 lines of client posture math are GONE — the timing trio reads the
- *      SERVER posture (`usePosture` → `fetchPosture`), including the honest DASH for an
- *      unavailable block (never a fabricated client value);
- *   4. the page body is the `wide` PageContainer (@container escape from the 1400px cap);
- *   5. tiles deep-link to the filtered case list carrying the window.
+ *   2. the un-nested KPI STRIP is TRIMMED to ~5 signal tiles + spend (Open / Critical-High /
+ *      Escalated / False-Positive-Rate / Auto-Resolved / Spend); the old Artifacts /
+ *      Knowledge / Total tiles are GONE;
+ *   3. the timing trio reads the SERVER posture (`usePosture` → `fetchPosture`), honouring
+ *      the honest DASH for an unavailable block (never a fabricated client value);
+ *   4. KPI deltas are wired from the server `posture.compare` block, stated once under the
+ *      strip;
+ *   5. tiles deep-link to the filtered case list carrying the window;
+ *   6. the loading skeleton mirrors the final layout (6 KPI tiles + a reserved funnel row).
  *
  * Fully offline — the page uses no auth; only the data calls + the posture fetch are
- * mocked. Deliberately does NOT depend on `/sources/health` (unmocked in the smoke
- * surface): connector health is derived from the case sample.
+ * mocked. `noiseReduction` is intentionally omitted from the base mock so the funnel band
+ * self-omits (the command-center test covers the funnel-present path).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -31,11 +32,10 @@ vi.mock('../pages/Metrics.posture.api', async () => {
   return { ...actual, fetchPosture: fetchPostureMock };
 });
 
-const { listCasesMock, getMetricsMock, usageMock, ragMock } = vi.hoisted(() => ({
+const { listCasesMock, getMetricsMock, usageMock } = vi.hoisted(() => ({
   listCasesMock: vi.fn(),
   getMetricsMock: vi.fn(),
   usageMock: vi.fn(),
-  ragMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => ({
@@ -43,7 +43,6 @@ vi.mock('@/lib/api', () => ({
     listCases: listCasesMock,
     getMetrics: getMetricsMock,
     usageSummary: usageMock,
-    ragStats: ragMock,
   },
 }));
 
@@ -96,6 +95,13 @@ const METRICS: Metrics = {
   cost: {},
 } as unknown as Metrics;
 
+const QUALITY = {
+  total_cases: 3, verdicted_cases: 2, true_positive_cases: 1, false_positive_cases: 1,
+  needs_human_cases: 1, escalated_cases: 0, terminal_cases: 1, auto_closed_cases: 1,
+  alert_to_incident_ratio: 0.33, false_positive_rate: 0.5, escalation_rate: 0.33,
+  containment_rate: 0.5, automation_rate: 0.5,
+};
+
 const POSTURE: PostureResponse = {
   window_hours: 24,
   generated_at: '2026-07-01T08:00:00Z',
@@ -109,12 +115,7 @@ const POSTURE: PostureResponse = {
       reason: 'no case has received a first response yet',
     },
   },
-  quality: {
-    total_cases: 3, verdicted_cases: 2, true_positive_cases: 1, false_positive_cases: 1,
-    needs_human_cases: 1, escalated_cases: 0, terminal_cases: 1, auto_closed_cases: 1,
-    alert_to_incident_ratio: 0.33, false_positive_rate: 0.5, escalation_rate: 0.33,
-    containment_rate: 0.5, automation_rate: 0.5,
-  },
+  quality: QUALITY,
   aging: {
     queue_depth: 2, age_buckets: [], oldest: [], arrivals: 3, closures: 1,
     closure_vs_arrival: 0.33, backlog: 2,
@@ -125,55 +126,109 @@ const POSTURE: PostureResponse = {
   },
 };
 
-describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
+/** Same posture, plus a period-over-period `compare` block (wires the KPI deltas). */
+const POSTURE_CMP: PostureResponse = {
+  ...POSTURE,
+  compare: {
+    mode: 'prev',
+    case_count: { value: 3, prev: 4, delta_pct: -25 },
+    alert_to_incident_ratio: { value: 0.33, prev: 0.4, delta_pct: -17.5 },
+    false_positive_rate: { value: 0.5, prev: 0.6, delta_pct: -16.7 },
+    escalation_rate: { value: 0.33, prev: 0.5, delta_pct: -20 },
+    automation_rate: { value: 0.5, prev: 0.4, delta_pct: 25 },
+    mttr_p50: { value: 180, prev: 200, delta_pct: -10 },
+    mtta_p50: { value: 45, prev: 40, delta_pct: 12.5 },
+  },
+};
+
+describe('Overview — Security Command Center (W1.A)', () => {
   beforeEach(() => {
     fetchPostureMock.mockReset();
     listCasesMock.mockReset();
     getMetricsMock.mockReset();
     usageMock.mockReset();
-    ragMock.mockReset();
     fetchPostureMock.mockResolvedValue(POSTURE);
     listCasesMock.mockResolvedValue({ cases: CASES, total: CASES.length });
     getMetricsMock.mockResolvedValue(METRICS);
     usageMock.mockResolvedValue({ total_cost: 1.25, total_tokens: 12000, call_count: 8, currency: 'USD' });
-    ragMock.mockResolvedValue({ document_count: 5, total_chunks: 42 });
   });
 
   it('renders a COMPACT hero (page-hero testid, hero variant) carrying the title', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
-    // Compact hero: the merged PageHeader hero variant (hero-display class), NOT the old
-    // tall marketing band. The title constant proves the console booted to Overview.
     expect(hero).toHaveClass('hero-display');
     expect(hero).toHaveTextContent(PAGE_TITLE);
     // The eyebrow must NOT restate the title (breadcrumb/eyebrow ≠ title).
     expect(hero.textContent).not.toContain(`${PAGE_TITLE}${PAGE_TITLE}`);
   });
 
-  it('renders the un-nested KPI strip as drill-down tiles (kpi-* testids)', async () => {
+  it('renders the TRIMMED KPI strip: 5 signal tiles + spend, Artifacts/Knowledge/Total dropped', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // The flat KPI strip renders each tile addressably. Open Cases / Crit-High / Spend
-    // are the load-bearing drill-downs.
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument());
-    expect(screen.getByTestId('kpi-critical-high')).toBeInTheDocument();
-    expect(screen.getByTestId('kpi-llm-spend')).toBeInTheDocument();
-    // Open cases = the 1 open-status case in the sample.
+    // The trimmed set (Round-7 #3).
+    const strip = screen.getByTestId('kpi-strip');
+    for (const id of [
+      'kpi-open-cases',
+      'kpi-critical-high',
+      'kpi-escalated-to-human',
+      'kpi-false-positive-rate',
+      'kpi-auto-resolved',
+      'kpi-llm-spend',
+    ]) {
+      expect(within(strip).getByTestId(id)).toBeInTheDocument();
+    }
+    // The demoted tiles are GONE.
+    expect(screen.queryByTestId('kpi-artifacts-in-scope')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('kpi-knowledge-signals')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('kpi-total-cases')).not.toBeInTheDocument();
+    // Open cases = the 1 open-status case in the sample (rolled via CountUp).
     expect(within(screen.getByTestId('kpi-open-cases')).getByText('1')).toBeInTheDocument();
+    // False-positive rate reads the server quality rate (0.5 → "50%").
+    expect(within(screen.getByTestId('kpi-false-positive-rate')).getByText('50%')).toBeInTheDocument();
+    // Auto-resolved reads the server quality count (auto_closed_cases = 1).
+    expect(within(screen.getByTestId('kpi-auto-resolved')).getByText('1')).toBeInTheDocument();
   });
 
   it('reads timing from the SERVER posture (no client math), honoring the unavailable DASH', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // MTTA p50 = 45m and MTTR p50 = 180m → "3h" come straight from the posture rollup.
     await waitFor(() => expect(screen.getAllByText('45m').length).toBeGreaterThan(0));
     expect(screen.getAllByText('3h').length).toBeGreaterThan(0);
-    // The dwell block is unavailable → the honest server reason is shown (NOT a fake 0).
     expect(
       screen.getAllByText(/no case has received a first response yet/i).length,
     ).toBeGreaterThan(0);
-    // The posture fetch was the timing source — proving the client-math shadow is gone.
     expect(fetchPostureMock).toHaveBeenCalled();
+    // The posture fetch requests the period-over-period compare block.
+    expect(fetchPostureMock).toHaveBeenCalledWith(expect.any(Number), 'prev');
+  });
+
+  it('attaches a delta ONLY to a unit-matched tile (FP-rate), never to the count tiles', async () => {
+    fetchPostureMock.mockResolvedValue(POSTURE_CMP);
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    // The False-Positive-RATE tile is unit-matched to `compare.false_positive_rate` (a
+    // rate → a rate), so it carries the "-16.7%" delta chip.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('kpi-false-positive-rate')).getByText('-16.7%'),
+      ).toBeInTheDocument(),
+    );
+    // The COUNT tiles must NOT borrow a rate/total delta (a unit mismatch whose
+    // arrow/colour/number could contradict the shown count). A KpiTile delta renders as
+    // the ONLY role="img" element in the tile, so its absence proves no delta is drawn —
+    // Open Cases (count vs `case_count` TOTAL), Escalated (count vs `escalation_rate`),
+    // Auto-Resolved (count vs `automation_rate`).
+    expect(within(screen.getByTestId('kpi-open-cases')).queryByRole('img')).toBeNull();
+    expect(within(screen.getByTestId('kpi-escalated-to-human')).queryByRole('img')).toBeNull();
+    expect(within(screen.getByTestId('kpi-auto-resolved')).queryByRole('img')).toBeNull();
+    // The mismatched raw deltas are nowhere in the strip.
+    const strip = screen.getByTestId('kpi-strip');
+    expect(within(strip).queryByText('-20%')).toBeNull(); // escalation_rate
+    expect(within(strip).queryByText('+25%')).toBeNull(); // automation_rate
+    expect(within(strip).queryByText('-25%')).toBeNull(); // case_count
+    // The comparison window is stated ONCE under the strip (not per tile).
+    expect(screen.getByText(/Deltas compare the previous/i)).toBeInTheDocument();
   });
 
   it('deep-links a KPI tile to the filtered case list carrying the window', async () => {
@@ -192,8 +247,6 @@ describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(listCasesMock).toHaveBeenCalled());
-    // The case sample is fetched with a `from=now-<hours>h` created-at window (capped at
-    // 200 by created-desc) so open/severity/health/workload reflect the TimeRangePicker.
     const arg = listCasesMock.mock.calls[0][0] as { limit?: number; from?: string };
     expect(arg).toMatchObject({ limit: 200 });
     expect(String(arg.from)).toMatch(/^now-\d+h$/);
@@ -205,8 +258,6 @@ describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
     await screen.findByTestId('page-hero');
     const tile = await screen.findByTestId('kpi-critical-high');
     await userEvent.click(tile);
-    // The sample has a critical case (risk 88) → drill to the WORST band (critical),
-    // carrying the selected window (never a stray status filter).
     expect(onNavigate).toHaveBeenCalledWith(
       'cases',
       expect.objectContaining({ severity: 'critical', window: expect.any(Number) }),
@@ -219,7 +270,6 @@ describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
     const onNavigate = vi.fn();
     render(<Overview onNavigate={onNavigate} />);
     await screen.findByTestId('page-hero');
-    // Every band row is always rendered (even at count 0); the High row drills severity=high.
     const highRow = await screen.findByRole('button', { name: /view High severity cases/i });
     await userEvent.click(highRow);
     expect(onNavigate).toHaveBeenCalledWith(
@@ -228,17 +278,96 @@ describe('Overview — Security Posture Dashboard (Dash-A/Dash-B)', () => {
     );
   });
 
-  it('renders the autonomous-vs-human trust surface + named dashboard groups', async () => {
+  // Round-7 W2.c — the severity widget's `bandOf` now folds onto the ONE severity
+  // authority (badges.ts severityBandFromNumber, the 74/48/22/8 ladder) instead of its
+  // old private 80/60/35/15 cuts. This LOCKS the unification: a risk_score of 76 must
+  // band CRITICAL (it read HIGH under the old 80-cut), while 88/65/20 keep classifying
+  // critical/high/low (both ladders agree on those). If the widget ever drifts back to
+  // the 80-cut, `Critical` would drop to 1 and `High` rise to 2 and this test fails.
+  it('bands a risk_score of 76 as CRITICAL on the severity widget (W2.c unification)', async () => {
+    listCasesMock.mockResolvedValue({
+      cases: [
+        { case_id: 'u1', status: 'open', risk_score: 88 }, // critical (both ladders agree)
+        { case_id: 'u2', status: 'open', risk_score: 76 }, // critical NOW (was high @ 80-cut)
+        { case_id: 'u3', status: 'open', risk_score: 65 }, // high (both ladders agree)
+        { case_id: 'u4', status: 'open', risk_score: 20 }, // low (both ladders agree)
+      ] as unknown as Case[],
+      total: 4,
+    });
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // #3 trust surface: the autonomy split band is present as a labelled region.
+    const criticalRow = await screen.findByRole('button', { name: /view Critical severity cases/i });
+    const highRow = screen.getByRole('button', { name: /view High severity cases/i });
+    const lowRow = screen.getByRole('button', { name: /view Low severity cases/i });
+    // 88 + 76 BOTH land in Critical (only 65 in High, only 20 in Low). Under the old
+    // 80-cut, 76 would have fallen into High (Critical=1 / High=2) — asserting the new
+    // 74-cut here is what locks the deferred ladder unification.
+    await waitFor(() => expect(within(criticalRow).getByText('2')).toBeInTheDocument());
+    expect(within(highRow).getByText('1')).toBeInTheDocument();
+    expect(within(lowRow).getByText('1')).toBeInTheDocument();
+  });
+
+  // Round-7 QA (severity drill regression) — the Cases severity FILTER now prefers the
+  // source-asserted `severity_band`, so the Overview severity widget must bucket by the
+  // SAME preference (severity_band, else the risk band). Otherwise a source_asserted case
+  // counts under its risk band here but filters under its asserted band in Cases, and the
+  // drilled list can never reconcile with the widget's count.
+  it('buckets a source_asserted case by severity_band, not the risk band (drill reconcile)', async () => {
+    listCasesMock.mockResolvedValue({
+      cases: [
+        // risk_score 20 would band LOW, but the source asserts CRITICAL → must count Critical.
+        {
+          case_id: 's1', status: 'open',
+          severity_band: 'critical', severity_source: 'source_asserted', risk_score: 20,
+        },
+        { case_id: 's2', status: 'open', risk_score: 65 }, // high (no severity_band → risk band)
+      ] as unknown as Case[],
+      total: 2,
+    });
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    const criticalRow = await screen.findByRole('button', { name: /view Critical severity cases/i });
+    const highRow = screen.getByRole('button', { name: /view High severity cases/i });
+    const lowRow = screen.getByRole('button', { name: /view Low severity cases/i });
+    // The asserted-critical case lands in Critical (NOT Low, where its risk_score 20 sits).
+    await waitFor(() => expect(within(criticalRow).getByText('1')).toBeInTheDocument());
+    expect(within(highRow).getByText('1')).toBeInTheDocument();
+    expect(within(lowRow).getByText('0')).toBeInTheDocument();
+  });
+
+  it('renders the autonomy trust surface + the named widget bands (incl. the new ones)', async () => {
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
     await waitFor(() =>
       expect(screen.getByRole('region', { name: /Autonomous vs human/i })).toBeInTheDocument(),
     );
-    // The advisory caveat is spelled out (never influences decide()).
     expect(screen.getByText(/never influences that/i)).toBeInTheDocument();
-    // A couple of the other named widget bands render as regions too.
     expect(screen.getByRole('region', { name: /Response timing/i })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /Connector health/i })).toBeInTheDocument();
+    // The Cost & budget widget was replaced by a Case-volume trend; the Top-contributors
+    // ranked lists are new (Round-7 W1.A).
+    expect(screen.getByRole('region', { name: /Case volume/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Top signatures/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Top entities/i })).toBeInTheDocument();
+  });
+
+  it('the loading skeleton mirrors the final layout (6 KPI tiles + funnel + 4 widget rows)', () => {
+    // Never-resolving data calls → the page stays in its loading skeleton.
+    listCasesMock.mockReturnValue(new Promise(() => {}));
+    getMetricsMock.mockReturnValue(new Promise(() => {}));
+    usageMock.mockReturnValue(new Promise(() => {}));
+    fetchPostureMock.mockReturnValue(new Promise(() => {}));
+    render(<Overview onNavigate={vi.fn()} />);
+    const loading = screen.getByLabelText('Loading dashboard');
+    expect(loading).toBeInTheDocument();
+    // 6 KPI skeleton tiles in the same responsive grid as the real strip.
+    const stripSkeleton = screen.getByTestId('kpi-strip-skeleton');
+    expect(stripSkeleton.children).toHaveLength(6);
+    // A reserved full-width band for the Noise-Reduction funnel.
+    expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
+    // FOUR widget-row grids in LOCKSTEP with the real layout: Row A (2) · Row B (3) ·
+    // Row C (2) · Row D (2, Top signatures / Top entities). The KPI strip uses gap-4, so
+    // the gap-6 rows are exactly the widget rows.
+    expect(loading.querySelectorAll('.grid.gap-6')).toHaveLength(4);
   });
 });

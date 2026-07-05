@@ -30,6 +30,13 @@ import { Skeleton } from '@/ui/skeleton';
 import { RiskGauge } from '@/soc/components/RiskGauge';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { scoreBand } from '@/soc/components/palette';
+import { severityBandFromNumber } from '@/soc/components/badges';
+import { RISK_FACTOR_HELP, RISK_HELP_TEXT } from '@/soc/components/riskCopy';
+
+// Re-exported so the existing `import { RISK_HELP_TEXT, RISK_FACTOR_HELP } from
+// '../CaseTriageHeader'` path (used by CaseTriageHeader.test.tsx and other consumers)
+// keeps working after the copy moved to `riskCopy.ts` (Round-7 W0.3).
+export { RISK_FACTOR_HELP, RISK_HELP_TEXT } from '@/soc/components/riskCopy';
 
 import type {
   ImpactChip,
@@ -81,13 +88,13 @@ function toneForBand(band?: string): ChipTone {
   }
 }
 
-/** Map a 0-100 magnitude → a chip tone (for the risk number specifically). */
+/** Map a 0-100 magnitude → a chip tone. Delegates to the ONE SEVERITY authority
+ *  (`badges.ts severityBandFromNumber`, the 74/48/22/8 ladder) so the risk-factor bar
+ *  tones share ONE ladder with every SeverityBadge and can never drift (Round-7 W2.c).
+ *  (RiskCard's accent stripe intentionally stays on `scoreBand` — the 4-band RISK ladder
+ *  the embedded RiskGauge uses; that is a separate axis and is left untouched.) */
 function toneForScore(score: number): ChipTone {
-  if (score >= 80) return 'critical';
-  if (score >= 60) return 'high';
-  if (score >= 35) return 'medium';
-  if (score >= 15) return 'low';
-  return 'info';
+  return severityBandFromNumber(score);
 }
 
 /** Title-case a band/level token for display ("high" → "High", "P1" → "P1"). */
@@ -144,33 +151,6 @@ const RISK_COMPONENTS: Array<{ key: string; label: string }> = [
   { key: 'diversity', label: 'Diversity' },
   { key: 'asset_criticality', label: 'Asset' },
 ];
-
-/**
- * The canonical, authored help for the deterministic risk score — the ONE source of
- * truth for the per-factor definitions + default weights (25/20/30/15/10) + the honest
- * caveat. Authored VERBATIM from `backend/app/engine/risk.py` (Reputation is the
- * HEAVIEST factor at 0.30). Kept in sync with the backend copy in
- * `backend/app/engine/priority.py` (`risk_chip.inputs.definition`). Plain text (#9);
- * shown in the RiskCard HelpTip and used as the fallback when the backend omits the
- * `inputs.definition` string.
- */
-export const RISK_HELP_TEXT =
-  'Deterministic 0-100 risk score — a weighted blend of 5 factors: Reputation 30% ' +
-  '(heaviest), Volume 25%, Velocity 20%, Diversity 15%, Asset criticality 10%. It only ' +
-  'RANKS what an analyst looks at first; it never closes or escalates a case on its own.';
-
-export const RISK_FACTOR_HELP =
-  'Volume (25%) — how many events fired (log-normalised, so it levels off around 50 ' +
-  "and huge clusters don't dominate).\n" +
-  'Velocity (20%) — events per minute (full near 10/min); reads 0 below 3 events or a ' +
-  "sub-second window so a millisecond burst can't fake a 100.\n" +
-  'Reputation (30%, heaviest) — the worst threat-intel reputation among the cluster’s ' +
-  'IPs; IP-only, 0 when there is no IP.\n' +
-  'Diversity (15%) — how many distinct rule types fired (maxes out at 5).\n' +
-  'Asset criticality (10%) — how important the targeted asset is (CIDR/exact map; 0 if ' +
-  'uncatalogued).\n\n' +
-  "The risk score only ranks what's investigated first — it never closes or escalates a " +
-  'case on its own.';
 
 /** A compact horizontal breakdown of the risk components (each 0-100). Plain data. */
 const RiskBreakdownBars: React.FC<{ breakdown: Record<string, number | undefined> }> = ({

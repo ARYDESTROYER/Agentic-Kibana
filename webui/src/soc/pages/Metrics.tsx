@@ -579,7 +579,7 @@ export default function MetricsPage({
           ))}
         </Stagger>
 
-        <div className={CARD_GRID}>
+        <Stagger className={CARD_GRID} step={40} itemClassName="h-full">
           <ChartCard title="Verdict mix" icon={BarChart3}>
             {verdictSegments.length ? (
               <div className="space-y-3">
@@ -697,7 +697,7 @@ export default function MetricsPage({
               <ChartEmpty>Not enough data points to chart a trend.</ChartEmpty>
             )}
           </ChartCard>
-        </div>
+        </Stagger>
 
         {/* Analyst feedback quality — LLM cost moved to the dedicated Cost tab so
             spend lives in ONE place (the designated single cost home). A compact
@@ -929,7 +929,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Lifecycle timing ({windowLabel})
         </h2>
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <Stagger className="grid grid-cols-1 gap-5 sm:grid-cols-3" step={40} itemClassName="h-full">
           {lifecycleTiles.map((t) => {
             const dv = t.cmp ? deltaView(compare?.[t.cmp]) : { show: false, label: '' };
             return (
@@ -949,7 +949,7 @@ function PerformanceTab({ posture, loading, windowLabel }: PerfPostureProps) {
               />
             );
           })}
-        </div>
+        </Stagger>
       </section>
 
       {/* Percentile detail (p50 / p90 / mean / max) */}
@@ -1173,7 +1173,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
         </h2>
         {aging ? (
           <>
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">
+            <Stagger className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6" step={40} itemClassName="h-full">
               <StatCard label="Queue depth" value={fmtNumber(aging.queue_depth)} accent="info" />
               <StatCard label="Backlog" value={fmtNumber(aging.backlog)} accent="medium" />
               <StatCard label="Arrivals" value={fmtNumber(aging.arrivals)} accent="primary" />
@@ -1184,7 +1184,7 @@ function PostureTab({ posture, mitre, loading, windowLabel, onNavigate }: Postur
                 value={aging.oldest[0] ? `${Math.round(aging.oldest[0].age_hours)}h` : DASH}
                 accent="critical"
               />
-            </div>
+            </Stagger>
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
               <ChartCard title="Age distribution" icon={Layers}>

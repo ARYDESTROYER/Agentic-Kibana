@@ -101,6 +101,12 @@ class PollerManager:
         # manager-level reference contract via state.py; we share the ``_event_funnel``
         # attribute name.)
         self._event_funnel: Callable | None = None
+        # Round-7 Noise-Reduction counter sink. A SEPARATE hook from ``_event_funnel``
+        # (P0 name-collision avoidance). State wires it via ``set_noise_sink`` after
+        # construction; ``rebuild()`` / the child builders PROPAGATE it to EVERY child so
+        # an events-only or quiet tick on ANY source records its raw-alert-by-severity
+        # tally. Default None → no counters (byte-identical poll path); advisory only (#3).
+        self._noise_sink: Callable | None = None
         self._primary: Poller = self._build_primary()
         self._children: list[Poller] = []
         # ES clients this manager OWNS (non-primary sources with per-source overrides).
@@ -148,6 +154,8 @@ class PollerManager:
         # Propagate the manager-level EVENT-feed funnel hook (finding #7). ``__init__``
         # sets ``self._event_funnel`` before this runs; ``rebuild()`` re-propagates.
         child._event_funnel = getattr(self, "_event_funnel", None)
+        # Round-7: propagate the Noise-Reduction counter sink too (SEPARATE hook).
+        child._noise_sink = getattr(self, "_noise_sink", None)
         return child
 
     def _pull_sources(self, prefs: Preferences) -> list:
@@ -200,6 +208,9 @@ class PollerManager:
         # too (finding #7) so an events-role feed on a non-primary source also routes to
         # the funnel when routing is enabled — previously only the primary was wired.
         child._event_funnel = getattr(self, "_event_funnel", None)
+        # Round-7: propagate the Noise-Reduction counter sink too (SEPARATE hook) so a
+        # non-primary source records its raw-alert tally exactly like the primary.
+        child._noise_sink = getattr(self, "_noise_sink", None)
         # Un-fed (no feeds) non-primary source → legacy union path would key the cursor
         # ``"primary"`` and stomp the shared doc. Give it a DISTINCT key (#4).
         if not _connector_has_feeds(connector):
@@ -247,6 +258,30 @@ class PollerManager:
         # (re)assigned on the manager after construction; this guarantees a rebuild leaves
         # every child carrying the current hook (or None when routing is off).
         self._propagate_funnel()
+        # Round-7: re-propagate the Noise-Reduction counter sink onto every child too. The
+        # manager-level ``_noise_sink`` survives a rebuild (state wires it once via
+        # ``set_noise_sink``), so a source edit keeps counters wired on every child.
+        self._propagate_noise_sink()
+
+    def set_noise_sink(self, sink: Callable | None) -> None:
+        """Set the manager-level Noise-Reduction counter sink + fan it out to every child.
+
+        State calls this once after construction to wire the durable counter store's
+        ``record``. Storing it on the manager — not only on the primary — is what lets an
+        events-only / quiet tick on ANY source record its raw-alert-by-severity tally. A
+        SEPARATE hook from ``set_event_funnel`` (P0 name-collision avoidance)."""
+        self._noise_sink = sink
+        self._propagate_noise_sink()
+
+    def _propagate_noise_sink(self) -> None:
+        """Copy the manager-level ``_noise_sink`` onto every child (primary + non-primary).
+        Best-effort; a missing attribute only means counters stay off."""
+        sink = getattr(self, "_noise_sink", None)
+        for p in self._all_pollers():
+            try:
+                p._noise_sink = sink
+            except Exception:  # noqa: BLE001 — never break a rebuild on this
+                pass
 
     def set_event_funnel(self, funnel: Callable | None) -> None:
         """Set the manager-level EVENT-feed funnel hook + fan it out to every child (#7).

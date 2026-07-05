@@ -27,7 +27,9 @@ from fastapi import APIRouter, Depends
 
 from ..engine.metrics import posture_metrics
 from ..engine.mitre_coverage import compute_mitre_coverage, navigator_layer
+from ..engine.noise_counters import build_noise_reduction
 from ..state import AppState
+from ..utils import iso_now
 from .deps import get_state, require_permission
 
 logger = logging.getLogger("tlsoc.api.metrics")
@@ -80,6 +82,44 @@ async def metrics_posture(
         window_hours=max(0, int(window_hours)),
         compare=(compare or "").strip().lower(),
         store_total=store_total,
+    )
+
+
+@router.get("/metrics/noise-reduction")
+async def metrics_noise_reduction(
+    window_hours: int = 24,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("metrics", "view")),
+) -> dict[str, Any]:
+    """The Noise-Reduction funnel over the last ``window_hours`` (default 24) — "total
+    alerts by severity → what the AI reduced it to".
+
+    ``ingested``/``clustered`` come from the DURABLE ``noise_counters`` store (raw-alert-by-
+    severity, so they reflect the TRUE inbound volume even after low-value events are
+    dropped at ingest); ``cases`` + the MECE outcomes (needs_human > escalated >
+    auto_cleared > true_positive residual) come from a case tally computed over up to the
+    most-recent 5000 cases (the ``cases_meta.truncated`` flag is True when the store held
+    more — the outcome tallies are then a lower bound). When the counters are still warming
+    up (``counters.available: false``) the ingested/clustered totals are ``null`` and the
+    headline ``reduction.overall_pct`` is a DASH, so the UI degrades to a case-only funnel.
+
+    DETERMINISTIC + advisory: nothing here is read by ``case_manager.decide()`` (#3); every
+    band name is plain framework data the UI renders escaped."""
+    cases, store_total = await _load_cases(state)
+    wh = max(0, int(window_hours))
+    try:
+        counters = await state.noise_counters.read_window(wh)
+    except Exception as exc:  # noqa: BLE001 — a counter glitch degrades to case-only funnel
+        logger.warning("noise-reduction counter read soft-failed: %s", exc)
+        counters = {"available": False}
+    return build_noise_reduction(
+        cases,
+        counters,
+        window_hours=wh,
+        store_total=store_total,
+        fetched_count=len(cases),
+        prefs=getattr(state, "prefs", None),
+        generated_at=iso_now(),
     )
 
 

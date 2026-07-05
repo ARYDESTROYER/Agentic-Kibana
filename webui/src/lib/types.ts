@@ -1484,6 +1484,28 @@ export interface Case {
   automation_actions?: AutomationActionRecord[];
   /** Knowledge sources the investigation drew on (F11; additive, UNTRUSTED text). */
   knowledge_used?: Array<Record<string, unknown>>;
+  /**
+   * FP objection-window deadline (Round-7; additive). When the deterministic
+   * auto-close policy schedules a false-positive close behind an objection window,
+   * this is the ISO instant it expires (a human may object until then). `null` /
+   * absent when no objection window is pending. Matches the backend flat field.
+   */
+  objection_window_expires_at?: string | null;
+  /**
+   * Advisory triage BANDS (Round-7; additive, ADVISORY — never feed `decide()`, #3).
+   * The backend derives these read-time in `engine/priority.py` and populates them on
+   * `GET /api/cases` + `GET /api/cases/{id}`. All are PLAIN enum-ish labels (render as
+   * plain text). `severity_band` is one of the 5 severity bands
+   * (critical/high/medium/low/info); `severity_source` records WHO graded severity
+   * ('source' = SIEM-supplied vs 'code' = derived) for the provenance tag;
+   * `impact_band`/`urgency_band` are 3-band (high/medium/low); `priority_level` is the
+   * ITIL P-level (e.g. "P1"). All optional — absent when the advisory pass is off.
+   */
+  severity_band?: string;
+  severity_source?: string;
+  impact_band?: string;
+  urgency_band?: string;
+  priority_level?: string;
   [key: string]: unknown;
 }
 
@@ -1860,6 +1882,15 @@ export interface Metrics {
   playbook_usage: Record<string, number>;
   /** Mean normalised risk score (0..100). */
   avg_risk_score: number;
+  /**
+   * Active Risk Index (Round-7; additive) — the canonical top-right instrument on the
+   * Security Command Center. The mean deterministic `risk_score` over NON-TERMINAL
+   * (still-open) cases only, 0..100 (0.0 when there are no open cases). Distinct from
+   * `avg_risk_score` (which spans ALL cases). Advisory presentation only (never #3).
+   */
+  active_risk_index?: number;
+  /** How many non-terminal (open) cases the `active_risk_index` mean was taken over. */
+  active_risk_case_count?: number;
   /** Mean time-to-resolution in minutes. */
   mttr_minutes: number;
   resolved_count: number;
@@ -1868,6 +1899,96 @@ export interface Metrics {
   /** Compact cost summary (shares the UsageSummary shape; fields optional). */
   cost: Partial<UsageSummary> & Record<string, unknown>;
   window_hours?: number;
+  [key: string]: unknown;
+}
+
+// --------------------------------------------------------------------------- //
+// Provenance (Round-7 #9) — WHO produced a field's value: the raw log/SIEM `source`,
+// the `ai` agent (LLM verdict/confidence), or deterministic `code` (risk/priority
+// math). The ONE shared provenance vocabulary consumed by `ProvenanceTag` + the
+// `DataTableColumn.provenance` header tag + the per-cell severity provenance.
+// --------------------------------------------------------------------------- //
+export type Provenance = 'source' | 'ai' | 'code';
+
+// --------------------------------------------------------------------------- //
+// Noise-Reduction funnel (Round-7 ★) — GET /api/metrics/noise-reduction?window_hours=.
+//
+// A durable "total raw alerts by severity → what the AI reduced it to" funnel: the
+// `ingested`/`clustered` stages come from durable noise counters (by severity band),
+// the `cases` + outcome stages from a live tally of the case store. Powers the
+// "Noise reduced by N%" headline on the Security Command Center. Every value is an
+// aggregate count / label (no raw log text). Advisory presentation only — never #3.
+// --------------------------------------------------------------------------- //
+/**
+ * A per-severity-band count map for one funnel stage. Keyed by the 5 severity bands
+ * (critical/high/medium/low/info); a band is omitted when its count is zero. The open
+ * index signature keeps any additional/forward band round-tripping unharmed.
+ */
+export interface NoiseSeverityBreakdown {
+  critical?: number;
+  high?: number;
+  medium?: number;
+  low?: number;
+  info?: number;
+  [band: string]: number | undefined;
+}
+
+/**
+ * One stage of the noise-reduction funnel. `key` walks the pipeline
+ * (ingested → clustered → cases → auto_cleared → escalated → needs_human; a backend
+ * may append a `true_positive` residual). `source` records whether the stage was tallied
+ * from durable `counters` or the live `cases` store; `deterministic` marks the stages
+ * produced by deterministic code (vs the LLM-influenced `cases` stage). `total` is the
+ * stage's headline count and `by_severity` its per-band split.
+ */
+export interface NoiseStage {
+  key: string;
+  /** Operator-facing label for the stage (plain text). */
+  label: string;
+  source: 'counters' | 'cases' | string;
+  deterministic: boolean;
+  total: number;
+  by_severity: NoiseSeverityBreakdown;
+}
+
+/**
+ * GET /api/metrics/noise-reduction — the full funnel contract (Round-7 §D). `reduction`
+ * percentages fall back to the em-dash placeholder `'—'` when they cannot be computed
+ * (e.g. counters still warming up). `counters.available:false` (with a null `ingested`
+ * total) signals the durable counters are warming up so the UI degrades to a case-only
+ * funnel. `cases_meta` reports store-fetch truncation for an honest partial-data note.
+ */
+export interface NoiseReduction {
+  window_hours: number;
+  /** When the aggregation was computed (ISO). */
+  generated_at: string;
+  /** The severity bands, highest → lowest, the `by_severity` maps are keyed by. */
+  bands: string[];
+  stages: NoiseStage[];
+  /** Candidates removed before clustering (suppressed rules / ignored feeds). */
+  drops: { suppressed: number; ignored: number };
+  reduction: {
+    /** Overall % of raw alerts the AI cut, or `'—'` when not computable. */
+    overall_pct: number | '—';
+    /** % of alerts kept away from a human (auto-cleared), or `'—'`. */
+    human_reduction_pct: number | '—';
+  };
+  counters: {
+    /** Whether durable ingest counters are populated for this window. */
+    available: boolean;
+    /** When the counters began accumulating (ISO), or null when unavailable. */
+    since: string | null;
+    /** True while counters are still warming up (partial coverage of the window). */
+    incomplete: boolean;
+  };
+  cases_meta: {
+    /** True when the case-store fetch hit its cap (funnel counts are a partial tally). */
+    truncated: boolean;
+    /** Best-effort total cases in the store for the window. */
+    store_total: number;
+    /** How many cases were actually fetched + tallied. */
+    fetched: number;
+  };
   [key: string]: unknown;
 }
 

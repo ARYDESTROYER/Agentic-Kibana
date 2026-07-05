@@ -76,7 +76,7 @@
     /* SEVERITY / RISK — red → orange → gold → blue → blue-grey. *-text measured on white card. */
     --critical: 358 75% 45%;  --critical-foreground: 0 0% 100%;  --critical-text: 358 75% 42%; /* 6.36:1 */
     --high:     22 90% 44%;    --high-foreground: 0 0% 100%;      --high-text: 22 90% 40%;      /* 4.81:1 */
-    --medium:   40 96% 40%;    --medium-foreground: 222 47% 11%;  --medium-text: 40 96% 32%;    /* 4.54:1 (hue 40, distinct from warning hue 36) */
+    --medium:   40 96% 38%;    --medium-foreground: 222 47% 11%;  --medium-text: 40 96% 32%;    /* fill-on-card 3.26:1 (WCAG 1.4.11 ≥3; was 40% L → 2.97 ✗); -text 4.54:1; hue 40 ≠ warning 36 */
     --low:      212 90% 45%;   --low-foreground: 0 0% 100%;       --low-text: 212 90% 42%;      /* 5.63:1 (BLUE, was green) */
     --info:     220 12% 46%;   --info-foreground: 0 0% 100%;      --info-text: 215 16% 42%;     /* 5.65:1 (blue-grey) */
     /* STATUS — the ONLY place green lives (always paired with a check icon). */
@@ -148,6 +148,10 @@
     --motion-base: 200ms; /* popover/tooltip/tab-switch/row-expand */
     --motion-slow: 280ms; /* Sheet/Dialog/drawer enter */
     --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    /* Round-7 W0.1 — the "premium" entrance curve (confident, slight overshoot-free
+       ease-out). Formalised as a token so `ease-premium` in Tailwind + the fade/rise/
+       scale keyframes all read from ONE place. */
+    --motion-ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .dark {
@@ -367,6 +371,33 @@
     opacity: var(--grid-opacity);
     mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
     -webkit-mask-image: radial-gradient(120% 120% at 50% 0%, black 0%, transparent 75%);
+  }
+}
+
+@layer utilities {
+  /* Round-7 W0.1 — subtle interaction affordances for clickable tiles/cards.
+     `.hover-lift` raises a card 2px + adds the resting elevation shadow on hover;
+     `.press-scale` nudges it down on active-press. Both TRANSITION unconditionally
+     (so returning to rest is smooth) but the actual transform/shadow is GATED behind
+     `(prefers-reduced-motion: no-preference)`, so reduced-motion users get a flat,
+     motionless control (the global reset only zeroes durations — it does not remove
+     the transform, hence the explicit gate here). 2px, not 8px (DESIGN_DIRECTION). */
+  .hover-lift {
+    transition:
+      transform var(--motion-fast) var(--motion-ease-standard),
+      box-shadow var(--motion-fast) var(--motion-ease-standard);
+  }
+  .press-scale {
+    transition: transform var(--motion-fast) var(--motion-ease-standard);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .hover-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--elev-1);
+    }
+    .press-scale:active {
+      transform: scale(0.97);
+    }
   }
 }
 
