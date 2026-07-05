@@ -1,55 +1,37 @@
 /**
- * Home — the consolidated landing host (Round-2 W4 page consolidation). One
- * scaffold, two segmented sub-views:
+ * Home — the Overview landing host.
  *
- *   - Dashboard: the live security-posture command center (the Overview page).
- *   - Standup:   the daily aggregate digest (the former Standup page).
+ * Overview and Standup each own their full PageContainer + PageHeader, so Home is a
+ * thin router that renders exactly ONE of them based on the active `tab`:
  *
- * Standup was previously a separate Automation rail item; it is a glanceable
- * summary that belongs next to the posture dashboard, so folding it in declutters
- * the rail without dropping functionality. Each sub-page owns its own compact
- * PageHeader (hero variant) + PageContainer, so the host renders NO unified
- * PageHeader — just the segmented tab bar above the sub-page headers.
+ *   - dashboard (default): the live security-posture command center (Overview page).
+ *   - standup:             the daily aggregate digest (Standup page).
  *
- * The active tab follows `NavOpts.tab` so `navigate('overview', { tab: 'standup' })`
- * and `#/overview` deep-links land on the right sub-view.
+ * The redundant in-page "Dashboard | Standup" segmented strip was removed (task: the
+ * left-nav Overview group already exposes a clickable child for BOTH destinations, so
+ * an in-page tab bar duplicating those buttons was pure clutter atop the Security
+ * Command Center). Switching now happens via the left nav; the `tab` route opt (forced
+ * by the `dashboard` / `standup` routes and by `navigate('overview', { tab })`) selects
+ * which sub-page renders here, so deep-links + in-app navigation still land correctly.
  */
-import { Gauge, FileText } from 'lucide-react';
 import { useNavigateOptional, type Navigate } from '@/soc/router';
-import { TabbedPage } from '@/soc/components/TabbedPage';
 import Overview from './Overview';
 import Standup from './Standup';
 
 export interface HomeProps {
   onNavigate?: Navigate;
-  /** Active sub-tab from the route opts ('dashboard' | 'standup'). */
+  /** Active sub-view from the route opts ('dashboard' | 'standup'). */
   tab?: string;
 }
 
 export default function Home({ onNavigate, tab }: HomeProps = {}) {
-  // Coupling-A: the host resolves navigate once (prop wins for tests) and threads it +
-  // the tab round-trip into its sub-views — App no longer prop-drills onNavigate.
-  // Call the hook UNCONDITIONALLY (rules-of-hooks), then let an explicit prop win.
+  // Coupling-A: resolve navigate once (an explicit prop wins for tests), then thread it
+  // into whichever sub-page is active. Call the hook UNCONDITIONALLY (rules-of-hooks).
   const contextNavigate = useNavigateOptional();
   const navigate = onNavigate ?? contextNavigate;
-  return (
-    <TabbedPage
-      value={tab}
-      onValueChange={(next) => navigate('overview', { tab: next })}
-      tabs={[
-        {
-          value: 'dashboard',
-          label: 'Dashboard',
-          icon: Gauge,
-          content: <Overview onNavigate={navigate} />,
-        },
-        {
-          value: 'standup',
-          label: 'Standup',
-          icon: FileText,
-          content: <Standup onNavigate={navigate} />,
-        },
-      ]}
-    />
+  return tab === 'standup' ? (
+    <Standup onNavigate={navigate} />
+  ) : (
+    <Overview onNavigate={navigate} />
   );
 }
