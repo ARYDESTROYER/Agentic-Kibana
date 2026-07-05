@@ -26,9 +26,13 @@
       (function () {
         try {
           var m = window.localStorage.getItem('soc.theme');
+          // Mirror theme.tsx readStoredMode(): ONLY the exact strings 'dark'/'light' are
+          // explicit; ANY other value (unset, 'system', or a corrupt/unknown value) falls
+          // through to the OS preference — so a corrupt `soc.theme` on a dark-preferring OS
+          // can never flash a light frame.
           var dark =
             m === 'dark' ||
-            ((m === 'system' || m === null || m === undefined) &&
+            (m !== 'light' &&
               window.matchMedia &&
               window.matchMedia('(prefers-color-scheme: dark)').matches);
           var el = document.documentElement;

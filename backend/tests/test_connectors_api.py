@@ -96,3 +96,35 @@ def test_source_crud_roundtrip(client):
 def test_upsert_rejects_unknown_source_type(client):
     r = client.post("/api/sources", json={"id": "x", "source_type": "frobnicator"})
     assert r.status_code == 400
+
+
+def test_upsert_preserves_configured_secrets_and_created_at(client):
+    """Regression (validation F1/F2): a bare re-upsert — the Enabled toggle / bulk
+    enable-disable / make-primary path — must NOT wipe the source's `configured_secrets`
+    NAMES or reset its `created_at`. `SourceUpsert` carries neither field, so `upsert_source`
+    carries them forward from the existing source; without that fix every toggle emptied the
+    secret-name list (the "N secrets" subline + delete warning) and re-stamped the creation
+    date, which the new Log Sources table surfaces as an Enabled toggle + a Creation Date col."""
+    body = {
+        "id": "elk-x",
+        "source_type": "elasticsearch",
+        "display_name": "ELK",
+        "enabled": True,
+        "config": {},
+    }
+    assert client.post("/api/sources", json=body).status_code == 200
+
+    # record a secret NAME on the source (values go to the in-memory secret tier)
+    r = client.post("/api/sources/elk-x/secrets", json={"es_api_key": "s3cr3t"})
+    assert r.status_code == 200 and r.json()["configured_secrets"] == ["es_api_key"]
+    created0 = next(
+        s for s in client.get("/api/sources").json()["sources"] if s["id"] == "elk-x"
+    )["created_at"]
+
+    # a bare re-upsert that does NOT re-send the secret (an enable/disable toggle)
+    r2 = client.post("/api/sources", json={**body, "enabled": False})
+    assert r2.status_code == 200
+    src = next(s for s in r2.json()["sources"] if s["id"] == "elk-x")
+    assert src["configured_secrets"] == ["es_api_key"]  # secret-name metadata survives (F1)
+    assert src["created_at"] == created0  # creation date unchanged (F2)
+    assert src["enabled"] is False

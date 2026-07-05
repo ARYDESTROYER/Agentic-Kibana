@@ -134,18 +134,18 @@ describe('OverviewPanel — source severity vs. our risk delta cue (task 6)', ()
     expect(screen.queryByTestId('source-assessment-delta')).toBeNull();
   });
 
-  it('never shows the delta cue for a DERIVED (non-source-asserted) severity', () => {
+  it('never shows the delta cue OR a "Reported severity" row for a DERIVED severity', () => {
     renderOverview({
       ...CASE,
       risk_score: 40,
       severity_band: 'high',
       severity_source: 'derived',
     } as unknown as Case);
-    // Derived → the honest "no source severity" note + a Code provenance tag, no delta.
+    // Derived → NO delta, and — critically — no "Reported severity" row under "Reported by
+    // source": a derived band must never read as a source fact (it lives under "Our
+    // assessment" via the risk score instead).
     expect(screen.queryByTestId('source-assessment-delta')).toBeNull();
-    expect(
-      screen.getByText(/No source severity was supplied/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Reported severity')).toBeNull();
   });
 });
 

@@ -1539,7 +1539,7 @@ export interface Case {
    * `GET /api/cases` + `GET /api/cases/{id}`. All are PLAIN enum-ish labels (render as
    * plain text). `severity_band` is one of the 5 severity bands
    * (critical/high/medium/low/info); `severity_source` records WHO graded severity
-   * ('source' = SIEM-supplied vs 'code' = derived) for the provenance tag;
+   * ('source_asserted' = SIEM-supplied vs 'derived' = code-derived) for the provenance tag;
    * `impact_band`/`urgency_band` are 3-band (high/medium/low); `priority_level` is the
    * ITIL P-level (e.g. "P1"). All optional — absent when the advisory pass is off.
    */

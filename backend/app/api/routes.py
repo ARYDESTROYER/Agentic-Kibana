@@ -324,6 +324,13 @@ async def upsert_source(
     else:
         mode = manifest.ingest_modes[0] if manifest.ingest_modes else IngestMode.PULL
 
+    # Preserve managed/immutable metadata across an UPDATE. `SourceUpsert` carries neither
+    # `configured_secrets` (secret NAMES, set only via POST /sources/{id}/secrets) nor
+    # `created_at`, so a bare rebuild would wipe the secret-name list and reset the creation
+    # date on EVERY enable/disable/make-primary/edit — the secret VALUES survive in
+    # `connector_secrets`, but the "N secrets" subline, the delete-confirm warning, and the
+    # Creation Date column would all lie. Carry them forward from the existing source.
+    existing = next((s for s in state.prefs.sources if s.id == body.id), None)
     instance = SourceInstance(
         id=body.id,
         source_type=st,
@@ -332,6 +339,8 @@ async def upsert_source(
         ingest_mode=mode,
         is_primary=body.is_primary,
         config=body.config,
+        configured_secrets=(list(existing.configured_secrets) if existing else []),
+        **({"created_at": existing.created_at} if existing else {}),
     )
     # Wave 6: keep ``config['data_view_pattern']`` synced to the comma-join of the
     # non-ignore feed patterns, so the legacy single-pattern fallback + any reader of

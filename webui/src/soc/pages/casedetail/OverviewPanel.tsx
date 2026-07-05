@@ -552,12 +552,21 @@ export const OverviewPanel: React.FC<{
 
   // The delta cue — the highest-value moment for an analyst: the source asserted a
   // severity AND it disagrees with the band our risk score lands in.
+  // `info` only exists on the 5-band severity ladder, never on the 4-band risk ladder
+  // (scoreBand), so an 'info' source severity would ALWAYS "disagree" with any risk band —
+  // a spurious delta. Exclude it.
   const showSeverityDelta =
-    isSourceAsserted && !!sourceSevBand && !!ourRiskBand && sourceSevBand !== ourRiskBand;
+    isSourceAsserted &&
+    !!sourceSevBand &&
+    sourceSevBand !== 'info' &&
+    !!ourRiskBand &&
+    sourceSevBand !== ourRiskBand;
 
-  // Whether the "What the source reported" card has any content to show.
+  // Whether the "What the source reported" card has any content. A DERIVED severity is NOT
+  // a source fact, so it does not count here (only a source-asserted band does). `startedAt`
+  // is our case-creation timestamp, not a source fact, so it is excluded too.
   const sourceFactsPresent = Boolean(
-    sevBandRaw || ruleIds.length || c.source_name || startedAt || triggerSentence,
+    (isSourceAsserted && sevBandRaw) || ruleIds.length || c.source_name || triggerSentence,
   );
 
   return (
@@ -569,8 +578,11 @@ export const OverviewPanel: React.FC<{
           <PanelCard>
             <SectionHeading icon={Database}>What the source reported</SectionHeading>
             <div className="space-y-4">
-              {/* source-asserted severity — "severity per the source was High". */}
-              {sevBandRaw ? (
+              {/* Source-ASSERTED severity only — "severity per the source was High". A
+                  DERIVED band must never appear here (it would read as a source fact — the
+                  exact confusion this layout removes); it is represented under "Our
+                  assessment" via the risk score instead. */}
+              {isSourceAsserted && sevBandRaw ? (
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -581,9 +593,7 @@ export const OverviewPanel: React.FC<{
                     <ProvenanceTag kind={severityProvenance(sevSource)} />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {isSourceAsserted
-                      ? `The source rated this alert ${sevLabel} severity.`
-                      : 'No source severity was supplied — this band is derived from our risk score.'}
+                    The source rated this alert {sevLabel} severity.
                   </p>
                 </div>
               ) : null}
@@ -605,14 +615,13 @@ export const OverviewPanel: React.FC<{
                 </div>
               ) : null}
 
-              {/* source name + source event time */}
-              {c.source_name || startedAt ? (
+              {/* source name (the case's `created_at` is OUR case-creation timestamp, not a
+                  source event time — it is shown honestly under "Provenance & activity" as
+                  "Created", never misrepresented as a source-reported fact). */}
+              {c.source_name ? (
                 <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
                   {/* UNTRUSTED source name — MetaItem renders it as a plain text node. */}
-                  {c.source_name ? <MetaItem label="Source" value={c.source_name} /> : null}
-                  {startedAt ? (
-                    <MetaItem label="Source event time" value={formatTimestamp(startedAt)} />
-                  ) : null}
+                  <MetaItem label="Source" value={c.source_name} />
                 </div>
               ) : null}
 
@@ -932,9 +941,11 @@ export const OverviewPanel: React.FC<{
         {/* status timeline (F8) */}
         <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
 
-        {/* run/cost meta — the source event time is shown once under "Reported by source"
-            as "Source event time"; here we carry OUR processing metadata. */}
+        {/* run/cost meta — OUR processing metadata. The Case exposes no true source event
+            timestamp, so `created_at` is honestly labelled "Created" (when WE opened the
+            case) here rather than shown as a source fact in "Reported by source". */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+          {startedAt ? <span>Created {formatTimestamp(startedAt)}</span> : null}
           {completedAt ? <span>Processed {formatTimestamp(completedAt)}</span> : null}
           {/* UNTRUSTED profile (playbook id / persona) — plain text. */}
           {profile ? <span>Profile {profile}</span> : null}

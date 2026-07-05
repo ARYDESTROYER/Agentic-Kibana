@@ -284,9 +284,10 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
     // Fixed header + fixed footer, only the body scrolls (a focused single-measure
     // flow — NN/G wizard best-practice). The heavy marketing hero + the per-step
     // StepHeading used to compete; now a slim brand/eyebrow bar tops the flow and the
-    // StepHeading inside each step is the single title. `h-screen` (not min-h) bounds
-    // the column so the <main> is the ONLY scroller — the header/footer stay put.
-    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
+    // StepHeading inside each step is the single title. `h-dvh` (dynamic viewport height,
+    // not h-screen/100vh) bounds the column so the <main> is the ONLY scroller and the
+    // fixed footer isn't pushed under the mobile browser URL bar.
+    <div className="flex h-dvh flex-col overflow-hidden bg-canvas">
       {/* ---- fixed header: brand eyebrow + a light numbered progress strip ------- */}
       <header className="shrink-0 border-b border-border bg-canvas/95 backdrop-blur">
         <div className="mx-auto w-full max-w-2xl px-4 pt-5 sm:px-6">

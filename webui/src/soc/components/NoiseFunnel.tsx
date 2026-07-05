@@ -190,7 +190,9 @@ export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
  */
 function spineFill(index: number, count: number): string {
   const t = count > 1 ? index / (count - 1) : 1;
-  return token('primary', 0.4 + 0.55 * t);
+  // Floor at 0.5 alpha so the widest/palest top bar still reads on a bright display
+  // (the number labels carry the meaning, but the bar shouldn't look absent).
+  return token('primary', 0.5 + 0.45 * t);
 }
 
 /** The circular ShieldCheck / Bot phase marker — deterministic code vs the LLM stage. */
@@ -501,8 +503,10 @@ export function NoiseFunnel({
                   {fmtNumber(casesTotal)} case{casesTotal === 1 ? '' : 's'} opened
                 </span>
               </div>
-              {/* Proportional stacked bar (decorative — the labelled tiles carry meaning). */}
-              <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+              {/* Proportional stacked bar (decorative — the labelled tiles carry meaning).
+                  `gap-px` reveals the muted track between segments as a hairline separator so
+                  adjacent similar hues (escalated/needs-human) don't blend. */}
+              <div className="flex h-2.5 w-full gap-px overflow-hidden rounded-full bg-muted" aria-hidden>
                 {outcomeRows.map((row) =>
                   row.total > 0 ? (
                     <div

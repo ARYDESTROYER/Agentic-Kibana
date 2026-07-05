@@ -147,15 +147,25 @@ type StatusKind = 'disabled' | 'ok' | 'idle';
 
 /**
  * HONEST status derivation from the health signal (no fake health):
- *  - disabled  → the source is turned off;
- *  - ok        → enabled AND the source has seen activity (a poll cursor moved, or a
- *                PUSH receiver holds buffered events);
- *  - idle      → enabled but no activity observed yet.
+ *  - disabled → the source is turned off;
+ *  - Active   → enabled AND RECENTLY active (a poll cursor moved within the last 24h, or a
+ *               PUSH receiver currently holds buffered events);
+ *  - Idle     → enabled but no recent activity — never polled, OR the last poll aged out.
+ * Folding staleness in keeps Status honest: a source whose last poll is >24h old reads
+ * "Idle", never a green "Active" beside a red, stale Last Event.
  */
+const STATUS_STALE_MS = 24 * 3600 * 1000;
 function sourceStatus(s: SourceInstance, h?: SourceHealthRow): { kind: StatusKind; label: string } {
   if (s.enabled === false) return { kind: 'disabled', label: 'Disabled' };
-  const active = !!h && (h.last_poll_millis > 0 || h.buffer_depth > 0);
-  return active ? { kind: 'ok', label: 'OK' } : { kind: 'idle', label: 'Idle' };
+  if (h) {
+    if (h.last_poll_millis > 0) {
+      return Date.now() - h.last_poll_millis < STATUS_STALE_MS
+        ? { kind: 'ok', label: 'Active' }
+        : { kind: 'idle', label: 'Idle' };
+    }
+    if (h.buffer_depth > 0) return { kind: 'ok', label: 'Active' };
+  }
+  return { kind: 'idle', label: 'Idle' };
 }
 
 /** Millis-since-epoch of a source's last observed activity (0 when none). */
@@ -614,7 +624,7 @@ export default function Sources(_props: SourcesProps) {
           const ageMs = Date.now() - h.last_poll_millis;
           const staleCls =
             ageMs > 24 * 3600 * 1000
-              ? 'text-critical'
+              ? 'text-critical-text'
               : ageMs > 3600 * 1000
                 ? 'text-warning-text'
                 : 'text-muted-foreground';
@@ -675,10 +685,11 @@ export default function Sources(_props: SourcesProps) {
     },
     {
       id: 'store_payload',
-      header: 'Store Payload',
+      // Labelled "Browsable" (not the QRadar term "Store Payload"): this reflects the
+      // health browse-capability honestly — a browse-capable source can be queried for its
+      // recent events; it is NOT a claim that raw payloads are retained. Absent health → —.
+      header: 'Browsable',
       width: '8rem',
-      // Derived honestly from the health browse-capability: a browse-capable source
-      // retains queryable event payloads. Absent health → unknown (—).
       cell: (s) => <BoolCell value={health[s.id]?.can_browse} />,
     },
     {
