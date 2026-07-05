@@ -9,9 +9,12 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`, local — NOT pushed):** backend **1601 pytest**
-green · webui build clean (tsc+vite, entry chunk **264 kB**) · **625 vitest** green ·
-eslint **0 errors** (4 warnings; `jsx-a11y` findings driven 48 → 0) ·
+**Current baseline (branch `feature/round7-ui-overhaul` off `Testing`, local — NOT pushed):**
+Rounds 1–6 on `Testing`; **Round 7** (Security Command Center + Noise-Reduction funnel + provenance
++ CaseDetail 8→5 story) and **Round 8** (UI cleanup + glitch fixes: risk card, Cases sticky fix,
+horizontal QRadar Sankey ribbon, de-carded header, reinvestigate stored-evidence fallback) COMPLETE.
+backend **1678 pytest** green · webui build clean (tsc+vite, entry chunk **~282 kB**) · **1238 vitest**
+green / 223 files · eslint **0 errors** (3 warnings) ·
 `engine/case_manager.py` **`decide()` byte-identical vs `27f0983`** · backend **zero
 new runtime deps** (webui shed a dep on net: removed `framer-motion`, added
 LAZY-only `react-grid-layout`). Round 1 + Round 2 (incl. the adversarial audit +
