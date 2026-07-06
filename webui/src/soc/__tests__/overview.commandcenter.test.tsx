@@ -1,14 +1,13 @@
 /**
- * Overview — Security Command Center integration test (Round-7 W1.A-2).
+ * Overview — Security Command Center integration test (Prisma-Cloud-style rebuild).
  *
- * Pins the four command-center signatures the batch calls out:
+ * Pins the four command-center signatures:
  *   1. the page is titled "Security Command Center";
- *   2. the Active Risk Index (#1 — the ONE risk instrument) is its OWN card in the masthead
- *      top-right, a SIBLING of the plain header (Round-8 #1/#7), never nested inside it;
- *   3. the Noise-Reduction funnel (feature ★) is mounted as a full-width band (fetched via
- *      the typeof-guarded `api.noiseReduction`);
- *   4. the KPI strip is trimmed to 5 alert/case tiles (the demoted Artifacts/Knowledge/Total
- *      tiles are gone AND LLM spend is demoted off the hero — Round-8 Task 4).
+ *   2. the Active Risk Index (#1 — the ONE risk instrument) is its OWN card in the hero
+ *      row, a SIBLING of the plain header, never nested inside it;
+ *   3. the Noise-Reduction funnel renders the six-stage flow ending in "Closed by human"
+ *      (fetched via the typeof-guarded `api.noiseReduction`), and its stages drill through;
+ *   4. the KPI micro-strip is 5 alert/case tiles (LLM spend is not a hero tile).
  *
  * Offline — the api + posture fetch are mocked; no auth, no #3 behaviour touched.
  */
@@ -58,6 +57,8 @@ const METRICS: Metrics = {
   active_risk_index: 76, active_risk_case_count: 2,
   mttr_minutes: 120, resolved_count: 1,
   cases_per_day: [{ date: '2026-06-30', count: 2 }, { date: '2026-07-01', count: 5 }],
+  burndown: [{ date: '2026-06-30', opened: 4, resolved: 2 }],
+  timing_trend: [{ date: '2026-06-30', mttd: 12, respond: 30, resolve: 180 }],
   feedback: {
     graded_cases: 0, feedback_count: 0, agreement_rate: 0, avg_accuracy: 0,
     avg_reasoning_quality: 0, avg_action_appropriateness: 0, time_saved_minutes: 0,
@@ -72,6 +73,7 @@ const POSTURE: PostureResponse = {
     mtta_minutes: { p50: 45, p90: 120, mean: 60, max: 200, count: 2, available: true, reason: '' },
     mttr_minutes: { p50: 180, p90: 600, mean: 240, max: 900, count: 1, available: true, reason: '' },
     dwell_minutes: { p50: '—', p90: '—', mean: '—', max: '—', count: 0, available: false, reason: 'no response yet' },
+    mttd_minutes: { p50: 9, p90: 30, mean: 12, max: 60, count: 3, available: true, reason: '' },
   },
   quality: {
     total_cases: 3, verdicted_cases: 2, true_positive_cases: 1, false_positive_cases: 1,
@@ -94,6 +96,7 @@ const NOISE: NoiseReduction = {
     { key: 'auto_cleared', label: 'Auto-cleared', source: 'cases', deterministic: true, total: 20, by_severity: {} },
     { key: 'escalated', label: 'Escalated', source: 'cases', deterministic: true, total: 8, by_severity: {} },
     { key: 'needs_human', label: 'Needs human', source: 'cases', deterministic: true, total: 6, by_severity: {} },
+    { key: 'closed', label: 'Closed by human', source: 'cases', deterministic: true, total: 12, by_severity: { high: 5, medium: 5, low: 2 } },
   ],
   drops: { suppressed: 5, ignored: 2 },
   reduction: { overall_pct: 96, human_reduction_pct: 50 },
@@ -122,22 +125,29 @@ describe('Overview — Security Command Center', () => {
     expect(hero).toHaveTextContent('Security Command Center');
   });
 
-  it('mounts the Active Risk Index (#1) as its own card beside the plain header', async () => {
+  it('mounts the Active Risk Index (#1) as its own card in the hero row, beside the header', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
+    const heroRow = await screen.findByTestId('hero-row');
     const ari = screen.getByTestId('active-risk-index');
     expect(ari).toBeInTheDocument();
-    // #1/#7: the risk card is its OWN card, a SIBLING of the header — NOT nested inside it.
+    // Its own card, inside the hero ROW but NOT nested inside the plain header.
+    expect(within(heroRow).getByTestId('active-risk-index')).toBeInTheDocument();
     expect(within(hero).queryByTestId('active-risk-index')).toBeNull();
     // It is the ONLY risk instrument on the page.
     expect(screen.getAllByTestId('active-risk-index')).toHaveLength(1);
   });
 
-  it('mounts the Noise-Reduction funnel band (fetched via the typeof-guarded api)', async () => {
+  it('mounts the six-stage Noise-Reduction funnel ending in "Closed by human"', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(screen.getByTestId('noise-funnel')).toBeInTheDocument());
     expect(noiseMock).toHaveBeenCalled();
+    const funnel = screen.getByTestId('noise-funnel');
+    // The new terminal stage renders.
+    expect(within(funnel).getByText('Closed by human')).toBeInTheDocument();
+    expect(within(funnel).getByText('Auto-cleared')).toBeInTheDocument();
+    expect(within(funnel).getByText(/noise reduced by/i)).toBeInTheDocument();
   });
 
   it('clicking a funnel stage drills into the filtered case list', async () => {
@@ -145,23 +155,25 @@ describe('Overview — Security Command Center', () => {
     render(<Overview onNavigate={onNavigate} />);
     await screen.findByTestId('page-hero');
     const funnel = await screen.findByTestId('noise-funnel');
-    const escalated = within(funnel).getByRole('button', { name: /Escalated:/i });
-    await userEvent.click(escalated);
-    expect(onNavigate).toHaveBeenCalledWith(
+    await userEvent.click(within(funnel).getByRole('button', { name: /^Escalated:/i }));
+    expect(onNavigate).toHaveBeenLastCalledWith(
       'cases',
       expect.objectContaining({ status: 'escalated', window: expect.any(Number) }),
     );
+    // The terminal `closed` stage drills to the closed-case list.
+    await userEvent.click(within(funnel).getByRole('button', { name: /^Closed by human:/i }));
+    expect(onNavigate).toHaveBeenLastCalledWith(
+      'cases',
+      expect.objectContaining({ status: 'closed', window: expect.any(Number) }),
+    );
   });
 
-  it('renders a trimmed KPI strip of 5 alert/case tiles (LLM spend demoted off the hero)', async () => {
+  it('renders a KPI micro-strip of 5 alert/case tiles (LLM spend not a hero tile)', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     await waitFor(() => expect(screen.getByTestId('kpi-open-cases')).toBeInTheDocument());
     const strip = screen.getByTestId('kpi-strip');
-    const tiles = strip.querySelectorAll('[data-testid^="kpi-"]');
-    // The trimmed strip: EXACTLY 5 alert/case tiles (was 7 pre-Round-7, 6-with-spend in
-    // Round-7; spend was demoted off the hero in Round-8 Task 4).
-    expect(tiles.length).toBe(5);
+    expect(strip.querySelectorAll('[data-testid^="kpi-"]')).toHaveLength(5);
     for (const id of [
       'kpi-open-cases',
       'kpi-critical-high',
@@ -171,10 +183,6 @@ describe('Overview — Security Command Center', () => {
     ]) {
       expect(within(strip).getByTestId(id)).toBeInTheDocument();
     }
-    // LLM spend is no longer a hero tile.
     expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
-    // The demoted tiles are gone.
-    expect(screen.queryByTestId('kpi-artifacts-in-scope')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('kpi-knowledge-signals')).not.toBeInTheDocument();
   });
 });

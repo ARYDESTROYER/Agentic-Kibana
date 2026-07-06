@@ -1,9 +1,10 @@
 /**
- * NoiseFunnel — Round-8 ★8 coverage (redesigned as a horizontal Sankey ribbon flow).
+ * NoiseFunnel — the horizontal-flow ribbon rendering the linear noise-reduction flow
+ * ingested → clustered → cases → auto_cleared → escalated → CLOSED (TASK N).
  *
  * Binds to the §D `GET /api/metrics/noise-reduction` contract: renders the flow from a
- * §D-shaped fixture (severity strands in → verdict fan out), keeps the four case
- * outcomes MECE (they sum to `cases.total`), fires `onStageClick` with the stage key,
+ * §D-shaped fixture (severity strands in → terminal-outcome fan out), surfaces the new
+ * `closed` ("Closed by human") terminal stage, fires `onStageClick` with the stage key,
  * and degrades to a case-only funnel when the durable counters are still warming up. The
  * SVG flow is decorative (`aria-hidden`); all meaning lives on the focusable stage rail.
  */
@@ -13,7 +14,11 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
 import type { NoiseReduction } from '@/lib/types';
 
-/** A well-formed §D payload: cases.total (40) = auto(25)+esc(8)+nh(5)+tp(2). */
+/**
+ * A well-formed §D payload. The three terminal outcomes partition cases.total (40):
+ * auto_cleared(25) + escalated(8) + closed(7). `needs_human` remains in the payload for
+ * back-compat but is no longer a rendered spine chip.
+ */
 function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
   return {
     window_hours: 24,
@@ -68,6 +73,14 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
         total: 5,
         by_severity: { high: 3, medium: 2 },
       },
+      {
+        key: 'closed',
+        label: 'Closed by human',
+        source: 'cases',
+        deterministic: true,
+        total: 7,
+        by_severity: { high: 4, medium: 2, low: 1 },
+      },
     ],
     drops: { suppressed: 12, ignored: 4 },
     reduction: { overall_pct: 96, human_reduction_pct: 87 },
@@ -78,7 +91,7 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
 }
 
 describe('NoiseFunnel', () => {
-  it('renders the flow from a §D-shaped fixture (headline + every stage)', () => {
+  it('renders the linear flow ending in "Closed by human" (headline + every stage)', () => {
     const { container } = render(<NoiseFunnel data={fixture()} animate={false} />);
 
     // The region + headline value-prop.
@@ -86,18 +99,20 @@ describe('NoiseFunnel', () => {
     expect(screen.getByText(/noise reduced by/i)).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
 
-    // All six pipeline stages + the derived true-positive residual render on the rail.
+    // The six visible flow stages ingested → … → closed render on the rail.
     for (const label of [
       'Ingested',
       'Clustered',
       'Cases opened',
       'Auto-cleared',
       'Escalated',
-      'Needs human',
-      'True positive',
+      'Closed by human',
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+    // The legacy tail keys are no longer separate spine chips.
+    expect(screen.queryByText('Needs human')).toBeNull();
+    expect(screen.queryByText('True positive')).toBeNull();
 
     // The drops footnote sums suppressed + ignored.
     expect(screen.getByText(/12 suppressed · 4 ignored/i)).toBeInTheDocument();
@@ -106,41 +121,45 @@ describe('NoiseFunnel', () => {
     const svg = container.querySelector('svg[viewBox="0 0 640 220"]');
     expect(svg).not.toBeNull();
     expect(svg!.getAttribute('aria-hidden')).toBe('true');
-    // Severity strands + the 4-outcome verdict fan → several ribbon <path>s render.
+    // Severity strands + the 3-outcome fan → several ribbon <path>s render.
     expect(svg!.querySelectorAll('path').length).toBeGreaterThan(4);
     // Each ribbon is painted by a userSpace linear gradient (survival = end opacity).
     expect(svg!.querySelectorAll('defs linearGradient').length).toBeGreaterThan(0);
   });
 
-  it('keeps the case outcomes MECE — they sum to cases.total', () => {
+  it('surfaces the terminal `closed` outcome and drops the legacy tail keys', () => {
     const data = fixture();
     const derived = deriveFunnel(data);
 
-    const casesTotal = data.stages.find((s) => s.key === 'cases')!.total;
+    // The three terminal outcomes fan out of `cases`: auto-cleared, escalated, closed.
     const outcomes = derived.rows.filter((r) => r.isOutcome);
+    expect(outcomes.map((r) => r.key).sort()).toEqual(['auto_cleared', 'closed', 'escalated']);
 
-    // Exactly the four outcomes, summing to cases.total.
-    expect(outcomes.map((r) => r.key).sort()).toEqual(
-      ['auto_cleared', 'escalated', 'needs_human', 'true_positive'].sort(),
-    );
-    const sum = outcomes.reduce((a, r) => a + r.total, 0);
-    expect(sum).toBe(casesTotal);
-    expect(derived.outcomeSum).toBe(casesTotal);
-    // The residual was derived correctly (40 − 25 − 8 − 5 = 2).
-    expect(derived.rows.find((r) => r.key === 'true_positive')!.total).toBe(2);
+    // The `closed` stage total is read from the backend payload.
+    expect(derived.rows.find((r) => r.key === 'closed')!.total).toBe(7);
+    // Its per-severity split is carried through for the hover breakdown.
+    expect(derived.rows.find((r) => r.key === 'closed')!.by_severity.high).toBe(4);
+
+    // outcomeSum = auto(25) + escalated(8) + closed(7).
+    expect(derived.outcomeSum).toBe(40);
+
+    // The legacy `needs_human` / `true_positive` keys are no longer rendered spine rows.
+    expect(derived.rows.find((r) => r.key === 'needs_human')).toBeUndefined();
+    expect(derived.rows.find((r) => r.key === 'true_positive')).toBeUndefined();
   });
 
-  it('fires onStageClick with the stage key', () => {
+  it('fires onStageClick with the stage key (incl. the new `closed` stage)', () => {
     const onStageClick = vi.fn();
     render(<NoiseFunnel data={fixture()} animate={false} onStageClick={onStageClick} />);
 
-    // Each stage is an accessible button; clicking "Escalated" reports its key.
     fireEvent.click(screen.getByRole('button', { name: /^Escalated:/i }));
-    expect(onStageClick).toHaveBeenCalledTimes(1);
     expect(onStageClick).toHaveBeenCalledWith('escalated');
 
     fireEvent.click(screen.getByRole('button', { name: /^Cases opened:/i }));
     expect(onStageClick).toHaveBeenLastCalledWith('cases');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Closed by human:/i }));
+    expect(onStageClick).toHaveBeenLastCalledWith('closed');
   });
 
   it('degrades to a case-only funnel when counters.available === false', () => {
@@ -150,11 +169,12 @@ describe('NoiseFunnel', () => {
     });
     render(<NoiseFunnel data={data} animate={false} />);
 
-    // The counter-sourced stages are dropped; the case-based funnel remains.
+    // The counter-sourced stages are dropped; the case-based flow (…→ closed) remains.
     expect(screen.queryByText('Ingested')).toBeNull();
     expect(screen.queryByText('Clustered')).toBeNull();
     expect(screen.getByText('Cases opened')).toBeInTheDocument();
     expect(screen.getByText('Auto-cleared')).toBeInTheDocument();
+    expect(screen.getByText('Closed by human')).toBeInTheDocument();
 
     // The honest "warming up" note replaces the reduced-by headline.
     const warming = screen.getByTestId('noise-funnel-warming');
@@ -200,13 +220,12 @@ describe('NoiseFunnel', () => {
 
   it('wires every stage chip as a per-stage hover-detail trigger', () => {
     render(<NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />);
-    // Each stage chip is a Radix HoverCard trigger (opens a richer count/breakdown card on
-    // hover) — proven by the trigger `data-state` Radix stamps on the chip itself (asChild).
+    // Each stage chip is a Radix HoverCard trigger — proven by the trigger `data-state`.
     const clickable = screen.getByRole('button', { name: /^Cases opened:/i });
     expect(clickable).toHaveAttribute('data-state', 'closed');
-    // …and the non-clickable variant is likewise a hover trigger on its group element.
+    // …and the terminal `closed` stage is likewise a hover trigger.
     render(<NoiseFunnel data={fixture()} animate={false} />);
-    const group = screen.getByRole('group', { name: /^Escalated:/i });
+    const group = screen.getByRole('group', { name: /^Closed by human:/i });
     expect(group).toHaveAttribute('data-state', 'closed');
   });
 });

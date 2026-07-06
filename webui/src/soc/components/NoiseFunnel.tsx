@@ -5,13 +5,14 @@
  * Tells the value-prop story of how the agent thins raw alert volume down to the
  * handful of cases a human sees, as a left-to-right flow:
  *
- *     ingested → clustered → cases → { auto_cleared · escalated · needs_human · true_positive }
+ *     ingested → clustered → cases → auto_cleared → escalated → closed
  *
  * The raw ingested volume enters on the LEFT pre-split into its SEVERITY bands as
  * parallel strands; those strands thin through clustering and case-creation (each
  * connector carries a drop-off badge), and at the right the `cases` node fans out
- * into the four MECE case OUTCOMES (auto_cleared · escalated · needs_human · a
- * client-derived `true_positive` residual — they partition `cases.total`). Node
+ * into the three terminal case OUTCOMES (auto_cleared = AI-closed · escalated · closed
+ * = human-driven terminal). The `needs_human`/`true_positive` keys remain in the raw
+ * payload for back-compat but are no longer separate spine chips. Node
  * heights use a gentle floor-compressed scale so the deep reduction stays legible
  * (a strictly-proportional scale crushes the small survivor stages into invisible
  * slivers — the exact "wavy blob" the flat redesign was reacting to); the EXACT
@@ -73,14 +74,16 @@ const SEV_LABEL: Record<SevBand, string> = {
 };
 
 /**
- * Outcome ribbon colour (cases → the four outcomes) — the VERDICT semantic axis:
- * severity describes the INPUT, verdict describes the OUTPUT.
+ * Outcome ribbon colour (cases → the terminal outcomes) — the VERDICT/STATUS semantic
+ * axis: severity describes the INPUT, the outcome describes the OUTPUT. `closed` (human-
+ * resolved) reads on the resolved/success token, the calm end of the flow.
  */
 const OUTCOME_TOKEN: Record<string, string> = {
   auto_cleared: VERDICT_COLOR.false_positive, // blue-grey (a cleared false positive)
   escalated: VERDICT_COLOR.suspicious, // amber-orange
-  needs_human: VERDICT_COLOR.needs_human, // warning
-  true_positive: VERDICT_COLOR.true_positive, // critical-red
+  closed: 'success', // green — a human drove it to a terminal state
+  needs_human: VERDICT_COLOR.needs_human, // warning (back-compat; no longer a spine chip)
+  true_positive: VERDICT_COLOR.true_positive, // critical-red (back-compat)
 };
 
 /** Fallback labels for the canonical funnel stages (the backend supplies `label`). */
@@ -90,6 +93,7 @@ const STAGE_LABEL: Record<string, string> = {
   cases: 'Cases opened',
   auto_cleared: 'Auto-cleared',
   escalated: 'Escalated',
+  closed: 'Closed by human',
   needs_human: 'Needs human',
   true_positive: 'True positive',
 };
@@ -101,12 +105,15 @@ const STAGE_MEANING: Record<string, string> = {
   cases: 'Clusters the agent promoted into investigable cases.',
   auto_cleared: 'Cases the agent auto-closed as false positives — no human needed.',
   escalated: 'Cases raised in priority for faster analyst attention.',
+  closed: 'Cases a human analyst drove to a terminal state (resolved / closed).',
   needs_human: 'Cases routed to a human for the final decision.',
   true_positive: 'Cases confirmed as real, actionable threats.',
 };
 
-/** The four case outcomes that partition `cases.total` (MECE). */
-const OUTCOME_KEYS = ['auto_cleared', 'escalated', 'needs_human', 'true_positive'];
+/** The terminal case outcomes rendered in the fan out of `cases` (AI-cleared, escalated,
+ *  human-closed). `needs_human`/`true_positive` are intentionally excluded (back-compat
+ *  data only; the visible flow ends at `closed`). */
+const OUTCOME_KEYS = ['auto_cleared', 'escalated', 'closed'];
 
 /** Popover help copy (>80 chars → focusable Popover, not a bare Tooltip). */
 export const NOISE_FUNNEL_HELP_TEXT =
@@ -148,10 +155,13 @@ export interface DerivedFunnel {
 }
 
 /**
- * Derive the ordered funnel rows from the §D contract. Computes the client-side
- * `true_positive` residual (`cases − auto_cleared − escalated − needs_human`) so the
- * four outcomes are MECE, and switches to a case-only funnel when the durable ingest
- * counters are unavailable.
+ * Derive the ordered funnel rows from the §D contract as the linear flow
+ * ingested → clustered → cases → auto_cleared → escalated → closed, switching to a
+ * case-only flow when the durable ingest counters are unavailable. The trailing
+ * `closed` stage (label "Closed by human") is supplied by the backend (terminal AND NOT
+ * AI-auto-cleared); the legacy `needs_human`/`true_positive` keys stay in the payload for
+ * back-compat but are no longer separate spine chips. The MECE `reduction.overall_pct`
+ * headline is the backend's own value and is byte-identical here.
  */
 export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
   const byKey = new Map<string, NoiseStage>();
@@ -162,29 +172,25 @@ export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
   const casesTotal = byKey.get('cases')?.total ?? 0;
   const auto = byKey.get('auto_cleared')?.total ?? 0;
   const esc = byKey.get('escalated')?.total ?? 0;
-  const nh = byKey.get('needs_human')?.total ?? 0;
-  const tp = Math.max(0, casesTotal - auto - esc - nh);
+  const closed = byKey.get('closed')?.total ?? 0;
 
-  // Full funnel from ingested, or case-only when the counters are still warming up.
+  // Full flow from ingested, or case-only when the counters are still warming up.
   const visibleKeys = countersOk
-    ? ['ingested', 'clustered', 'cases', 'auto_cleared', 'escalated', 'needs_human']
-    : ['cases', 'auto_cleared', 'escalated', 'needs_human'];
+    ? ['ingested', 'clustered', 'cases', 'auto_cleared', 'escalated', 'closed']
+    : ['cases', 'auto_cleared', 'escalated', 'closed'];
 
   const topKey = countersOk ? 'ingested' : 'cases';
   const topTotal = byKey.get(topKey)?.total ?? casesTotal;
 
-  const asRow = (
-    key: string,
-    stage: NoiseStage | undefined,
-    residualTotal?: number,
-  ): FunnelRow => {
-    const total = residualTotal ?? stage?.total ?? 0;
+  const asRow = (key: string, stage: NoiseStage | undefined): FunnelRow => {
+    const total = stage?.total ?? 0;
     return {
       key,
       label: stage?.label || STAGE_LABEL[key] || key,
       total,
       by_severity: stage?.by_severity ?? {},
-      // Trust the backend flag; default per the §H pin (only `cases` is LLM-influenced).
+      // Trust the backend flag; default per the §H pin (only `cases` is LLM-influenced;
+      // `closed` is a human-driven terminal, so it reads as deterministic).
       deterministic: stage ? stage.deterministic : key !== 'cases',
       ratio: topTotal > 0 ? total / topTotal : 0,
       pctRetained: topTotal > 0 ? (total / topTotal) * 100 : 0,
@@ -193,24 +199,14 @@ export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
   };
 
   const rows = visibleKeys.map((key) => asRow(key, byKey.get(key)));
-  // The derived residual — an outcome, so the four outcomes sum to cases.total.
-  rows.push({
-    key: 'true_positive',
-    label: STAGE_LABEL.true_positive,
-    total: tp,
-    by_severity: {},
-    deterministic: false,
-    ratio: topTotal > 0 ? tp / topTotal : 0,
-    pctRetained: topTotal > 0 ? (tp / topTotal) * 100 : 0,
-    isOutcome: true,
-  });
 
   return {
     rows,
     topTotal,
     mode: countersOk ? 'full' : 'cases',
     casesTotal,
-    outcomeSum: auto + esc + nh + tp,
+    // The three terminal outcomes rendered in the fan out of `cases`.
+    outcomeSum: auto + esc + closed,
   };
 }
 
@@ -596,7 +592,7 @@ function LoadingState({ ariaLabel, className }: { ariaLabel?: string; className?
       <Skeleton className="mt-3 h-8 w-56" />
       <Skeleton className="mt-4 h-40 w-full" />
       <div className="mt-3 flex justify-between gap-2">
-        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+        {[0, 1, 2, 3, 4, 5].map((i) => (
           <Skeleton key={i} className="h-6 w-14" />
         ))}
       </div>
@@ -635,7 +631,7 @@ export function NoiseFunnel({
   const relativeTo = derived.mode === 'full' ? 'of ingested' : 'of cases';
   const n = derived.rows.length;
   const casesTotal = derived.casesTotal;
-  const needsHuman = derived.rows.find((r) => r.key === 'needs_human')?.total ?? 0;
+  const closedByHuman = derived.rows.find((r) => r.key === 'closed')?.total ?? 0;
 
   const chips = derived.rows.map((row) => {
     const pct = Math.round(row.pctRetained);
@@ -711,7 +707,7 @@ export function NoiseFunnel({
               <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                 {fmtNumber(derived.topTotal)}{' '}
                 {derived.mode === 'full' ? 'events ingested' : 'cases opened'} →{' '}
-                {fmtNumber(needsHuman)} case{needsHuman === 1 ? '' : 's'} routed to a human
+                {fmtNumber(closedByHuman)} case{closedByHuman === 1 ? '' : 's'} closed by a human
               </p>
             </div>
           ) : (

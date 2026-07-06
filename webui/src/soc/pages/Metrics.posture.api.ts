@@ -31,6 +31,13 @@ export interface PostureLifecycle {
   mtta_minutes: StatBlock;
   mttr_minutes: StatBlock;
   dwell_minutes: StatBlock;
+  /**
+   * Mean-time-to-detect (real detection latency: the cluster's first event → case-open,
+   * from the case's `first_seen_millis`). Additive + OPTIONAL so an older server / a
+   * minimal test posture literal without it still type-checks; a labelled-DASH StatBlock
+   * when no case carries a first-event instant. Advisory only (never #3).
+   */
+  mttd_minutes?: StatBlock;
 }
 
 export interface PostureQuality {

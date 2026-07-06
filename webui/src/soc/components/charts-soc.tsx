@@ -20,6 +20,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -455,8 +456,11 @@ export interface MultiSeries {
 }
 
 export interface MultiSeriesTrendProps {
-  /** Rows of `{ x, [seriesKey]: number, ... }`. */
-  data: Array<Record<string, string | number>>;
+  /**
+   * Rows of `{ x, [seriesKey]: number|null, ... }`. A `null` for a series in a row is
+   * rendered as a GAP in that line (no fabricated 0) — e.g. a day with no timing sample.
+   */
+  data: Array<Record<string, string | number | null>>;
   series: MultiSeries[];
   /** Property name for the X axis category (default 'x'). */
   xKey?: string;
@@ -464,6 +468,14 @@ export interface MultiSeriesTrendProps {
   format?: (v: number) => string;
   showXAxis?: boolean;
   showYAxis?: boolean;
+  /**
+   * Optional horizontal average/target reference line (e.g. the mean of a plotted
+   * series). Rendered as a dashed muted rule when a finite number is supplied; absent
+   * → no line. Advisory / decorative — the plotted series carry the meaning.
+   */
+  referenceY?: number;
+  /** Plain-text label for the reference line (shown top-right on the rule). */
+  referenceLabel?: string;
   ariaLabel?: string;
   className?: string;
 }
@@ -482,7 +494,19 @@ function seriesColor(s: MultiSeries, i: number): string {
  */
 export const MultiSeriesTrend = React.forwardRef<HTMLDivElement, MultiSeriesTrendProps>(
   (
-    { data, series, xKey = 'x', height = 240, format, showXAxis = true, showYAxis = true, ariaLabel, className },
+    {
+      data,
+      series,
+      xKey = 'x',
+      height = 240,
+      format,
+      showXAxis = true,
+      showYAxis = true,
+      referenceY,
+      referenceLabel,
+      ariaLabel,
+      className,
+    },
     ref,
   ) => {
     const rows = data ?? [];
@@ -526,6 +550,25 @@ export const MultiSeriesTrend = React.forwardRef<HTMLDivElement, MultiSeriesTren
             )}
             <Tooltip content={<SocTooltip format={format} />} cursor={{ stroke: 'hsl(var(--muted-foreground))', strokeOpacity: 0.25 }} />
             <Legend content={<SemanticLegend />} />
+            {typeof referenceY === 'number' && Number.isFinite(referenceY) ? (
+              <ReferenceLine
+                y={referenceY}
+                stroke="hsl(var(--muted-foreground))"
+                strokeDasharray="4 4"
+                strokeOpacity={0.7}
+                ifOverflow="extendDomain"
+                label={
+                  referenceLabel
+                    ? {
+                        value: referenceLabel,
+                        position: 'insideTopRight',
+                        fill: 'hsl(var(--muted-foreground))',
+                        fontSize: 10,
+                      }
+                    : undefined
+                }
+              />
+            ) : null}
             {list.map((s, i) => (
               <Line
                 key={s.key}
