@@ -1,36 +1,34 @@
 /**
- * InvestigationPanel — the merged investigation story (Round-7 #9a).
+ * InvestigationPanel — the "Investigation" tab (task 5 split).
  *
- * Replaces the old separate Timeline / Why / Trace tabs with ONE narrative that
- * follows the DESIGN_DIRECTION "3-lane separation, never interleaved":
+ * Task 5 split the old merged "Timeline" tab: the "what happened" six-stage narrative
+ * now lives alone on the sibling <TimelinePanel> ("Timeline" tab), and THIS panel is the
+ * investigation proper — the model's assessment, the pinned deterministic decision, and
+ * the full ReAct trace. It follows the DESIGN_DIRECTION "lane separation, never
+ * interleaved":
  *
- *   1. FACTS          — the deterministic pipeline spine (<StageTimeline>): what fired,
- *                       from where, how it correlated, the risk math. Leads the story;
- *                       neutral styling; #9-fenced.
- *   2. AI ASSESSMENT  — the model's reasoning / knowledge / tools / enrichment
+ *   1. AI ASSESSMENT  — the model's reasoning / knowledge / tools / enrichment
  *                       (<WhyPanel hideDecision hideMitre>), rendered in a persistently
- *                       AI-marked lane so model prose never blends into the fact stream.
- *   3. DECISION       — the pinned <DecisionCard>: the deterministic `decide()` output,
+ *                       AI-marked lane so model prose never blends into a fact stream.
+ *   2. DECISION       — the pinned <DecisionCard>: the deterministic `decide()` output,
  *                       the single authority (#3), most-prominent and last.
- *
- * The raw ReAct <TraceTimeline> stays available as a collapsible "Full agent trace"
- * disclosure for the operator who wants the step-by-step span log.
+ *   3. FULL TRACE     — the raw ReAct <TraceTimeline>, available as a collapsible
+ *                       "Full agent trace" disclosure for the step-by-step span log.
  *
  * SECURITY (#9): this panel only composes read-only sub-panels; each renders its own
- * source/model/log-derived text as plain text or inside an escaped CodeBlock. Nothing
- * here decides or mutates a case.
+ * model/log-derived text as plain text or inside an escaped CodeBlock. Nothing here
+ * decides or mutates a case.
  */
 import * as React from 'react';
-import { Bot, ChevronDown, GitMerge, ListTree, ShieldCheck } from 'lucide-react';
+import { Bot, ChevronDown, ListTree, ShieldCheck } from 'lucide-react';
 
 import type { Case, CaseRationale } from '@/lib/types';
-import type { TimelineResponse, TimelineStagesResponse } from '@/soc/pages/CaseDetail.api';
+import type { TimelineResponse } from '@/soc/pages/CaseDetail.api';
 import { cn } from '@/lib/cn';
 
 import { Badge } from '@/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/ui/collapsible';
 
-import { StageTimeline } from './StageTimeline';
 import { WhyPanel } from './WhyPanel';
 import { DecisionCard } from './DecisionCard';
 import { GradingHistory } from './grading';
@@ -39,8 +37,7 @@ import { TraceTimeline } from '@/soc/components/TraceTimeline';
 /* --------------------------------------------------------------- zone header -- */
 
 /** A lane header — an icon chip + title + subtitle, optionally flagged "AI". `lead`
- *  bumps the chip + title so the FACTS lane reads as the prominent story opener at the
- *  top of the Timeline tab. */
+ *  bumps the chip + title so the lane reads as a prominent story opener. */
 const ZoneHeader: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -86,12 +83,6 @@ const ZoneHeader: React.FC<{
 export interface InvestigationPanelProps {
   c: Case;
 
-  /** FACTS lane — the six-stage pipeline narrative. */
-  stages: TimelineStagesResponse | null;
-  stagesLoading: boolean;
-  stagesError: unknown;
-  onRetryStages: () => void;
-
   /** AI-ASSESSMENT lane — the decision rationale projection. */
   rationale: CaseRationale | null;
   rationaleLoading: boolean;
@@ -107,10 +98,6 @@ export interface InvestigationPanelProps {
 
 export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
   c,
-  stages,
-  stagesLoading,
-  stagesError,
-  onRetryStages,
   rationale,
   rationaleLoading,
   rationaleError,
@@ -136,32 +123,14 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
 
   return (
     <div className="space-y-6 p-6">
-      {/* ============================================== 1. FACTS spine */}
-      <section aria-label="Facts" className="space-y-1">
-        <ZoneHeader
-          icon={GitMerge}
-          title="What happened"
-          subtitle="Source-asserted + deterministic engine facts — the spine of the case."
-          lead
-        />
-        {/* StageTimeline carries its own padding + skeleton/error/empty states. */}
-        <div className="rounded-lg border border-border bg-card">
-          <StageTimeline
-            data={stages}
-            loading={stagesLoading}
-            error={stagesError}
-            onRetry={onRetryStages}
-          />
-        </div>
-      </section>
-
-      {/* ============================================== 2. AI assessment */}
+      {/* ============================================== 1. AI assessment */}
       <section aria-label="AI assessment" className="space-y-1">
         <ZoneHeader
           icon={Bot}
           title="AI assessment"
           subtitle="The model's reasoning, the knowledge it retrieved, and the tools it ran."
           ai
+          lead
         />
         {/* Persistent AI-marked lane: an info tint so model prose never reads as fact.
             hideDecision → the pinned DecisionCard is the sole decision authority (#3);
@@ -183,7 +152,7 @@ export const InvestigationPanel: React.FC<InvestigationPanelProps> = ({
         <GradingHistory feedback={c.feedback} className="pt-4" />
       </section>
 
-      {/* ============================================== 3. Decision (pinned) */}
+      {/* ============================================== 2. Decision (pinned) */}
       <section aria-label="Decision" className="space-y-1">
         <ZoneHeader
           icon={ShieldCheck}

@@ -1,19 +1,16 @@
 /**
- * NoiseFunnel — Round-8 coverage (redesigned from the SVG Sankey ribbon into horizontal
- * aligned stage bars, the industry-standard linear reduction funnel).
+ * NoiseFunnel — Round-8 ★8 coverage (redesigned as a horizontal Sankey ribbon flow).
  *
- * Binds to the §D `GET /api/metrics/noise-reduction` contract: renders the big
- * "Noise reduced by X%" hero, the monotonic reduction spine (Ingested → Clustered →
- * Cases opened) as descending bars, and the four MECE case outcomes as a part-to-whole
- * disposition row. Keeps the outcomes MECE (they sum to `cases.total`), fires
- * `onStageClick` with the stage key, and degrades to a case-only funnel when the durable
- * counters are still warming up. All meaning lives on the focusable stage/outcome rail;
- * there is NO decorative SVG flow any more.
+ * Binds to the §D `GET /api/metrics/noise-reduction` contract: renders the flow from a
+ * §D-shaped fixture (severity strands in → verdict fan out), keeps the four case
+ * outcomes MECE (they sum to `cases.total`), fires `onStageClick` with the stage key,
+ * and degrades to a case-only funnel when the durable counters are still warming up. The
+ * SVG flow is decorative (`aria-hidden`); all meaning lives on the focusable stage rail.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-import { NoiseFunnel, deriveFunnel } from '../NoiseFunnel';
+import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
 import type { NoiseReduction } from '@/lib/types';
 
 /** A well-formed §D payload: cases.total (40) = auto(25)+esc(8)+nh(5)+tp(2). */
@@ -81,18 +78,15 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
 }
 
 describe('NoiseFunnel', () => {
-  it('renders the hero, every stage bar + the disposition (no SVG ribbon)', () => {
+  it('renders the flow from a §D-shaped fixture (headline + every stage)', () => {
     const { container } = render(<NoiseFunnel data={fixture()} animate={false} />);
 
-    // The region + the big value-prop hero.
+    // The region + headline value-prop.
     expect(screen.getByTestId('noise-funnel')).toBeInTheDocument();
     expect(screen.getByText(/noise reduced by/i)).toBeInTheDocument();
     expect(screen.getByText('96%')).toBeInTheDocument();
-    // The ingested→human cascade sub-line.
-    expect(screen.getByText(/routed to a human/i)).toBeInTheDocument();
 
-    // All six pipeline stages + the derived true-positive residual render on the rail
-    // (spine: Ingested/Clustered/Cases opened; disposition: the four outcomes).
+    // All six pipeline stages + the derived true-positive residual render on the rail.
     for (const label of [
       'Ingested',
       'Clustered',
@@ -104,14 +98,18 @@ describe('NoiseFunnel', () => {
     ]) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
-    // The part-to-whole disposition band is present.
-    expect(screen.getByText(/case disposition/i)).toBeInTheDocument();
 
     // The drops footnote sums suppressed + ignored.
     expect(screen.getByText(/12 suppressed · 4 ignored/i)).toBeInTheDocument();
 
-    // The Round-8 redesign RETIRED the 640×220 Sankey ribbon — no such SVG remains.
-    expect(container.querySelector('svg[viewBox="0 0 640 220"]')).toBeNull();
+    // The flow band is a decorative (aria-hidden) SVG whose ribbons carry no meaning.
+    const svg = container.querySelector('svg[viewBox="0 0 640 220"]');
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute('aria-hidden')).toBe('true');
+    // Severity strands + the 4-outcome verdict fan → several ribbon <path>s render.
+    expect(svg!.querySelectorAll('path').length).toBeGreaterThan(4);
+    // Each ribbon is painted by a userSpace linear gradient (survival = end opacity).
+    expect(svg!.querySelectorAll('defs linearGradient').length).toBeGreaterThan(0);
   });
 
   it('keeps the case outcomes MECE — they sum to cases.total', () => {
@@ -141,7 +139,6 @@ describe('NoiseFunnel', () => {
     expect(onStageClick).toHaveBeenCalledTimes(1);
     expect(onStageClick).toHaveBeenCalledWith('escalated');
 
-    // The `cases` spine stage is likewise clickable and reports its key.
     fireEvent.click(screen.getByRole('button', { name: /^Cases opened:/i }));
     expect(onStageClick).toHaveBeenLastCalledWith('cases');
   });
@@ -159,7 +156,7 @@ describe('NoiseFunnel', () => {
     expect(screen.getByText('Cases opened')).toBeInTheDocument();
     expect(screen.getByText('Auto-cleared')).toBeInTheDocument();
 
-    // The honest "warming up" note replaces the reduced-by hero.
+    // The honest "warming up" note replaces the reduced-by headline.
     const warming = screen.getByTestId('noise-funnel-warming');
     expect(warming.textContent?.toLowerCase()).toContain('counters warming up');
     expect(screen.queryByText(/noise reduced by/i)).toBeNull();
@@ -196,9 +193,42 @@ describe('NoiseFunnel', () => {
     render(<NoiseFunnel data={fixture()} animate={false} ariaLabel="Alert noise funnel" />);
     // No stage buttons when the handler is absent.
     expect(screen.queryByRole('button', { name: /^Escalated:/i })).toBeNull();
-    // The root is a figure carrying the caller's aria-label; the stages are labelled groups.
-    const region = screen.getByRole('figure', { name: 'Alert noise funnel' });
+    // The region carries the caller's aria-label.
+    const region = screen.getByRole('group', { name: 'Alert noise funnel' });
     expect(within(region).getByText('Escalated')).toBeInTheDocument();
-    expect(within(region).getByRole('group', { name: /^Escalated:/i })).toBeInTheDocument();
+  });
+
+  it('wires every stage chip as a per-stage hover-detail trigger', () => {
+    render(<NoiseFunnel data={fixture()} animate={false} onStageClick={vi.fn()} />);
+    // Each stage chip is a Radix HoverCard trigger (opens a richer count/breakdown card on
+    // hover) — proven by the trigger `data-state` Radix stamps on the chip itself (asChild).
+    const clickable = screen.getByRole('button', { name: /^Cases opened:/i });
+    expect(clickable).toHaveAttribute('data-state', 'closed');
+    // …and the non-clickable variant is likewise a hover trigger on its group element.
+    render(<NoiseFunnel data={fixture()} animate={false} />);
+    const group = screen.getByRole('group', { name: /^Escalated:/i });
+    expect(group).toHaveAttribute('data-state', 'closed');
+  });
+});
+
+describe('ribbonPath (Sankey link geometry)', () => {
+  it('emits the canonical closed cubic-Bezier ribbon between two fixed-height endpoints', () => {
+    // xm = (0 + 100) / 2 = 50.
+    expect(ribbonPath(0, 0, 10, 100, 20, 30)).toBe(
+      'M0,0 C50,0 50,20 100,20 L100,30 C50,30 50,10 0,10 Z',
+    );
+  });
+
+  it('uses the horizontal midpoint as the shared control x for both curves', () => {
+    // For x0=40, x1=200 → xm=120; both Bezier control columns are at 120.
+    const d = ribbonPath(40, 5, 15, 200, 25, 45);
+    expect(d.startsWith('M40,5 C120,5 120,25 200,25')).toBe(true);
+    expect(d.endsWith('C120,45 120,15 40,15 Z')).toBe(true);
+  });
+
+  it('is always a closed path (starts with M, ends with Z)', () => {
+    const d = ribbonPath(1, 2, 3, 4, 5, 6);
+    expect(d[0]).toBe('M');
+    expect(d.trim().endsWith('Z')).toBe(true);
   });
 });

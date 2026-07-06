@@ -200,14 +200,17 @@ describe('Overview — Security Command Center (W1.A)', () => {
   it('reads timing from the SERVER posture (no client math), honoring the unavailable DASH', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // The response-timing trio lives in the collapsed "Deeper analytics" group (#4) —
-    // expand it before asserting the server-posture values render.
-    await userEvent.click(await screen.findByRole('button', { name: /Deeper analytics/i }));
-    await waitFor(() => expect(screen.getAllByText('45m').length).toBeGreaterThan(0));
-    expect(screen.getAllByText('3h').length).toBeGreaterThan(0);
+    // Task 3: the Response-timing row (MTTA/MTTR/Dwell + an honest MTTD n/a) is now on the
+    // MAIN dashboard — NOT hidden in the collapsed "Deeper analytics" fold. No expand needed.
+    expect(screen.getByRole('region', { name: /Response timing/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('45m').length).toBeGreaterThan(0)); // MTTA p50
+    expect(screen.getAllByText('3h').length).toBeGreaterThan(0); // MTTR p50 (180m)
+    // Dwell is unavailable → the honest server reason, never a fabricated number.
     expect(
       screen.getAllByText(/no case has received a first response yet/i).length,
     ).toBeGreaterThan(0);
+    // MTTD is shown as an explicit n/a (not measured), never invented.
+    expect(screen.getByText(/not measured/i)).toBeInTheDocument();
     expect(fetchPostureMock).toHaveBeenCalled();
     // The posture fetch requests the period-over-period compare block.
     expect(fetchPostureMock).toHaveBeenCalledWith(expect.any(Number), 'prev');
@@ -345,27 +348,42 @@ describe('Overview — Security Command Center (W1.A)', () => {
     expect(within(lowRow).getByText('0')).toBeInTheDocument();
   });
 
-  it('renders the autonomy trust surface + the named widget bands (behind Deeper analytics)', async () => {
+  it('leads with a DENSE default dashboard: the primary bands render without expanding a fold', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    // #4 inverted pyramid: the lower-priority bands are folded into a collapsed
-    // "Deeper analytics" group — expand it, then assert the bands render.
+    // Task 4: the most-useful panels are PULLED UP onto the default view — no expand needed.
+    for (const name of [
+      /Response timing/i,
+      /Attention queue/i,
+      /Open cases by severity/i,
+      /Case outcomes/i,
+      /Top signatures/i,
+      /Top entities/i,
+    ]) {
+      expect(screen.getByRole('region', { name })).toBeInTheDocument();
+    }
+    // The secondary bands stay folded until "Deeper analytics" is opened.
+    expect(screen.queryByRole('region', { name: /Autonomous vs human/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Connector health/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Case volume/i })).toBeNull();
+  });
+
+  it('folds the secondary bands (autonomy #3, connectors, volume, workload) into Deeper analytics', async () => {
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
     const deeper = await screen.findByRole('button', { name: /Deeper analytics/i });
     await userEvent.click(deeper);
     await waitFor(() =>
       expect(screen.getByRole('region', { name: /Autonomous vs human/i })).toBeInTheDocument(),
     );
+    // The #3 trust-surface advisory copy is preserved.
     expect(screen.getByText(/never influences that/i)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /Response timing/i })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /Connector health/i })).toBeInTheDocument();
-    // The Cost & budget widget was replaced by a Case-volume trend; the Top-contributors
-    // ranked lists are new (Round-7 W1.A).
     expect(screen.getByRole('region', { name: /Case volume/i })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /Top signatures/i })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /Top entities/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Case workload state/i })).toBeInTheDocument();
   });
 
-  it('the loading skeleton mirrors the masthead + leading row + collapsed Deeper analytics', () => {
+  it('the loading skeleton mirrors the dense layout: KPI strip · timing row · noise · work row · fold', () => {
     // Never-resolving data calls → the page stays in its loading skeleton.
     listCasesMock.mockReturnValue(new Promise(() => {}));
     getMetricsMock.mockReturnValue(new Promise(() => {}));
@@ -375,15 +393,14 @@ describe('Overview — Security Command Center (W1.A)', () => {
     const loading = screen.getByLabelText('Loading dashboard');
     expect(loading).toBeInTheDocument();
     // 5 KPI skeleton tiles in the same responsive grid as the real strip.
-    const stripSkeleton = screen.getByTestId('kpi-strip-skeleton');
-    expect(stripSkeleton.children).toHaveLength(5);
-    // A reserved full-width band for the Noise-Reduction panel.
+    expect(screen.getByTestId('kpi-strip-skeleton').children).toHaveLength(5);
+    // The Response-timing row is now on the MAIN dashboard → 4 reserved tiles.
+    expect(screen.getByTestId('timing-skeleton-row').children).toHaveLength(4);
+    // A reserved full-width band for the Noise-Reduction ribbon.
     expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
-    // ONE widget-row grid in LOCKSTEP with the real layout: only the leading severity +
-    // attention row is open; the rest is folded into the collapsed "Deeper analytics"
-    // group (its content stays hidden). Round-8 tightened the gutters, so the KPI strip
-    // uses gap-3 and the single gap-4 grid is exactly the leading widget row. (#4)
-    expect(loading.querySelectorAll('.grid.gap-4')).toHaveLength(1);
+    // The work+mix row (attention queue · severity · verdict mix) → 3 reserved cells.
+    expect(screen.getByTestId('work-skeleton-row').children).toHaveLength(3);
+    // The remaining secondary bands stay folded under "Deeper analytics".
     expect(screen.getByTestId('deeper-analytics-skeleton')).toBeInTheDocument();
   });
 });

@@ -5,11 +5,12 @@
  * WIDE right-side Sheet modeled on the reference "case report" page:
  *   - a header (title, created/updated, action buttons: reinvestigate / run-playbook /
  *     refresh / chat / history / export / notify),
- *   - the tabbed body — one lazy panel per tab (Overview / Timeline / Threat
- *     context / Collaboration / Chat). Round-7 #9a collapsed the old 8-tab shell:
- *     the Timeline / Why / Trace panels now compose INSIDE the Timeline tab's panel
- *     (Facts "What happened" → AI assessment → pinned deterministic DecisionCard + a
- *     collapsible full trace), and the standalone Feedback tab was retired,
+ *   - the tabbed body — one lazy panel per tab (Overview / Timeline / Investigation /
+ *     Threat context / Collaboration / Chat). Task 5 split the merged investigation tab:
+ *     the "Timeline" tab is now ONLY the "what happened" six-stage narrative
+ *     (the TimelinePanel), and the new "Investigation" tab holds the AI assessment +
+ *     the pinned deterministic DecisionCard + the collapsible full ReAct trace
+ *     (the InvestigationPanel). The standalone Feedback tab was retired,
  *   - a footer with ONE context-dependent primary CTA, ONE unified Close-with-
  *     disposition secondary, and an overflow "More" menu,
  *   - the shared confirm-action dialog (every lifecycle action) + a Notify dialog.
@@ -36,8 +37,10 @@ import {
   AlertTriangle,
   Bell,
   BookOpen,
+  Bot,
   Check,
   Download,
+  ExternalLink,
   FileText,
   Globe,
   History,
@@ -150,6 +153,7 @@ import {
   actionPlanForStatus,
 } from './casedetail/shared';
 import { OverviewPanel } from './casedetail/OverviewPanel';
+import { TimelinePanel } from './casedetail/TimelinePanel';
 import { InvestigationPanel } from './casedetail/InvestigationPanel';
 import { ThreatContextPanel } from './casedetail/ThreatContextPanel';
 import { CollaborationThreadTab } from './casedetail/CollaborationPanel';
@@ -196,7 +200,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'timeline' | 'threat' | 'collab' | 'chat'
+    'overview' | 'timeline' | 'investigation' | 'threat' | 'collab' | 'chat'
   >('overview');
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
@@ -380,7 +384,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     };
   }, [open]);
 
-  // Typed ReAct timeline (#12) — lazy on the Timeline tab.
+  // Typed ReAct timeline (#12) — lazy on the Investigation tab.
   const loadTimeline = React.useCallback(async () => {
     if (!id) return;
     setTimelineLoading(true);
@@ -396,12 +400,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     }
   }, [id]);
 
-  // Lazy on the Timeline tab. `!timelineError` in the guard stops a failed fetch
+  // Lazy on the Investigation tab. `!timelineError` in the guard stops a failed fetch
   // from re-firing forever (the loading flag flips back to false on failure, which
   // would otherwise re-satisfy `timeline === null && !loading` and hammer the backend).
   // The Retry affordance still works — loadTimeline clears the error before refetching.
   React.useEffect(() => {
-    if (open && tab === 'timeline' && timeline === null && !timelineLoading && !timelineError) {
+    if (open && tab === 'investigation' && timeline === null && !timelineLoading && !timelineError) {
       void loadTimeline();
     }
   }, [open, tab, timeline, timelineLoading, timelineError, loadTimeline]);
@@ -655,7 +659,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'timeline' && rationale === null && !rationaleLoading && !rationaleError) {
+    if (open && tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError) {
       void loadRationale();
     }
   }, [open, tab, rationale, rationaleLoading, rationaleError, loadRationale]);
@@ -971,6 +975,18 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     return out;
   }, [models]);
 
+  // Open this case in a standalone browser tab. Cases.tsx auto-opens the CaseDetail
+  // sheet from `route.opts?.caseId`; the router encodes a sub-target as a hash query
+  // (`#/settings?s=<id>`), so we mirror that shape (`#/cases?caseId=<id>`) and open it
+  // against the current document base so a fresh tab lands on the Cases surface for this
+  // case. Read-only — opening a new tab never touches the case decision (#3).
+  const openInNewTab = React.useCallback(() => {
+    if (typeof window === 'undefined' || !id) return;
+    const base = window.location.href.split('#')[0];
+    const url = `${base}#/cases?caseId=${encodeURIComponent(id)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, [id]);
+
   if (!open) return null;
 
   const actionPlan = actionPlanForStatus(c?.status);
@@ -986,7 +1002,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
         <SheetContent
           side="right"
           size="full"
-          className="w-full max-w-[min(96vw,1180px)] p-0"
+          className="w-full max-w-[min(98vw,1400px)] p-0"
           aria-label="Case detail"
         >
           <div className="flex h-full min-h-0 flex-col">
@@ -1270,7 +1286,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   <TooltipContent>Ask about this case</TooltipContent>
                 </Tooltip>
 
-                {/* History → the Timeline tab (What happened → AI → decision + full trace) */}
+                {/* History → the Timeline tab ("what happened" narrative) */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1283,6 +1299,36 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Timeline</TooltipContent>
+                </Tooltip>
+
+                {/* Investigation → the AI assessment + deterministic decision + full trace */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Investigation"
+                      onClick={() => setTab('investigation')}
+                    >
+                      <Bot className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Investigation</TooltipContent>
+                </Tooltip>
+
+                {/* Open this case in a new browser tab (deep-link to the Cases surface). */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Open in new tab"
+                      onClick={openInNewTab}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Open in new tab</TooltipContent>
                 </Tooltip>
 
                 {/* Export */}
@@ -1387,6 +1433,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="timeline" className="gap-1.5 text-xs">
                         <History className="h-3.5 w-3.5" /> Timeline
                       </TabsTrigger>
+                      <TabsTrigger value="investigation" className="gap-1.5 text-xs">
+                        <Bot className="h-3.5 w-3.5" /> Investigation
+                      </TabsTrigger>
                       <TabsTrigger value="threat" className="gap-1.5 text-xs">
                         <Globe className="h-3.5 w-3.5" /> Threat context
                       </TabsTrigger>
@@ -1410,16 +1459,23 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       />
                     </TabsContent>
                     <TabsContent value="timeline" className="mt-0 animate-fade-in">
-                      {/* "What happened" facts → AI assessment → pinned deterministic
-                          DecisionCard, plus a collapsible full ReAct trace. stages/rationale/
-                          timeline are fetched on first visit by the lazy effects above;
-                          DecisionCard reads its policy_clause off the timeline. */}
-                      <InvestigationPanel
-                        c={c}
+                      {/* The clean "what happened" six-stage narrative, alone (task 5).
+                          `stages` is fetched on first visit to this tab by the lazy effect
+                          above. */}
+                      <TimelinePanel
                         stages={stages}
                         stagesLoading={stagesLoading}
                         stagesError={stagesError}
                         onRetryStages={loadStages}
+                      />
+                    </TabsContent>
+                    <TabsContent value="investigation" className="mt-0 animate-fade-in">
+                      {/* AI assessment → pinned deterministic DecisionCard + a collapsible
+                          full ReAct trace (task 5). rationale/timeline are fetched on first
+                          visit by the lazy effects above; DecisionCard reads its
+                          policy_clause off the timeline. */}
+                      <InvestigationPanel
+                        c={c}
                         rationale={rationale}
                         rationaleLoading={rationaleLoading}
                         rationaleError={rationaleError}

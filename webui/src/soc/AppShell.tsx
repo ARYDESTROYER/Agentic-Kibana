@@ -410,6 +410,20 @@ export const AppShell: React.FC<AppShellProps> = ({
   // server-side UserPrefs.misc and persists every change). See useNavPrefs.
   const { collapsed, toggleCollapsed, openGroups, toggleGroup, openGroup } = useNavPrefs();
 
+  // TASK 6 — HOVER-TO-EXPAND for the collapsed icon rail. When the PERSISTED pref is
+  // "collapsed" (a 64px rail), pointing at (or keyboard-focusing) the rail temporarily
+  // expands it to the full labelled drawer, then collapses back on leave. This is a
+  // TRANSIENT visual overlay only — we never call setCollapsed, so the user's persisted
+  // choice is untouched and a PINNED-OPEN sidebar (collapsed === false) is unaffected.
+  // Pointer + focus are tracked separately and OR'd so a keyboard user mid-navigation
+  // keeps the labels even if the pointer wanders off the rail.
+  const [railHovered, setRailHovered] = React.useState(false);
+  const [railFocused, setRailFocused] = React.useState(false);
+  const transientExpand = railHovered || railFocused;
+  // The width the sidebar actually renders at: the persisted rail expands on hover/focus,
+  // a pinned-open drawer is left alone.
+  const effectiveCollapsed = collapsed && !transientExpand;
+
   // Refetch the demo status on every route change so the banner/badges stay fresh
   // even between the background poll ticks (cheap GET; inert when demo is off).
   React.useEffect(() => {
@@ -507,18 +521,43 @@ export const AppShell: React.FC<AppShellProps> = ({
         Skip to main content
       </a>
 
-      {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) -- */}
-      <NavSidebar
-        page={page}
-        onNavigate={onNavigate}
-        collapsed={collapsed}
-        openGroups={openGroups}
-        onToggleGroup={toggleGroup}
-        onOpenGroup={openGroup}
-        logoUrl={logoUrl}
-        productName={productName}
-        toggleSlot={navToggle}
-      />
+      {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) --
+          The wrapper reserves the nav's LAYOUT FOOTPRINT (64px collapsed / 240px
+          pinned-open). When the persisted rail is hover/focus-expanded, only the
+          sidebar INSIDE grows to the drawer width and FLOATS over the content
+          (elevated via `floating`), so the footprint — and the page layout — never
+          shift on hover (no reflow). `min-w-0` defeats flex `min-width:auto` so the
+          overflowing drawer can exceed the reserved 64px. onMouseEnter/Leave +
+          onFocus/Blur drive the transient expand; the persisted pref is untouched. */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- purely
+          presentational hover/focus affordance (expand-on-hover); the nav inside is
+          fully operable without it, so giving this wrapper an interactive role would be
+          semantically wrong. */}
+      <div
+        className={cn(
+          'relative shrink-0 min-w-0 transition-[width] duration-200 motion-reduce:transition-none',
+          collapsed ? 'z-40 w-16' : 'w-60',
+        )}
+        onMouseEnter={() => setRailHovered(true)}
+        onMouseLeave={() => setRailHovered(false)}
+        onFocus={() => setRailFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRailFocused(false);
+        }}
+      >
+        <NavSidebar
+          page={page}
+          onNavigate={onNavigate}
+          collapsed={effectiveCollapsed}
+          floating={collapsed}
+          openGroups={openGroups}
+          onToggleGroup={toggleGroup}
+          onOpenGroup={openGroup}
+          logoUrl={logoUrl}
+          productName={productName}
+          toggleSlot={navToggle}
+        />
+      </div>
 
       {/* ---- Main column --------------------------------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
