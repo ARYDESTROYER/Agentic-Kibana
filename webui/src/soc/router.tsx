@@ -110,9 +110,31 @@ export function pageFromHash(): PageId {
   }
 }
 
+/**
+ * Parse whitelisted deep-link query opts from the location hash (e.g.
+ * `#/cases?caseId=<id>`), so a FRESH tab / bookmark / refresh lands with the same opts an
+ * in-app `navigate(page, opts)` would carry. This is what makes the CaseDetail "Open in
+ * new tab" button work: the new tab boots straight into the case sheet. Only known keys
+ * are read (unknown query keys are ignored); returns undefined when nothing is present.
+ */
+export function optsFromHash(): NavOpts | undefined {
+  try {
+    const hash = window.location.hash || '';
+    const qi = hash.indexOf('?');
+    if (qi < 0) return undefined;
+    const params = new URLSearchParams(hash.slice(qi + 1));
+    const caseId = params.get('caseId');
+    return caseId ? { caseId } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [page, setPage] = React.useState<PageId>(() => pageFromHash());
-  const [opts, setOpts] = React.useState<NavOpts | undefined>(undefined);
+  // Seed opts from the hash query on first paint so a deep-link / new tab (e.g.
+  // `#/cases?caseId=<id>`) lands with its opts, exactly like an in-app navigate would.
+  const [opts, setOpts] = React.useState<NavOpts | undefined>(() => optsFromHash());
 
   const navigate = React.useCallback<Navigate>((next, nextOpts) => {
     // A navigate() into a retired standalone route lands inside Settings instead.
@@ -154,8 +176,9 @@ export const RouterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const next = pageFromHash();
       setPage((prev) => {
         if (prev === next) return prev;
-        // A URL-driven (back/forward/deep-link) navigation has no in-app opts.
-        setOpts(undefined);
+        // A URL-driven (back/forward/deep-link) navigation carries only whatever opts the
+        // hash query encodes (e.g. `#/cases?caseId=<id>`) — else none.
+        setOpts(optsFromHash());
         return next;
       });
     };

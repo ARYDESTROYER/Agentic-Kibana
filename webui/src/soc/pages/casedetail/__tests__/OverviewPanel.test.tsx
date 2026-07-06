@@ -1,24 +1,16 @@
 /**
- * OverviewPanel — IOC-query labelling + Round-7 D1b panel dedup.
+ * OverviewPanel — the task 7c redesign (clean, scannable case briefing).
  *
- *   #18 (Round-6): the read-only es_query search queries are labelled "Search query",
- *        NOT "Command Line" (which implied a shell command ran on the endpoint).
- *   #29 (Round-6): `riskFactorBarColor` shares the ONE palette scoreBand ladder
- *        (74/48/22) — kept as an exported helper even though the standalone
- *        risk-breakdown bars were removed from the overview in Round-7.
- *   Round-7 D1b: the secondary badge row was replaced by a concise header strip with
- *        provenance tags (verdict/confidence = AI) + a self-hiding "Auto-closed by AI"
- *        marker; the standalone "Risk breakdown" card was removed (it lives in the
- *        investigation view); MITRE was compacted to a summary that points at the Threat
- *        context tab.
- *   Round-8 #3: de-duped the panel — the legacy Verdict/Confidence HeadlinePanel duo and
- *        the standalone risk badge (already owned by the RiskCard gauge) were dropped;
- *        headings sentence-cased; "IOC Indicators" → "Search queries".
- *   Task 6: the overview now separates "Reported by source" (SIEM facts: source-asserted
- *        severity + provenance tag, detection rules, source name/time, trigger, affected
- *        assets, search queries) from "Our assessment" (risk/impact/priority + AI verdict/
- *        confidence + the pinned deterministic DecisionCard), with a delta cue when the
- *        source severity and our risk band disagree — four bands total.
+ * The overview reads top-to-bottom as: a DECISION BRIEF hero (verdict headline +
+ * summary + chip row + recommended action + auto-close note), a 3-column PROVENANCE
+ * row (SOURCE SAYS / AGENT FOUND / CODE DECIDED) anchored by the pinned deterministic
+ * <DecisionCard>, an ENTITY row (primary entity / attack story / relationship), an
+ * EVIDENCE row (checklist + reproduce), and collapsibles (related / provenance & audit).
+ *
+ * Provenance stays obvious: SIEM facts, AI judgement, and deterministic code are told
+ * apart by <ProvenanceTag>. Every case-derived value renders as plain text / CodeBlock
+ * (#9); the panel never decides or mutates the case (#3) — the DecisionCard only
+ * PROJECTS the recorded deterministic decision.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -39,6 +31,8 @@ const CASE = {
   verdict: 'true_positive',
   risk_score: 40,
   confidence: 0.9,
+  recommended_action: 'Reset the affected credentials and monitor for re-use.',
+  summary: 'Repeated failed logons from 10.0.0.5. Then a success from a new ASN.',
   evidence: [{ query: 'event.action:login and source.ip:10.0.0.5', summary: 'auth spike observed' }],
   risk_breakdown: {
     volume: 40,
@@ -54,59 +48,65 @@ function renderOverview(c: Case) {
   return render(<OverviewPanel c={c} fpPolicy={null} triage={null} triageLoading={false} />);
 }
 
-describe('OverviewPanel', () => {
-  it('labels read-only search queries "Search query", not "Command Line" (#18)', () => {
+describe('OverviewPanel — decision brief (task 7c)', () => {
+  it('leads with a verdict headline, one-sentence summary, and the recommended action', () => {
     renderOverview(CASE);
-    expect(screen.getByText('Search query')).toBeInTheDocument();
-    expect(screen.queryByText('Command Line')).toBeNull();
+    expect(screen.getByText('Decision brief')).toBeInTheDocument();
+    // Verdict → a calm human headline (true_positive → "Likely a true positive").
+    expect(screen.getByText('Likely a true positive')).toBeInTheDocument();
+    // One-sentence summary (first sentence only).
+    expect(screen.getByText(/Repeated failed logons from 10\.0\.0\.5\./)).toBeInTheDocument();
+    // Recommended action text is surfaced.
+    expect(screen.getByText('Recommended action')).toBeInTheDocument();
+    expect(
+      screen.getByText(/Reset the affected credentials and monitor for re-use\./),
+    ).toBeInTheDocument();
   });
 
-  it('drops the standalone "Risk breakdown" card (moved out of the overview) (D1b)', () => {
+  it('shows the compact chip row (risk N/100, confidence %)', () => {
     renderOverview(CASE);
-    // The old risk-breakdown card + its "Risk 30" total badge are gone; the overview
-    // no longer shows the factor bars (they lived only in that card).
-    expect(screen.queryByText('Risk breakdown')).toBeNull();
-    expect(screen.queryByRole('progressbar', { name: 'Volume' })).toBeNull();
-    expect(screen.queryByText('Risk 30')).toBeNull();
-    // The Recommended action card is KEPT.
-    expect(screen.getByText('Recommended action')).toBeInTheDocument();
+    // Risk chip "40/100" appears in the brief (also mirrored by the DecisionCard).
+    expect(screen.getAllByText('40/100').length).toBeGreaterThanOrEqual(1);
+    // Confidence "90%" is surfaced.
+    expect(screen.getAllByText('90%').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders the auto-close note (a quiet inline note, never a role="alert")', () => {
+    render(
+      <OverviewPanel
+        c={CASE}
+        fpPolicy={{ enabled: false, min_confidence: 0.8 }}
+        triage={null}
+        triageLoading={false}
+      />,
+    );
+    expect(screen.getByText(/Auto-close policy/)).toBeInTheDocument();
+    // No error alert (c.error unset) — the auto-close note is not an <Alert>.
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
-describe('OverviewPanel — source-vs-assessment provenance (task 6)', () => {
-  it('labels the two peer sections: a SIEM (source) legend and an AI+Code assessment legend', () => {
+describe('OverviewPanel — provenance row (source vs. agent vs. code)', () => {
+  it('renders the three provenance columns, each with its provenance tag', () => {
     renderOverview(CASE);
-    // "Reported by source" header carries the SIEM (source) provenance tag.
-    expect(screen.getByText('SIEM')).toBeInTheDocument();
-    // "Our assessment" verdict + confidence are AI-tagged; the assessment header legend
-    // also carries one AI + one Code tag → three AI tags, one Code tag total.
+    expect(screen.getByText('Source says')).toBeInTheDocument();
+    expect(screen.getByText('Agent found')).toBeInTheDocument();
+    expect(screen.getByText('Code decided')).toBeInTheDocument();
+    // SOURCE header = 1 SIEM tag; AGENT header + verdict + confidence = 3 AI tags;
+    // CODE header = 1 Code tag. (No source-asserted severity in the base case.)
+    expect(screen.getAllByText('SIEM')).toHaveLength(1);
     expect(screen.getAllByText('AI')).toHaveLength(3);
     expect(screen.getAllByText('Code')).toHaveLength(1);
   });
 
-  it('shows the "Auto-closed by AI" marker (on the pinned DecisionCard) only when the AI closed the case (#11)', () => {
-    // Open case decided by the pipeline → NOT auto-closed → no marker.
-    renderOverview(CASE);
-    expect(screen.queryByText('Auto-closed by AI')).toBeNull();
-
-    // Terminal status + decision_by === 'agent' → the AI auto-closed it (shown once, on
-    // the DecisionCard — the assessment strip no longer duplicates the marker).
-    renderOverview({ ...CASE, status: 'closed', decision_by: 'agent' } as unknown as Case);
-    expect(screen.getByText('Auto-closed by AI')).toBeInTheDocument();
-  });
-});
-
-describe('OverviewPanel — source severity vs. our risk delta cue (task 6)', () => {
-  it('surfaces the source-asserted severity with a SIEM provenance tag under "Reported by source"', () => {
+  it('surfaces a source-asserted severity with its SIEM tag under "Source says"', () => {
     renderOverview({
       ...CASE,
       severity_band: 'high',
       severity_source: 'source_asserted',
     } as unknown as Case);
-    // The plain-text sentence spells out what the source reported.
     expect(screen.getByText(/The source rated this alert High severity\./)).toBeInTheDocument();
-    // Source-asserted severity → a source (SIEM) provenance tag beside the band. The
-    // section header also carries one, so there are two SIEM tags.
+    // Header SIEM tag + the per-severity SIEM tag = two.
     expect(screen.getAllByText('SIEM')).toHaveLength(2);
   });
 
@@ -141,78 +141,69 @@ describe('OverviewPanel — source severity vs. our risk delta cue (task 6)', ()
       severity_band: 'high',
       severity_source: 'derived',
     } as unknown as Case);
-    // Derived → NO delta, and — critically — no "Reported severity" row under "Reported by
-    // source": a derived band must never read as a source fact (it lives under "Our
-    // assessment" via the risk score instead).
     expect(screen.queryByTestId('source-assessment-delta')).toBeNull();
     expect(screen.queryByText('Reported severity')).toBeNull();
   });
+
+  it('shows the "Auto-closed by AI" marker (on the pinned DecisionCard) only when the AI closed it (#11)', () => {
+    // Open case decided by the pipeline → NOT auto-closed → no marker.
+    renderOverview(CASE);
+    expect(screen.queryByText('Auto-closed by AI')).toBeNull();
+
+    // Terminal status + decision_by === 'agent' → the AI auto-closed it.
+    renderOverview({ ...CASE, status: 'closed', decision_by: 'agent' } as unknown as Case);
+    expect(screen.getByText('Auto-closed by AI')).toBeInTheDocument();
+  });
 });
 
-describe('OverviewPanel — compact MITRE summary (D1b)', () => {
-  it('renders a compact MITRE summary that points at the Threat context tab', () => {
+describe('OverviewPanel — entity, story, evidence, reproduce (task 7c)', () => {
+  it('renders the primary entity, attack story, and entity-relationship cards', () => {
+    renderOverview({
+      ...CASE,
+      entity: { type: 'ip', value: '10.0.0.5' },
+    } as unknown as Case);
+    expect(screen.getByText('Primary entity')).toBeInTheDocument();
+    // The entity value renders inside an InlineCode fence (#9) + the relationship flow.
+    expect(screen.getAllByText('10.0.0.5').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Attack story')).toBeInTheDocument();
+    expect(screen.getByText('Agent searched the logs')).toBeInTheDocument();
+    expect(screen.getByText('Entity relationship')).toBeInTheDocument();
+  });
+
+  it('renders the evidence checklist + a reproduce panel labelled "Search query" (not "Command Line")', () => {
+    renderOverview(CASE);
+    expect(screen.getByText('Evidence checklist')).toBeInTheDocument();
+    // One positive finding row → a "Found" result.
+    expect(screen.getByText('Found')).toBeInTheDocument();
+    // The read-only query is a SEARCH query, never a shell "Command Line".
+    expect(screen.getByText('Reproduce investigation')).toBeInTheDocument();
+    expect(screen.getByText('Search query')).toBeInTheDocument();
+    expect(screen.queryByText('Command Line')).toBeNull();
+  });
+
+  it('folds the lower-value sections into a "Provenance & audit" disclosure', () => {
+    renderOverview(CASE);
+    expect(screen.getByText('Provenance & audit')).toBeInTheDocument();
+    // No cross-source linkage → the "Related cases" disclosure is not rendered.
+    expect(screen.queryByText('Related cases')).toBeNull();
+  });
+});
+
+describe('OverviewPanel — MITRE summary', () => {
+  it('surfaces a compact MITRE finding that points at the Threat context tab', () => {
     renderOverview({ ...CASE, mitre: ['T1110', 'T1078'] } as unknown as Case);
-    expect(screen.getByText('MITRE ATT&CK')).toBeInTheDocument();
-    expect(screen.getByText('T1110')).toBeInTheDocument();
-    expect(screen.getByText('T1078')).toBeInTheDocument();
-    // The full detail is delegated to the Threat context tab.
+    // "2 MITRE techniques mapped" appears in BOTH the agent-found bullet and the mini
+    // attack-story step — so match all, then pin the tab pointer (unique to the bullet).
+    expect(screen.getAllByText(/2 MITRE techniques mapped/).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/Threat context tab/i)).toBeInTheDocument();
-  });
-
-  it('caps the visible technique chips and shows a "+N more" overflow badge', () => {
-    const many = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8'];
-    renderOverview({ ...CASE, mitre: many } as unknown as Case);
-    expect(screen.getByText('+2 more')).toBeInTheDocument();
-    // The 7th/8th ids are folded into the overflow badge, not rendered as chips.
-    expect(screen.queryByText('T7')).toBeNull();
-  });
-});
-
-describe('OverviewPanel — Round-8 #3 cleanup (dedup, sentence-case, bands)', () => {
-  it('groups the sections into four scannable bands (source vs. assessment split, task 6)', () => {
-    renderOverview(CASE);
-    const labels = screen.getAllByTestId('overview-band-label').map((el) => el.textContent);
-    expect(labels).toEqual([
-      'Reported by source',
-      'Our assessment',
-      'Evidence',
-      'Provenance & activity',
-    ]);
-  });
-
-  it('sentence-cases the always-present headings and renames "IOC Indicators" → "Search queries"', () => {
-    renderOverview(CASE);
-    // Sentence case, not Title Case.
-    expect(screen.getByText('Evidence findings')).toBeInTheDocument();
-    expect(screen.getByText('Recommended action')).toBeInTheDocument();
-    expect(screen.queryByText('Evidence Findings')).toBeNull();
-    // The old "IOC Indicators" heading is renamed; the read-only query card is now
-    // "Search queries" (the per-query badge stays the singular "Search query").
-    expect(screen.getByText('Search queries')).toBeInTheDocument();
-    expect(screen.queryByText('IOC Indicators')).toBeNull();
-  });
-
-  it('does not render a duplicate risk badge or a full auto-close Alert in the strip', () => {
-    // fpPolicy provided so the auto-close note path is exercised; it is a quiet inline
-    // note now, never an <Alert> (which would surface a role="alert").
-    render(
-      <OverviewPanel
-        c={CASE}
-        fpPolicy={{ enabled: false, min_confidence: 0.8 }}
-        triage={null}
-        triageLoading={false}
-      />,
-    );
-    expect(screen.getByText(/Auto-close policy/)).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
 
 describe('riskFactorBarColor (#29 — shares the ONE palette scoreBand ladder 74/48/22)', () => {
   it('maps a factor score to the same band cut-points as every risk-coloured element', () => {
     expect(riskFactorBarColor(10)).toBe('bg-low'); // <22
-    expect(riskFactorBarColor(25)).toBe('bg-medium'); // >=22 (old 80/60/35 ladder said low)
-    expect(riskFactorBarColor(50)).toBe('bg-high'); // >=48 (old ladder said medium)
+    expect(riskFactorBarColor(25)).toBe('bg-medium'); // >=22
+    expect(riskFactorBarColor(50)).toBe('bg-high'); // >=48
     expect(riskFactorBarColor(80)).toBe('bg-critical'); // >=74
   });
 });

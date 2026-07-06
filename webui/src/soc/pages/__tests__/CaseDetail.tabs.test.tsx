@@ -1,32 +1,32 @@
 /**
- * CaseDetail — 5-tab story shell (Round-7 #9a: 8 → 5 tabs; task 5: rename Investigation
- * → Timeline).
+ * CaseDetail — 6-tab story shell (task 5: split the merged Timeline tab).
  *
- * The old 8-tab shell (Overview / Timeline / Why / Threat / Trace / Collaboration /
- * Feedback / Chat) collapsed into a 5-tab story spine, and the merged investigation tab
- * was renamed to Timeline (task 5) and sits right after Overview:
+ * Task 5 split the old merged "Timeline" tab (which held BOTH the "what happened"
+ * narrative AND the full ReAct trace) into two clean tabs:
  *
- *     overview · timeline · threat · collab · chat
+ *     overview · timeline · investigation · threat · collab · chat
  *
- * The Timeline tab's panel is still <InvestigationPanel> — the Timeline + Why + Trace
- * panels compose INSIDE it (Facts "What happened" → AI assessment → pinned deterministic
- * DecisionCard + a collapsible full trace). The standalone Feedback tab was retired
- * (grading folds into the close dialog; the aggregate stays in Metrics). This spec pins:
+ *   - "Timeline"      = ONLY the "what happened" six-stage narrative (<TimelinePanel>).
+ *   - "Investigation" = the AI assessment (WhyPanel) + the pinned deterministic
+ *                       DecisionCard + the collapsible full ReAct trace
+ *                       (<InvestigationPanel>).
  *
- *   1. The `tab` union is EXACTLY the 5 story tabs — the removed values are gone.
- *   2. Exactly 5 <TabsTrigger>, each `value` matching its human label.
+ * The standalone Feedback tab stays retired (grading folds into the close dialog; the
+ * aggregate stays in Metrics). This spec pins:
+ *
+ *   1. The `tab` union is EXACTLY the 6 story tabs — the removed values are gone.
+ *   2. Exactly 6 <TabsTrigger>, each `value` matching its human label.
  *   3. Each <TabsContent> renders the RIGHT, DISTINCT panel; the merged sub-panels
  *      (StageTimeline / WhyPanel / TraceTimeline) and the retired FeedbackTab are NOT
  *      mounted directly in the shell.
- *   4. <InvestigationPanel> is wired the stages / rationale / timeline state + retries,
- *      and those payloads lazy-load on the `timeline` tab (so the DecisionCard can
- *      read its policy clause).
+ *   4. <TimelinePanel> is wired the stages state + retry (lazy on `timeline`);
+ *      <InvestigationPanel> is wired the rationale / timeline state + retries (lazy on
+ *      `investigation` so the DecisionCard can read its policy clause).
  *   5. The header carries a self-hiding <AutoClosedBadge> (Round-7 #11).
  *
  * CaseDetail is a large sheet with heavy prop/api coupling, so — like the sibling
  * CaseDetail.*.test.tsx specs — these are STATIC assertions on the orchestrator source
- * (the load-bearing tab wiring), not a full mount. #9 is unaffected (no
- * attacker-influenceable text is rendered here).
+ * (the load-bearing tab wiring), not a full mount. #9 is unaffected.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -42,27 +42,30 @@ function slice(text: string, needle: string, end: string): string {
   return text.slice(i, j === -1 ? text.length : j);
 }
 
-const TAB_VALUES = ['overview', 'timeline', 'threat', 'collab', 'chat'] as const;
-const REMOVED_TABS = ['investigation', 'why', 'trace', 'feedback'] as const;
+const TAB_VALUES = ['overview', 'timeline', 'investigation', 'threat', 'collab', 'chat'] as const;
+// 'investigation' is now a REAL tab (task 5); only the truly-removed panels stay gone.
+const REMOVED_TABS = ['why', 'trace', 'feedback'] as const;
 
 /** value → expected human label + the panel component mounted for it. */
 const TAB_LABEL: Record<(typeof TAB_VALUES)[number], string> = {
   overview: 'Overview',
   timeline: 'Timeline',
+  investigation: 'Investigation',
   threat: 'Threat context',
   collab: 'Collaboration',
   chat: 'Chat',
 };
 const TAB_PANEL: Record<(typeof TAB_VALUES)[number], string> = {
   overview: 'OverviewPanel',
-  timeline: 'InvestigationPanel',
+  timeline: 'TimelinePanel',
+  investigation: 'InvestigationPanel',
   threat: 'ThreatContextPanel',
   collab: 'CollaborationThreadTab',
   chat: 'ChatTab',
 };
 
-describe('CaseDetail — 5-tab story shell', () => {
-  it('the tab union is exactly the 5 story tabs (the removed 4 are gone)', () => {
+describe('CaseDetail — 6-tab story shell (task 5)', () => {
+  it('the tab union is exactly the 6 story tabs (the removed panels are gone)', () => {
     const union = slice(src, 'const [tab, setTab] = React.useState<', ">('overview')");
     for (const v of TAB_VALUES) expect(union, `union should include '${v}'`).toContain(`'${v}'`);
     for (const v of REMOVED_TABS) {
@@ -70,10 +73,10 @@ describe('CaseDetail — 5-tab story shell', () => {
     }
   });
 
-  it('renders exactly 5 TabsTrigger, each value matching its human label', () => {
+  it('renders exactly 6 TabsTrigger, each value matching its human label', () => {
     const tabsList = slice(src, '<TabsList', '</TabsList>');
     const triggers = tabsList.match(/<TabsTrigger value="[^"]+"/g) || [];
-    expect(triggers.length).toBe(5);
+    expect(triggers.length).toBe(6);
 
     for (const v of TAB_VALUES) {
       const trigger = slice(tabsList, `value="${v}"`, 'TabsTrigger>');
@@ -81,7 +84,6 @@ describe('CaseDetail — 5-tab story shell', () => {
         TAB_LABEL[v],
       );
     }
-    // No stale trigger for a removed tab.
     for (const v of REMOVED_TABS) {
       expect(tabsList).not.toContain(`value="${v}"`);
     }
@@ -101,18 +103,23 @@ describe('CaseDetail — 5-tab story shell', () => {
   });
 
   it('the merged sub-panels + retired Feedback tab are not mounted in the shell', () => {
-    // StageTimeline / WhyPanel / TraceTimeline now live INSIDE <InvestigationPanel>,
-    // not as standalone tabs; FeedbackTab was retired entirely.
+    // StageTimeline / WhyPanel / TraceTimeline live INSIDE the Timeline / Investigation
+    // panels, not as standalone tabs; FeedbackTab was retired entirely.
     for (const gone of ['StageTimeline', 'WhyPanel', 'TraceTimeline', 'FeedbackTab']) {
       expect(src, `${gone} must not be referenced by the shell`).not.toContain(gone);
     }
   });
 
-  it('InvestigationPanel is wired the stages/rationale/timeline state + retries', () => {
+  it('TimelinePanel is wired the stages state + retry (in the Timeline tab)', () => {
     const content = slice(src, '<TabsContent value="timeline"', '</TabsContent>');
+    for (const prop of ['stages={stages}', 'onRetryStages={loadStages}']) {
+      expect(content, `timeline panel should receive ${prop}`).toContain(prop);
+    }
+  });
+
+  it('InvestigationPanel is wired the rationale/timeline state + retries (in the Investigation tab)', () => {
+    const content = slice(src, '<TabsContent value="investigation"', '</TabsContent>');
     for (const prop of [
-      'stages={stages}',
-      'onRetryStages={loadStages}',
       'rationale={rationale}',
       'onRetryRationale={loadRationale}',
       'timeline={timeline}',
@@ -120,19 +127,19 @@ describe('CaseDetail — 5-tab story shell', () => {
     ]) {
       expect(content, `investigation panel should receive ${prop}`).toContain(prop);
     }
+    // The stages are the Timeline tab's business now — NOT wired to InvestigationPanel.
+    expect(content).not.toContain('stages={stages}');
   });
 
-  it('stages/rationale/timeline lazy-load on the timeline tab', () => {
-    // Each lazy effect fires on tab === 'timeline' with an error guard so a failed
-    // fetch never re-fires forever.
+  it('stages lazy-load on the timeline tab; rationale/timeline on the investigation tab', () => {
     expect(src).toContain(
       "tab === 'timeline' && stages === null && !stagesLoading && !stagesError",
     );
     expect(src).toContain(
-      "tab === 'timeline' && rationale === null && !rationaleLoading && !rationaleError",
+      "tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError",
     );
     expect(src).toContain(
-      "tab === 'timeline' && timeline === null && !timelineLoading && !timelineError",
+      "tab === 'investigation' && timeline === null && !timelineLoading && !timelineError",
     );
     // No lingering effect keyed on a removed tab value.
     for (const v of REMOVED_TABS) {
@@ -144,14 +151,25 @@ describe('CaseDetail — 5-tab story shell', () => {
     expect(src).toContain(
       '<AutoClosedBadge status={c.status} decisionBy={c.decision_by} />',
     );
-    // It is imported from the shared badges module.
     expect(src).toMatch(
       /import \{[^}]*AutoClosedBadge[^}]*\} from '@\/soc\/components\/badges'/,
     );
   });
 
-  it('the header History control targets the Timeline tab', () => {
-    const historyBtn = slice(src, 'aria-label="Timeline"', 'Button>');
-    expect(historyBtn).toContain("setTab('timeline')");
+  it('the header quick-jumps target the Timeline + Investigation tabs', () => {
+    const timelineBtn = slice(src, 'aria-label="Timeline"', 'Button>');
+    expect(timelineBtn).toContain("setTab('timeline')");
+    const investBtn = slice(src, 'aria-label="Investigation"', 'Button>');
+    expect(investBtn).toContain("setTab('investigation')");
+  });
+
+  it('adds an accessible "Open in new tab" header control + widens the sheet (task 7a/7b)', () => {
+    // The header carries an aria-labelled "Open in new tab" control wired to openInNewTab.
+    const openBtn = slice(src, 'aria-label="Open in new tab"', 'Button>');
+    expect(openBtn).toContain('onClick={openInNewTab}');
+    // openInNewTab builds a `#/cases?caseId=<id>` deep-link (mirrors the router's hash query).
+    expect(src).toContain('#/cases?caseId=${encodeURIComponent(id)}');
+    // The sheet is widened from 1180px to 1400px (task 7a).
+    expect(src).toContain('max-w-[min(98vw,1400px)]');
   });
 });

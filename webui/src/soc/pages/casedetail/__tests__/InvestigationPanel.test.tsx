@@ -1,10 +1,13 @@
 /**
- * InvestigationPanel — the merged investigation story (Round-7 #9a).
+ * InvestigationPanel — the "Investigation" tab (task 5 split).
  *
- * Verifies the three lanes render in order (FACTS → AI ASSESSMENT → pinned DECISION),
- * that the AI lane is persistently AI-marked, that the raw ReAct trace stays available
- * behind a "Full agent trace" disclosure, and that opening that disclosure lazy-loads
- * the timeline when the parent hasn't fetched it yet.
+ * Task 5 moved the "what happened" six-stage narrative out to the sibling
+ * <TimelinePanel>, so this panel is now the investigation proper: the AI assessment
+ * (WhyPanel reasoning), the pinned deterministic DecisionCard, and the collapsible full
+ * ReAct trace. Verifies the two lanes render in order (AI ASSESSMENT → pinned DECISION),
+ * that the AI lane is persistently AI-marked, that the raw ReAct trace stays behind a
+ * "Full agent trace" disclosure, and that opening it lazy-loads the timeline when the
+ * parent hasn't fetched it yet.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
@@ -12,11 +15,7 @@ import { axe, toHaveNoViolations } from 'jest-axe';
 
 import { InvestigationPanel, type InvestigationPanelProps } from '../InvestigationPanel';
 import type { Case, CaseRationale } from '@/lib/types';
-import type {
-  TimelineResponse,
-  TimelineStagesResponse,
-  TraceSpan,
-} from '@/soc/pages/CaseDetail.api';
+import type { TimelineResponse, TraceSpan } from '@/soc/pages/CaseDetail.api';
 
 expect.extend(toHaveNoViolations);
 
@@ -27,23 +26,6 @@ const CASE = {
   decision_by: 'agent',
   risk_score: 72,
 } as unknown as Case;
-
-const STAGES: TimelineStagesResponse = {
-  case_id: 'c1',
-  total: 1,
-  stages: [
-    {
-      id: 'input',
-      kind: 'input',
-      label: 'Alert received',
-      status: 'done',
-      deterministic: false,
-      headline: 'Six alerts from Lab Elastic',
-      state: {},
-      steps: [],
-    },
-  ],
-};
 
 const RATIONALE = {
   case_id: 'c1',
@@ -79,10 +61,6 @@ const TIMELINE: TimelineResponse = {
 function props(over: Partial<InvestigationPanelProps> = {}): InvestigationPanelProps {
   return {
     c: CASE,
-    stages: STAGES,
-    stagesLoading: false,
-    stagesError: null,
-    onRetryStages: vi.fn(),
     rationale: RATIONALE,
     rationaleLoading: false,
     rationaleError: null,
@@ -95,15 +73,11 @@ function props(over: Partial<InvestigationPanelProps> = {}): InvestigationPanelP
   };
 }
 
-describe('InvestigationPanel — the three-lane story', () => {
-  it('renders FACTS → AI ASSESSMENT → DECISION in order', () => {
+describe('InvestigationPanel — the AI-assessment + decision story', () => {
+  it('renders AI ASSESSMENT → DECISION in order', () => {
     render(<InvestigationPanel {...props()} />);
 
-    // 1. FACTS lane — the stage narrative headline.
-    expect(screen.getByText('What happened')).toBeInTheDocument();
-    expect(screen.getByText('Six alerts from Lab Elastic')).toBeInTheDocument();
-
-    // 2. AI ASSESSMENT lane — marked "AI", showing the WhyPanel reasoning (not decision).
+    // 1. AI ASSESSMENT lane — marked "AI", showing the WhyPanel reasoning (not decision).
     expect(screen.getByText('AI assessment')).toBeInTheDocument();
     expect(screen.getByText('AI')).toBeInTheDocument();
     expect(screen.getByText('Agent reasoning')).toBeInTheDocument();
@@ -111,9 +85,14 @@ describe('InvestigationPanel — the three-lane story', () => {
       screen.getByText(/Repeated failed logons then a success from a new ASN/),
     ).toBeInTheDocument();
 
-    // 3. DECISION lane — the pinned deterministic authority card.
+    // 2. DECISION lane — the pinned deterministic authority card.
     expect(screen.getByRole('region', { name: 'Decision' })).toBeInTheDocument();
     expect(screen.getByText('Deterministic decision')).toBeInTheDocument();
+  });
+
+  it('no longer renders the "what happened" stage narrative (moved to TimelinePanel)', () => {
+    render(<InvestigationPanel {...props()} />);
+    expect(screen.queryByText('What happened')).toBeNull();
   });
 
   it('hides the WhyPanel decision summary (the DecisionCard is the sole authority)', () => {
