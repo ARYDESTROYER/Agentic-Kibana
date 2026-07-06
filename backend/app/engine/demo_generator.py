@@ -578,6 +578,9 @@ def generate_historical_cases(
         day_offset = (i * max(1, history_days)) // max(1, total)
         created_ms = now_millis - day_offset * _MS_PER_DAY - rng.randint(0, _MS_PER_DAY - 1)
         created = _iso(created_ms)
+        # Realistic detection latency: the first cluster event fired 0.75-30 min before
+        # the case was opened, so the demo shows a believable MTTD (advisory only, #3).
+        first_seen_ms = created_ms - rng.randint(45, 1800) * 1000
         et: EntityType = tmpl["et"]
         if et == EntityType.IP:
             entity_val = f"{rng.choice(['198.51.100', '203.0.113', '192.0.2'])}.{rng.randint(2, 250)}"
@@ -636,6 +639,7 @@ def generate_historical_cases(
             source_id=DEMO_SOURCE_ID,
             source_name=DEMO_SOURCE_NAME,
             member_event_ids=[f"demo-hist-{i}-{j}" for j in range(rng.randint(2, 9))],
+            first_seen_millis=first_seen_ms,
             risk_score=risk,
             risk_breakdown=RiskBreakdown(
                 volume=risk * 0.3, velocity=risk * 0.2, reputation=risk * 0.3,

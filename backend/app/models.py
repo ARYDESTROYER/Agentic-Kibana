@@ -1185,6 +1185,13 @@ class Case(BaseModel):
     detected_at: datetime | None = None
     acknowledged_at: datetime | None = None
     first_response_at: datetime | None = None
+    # Epoch-millis of the EARLIEST member event of the originating cluster (the
+    # cluster's ``first_seen_millis``). Populated at case creation from the cluster;
+    # 0 for old stored cases / cases with no timed events. ⚠ NON-NEGOTIABLE #3: this is
+    # REPORTING ONLY — it is the input to the advisory MTTD (mean-time-to-detect =
+    # ``created_at`` − ``first_seen_millis``) rollup and is NEVER read by
+    # ``engine/case_manager.decide()`` (its name MUST stay OUT of case_manager.py).
+    first_seen_millis: int = 0
     # --- Round 4 ADVISORY provenance (campaign membership + detection source). BOTH
     # optional + defaulted None so old stored cases load unchanged. ⚠ NON-NEGOTIABLE #3:
     # these are PRESENTATION/REPORTING ONLY — they are NEVER read by
