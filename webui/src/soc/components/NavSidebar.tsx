@@ -22,6 +22,13 @@
  * role="tree": these are page links, not a hierarchical data tree, so disclosure is
  * the correct, lower-friction a11y model.
  *
+ * HOVER-TO-EXPAND (Task 6): the shell can render the COLLAPSED rail in a `floating`
+ * mode where it reserves only a 64px footprint but is allowed to render wider and
+ * float OVER the page content when the shell hover/focus-expands it (the shell flips
+ * the `collapsed` prop transiently, without touching the persisted pref). In that mode
+ * the expanded drawer gets a drop shadow (`floating && !collapsed`); the shell wrapper
+ * owns the z-index so the overlay survives the collapse-back animation.
+ *
  * RBAC: items + children carry an optional `perm`; they are filtered out for users
  * lacking the grant (with auth/RBAC off, `hasPermission()` is always true → full nav).
  *
@@ -560,6 +567,15 @@ export interface NavSidebarProps {
   onNavigate: Navigate;
   /** Whether the rail is in the 64px icon state (true) or the 248px drawer. */
   collapsed: boolean;
+  /**
+   * TASK 6 — the sidebar is in "floating footprint" mode: the shell reserves only a
+   * 64px rail footprint, but this sidebar may render WIDER than that (hover/focus
+   * expand) and float OVER the page content. When set, the expanded-on-hover drawer
+   * gets a drop shadow so it reads as an overlay; layering is handled by the shell
+   * wrapper's z-index (so the elevation survives the collapse-back animation without
+   * the content bleeding through). Undefined/false ⇒ the classic in-flow sidebar.
+   */
+  floating?: boolean;
   /** The expanded disclosure-group ids (host PageIds), shell-owned. */
   openGroups: Set<string>;
   /** Toggle one disclosure group's expanded state. */
@@ -583,6 +599,7 @@ export function NavSidebar({
   page,
   onNavigate,
   collapsed,
+  floating = false,
   openGroups,
   onToggleGroup,
   onOpenGroup,
@@ -615,6 +632,11 @@ export function NavSidebar({
       className={cn(
         'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 motion-reduce:transition-none',
         collapsed ? 'w-16 items-center' : 'w-60',
+        // TASK 6 — while a floating rail is expanded over the content (hover/focus), give
+        // the drawer a drop shadow so it reads as an overlay above the page. Only when it
+        // is actually wider than the reserved rail (floating && expanded); the resting
+        // 64px rail stays flush. The shell wrapper owns the z-index layering.
+        floating && !collapsed ? 'shadow-elev2' : '',
       )}
       aria-label="Primary navigation"
     >
