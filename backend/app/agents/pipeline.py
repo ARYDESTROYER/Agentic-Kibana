@@ -521,6 +521,7 @@ class InvestigationPipeline:
             source_id=_source_id(existing, cluster),
             source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
+            first_seen_millis=_first_seen(existing, cluster),
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
             verdict=None,
@@ -593,6 +594,7 @@ class InvestigationPipeline:
             source_id=_source_id(existing, cluster),
             source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
+            first_seen_millis=_first_seen(existing, cluster),
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
             verdict=verdict.verdict,
@@ -616,6 +618,24 @@ def _trigger(existing: Case | None, cluster: Cluster):
     """Keep the cluster's freshly-computed trigger reason, falling back to the
     existing case's (so a manual re-investigate doesn't erase the scan's reason)."""
     return cluster.trigger_reason or (existing.trigger_reason if existing else None)
+
+
+def _first_seen(existing: Case | None, cluster: Cluster) -> int:
+    """The EARLIEST first-event instant (epoch millis) seen for this case — the
+    advisory MTTD (detection-latency) input only, NEVER read by ``decide()`` (#3).
+
+    Earliest-wins across re-clusters: when the case is re-investigated with a cluster
+    whose window opened earlier, we keep the smaller (earlier) of the existing and the
+    new value so the detection instant never drifts LATER. 0 when neither is known."""
+    candidates = [
+        v
+        for v in (
+            (existing.first_seen_millis if existing else 0),
+            cluster.first_seen_millis,
+        )
+        if isinstance(v, int) and v > 0
+    ]
+    return min(candidates) if candidates else 0
 
 
 def _source_id(existing: Case | None, cluster: Cluster) -> str | None:
@@ -660,6 +680,7 @@ def _fail_to_human_case(
         member_event_ids=list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         )),
+        first_seen_millis=_first_seen(existing, cluster),
         risk_score=cluster.risk_score,
         risk_breakdown=cluster.risk_breakdown,
         verdict=Verdict.NEEDS_HUMAN,

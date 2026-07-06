@@ -24,7 +24,6 @@ All assertions are deterministic; advisory only — none of this is read by
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -136,31 +135,51 @@ def test_navigator_layer_records_truncation_in_metadata() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Honesty lock — the lifecycle rollup exposes MTTA / MTTR / dwell only, never "MTTD"
-# (DECISIONS #2). dwell is time-to-first-response, NOT a detection-latency metric we
-# cannot honestly compute; the frontend copy lives in webui posture.format.ts
-# (LIFECYCLE_METRICS) and must stay grounded in these exact interval keys.
+# MTTD is now a REAL detection-latency metric (we store the first-event instant on
+# the case as ``first_seen_millis``). The lifecycle rollup exposes MTTA / MTTR / dwell
+# AND ``mttd_minutes`` — but HONESTLY: mttd only counts cases that carry a first-event
+# instant, and is a labelled DASH (never a fake 0) when none does. dwell remains the
+# distinct time-to-first-response metric. Copy lives in webui posture.format.ts.
 # --------------------------------------------------------------------------- #
-def test_posture_has_no_mttd_field() -> None:
-    cases = [
-        _case(
-            "life-1",
-            created="2026-06-30T06:00:00+00:00",
-            updated="2026-06-30T08:00:00+00:00",
-            status=CaseStatus.CLOSED,
-            history=[
-                ("open", "investigating", "2026-06-30T06:30:00+00:00"),
-                ("investigating", "closed", "2026-06-30T08:00:00+00:00"),
-            ],
-        ),
-    ]
-    # The three interval keys are EXACTLY mtta/mttr/dwell — no invented "mttd".
-    intervals = M.lifecycle_intervals(cases)
-    assert set(intervals.keys()) == {"mtta_minutes", "mttr_minutes", "dwell_minutes"}
+def test_posture_exposes_real_mttd() -> None:
+    # A case whose first cluster event fired 30 min before the case was opened.
+    detected = _case(
+        "life-1",
+        created="2026-06-30T06:00:00+00:00",
+        updated="2026-06-30T08:00:00+00:00",
+        status=CaseStatus.CLOSED,
+        history=[
+            ("open", "investigating", "2026-06-30T06:30:00+00:00"),
+            ("investigating", "closed", "2026-06-30T08:00:00+00:00"),
+        ],
+    ).model_copy(
+        update={
+            # 2026-06-30T05:30:00Z in epoch millis → 30 min before created_at.
+            "first_seen_millis": int(
+                datetime(2026, 6, 30, 5, 30, 0, tzinfo=timezone.utc).timestamp() * 1000
+            )
+        }
+    )
+    intervals = M.lifecycle_intervals([detected])
+    # The lifecycle rollup now carries all FOUR interval keys.
+    assert set(intervals.keys()) == {
+        "mtta_minutes", "mttr_minutes", "dwell_minutes", "mttd_minutes",
+    }
+    # Real detection latency: 30 minutes.
+    assert intervals["mttd_minutes"]["available"] is True
+    assert intervals["mttd_minutes"]["mean"] == 30.0
+    assert intervals["mttd_minutes"]["count"] == 1
 
-    # And no 'mttd' substring leaks anywhere into the serialized posture payload.
-    roll = M.posture_metrics(cases, window_hours=720, compare="prev", now=NOW)
-    assert "mttd" not in json.dumps(roll).lower()
+
+def test_posture_mttd_honest_dash_when_no_first_seen() -> None:
+    # A case with NO first-event instant (first_seen_millis defaults to 0) contributes
+    # no MTTD sample → an honest labelled DASH, never a fabricated 0.
+    plain = _case("no-fs", created="2026-06-30T06:00:00+00:00", status=CaseStatus.OPEN)
+    block = M.lifecycle_intervals([plain])["mttd_minutes"]
+    assert block["available"] is False
+    assert block["count"] == 0
+    assert block["p50"] == M.DASH
+    assert "detection latency not available" in block["reason"]
 
 
 # --------------------------------------------------------------------------- #

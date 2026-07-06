@@ -28,10 +28,15 @@ import {
   UserPlus,
   Clock,
   AlertTriangle,
+  AlertOctagon,
+  Square,
+  Circle,
+  HelpCircle,
   Link2,
   Tag as TagIcon,
   SlidersHorizontal,
   CircleSlash,
+  type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -375,6 +380,7 @@ type SortId =
   | 'case_id'
   | 'title'
   | 'status'
+  | 'assignee'
   | 'disposition'
   | 'category'
   | 'severity'
@@ -386,6 +392,9 @@ const sortComparators: Record<SortId, (a: Case, b: Case) => number> = {
     (a.case_number || a.case_id).localeCompare(b.case_number || b.case_id),
   title: (a, b) => (a.title || a.case_id).localeCompare(b.title || b.case_id),
   status: (a, b) => (a.status || '').localeCompare(b.status || ''),
+  // Unassigned sorts last (the high sentinel char) ascending.
+  assignee: (a, b) =>
+    ((a.assignee || '').trim() || '￿').localeCompare((b.assignee || '').trim() || '￿'),
   disposition: (a, b) =>
     (a.disposition || '￿').localeCompare(b.disposition || '￿'),
   category: (a, b) => (caseCategory(a) || '￿').localeCompare(caseCategory(b) || '￿'),
@@ -415,58 +424,83 @@ export interface CasesProps {
 const SEVERITY_FILTER_VALUES = new Set(['critical', 'high', 'medium', 'low', 'info']);
 
 /**
- * Inline header pill count (replaces the old 4-tile KPI band — G4 density). Shows a
- * label + tabular count; clickable ones deep-link/filter. `tone` tints only the
- * count. All text is plain (UNTRUSTED-safe, #9).
+ * Severity/status TONE → the soft icon-chip + left-accent-bar utility classes for the
+ * summary strip. Mirrors KpiTile's ACCENT_CHIP/ACCENT_BAR grammar so the strip shares
+ * the ONE palette; every value routes through a semantic token (no raw hex — design gate).
  */
-const CountPill: React.FC<{
-  label: string;
-  count: number | string;
-  tone?: 'default' | 'info' | 'high' | 'critical';
-  onClick?: () => void;
-  testId?: string;
-  /** Hover title clarifying the count's basis (e.g. "of N loaded cases"). */
-  title?: string;
-}> = ({ label, count, tone = 'default', onClick, testId, title }) => {
-  const toneCls =
-    tone === 'info'
-      ? 'text-info'
-      : tone === 'high'
-        ? 'text-high'
-        : tone === 'critical'
-          ? 'text-critical'
-          : 'text-foreground';
-  const body = (
-    <>
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <span className={cn('text-sm font-semibold tabular-nums', toneCls)}>{count}</span>
-    </>
-  );
-  const base =
-    'inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1';
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        onClick={onClick}
-        data-testid={testId}
-        title={title}
-        className={cn(
-          base,
-          'transition-colors hover:border-primary/40 hover:bg-accent/40',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        )}
-      >
-        {body}
-      </button>
-    );
-  }
-  return (
-    <span data-testid={testId} title={title} className={base}>
-      {body}
-    </span>
-  );
+type SummaryTone = 'primary' | 'info' | 'critical' | 'high' | 'medium' | 'low';
+
+const SUMMARY_CHIP: Record<SummaryTone, string> = {
+  primary: 'bg-primary/10 text-primary',
+  info: 'bg-info/10 text-info',
+  critical: 'bg-critical/10 text-critical',
+  high: 'bg-high/10 text-high',
+  medium: 'bg-medium/10 text-medium',
+  low: 'bg-low/10 text-low',
 };
+
+const SUMMARY_BAR: Record<SummaryTone, string> = {
+  primary: 'bg-primary',
+  info: 'bg-info',
+  critical: 'bg-critical',
+  high: 'bg-high',
+  medium: 'bg-medium',
+  low: 'bg-low',
+};
+
+/**
+ * A compact at-a-glance count tile for the summary strip — the Cortex-XSIAM / Prisma
+ * "incident count band". A tinted icon chip + a left severity/status accent bar, a
+ * small-caps label, and a big tabular count. Clickable tiles TOGGLE the matching facet
+ * filter (`aria-pressed` reflects the active state). The icon + bar are the beside-color
+ * redundant channel (§6.1, WCAG 1.4.1) and are decorative (`aria-hidden`); the label +
+ * count carry the meaning. Every value is plain text (UNTRUSTED-safe, #9).
+ */
+const SummaryTile: React.FC<{
+  label: string;
+  count: number;
+  icon: LucideIcon;
+  tone: SummaryTone;
+  active?: boolean;
+  onClick?: () => void;
+  /** Hover title clarifying the count's basis (e.g. "Among N loaded cases"). */
+  title?: string;
+  testId?: string;
+}> = ({ label, count, icon: Icon, tone, active = false, onClick, title, testId }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    title={title}
+    data-testid={testId}
+    className={cn(
+      'group relative flex items-center gap-2.5 overflow-hidden rounded-lg border bg-card px-3 py-2.5 text-left',
+      'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+      'focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      active
+        ? 'border-primary/70 bg-accent/40 shadow-elev1'
+        : 'border-border hover:border-primary/40 hover:bg-accent/25',
+    )}
+  >
+    <span className={cn('absolute inset-y-0 left-0 w-1', SUMMARY_BAR[tone])} aria-hidden />
+    <span
+      className={cn(
+        'ml-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md',
+        SUMMARY_CHIP[tone],
+      )}
+    >
+      <Icon className="size-4" aria-hidden />
+    </span>
+    <span className="min-w-0">
+      <span className="block truncate text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="block text-xl font-semibold leading-tight tabular-nums text-foreground">
+        {count.toLocaleString()}
+      </span>
+    </span>
+  </button>
+);
 
 const CountLink: React.FC<{ count: number; onClick?: () => void }> = ({ count, onClick }) => {
   const enabled = count > 0 && !!onClick;
@@ -628,13 +662,14 @@ export default function Cases({
   const counts = React.useMemo(() => {
     let open = 0;
     let needsHuman = 0;
-    let truePositive = 0;
+    const bySeverity = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     for (const c of cases) {
       if (c.status === 'open') open += 1;
       if (c.status === 'needs_human') needsHuman += 1;
-      if ((c.verdict || '').toUpperCase().includes('TRUE')) truePositive += 1;
+      const band = caseSeverityBand(c);
+      if (band && band in bySeverity) bySeverity[band as keyof typeof bySeverity] += 1;
     }
-    return { open, needsHuman, truePositive };
+    return { open, needsHuman, bySeverity };
   }, [cases]);
 
   const truncated = total > cases.length;
@@ -864,6 +899,32 @@ export default function Cases({
       ),
     },
     {
+      // Owner cell — a compact monogram chip + the assignee name, or a muted
+      // "Unassigned". The name is case-derived (UNTRUSTED) so it renders as plain
+      // text; the monogram is a single derived character, decorative (`aria-hidden`).
+      id: 'assignee',
+      header: 'Assignee',
+      sortable: true,
+      width: '9.5rem',
+      cell: (c) => {
+        const name = (c.assignee || '').trim();
+        if (!name) {
+          return <span className="text-sm text-muted-foreground">Unassigned</span>;
+        }
+        return (
+          <span className="flex items-center gap-1.5 text-sm text-foreground">
+            <span
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-2xs font-semibold uppercase text-muted-foreground"
+              aria-hidden
+            >
+              {name.charAt(0)}
+            </span>
+            <span className="max-w-[7rem] truncate">{name}</span>
+          </span>
+        );
+      },
+    },
+    {
       id: 'disposition',
       header: 'Disposition',
       sortable: true,
@@ -1048,49 +1109,22 @@ export default function Cases({
         title={t('cases', 'Cases')}
         icon={Briefcase}
         meta={
-          // Inline pill counts replace the old 4-tile KPI band (G4 density). The
-          // Open / Needs-human / True-positive pills count the LOADED set; when only a
-          // subset is loaded the Total pill shows "N of M" so the loaded basis is
-          // explicit (never a "12 of 5,000" misread).
-          <div className="flex flex-wrap items-center gap-1.5">
-            <CountPill
-              label={`Total ${t('cases', 'Cases')}`}
-              count={
-                truncated
-                  ? `${cases.length.toLocaleString()} of ${total.toLocaleString()}`
-                  : total.toLocaleString()
-              }
-              title={
-                truncated
-                  ? `${cases.length.toLocaleString()} of ${total.toLocaleString()} cases loaded`
-                  : undefined
-              }
-              testId="cases-count-total"
-            />
-            <CountPill
-              label="Open"
-              count={counts.open}
-              tone="info"
-              onClick={() => setFilter('status', 'open')}
-              title={loadedScopeTitle}
-              testId="cases-count-open"
-            />
-            <CountPill
-              label="Needs human"
-              count={counts.needsHuman}
-              tone="high"
-              onClick={() => setFilter('status', 'needs_human')}
-              title={loadedScopeTitle}
-              testId="cases-count-needs-human"
-            />
-            <CountPill
-              label="True positives"
-              count={counts.truePositive}
-              tone="critical"
-              title={loadedScopeTitle}
-              testId="cases-count-tp"
-            />
-          </div>
+          // A single quiet total badge beside the title (the at-a-glance triage
+          // breakdown now lives in the summary strip below). When only a subset is
+          // loaded it reads "N / M" so the loaded basis is explicit (never a misread).
+          <span
+            data-testid="cases-count-total"
+            title={
+              truncated
+                ? `${cases.length.toLocaleString()} of ${total.toLocaleString()} cases loaded`
+                : undefined
+            }
+            className="inline-flex items-center rounded-md border border-border bg-surface px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+          >
+            {truncated
+              ? `${cases.length.toLocaleString()} / ${total.toLocaleString()}`
+              : `${total.toLocaleString()} total`}
+          </span>
         }
         actions={
           <>
@@ -1121,168 +1155,245 @@ export default function Cases({
         }
       />
 
-      {/* Filter bar — saved views + column customization now live INLINE here
-          (reclaims the former standalone ~150px row above the table). Border-first
-          inline toolbar (no resting shadow) via the ONE card grammar. */}
-      <Card elevation="none" className="flex flex-wrap items-center gap-2 p-3">
-        <SavedViewsBar
-          scope={CASES_VIEW_SCOPE}
-          activeViewId={activeViewId}
-          onApply={applySavedView}
-          getCurrent={captureCurrent}
+      {/* Summary strip — the Cortex-XSIAM / Prisma "incident count band": at-a-glance
+          triage buckets over the LOADED set. Each tile toggles the matching facet
+          filter (severity band or lifecycle status); the icon + left accent bar are the
+          non-color redundant channel (§6.1). Counts are a stable snapshot of the loaded
+          set (they don't collapse when a filter is applied), matching what clicking each
+          tile narrows the list to. */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+        <SummaryTile
+          label="Open"
+          count={counts.open}
+          icon={Briefcase}
+          tone="info"
+          active={filters.status === 'open'}
+          onClick={() => setFilter('status', filters.status === 'open' ? ANY : 'open')}
+          title={loadedScopeTitle}
+          testId="cases-summary-open"
         />
+        <SummaryTile
+          label="Needs human"
+          count={counts.needsHuman}
+          icon={HelpCircle}
+          tone="primary"
+          active={filters.status === 'needs_human'}
+          onClick={() =>
+            setFilter('status', filters.status === 'needs_human' ? ANY : 'needs_human')
+          }
+          title={loadedScopeTitle}
+          testId="cases-summary-needs-human"
+        />
+        <SummaryTile
+          label="Critical"
+          count={counts.bySeverity.critical}
+          icon={AlertOctagon}
+          tone="critical"
+          active={filters.severity === 'critical'}
+          onClick={() =>
+            setFilter('severity', filters.severity === 'critical' ? ANY : 'critical')
+          }
+          title={loadedScopeTitle}
+          testId="cases-summary-critical"
+        />
+        <SummaryTile
+          label="High"
+          count={counts.bySeverity.high}
+          icon={AlertTriangle}
+          tone="high"
+          active={filters.severity === 'high'}
+          onClick={() => setFilter('severity', filters.severity === 'high' ? ANY : 'high')}
+          title={loadedScopeTitle}
+          testId="cases-summary-high"
+        />
+        <SummaryTile
+          label="Medium"
+          count={counts.bySeverity.medium}
+          icon={Square}
+          tone="medium"
+          active={filters.severity === 'medium'}
+          onClick={() =>
+            setFilter('severity', filters.severity === 'medium' ? ANY : 'medium')
+          }
+          title={loadedScopeTitle}
+          testId="cases-summary-medium"
+        />
+        <SummaryTile
+          label="Low"
+          count={counts.bySeverity.low}
+          icon={Circle}
+          tone="low"
+          active={filters.severity === 'low'}
+          onClick={() => setFilter('severity', filters.severity === 'low' ? ANY : 'low')}
+          title={loadedScopeTitle}
+          testId="cases-summary-low"
+        />
+      </div>
 
-        <div className="relative min-w-[16rem] flex-1">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            aria-hidden
-          />
-          <Input
-            value={filters.search}
-            onChange={(e) => setFilter('search', e.target.value)}
-            placeholder="Search Case ID, title, summary, entity, rule, tags…"
-            aria-label="Search cases"
-            className="pl-9"
-          />
-        </div>
+      {/* Toolbar — one calm band in two tiers: (1) search + facet filters, then a
+          hairline divider, (2) saved views + the result count + column customization.
+          Border-first (no resting shadow) via the ONE card grammar. */}
+      <Card elevation="none" className="space-y-2.5 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[15rem] flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              value={filters.search}
+              onChange={(e) => setFilter('search', e.target.value)}
+              placeholder="Search cases — ID, title, entity, rule, tags…"
+              aria-label="Search cases"
+              className="pl-9"
+            />
+          </div>
 
-        <Select value={filters.status} onValueChange={(v) => setFilter('status', v)}>
-          <SelectTrigger className="w-[11rem]" aria-label="Filter by status">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY}>All statuses</SelectItem>
-            {facets.statuses.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s === 'needs_human' ? 'Open · awaiting analyst' : humanizeToken(s)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {facets.dispositions.length ? (
-          <Select
-            value={filters.disposition}
-            onValueChange={(v) => setFilter('disposition', v)}
-          >
-            <SelectTrigger className="w-[11rem]" aria-label="Filter by disposition">
-              <SelectValue placeholder="Disposition" />
+          <Select value={filters.status} onValueChange={(v) => setFilter('status', v)}>
+            <SelectTrigger className="w-[11rem]" aria-label="Filter by status">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ANY}>All dispositions</SelectItem>
-              {facets.dispositions.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {humanizeToken(d)}
+              <SelectItem value={ANY}>All statuses</SelectItem>
+              {facets.statuses.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s === 'needs_human' ? 'Open · awaiting analyst' : humanizeToken(s)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        ) : null}
 
-        <Select value={filters.severity} onValueChange={(v) => setFilter('severity', v)}>
-          <SelectTrigger className="w-[10rem]" aria-label="Filter by severity">
-            <SelectValue placeholder="Severity" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY}>All severities</SelectItem>
-            <SelectItem value="critical">Critical</SelectItem>
-            <SelectItem value="high">High</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="low">Low</SelectItem>
-            <SelectItem value="info">Info</SelectItem>
-          </SelectContent>
-        </Select>
+          {facets.dispositions.length ? (
+            <Select
+              value={filters.disposition}
+              onValueChange={(v) => setFilter('disposition', v)}
+            >
+              <SelectTrigger className="w-[11rem]" aria-label="Filter by disposition">
+                <SelectValue placeholder="Disposition" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>All dispositions</SelectItem>
+                {facets.dispositions.map((d) => (
+                  <SelectItem key={d} value={d}>
+                    {humanizeToken(d)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
 
-        <Select value={filters.assignee} onValueChange={(v) => setFilter('assignee', v)}>
-          <SelectTrigger className="w-[11rem]" aria-label="Filter by assignee">
-            <SelectValue placeholder="Assignee" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ANY}>All assignees</SelectItem>
-            <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-            {facets.assignees.map((a) => (
-              <SelectItem key={a} value={a}>
-                {a}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <Select value={filters.severity} onValueChange={(v) => setFilter('severity', v)}>
+            <SelectTrigger className="w-[10rem]" aria-label="Filter by severity">
+              <SelectValue placeholder="Severity" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All severities</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="info">Info</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Clock className="mr-1.5 size-4" aria-hidden />
-              {filters.timeRange === 'all'
-                ? 'Any time'
-                : `Last ${filters.timeRange}`}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-56" align="start">
-            <div className="space-y-1">
-              <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
-                Created within
-              </p>
-              {(
-                [
-                  ['all', 'Any time'],
-                  ['24h', 'Last 24 hours'],
-                  ['7d', 'Last 7 days'],
-                  ['30d', 'Last 30 days'],
-                ] as Array<[TimeRange, string]>
-              ).map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setFilter('timeRange', val)}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
-                    'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    filters.timeRange === val
-                      ? 'bg-accent font-medium text-foreground'
-                      : 'text-muted-foreground',
-                  )}
-                >
-                  {label}
-                  {filters.timeRange === val ? <Check className="size-4" aria-hidden /> : null}
-                </button>
+          <Select value={filters.assignee} onValueChange={(v) => setFilter('assignee', v)}>
+            <SelectTrigger className="w-[11rem]" aria-label="Filter by assignee">
+              <SelectValue placeholder="Assignee" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY}>All assignees</SelectItem>
+              <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+              {facets.assignees.map((a) => (
+                <SelectItem key={a} value={a}>
+                  {a}
+                </SelectItem>
               ))}
-            </div>
-          </PopoverContent>
-        </Popover>
+            </SelectContent>
+          </Select>
 
-        <Button
-          variant={filters.relatedOnly ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setFilter('relatedOnly', !filters.relatedOnly)}
-          aria-pressed={filters.relatedOnly}
-          title="Show only cases linked across sources"
-        >
-          <Link2 className="mr-1.5 size-4" aria-hidden />
-          Cross-source
-        </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Clock className="mr-1.5 size-4" aria-hidden />
+                {filters.timeRange === 'all'
+                  ? 'Any time'
+                  : `Last ${filters.timeRange}`}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56" align="start">
+              <div className="space-y-1">
+                <p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
+                  Created within
+                </p>
+                {(
+                  [
+                    ['all', 'Any time'],
+                    ['24h', 'Last 24 hours'],
+                    ['7d', 'Last 7 days'],
+                    ['30d', 'Last 30 days'],
+                  ] as Array<[TimeRange, string]>
+                ).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setFilter('timeRange', val)}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
+                      'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      filters.timeRange === val
+                        ? 'bg-accent font-medium text-foreground'
+                        : 'text-muted-foreground',
+                    )}
+                  >
+                    {label}
+                    {filters.timeRange === val ? <Check className="size-4" aria-hidden /> : null}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={clearAll}
-          disabled={!anyActive}
-        >
-          <X className="mr-1.5 size-4" aria-hidden />
-          Clear
-        </Button>
+          <Button
+            variant={filters.relatedOnly ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFilter('relatedOnly', !filters.relatedOnly)}
+            aria-pressed={filters.relatedOnly}
+            title="Show only cases linked across sources"
+          >
+            <Link2 className="mr-1.5 size-4" aria-hidden />
+            Cross-source
+          </Button>
 
-        <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
-          Showing <strong className="text-foreground">{filteredSorted.length}</strong> of{' '}
-          {cases.length}
-          {total > cases.length ? ` (of ${total} total)` : ''}
-        </span>
+          {anyActive ? (
+            <Button variant="ghost" size="sm" onClick={clearAll}>
+              <X className="mr-1.5 size-4" aria-hidden />
+              Clear
+            </Button>
+          ) : null}
+        </div>
 
-        {/* Column customization — folded into the filter bar (formerly a standalone row). */}
-        <ColumnsMenu
-          columns={columnMenuItems}
-          state={effectiveColumnState}
-          onChange={handleColumnState}
-        />
+        {/* Tier 2 — view switcher, the result count, and column customization, set off
+            from the filter controls by a hairline divider so the band reads calm. */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-border/70 pt-2.5">
+          <SavedViewsBar
+            scope={CASES_VIEW_SCOPE}
+            activeViewId={activeViewId}
+            onApply={applySavedView}
+            getCurrent={captureCurrent}
+          />
+
+          <span className="ml-auto whitespace-nowrap text-xs text-muted-foreground">
+            Showing <strong className="tabular-nums text-foreground">{filteredSorted.length}</strong>{' '}
+            of <span className="tabular-nums">{cases.length}</span>
+            {total > cases.length ? ` (of ${total.toLocaleString()} total)` : ''}
+          </span>
+
+          <ColumnsMenu
+            columns={columnMenuItems}
+            state={effectiveColumnState}
+            onChange={handleColumnState}
+          />
+        </div>
       </Card>
 
       {/* Truncation note */}

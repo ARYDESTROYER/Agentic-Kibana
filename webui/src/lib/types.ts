@@ -1900,6 +1900,67 @@ export interface CasesPerDay {
   count: number;
 }
 
+/**
+ * One UTC-day bucket of the burndown series (GET /api/metrics → `burndown`): how many
+ * cases were `opened` that day vs how many reached a terminal (resolved/closed) state.
+ * Powers the open-vs-resolved BurnDownChart. Advisory / reporting only (never #3).
+ */
+export interface BurndownPoint {
+  /** UTC date, `YYYY-MM-DD`. */
+  date: string;
+  /** Cases created that day. */
+  opened: number;
+  /** Cases that became terminal (first terminal transition, else updated_at) that day. */
+  resolved: number;
+}
+
+/**
+ * One UTC-day bucket of the timing-trend series (GET /api/metrics → `timing_trend`):
+ * the mean latency (minutes) for each interval that COMPLETED that day. A series is
+ * `null` for a day with no sample (never a fabricated 0). Powers the "Mean time to
+ * detect / respond" multi-series trend. Advisory / reporting only (never #3).
+ */
+export interface TimingTrendPoint {
+  /** UTC date, `YYYY-MM-DD`. */
+  date: string;
+  /** Mean detection latency (first event → case-open) for cases opened that day, or null. */
+  mttd: number | null;
+  /** Mean time-to-first-response for cases first-responded that day, or null. */
+  respond: number | null;
+  /** Mean time-to-resolution for cases resolved that day, or null. */
+  resolve: number | null;
+}
+
+/**
+ * The labelled-DASH-or-number p50/p90/mean/max block returned by the backend
+ * `_stat_block` (mirrors `Metrics.posture.api.ts::StatBlock`). Numeric fields are the
+ * backend DASH string `'—'` when unavailable; `reason` says why. Advisory only (#3).
+ */
+export interface StatBlock {
+  p50: number | string;
+  p90: number | string;
+  mean: number | string;
+  max: number | string;
+  count: number;
+  available: boolean;
+  /** Honest reason the block is unavailable (plain text). */
+  reason: string;
+}
+
+/**
+ * The lifecycle-interval rollup on GET /api/metrics/posture (`posture.lifecycle`). MTTA
+ * (acknowledge), MTTR (resolve), dwell (first-response) AND — additive — `mttd_minutes`
+ * (real detection latency: the cluster's first event → case-open, from the case's
+ * `first_seen_millis`; a labelled DASH when no case carries a first-event instant).
+ */
+export interface LifecycleIntervals {
+  mtta_minutes: StatBlock;
+  mttr_minutes: StatBlock;
+  dwell_minutes: StatBlock;
+  /** Mean-time-to-detect (detection latency). Additive; advisory only (never #3). */
+  mttd_minutes: StatBlock;
+}
+
 /** Verdict-class breakdown returned by /api/metrics. */
 export interface VerdictBreakdown {
   TRUE_POSITIVE: number;
@@ -1937,6 +1998,17 @@ export interface Metrics {
   mttr_minutes: number;
   resolved_count: number;
   cases_per_day: CasesPerDay[];
+  /**
+   * Open-vs-resolved per UTC day over the trend window (additive) — the BurnDownChart
+   * series. Each point is `{date, opened, resolved}`. Advisory only (never #3).
+   */
+  burndown?: BurndownPoint[];
+  /**
+   * Per-UTC-day mean detect/respond/resolve latency (minutes; additive) — the
+   * "Mean time to detect / respond" trend series. A series is `null` for a day with no
+   * sample. Advisory only (never #3).
+   */
+  timing_trend?: TimingTrendPoint[];
   feedback: FeedbackStats;
   /** Compact cost summary (shares the UsageSummary shape; fields optional). */
   cost: Partial<UsageSummary> & Record<string, unknown>;
@@ -1977,11 +2049,15 @@ export interface NoiseSeverityBreakdown {
 
 /**
  * One stage of the noise-reduction funnel. `key` walks the pipeline
- * (ingested → clustered → cases → auto_cleared → escalated → needs_human; a backend
- * may append a `true_positive` residual). `source` records whether the stage was tallied
- * from durable `counters` or the live `cases` store; `deterministic` marks the stages
- * produced by deterministic code (vs the LLM-influenced `cases` stage). `total` is the
- * stage's headline count and `by_severity` its per-band split.
+ * (ingested → clustered → cases → auto_cleared → escalated → needs_human → `closed`;
+ * a backend may append a `true_positive` residual). The trailing `closed` stage
+ * (label "Closed by human") is the count of cases a HUMAN drove to a terminal state
+ * (terminal AND NOT AI-auto-cleared) — the end of the linear flow the dashboard renders
+ * as ingested → clustered → cases → auto_cleared → escalated → closed. `source` records
+ * whether the stage was tallied from durable `counters` or the live `cases` store;
+ * `deterministic` marks the stages produced by deterministic code (vs the LLM-influenced
+ * `cases` stage and the human `closed` stage). `total` is the stage's headline count and
+ * `by_severity` its per-band split.
  */
 export interface NoiseStage {
   key: string;

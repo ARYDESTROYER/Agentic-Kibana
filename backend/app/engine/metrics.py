@@ -147,11 +147,23 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
 
     # Per-day created trend (UTC date buckets) for the last ``trend_days`` days.
     day_counts: Counter[str] = Counter()
+    resolved_by_day: Counter[str] = Counter()
     for c in cases:
         dt = _parse_iso(c.created_at)
         if dt:
             day_counts[dt.date().isoformat()] += 1
+        rdt = _resolved_dt(c)
+        if rdt:
+            resolved_by_day[rdt.date().isoformat()] += 1
     trend = sorted(day_counts.items())[-trend_days:]
+
+    # Burndown: opened-vs-resolved per UTC day (the union of days with either kind of
+    # activity, most-recent ``trend_days``). Powers the open-vs-resolved BurnDownChart.
+    burndown_days = sorted(set(day_counts) | set(resolved_by_day))[-trend_days:]
+    burndown = [
+        {"date": d, "opened": day_counts.get(d, 0), "resolved": resolved_by_day.get(d, 0)}
+        for d in burndown_days
+    ]
 
     return {
         "total_cases": total,
@@ -174,6 +186,8 @@ def compute_metrics(cases: list[Case], *, trend_days: int = 14) -> dict:
         "mttr_minutes": mttr,
         "resolved_count": len(resolution_minutes),
         "cases_per_day": [{"date": d, "count": n} for d, n in trend],
+        "burndown": burndown,
+        "timing_trend": timing_trend(cases, trend_days=trend_days),
         "feedback": feedback_stats(cases),
     }
 
@@ -219,6 +233,21 @@ def _created_dt(case: Case) -> datetime | None:
     return _as_dt(case.detected_at) or _parse_iso(case.created_at)
 
 
+def _resolved_dt(case: Case) -> datetime | None:
+    """The instant a case became TERMINAL (RESOLVED/CLOSED), else None when the case is
+    currently open. A currently NON-terminal case is never counted as resolved — even if
+    it was closed and later REOPENED: ``status_history`` is append-only, so a stale
+    terminal transition lingers, and without the current-status guard a reopened (now-open)
+    case would wrongly count as resolved and corrupt the burndown net-backlog + the resolve
+    trend. Advisory/reporting only — never read by ``decide()`` (#3)."""
+    if (case.status.value if case.status else "") not in _TERMINAL:
+        return None
+    end = _first_transition_at(case, _TERMINAL)
+    if end is not None:
+        return end
+    return _parse_iso(case.updated_at)  # terminal but no recorded transition
+
+
 def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
     """MTTA / MTTR / dwell as p50+p90+mean over the case set.
 
@@ -232,17 +261,34 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
     Each is a ``_stat_block``; when NO case ever made the transition the block is a
     labelled DASH with a reason (honest — never a fake 0).
 
-    The webui renders these three intervals under the honest labels + formula help in
-    ``webui/src/soc/pages/posture.format.ts`` (``LIFECYCLE_METRICS``) — the SINGLE
-    source of the MTTA / MTTR / dwell copy. NOTE (DECISIONS #2): dwell is
-    time-to-first-response, NOT an ``MTTD`` (mean-time-to-detect) — we do not measure
-    detection latency, so this rollup deliberately exposes no ``mttd`` key (guarded by
-    ``test_round3_wave5_posture.py::test_posture_has_no_mttd_field``)."""
+    * **MTTD** (time-to-detect / detection latency): the cluster's first member event
+      (``first_seen_millis``) → case-open (``created_at``). Only counted for cases that
+      carry a ``first_seen_millis > 0`` AND whose ``created_at`` is at/after it (a
+      backdated event can't yield a negative latency); otherwise the case is skipped so
+      an un-timed case can't fake a 0.
+
+    The webui renders the intervals under the honest labels + formula help in
+    ``webui/src/soc/pages/posture.format.ts`` (``LIFECYCLE_METRICS``). NOTE (#3): none of
+    these is EVER read by ``case_manager.decide()`` — they are read-time reporting only.
+    MTTD is now a real detection-latency measurement (we store the first-event instant on
+    the case); dwell remains time-to-first-response (a distinct human-response metric)."""
     mtta: list[float] = []
     mttr: list[float] = []
     dwell: list[float] = []
+    mttd: list[float] = []
 
     for case in cases:
+        # MTTD is measured from ``created_at`` (case-open), independent of the
+        # ack/response clocks, so a case with no ack/response still contributes a
+        # detection-latency sample. Computed first, before the ``start`` guard.
+        fs = getattr(case, "first_seen_millis", 0) or 0
+        if isinstance(fs, (int, float)) and fs > 0:
+            created = _parse_iso(case.created_at)
+            if created is not None:
+                created_ms = created.timestamp() * 1000.0
+                if created_ms >= fs:
+                    mttd.append((created_ms - fs) / 60000.0)
+
         start = _created_dt(case)
         if start is None:
             continue
@@ -255,9 +301,7 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
         if resp and resp >= start:
             dwell.append((resp - start).total_seconds() / 60.0)
 
-        end = _first_transition_at(case, _TERMINAL)
-        if end is None and (case.status.value if case.status else "") in _TERMINAL:
-            end = _parse_iso(case.updated_at)  # terminal but no recorded transition
+        end = _resolved_dt(case)  # guarded: a reopened (currently-open) case isn't resolved
         if end and end >= start:
             mttr.append((end - start).total_seconds() / 60.0)
 
@@ -265,7 +309,67 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
         "mtta_minutes": _stat_block(mtta, missing_reason="no case has been acknowledged yet"),
         "mttr_minutes": _stat_block(mttr, missing_reason="no case has been resolved/closed yet"),
         "dwell_minutes": _stat_block(dwell, missing_reason="no case has received a first response yet"),
+        "mttd_minutes": _stat_block(mttd, missing_reason="detection latency not available yet"),
     }
+
+
+def timing_trend(cases: list[Case], *, trend_days: int = 14) -> list[dict[str, Any]]:
+    """Per-UTC-day mean detection / response / resolution latency (minutes) for the
+    "Mean time to detect / respond" trend chart. Pure + deterministic; advisory (#3).
+
+    Each sample is attributed to the day its interval COMPLETED:
+
+    * ``mttd``  — detection latency (first event → case-open), on the OPEN day.
+    * ``respond`` — time to the first HUMAN response (created → first acknowledge /
+      start-investigating / escalate — the ACK clock, which EXCLUDES an AI auto-close), on
+      the response day. NOT the ``dwell`` metric (that counts RESOLVED/CLOSED as a response).
+    * ``resolve`` — time-to-resolution (created → terminal), on the RESOLUTION day.
+
+    A day with NO sample for a given series emits ``null`` for that series (never a
+    fabricated 0). Only the most-recent ``trend_days`` populated day buckets are kept."""
+    mttd_by_day: dict[str, list[float]] = {}
+    resp_by_day: dict[str, list[float]] = {}
+    res_by_day: dict[str, list[float]] = {}
+
+    def _push(bucket: dict[str, list[float]], day: str, value: float) -> None:
+        bucket.setdefault(day, []).append(value)
+
+    for case in cases:
+        created = _parse_iso(case.created_at)
+        fs = getattr(case, "first_seen_millis", 0) or 0
+        if created is not None and isinstance(fs, (int, float)) and fs > 0:
+            created_ms = created.timestamp() * 1000.0
+            if created_ms >= fs:
+                _push(mttd_by_day, created.date().isoformat(), (created_ms - fs) / 60000.0)
+
+        start = _created_dt(case)
+        if start is None:
+            continue
+
+        # `respond` = the first HUMAN response, so use the ACK clock (human-only). Using
+        # dwell/_RESPONSE_STATUSES here would count an AI auto-close as a "response" and
+        # fabricate a human-response time — the dashboard's "Mean time to respond" must be honest.
+        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES)
+        if ack and ack >= start:
+            _push(resp_by_day, ack.date().isoformat(), (ack - start).total_seconds() / 60.0)
+
+        end = _resolved_dt(case)
+        if end and end >= start:
+            _push(res_by_day, end.date().isoformat(), (end - start).total_seconds() / 60.0)
+
+    def _mean(vals: list[float]) -> float | None:
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    days = sorted(set(mttd_by_day) | set(resp_by_day) | set(res_by_day))[-max(0, trend_days):]
+    return [
+        {
+            "date": d,
+            "mttd": _mean(mttd_by_day.get(d, [])),
+            "respond": _mean(resp_by_day.get(d, [])),
+            "resolve": _mean(res_by_day.get(d, [])),
+        }
+        for d in days
+    ]
 
 
 def _ratio(numerator: int, denominator: int) -> float:

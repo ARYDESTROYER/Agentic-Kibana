@@ -244,10 +244,11 @@ def test_build_noise_reduction_contract_shape() -> None:
     assert rep["window_hours"] == 0
     assert rep["bands"] == list(SEVERITY_BANDS)
     assert [s["key"] for s in rep["stages"]] == [
-        "ingested", "clustered", "cases", "auto_cleared", "escalated", "needs_human",
+        "ingested", "clustered", "cases", "auto_cleared", "escalated", "needs_human", "closed",
     ]
     det = {s["key"]: s["deterministic"] for s in rep["stages"]}
     assert det["cases"] is False and det["ingested"] is True and det["needs_human"] is True
+    assert det["closed"] is False  # a human close, not a deterministic auto-close
     src = {s["key"]: s["source"] for s in rep["stages"]}
     assert src["ingested"] == "counters" and src["cases"] == "cases"
     assert rep["drops"] == {"suppressed": 12, "ignored": 4}
@@ -283,6 +284,26 @@ def test_build_noise_reduction_by_severity_bands() -> None:
     assert by["cases"]["high"] == 5
     assert by["needs_human"]["high"] == 2
     assert by["ingested"] == _COUNTERS_AVAILABLE["ingested"]
+
+
+def test_build_noise_reduction_closed_stage_counts_human_closed() -> None:
+    # The §D "closed" stage = cases that reached a terminal state a HUMAN drove
+    # (terminal AND NOT auto-cleared-by-AI). In _mece_cases(): nh1 (CLOSED, needs_human
+    # verdict, no agent decision) + tp (RESOLVED by analyst) → 2; the AGENT-auto-cleared
+    # FP (`ac`) and the still-open cases (`nh2`/`esc`) are excluded.
+    rep = EN.build_noise_reduction(
+        _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
+        fetched_count=5, generated_at="g", now=NOW,
+    )
+    stage = {s["key"]: s for s in rep["stages"]}
+    assert "closed" in stage
+    assert stage["closed"]["total"] == 2
+    assert stage["closed"]["label"] == "Closed by human"
+    assert stage["closed"]["source"] == "cases"
+    # by_severity keeps the same shape as the other stages (all default band 'high').
+    assert stage["closed"]["by_severity"]["high"] == 2
+    # ...and it is NOT the auto-cleared (AI) bar.
+    assert stage["auto_cleared"]["total"] == 1
 
 
 def test_build_noise_reduction_warming_up_degrades() -> None:

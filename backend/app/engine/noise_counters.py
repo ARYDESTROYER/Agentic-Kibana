@@ -185,6 +185,13 @@ def _is_auto_cleared(case: Case) -> bool:
     )
 
 
+def _is_human_closed(case: Case) -> bool:
+    """The last stage of the funnel: a case that reached a TERMINAL state (resolved/
+    closed) by a HUMAN — i.e. NOT one the AI auto-cleared. This is the "handled by a
+    human" bucket the §D flow (…→escalated→closed) ends on. Advisory tally only (#3)."""
+    return _status_val(case) in TERMINAL_CASE_STATUSES and not _is_auto_cleared(case)
+
+
 def _band_of_case(case: Case, prefs: Any) -> str:
     """The advisory severity band for a case (prefer a persisted band; else derive)."""
     band = getattr(case, "severity_band", None)
@@ -249,14 +256,21 @@ def build_noise_reduction(
     cases_total = len(window_cases)
 
     # MECE case-outcome tally (each case in exactly one bucket, priority order).
+    # ``closed`` is a SEPARATE, OVERLAPPING view (not part of the MECE partition): the
+    # count of cases a HUMAN drove to a terminal state — the last stage of the linear
+    # ingested→clustered→cases→auto_cleared→escalated→closed flow the funnel renders.
     cases_bands = zero_bands()
     nh_bands = zero_bands()
     esc_bands = zero_bands()
     ac_bands = zero_bands()
-    nh = esc = ac = 0
+    closed_bands = zero_bands()
+    nh = esc = ac = closed = 0
     for c in window_cases:
         band = _band_of_case(c, prefs)
         cases_bands[band] = cases_bands.get(band, 0) + 1
+        if _is_human_closed(c):
+            closed += 1
+            closed_bands[band] = closed_bands.get(band, 0) + 1
         if _is_needs_human(c):
             nh += 1
             nh_bands[band] = nh_bands.get(band, 0) + 1
@@ -295,6 +309,12 @@ def build_noise_reduction(
                total=esc, by_severity=esc_bands),
         _stage("needs_human", "Needs a human", source="cases", deterministic=True,
                total=nh, by_severity=nh_bands),
+        # The linear §D flow ends on "closed" (handled by a human) — a case that reached
+        # a terminal state that the AI did NOT auto-clear. Appended (additive) so the
+        # existing MECE stages/contract are byte-identical; ``deterministic=False`` marks
+        # it as a HUMAN decision, not deterministic auto-close.
+        _stage("closed", "Closed by human", source="cases", deterministic=False,
+               total=closed, by_severity=closed_bands),
     ]
 
     overall = _reduction(nh, ingested_total) if (available and isinstance(ingested_total, int)) else DASH
