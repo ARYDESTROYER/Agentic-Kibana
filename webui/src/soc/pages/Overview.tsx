@@ -37,6 +37,7 @@
  */
 import * as React from 'react';
 import {
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Gauge,
@@ -47,6 +48,7 @@ import {
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
+  Timer,
   Workflow,
 } from 'lucide-react';
 
@@ -63,6 +65,7 @@ import {
   fmtMoney,
   fmtNumber,
   fmtTokens,
+  humanizeAge,
   humanizeToken,
 } from '@/lib/format';
 import { cn } from '@/lib/cn';
@@ -81,7 +84,8 @@ import { KpiTile, type KpiAccent, type KpiDelta } from '@/soc/components/KpiTile
 import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
 import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
 import { Reveal } from '@/soc/components/Reveal';
-import { TrendArea } from '@/soc/components/charts';
+import { DonutChart, TrendArea, type DonutSegment } from '@/soc/components/charts';
+import { token, VERDICT_COLOR } from '@/soc/components/palette';
 import { isAutoClosedByAI, severityBand, severityBandFromNumber } from '@/soc/components/badges';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
@@ -568,6 +572,47 @@ export default function Overview({ onNavigate }: OverviewProps) {
       .map(([label, info]) => ({ label, value: info.value, sub: humanizeToken(info.type) }));
   }, [cases]);
 
+  // ----- Attention queue — the newest OPEN cases needing eyes ------------- //
+  // A real work list (not just a count): the most-recently-created still-open cases,
+  // each a drill-through into its case. Titles/entities are UNTRUSTED → plain text (#9).
+  const attentionCases = React.useMemo(() => {
+    return cases
+      .filter((k) => OPEN_STATUSES.has((k.status || '').toLowerCase()))
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .slice(0, 6);
+  }, [cases]);
+
+  // ----- Case outcomes (verdict mix) — the agent's disposition of the load -- //
+  // Server `by_verdict` (TP / FP / needs-human / unverdicted); colour by the VERDICT
+  // semantic axis. Falls back to a tally over the loaded case sample when absent.
+  const verdictMix = React.useMemo<{ segments: DonutSegment[]; total: number }>(() => {
+    const bv = metrics?.by_verdict;
+    const src: Record<string, number> = bv
+      ? {
+          TRUE_POSITIVE: bv.TRUE_POSITIVE ?? 0,
+          NEEDS_HUMAN: bv.NEEDS_HUMAN ?? 0,
+          FALSE_POSITIVE: bv.FALSE_POSITIVE ?? 0,
+          none: bv.none ?? 0,
+        }
+      : cases.reduce<Record<string, number>>((acc, k) => {
+          const v = (k.verdict || 'none').toUpperCase();
+          const key = v === 'TRUE_POSITIVE' || v === 'FALSE_POSITIVE' || v === 'NEEDS_HUMAN' ? v : 'none';
+          acc[key] = (acc[key] ?? 0) + 1;
+          return acc;
+        }, {});
+    const defs: Array<{ key: string; label: string; colorName: string }> = [
+      { key: 'TRUE_POSITIVE', label: 'True positive', colorName: VERDICT_COLOR.true_positive },
+      { key: 'NEEDS_HUMAN', label: 'Needs human', colorName: VERDICT_COLOR.needs_human },
+      { key: 'FALSE_POSITIVE', label: 'False positive', colorName: VERDICT_COLOR.false_positive },
+      { key: 'none', label: 'Unverdicted', colorName: 'muted' },
+    ];
+    const segments = defs
+      .map((d) => ({ label: d.label, value: src[d.key] ?? 0, color: token(d.colorName) }))
+      .filter((s) => s.value > 0);
+    const total = segments.reduce((a, s) => a + s.value, 0);
+    return { segments, total };
+  }, [metrics, cases]);
+
   // Case-volume trend — server `cases_per_day` mapped to the TrendArea point shape.
   const caseVolume = React.useMemo(
     () => (metrics?.cases_per_day ?? []).map((d) => ({ x: d.date, y: d.count })),
@@ -747,15 +792,15 @@ export default function Overview({ onNavigate }: OverviewProps) {
   );
 
   // ----- States ----------------------------------------------------------- //
-  // Loading skeleton mirrors the FINAL layout in LOCKSTEP so nothing shifts on load: the
-  // masthead (plain header + the enlarged Active Risk Index card top-right), the 5-tile KPI
-  // strip, a reserved full-width Noise-Reduction band, the leading severity/attention row,
-  // and the collapsed "Deeper analytics" group header (its content stays hidden — #4).
+  // Loading skeleton mirrors the FINAL dense layout in LOCKSTEP so nothing shifts on load:
+  // the masthead (plain header + the Active Risk Index card top-right), the 5-tile KPI strip,
+  // the 4-tile Response-timing row, a reserved full-width Noise-Reduction band, the work+mix
+  // row, and the collapsed "Deeper analytics" group header (its content stays hidden — #4).
   if (loading && !cases.length && !metrics) {
     return (
       <PageContainer variant="wide">
         <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
-          {/* masthead — plain header (left) + the enlarged Active Risk Index card (right) */}
+          {/* masthead — plain header (left) + the Active Risk Index card (right) */}
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
             <Skeleton className="h-16 flex-1 rounded-lg" />
             <Skeleton className="h-48 w-full rounded-lg lg:w-72" />
@@ -769,12 +814,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
               <Skeleton key={i} className="h-[104px] rounded-lg" />
             ))}
           </div>
+          {/* Response-timing row — 4 compact tiles (now on the MAIN dashboard) */}
+          <div data-testid="timing-skeleton-row" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-[88px] rounded-lg" />
+            ))}
+          </div>
           {/* reserved Noise-Reduction band (full width) */}
-          <Skeleton data-testid="noise-skeleton-row" className="h-44 w-full rounded-lg" />
-          {/* leading widget row — severity mix + attention queue (the only band open by
-              default; the rest is folded into the collapsed "Deeper analytics" group). */}
-          <div className="grid gap-4 xl:grid-cols-2">
-            {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton data-testid="noise-skeleton-row" className="h-56 w-full rounded-lg" />
+          {/* work + mix row — attention queue · severity · verdict mix (open by default) */}
+          <div data-testid="work-skeleton-row" className="grid gap-4 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-64 rounded-lg" />
             ))}
           </div>
@@ -802,7 +852,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
           data-testid="page-hero"
           icon={Radar}
           title={PAGE_TITLE}
-          description="Live triage posture across every connected source — risk pressure, alert load, and how the agent is resolving cases."
           meta={
             slaPosture ? (
               <span
@@ -902,13 +951,58 @@ export default function Overview({ onNavigate }: OverviewProps) {
             ) : null}
           </div>
 
-          {/* ---- ZONE 3: widget grid ---- */}
+          {/* ---- ZONE 3: Response timing — MTTA · MTTR · Dwell (+ an honest MTTD n/a
+                 slot) on the MAIN dashboard (Task 3), NOT hidden in a fold. p50 values
+                 come straight from the server posture rollup. ---- */}
+          <DashboardGroup
+            title="Response timing"
+            description="median (p50), server-computed"
+            actions={
+              navigate ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => navigate('metrics', { tab: 'posture' })}
+                >
+                  Detail →
+                </Button>
+              ) : undefined
+            }
+          >
+            <Stagger className="grid grid-cols-2 gap-3 lg:grid-cols-4" itemClassName="h-full">
+              {timing.map((s) => (
+                <KpiTile
+                  key={s.label}
+                  variant="bar"
+                  label={s.label}
+                  value={s.value}
+                  sub={s.sub}
+                  accent={s.accent}
+                  icon={Clock3}
+                  goodDirection="down"
+                  help={s.help}
+                />
+              ))}
+              {/* MTTD is DELIBERATELY not fabricated — this pipeline measures nothing
+                  before case creation, so we render an honest n/a with a (?) explaining why
+                  rather than inventing a mean-time-to-detect number. */}
+              <KpiTile
+                variant="bar"
+                label="MTTD"
+                value={DASH}
+                sub="not measured (n/a)"
+                accent="low"
+                icon={Timer}
+                goodDirection="down"
+                help="Mean time to detect (log arrival → detection) is not measured by this pipeline — timing is tracked only from case creation onward. Shown as n/a rather than a fabricated number."
+              />
+            </Stagger>
+          </DashboardGroup>
 
-          {/* Noise-Reduction ribbon — the value-prop headline, a WIDE horizontal band at
-              the top of Zone 3 (full container width). Self-omits when the feature is off
-              / counters are unavailable. */}
+          {/* ---- ZONE 4: Noise-Reduction ribbon — the value-prop headline, a WIDE
+                 full-width band. Self-omits when the feature is off / counters unavailable. */}
           {noise ? (
-            <Reveal variant="rise">
+            <Reveal variant="rise" delay={60}>
               <NoiseFunnel
                 data={noise}
                 onStageClick={onStageClick}
@@ -919,9 +1013,98 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </Reveal>
           ) : null}
 
-          {/* Row A: open-by-severity · attention queue (the leading band, kept OPEN; the
-              Active Risk Index is its own card in the masthead top-right, #1). */}
-          <Reveal variant="rise" delay={60} className="grid gap-4 xl:grid-cols-2">
+          {/* ---- ZONE 5: work + mix — attention queue · open-by-severity · case outcomes.
+                 All OPEN by default so the default view is already rich (#4 inverted-pyramid,
+                 but a much shallower fold). ---- */}
+          <Reveal variant="rise" delay={90} className="grid gap-4 xl:grid-cols-3">
+            {/* Attention queue — the newest OPEN cases as a real work list */}
+            <DashboardGroup
+              title="Attention queue"
+              count={derived.open}
+              description="newest open cases"
+            >
+              <Card>
+                <CardContent className="space-y-3 py-3">
+                  {attentionCases.length ? (
+                    <ul className="flex flex-col divide-y divide-border">
+                      {attentionCases.map((k) => {
+                        const band = bandOfCase(k);
+                        const displayTitle =
+                          (k.title || k.cluster_signature || k.case_number || k.case_id || '').trim() ||
+                          'Untitled case';
+                        const src = k.source_name || k.source_id || 'Unknown source';
+                        const age = humanizeAge(k.created_at);
+                        const clickable = !!navigate;
+                        return (
+                          <li key={k.case_id}>
+                            <button
+                              type="button"
+                              disabled={!clickable}
+                              onClick={
+                                clickable
+                                  ? () =>
+                                      navigate('cases', { caseId: k.case_id, window: navWindow })
+                                  : undefined
+                              }
+                              className={cn(
+                                'flex w-full items-center gap-2.5 rounded-md py-2 text-left',
+                                clickable &&
+                                  '-mx-1 px-1 transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                              )}
+                              aria-label={clickable ? `Open case ${displayTitle}` : undefined}
+                            >
+                              <span
+                                className={cn('mt-0.5 shrink-0 text-xs leading-none', SEV_DOT[band])}
+                                aria-hidden
+                              >
+                                ●
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-foreground">
+                                  {displayTitle}
+                                </span>
+                                <span className="block truncate text-2xs text-muted-foreground">
+                                  {SEV_LABEL[band]} · {src}
+                                  {age ? ` · ${age}` : ''}
+                                </span>
+                              </span>
+                              {clickable ? (
+                                <ChevronRight
+                                  className="h-4 w-4 shrink-0 text-muted-foreground"
+                                  aria-hidden
+                                />
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <EmptyState
+                      compact
+                      icon={Inbox}
+                      title="Queue clear"
+                      description="No open cases in this window."
+                    />
+                  )}
+                  {navigate ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() =>
+                        navigate('cases', { status: 'needs_human', window: navWindow })
+                      }
+                    >
+                      {slaPosture && (slaPosture.breached > 0 || slaPosture.atRisk > 0)
+                        ? `Review escalations · ${fmtNumber(slaPosture.breached)} breached · ${fmtNumber(slaPosture.atRisk)} at risk`
+                        : 'Review escalations'}
+                    </Button>
+                  ) : null}
+                </CardContent>
+              </Card>
+            </DashboardGroup>
+
             {/* Open cases by severity */}
             <DashboardGroup title="Open cases by severity" count={derived.open}>
               <Card>
@@ -988,289 +1171,58 @@ export default function Overview({ onNavigate }: OverviewProps) {
               </Card>
             </DashboardGroup>
 
-            {/* Attention queue — escalations awaiting a human, vs SLA */}
-            <DashboardGroup
-              title="Attention queue"
-              count={metrics?.needs_human_cases ?? autonomy.escalated}
-              description="awaiting a human"
-            >
-              <Card>
-                <CardContent className="space-y-4 py-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <div className="font-mono text-3xl font-semibold tabular-nums text-high">
-                        {fmtNumber(metrics?.needs_human_cases ?? autonomy.escalated)}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        cases escalated for review
-                      </div>
-                    </div>
-                    <Workflow className="h-8 w-8 text-high/60" aria-hidden />
-                  </div>
-                  {slaPosture ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-md border border-critical/30 bg-critical/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-critical">
-                          {fmtNumber(slaPosture.breached)}
-                        </div>
-                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                          SLA breached
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-high/30 bg-high/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-high">
-                          {fmtNumber(slaPosture.atRisk)}
-                        </div>
-                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                          SLA at risk
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      SLA tracking is off — enable per-priority targets in Settings to see
-                      aging vs. target here.
-                    </p>
-                  )}
-                  {navigate ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() =>
-                        navigate('cases', { status: 'needs_human', window: navWindow })
-                      }
-                    >
-                      Review escalations
-                    </Button>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-          </Reveal>
-
-          {/* ---- Deeper analytics (#4 — inverted pyramid): fold the lower-priority bands
-                 (autonomy split, timing, case volume, connector health, workload, top
-                 contributors) into ONE group collapsed by default, so the page LEADS with
-                 the ribbon + severity mix + attention queue and the rest is one click
-                 away. ---- */}
-          <DashboardGroup
-            title="Deeper analytics"
-            defaultOpen={false}
-            description="cost, volume, timing, connectors, workload & top contributors"
-            contentClassName="space-y-4"
-          >
-          {/* LLM spend — DEMOTED off the hero (Task 4): a quiet runaway-spend tripwire, not
-              a SOC hero KPI. Matches the project's "Cost as the single home" decision — the
-              tile drills through to the full cost ledger. Compact + bounded width. */}
-          <KpiTile
-            variant="bar"
-            testId="llm-spend-detail"
-            label="LLM spend"
-            value={fmtMoney(usage?.total_cost, usage?.currency)}
-            sub={
-              typeof usage?.total_tokens === 'number'
-                ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls · past ${windowLabel(hours)}`
-                : 'No spend recorded'
-            }
-            icon={CircleDollarSign}
-            accent="primary"
-            goodDirection="down"
-            className="sm:max-w-xs"
-            onClick={navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined}
-          />
-
-          {/* Row B: autonomy split (#3) · timing trio · case-volume trend */}
-          <Reveal variant="rise" delay={120} className="grid gap-4 xl:grid-cols-3">
-            {/* Autonomous vs human — the #3 trust surface */}
-            <DashboardGroup
-              title="Autonomous vs human"
-              description="how cases were resolved"
-            >
-              <Card>
-                <CardContent className="space-y-4 py-4">
-                  <div className="flex items-center justify-center gap-2 text-4xl font-semibold tabular-nums">
-                    <ShieldCheck className="h-7 w-7 text-success" aria-hidden />
-                    <span className="text-foreground">
-                      {ratioPct(autonomy.automationPct)}
-                    </span>
-                  </div>
-                  <p className="text-center text-xs text-muted-foreground">
-                    resolved autonomously by the agent
-                  </p>
-                  {/* split bar */}
-                  <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full bg-success"
-                      style={{
-                        width: `${Math.round(
-                          (autonomy.autoClosed /
-                            (autonomy.autoClosed + autonomy.escalated || 1)) *
-                            100,
-                        )}%`,
-                      }}
-                      aria-hidden
-                    />
-                    <div className="h-full flex-1 bg-high" aria-hidden />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-md border border-success/30 bg-success/5 px-3 py-2">
-                      <div className="font-mono text-lg font-semibold tabular-nums text-success">
-                        {fmtNumber(autonomy.autoClosed)}
-                      </div>
-                      <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Auto-resolved
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-high/30 bg-high/5 px-3 py-2">
-                      <div className="font-mono text-lg font-semibold tabular-nums text-high">
-                        {fmtNumber(autonomy.escalated)}
-                      </div>
-                      <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Sent to human
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-2xs text-muted-foreground">
-                    Advisory only — the agent recommends; the deterministic case manager
-                    decides. This dashboard never influences that.
-                  </p>
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-
-            {/* Response timing trio (Dwell / MTTA / MTTR) */}
-            <DashboardGroup
-              title="Response timing"
-              description="p50, server-computed"
-              actions={
-                navigate ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate('metrics', { tab: 'posture' })}
-                  >
-                    Detail →
-                  </Button>
-                ) : undefined
-              }
-            >
-              <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                {timing.map((s) => (
-                  <KpiTile
-                    key={s.label}
-                    variant="bar"
-                    label={s.label}
-                    value={s.value}
-                    sub={s.sub}
-                    accent={s.accent}
-                    icon={Clock3}
-                    goodDirection="down"
-                    help={s.help}
-                  />
-                ))}
-              </div>
-            </DashboardGroup>
-
-            {/* Case volume trend (replaces the old Cost & budget widget; cost lives in
-                the KPI strip + the cost ledger drill-in). */}
-            <DashboardGroup title="Case volume" description="cases opened over time">
+            {/* Case outcomes — the agent's verdict mix (a compact ring + legend) */}
+            <DashboardGroup title="Case outcomes" count={verdictMix.total} description="verdict mix">
               <Card>
                 <CardContent className="py-4">
-                  <TrendArea
-                    data={caseVolume}
-                    height={180}
-                    colorToken="primary"
-                    format={(n) => fmtNumber(n)}
-                    ariaLabel="Case volume over time"
-                  />
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-          </Reveal>
-
-          {/* Row C: connector health (source signals) · workload state */}
-          <Reveal variant="rise" delay={180} className="grid gap-4 xl:grid-cols-2">
-            {/* Connector / source health — per-source case telemetry */}
-            <DashboardGroup
-              title="Connector health"
-              count={productItems.length}
-              description="case telemetry by source"
-            >
-              <Card>
-                <CardContent className="py-4">
-                  {productItems.length ? (
-                    <BarList items={productItems} showRank showPercent />
+                  {verdictMix.total > 0 ? (
+                    <div className="flex flex-col items-center gap-4 sm:flex-row">
+                      <DonutChart
+                        segments={verdictMix.segments}
+                        height={160}
+                        className="w-full shrink-0 sm:w-40"
+                        ariaLabel="Case outcomes by verdict"
+                        center={
+                          <>
+                            <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
+                              {fmtNumber(verdictMix.total)}
+                            </span>
+                            <span className="text-2xs uppercase tracking-wide text-muted-foreground">
+                              verdicts
+                            </span>
+                          </>
+                        }
+                      />
+                      <ul className="w-full space-y-2">
+                        {verdictMix.segments.map((s) => {
+                          const pct = Math.round((s.value / verdictMix.total) * 100);
+                          return (
+                            <li key={s.label} className="flex items-center gap-2">
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: s.color }}
+                                aria-hidden
+                              />
+                              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                                {s.label}
+                              </span>
+                              <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                                {fmtNumber(s.value)}
+                              </span>
+                              <span className="w-9 text-right font-mono text-2xs tabular-nums text-muted-foreground">
+                                {pct}%
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   ) : (
                     <EmptyState
                       compact
-                      icon={Plug}
-                      title="No source signals"
-                      description="Cases will group by their originating source here."
-                    />
-                  )}
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-
-            {/* Case workload state */}
-            <DashboardGroup title="Case workload state" count={workloadItems.length}>
-              <Card>
-                <CardContent className="py-4">
-                  {workloadItems.length ? (
-                    <ul className="flex flex-col gap-3.5">
-                      {workloadItems.map(({ status, value }) => {
-                        const total =
-                          workloadItems.reduce((a, w) => a + w.value, 0) || 1;
-                        const pct = Math.round((value / total) * 100);
-                        const clickable = !!navigate;
-                        return (
-                          <li key={status}>
-                            <button
-                              type="button"
-                              disabled={!clickable}
-                              onClick={
-                                clickable
-                                  ? () => navigate?.('cases', { status, window: navWindow })
-                                  : undefined
-                              }
-                              className={cn(
-                                'block w-full rounded-md text-left',
-                                clickable &&
-                                  '-mx-1 px-1 py-0.5 transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              )}
-                              aria-label={clickable ? `View ${humanizeToken(status)} cases` : undefined}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="truncate text-sm font-medium text-foreground">
-                                  {humanizeToken(status)}
-                                </span>
-                                <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                                  {fmtNumber(value)}
-                                </span>
-                              </div>
-                              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                                <div
-                                  className={cn('h-full rounded-full', statusBar(status))}
-                                  style={{ width: `${Math.min(100, pct)}%` }}
-                                  role="progressbar"
-                                  aria-valuenow={pct}
-                                  aria-valuemin={0}
-                                  aria-valuemax={100}
-                                  aria-label={humanizeToken(status)}
-                                />
-                              </div>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <EmptyState
-                      compact
-                      icon={Workflow}
-                      title="No workload"
-                      description="Case lifecycle distribution will appear here."
+                      icon={ShieldCheck}
+                      title="No verdicts yet"
+                      description="The agent's verdict mix will appear here as cases are triaged."
                     />
                   )}
                 </CardContent>
@@ -1278,8 +1230,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
             </DashboardGroup>
           </Reveal>
 
-          {/* Row D: top contributors — signatures · entities (ranked lists) */}
-          <Reveal variant="rise" delay={240} className="grid gap-4 xl:grid-cols-2">
+          {/* ---- ZONE 6: top contributors — signatures · entities (ranked lists), on the
+                 MAIN dashboard. ---- */}
+          <Reveal variant="rise" delay={120} className="grid gap-4 xl:grid-cols-2">
             <DashboardGroup
               title="Top signatures"
               count={signatureItems.length}
@@ -1314,6 +1267,191 @@ export default function Overview({ onNavigate }: OverviewProps) {
               </Card>
             </DashboardGroup>
           </Reveal>
+
+          {/* ---- Deeper analytics (#4 — a SHALLOW fold now): the default view above is
+                 already dense, so only the secondary bands (autonomy split, connector
+                 health, case volume, workload state, spend tripwire) are folded away. ---- */}
+          <DashboardGroup
+            title="Deeper analytics"
+            defaultOpen={false}
+            description="autonomy, cost, volume, connectors & workload"
+            contentClassName="space-y-4"
+          >
+            {/* LLM spend — DEMOTED off the hero (Task 4): a quiet runaway-spend tripwire, not
+                a SOC hero KPI. Drills through to the full cost ledger. Compact + bounded. */}
+            <KpiTile
+              variant="bar"
+              testId="llm-spend-detail"
+              label="LLM spend"
+              value={fmtMoney(usage?.total_cost, usage?.currency)}
+              sub={
+                typeof usage?.total_tokens === 'number'
+                  ? `${fmtTokens(usage.total_tokens)} tokens · ${fmtNumber(usage.call_count)} calls · past ${windowLabel(hours)}`
+                  : 'No spend recorded'
+              }
+              icon={CircleDollarSign}
+              accent="primary"
+              goodDirection="down"
+              className="sm:max-w-xs"
+              onClick={navigate ? () => navigate('metrics', { tab: 'cost' }) : undefined}
+            />
+
+            {/* Row: autonomy split (#3) · connector health */}
+            <Reveal variant="rise" className="grid gap-4 xl:grid-cols-2">
+              {/* Autonomous vs human — the #3 trust surface */}
+              <DashboardGroup title="Autonomous vs human" description="how cases were resolved">
+                <Card>
+                  <CardContent className="space-y-4 py-4">
+                    <div className="flex items-center justify-center gap-2 text-4xl font-semibold tabular-nums">
+                      <ShieldCheck className="h-7 w-7 text-success" aria-hidden />
+                      <span className="text-foreground">{ratioPct(autonomy.automationPct)}</span>
+                    </div>
+                    <p className="text-center text-xs text-muted-foreground">
+                      resolved autonomously by the agent
+                    </p>
+                    {/* split bar */}
+                    <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full bg-success"
+                        style={{
+                          width: `${Math.round(
+                            (autonomy.autoClosed /
+                              (autonomy.autoClosed + autonomy.escalated || 1)) *
+                              100,
+                          )}%`,
+                        }}
+                        aria-hidden
+                      />
+                      <div className="h-full flex-1 bg-high" aria-hidden />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded-md border border-success/30 bg-success/5 px-3 py-2">
+                        <div className="font-mono text-lg font-semibold tabular-nums text-success">
+                          {fmtNumber(autonomy.autoClosed)}
+                        </div>
+                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Auto-resolved
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-high/30 bg-high/5 px-3 py-2">
+                        <div className="font-mono text-lg font-semibold tabular-nums text-high">
+                          {fmtNumber(autonomy.escalated)}
+                        </div>
+                        <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Sent to human
+                        </div>
+                      </div>
+                    </div>
+                    <p className="text-2xs text-muted-foreground">
+                      Advisory only — the agent recommends; the deterministic case manager
+                      decides. This dashboard never influences that.
+                    </p>
+                  </CardContent>
+                </Card>
+              </DashboardGroup>
+
+              {/* Connector / source health — per-source case telemetry */}
+              <DashboardGroup
+                title="Connector health"
+                count={productItems.length}
+                description="case telemetry by source"
+              >
+                <Card>
+                  <CardContent className="py-4">
+                    {productItems.length ? (
+                      <BarList items={productItems} showRank showPercent />
+                    ) : (
+                      <EmptyState
+                        compact
+                        icon={Plug}
+                        title="No source signals"
+                        description="Cases will group by their originating source here."
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </DashboardGroup>
+            </Reveal>
+
+            {/* Row: case-volume trend · workload state */}
+            <Reveal variant="rise" className="grid gap-4 xl:grid-cols-2">
+              <DashboardGroup title="Case volume" description="cases opened over time">
+                <Card>
+                  <CardContent className="py-4">
+                    <TrendArea
+                      data={caseVolume}
+                      height={180}
+                      colorToken="primary"
+                      format={(n) => fmtNumber(n)}
+                      ariaLabel="Case volume over time"
+                    />
+                  </CardContent>
+                </Card>
+              </DashboardGroup>
+
+              {/* Case workload state */}
+              <DashboardGroup title="Case workload state" count={workloadItems.length}>
+                <Card>
+                  <CardContent className="py-4">
+                    {workloadItems.length ? (
+                      <ul className="flex flex-col gap-3.5">
+                        {workloadItems.map(({ status, value }) => {
+                          const total = workloadItems.reduce((a, w) => a + w.value, 0) || 1;
+                          const pct = Math.round((value / total) * 100);
+                          const clickable = !!navigate;
+                          return (
+                            <li key={status}>
+                              <button
+                                type="button"
+                                disabled={!clickable}
+                                onClick={
+                                  clickable
+                                    ? () => navigate?.('cases', { status, window: navWindow })
+                                    : undefined
+                                }
+                                className={cn(
+                                  'block w-full rounded-md text-left',
+                                  clickable &&
+                                    '-mx-1 px-1 py-0.5 transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                )}
+                                aria-label={clickable ? `View ${humanizeToken(status)} cases` : undefined}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="truncate text-sm font-medium text-foreground">
+                                    {humanizeToken(status)}
+                                  </span>
+                                  <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                                    {fmtNumber(value)}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={cn('h-full rounded-full', statusBar(status))}
+                                    style={{ width: `${Math.min(100, pct)}%` }}
+                                    role="progressbar"
+                                    aria-valuenow={pct}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-label={humanizeToken(status)}
+                                  />
+                                </div>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <EmptyState
+                        compact
+                        icon={Workflow}
+                        title="No workload"
+                        description="Case lifecycle distribution will appear here."
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </DashboardGroup>
+            </Reveal>
           </DashboardGroup>
         </div>
       )}
