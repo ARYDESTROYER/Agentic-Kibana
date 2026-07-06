@@ -165,6 +165,70 @@ def test_compute_metrics_exposes_burndown_and_timing_trend_keys() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Fix 1 — "respond" is the HUMAN response (ACK clock), never an AI auto-close.
+# A case the agent auto-closed with no human ack must NOT fabricate a respond time.
+# --------------------------------------------------------------------------- #
+def test_timing_trend_respond_excludes_ai_autoclose() -> None:
+    # AI auto-closed: open → closed with NO human ack (investigating/escalated/on_hold)
+    # and no acknowledged_at. Its `respond` must be null; only `resolve` is populated.
+    ai_autoclosed = _case(
+        "ai1",
+        created="2026-06-22T06:00:00+00:00",
+        updated="2026-06-22T06:05:00+00:00",
+        status=CaseStatus.CLOSED,
+        history=[("open", "closed", "2026-06-22T06:05:00+00:00")],  # 5 min resolve, no ack
+    )
+    trend = {row["date"]: row for row in M.timing_trend([ai_autoclosed])}
+    assert trend["2026-06-22"]["respond"] is None  # no human response was ever recorded
+    assert trend["2026-06-22"]["resolve"] == 5.0   # but it did reach a terminal state
+
+    # A human-acknowledged case DOES contribute a respond sample (from the ACK clock).
+    human_ackd = _case(
+        "hu1",
+        created="2026-06-22T06:00:00+00:00",
+        status=CaseStatus.INVESTIGATING,
+        history=[("open", "investigating", "2026-06-22T06:30:00+00:00")],  # respond @ +30 min
+    )
+    trend2 = {row["date"]: row for row in M.timing_trend([human_ackd])}
+    assert trend2["2026-06-22"]["respond"] == 30.0
+
+
+# --------------------------------------------------------------------------- #
+# Fix 4 — a REOPENED (currently-open) case never counts as resolved, even with a
+# stale terminal transition lingering in its append-only status_history.
+# --------------------------------------------------------------------------- #
+def _reopened_case() -> Case:
+    return _case(
+        "re1",
+        created="2026-06-20T06:00:00+00:00",
+        updated="2026-06-20T08:00:00+00:00",
+        status=CaseStatus.INVESTIGATING,  # currently OPEN again after a reopen
+        history=[
+            ("open", "closed", "2026-06-20T07:00:00+00:00"),          # stale terminal
+            ("closed", "investigating", "2026-06-20T08:00:00+00:00"),  # reopened
+        ],
+    )
+
+
+def test_resolved_dt_none_for_reopened_case() -> None:
+    assert M._resolved_dt(_reopened_case()) is None
+
+
+def test_reopened_case_not_counted_in_mttr_or_burndown_or_trend() -> None:
+    reopened = _reopened_case()
+    # MTTR must not count it (it isn't currently resolved).
+    mttr = M.lifecycle_intervals([reopened])["mttr_minutes"]
+    assert mttr["available"] is False
+    assert mttr["count"] == 0
+    # Burndown must show it opened, resolved on NO day.
+    out = M.compute_metrics([reopened])
+    assert all(row["resolved"] == 0 for row in out["burndown"])
+    assert any(row["opened"] == 1 for row in out["burndown"])
+    # Timing-trend resolve series must be null everywhere for it.
+    assert all(row["resolve"] is None for row in M.timing_trend([reopened]))
+
+
+# --------------------------------------------------------------------------- #
 # Case creation — first_seen_millis populated from the originating cluster.
 # --------------------------------------------------------------------------- #
 def _cluster(ip: str = "1.2.3.4", n: int = 3):

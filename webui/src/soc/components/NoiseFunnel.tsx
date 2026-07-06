@@ -150,7 +150,9 @@ export interface DerivedFunnel {
   /** 'full' = counters available (ingested→…); 'cases' = counters warming up (case-only). */
   mode: 'full' | 'cases';
   casesTotal: number;
-  /** auto_cleared + escalated + needs_human + true_positive (MECE → == casesTotal). */
+  /** auto_cleared + escalated + closed — OVERLAPPING terminal views of `cases`, NOT a
+   *  strict partition (an escalated case can also be human-closed), so this can exceed
+   *  `casesTotal`. Used only for the rail summary; the fan normalizes to avoid overflow. */
   outcomeSum: number;
 }
 
@@ -385,6 +387,17 @@ function buildLayout(derived: DerivedFunnel, drops: { suppressed: number; ignore
   const casesNode = spine[spineCount - 1];
   const casesTotal = derived.casesTotal;
   const casesH = casesNode ? casesNode.h : 0;
+  // The visible outcomes (auto_cleared / escalated / closed) are OVERLAPPING terminal views
+  // of `cases`, not a strict partition, so their source-side shares can sum past 1.0. Scale
+  // the fan's SOURCE slices by their own sum so the ribbons always tile the cases node exactly
+  // instead of overflowing it. Each outcome NODE keeps its true share-based height (an honest
+  // per-outcome magnitude); only the shared source fan is normalized. The exact counts live on
+  // the rail, so this readability normalization stays honest.
+  const shareSum = outcomes.reduce(
+    (a, r) => a + (casesTotal > 0 && r.total > 0 ? r.total / casesTotal : 0),
+    0,
+  );
+  const srcScale = shareSum > 1 ? 1 / shareSum : 1;
   let sliceCursor = casesNode ? casesNode.top : CY;
   outcomes.forEach((row, m) => {
     const oi = spineCount + m;
@@ -399,9 +412,9 @@ function buildLayout(derived: DerivedFunnel, drops: { suppressed: number; ignore
     const colorName = OUTCOME_TOKEN[row.key] ?? 'primary';
     if (h > 0) rects.push({ x: x - NODE_W / 2, y: top, w: NODE_W, h, fill: token(colorName) });
 
-    // Fan ribbon: a proportional slice of the cases node → this outcome node.
+    // Fan ribbon: a proportional (source-normalized) slice of the cases node → this outcome.
     if (casesNode && casesH > 0 && row.total > 0) {
-      const sliceH = share * casesH;
+      const sliceH = share * casesH * srcScale;
       const s0 = sliceCursor;
       const s1 = sliceCursor + sliceH;
       sliceCursor = s1;

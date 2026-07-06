@@ -234,16 +234,18 @@ def _created_dt(case: Case) -> datetime | None:
 
 
 def _resolved_dt(case: Case) -> datetime | None:
-    """The instant a case became TERMINAL (RESOLVED/CLOSED): the earliest terminal
-    ``status_history`` transition, else ``updated_at`` when the case is currently
-    terminal but has no recorded transition, else None (still open). Advisory/reporting
-    only — never read by ``decide()`` (#3)."""
+    """The instant a case became TERMINAL (RESOLVED/CLOSED), else None when the case is
+    currently open. A currently NON-terminal case is never counted as resolved — even if
+    it was closed and later REOPENED: ``status_history`` is append-only, so a stale
+    terminal transition lingers, and without the current-status guard a reopened (now-open)
+    case would wrongly count as resolved and corrupt the burndown net-backlog + the resolve
+    trend. Advisory/reporting only — never read by ``decide()`` (#3)."""
+    if (case.status.value if case.status else "") not in _TERMINAL:
+        return None
     end = _first_transition_at(case, _TERMINAL)
     if end is not None:
         return end
-    if (case.status.value if case.status else "") in _TERMINAL:
-        return _parse_iso(case.updated_at)
-    return None
+    return _parse_iso(case.updated_at)  # terminal but no recorded transition
 
 
 def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
@@ -299,9 +301,7 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
         if resp and resp >= start:
             dwell.append((resp - start).total_seconds() / 60.0)
 
-        end = _first_transition_at(case, _TERMINAL)
-        if end is None and (case.status.value if case.status else "") in _TERMINAL:
-            end = _parse_iso(case.updated_at)  # terminal but no recorded transition
+        end = _resolved_dt(case)  # guarded: a reopened (currently-open) case isn't resolved
         if end and end >= start:
             mttr.append((end - start).total_seconds() / 60.0)
 
@@ -320,7 +320,9 @@ def timing_trend(cases: list[Case], *, trend_days: int = 14) -> list[dict[str, A
     Each sample is attributed to the day its interval COMPLETED:
 
     * ``mttd``  — detection latency (first event → case-open), on the OPEN day.
-    * ``respond`` — time-to-first-response (created → first response), on the RESPONSE day.
+    * ``respond`` — time to the first HUMAN response (created → first acknowledge /
+      start-investigating / escalate — the ACK clock, which EXCLUDES an AI auto-close), on
+      the response day. NOT the ``dwell`` metric (that counts RESOLVED/CLOSED as a response).
     * ``resolve`` — time-to-resolution (created → terminal), on the RESOLUTION day.
 
     A day with NO sample for a given series emits ``null`` for that series (never a
@@ -344,9 +346,12 @@ def timing_trend(cases: list[Case], *, trend_days: int = 14) -> list[dict[str, A
         if start is None:
             continue
 
-        resp = _as_dt(case.first_response_at) or _first_transition_at(case, _RESPONSE_STATUSES)
-        if resp and resp >= start:
-            _push(resp_by_day, resp.date().isoformat(), (resp - start).total_seconds() / 60.0)
+        # `respond` = the first HUMAN response, so use the ACK clock (human-only). Using
+        # dwell/_RESPONSE_STATUSES here would count an AI auto-close as a "response" and
+        # fabricate a human-response time — the dashboard's "Mean time to respond" must be honest.
+        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES)
+        if ack and ack >= start:
+            _push(resp_by_day, ack.date().isoformat(), (ack - start).total_seconds() / 60.0)
 
         end = _resolved_dt(case)
         if end and end >= start:

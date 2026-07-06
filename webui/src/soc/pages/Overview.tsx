@@ -633,8 +633,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
   }, [posture]);
 
   // Detect / first-response headline stat blocks (the Zone-C timing card).
+  // "Respond" = the first HUMAN response, so it reads the ACK clock (mtta_minutes) — NOT
+  // dwell_minutes, whose _RESPONSE_STATUSES includes RESOLVED/CLOSED and would count an AI
+  // auto-close as a human response (the dashboard must stay honest). The `respond` trend
+  // series is likewise ACK-based server-side.
   const mttdBlock = posture?.lifecycle?.mttd_minutes;
-  const respondBlock = posture?.lifecycle?.dwell_minutes;
+  const respondBlock = posture?.lifecycle?.mtta_minutes;
 
   // Detect / respond trend series + the mean-respond reference line.
   const timingTrend = React.useMemo(
@@ -968,10 +972,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums',
                 slaPosture.breached > 0
-                  ? 'border-critical/40 bg-critical/10 text-critical'
+                  ? 'border-critical/40 bg-critical/10 text-critical-text'
                   : slaPosture.atRisk > 0
-                    ? 'border-high/40 bg-high/10 text-high'
-                    : 'border-success/40 bg-success/10 text-success',
+                    ? 'border-high/40 bg-high/10 text-high-text'
+                    : 'border-success/40 bg-success/10 text-success-text',
               )}
               title="SLA attainment vs the per-priority response/resolve targets"
             >
@@ -1312,7 +1316,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-md border border-success/30 bg-success/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-success">
+                        <div className="font-mono text-lg font-semibold tabular-nums text-success-text">
                           {fmtNumber(autonomy.autoClosed)}
                         </div>
                         <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1320,7 +1324,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
                         </div>
                       </div>
                       <div className="rounded-md border border-high/30 bg-high/5 px-3 py-2">
-                        <div className="font-mono text-lg font-semibold tabular-nums text-high">
+                        <div className="font-mono text-lg font-semibold tabular-nums text-high-text">
                           {fmtNumber(autonomy.escalated)}
                         </div>
                         <div className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">

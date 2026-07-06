@@ -1176,7 +1176,7 @@ export default function Cases({
           label="Needs human"
           count={counts.needsHuman}
           icon={HelpCircle}
-          tone="high"
+          tone="primary"
           active={filters.status === 'needs_human'}
           onClick={() =>
             setFilter('status', filters.status === 'needs_human' ? ANY : 'needs_human')

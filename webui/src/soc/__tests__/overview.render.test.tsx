@@ -224,13 +224,13 @@ describe('Overview — Security Command Center (rebuild)', () => {
   it('reads timing from the SERVER posture, honoring the honest "not measured" DASH', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
-    expect(screen.getByRole('region', { name: /Mean time to detect/i })).toBeInTheDocument();
+    const timingRegion = screen.getByRole('region', { name: /Mean time to detect/i });
+    expect(timingRegion).toBeInTheDocument();
     // MTTD has no posture block here → an explicit "not measured", never a fabricated number.
     await waitFor(() => expect(screen.getByText(/not measured/i)).toBeInTheDocument());
-    // Respond (dwell) is unavailable → the honest server reason.
-    expect(
-      screen.getByText(/no case has received a first response yet/i),
-    ).toBeInTheDocument();
+    // "Respond" reads the ACK clock (mtta_minutes, p50 45) — the first HUMAN response, NOT
+    // dwell (which would count an AI auto-close as a response). So it shows the honest value.
+    expect(within(timingRegion).getByText('45m')).toBeInTheDocument();
     expect(fetchPostureMock).toHaveBeenCalled();
     // The posture fetch requests the period-over-period compare block.
     expect(fetchPostureMock).toHaveBeenCalledWith(expect.any(Number), 'prev');
