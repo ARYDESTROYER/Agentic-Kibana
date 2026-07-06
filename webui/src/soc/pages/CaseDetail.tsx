@@ -5,11 +5,11 @@
  * WIDE right-side Sheet modeled on the reference "case report" page:
  *   - a header (title, created/updated, action buttons: reinvestigate / run-playbook /
  *     refresh / chat / history / export / notify),
- *   - the tabbed body — one lazy panel per tab (Overview / Investigation / Threat
+ *   - the tabbed body — one lazy panel per tab (Overview / Timeline / Threat
  *     context / Collaboration / Chat). Round-7 #9a collapsed the old 8-tab shell:
- *     the Timeline / Why / Trace panels now compose INSIDE the InvestigationPanel
- *     (Facts → AI assessment → pinned deterministic DecisionCard + a collapsible
- *     full trace), and the standalone Feedback tab was retired,
+ *     the Timeline / Why / Trace panels now compose INSIDE the Timeline tab's panel
+ *     (Facts "What happened" → AI assessment → pinned deterministic DecisionCard + a
+ *     collapsible full trace), and the standalone Feedback tab was retired,
  *   - a footer with ONE context-dependent primary CTA, ONE unified Close-with-
  *     disposition secondary, and an overflow "More" menu,
  *   - the shared confirm-action dialog (every lifecycle action) + a Notify dialog.
@@ -39,7 +39,6 @@ import {
   Check,
   Download,
   FileText,
-  ListTree,
   Globe,
   History,
   MessageSquare,
@@ -197,20 +196,20 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   // escalates / re-clusters the case. Best-effort — campaigns may be disabled.
   const [campaign, setCampaign] = React.useState<Campaign | null>(null);
   const [tab, setTab] = React.useState<
-    'overview' | 'investigation' | 'threat' | 'collab' | 'chat'
+    'overview' | 'timeline' | 'threat' | 'collab' | 'chat'
   >('overview');
 
   // Round 3 — triage chips (#12), eager so the overview header is honest on open.
   const [triage, setTriage] = React.useState<TriageChips | null>(null);
   const [triageLoading, setTriageLoading] = React.useState(false);
 
-  // Round 3 — typed ReAct timeline (#12), lazy on the Investigation tab (powers the
+  // Round 3 — typed ReAct timeline (#12), lazy on the Timeline tab (powers the
   // DecisionCard's policy clause + the collapsible full trace).
   const [timeline, setTimeline] = React.useState<TimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = React.useState(false);
   const [timelineError, setTimelineError] = React.useState<unknown>(null);
 
-  // Six-stage narrative, lazy on the Investigation tab.
+  // Six-stage narrative, lazy on the Timeline tab.
   const [stages, setStages] = React.useState<TimelineStagesResponse | null>(null);
   const [stagesLoading, setStagesLoading] = React.useState(false);
   const [stagesError, setStagesError] = React.useState<unknown>(null);
@@ -381,7 +380,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     };
   }, [open]);
 
-  // Typed ReAct timeline (#12) — lazy on the Investigation tab.
+  // Typed ReAct timeline (#12) — lazy on the Timeline tab.
   const loadTimeline = React.useCallback(async () => {
     if (!id) return;
     setTimelineLoading(true);
@@ -397,12 +396,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     }
   }, [id]);
 
-  // Lazy on the Investigation tab. `!timelineError` in the guard stops a failed fetch
+  // Lazy on the Timeline tab. `!timelineError` in the guard stops a failed fetch
   // from re-firing forever (the loading flag flips back to false on failure, which
   // would otherwise re-satisfy `timeline === null && !loading` and hammer the backend).
   // The Retry affordance still works — loadTimeline clears the error before refetching.
   React.useEffect(() => {
-    if (open && tab === 'investigation' && timeline === null && !timelineLoading && !timelineError) {
+    if (open && tab === 'timeline' && timeline === null && !timelineLoading && !timelineError) {
       void loadTimeline();
     }
   }, [open, tab, timeline, timelineLoading, timelineError, loadTimeline]);
@@ -422,9 +421,9 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
     }
   }, [id]);
 
-  // Lazy on the Investigation tab (same error-guard rationale as loadTimeline above).
+  // Lazy on the Timeline tab (same error-guard rationale as loadTimeline above).
   React.useEffect(() => {
-    if (open && tab === 'investigation' && stages === null && !stagesLoading && !stagesError) {
+    if (open && tab === 'timeline' && stages === null && !stagesLoading && !stagesError) {
       void loadStages();
     }
   }, [open, tab, stages, stagesLoading, stagesError, loadStages]);
@@ -656,7 +655,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
   }, [id]);
 
   React.useEffect(() => {
-    if (open && tab === 'investigation' && rationale === null && !rationaleLoading && !rationaleError) {
+    if (open && tab === 'timeline' && rationale === null && !rationaleLoading && !rationaleError) {
       void loadRationale();
     }
   }, [open, tab, rationale, rationaleLoading, rationaleError, loadRationale]);
@@ -1271,19 +1270,19 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   <TooltipContent>Ask about this case</TooltipContent>
                 </Tooltip>
 
-                {/* History → the Investigation tab (Facts → AI → decision + full trace) */}
+                {/* History → the Timeline tab (What happened → AI → decision + full trace) */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label="Investigation trace"
-                      onClick={() => setTab('investigation')}
+                      aria-label="Timeline"
+                      onClick={() => setTab('timeline')}
                     >
                       <History className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Investigation trace</TooltipContent>
+                  <TooltipContent>Timeline</TooltipContent>
                 </Tooltip>
 
                 {/* Export */}
@@ -1385,8 +1384,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                       <TabsTrigger value="overview" className="gap-1.5 text-xs">
                         <FileText className="h-3.5 w-3.5" /> Overview
                       </TabsTrigger>
-                      <TabsTrigger value="investigation" className="gap-1.5 text-xs">
-                        <ListTree className="h-3.5 w-3.5" /> Investigation
+                      <TabsTrigger value="timeline" className="gap-1.5 text-xs">
+                        <History className="h-3.5 w-3.5" /> Timeline
                       </TabsTrigger>
                       <TabsTrigger value="threat" className="gap-1.5 text-xs">
                         <Globe className="h-3.5 w-3.5" /> Threat context
@@ -1410,11 +1409,11 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onNavigate={onNavigate}
                       />
                     </TabsContent>
-                    <TabsContent value="investigation" className="mt-0 animate-fade-in">
-                      {/* Facts → AI assessment → pinned deterministic DecisionCard, plus a
-                          collapsible full ReAct trace. stages/rationale/timeline are fetched
-                          on first visit by the lazy effects above; DecisionCard reads its
-                          policy_clause off the timeline. */}
+                    <TabsContent value="timeline" className="mt-0 animate-fade-in">
+                      {/* "What happened" facts → AI assessment → pinned deterministic
+                          DecisionCard, plus a collapsible full ReAct trace. stages/rationale/
+                          timeline are fetched on first visit by the lazy effects above;
+                          DecisionCard reads its policy_clause off the timeline. */}
                       <InvestigationPanel
                         c={c}
                         stages={stages}

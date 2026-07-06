@@ -4,8 +4,12 @@
  * A `#/playbooks` deep-link renders `<Intelligence tab="catalog" />`. Previously the
  * host's catalog tab read "Playbooks & Agents" while the nav child + the breadcrumb leaf
  * read "Playbooks" — three disagreeing labels for one destination. This pins that the
- * tab label now matches the single derived breadcrumb label (`navLabel('playbooks')`),
- * and the stale "& Agents" tab label is gone.
+ * rendered label matches the single derived breadcrumb label (`navLabel('playbooks')`),
+ * and the stale "& Agents" label is gone.
+ *
+ * The redundant in-page tab strip was removed (the left nav already links Knowledge /
+ * Memory / Playbooks), so the destination label now lives in the host PageHeader `<h1>`
+ * rather than a `tab` trigger — the assertion tracks that move while keeping the intent.
  *
  * The three sub-pages are stubbed so the host renders without their network surface.
  */
@@ -21,7 +25,7 @@ import Intelligence from '../Intelligence';
 import { navLabel } from '@/soc/nav';
 
 describe('Intelligence host — Playbooks label alignment (#32)', () => {
-  it('the Catalog tab label equals the derived breadcrumb leaf ("Playbooks")', () => {
+  it('the Catalog header label equals the derived breadcrumb leaf ("Playbooks")', () => {
     render(
       <TooltipProvider>
         <Intelligence tab="catalog" />
@@ -29,8 +33,8 @@ describe('Intelligence host — Playbooks label alignment (#32)', () => {
     );
     // The single source-of-truth breadcrumb label for the deep-link leaf.
     expect(navLabel('playbooks')).toBe('Playbooks');
-    // The rendered tab now agrees with it (was "Playbooks & Agents").
-    expect(screen.getByRole('tab', { name: 'Playbooks' })).toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: /Playbooks & Agents/i })).toBeNull();
+    // The rendered header now agrees with it (was the "Playbooks & Agents" tab label).
+    expect(screen.getByRole('heading', { name: 'Playbooks' })).toBeInTheDocument();
+    expect(screen.queryByText(/Playbooks & Agents/i)).toBeNull();
   });
 });

@@ -203,6 +203,23 @@ NOISE_NS = "noise_counters"
 NOISE_KEY = "noise_counters"
 NOISE_DOC_ID = "noise_counters"         # ES doc id within CONFIG_INDEX
 
+# --------------------------------------------------------------------------- #
+# Operator-added CUSTOM MODELS (self-hosted / LiteLLM / vLLM / Ollama — any
+# OpenAI-compatible endpoint) registered at RUNTIME from the UI, so a local model
+# can be added with no rebuild. Same single-KV-document pattern as PRICE_OVERLAY_NS
+# above: one JSON document under ``<NS>/<KEY>`` (the ES backend stores it in
+# CONFIG_INDEX, the SQL backend in the shared KV table) so it needs NO new ES index /
+# SQL table / migration. The value is ``{"models": {"<id>": {label, base_url,
+# provider, context_window, input_per_million, output_per_million}}}`` — all
+# NON-SECRET config data the UI render-escapes (#9/#10); the optional endpoint API
+# key lives in the SECRET tier (``Secrets.litellm_api_key``), NEVER here. Advisory to
+# the model catalog + the LLM cost LEDGER only — it NEVER feeds
+# ``case_manager.decide()`` (#3).
+# --------------------------------------------------------------------------- #
+CUSTOM_MODELS_NS = "custom_models"
+CUSTOM_MODELS_KEY = "models"
+CUSTOM_MODELS_DOC_ID = "custom_models"  # ES doc id within CONFIG_INDEX
+
 
 class Verdict(str, Enum):
     """LLM-produced verdict (Section 7.1). The verdict is a *recommendation*."""

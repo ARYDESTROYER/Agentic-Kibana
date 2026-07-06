@@ -65,6 +65,8 @@ import {
   LOGIN_ILLUSTRATIONS,
   LOGIN_LAYOUT_LABELS,
   LOGIN_LAYOUTS,
+  type BrandHeroProps,
+  type LoginLayout,
 } from './auth/loginParts';
 import { LOGIN_BRANDING_DEFAULTS } from './auth/login.api';
 import { LoadError } from './LoadError';
@@ -493,6 +495,141 @@ function ImageUpload({
   );
 }
 
+/* ---------------------------------------------------- login preview (8b) --- */
+
+// Design canvas for the scaled login miniature (a browser-ish ~16:10). The stage is
+// rendered at THIS size then uniformly scaled down to the box width, so the whole hero
+// fits without the old clipping (the previous preview stuffed the full p-12/text-3xl
+// hero into a fixed 224px box → the headline/chips/footer were cut off).
+const PREVIEW_DESIGN_W = 1160;
+const PREVIEW_DESIGN_H = 700;
+
+type PreviewHero = Omit<BrandHeroProps, 'variant'>;
+
+/**
+ * A small, faithful sign-in card skeleton (logo · title · two fields · button). Uses
+ * the LIVE-previewed accent/theme tokens (`bg-primary`/`bg-card`/…) so it reflects the
+ * chosen appearance alongside the hero. Purely decorative (the parent hides it from AT).
+ */
+function LoginPreviewCard() {
+  return (
+    <div className="w-[400px] rounded-2xl border border-border bg-card p-9 shadow-elev2">
+      <div className="mb-7 space-y-2.5">
+        <div className="h-2.5 w-24 rounded bg-muted-foreground/30" />
+        <div className="h-5 w-40 rounded bg-foreground/80" />
+        <div className="h-3 w-52 rounded bg-muted-foreground/40" />
+      </div>
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <div className="h-2.5 w-16 rounded bg-muted-foreground/40" />
+          <div className="h-11 rounded-md border border-input bg-background" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-2.5 w-16 rounded bg-muted-foreground/40" />
+          <div className="h-11 rounded-md border border-input bg-background" />
+        </div>
+        <div className="flex h-11 items-center justify-center rounded-md bg-primary">
+          <div className="h-2.5 w-20 rounded bg-primary-foreground/80" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The full-screen login arrangement at DESIGN size, for the CHOSEN layout — mirrors the
+ * real login shells (using their designed lg+ look, without the viewport-`lg:` gating
+ * that would misbehave inside the small settings column). This is what makes the
+ * preview MATCH reality: split → split, centered → centered, full → full.
+ */
+function LoginPreviewStage({ layout, hero }: { layout: LoginLayout; hero: PreviewHero }) {
+  if (layout === 'split') {
+    return (
+      <div className="absolute inset-0 flex">
+        <div className="relative w-[58%] overflow-hidden">
+          <BrandHero {...hero} variant="full" />
+        </div>
+        <div className="flex w-[42%] items-center justify-center bg-canvas px-8">
+          <LoginPreviewCard />
+        </div>
+      </div>
+    );
+  }
+  if (layout === 'centered') {
+    return (
+      <div className="absolute inset-0 overflow-hidden bg-canvas">
+        <BrandHero {...hero} variant="backdrop" />
+        <div
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-canvas/60 to-canvas"
+          aria-hidden
+        />
+        <div className="absolute inset-0 flex items-center justify-center px-8">
+          <LoginPreviewCard />
+        </div>
+      </div>
+    );
+  }
+  // 'full' — full-bleed hero, form floated to the right.
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      <BrandHero {...hero} variant="full" />
+      <div className="pointer-events-none absolute inset-0 bg-black/30" aria-hidden />
+      <div className="absolute inset-0 flex items-center justify-end px-8 pr-[9%]">
+        <LoginPreviewCard />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A faithful, non-clipping miniature of the login screen: the DESIGN-size stage is
+ * uniformly `scale()`d down to the box width (transform-origin top-left) inside a box
+ * that holds the matching aspect ratio — so the ENTIRE hero (headline + body + chips +
+ * footer) fits, and the arrangement matches the selected layout. A ResizeObserver keeps
+ * the scale correct as the settings column resizes; jsdom (no RO / zero width) simply
+ * keeps the default scale, which is harmless for the non-visual test env.
+ */
+function LoginPreview({ layout, hero }: { layout: LoginLayout; hero: PreviewHero }) {
+  const boxRef = React.useRef<HTMLDivElement>(null);
+  const [scale, setScale] = React.useState(0.5);
+
+  React.useLayoutEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setScale(w / PREVIEW_DESIGN_W);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={boxRef}
+      className="relative w-full overflow-hidden rounded-lg border border-border bg-canvas shadow-elev1"
+      style={{ aspectRatio: `${PREVIEW_DESIGN_W} / ${PREVIEW_DESIGN_H}` }}
+    >
+      {/* The stage is a visual mock — hide its skeleton + hero text from assistive tech;
+          the editable, labelled controls below are the real interface. */}
+      <div
+        aria-hidden
+        className="absolute left-0 top-0 origin-top-left"
+        style={{
+          width: PREVIEW_DESIGN_W,
+          height: PREVIEW_DESIGN_H,
+          transform: `scale(${scale})`,
+        }}
+      >
+        <LoginPreviewStage layout={layout} hero={hero} />
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------- main -- */
 
 export interface BrandingEditorProps {
@@ -676,12 +813,6 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
   // (headline/body/chips) or a curated ENUM key (layout/illustration) — never markup
   // or a URL (#6/#9). The BrandHero live preview renders every string as plain text.
   const loginLayout = asLoginLayout(draft.login_layout);
-  // Mirror the real login's layout→hero-variant mapping so the preview reflects the
-  // chosen layout. 'centered' truly drops the copy (backdrop only); 'split' uses the
-  // 'panel' variant which is hidden below lg and would vanish in the small preview box,
-  // so it falls back to the copy-bearing 'full' hero here.
-  const loginPreviewVariant: 'full' | 'backdrop' =
-    loginLayout === 'centered' ? 'backdrop' : 'full';
   const loginIllustration = asLoginIllustration(draft.login_illustration);
   const loginChips: string[] = Array.isArray(draft.login_chips)
     ? draft.login_chips.map((c) => String(c))
@@ -1197,25 +1328,26 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           sub="The sign-in hero copy, arrangement, and backdrop. All text is plain (no markup); the arrangement and backdrop are picked from a curated set."
         />
 
-        {/* Live preview of the chosen hero (uses the SAME BrandHero the login renders). */}
+        {/* Live preview of the chosen login (uses the SAME BrandHero the login renders,
+            in a faithful, layout-aware, scaled miniature — never clipped). */}
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Login preview
           </p>
-          <div className="relative h-56 overflow-hidden rounded-lg border border-border shadow-elev1">
-            <BrandHero
-              wordmark={wordmark}
-              tagline={tagline}
-              logoUrl={draft.logo_data_url || ''}
-              headline={draft.login_headline || ''}
-              body={draft.login_body || ''}
-              chips={previewChips}
-              subtitle={draft.login_subtitle || ''}
-              footerText={draft.footer_text || ''}
-              illustration={loginIllustration}
-              variant={loginPreviewVariant}
-            />
-          </div>
+          <LoginPreview
+            layout={loginLayout}
+            hero={{
+              wordmark,
+              tagline,
+              logoUrl: draft.logo_data_url || '',
+              headline: draft.login_headline || '',
+              body: draft.login_body || '',
+              chips: previewChips,
+              subtitle: draft.login_subtitle || '',
+              footerText: draft.footer_text || '',
+              illustration: loginIllustration,
+            }}
+          />
         </div>
 
         <div className="space-y-1.5">

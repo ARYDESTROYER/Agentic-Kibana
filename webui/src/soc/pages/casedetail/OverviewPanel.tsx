@@ -1,32 +1,40 @@
 /**
  * CaseDetail — Overview panel (Coupling-D split).
  *
- * The default tab, grouped into three visual bands so a reader can scan it at a glance:
- *   SUMMARY   — run-meta strip, the four honest triage chips (#12), a concise
- *               verdict/confidence header strip with provenance tags (#9b), incident
- *               digest, recommended action, and a quiet auto-close policy note.
- *   EVIDENCE  — affected assets + search queries, evidence findings, ruled-out / clean,
- *               anomaly baseline, and a compact MITRE summary (full detail lives on the
- *               Threat context tab).
+ * The default tab, structured so a reader can tell WHAT THE SOURCE REPORTED apart from
+ * WHAT WE ASSESSED — the two never share a container or visual weight (task 6). Four
+ * scannable bands, the first two PEER sections differentiated by a header ProvenanceTag
+ * + a left accent rail (never by size):
+ *   REPORTED BY SOURCE — <ProvenanceTag kind="source"> (SIEM), cool rail. ONLY source-
+ *               provided facts: the source-asserted severity ("severity per the source
+ *               was High"), detection rule(s), source name, source event time, the
+ *               trigger sentence, affected assets, and the read-only search queries.
+ *   OUR ASSESSMENT     — <ProvenanceTag kind="ai"/"code">, warm rail. Product-derived
+ *               analysis: risk/impact/priority chips (code), verdict + confidence (ai),
+ *               disposition, incident summary + recommended action (ai), a compact
+ *               MITRE summary, the auto-close policy note (code), the anomaly baseline,
+ *               and the pinned deterministic <DecisionCard> as the trust anchor. A DELTA
+ *               CUE bridges the two when the source severity and our risk band disagree.
+ *   EVIDENCE   — evidence findings + ruled-out / clean.
  *   PROVENANCE & ACTIVITY — related cases + source breakdown (F6), threshold automation
  *               applied (F10), the append-only status timeline (F8), and run/cost meta.
- *
- * Verdict/confidence appear ONCE (the header strip) and risk is owned by the RiskCard
- * gauge in the triage header — the panel no longer repeats them.
  *
  * SECURITY (#9): every case-derived value (title, summary, entity, IPs, rules,
  * queries, evidence, tags, source ids, enrichment) is UNTRUSTED — rendered as plain
  * text or inside <CodeBlock>/badges, never as markup or a CSS/href value.
- * #3: this panel is read-only; it never decides or mutates the case.
+ * #3: this panel is read-only; it never decides or mutates the case — the DecisionCard
+ * only PROJECTS the deterministic `decide()` result recorded on the case.
  */
 import * as React from 'react';
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Bell,
   BookOpen,
   CheckCircle2,
   Crosshair,
+  Database,
   FileText,
   GitBranch,
   Globe,
@@ -57,10 +65,12 @@ import {
   StatusBadge,
   DispositionBadge,
   ConfidenceBadge,
-  AutoClosedBadge,
+  SeverityBadge,
+  severityBand,
 } from '@/soc/components/badges';
-import { ProvenanceTag } from '@/soc/components/ProvenanceTag';
+import { ProvenanceTag, severityProvenance } from '@/soc/components/ProvenanceTag';
 import { CaseTriageHeader } from '@/soc/components/CaseTriageHeader';
+import { DecisionCard } from './DecisionCard';
 import { BaselineSignatureCard } from '@/soc/components/BaselineGauge';
 import type { TriageChips } from '@/soc/pages/CaseDetail.api';
 import { baselineApi, type BaselineSignature } from '@/soc/Baseline.api';
@@ -85,24 +95,45 @@ function isRuledOut(summary?: string): boolean {
 /* -------------------------------------------------------------------- band -- */
 
 /**
- * A labelled visual band grouping related sections (Summary / Evidence / Provenance).
- * Presentational only — a quiet uppercase divider plus consistent inner spacing so the
- * ~13 overview sections read as three scannable zones instead of one long stack.
+ * A labelled visual band grouping related sections. Presentational only — an uppercase
+ * label + an optional header ProvenanceTag legend + a quiet divider, plus an optional
+ * LEFT ACCENT RAIL. The two peer sections ("Reported by source" cool / "Our assessment"
+ * warm) are told apart by the rail + the legend — never by size (task 6).
  */
-const Band: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <section className="space-y-6">
-    <div className="flex items-center gap-3">
+type BandAccent = 'source' | 'assessment' | 'none';
+
+const BAND_ACCENT: Record<BandAccent, string> = {
+  // A thin left rail marks the source-vs-assessment provenance without changing weight.
+  source: 'border-l-2 border-info/40 pl-4',
+  assessment: 'border-l-2 border-primary/40 pl-4',
+  none: '',
+};
+
+const Band: React.FC<{
+  label: string;
+  provenance?: React.ReactNode;
+  accent?: BandAccent;
+  children: React.ReactNode;
+}> = ({ label, provenance, accent = 'none', children }) => (
+  <section className={cn('space-y-6', BAND_ACCENT[accent])}>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <span
         data-testid="overview-band-label"
         className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground"
       >
         {label}
       </span>
+      {provenance ? <span className="flex items-center gap-1">{provenance}</span> : null}
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
     </div>
     {children}
   </section>
 );
+
+/** Title-case a lowercase band token for prose ("high" → "High"). */
+function titleBand(band: string): string {
+  return band ? band.charAt(0).toUpperCase() + band.slice(1) : band;
+}
 
 /* ------------------------------------------------------- status timeline -- */
 
@@ -503,102 +534,112 @@ export const OverviewPanel: React.FC<{
     }
   }
 
+  // ---- source-reported severity vs. our derived risk (task 6) --------------- //
+  // Prefer the /triage chip (always a renderable shell), fall back to the case's own
+  // advisory fields. `severity_source === 'source_asserted'` is the pivotal signal that
+  // the SIEM actually rated this alert (vs. a band we derived from the risk score).
+  const sevSource = triage?.severity?.source ?? c.severity_source;
+  const sevBandRaw = triage?.severity?.band ?? c.severity_band;
+  const sourceSevBand = severityBand(sevBandRaw ?? null); // normalized band | null
+  const isSourceAsserted = sevSource === 'source_asserted';
+  const sevLabel = sourceSevBand ? titleBand(sourceSevBand) : '';
+
+  // Our deterministic risk band (0-100 → band). This is the "our assessment" counterpart.
+  const riskVal =
+    typeof triage?.risk?.value === 'number' ? triage.risk.value : c.risk_score;
+  const ourRiskBand: ScoreBand | null = typeof riskVal === 'number' ? scoreBand(riskVal) : null;
+  const riskLabel = ourRiskBand ? titleBand(ourRiskBand) : '';
+
+  // The delta cue — the highest-value moment for an analyst: the source asserted a
+  // severity AND it disagrees with the band our risk score lands in.
+  // `info` only exists on the 5-band severity ladder, never on the 4-band risk ladder
+  // (scoreBand), so an 'info' source severity would ALWAYS "disagree" with any risk band —
+  // a spurious delta. Exclude it.
+  const showSeverityDelta =
+    isSourceAsserted &&
+    !!sourceSevBand &&
+    sourceSevBand !== 'info' &&
+    !!ourRiskBand &&
+    sourceSevBand !== ourRiskBand;
+
+  // Whether the "What the source reported" card has any content. A DERIVED severity is NOT
+  // a source fact, so it does not count here (only a source-asserted band does). `startedAt`
+  // is our case-creation timestamp, not a source fact, so it is excluded too.
+  const sourceFactsPresent = Boolean(
+    (isSourceAsserted && sevBandRaw) || ruleIds.length || c.source_name || triggerSentence,
+  );
+
   return (
     <div className="space-y-8 p-6">
-      {/* ============================================================ SUMMARY */}
-      <Band label="Summary">
-        {/* run-meta strip */}
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-border bg-muted/30 px-4 py-3">
-          <MetaItem label="Started" value={startedAt ? formatTimestamp(startedAt) : DASH} />
-          <MetaItem label="Completed" value={completedAt ? formatTimestamp(completedAt) : DASH} />
-          {ruleIds.length ? <MetaItem label="Trigger" value={ruleIds[0]} /> : null}
-          {profile ? <MetaItem label="Profile" value={profile} /> : null}
-        </div>
-
-        {/* the four honest triage chips (#12) — risk/severity/impact/priority. The
-            RiskCard gauge here OWNS the risk signal, so the strip below no longer
-            repeats a standalone risk badge. */}
-        <CaseTriageHeader chips={triage} loading={triageLoading} />
-
-        {/* header strip — verdict + confidence (AI-graded) each tagged with its
-            provenance (#9b), the lifecycle state, and a self-hiding "Auto-closed by AI"
-            marker (#11). Risk is intentionally absent (owned by the RiskCard gauge
-            above). All copy here is fixed/controlled — no UNTRUSTED text. */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="inline-flex items-center gap-1.5">
-            <VerdictBadge verdict={c.verdict} />
-            <ProvenanceTag kind="ai" />
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <ConfidenceBadge
-              confidence={c.confidence}
-              {...confidenceCalibration(fpPolicy, c.verdict)}
-            />
-            <ProvenanceTag kind="ai" />
-          </span>
-          <StatusBadge status={c.status} />
-          <DispositionBadge disposition={c.disposition ?? null} />
-          {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
-            <Badge variant="critical" className="gap-1">
-              <Bell className="h-3 w-3" />
-              Escalation L{c.escalation_level}
-            </Badge>
-          ) : null}
-          <AutoClosedBadge
-            status={c.status}
-            decisionBy={c.decision_by}
-            objectionWindowExpiresAt={c.objection_window_expires_at}
-          />
-        </div>
-
-        {/* incident digest */}
-        {c.summary || triggerSentence ? (
+      {/* ================================================== REPORTED BY SOURCE
+          What the SIEM/EDR asserted — source-provided facts only, cool rail. */}
+      <Band label="Reported by source" accent="source" provenance={<ProvenanceTag kind="source" />}>
+        {sourceFactsPresent ? (
           <PanelCard>
-            <SectionHeading icon={FileText}>
-              Incident digest
-            </SectionHeading>
-            {triggerSentence ? (
-              <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-                {/* UNTRUSTED — plain text. */}
-                {triggerSentence}
-              </p>
-            ) : null}
-            {c.summary ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                {/* UNTRUSTED — plain text. */}
-                {c.summary}
-              </p>
-            ) : null}
+            <SectionHeading icon={Database}>What the source reported</SectionHeading>
+            <div className="space-y-4">
+              {/* Source-ASSERTED severity only — "severity per the source was High". A
+                  DERIVED band must never appear here (it would read as a source fact — the
+                  exact confusion this layout removes); it is represented under "Our
+                  assessment" via the risk score instead. */}
+              {isSourceAsserted && sevBandRaw ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Reported severity
+                    </span>
+                    {/* band token is source-derived — SeverityBadge renders it as text. */}
+                    <SeverityBadge severity={sevBandRaw} />
+                    <ProvenanceTag kind={severityProvenance(sevSource)} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The source rated this alert {sevLabel} severity.
+                  </p>
+                </div>
+              ) : null}
+
+              {/* detection rule(s) that fired */}
+              {ruleIds.length ? (
+                <div className="space-y-1.5">
+                  <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Detection rule{ruleIds.length === 1 ? '' : 's'}
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* UNTRUSTED rule ids — plain text nodes, mono. */}
+                    {ruleIds.map((r, i) => (
+                      <Badge key={`${r}-${i}`} variant="outline" className="font-mono">
+                        {r}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* source name (the case's `created_at` is OUR case-creation timestamp, not a
+                  source event time — it is shown honestly under "Provenance & activity" as
+                  "Created", never misrepresented as a source-reported fact). */}
+              {c.source_name ? (
+                <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+                  {/* UNTRUSTED source name — MetaItem renders it as a plain text node. */}
+                  <MetaItem label="Source" value={c.source_name} />
+                </div>
+              ) : null}
+
+              {/* the trigger sentence — why the source fired (source-authored). */}
+              {triggerSentence ? (
+                <div className="space-y-1">
+                  <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Why it fired
+                  </span>
+                  {/* UNTRUSTED — plain text. */}
+                  <p className="text-sm leading-relaxed text-foreground/90">{triggerSentence}</p>
+                </div>
+              ) : null}
+            </div>
           </PanelCard>
         ) : null}
 
-        {/* recommended action — the top-line "what to do". The risk breakdown lives in
-            the investigation view; the composite score stays in the RiskCard gauge. */}
-        <PanelCard>
-          <SectionHeading icon={Activity}>
-            Recommended action
-          </SectionHeading>
-          {/* UNTRUSTED — plain text. */}
-          <p className="whitespace-pre-wrap text-sm text-foreground/90">
-            {c.recommended_action || DASH}
-          </p>
-        </PanelCard>
-
-        {/* auto-close policy — a quiet inline note, not a full alert. */}
-        {autoCloseLine ? (
-          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-            <span>
-              <span className="font-medium text-foreground/80">Auto-close policy — </span>
-              {autoCloseLine}
-            </span>
-          </div>
-        ) : null}
-      </Band>
-
-      {/* =========================================================== EVIDENCE */}
-      <Band label="Evidence">
-        {/* affected assets + search queries */}
+        {/* affected assets + the read-only search queries — raw source facts. */}
         <div className="grid gap-6 lg:grid-cols-2">
           <PanelCard>
             <SectionHeading icon={Crosshair}>
@@ -668,7 +709,143 @@ export const OverviewPanel: React.FC<{
             )}
           </PanelCard>
         </div>
+      </Band>
 
+      {/* ====================================================== OUR ASSESSMENT
+          What WE derived — AI judgement + deterministic code, warm rail. */}
+      <Band
+        label="Our assessment"
+        accent="assessment"
+        provenance={
+          <>
+            <ProvenanceTag kind="ai" />
+            <ProvenanceTag kind="code" />
+          </>
+        }
+      >
+        {/* the delta cue — the source severity vs. our risk band, surfaced only when they
+            disagree (the Splunk severity→urgency lesson made visible). Fixed copy. */}
+        {showSeverityDelta ? (
+          <div
+            data-testid="source-assessment-delta"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm"
+          >
+            <span className="inline-flex items-center gap-1.5 text-foreground">
+              <Database className="h-3.5 w-3.5 text-info-text" aria-hidden />
+              Source severity: <span className="font-semibold">{sevLabel}</span>
+            </span>
+            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="inline-flex items-center gap-1.5 text-foreground">
+              We assess: <span className="font-semibold">{riskLabel} risk</span>
+            </span>
+          </div>
+        ) : null}
+
+        {/* risk / impact / priority chips — the deterministic (code) signals. SEVERITY is
+            shown above under "Reported by source", so it is omitted here. */}
+        <CaseTriageHeader
+          chips={triage}
+          loading={triageLoading}
+          only={['risk', 'impact', 'priority']}
+        />
+
+        {/* AI judgement strip — verdict + confidence tagged AI, plus the lifecycle state.
+            The deterministic close / escalate call is the pinned DecisionCard below, so
+            "Auto-closed by AI" lives there (not repeated here). Fixed copy — no UNTRUSTED. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="inline-flex items-center gap-1.5">
+            <VerdictBadge verdict={c.verdict} />
+            <ProvenanceTag kind="ai" />
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <ConfidenceBadge
+              confidence={c.confidence}
+              {...confidenceCalibration(fpPolicy, c.verdict)}
+            />
+            <ProvenanceTag kind="ai" />
+          </span>
+          <StatusBadge status={c.status} />
+          <DispositionBadge disposition={c.disposition ?? null} />
+          {typeof c.escalation_level === 'number' && c.escalation_level > 0 ? (
+            <Badge variant="critical" className="gap-1">
+              <Bell className="h-3 w-3" />
+              Escalation L{c.escalation_level}
+            </Badge>
+          ) : null}
+        </div>
+
+        {/* incident summary (AI-authored). The source's own trigger sentence lives under
+            "Reported by source"; this is our narrative digest of the case. */}
+        {c.summary ? (
+          <PanelCard>
+            <SectionHeading icon={FileText}>Incident summary</SectionHeading>
+            {/* UNTRUSTED — plain text. */}
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+              {c.summary}
+            </p>
+          </PanelCard>
+        ) : null}
+
+        {/* recommended action — the top-line "what to do" (AI). */}
+        <PanelCard>
+          <SectionHeading icon={Activity}>
+            Recommended action
+          </SectionHeading>
+          {/* UNTRUSTED — plain text. */}
+          <p className="whitespace-pre-wrap text-sm text-foreground/90">
+            {c.recommended_action || DASH}
+          </p>
+        </PanelCard>
+
+        {/* MITRE (compact summary — full detail on the Threat tab) */}
+        {mitre.length ? (
+          <PanelCard>
+            <SectionHeading icon={Shield}>
+              MITRE ATT&amp;CK
+            </SectionHeading>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Technique ids are source-influenceable — plain text nodes only (#9). */}
+              {mitre.slice(0, 6).map((m, i) => (
+                <Badge key={`${m}-${i}`} variant="outline" className="font-mono">
+                  {m}
+                </Badge>
+              ))}
+              {mitre.length > 6 ? (
+                <Badge variant="secondary" className="tabular-nums">
+                  +{mitre.length - 6} more
+                </Badge>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {mitre.length} technique{mitre.length === 1 ? '' : 's'} mapped — full tactics,
+              descriptions and ATT&amp;CK links are on the Threat context tab.
+            </p>
+          </PanelCard>
+        ) : null}
+
+        {/* auto-close policy — a quiet inline note (code), not a full alert. */}
+        {autoCloseLine ? (
+          <div className="flex items-start gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>
+              <span className="font-medium text-foreground/80">Auto-close policy — </span>
+              {autoCloseLine}
+            </span>
+          </div>
+        ) : null}
+
+        {/* anomaly baseline (advisory, #4) */}
+        <BaselineAdvisory c={c} />
+
+        {/* the pinned deterministic decision — the trust anchor (#3): the CODE, not the
+            LLM, made the close / escalate call. The Overview wires no timeline/rationale,
+            so the card degrades to the case fields; the exact policy clause + full trace
+            live on the Timeline tab. */}
+        <DecisionCard c={c} rationale={null} timeline={null} />
+      </Band>
+
+      {/* =========================================================== EVIDENCE */}
+      <Band label="Evidence">
         {/* evidence findings */}
         <div>
           <SectionHeading icon={Search}>
@@ -751,35 +928,6 @@ export const OverviewPanel: React.FC<{
             </ul>
           </PanelCard>
         ) : null}
-
-        {/* anomaly baseline (advisory, #4) */}
-        <BaselineAdvisory c={c} />
-
-        {/* MITRE (compact summary — full detail on the Threat tab) */}
-        {mitre.length ? (
-          <PanelCard>
-            <SectionHeading icon={Shield}>
-              MITRE ATT&amp;CK
-            </SectionHeading>
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Technique ids are source-influenceable — plain text nodes only (#9). */}
-              {mitre.slice(0, 6).map((m, i) => (
-                <Badge key={`${m}-${i}`} variant="outline" className="font-mono">
-                  {m}
-                </Badge>
-              ))}
-              {mitre.length > 6 ? (
-                <Badge variant="secondary" className="tabular-nums">
-                  +{mitre.length - 6} more
-                </Badge>
-              ) : null}
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {mitre.length} technique{mitre.length === 1 ? '' : 's'} mapped — full tactics,
-              descriptions and ATT&amp;CK links are on the Threat context tab.
-            </p>
-          </PanelCard>
-        ) : null}
       </Band>
 
       {/* ============================================== PROVENANCE & ACTIVITY */}
@@ -793,8 +941,14 @@ export const OverviewPanel: React.FC<{
         {/* status timeline (F8) */}
         <StatusTimeline history={c.status_history} statusReason={c.status_reason} />
 
-        {/* run/cost meta — created_at is shown once, as "Started" in the run-meta strip. */}
+        {/* run/cost meta — OUR processing metadata. The Case exposes no true source event
+            timestamp, so `created_at` is honestly labelled "Created" (when WE opened the
+            case) here rather than shown as a source fact in "Reported by source". */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+          {startedAt ? <span>Created {formatTimestamp(startedAt)}</span> : null}
+          {completedAt ? <span>Processed {formatTimestamp(completedAt)}</span> : null}
+          {/* UNTRUSTED profile (playbook id / persona) — plain text. */}
+          {profile ? <span>Profile {profile}</span> : null}
           <span>Token cost {fmtMoney(c.token_cost)}</span>
           {c.decision_by ? <span>Decided by {humanizeToken(c.decision_by)}</span> : null}
         </div>

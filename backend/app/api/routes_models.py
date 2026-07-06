@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -38,6 +40,7 @@ from ..llm.pricing import (
     pricing_source,
     registry_entry,
 )
+from ..llm.providers import classify_http_error
 from ..state import AppState
 from .deps import current_username, get_state, require_permission
 
@@ -70,6 +73,42 @@ def _assigned_roles(prefs) -> dict[str, list[str]]:
     return out
 
 
+async def _custom_catalog_rows(state: AppState, seen: set[str]) -> list[dict[str, Any]]:
+    """Catalog rows for the operator's runtime-registered self-hosted / LiteLLM models,
+    shaped like ``model_catalog()`` rows (so the merge is uniform) and tagged
+    ``is_custom``. A local model is FREE ($0) with 'exact' provenance. Best-effort — a
+    store glitch returns [] so the built-in catalog always stands."""
+    rows: list[dict[str, Any]] = []
+    try:
+        registered = await state.custom_models.list_models()
+    except Exception as exc:  # noqa: BLE001 — custom store is advisory to the catalog
+        logger.warning("custom model list failed (%s); catalog shows built-ins only", exc)
+        return rows
+    for c in registered:
+        cid = str(c.get("id", ""))
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        rows.append({
+            "id": cid,
+            "label": _safe(c.get("label") or cid),
+            "provider": str(c.get("provider") or "openai_compatible"),
+            "context_window": int(c.get("context_window", 0) or 0),
+            "max_output": 0,
+            "modalities": [],
+            "capabilities": ["chat"],
+            "input_per_million": float(c.get("input_per_million", 0.0) or 0.0),
+            "output_per_million": float(c.get("output_per_million", 0.0) or 0.0),
+            "cache_write_per_million": None,
+            "cache_read_per_million": None,
+            "batch_multiplier": 0.5,
+            "base_url": _safe(c.get("base_url") or "") or None,
+            "pricing_source": "exact",   # operator-supplied local model → real $0
+            "is_custom": True,
+        })
+    return rows
+
+
 # --------------------------------------------------------------------------- #
 # GET /api/llm/models — catalog + capabilities + pricing + provenance + assignment
 # --------------------------------------------------------------------------- #
@@ -81,18 +120,29 @@ async def llm_models(state: AppState = Depends(get_state)) -> dict[str, Any]:
         overlay = await state.price_overlay.get()
     except Exception as exc:  # noqa: BLE001 — overlay is advisory; catalog still lists rates
         logger.warning("price overlay read failed (%s); showing built-in rates", exc)
+    # Merge the operator's runtime-registered self-hosted / LiteLLM (OpenAI-compatible)
+    # models into the bundled catalog so a locally-added model shows up in the picker.
+    # A local model is FREE ($0) with 'exact' provenance (operator-supplied), carries its
+    # base_url, and is tagged is_custom so the UI can badge + offer Remove. Best-effort:
+    # a store glitch never blanks the built-in catalog. (#9: ids/labels are fenced/plain.)
+    base_rows = model_catalog()
+    seen = {str(r["id"]) for r in base_rows}
+    custom_rows = await _custom_catalog_rows(state, seen)
     models: list[dict[str, Any]] = []
-    for row in model_catalog():
+    for row in base_rows + custom_rows:
         mid = row["id"]
         ov = overlay.get(mid)
         enriched = dict(row)
         enriched["id"] = _safe(mid)
         enriched["assigned_roles"] = assigned.get(mid, [])
+        enriched["is_custom"] = bool(row.get("is_custom"))
         if ov:
             enriched["input_per_million"] = float(ov.get("input", 0.0))
             enriched["output_per_million"] = float(ov.get("output", 0.0))
             enriched["pricing_source"] = "exact"  # operator-supplied contract rate
-            enriched["price_overridden"] = True
+            # A custom model's $0 overlay is a shipped default, not a hand-set override —
+            # don't flag it as an operator override (avoids a misleading override marker).
+            enriched["price_overridden"] = not enriched["is_custom"]
         else:
             enriched["price_overridden"] = False
         models.append(enriched)
@@ -165,9 +215,21 @@ async def llm_model_test(
     mid = body.model.strip()
     if not mid:
         raise HTTPException(status_code=400, detail="model is required")
-    # Resolve the provider: explicit override → registry-declared → prefix heuristic.
+    # A runtime-registered self-hosted / LiteLLM model routes over the openai_compatible
+    # provider at ITS base_url (checked first so a bare custom id doesn't resolve to the
+    # heuristic "other" — which has no provider factory — and so the endpoint is carried
+    # onto the ModelConfig even without the gateway's store fallback).
+    custom_base_url: str | None = None
+    try:
+        custom_row = await state.custom_models.get_model(mid)
+    except Exception:  # noqa: BLE001 — custom store advisory to the test
+        custom_row = None
+    # Resolve the provider: explicit override → custom model → registry-declared → prefix.
     if body.provider:
         provider = body.provider.strip()
+    elif custom_row:
+        provider = str(custom_row.get("provider") or "openai_compatible")
+        custom_base_url = str(custom_row.get("base_url") or "") or None
     else:
         entry = registry_entry(mid) or {}
         from ..llm.pricing import provider_for
@@ -180,10 +242,12 @@ async def llm_model_test(
         # bypass. A provider name outside the Literal (e.g. ``other`` from the heuristic,
         # or an out-of-tree registry provider) still validates leniently so the gateway's
         # PROVIDER_REGISTRY can attempt to dispatch it.
-        cfg = ModelConfig(provider=provider, model=mid, max_tokens=16)  # type: ignore[arg-type]
+        cfg = ModelConfig(provider=provider, model=mid, max_tokens=16,  # type: ignore[arg-type]
+                          base_url=custom_base_url)
     except Exception:  # noqa: BLE001 — a provider name outside the widened Literal
         cfg = ModelConfig.model_construct(
             provider=provider, model=mid, temperature=0.1, max_tokens=16,  # type: ignore[arg-type]
+            base_url=custom_base_url,
         )
     messages = [{"role": "user", "content": str(body.prompt)[:2000]}]
     try:
@@ -262,6 +326,177 @@ async def llm_model_pricing_delete(
         await _audit(state, request, "model_pricing_clear", f"cleared override for {mid}")
     return {"ok": True, "model": _safe(mid), "removed": removed,
             "pricing_source": pricing_source(mid)}
+
+
+# --------------------------------------------------------------------------- #
+# Custom (self-hosted / LiteLLM / OpenAI-compatible) models — runtime add/remove.
+#
+# Lets an operator register a SELF-HOSTED model (a LiteLLM alias / vLLM served name /
+# Ollama tag) served at an OpenAI-compatible ``base_url``, at runtime, with no rebuild.
+# The suite already speaks the wire (the ``openai_compatible`` provider IS the OpenAI
+# httpx client pointed at a custom ``base_url``); these routes are the bookkeeping:
+#   * config tier (#10): base_url / model id / label / context window / $0 rate → the
+#     non-secret CustomModelStore. The optional endpoint API key → the SECRET tier
+#     (``Secrets.litellm_api_key``, in-memory) via ``apply_secrets`` — NEVER the store.
+#   * $0 pricing (belt-and-suspenders): the store row carries a 0/0 rate AND we set a $0
+#     PriceOverlay, so ``cost_for`` meters a REAL $0 (never the conservative default),
+#     and the gateway's ``_effective_price_tuple`` treats a registered model as free even
+#     if the overlay write was lost.
+#   * SSRF/scheme: the base_url scheme is restricted to http/https and must parse; a
+#     LAN/loopback host (127.0.0.1 / 192.168.x / litellm:4000) is the LEGITIMATE use
+#     case, so private ranges are NOT blocked — only malformed / non-http(s) is rejected.
+#   * #9: label / model id / base_url are attacker-influenceable → fenced via ``_safe``
+#     and returned PLAIN (the store also bounds + plain-coerces them).
+# These routes NEVER touch ``case_manager.decide()`` (#3).
+# --------------------------------------------------------------------------- #
+def _validate_base_url(raw: str) -> str:
+    """A parsed, bounded, http(s)-only ``base_url`` (#10 SSRF hardening: scheme-only —
+    private/loopback hosts are allowed as the legitimate local-model case). Raises
+    HTTPException(400) on a malformed / non-http(s) url."""
+    url = _safe(raw).strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="base_url is required")
+    try:
+        parts = urlsplit(url)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail="base_url is malformed") from exc
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise HTTPException(
+            status_code=400,
+            detail="base_url must be an http(s) URL (e.g. http://localhost:4000/v1)",
+        )
+    return url
+
+
+def _bearer_key(explicit: str | None, state: AppState) -> str:
+    """The Bearer key for an OpenAI-compatible reachability probe: an explicit key, else
+    the configured LiteLLM/OpenAI secret, else a non-empty placeholder (a no-auth local
+    server ignores it; empty is rejected by strict clients)."""
+    key = (explicit or "").strip()
+    if key:
+        return key
+    key = (getattr(state.secrets, "litellm_api_key", None)
+           or getattr(state.secrets, "openai_api_key", None) or "").strip()
+    return key or "sk-no-key"
+
+
+class CustomModelBody(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    model_id: str = Field(..., min_length=1, max_length=200)
+    base_url: str = Field(..., min_length=1, max_length=2000)
+    label: str = Field(default="", max_length=200)
+    context_window: int = Field(default=0, ge=0)
+    api_key: str | None = Field(default=None, max_length=4000)
+
+
+@router.post("/llm/models/custom")
+async def add_custom_model(
+    body: CustomModelBody,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("models", "manage")),
+) -> dict[str, Any]:
+    mid = _safe(body.model_id).strip()
+    if not mid:
+        raise HTTPException(status_code=400, detail="model_id is required")
+    base_url = _validate_base_url(body.base_url)
+    label = _safe(body.label).strip()
+    try:
+        row = await state.custom_models.add(
+            mid, label=label, base_url=base_url, provider="openai_compatible",
+            context_window=int(body.context_window or 0),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_safe(exc)) from exc
+    # Belt-and-suspenders $0: a $0 PriceOverlay so cost_for meters a real $0 (the store
+    # row + the gateway's _effective_price_tuple are the other belts). Best-effort.
+    try:
+        await state.price_overlay.set_price(mid, 0.0, 0.0)
+    except Exception as exc:  # noqa: BLE001 — the store row + gateway fallback still guarantee $0
+        logger.warning("setting $0 overlay for custom model %s failed (%s)", mid, exc)
+    # The optional endpoint key → the SECRET tier (in-memory), NEVER the config store.
+    if (body.api_key or "").strip():
+        try:
+            await state.apply_secrets({"litellm_api_key": body.api_key.strip()})
+        except Exception as exc:  # noqa: BLE001 — model still added; key can be re-set
+            logger.warning("storing litellm_api_key failed (%s)", exc)
+    await _audit(state, request, "custom_model_add",
+                 f"added {mid} @ {base_url} (provider=openai_compatible, $0)")
+    return {"ok": True, "model": row, "configured": state.secrets.configured_status()}
+
+
+@router.delete("/llm/models/custom/{model_id:path}")
+async def remove_custom_model(
+    model_id: str,
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("models", "manage")),
+) -> dict[str, Any]:
+    mid = _safe(model_id).strip()
+    removed = await state.custom_models.remove(mid)
+    if removed:
+        # Clear its $0 overlay so the id is fully forgotten (best-effort).
+        try:
+            await state.price_overlay.delete(mid)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("clearing overlay for removed custom model %s failed (%s)", mid, exc)
+        await _audit(state, request, "custom_model_remove", f"removed {mid}")
+    return {"ok": True, "model": _safe(mid), "removed": removed}
+
+
+class ProviderTestBody(BaseModel):
+    base_url: str = Field(..., min_length=1, max_length=2000)
+    api_key: str | None = Field(default=None, max_length=4000)
+
+
+@router.post("/llm/providers/test")
+async def providers_test(
+    body: ProviderTestBody,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("models", "manage")),
+) -> dict[str, Any]:
+    """A NON-metered reachability + "fetch models" probe for an OpenAI-compatible
+    endpoint: ``GET {base_url}/models`` (falling back to ``/v1/models``) with a Bearer
+    header. It does NOT touch the gateway / cost ledger (#6). Returns the discovered
+    model ids so the Add-local-model dialog can populate a picker. Errors are PLAIN,
+    bounded (#9)."""
+    base_url = _validate_base_url(body.base_url)
+    key = _bearer_key(body.api_key, state)
+    headers = {"Authorization": f"Bearer {key}"}
+    root = base_url.rstrip("/")
+    candidates = [f"{root}/models"]
+    # Fall back to /v1/models when the operator gave the bare host (no /v1 suffix).
+    if not root.endswith("/v1"):
+        candidates.append(f"{root}/v1/models")
+    last_err = ""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for url in candidates:
+            try:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:  # noqa: BLE001 — classify + try the next candidate
+                last_err = str(classify_http_error(exc))
+                continue
+            ids = _extract_model_ids(data)
+            return {"ok": True, "models": [_safe(m) for m in ids][:200],
+                    "message": f"Reached {_safe(root)} — {len(ids)} model(s)."}
+    return {"ok": False, "models": [], "error": _safe(last_err or "unreachable")}
+
+
+def _extract_model_ids(data: Any) -> list[str]:
+    """Model ids from an OpenAI-compatible ``/models`` response (``{"data": [{"id": ...}]}``
+    or a bare list). Tolerant of shape drift; returns [] on anything unexpected."""
+    rows = data.get("data") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return []
+    out: list[str] = []
+    for r in rows:
+        mid = r.get("id") if isinstance(r, dict) else r
+        if mid:
+            out.append(str(mid))
+    return out
 
 
 # --------------------------------------------------------------------------- #

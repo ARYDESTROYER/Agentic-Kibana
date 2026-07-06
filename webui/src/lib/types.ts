@@ -588,6 +588,33 @@ export interface SourcesResponse {
 }
 
 /**
+ * One row of GET /api/sources/health (Round-4). Read-only, per-source runtime
+ * health for the Log Sources table — NEVER carries a secret value (#10). A PULL
+ * source reports its durable poll position (`last_poll_millis`, 0 = never polled);
+ * a PUSH source reports its in-memory live-tail `buffer_depth`. `kind` distinguishes
+ * a pull connector from a push receiver.
+ */
+export interface SourceHealthRow {
+  source_id: string;
+  source_name: string;
+  source_type: string;
+  enabled: boolean;
+  is_primary: boolean;
+  ingest_mode: string;
+  kind: 'push' | 'pull' | 'unknown' | string;
+  can_browse: boolean;
+  /** PUSH live-tail buffer depth (# of recently received events). */
+  buffer_depth: number;
+  /** PULL durable cursor position as epoch millis (0 = never polled / N/A). */
+  last_poll_millis: number;
+}
+
+/** Response of GET /api/sources/health. */
+export interface SourcesHealthResponse {
+  sources: SourceHealthRow[];
+}
+
+/**
  * One normalised log row returned by GET /api/sources/{id}/logs.
  *
  * Every field is source-controlled and therefore UNTRUSTED: render `message` and
@@ -706,6 +733,12 @@ export interface HealthResponse {
 export interface ModelsResponse {
   providers: Record<string, string[]>;
   configured: ConfiguredStatus;
+  /**
+   * model id → OpenAI-compatible `base_url` for operator-registered self-hosted /
+   * LiteLLM models (task 7). Lets the per-role picker thread a custom model's endpoint
+   * onto the saved `ModelConfig`; absent for a backend that predates custom models.
+   */
+  base_urls?: Record<string, string>;
 }
 
 /** Per-role model selection (mirrors `ModelConfig`). */
@@ -714,6 +747,15 @@ export interface ModelConfig {
   model: string;
   temperature?: number;
   max_tokens?: number;
+  /**
+   * Optional per-role endpoint overrides (Round 3 Wave 2b + task 7). `base_url` pins an
+   * OpenAI-compatible / self-hosted (vLLM/Ollama/LiteLLM) or Azure-resource endpoint so
+   * a role bound to a custom model routes to the right server; `api_version`/`region`
+   * carry Azure/Bedrock specifics. All optional → an unset config is byte-identical.
+   */
+  base_url?: string;
+  api_version?: string;
+  region?: string;
 }
 
 export const MODEL_ROLES = [
@@ -1497,7 +1539,7 @@ export interface Case {
    * `GET /api/cases` + `GET /api/cases/{id}`. All are PLAIN enum-ish labels (render as
    * plain text). `severity_band` is one of the 5 severity bands
    * (critical/high/medium/low/info); `severity_source` records WHO graded severity
-   * ('source' = SIEM-supplied vs 'code' = derived) for the provenance tag;
+   * ('source_asserted' = SIEM-supplied vs 'derived' = code-derived) for the provenance tag;
    * `impact_band`/`urgency_band` are 3-band (high/medium/low); `priority_level` is the
    * ITIL P-level (e.g. "P1"). All optional — absent when the advisory pass is off.
    */

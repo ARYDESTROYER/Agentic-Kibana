@@ -30,6 +30,10 @@ import {
   CheckCircle2,
   XCircle,
   Save,
+  Plus,
+  Trash2,
+  HardDrive,
+  Radar,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/lib/api';
@@ -39,6 +43,7 @@ import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
+import { Switch } from '@/ui/switch';
 import { Textarea } from '@/ui/textarea';
 import { Skeleton } from '@/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
@@ -65,6 +70,7 @@ import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { ProtectedRoute, useCan } from '@/soc/components/Can';
 import { NumberField } from '@/soc/components/NumberField';
+import { SecretField } from '@/soc/components/SecretField';
 import { ModelsCatalog } from '@/soc/components/ModelsCatalog';
 import { BudgetCard } from '@/soc/components/BudgetCard';
 import {
@@ -104,6 +110,9 @@ export function ModelsInner() {
   // Per-model dialogs.
   const [priceFor, setPriceFor] = React.useState<ModelCatalogRow | null>(null);
   const [testFor, setTestFor] = React.useState<ModelCatalogRow | null>(null);
+  // "Add local model" (self-hosted / LiteLLM) dialog + per-row remove busy id.
+  const [addLocalOpen, setAddLocalOpen] = React.useState(false);
+  const [removingId, setRemovingId] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -150,6 +159,23 @@ export function ModelsInner() {
   const exactCount = models.filter((m) => m.pricing_source === 'exact').length;
   const assignedCount = models.filter((m) => m.assigned_roles.length > 0).length;
   const overrideCount = models.filter((m) => m.price_overridden).length;
+  const localModels = models.filter((m) => m.is_custom);
+
+  const removeLocal = React.useCallback(
+    async (row: ModelCatalogRow) => {
+      setRemovingId(row.id);
+      try {
+        await modelsApi.removeCustom(row.id);
+        toast.success(`Removed ${row.label || row.id}.`);
+        await load();
+      } catch (e) {
+        toast.error(errMsg(e, 'Could not remove the local model.'));
+      } finally {
+        setRemovingId(null);
+      }
+    },
+    [load],
+  );
 
   return (
     <div className="space-y-6">
@@ -186,27 +212,42 @@ export function ModelsInner() {
 
         {/* --- Catalog --- */}
         <TabsContent value="catalog" className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
               Every model the gateway can route. Pricing provenance is badged; an operator
               override pins a contract rate.
             </p>
-            <div className="w-48">
-              <Select value={providerFilter} onValueChange={setProviderFilter}>
-                <SelectTrigger aria-label="Filter by provider">
-                  <SelectValue placeholder="All providers" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All providers</SelectItem>
-                  {providerNames.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {providerLabel(p)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex items-center gap-2">
+              {canManage ? (
+                <Button size="sm" variant="outline" onClick={() => setAddLocalOpen(true)}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add local model
+                </Button>
+              ) : null}
+              <div className="w-48">
+                <Select value={providerFilter} onValueChange={setProviderFilter}>
+                  <SelectTrigger aria-label="Filter by provider">
+                    <SelectValue placeholder="All providers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All providers</SelectItem>
+                    {providerNames.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {providerLabel(p)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
+          <LocalModelsPanel
+            rows={localModels}
+            canManage={canManage}
+            removingId={removingId}
+            onRemove={removeLocal}
+            onAdd={() => setAddLocalOpen(true)}
+          />
           <ModelsCatalog
             rows={models}
             loading={loading}
@@ -250,7 +291,308 @@ export function ModelsInner() {
       {testFor ? (
         <TestCallDialog model={testFor} onClose={() => setTestFor(null)} />
       ) : null}
+
+      {addLocalOpen ? (
+        <AddLocalModelDialog
+          onClose={() => setAddLocalOpen(false)}
+          onSaved={() => {
+            setAddLocalOpen(false);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Local models panel — the operator's runtime-registered self-hosted / LiteLLM
+// (OpenAI-compatible) models, with a Remove action. These ALSO appear in the full
+// catalog table below; this panel is the management surface (add / remove).
+// #9: every id / label / base_url is operator-influenceable → rendered PLAIN.
+// --------------------------------------------------------------------------- //
+function LocalModelsPanel({
+  rows,
+  canManage,
+  removingId,
+  onRemove,
+  onAdd,
+}: {
+  rows: ModelCatalogRow[];
+  canManage: boolean;
+  removingId: string | null;
+  onRemove: (row: ModelCatalogRow) => void;
+  onAdd: () => void;
+}) {
+  if (!rows.length) return null;
+  return (
+    <Card className="space-y-3 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <HardDrive className="h-4 w-4 text-primary" aria-hidden />
+          <h2 className="text-sm font-semibold text-foreground">Local &amp; self-hosted models</h2>
+          <Badge variant="secondary" className="text-2xs">
+            {rows.length}
+          </Badge>
+        </div>
+        {canManage ? (
+          <Button size="sm" variant="ghost" onClick={onAdd}>
+            <Plus className="h-4 w-4" aria-hidden />
+            Add
+          </Button>
+        ) : null}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Served over an OpenAI-compatible endpoint (LiteLLM / vLLM / Ollama / LM Studio).
+        Metered at $0.
+      </p>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.id} className="flex items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium text-foreground">{r.label}</span>
+                <Badge variant="info" className="text-2xs">
+                  Local
+                </Badge>
+                <Badge variant="secondary" className="text-2xs">
+                  $0
+                </Badge>
+              </div>
+              <div className="truncate font-mono text-2xs text-muted-foreground">
+                {r.id}
+                {r.base_url ? ` · ${r.base_url}` : ''}
+              </div>
+            </div>
+            {canManage ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-critical"
+                onClick={() => onRemove(r)}
+                disabled={removingId === r.id}
+                aria-label={`Remove ${r.id}`}
+                title="Remove local model"
+              >
+                {removingId === r.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                )}
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+// --------------------------------------------------------------------------- //
+// Add-local-model dialog (POST /api/llm/models/custom). Reuses the existing
+// openai_compatible provider path; a local model is FREE ($0). An optional
+// "Fetch models" probe (POST /api/llm/providers/test) is NON-metered.
+// #9: the model id / label are plain data; the API key is a SecretField (#10).
+// --------------------------------------------------------------------------- //
+function AddLocalModelDialog({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [label, setLabel] = React.useState('');
+  const [baseUrl, setBaseUrl] = React.useState('');
+  const [modelId, setModelId] = React.useState('');
+  const [apiKey, setApiKey] = React.useState('');
+  const [contextWindow, setContextWindow] = React.useState(0);
+  const [busy, setBusy] = React.useState(false);
+  const [fetching, setFetching] = React.useState(false);
+  const [fetched, setFetched] = React.useState<string[] | null>(null);
+
+  const canSave = baseUrl.trim().length > 0 && modelId.trim().length > 0;
+
+  const fetchModels = async () => {
+    if (!baseUrl.trim()) {
+      toast.error('Enter a base URL first.');
+      return;
+    }
+    setFetching(true);
+    setFetched(null);
+    try {
+      const res = await modelsApi.providersTest(baseUrl.trim(), apiKey.trim() || undefined);
+      if (res.ok) {
+        setFetched(res.models);
+        if (res.models.length) {
+          if (!modelId.trim()) setModelId(res.models[0]);
+          toast.success(res.message || `Found ${res.models.length} model(s).`);
+        } else {
+          toast.info('Reachable, but no models were returned — enter the model id manually.');
+        }
+      } else {
+        toast.error(res.error || 'Could not reach the endpoint.');
+      }
+    } catch (e) {
+      toast.error(errMsg(e, 'Could not reach the endpoint.'));
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const save = async () => {
+    if (!canSave) {
+      toast.error('A base URL and a model id are required.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await modelsApi.addCustom({
+        model_id: modelId.trim(),
+        base_url: baseUrl.trim(),
+        label: label.trim() || undefined,
+        context_window: contextWindow > 0 ? contextWindow : undefined,
+        api_key: apiKey.trim() || undefined,
+      });
+      toast.success(`Added ${label.trim() || modelId.trim()}.`);
+      onSaved();
+    } catch (e) {
+      toast.error(errMsg(e, 'Could not add the local model.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => (!o ? onClose() : undefined)}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add a local model</DialogTitle>
+          <DialogDescription>
+            Register a self-hosted model served over an OpenAI-compatible endpoint
+            (LiteLLM / vLLM / Ollama / LM Studio). It is metered at $0.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="local-base-url">
+              Base URL <span className="text-critical">*</span>
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="local-base-url"
+                value={baseUrl}
+                placeholder="http://localhost:4000/v1"
+                onChange={(e) => setBaseUrl(e.target.value)}
+                disabled={busy}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void fetchModels()}
+                disabled={busy || fetching || !baseUrl.trim()}
+                title="Reach the endpoint and list its models (not metered)"
+              >
+                {fetching ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Radar className="h-4 w-4" aria-hidden />
+                )}
+                Fetch models
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Usually ends in <span className="font-mono">/v1</span> — e.g.{' '}
+              <span className="font-mono">http://localhost:4000/v1</span> (LiteLLM),{' '}
+              <span className="font-mono">http://localhost:11434/v1</span> (Ollama).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="local-model-id">
+              Model id <span className="text-critical">*</span>
+            </Label>
+            {fetched && fetched.length ? (
+              <Select value={modelId || undefined} onValueChange={setModelId}>
+                <SelectTrigger aria-label="Fetched model id">
+                  <SelectValue placeholder="— pick a model —" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fetched.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                id="local-model-id"
+                value={modelId}
+                placeholder="llama-3.1-8b-instruct"
+                onChange={(e) => setModelId(e.target.value)}
+                disabled={busy}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              The LiteLLM alias / Ollama tag / vLLM served-model name.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="local-label">Label (optional)</Label>
+            <Input
+              id="local-label"
+              value={label}
+              placeholder="Team Llama 3.1"
+              onChange={(e) => setLabel(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+
+          <SecretField
+            label="API key (optional)"
+            description="Leave blank for a no-auth local server. Stored as a secret — never shown."
+            configured={false}
+            value={apiKey}
+            onChange={setApiKey}
+            placeholder="sk-… (optional)"
+          />
+
+          <NumberField
+            label="Context window (optional)"
+            value={contextWindow}
+            onChange={setContextWindow}
+            min={0}
+            step={1024}
+            unit="tokens"
+          />
+
+          <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-surface px-4 py-3">
+            <div className="min-w-0 space-y-0.5">
+              <p className="text-sm font-medium text-foreground">Free / $0</p>
+              <p className="text-xs text-muted-foreground">
+                A self-hosted model is metered at $0 (tokens are still recorded).
+              </p>
+            </div>
+            {/* Always-on + disabled: a local model is $0 by contract. */}
+            <Switch checked disabled aria-label="Free / $0 (local models are always free)" />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={() => void save()} disabled={busy || !canSave}>
+            {busy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Save className="h-4 w-4" aria-hidden />
+            )}
+            Add model
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

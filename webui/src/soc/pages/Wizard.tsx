@@ -33,8 +33,6 @@ import {
   ArrowRight,
   X,
   Loader2,
-  ScanSearch,
-  Gauge,
   ClipboardCheck,
   Beaker,
   Info,
@@ -42,7 +40,6 @@ import {
   Pencil,
   Trash2,
   Star,
-  Save,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
@@ -66,11 +63,9 @@ import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Switch } from '@/ui/switch';
 import { Badge } from '@/ui/badge';
-import { Separator } from '@/ui/separator';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Skeleton } from '@/ui/skeleton';
 
-import { PageHeader } from '@/soc/components/PageHeader';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { SourceEditor } from '@/soc/components/SourceEditor';
 import { SecretField } from '@/soc/components/SecretField';
@@ -174,7 +169,6 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [keyValues, setKeyValues] = React.useState<Record<string, string>>({});
   const [savingKeys, setSavingKeys] = React.useState(false);
   const [keysError, setKeysError] = React.useState<unknown>(null);
-  const [keysSavedNote, setKeysSavedNote] = React.useState<string | null>(null);
 
   const configured: ConfiguredStatus = status?.configured || {};
 
@@ -186,28 +180,22 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
 
   const setKeyValue = React.useCallback((k: string, v: string) => {
     setKeyValues((prev) => ({ ...prev, [k]: v }));
-    setKeysSavedNote(null);
   }, []);
 
   /** Persist any typed provider keys. Returns false on failure so nav can stay put. */
   const saveKeys = React.useCallback(async (): Promise<boolean> => {
     setSavingKeys(true);
     setKeysError(null);
-    setKeysSavedNote(null);
     try {
       const body: SecretsUpdate = {};
       for (const f of KEY_FIELDS) {
         const v = (keyValues[f.key] || '').trim();
         if (v) (body as Record<string, string>)[f.key] = v;
       }
-      if (Object.keys(body).length === 0) {
-        setKeysSavedNote('No new keys entered.');
-        return true;
-      }
+      if (Object.keys(body).length === 0) return true;
       await api.updateSecrets(body);
       await refreshStatus();
       setKeyValues({});
-      setKeysSavedNote('Provider keys saved.');
       return true;
     } catch (e) {
       setKeysError(e);
@@ -293,144 +281,159 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   /* --------------------------------------------------------------- render -- */
 
   return (
-    <div className="min-h-screen bg-canvas">
-      <div className="mx-auto w-full max-w-5xl animate-fade-in px-4 py-8 sm:px-6 sm:py-12">
-        <PageHeader
-          variant="hero"
-          eyebrow="Agentic SOC · First-run setup"
-          title="Stand up your triage console"
-          description="Connect your data and models so the agent can turn raw alert volume into audited, cost-metered, human-reviewable cases."
-          icon={ShieldCheck}
-          actions={
-            onExit ? (
+    // Fixed header + fixed footer, only the body scrolls (a focused single-measure
+    // flow — NN/G wizard best-practice). The heavy marketing hero + the per-step
+    // StepHeading used to compete; now a slim brand/eyebrow bar tops the flow and the
+    // StepHeading inside each step is the single title. `h-dvh` (dynamic viewport height,
+    // not h-screen/100vh) bounds the column so the <main> is the ONLY scroller and the
+    // fixed footer isn't pushed under the mobile browser URL bar.
+    <div className="flex h-dvh flex-col overflow-hidden bg-canvas">
+      {/* ---- fixed header: brand eyebrow + a light numbered progress strip ------- */}
+      <header className="shrink-0 border-b border-border bg-canvas/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-2xl px-4 pt-5 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-surface text-primary">
+                <ShieldCheck className="h-4 w-4" aria-hidden />
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Agentic SOC · First-run setup
+              </span>
+            </div>
+            {onExit ? (
               <Button variant="ghost" size="sm" onClick={onExit}>
                 <X className="h-4 w-4" aria-hidden /> Close
               </Button>
-            ) : undefined
-          }
-        />
+            ) : null}
+          </div>
 
-        {/* stepper — calm, connected; no heavy pill borders */}
-        <nav aria-label="Setup steps" className="mt-8">
-          <ol className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-            {STEPS.map((s, i) => {
-              const state =
-                i < step ? 'complete' : i === step ? 'current' : 'incomplete';
-              const Icon = s.icon;
-              return (
-                <li key={s.key} className="flex flex-1 items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setStep(i)}
-                    aria-current={state === 'current' ? 'step' : undefined}
-                    className={cn(
-                      'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm transition-colors',
-                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      state === 'current'
-                        ? 'bg-muted text-foreground'
-                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
-                    )}
-                  >
-                    <span
+          {/* Compact numbered strip: done = check, current = accent (aria-current),
+              upcoming = muted number. Non-colour state signal (number/check + weight);
+              each button is self-labelled via aria-label so the title is announced. */}
+          <nav aria-label="Setup progress" className="mt-4 pb-4">
+            <ol className="flex items-center gap-2 sm:gap-3">
+              {STEPS.map((s, i) => {
+                const state =
+                  i < step ? 'complete' : i === step ? 'current' : 'incomplete';
+                return (
+                  <li key={s.key} className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setStep(i)}
+                      aria-current={state === 'current' ? 'step' : undefined}
+                      aria-label={`Step ${i + 1}: ${s.title}`}
                       className={cn(
-                        'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors',
-                        state === 'complete'
-                          ? 'bg-success/15 text-success'
-                          : state === 'current'
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-muted text-muted-foreground',
+                        'flex min-w-0 items-center gap-2 rounded-md text-sm transition-colors',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        state === 'current'
+                          ? 'text-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
                       )}
                     >
-                      {state === 'complete' ? (
-                        <Check className="h-3.5 w-3.5" aria-hidden />
-                      ) : (
-                        <Icon className="h-3.5 w-3.5" aria-hidden />
-                      )}
-                    </span>
-                    <span className="truncate font-medium">{s.title}</span>
-                  </button>
-                  {i < STEPS.length - 1 ? (
-                    <span
-                      className="hidden h-px w-4 shrink-0 bg-border sm:block"
-                      aria-hidden
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ol>
-        </nav>
+                      <span
+                        className={cn(
+                          'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors',
+                          state === 'complete'
+                            ? 'bg-success/15 text-success'
+                            : state === 'current'
+                              ? 'bg-primary text-primary-foreground'
+                              : 'border border-border text-muted-foreground',
+                        )}
+                      >
+                        {state === 'complete' ? (
+                          <Check className="h-3.5 w-3.5" aria-hidden />
+                        ) : (
+                          i + 1
+                        )}
+                      </span>
+                      <span
+                        className={cn(
+                          'truncate font-medium',
+                          state === 'current' ? 'inline' : 'hidden sm:inline',
+                        )}
+                      >
+                        {s.title}
+                      </span>
+                    </button>
+                    {i < STEPS.length - 1 ? (
+                      <span className="h-px flex-1 bg-border" aria-hidden />
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ol>
+          </nav>
+        </div>
+      </header>
 
-        {/* body */}
-        <Card className="mt-6 shadow-elev1">
-          <CardContent className="p-6 sm:p-8">
-            {loading ? (
-              <WizardSkeleton />
-            ) : bootError && !status ? (
-              <Alert variant="destructive">
-                <X className="h-4 w-4" aria-hidden />
-                <AlertTitle>Could not load the setup wizard</AlertTitle>
-                <AlertDescription>{errorMessage(bootError)}</AlertDescription>
-              </Alert>
-            ) : (
-              <>
-                {step === 0 && (
-                  <WelcomeStep
-                    deploymentName={deploymentName}
-                    onDeploymentName={setDeploymentName}
-                    demoMode={demoMode}
-                    onDemoMode={onDemoMode}
-                    canManageDemo={canManageDemo}
-                    demoBusy={demoBusy}
-                    demoError={demoError}
-                  />
-                )}
-                {step === 1 && (
-                  <SourcesStep
-                    connectors={connectors}
-                    sources={sources}
-                    onChanged={refreshStatus}
-                    demoMode={demoMode}
-                  />
-                )}
-                {step === 2 && (
-                  <KeysStep
-                    configured={configured}
-                    values={keyValues}
-                    onChange={setKeyValue}
-                    onSave={saveKeys}
-                    saving={savingKeys}
-                    error={keysError}
-                    savedNote={keysSavedNote}
-                  />
-                )}
-                {step === 3 && (
-                  <ReviewStep
-                    deploymentName={deploymentName}
-                    demoMode={demoMode}
-                    sources={sources}
-                    configured={configured}
-                    showAutomation={canRecommendAutomation}
-                    canCampaignAutomation={canCampaignAutomation}
-                    enableAutomation={enableAutomation}
-                    onEnableAutomation={setEnableAutomation}
-                  />
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* ---- scrolling body: one constrained measure, generous whitespace -------- */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-2xl animate-fade-in px-4 py-8 sm:px-6 sm:py-10">
+          {loading ? (
+            <WizardSkeleton />
+          ) : bootError && !status ? (
+            <Alert variant="destructive">
+              <X className="h-4 w-4" aria-hidden />
+              <AlertTitle>Could not load the setup wizard</AlertTitle>
+              <AlertDescription>{errorMessage(bootError)}</AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              {step === 0 && (
+                <WelcomeStep
+                  deploymentName={deploymentName}
+                  onDeploymentName={setDeploymentName}
+                  demoMode={demoMode}
+                  onDemoMode={onDemoMode}
+                  canManageDemo={canManageDemo}
+                  demoBusy={demoBusy}
+                  demoError={demoError}
+                />
+              )}
+              {step === 1 && (
+                <SourcesStep
+                  connectors={connectors}
+                  sources={sources}
+                  onChanged={refreshStatus}
+                  demoMode={demoMode}
+                />
+              )}
+              {step === 2 && (
+                <KeysStep
+                  configured={configured}
+                  values={keyValues}
+                  onChange={setKeyValue}
+                  error={keysError}
+                />
+              )}
+              {step === 3 && (
+                <ReviewStep
+                  deploymentName={deploymentName}
+                  demoMode={demoMode}
+                  sources={sources}
+                  configured={configured}
+                  showAutomation={canRecommendAutomation}
+                  canCampaignAutomation={canCampaignAutomation}
+                  enableAutomation={enableAutomation}
+                  onEnableAutomation={setEnableAutomation}
+                />
+              )}
 
-        {finishError ? (
-          <Alert variant="destructive" className="mt-4">
-            <X className="h-4 w-4" aria-hidden />
-            <AlertTitle>Could not complete setup</AlertTitle>
-            <AlertDescription>{errorMessage(finishError)}</AlertDescription>
-          </Alert>
-        ) : null}
+              {finishError ? (
+                <Alert variant="destructive" className="mt-6">
+                  <X className="h-4 w-4" aria-hidden />
+                  <AlertTitle>Could not complete setup</AlertTitle>
+                  <AlertDescription>{errorMessage(finishError)}</AlertDescription>
+                </Alert>
+              ) : null}
+            </>
+          )}
+        </div>
+      </main>
 
-        {/* footer nav */}
-        <div className="mt-6 flex items-center justify-between gap-3">
+      {/* ---- fixed footer: Back / Continue|Finish -------------------------------- */}
+      <footer className="shrink-0 border-t border-border bg-canvas/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <Button variant="ghost" onClick={back} disabled={step === 0 || loading}>
             <ArrowLeft className="h-4 w-4" aria-hidden /> Back
           </Button>
@@ -452,7 +455,7 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
             </Button>
           )}
         </div>
-      </div>
+      </footer>
     </div>
   );
 }
@@ -476,27 +479,6 @@ function WizardSkeleton() {
 }
 
 /* ============================================================ step: welcome */
-
-const FEATURES: Array<{ icon: LucideIcon; title: string; body: string; tone: string }> = [
-  {
-    icon: ScanSearch,
-    title: 'Read-only triage',
-    body: 'The agent reads your security events with a scoped, read-only key and never modifies your pipeline.',
-    tone: 'text-primary',
-  },
-  {
-    icon: Gauge,
-    title: 'Deterministic risk + LLM verdicts',
-    body: 'Correlation and risk scoring are deterministic; the LLM proposes verdicts. Close/escalate decisions stay in code.',
-    tone: 'text-info',
-  },
-  {
-    icon: ClipboardCheck,
-    title: 'Audited & cost-metered',
-    body: 'Every agent action is audited and every model call is metered, so you keep full provenance and a cost ledger.',
-    tone: 'text-success',
-  },
-];
 
 function StepHeading({ title, description }: { title: string; description: string }) {
   return (
@@ -530,35 +512,13 @@ function WelcomeStep({
   demoError: unknown;
 }) {
   return (
-    <div>
+    <div className="space-y-6">
       <StepHeading
         title="Welcome to your Agentic SOC"
         description="This console turns raw alert volume into audited, cost-metered, human-reviewable cases. Let's get it connected to your data and models."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        {FEATURES.map((f) => {
-          const Icon = f.icon;
-          return (
-            <Card key={f.title} className="h-full">
-              <CardContent className="space-y-2.5 p-5">
-                <span
-                  className={cn(
-                    'inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface',
-                    f.tone,
-                  )}
-                >
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
-                <div className="text-sm font-semibold text-foreground">{f.title}</div>
-                <p className="text-xs leading-relaxed text-muted-foreground">{f.body}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      <div className="mt-8 space-y-1.5">
+      <div className="space-y-1.5">
         <Label htmlFor="wz-deployment">Deployment name</Label>
         <Input
           id="wz-deployment"
@@ -572,9 +532,10 @@ function WelcomeStep({
       </div>
 
       {/* Demo mode is an ADMIN action — the toggle is hidden entirely for a principal
-          who can't manage it (bug #3). */}
+          who can't manage it (bug #3). The ONE demo affordance: the toggle, its
+          explanation, an inline "it's on" confirmation, and any error, all here. */}
       {canManageDemo ? (
-        <Card className="mt-6 bg-muted/40">
+        <Card className="bg-muted/40">
           <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-info">
               <Beaker className="h-5 w-5" aria-hidden />
@@ -592,11 +553,17 @@ function WelcomeStep({
                 </Label>
               </div>
               <p className="text-xs text-muted-foreground">
-                Turning this on seeds an isolated, $0, fully reversible synthetic tenant so
-                you can explore the console immediately. It touches no real data and can be
-                switched off (and wiped) any time from Settings › Experimental. You can
-                still add a real source on the next step.
+                Seeds an isolated, $0, fully reversible synthetic tenant so you can explore
+                the console immediately — it touches no real data and can be switched off
+                (and wiped) any time from Settings › Experimental. You can still add a real
+                source on the next step.
               </p>
+              {demoMode ? (
+                <p className="inline-flex items-center gap-1.5 pt-1 text-xs font-medium text-info">
+                  <Info className="h-3.5 w-3.5" aria-hidden />
+                  On — the console is populated with isolated sample cases and activity.
+                </p>
+              ) : null}
               {demoError ? (
                 <Alert variant="destructive" className="mt-2">
                   <X className="h-4 w-4" aria-hidden />
@@ -607,18 +574,6 @@ function WelcomeStep({
             </div>
           </CardContent>
         </Card>
-      ) : null}
-
-      {demoMode ? (
-        <Alert className="mt-4">
-          <Info className="h-4 w-4 text-info" aria-hidden />
-          <AlertTitle>Demo mode is on</AlertTitle>
-          <AlertDescription>
-            The console is populated with isolated sample cases and activity. You can finish
-            setup without configuring a live source; switch demo off from Settings ›
-            Experimental to clear it.
-          </AlertDescription>
-        </Alert>
       ) : null}
     </div>
   );
@@ -692,18 +647,12 @@ function SourcesStep({
     <div>
       <StepHeading
         title="Connect your log sources"
-        description="Add at least one source so the agent has events to triage. You can add several (an Elasticsearch, a Splunk, a webhook receiver…) and mark one as primary."
+        description={
+          demoMode
+            ? 'Adding a source is optional in demo mode — you can skip ahead. Otherwise add at least one (Elasticsearch, Splunk, a webhook receiver…) and mark one primary.'
+            : 'Add at least one source so the agent has events to triage. You can add several (an Elasticsearch, a Splunk, a webhook receiver…) and mark one as primary.'
+        }
       />
-
-      {demoMode ? (
-        <Alert className="mb-4">
-          <Beaker className="h-4 w-4 text-info" aria-hidden />
-          <AlertTitle>Demo mode</AlertTitle>
-          <AlertDescription>
-            Adding a source is optional in demo mode — you can skip ahead.
-          </AlertDescription>
-        </Alert>
-      ) : null}
 
       {error ? (
         <Alert variant="destructive" className="mb-4">
@@ -863,20 +812,13 @@ function KeysStep({
   configured,
   values,
   onChange,
-  onSave,
-  saving,
   error,
-  savedNote,
 }: {
   configured: ConfiguredStatus;
   /** The lifted key draft (survives step changes). */
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
-  /** Persist the draft (also invoked by Continue). */
-  onSave: () => Promise<boolean> | void;
-  saving: boolean;
   error: unknown;
-  savedNote: string | null;
 }) {
   const anyConfigured =
     Boolean(configured.anthropic_api_key) || Boolean(configured.openai_api_key);
@@ -914,25 +856,9 @@ function KeysStep({
         ))}
       </div>
 
-      <Separator className="my-5" />
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void onSave()} disabled={saving}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : (
-            <Save className="h-4 w-4" aria-hidden />
-          )}
-          Save provider keys
-        </Button>
-        {savedNote ? (
-          <span className="inline-flex items-center gap-1.5 text-sm text-success-text">
-            <CheckCircle2 className="h-4 w-4" aria-hidden /> {savedNote}
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Continue also saves any key you&apos;ve entered here.
+      <p className="mt-3 text-xs text-muted-foreground">
+        Keys are saved automatically when you continue — you never lose a key you&apos;ve
+        entered here.
       </p>
 
       {error ? (
@@ -1057,14 +983,15 @@ function ReviewStep({
 
       {/* Recommended automation — the one-click beginner self-improvement journey. On
           Finish, when checked, we enable the #3-safe engines (FP-noise tuning + advisory
-          campaign grouping). Default-on; hidden when the principal can't enable any. */}
+          campaign grouping). Default-on; hidden when the principal can't enable any.
+          Simplified to a single toggle line + one short, honest note. */}
       {showAutomation ? (
         <Card className="mt-4 bg-muted/40">
-          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+          <CardContent className="flex items-start gap-3 p-5">
             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface text-primary">
               <Sparkles className="h-5 w-5" aria-hidden />
             </span>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-1.5">
               <div className="flex items-center gap-2">
                 <Switch
                   id="wz-automation"
@@ -1075,19 +1002,11 @@ function ReviewStep({
                   Let this SOC improve itself over time (recommended)
                 </Label>
               </div>
-              <ul className="ml-0.5 space-y-1 text-xs text-muted-foreground">
-                <li>
-                  Reduce false-positive noise from your closed cases — nightly and
-                  shadow-checked, so a threshold change can never hide a real threat.
-                </li>
-                {canCampaignAutomation ? (
-                  <li>Group related cases into campaigns (daily, advisory).</li>
-                ) : null}
-              </ul>
-              <p className="text-2xs text-muted-foreground">
-                This only adjusts what gets investigated — never how a case is closed or
-                escalated. That decision stays deterministic (non-negotiable&nbsp;#3). You
-                can change it any time in Settings.
+              <p className="text-xs text-muted-foreground">
+                Nightly, shadow-checked false-positive-noise tuning
+                {canCampaignAutomation ? ' plus advisory campaign grouping' : ''}. It only
+                adjusts what gets investigated — never how a case is closed or escalated
+                (that stays deterministic, #3). Change it any time in Settings.
               </p>
             </div>
           </CardContent>

@@ -325,26 +325,54 @@ const PriorityCard: React.FC<{ priority: PriorityChip }> = ({ priority }) => {
 
 /* --------------------------------------------------------------- component -- */
 
+/** The four honest chip axes. `only` selects + orders a subset (see below). */
+export type TriageChipKey = 'risk' | 'severity' | 'impact' | 'priority';
+
+const ALL_CHIP_KEYS: readonly TriageChipKey[] = ['risk', 'severity', 'impact', 'priority'];
+
+/** Grid columns keyed by the number of chips rendered, so a 1- or 3-chip subset packs
+ *  tightly instead of leaving empty lg:grid-cols-4 columns. */
+const GRID_COLS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-1 sm:grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+  4: 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4',
+};
+
 export interface CaseTriageHeaderProps {
   chips: TriageChips | null;
   loading?: boolean;
   className?: string;
+  /**
+   * Render only this SUBSET of chips, in this order. Used to split the four chips
+   * across the CaseDetail Overview's two provenance sections — SEVERITY (source-
+   * asserted) under "Reported by source", RISK/IMPACT/PRIORITY (code-derived) under
+   * "Our assessment". Omit → all four (the default header).
+   */
+  only?: readonly TriageChipKey[];
 }
 
 /**
- * The four-chip triage header. Renders skeletons while loading, then the four
- * honestly-distinct chips. Defensive: a missing chip degrades to a low/zero band
- * (the backend already returns a renderable shell for an unknown case).
+ * The four-chip triage header. Renders skeletons while loading, then the honestly-
+ * distinct chips. Defensive: a missing chip degrades to a low/zero band (the backend
+ * already returns a renderable shell for an unknown case). `only` narrows to a subset.
  */
-export const CaseTriageHeader: React.FC<CaseTriageHeaderProps> = ({ chips, loading, className }) => {
+export const CaseTriageHeader: React.FC<CaseTriageHeaderProps> = ({
+  chips,
+  loading,
+  className,
+  only,
+}) => {
+  const keys = only && only.length ? only : ALL_CHIP_KEYS;
+  const gridCols = GRID_COLS[keys.length] ?? GRID_COLS[4];
   if (loading) {
     return (
-      <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', className)}>
+      <div className={cn('grid gap-3', gridCols, className)}>
         {/* Height approximates the rendered chip (the RiskCard gauge + factor breakdown
             makes the real chips ~172px, well above the old 120px), so the header footprint
             barely shifts on the loading→loaded transition. */}
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[10.75rem] rounded-lg" />
+        {keys.map((k) => (
+          <Skeleton key={k} className="h-[10.75rem] rounded-lg" />
         ))}
       </div>
     );
@@ -353,13 +381,20 @@ export const CaseTriageHeader: React.FC<CaseTriageHeaderProps> = ({ chips, loadi
   // renderable shell on success). Render nothing so the overview degrades to its
   // legacy Verdict/Confidence headline panels instead of shimmering forever.
   if (!chips) return null;
+  const chipFor = (k: TriageChipKey): React.ReactNode => {
+    switch (k) {
+      case 'risk':
+        return <RiskCard key="risk" risk={chips.risk} />;
+      case 'severity':
+        return <SeverityCard key="severity" severity={chips.severity} />;
+      case 'impact':
+        return <ImpactCard key="impact" impact={chips.impact} />;
+      case 'priority':
+        return <PriorityCard key="priority" priority={chips.priority} />;
+    }
+  };
   return (
-    <div className={cn('grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4', className)}>
-      <RiskCard risk={chips.risk} />
-      <SeverityCard severity={chips.severity} />
-      <ImpactCard impact={chips.impact} />
-      <PriorityCard priority={chips.priority} />
-    </div>
+    <div className={cn('grid gap-3', gridCols, className)}>{keys.map(chipFor)}</div>
   );
 };
 

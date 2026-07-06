@@ -53,6 +53,7 @@ class LLMGateway:
         demo: bool = False,
         price_overlay: Any = None,
         budget_gate: Any = None,
+        custom_models: Any = None,
     ) -> None:
         self._secrets = secrets
         self._usage = usage_store
@@ -69,6 +70,14 @@ class LLMGateway:
         # RAISES GatewayError on block → caller fails to NEEDS_HUMAN, never closes #3).
         self._overlay = price_overlay
         self._budget = budget_gate
+        # Operator-added self-hosted / LiteLLM (OpenAI-compatible) models registered at
+        # runtime (a CustomModelStore, optional/defaulted None so the historical ctor is
+        # unchanged). It lets the gateway (1) resolve a bare custom model id's endpoint
+        # when the per-role ModelConfig carried no base_url, and (2) treat a registered
+        # local model as FREE ($0) even if its PriceOverlay write was lost — belt-and-
+        # suspenders so a local model NEVER bills at the conservative default rate. It is
+        # advisory to routing + the ledger only; it NEVER touches decide() (#3).
+        self._custom_models = custom_models
 
     # ----- provider resolution -----
     def _provider(
@@ -126,10 +135,21 @@ class LLMGateway:
                 raise GatewayError("Anthropic API key not configured")
             return {"api_key": self._secrets.anthropic_api_key, "base_url": base_url}
         if name in ("openai", "openai_compatible"):
-            key = self._secrets.embedding_key() if for_embedding else self._secrets.openai_api_key
+            if name == "openai_compatible" and not for_embedding:
+                # A dedicated self-hosted / LiteLLM key slot; fall back to the OpenAI key
+                # so an existing openai_compatible config with only openai_api_key set is
+                # byte-identical.
+                key = getattr(self._secrets, "litellm_api_key", None) or self._secrets.openai_api_key
+            else:
+                key = self._secrets.embedding_key() if for_embedding else self._secrets.openai_api_key
             # An OpenAI-compatible self-hosted endpoint (base_url set) may need no key.
             if not key and not base_url:
                 raise GatewayError("OpenAI API key not configured")
+            # A no-auth self-hosted / LiteLLM server (base_url set, no key) still needs a
+            # WELL-FORMED ``Authorization: Bearer <key>`` header — default to a non-empty
+            # placeholder (an empty string is rejected by strict OpenAI-compatible clients).
+            if not key and base_url and name == "openai_compatible":
+                key = "sk-no-key"
             return {"api_key": key or "", "base_url": base_url}
         if name == "azure":
             key = getattr(self._secrets, "azure_openai_api_key", None) or self._secrets.openai_api_key
@@ -180,6 +200,10 @@ class LLMGateway:
         # block BEFORE the provider call + BEFORE any ledger write, so a blocked call
         # fails to NEEDS_HUMAN and NEVER closes a case (#3). Demo/mock ($0) bypasses.
         await self._budget_preflight(role_str, messages, model_cfg)
+        # Fill in a runtime-added custom model's endpoint (base_url) when the per-role
+        # config carried none, so a role bound to a self-hosted / LiteLLM model routes
+        # to the right server. No-op for every model with an explicit / registry base_url.
+        model_cfg = await self._resolve_endpoint(model_cfg)
         started = time.perf_counter()
         try:
             provider = self._provider(model_cfg.provider, model=model_cfg.model, endpoint=model_cfg)
@@ -203,7 +227,7 @@ class LLMGateway:
             cost = _demo_synthetic_cost(result.prompt_tokens, result.completion_tokens)
         else:
             cost = cost_for(model_used, result.prompt_tokens, result.completion_tokens,
-                            await self._overlay_tuple(model_used),
+                            await self._effective_price_tuple(model_used),
                             cache_read_tokens=cache_read, cache_write_tokens=cache_write,
                             batch=is_batch)
         result.cost = cost  # let callers roll up per-case cost (Case.token_cost)
@@ -235,6 +259,7 @@ class LLMGateway:
         NEXT completion pre-flight. (If an operator ever needs to cap embedding spend
         specifically, add an embed-shaped pre-flight here mirroring _budget_preflight.)
         """
+        model_cfg = await self._resolve_endpoint(model_cfg)
         started = time.perf_counter()
         try:
             provider = self._provider(model_cfg.provider, for_embedding=True,
@@ -259,10 +284,36 @@ class LLMGateway:
             # of carrying the real $0.02/1M table rate.
             cost = _demo_synthetic_cost(result.tokens, 0)
         else:
-            cost = cost_for(model_used, result.tokens, 0, await self._overlay_tuple(model_used))
+            cost = cost_for(model_used, result.tokens, 0,
+                            await self._effective_price_tuple(model_used))
         await self._record(Role.EMBEDDING.value, surface, case_id, model_used,
                            result.tokens, 0, latency, UsageOutcome.OK, cost)
         return result.vectors
+
+    # ----- endpoint (base_url) resolution for a runtime-added custom model -----
+    async def _resolve_endpoint(self, model_cfg: ModelConfig) -> ModelConfig:
+        """Fill in a runtime-added custom model's ``base_url`` when the per-role
+        ModelConfig didn't carry one, so a role assigned a self-hosted / LiteLLM model
+        (or a model_test against it) routes to the right endpoint.
+
+        Precedence is preserved: an explicit ``ModelConfig.base_url`` wins, then the
+        bundled registry's ``base_url_for(model)``, THEN the operator's CustomModelStore,
+        else the provider default. Returns ``model_cfg`` unchanged unless the custom
+        store supplies the endpoint (a copy is returned so the caller's config is not
+        mutated). Best-effort: a store glitch degrades to the unchanged config."""
+        if (model_cfg.base_url or "").strip() or self._custom_models is None:
+            return model_cfg
+        # The bundled registry already addresses this model → let _provider use it.
+        if model_cfg.model and base_url_for(model_cfg.model):
+            return model_cfg
+        try:
+            cbu = await self._custom_models.base_url_for(model_cfg.model)
+        except Exception as exc:  # noqa: BLE001 — custom-model store is advisory to routing
+            logger.warning("custom-model base_url lookup failed (%s)", exc)
+            return model_cfg
+        if not cbu:
+            return model_cfg
+        return model_cfg.model_copy(update={"base_url": cbu})
 
     # ----- pricing overlay + budget pre-flight helpers (Feature 9) -----
     async def _overlay_tuple(self, model: str) -> tuple[float, float] | None:
@@ -276,6 +327,26 @@ class LLMGateway:
         except Exception as exc:  # noqa: BLE001 — overlay is advisory to the ledger
             logger.warning("price overlay lookup failed (%s); using built-in rate", exc)
             return None
+
+    async def _effective_price_tuple(self, model: str) -> tuple[float, float] | None:
+        """The price tuple to bill ``model`` at: the operator PriceOverlay override if
+        set, ELSE ``(0.0, 0.0)`` when ``model`` is a registered self-hosted / LiteLLM
+        model (a local model is FREE by contract), ELSE None (→ cost_for falls back to
+        the built-in table). This is the belt-and-suspenders that guarantees a custom
+        model meters a real $0 even if its overlay row was lost — and it never changes a
+        non-custom model's price (an unregistered model returns exactly what
+        ``_overlay_tuple`` returned). Best-effort: a store glitch degrades to None."""
+        tup = await self._overlay_tuple(model)
+        if tup is not None:
+            return tup
+        if self._custom_models is None:
+            return None
+        try:
+            if await self._custom_models.get_model(model):
+                return (0.0, 0.0)
+        except Exception as exc:  # noqa: BLE001 — custom-model store is advisory to the ledger
+            logger.warning("custom-model price lookup failed (%s); using built-in rate", exc)
+        return None
 
     async def _budget_preflight(self, role: str, messages: list[dict[str, str]],
                                 model_cfg: ModelConfig) -> None:
@@ -291,7 +362,7 @@ class LLMGateway:
             prompt_chars = sum(len(str(m.get("content", ""))) for m in messages)
             decision = await self._budget.check(
                 prompt_chars=prompt_chars, max_tokens=model_cfg.max_tokens, model=model_cfg.model,
-                overlay=await self._overlay_tuple(model_cfg.model),
+                overlay=await self._effective_price_tuple(model_cfg.model),
             )
         except GatewayError:
             raise
@@ -327,7 +398,9 @@ class LLMGateway:
         # verified, operator-supplied contract price) — it overrides the table source.
         if self._demo:
             price_src = "zero"
-        elif await self._overlay_tuple(model) is not None:
+        elif await self._effective_price_tuple(model) is not None:
+            # An operator overlay OR a registered self-hosted / LiteLLM model — either
+            # is a verified, operator-supplied rate (a local model's real $0).
             price_src = "exact"
         else:
             price_src = pricing_source(model)
@@ -336,7 +409,7 @@ class LLMGateway:
                 _demo_synthetic_cost(prompt_tokens, completion_tokens)
                 if self._demo
                 else cost_for(model, prompt_tokens, completion_tokens,
-                              await self._overlay_tuple(model),
+                              await self._effective_price_tuple(model),
                               cache_read_tokens=cache_read_tokens,
                               cache_write_tokens=cache_write_tokens, batch=batch)
             )

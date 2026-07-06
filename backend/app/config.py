@@ -78,6 +78,12 @@ class Secrets(BaseSettings):
     # --- LLM provider keys ---
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
+    # Optional dedicated key for a self-hosted / LiteLLM (OpenAI-compatible) endpoint
+    # (a LiteLLM master key / vLLM api-key). SECRET tier — env / in-memory only, NEVER
+    # persisted, NEVER returned; the UI sees only a configured-boolean. The gateway
+    # prefers it for the ``openai_compatible`` provider and falls back to
+    # ``openai_api_key``; a no-auth local server needs none (base_url drives it).
+    litellm_api_key: str | None = None
 
     # --- Round 3 Wave 2b cloud-LLM provider credentials (ALL optional + defaulted
     # None, SECRET tier — env / in-memory only, NEVER persisted, NEVER returned; the UI
@@ -287,7 +293,11 @@ class Secrets(BaseSettings):
         return {cid: bool(fields) for cid, fields in self.notification_secrets.items()}
 
     def provider_key(self, provider: Provider) -> str | None:
-        if provider in ("openai", "openai_compatible"):
+        if provider == "openai_compatible":
+            # A self-hosted / LiteLLM endpoint prefers its dedicated key, falling back
+            # to the OpenAI key (a no-auth local server needs neither — base_url drives it).
+            return self.litellm_api_key or self.openai_api_key
+        if provider == "openai":
             return self.openai_api_key
         if provider == "anthropic":
             return self.anthropic_api_key
@@ -323,6 +333,7 @@ class Secrets(BaseSettings):
             "es_mgmt_api_key": bool(self.es_mgmt_api_key),
             "openai_api_key": bool(self.openai_api_key),
             "anthropic_api_key": bool(self.anthropic_api_key),
+            "litellm_api_key": bool(self.litellm_api_key),
             # Round 3 Wave 2b cloud-LLM provider credentials (configured-booleans only).
             "azure_openai_api_key": bool(self.azure_openai_api_key),
             "azure_openai_endpoint": bool(self.azure_openai_endpoint),

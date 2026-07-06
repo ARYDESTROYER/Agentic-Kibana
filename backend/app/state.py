@@ -230,6 +230,7 @@ class AppState:
         self.gateway = LLMGateway(
             self.secrets, self._real_usage_store, self._provider_overrides,
             price_overlay=self.price_overlay, budget_gate=self.budget_gate,
+            custom_models=self.custom_models,
         )
         # Auth service (Wave 2). Disabled unless secrets.auth_enabled — the no-auth
         # "old version" is the default. Building it is cheap and re-runs on rewire.
@@ -541,6 +542,7 @@ class AppState:
         from .stores.case_activity import CaseActivityStore
         from .stores.case_tasks import CaseTaskStore
         from .stores.case_thread import CaseThreadStore
+        from .stores.custom_models import CustomModelStore
         from .stores.custom_roles import CustomRoleStore
         from .stores.inbox import InboxStore
         from .stores.notif_prefs import NotificationPrefsStore
@@ -559,6 +561,11 @@ class AppState:
         self.custom_roles = CustomRoleStore(kv)
         # Advisory price overlay for the LLM cost LEDGER (#6) — never alters routing.
         self.price_overlay = PriceOverlayStore(kv)
+        # Operator-added self-hosted / LiteLLM (OpenAI-compatible) models registered at
+        # RUNTIME from the UI. Built here (BEFORE the gateway, like price_overlay) so the
+        # gateway can resolve a bare custom model id's base_url + $0 price on every call.
+        # Plain config data only; never feeds decide() (#3).
+        self.custom_models = CustomModelStore(kv)
         # Shift-handoff action items + acknowledgements (org-scoped).
         self.shift_handoff = ShiftHandoffStore(kv)
 
