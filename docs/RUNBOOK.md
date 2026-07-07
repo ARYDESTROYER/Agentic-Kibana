@@ -32,8 +32,8 @@ Watch these fields (`api/routes.py:health`):
 
 | Field | Healthy | If wrong |
 |---|---|---|
-| `es_connected` | `true` **iff** an ES state/log source is in use | With `postgres`/`sqlite` state and no ES *pull* source, this reflects only whether a pull log source is reachable (or is benign). |
-| `store_type` | the store you chose (`RealESClient` / SQL store) | A fallback in-memory client name means the chosen durable store is unreachable — **data is not durable**. |
+| `es_connected` | `true` **iff** a pull log source (Elasticsearch/OpenSearch/Wazuh) is reachable | With `postgres`/`sqlite` state and no ES/OpenSearch/Wazuh pull source at all, `false` is **expected and benign** — it says nothing about your own-state store. |
+| `store_type` | `RealESClient` **when `STATE_BACKEND=elasticsearch` and it's reachable** | This field is **not** the state-backend name — it is always `type(state.es).__name__`, the class of the **log-surface ES client** (`RealESClient`/`InMemoryESClient`), built from whether an ES key is configured. It **never** reports `STATE_BACKEND`. On `postgres`/`sqlite` with no ES pull source, `InMemoryESClient` here is **expected/benign, not a Postgres/SQLite outage**. It only signals a durability problem when `STATE_BACKEND=elasticsearch` and it unexpectedly reads `InMemoryESClient` (the ES connection failed). |
 | `setup_complete` | `true` | Wizard not finished; polling/receivers have not started. |
 | `version` | matches the deployed release | Stale container. |
 
@@ -130,9 +130,15 @@ agent's read-only **log source** access is unaffected by this choice.
 
 ### 3.1 Pull sources
 
-Polled by the single in-process poller on `poll_interval_seconds` (and on a manual
-`POST /api/poll`). Pause/resume by setting `polling_enabled` (Settings); re-enabling
-it (with `setup_complete` true and kill switch off) restarts the poller.
+Polled by the single in-process poller (`engine/poller_manager.py`) on
+`poll_interval_seconds` (and on a manual `POST /api/poll`). It fans out over
+**every enabled pull source**, each with its own durable cursor keyed
+`{source.id}:{feed.id}` (a single-source deployment keeps the legacy
+`{source.id}:primary` key), so a fast alert feed and a slow event feed never skip
+or dup each other, and a per-cluster-signature in-flight lock keeps two concurrent
+sources from double-casing the same signature. Pause/resume by setting
+`polling_enabled` (Settings); re-enabling it (with `setup_complete` true and kill
+switch off) restarts the poller.
 
 ### 3.2 Push receivers
 
@@ -195,7 +201,9 @@ benign clusters away from the strong investigator.
 All UI-editable (round-trip via `GET`/`PUT /api/settings`):
 `severity_threshold`, `in_scope_rules`/`excluded_rules`, `default_correlation` +
 per-rule `correlation_rules`, `risk_weights`, `asset_criticality`,
-`asset_networks`, `escalation_confidence`, `fp_auto_close.*`, caps.
+`asset_networks`, `escalation_confidence`, `auto_close.{false_positive,true_positive}`
+(the live auto-close policy knob — `fp_auto_close` is deprecated and auto-migrated
+into it), caps.
 
 ## 5. Scaling notes
 

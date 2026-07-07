@@ -9,42 +9,40 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `feature/round7-ui-overhaul` off `Testing`, local — NOT pushed):**
-Rounds 1–6 on `Testing`; **Round 7** (Security Command Center + Noise-Reduction funnel + provenance
-+ CaseDetail 8→5 story) and **Round 8** (UI cleanup + glitch fixes: risk card, Cases sticky fix,
-horizontal QRadar Sankey ribbon, de-carded header, reinvestigate stored-evidence fallback) COMPLETE.
-backend **1678 pytest** green · webui build clean (tsc+vite, entry chunk **~282 kB**) · **1238 vitest**
-green / 223 files · eslint **0 errors** (3 warnings) ·
-`engine/case_manager.py` **`decide()` byte-identical vs `27f0983`** · backend **zero
-new runtime deps** (webui shed a dep on net: removed `framer-motion`, added
-LAZY-only `react-grid-layout`). Round 1 + Round 2 (incl. the adversarial audit +
-remediation) + Round 3 (12 requests across Waves 0–4) + Round 4 (3 confirmed bugs +
-12 requests + a 16-dimension audit/harden) + **Round 5** (9 goals G1–G9: UI/UX
-overhaul + rules customization + custom dashboards + loose coupling + a 16-dimension
-audit) are **complete and committed**.
+**Current baseline (branch `Testing`, HEAD `559ce88` — fully merged and pushed to
+`origin/Testing`):** Rounds 1 through 9c are **all** complete, merged, and pushed —
+there is no outstanding unmerged/unpushed branch. **Round 9c** ("dashboard rebuilt
+from scratch" — real MTTD + first-human-response MTTR, a cleaner Cases list; PR #27,
+`559ce88`, current HEAD) is the current shipped state, on top of **Round 9** (an
+11-ask UI/UX overhaul + a local LiteLLM model provider; PR #25) and **Round 9b**
+(dashboard reimagine + case redesign; PR #26) — all three developed on
+`claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) — and **Round 8**
+(UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center overhaul +
+Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
+findings fixed) before them. Verified green: backend **1708 pytest**, webui **1268
+Vitest** (229 files), build clean (entry chunk **279.32 kB**, gzip **82.55 kB**),
+eslint **0 errors** (3 warnings), `engine/case_manager.py` `decide()`
+**byte-identical**, and **zero new runtime deps** since the Round-5 baseline. See
+`CHANGELOG.md` for the full Round 6–9c narrative and the "Progress" log below for the
+per-round summary.
 
-## Next — post-Round-5 backlog
+## Remaining / backlog
 
-Round 5's 9 goals (G1–G9) + the audit's 9 must-fix are done (see "Progress" below).
-Round 4's 3 bug fixes + 12 requests remain done. Remaining tracks:
+Rounds 1 through 9c are complete and shipped (see "Progress" below and
+`CHANGELOG.md`). The tracks below are the genuinely still-open items.
 
-**A. Round-4 deferred / known loose ends (low risk):** the **admin-page consolidation-
-redirects** (#4 — the standalone admin pages work + deep-link fine, so this is cosmetic IA,
-not a functional gap) · a dead **`api.setup.initAdmin` webui stub** (never called; live OOBE
-uses `POST /api/setup/account`) — prune-later.
-
-**B. Round-3 follow-ups (still open):** the opt-in row-level data scope (the `can_object()`
+**A. Round-3 follow-ups (still open):** the opt-in row-level data scope (the `can_object()`
 hook shipped OFF) · the OCSF classification/observables surfacing + the 1.4→1.8 version bump.
 (Live SSE wiring end-to-end + `PUT /api/branding` server-side contrast computation shipped in
 the Round-3 W4 wave.)
 
-**C. Pre-Round-3 backlog still open (scoped in `docs/research/2026-06-round2/`):**
+**B. Pre-Round-3 backlog still open (scoped in `docs/research/2026-06-round2/`):**
 
-**C-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
+**B-1. Deferred / low (from the audit — `ROUND2_AUDIT.md`):** session-KV optimistic
 concurrency · multi-generation refresh-reuse detection · ES-only `CONFIG_INDEX`
 nested-type collision · deep-link breadcrumb (cosmetic).
 
-**C-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
+**B-2. Best-of-best Tier 2/3 (`ROUND2_BEST_OF_BEST.md`).** Round 2 already shipped the
 whole Tier-1 productivity tier EXCEPT API keys: **saved views** (W7b), **bulk case
 actions** (W7c), **Cmd-K command palette** (W7c), **global search** `GET /api/search`
 (W7c), and the **audit-log viewer** `GET /api/audit` (W7c). Remaining, in recommended
@@ -70,9 +68,31 @@ order:
   over sources (Stellar Query-Library parity); builds on the `es_query` tool +
   per-source browse.
 
-Each ends with: `pytest -q` green (keep the count current), webui tsc+vite + Vitest
-clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps where
-possible, docs + Journal updated, commit + push.
+**C. Newer backlog** (surfaced in `docs/ROADMAP_RESEARCH.md`; re-verify before citing
+competitively — it is a dated research snapshot):
+
+- ☐ **Observability / tracing** — OTEL spans across the pipeline + a Grafana
+  dashboard; pairs naturally with Epoch E's scale-out below.
+- ☐ **SOAR / response actions** — real containment/response actions (isolate a host,
+  block an IP/hash, disable an account, …) gated behind HITL action approval + a
+  pre-flight `$`-budget ceiling. The groundwork is already in place (`ToolTier.
+  requires_approval`, the read-only pre-flight `BudgetGate`); this closes the loop
+  with actual write-side actions.
+- ☐ **A formal eval / detection-quality harness** — golden-set replay, precision/
+  recall against known-good verdicts, prompt/model regression gating.
+- ☐ **Sigma / detection-as-code import** — an import path into the Detection & Rules
+  editor (shipped in Round 5 G6) for Sigma-format rules.
+- ☐ **An MCP transport** — expose the existing MCP-shaped tools (`tools/base.py`)
+  over a real Model Context Protocol server, not just in-process.
+- ☐ **Scale-out** — see **Epoch E** below (ARQ workers + KEDA scale-out; a Helm chart).
+- ☐ **More pull connectors** — Splunk / Microsoft Sentinel / QRadar / Chronicle /
+  CrowdStrike / SentinelOne / Microsoft Defender are `SourceType` enum members with
+  **no connector class built yet** (roadmap slots only, alongside the 3 shipped pull
+  connectors — Elastic/OpenSearch/Wazuh).
+
+Each item ends with: `pytest -q` green (keep the count current), webui tsc+vite +
+Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
+where possible, docs + Journal updated, commit + push.
 
 ## Shipped (Phase 1)
 - ☑ Backend spine + 5 surfaces + tests (49 green); both plugin zips; full docs.
@@ -80,6 +100,96 @@ possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 9c — dashboard rebuilt from scratch + cleaner Cases + real MTTD/first-
+  response MTTR** (`20118a7 → ceba59d → c4d1bb6 → 2cc94c5`, PR #27; backend **1708
+  pytest** green + webui **1268 Vitest** green / 229 files + build clean (entry
+  **279.32 kB**, gzip 82.55 kB) + eslint **0 errors** (3 warnings); `engine/
+  case_manager.py` `decide()` **byte-identical**; **zero new runtime deps**). Overview
+  rebuilt Prisma/XSIAM-style: a 5-tile alert/case KPI micro-strip → a hero row (Active
+  Risk Index + a resolved-cases donut + an open-cases donut, each with a real
+  previous-window trend delta) → the full-width Noise-Suppression ribbon now flowing
+  `ingested → clustered → cases → auto_cleared → escalated → closed` with a new
+  terminal **"closed by human"** stage → a burndown/timing/top-open-cases row. Real
+  **Mean Time To Detect** (`Case.first_seen_millis` → case creation) and **Mean Time
+  To Respond as the first HUMAN response** (the ACK clock — assigning/investigating/
+  escalating/on-hold all count — NOT the dwell-to-resolution clock, which a same-round
+  validation pass caught crediting an AI auto-close as a "human response" and fixed).
+  Cases list rebuilt (a 6-tile incident-summary strip, monogram Assignee column). All
+  advisory/read-time — `decide()` never reads the new timing fields (#3). Developed on
+  `claude/ui-ux-improvements-7nq5be` (off `Testing` `1ab98f2`); merged into `Testing`
+  via **PR #27** (`559ce88`, current HEAD). No `docs/research/` folder (done
+  efficiency-first) — see `Journal.md:1474-1482` and `CHANGELOG.md`.
+- ☑ **Round 9b — dashboard reimagine + hover-to-expand sidebar + CaseDetail Timeline/
+  Investigation split** (`71153f2 → 283aa59 → b0d8747`, PR #26; webui **1264 Vitest**
+  green / 228 files + build clean (entry **279.3 kB**); backend pytest unchanged from
+  Round 9; `decide()` byte-identical; zero new deps). Hover-to-expand sidebar
+  (collapsed rail hover/focus-expands to a floating drawer, no reflow); Noise-Reduction
+  reverted Round 9's flat stage-bars back to a flow ribbon (per user preference,
+  with per-stage hover detail) and dropped the "LLM Spend" tagline; the Overview
+  reorganized into a dense multi-zone grid (KPIs → response timing → noise →
+  attention-queue/severity/outcome-donut → top lists); CaseDetail — Timeline = "what
+  happened" only, a separate Investigation tab holds the AI assessment + pinned
+  `DecisionCard` + full trace, the Sheet widened to `max-w-[min(98vw,1400px)]` with an
+  "Open in new tab" button, and the Overview redone as a Decision-Brief hero + a
+  SOURCE SAYS/AGENT FOUND/CODE DECIDED provenance row. Merged into `Testing` via
+  **PR #26** (`749bce6`). See `Journal.md:1467-1472` and `CHANGELOG.md`.
+- ☑ **Round 9 — 11-ask UI/UX overhaul + a local LiteLLM model provider**
+  (`709e758 → d13b6f0 → 1adc5ce → 26c4266`, PR #25; backend **1696 pytest** green +
+  webui **1252 Vitest** green / 227 files + build clean (entry **278.7 kB**) + eslint
+  **0 errors** (3 warnings); `decide()` byte-identical; zero new deps). A 12-agent
+  research + codebase-mapping fan-out → design briefs → disjoint-file implementation
+  agents → 3 full test passes → a 4-agent adversarial validation → a fix pass. Removed
+  the redundant in-page tab strips duplicating the left nav; Overview — LLM Spend off
+  the hero (→ 5 alert/case KPIs), a bigger notched Active Risk Index card; Noise-
+  Reduction redesigned as clean horizontal stage bars + a disposition row; Sources
+  rebuilt as a QRadar-style "Log Source Management" `DataTable` (backed by a new
+  `api.sourcesHealth()` over the existing `GET /api/sources/health`); CaseDetail —
+  Investigation → Timeline (what-happened + collapsible trace) and Overview split into
+  "Reported by source" vs. "Our assessment"; Login/Wizard polish; a new **local/
+  self-hosted LiteLLM (OpenAI-compatible) model provider** (zero-migration custom-
+  models KV store, `POST/DELETE /api/llm/models/custom`, a non-metered `POST
+  /api/llm/providers/test` probe, $0 pricing, an optional `litellm_api_key` secret).
+  The validation pass also fixed a **pre-existing bug**: the shared `POST
+  /api/sources` dropped `configured_secrets`/`created_at` on every toggle/bulk/
+  make-primary call (now carried forward + regression-tested). Developed on
+  `claude/ui-ux-improvements-7nq5be` (off `Testing` `1ab98f2`); merged into `Testing`
+  via **PR #25** (`a69233b`). No `docs/research/` folder (done efficiency-first) —
+  see `Journal.md:1457-1466` and `CHANGELOG.md`.
+- ☑ **Round 8 — UI cleanup + glitch fixes (user feedback)** (`58745fa → 91aae40`,
+  PR #24; backend **1678 pytest** green + webui **1238 Vitest** green / 223 files +
+  build clean (entry **~282 kB**) + eslint **0 errors** (3 warnings); `decide()`
+  byte-identical; zero new deps). The Active Risk Index back in its own card; the
+  Cases sticky-header glitch fixed (a double-nested-overflow root cause); the
+  Noise-Reduction funnel redesigned as a horizontal QRadar-style Sankey ribbon; the
+  Security Command Center header de-carded to a plain big title; CaseDetail Overview/
+  Threat tabs deduped and Chat rebuilt on the shared `ChatPanel`; reinvestigate fixed
+  to rebuild from stored case evidence when the log window has aged out. See
+  `docs/research/2026-07-round8/IMPLEMENTATION.md`.
+- ☑ **Round 7 — Security Command Center overhaul + Noise-Reduction funnel**
+  (`850600f → 1b9ac90 → e40f0bc → 7355a9a`, PR #23; webui **1238 Vitest** green;
+  `decide()` byte-identical; zero new deps). Overview reborn as the **Security
+  Command Center** (Active Risk Index with a `(?)` explainer, honest MTTA/MTTR/Dwell
+  tiles, live-delta KPIs, Top-Contributors); a durable-counter Noise-Reduction
+  alerts→cases funnel (`GET /api/metrics/noise-reduction`); the Cases severity-column
+  bug fixed + a shared `source|ai|code` `ProvenanceTag`; CaseDetail retold 8→5 tabs
+  (facts → AI assessment → pinned deterministic `DecisionCard`); feedback folded into
+  the close dialog; an Auto-closed-by-AI badge; a motion system. A 14-agent
+  adversarial QA caught + fixed 8 real bugs (2 funnel-correctness). See
+  `docs/research/2026-07-round7/`.
+- ☑ **Round 6 — fleet glitch-hunt + integration polish (464 adversarially-verified
+  findings fixed)** (one commit on `Testing`; backend **1613 pytest** green + webui
+  **1051 Vitest** green / 199 files + build clean (entry **281.6 kB**) + eslint
+  **0 errors** (3 warnings); `decide()` byte-identical; zero new deps). A ~500-agent
+  Opus fleet audited every webui source file (155 units incl. 12 thematic deep-dives +
+  4 API-contract audits); every finding adversarially verified (466 claimed → 464
+  confirmed → 423 fixed, 47 refuted) across 30 conflict-free fix batches + a closer
+  wave. Flagship: the custom-dashboard view-mode stacking bug (`packWidgets` + curated
+  per-role default layouts), `PageContainer` as the ONE width authority, CaseDetail
+  PATCH 405s fixed, the rules version ledger made real (rollback live), `SecretField`
+  unification (per-source connector secrets no longer dropped), honest KPI deltas,
+  WCAG-AA contrast in both themes, and the beginner `AutomationNudge` (one-click
+  recommended automation, #3-safe). See `docs/research/2026-07-round6/
+  IMPLEMENTATION.md`.
 - ☑ **Round 5 — "UI/UX overhaul + rules customization + custom dashboards + loose coupling"
   (9 goals G1–G9 + a 16-dimension adversarial audit)** (branch `Testing`; backend **1461 →
   1601 pytest** green + webui tsc/vite clean (entry chunk **537 → 264 kB**) + **273 → 625
@@ -92,7 +202,7 @@ possible, docs + Journal updated, commit + push.
   (`PROPOSAL.md` + `DESIGN_STANDARD.md` + the `understand/` maps + `RESEARCH_*.md` +
   `IMPLEMENTATION.md` + `AUDIT_FINDINGS.md`). 12 commits `5ab7c05 → 0e99c76 → 9854c36 →
   7c86706 → f50e0b2 → 3e447da → b661bc8 → 830e836 → d3801f9 → a9e2b49 → 8b91fc0 → 05552c7`.
-  LOCAL only, NOT pushed.
+  Since merged + pushed to `origin/Testing` (superseded by Rounds 6–9c above).
   - ☑ **G1 cohesive color & type system** (`0e99c76`) — a single **Radix slate + blue**
     foundation + **3 orthogonal semantic axes** (severity / status / verdict), each a
     `token`/`-foreground`/`-text` triple with **MEASURED WCAG-AA in both themes**; Okabe-Ito
@@ -155,7 +265,8 @@ possible, docs + Journal updated, commit + push.
   `engine/case_manager.py` byte-identical throughout (#3)**, #6 one-ledger-write-per-call
   preserved, the 12 non-negotiables held. Design + what-shipped:
   `docs/research/2026-07-round4/`. Commits `3aeab6c → 41ee54b → f7509a3 → b07f172 →
-  11ea46e → 3c68cf5 → 1df27ac` (+ the docs wave `068ede4`). LOCAL only, NOT pushed.
+  11ea46e → 3c68cf5 → 1df27ac` (+ the docs wave `068ede4`). Since merged + pushed to
+  `origin/Testing` (superseded by Rounds 5–9c above).
   - ☑ **3 bug fixes** — (1) **single-source poller** → NEW `engine/poller_manager.py`
     fans out over EVERY enabled PULL source (per `{source.id}:{feed.id}` cursor + legacy-
     `"primary"`-cursor-collision guard + per-`cluster_signature` in-flight lock so concurrent
@@ -488,11 +599,14 @@ is already ~90% source-agnostic (`RawEvent` projection + configurable field maps
 MCP-shaped tools); the work is concentrated in 3 seams: query/log-access, internal
 storage, and the Kibana-bound UI.
 
-- ◐ **Epoch A — Decouple internal state.** IN PROGRESS (sub-agent): `StateStore`
-  repositories (Cases/Audit/Usage/KV) + RAG vector store behind ABCs; SQL backend
-  via SQLAlchemy (SQLite dev/test, Postgres + pgvector prod, lazy pg import); ES
-  kept as the default behind the abstraction. So a self-hosted deploy can run on
-  Postgres with NO Elasticsearch for the app's own state.
+- ☑ **Epoch A — Decouple internal state.** DONE: `StateStore` repositories (Cases/
+  Audit/Usage/KV) + a RAG vector store behind ABCs; a SQL backend (`stores/sql/`:
+  engine/models/repositories/vectorstore) via SQLAlchemy — **SQLite** for dev/test,
+  **PostgreSQL + pgvector** for prod (asyncpg/pgvector imported lazily, only when
+  `STATE_BACKEND=postgres`); Elasticsearch remains the default behind the same
+  abstraction, selected via `STATE_BACKEND` (`elasticsearch` | `postgres` | `sqlite`).
+  A self-hosted deploy can run entirely on Postgres with NO Elasticsearch for the
+  app's own state (see `deploy/docker-compose.agnostic.yml`).
 - ☑ **Epoch B — Connector SPI + query IR + OCSF.** DONE: `OCSFEvent` (version-
   pinned) + ECS/generic→OCSF mappers; `RawEvent.from_ocsf`; `StructuredQuery` IR;
   `PullConnector`/`PushReceiver` SPI + `ConnectorManifest`/`AuthField`; registry
@@ -505,80 +619,19 @@ storage, and the Kibana-bound UI.
   config (`SourceInstance`) + wizard backend; `docs/INGESTION.md`. 192 tests green.
   REMAINING: standup-aggregation + routes entity-path onto the connector; TLS
   syslog; S3 Parquet.
-- ☐ **Epoch C — Wazuh connector** (reuse OpenSearch connector + alert→OCSF mapper).
-- ◐ **Epoch D — Standalone web UI.** DONE: `webui/` Vite+React+TS SPA (originally EUI,
-  later re-skinned to **Tailwind + shadcn/Radix** — the current stack); the
-  **first-run wizard** (welcome+demo / sources / providers+per-role models /
-  detection / review) driven by connector manifests; reusable dynamic
-  `ConnectorForm`/`ConnectorPicker`; Sources manager; sectioned full-Preferences
-  Settings; Shell + health + dark mode; typed API client. Build green (strict tsc +
-  vite). REMAINING: port analytics surfaces (Cases/Chat/Investigate/Scans/Standup/
-  Cost) in depth (currently preview stubs); serve `dist/` from the backend or a
-  reverse proxy; per-source query rendering/deep-links; formally retire the plugin.
+- ☑ **Epoch C — Wazuh connector.** DONE: `WazuhConnector` (`connectors/wazuh.py`)
+  reuses the OpenSearch connector plus a Wazuh-alert→OCSF mapper.
+- ☑ **Epoch D — Standalone web UI.** DONE: `webui/` (Vite + React + TypeScript +
+  **Tailwind + shadcn/Radix** — the sole primary surface; EUI was fully removed in
+  the Round-5 UI overhaul) is the standalone SPA. The **first-run wizard** is now 4
+  steps (Welcome → Sources → Provider keys → Review & finish) driven by connector
+  manifests; the reusable dynamic source form is `SourceEditor` +
+  `ConnectorPicker`; a full Sources manager, sectioned Settings (5 groups × 25
+  sections), and every analytics surface (Cases/Chat/Investigate/Automated Scans/
+  Standup/Cost/Metrics/Dashboards/Detection & Rules/…) are built out — not preview
+  stubs. Served as a static `dist/` bundle behind nginx (`tlsoc-webui`, container
+  port 8080) with an `/api` proxy to the backend. The legacy Kibana plugin is
+  **archived** (`archive/kibana-plugin/`, frozen 2026-06-21, not built/tested/
+  shipped) — the standalone webui is the sole primary surface going forward.
 - ☐ **Epoch E — Scale-out (as needed):** Kafka/Redpanda buffer; stateless workers;
   semantic cache; batch API; per-tenant keys/budgets; ClickHouse analytics.
-
-## Work order (this cycle)
-
-### P0 — Case detail + lifecycle in the UI
-- ☐ Lift selected case id into app-level state/URL (`public/components/app.tsx`).
-- ☐ Case-detail view rehydrates via `api.get('cases/'+id)` on selection.
-- ☐ Table row opens the STORED case (GET by id), does NOT re-investigate.
-- ☐ `VerdictCard` lifecycle controls → `POST cases/{id}/action`
-  (close/confirm_fp/escalate/reopen/acknowledge).
-- Acceptance: investigate → switch tabs → return → analysis persists; a
-  `needs_human` case can be closed from the UI and persists as `CLOSED`.
-
-### P1 — Case/verdict stability + provenance
-- ☐ Don't re-run the LLM pipeline on an already-investigated OPEN case on every
-  attach; re-investigate only on material change / explicit request; keep verdict
-  history.
-- ☐ Preserve original surface: add `origin_surface`; stop overwriting
-  `source_surface` on manual investigate (`pipeline.py`).
-
-### P1 — RAG
-- ☐ Implement `use_resolved_cases` (index CLOSED cases as retrievable memory).
-- ☐ Persist vector store via ES `dense_vector` kNN behind `VectorStore` ABC.
-- ☐ Guard mixed embedding spaces (tag model/dim; reseed on mismatch).
-- ☐ Min-cosine relevance threshold; richer retrieval query; ground chat in RAG.
-
-### P2 — Risk/verdict correctness
-- ☐ Subnet/CIDR asset tagging + internal-asset policy (asset_criticality/reputation).
-- ☐ Velocity edge case (same-millisecond burst saturating to 100).
-- ☐ Enforce `caps.timeout_seconds` in the investigator loop.
-- ☐ Normalize `reproduce_query` field syntax across router/LLM paths.
-
-### Feature 1 — Global header chat button + context-aware flyout
-- ☐ `plugin.ts start()` registers `core.chrome.navControls.registerRight`.
-- ☐ `global_chat_control.tsx`, `global_chat_flyout.tsx`, `lib/screen_context.ts`.
-- ☐ `chat.tsx` optional `getContext` prop; flyout passes it (in-app tab does not).
-- ☐ Backend: `ChatContext` model + `ChatRequest.context`; `ChatEngine` fences it;
-  `CHAT_SYSTEM` note; `/chat` route passes context.
-
-### Feature 2 — Per-log "AI overview"
-- ☐ Discover custom doc-viewer tab (`unifiedDocViewer.registry.add`, add to
-  `requiredPlugins`, register in setup).
-- ☐ In-app per-row overview button (carry `_id`/`_index`).
-- ☐ Backend `POST /api/overview` single-event agent + `overview_model` pref.
-
-### Feature 3 — "Why was this triggered"
-- ☐ `TriggerReason` model; `_window_breach` returns matched-window detail;
-  capture per-entity trigger metadata; build human sentence on `Cluster`.
-- ☐ Copy `trigger_reason` onto Case in register_candidate/_assemble_case/fail.
-- ☐ `CASES_MAPPING` adds `trigger_reason {object, enabled:false}`.
-- ☐ Frontend: `common/index.ts` Case + render in scans + case detail.
-
-### Feature 4 — Comprehensive settings + per-task model selection
-- ☐ Rewrite `settings.tsx` to render EVERY `Preferences` field (sectioned).
-- ☐ Per-role model pickers (provider SuperSelect + model ComboBox).
-- ☐ Backend `GET /api/models` from `pricing.PRICES` + configured keys.
-
-### Feature 5 — First-run setup wizard rewrite
-- ☐ 4 `EuiSteps`: ES connection (+Test), data scope (+create dataView),
-  entity mapping (auto-suggest), LLM + per-role models + enrichment.
-- ☐ Warn that wizard secrets are in-memory only (durable = env/.env).
-
-## Cross-cutting (every PR)
-- ☐ Keep `common/index.ts` types in sync with `models.py`.
-- ☐ `pytest -q` green; plugin `tsc` clean; rebuild + verify 8.19.12 zip.
-- ☐ Update docs (USAGE/TROUBLESHOOTING/BUILD/DEPLOY/README) + Journal.

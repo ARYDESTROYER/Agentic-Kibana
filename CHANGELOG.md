@@ -4,8 +4,115 @@ All notable changes to the **TLSOC Agentic Triage Suite** are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Target platform: Elastic / Kibana / Elasticsearch **8.19.12** (legacy **8.12.2**
-kept). History is reconstructed from `git log`.
+This is a **vendor-agnostic** suite — no single log source is "the" target. Elastic /
+Elasticsearch **8.19.12** is the compatibility target only when *optionally* attaching
+to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additionally
+targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
+History is reconstructed from `git log`.
+
+## [Unreleased] — 2026-07-06 — Round 9c: dashboard rebuilt from scratch, real MTTD + first-response MTTR, cleaner Cases
+
+A third follow-up round on user feedback, referencing Prisma Cloud "Cloud Security
+Operations Dashboard" and Cortex XSIAM screenshots for visual language. A BE-metrics-
+contract agent, a dashboard agent, and a Cases agent worked disjoint files, followed by
+a review → adversarial-verify validation workflow and a fix pass (commits `20118a7` →
+`ceba59d` → `c4d1bb6` → `2cc94c5`). Shipped: real **Mean Time To Detect**
+(`Case.first_seen_millis`, stamped at case-creation from the originating cluster, feeds
+`lifecycle_intervals.mttd_minutes`, skipping backdated negatives) and **Mean Time To
+Respond as the first HUMAN response** — the acknowledge/ACK clock (assigning,
+investigating, escalating, or putting a case on hold all count), deliberately **not**
+the dwell-to-resolution clock, which the validation pass caught crediting an AI
+auto-close as a "human response"; a burndown chart (opened-vs-resolved per day) and a
+per-day timing trend (MTTD/respond/resolve, null-gapped rather than fabricating zeros);
+the **Overview rebuilt Prisma-style** (a 5-tile KPI micro-strip → a hero row of Active
+Risk Index + a resolved-cases donut + an open-cases donut, each with a real
+previous-window trend delta → the full-width Noise-Suppression ribbon, now flowing
+`ingested → clustered → cases → auto_cleared → escalated → closed` with a new terminal
+**"closed by human"** stage → a burndown/timing/top-open-cases row, with secondary
+detail folded into a shallow "Deeper analytics"); and a cleaner **Cases** list (a
+6-tile incident-summary strip, a calm 2-tier toolbar, a monogram Assignee column). All
+of it is advisory/read-time — `decide()` never reads the new timing fields (#3). The
+validation pass fixed 5 findings: the Respond-clock honesty bug above; a reopened-case
+guard so a stale terminal `status_history` entry on a since-reopened case can't corrupt
+burndown/MTTR/resolve-trend; the Noise ribbon's overlapping terminal outcomes
+(auto-cleared/escalated/closed can co-occur, so shares summed past 100%) now normalized
+so the ribbon tiles the cases node exactly; and two WCAG-AA contrast fixes (the
+Overview SLA chip + autonomy tiles, and the Cases "Needs human" tile's tone). Additive;
+`decide()` **byte-identical**; **zero new runtime deps**. Green: **1708 pytest / 1268
+Vitest (229 files) / build clean (entry 279.32 kB, gzip 82.55 kB) / lint 0 errors (3
+warnings)** / all 5 design gates pass. Developed on `claude/ui-ux-improvements-7nq5be`
+(off `Testing` `1ab98f2`), merged into `Testing` via **PR #27** (`559ce88`, current
+HEAD). See `Journal.md:1474-1482` — Rounds 9/9b/9c have no `docs/research/` folder
+(done efficiency-first, without the research-brief fan-out).
+
+## [Unreleased] — 2026-07-05 — Round 9b: dashboard reimagine, hover-to-expand sidebar, CaseDetail Timeline/Investigation split
+
+A second follow-up round on user feedback to Round 9, run efficiency-first (3 focused
+disjoint-file agents, no research fan-out). Shipped (commits `71153f2` → `283aa59` →
+`b0d8747`): a **hover-to-expand sidebar** — the collapsed rail hover/focus-expands into
+a floating drawer overlay without reflowing the page (the rail keeps its 64px
+footprint); the Noise-Reduction widget **reverted from Round 9's flat stage-bars back
+to a flow ribbon** (per user preference — prettier, with per-stage hover detail:
+count/%/meaning/severity mini-breakdown) and the "LLM Spend" tagline removed; the
+Overview reorganized into a dense multi-zone grid (KPIs → response timing [MTTA/MTTR/
+Dwell from posture p50, MTTD honestly shown "n/a" — not yet fabricated] → noise →
+attention-queue + severity + outcome-donut → top lists) with only a shallow "Deeper
+analytics" fold; and **CaseDetail** redesigned — Timeline is now "what happened" only
+(a new `TimelinePanel`), a separate Investigation tab holds the AI assessment + pinned
+`DecisionCard` + full ReAct trace, the case Sheet widened to
+`max-w-[min(98vw,1400px)]`, an "Open in new tab" button (wired `router.optsFromHash()`
+to parse `caseId` so a fresh tab boots straight into the case), and the Overview redone
+as a Decision-Brief hero → SOURCE SAYS/AGENT FOUND/CODE DECIDED provenance row →
+primary-entity/attack-story/relationship row → evidence-checklist + reproduce →
+Related/Provenance collapsibles. No backend change this round. Additive; `decide()`
+**byte-identical**; **zero new deps**. Green: **webui 1264 Vitest (228 files) / build
+clean (entry 279.3 kB) / lint 0 errors**; backend pytest unaffected (unchanged from
+Round 9's 1696). Developed on `claude/ui-ux-improvements-7nq5be`, merged into `Testing`
+via **PR #26** (`749bce6`). See `Journal.md:1467-1472`.
+
+## [Unreleased] — 2026-07-05 — Round 9: 11-ask UI/UX overhaul + local LiteLLM model provider
+
+An 11-ask UI/UX overhaul on a new branch `claude/ui-ux-improvements-7nq5be` (created
+off `Testing` HEAD `1ab98f2`), built via a 12-agent research + codebase-mapping fan-out
+(QRadar/Splunk ES/Sentinel/Elastic/Chronicle/XSIAM dashboard patterns + Prophet/
+Dropzone + LiteLLM/vLLM/Ollama/OpenWebUI/Jan + login/wizard/dataviz UX) → design briefs
+→ parallel implementation agents on disjoint files → 3 full test passes → a 4-agent
+adversarial validation → a fix pass (commits `709e758` → `d13b6f0` → `1adc5ce` →
+`26c4266`). Shipped: removed the redundant in-page tab strips that duplicated the left
+nav (Overview `Dashboard|Standup`, Workspace `Chat|Investigate`, Intelligence
+`Knowledge|Memory|Playbooks` — each host now renders its active sub-view via the
+existing `tab` route option, no registry change); **Overview** — LLM Spend off the
+hero (replaced by 5 alert/case KPIs; spend demoted to a "Deeper analytics" tripwire), a
+bigger notched Active Risk Index card, and tightened rhythm to fill the wide screen;
+**Noise-Reduction redesigned** — the Round-8 Sankey ribbon (wrong shape for a linear
+reduction) replaced with clean horizontal aligned stage bars plus a part-to-whole
+disposition row (kept `deriveFunnel()`/testids/`onStageClick`); **Sources** rebuilt
+from a card list into a QRadar-style "Log Source Management" `DataTable` (search/
+filter/"+ New Log Source"/columns-gear/bulk-select/inline Enabled switch/Status dot/
+Last Event via a new `api.sourcesHealth()` over the existing `GET /api/sources/
+health`); **CaseDetail** — the Investigation tab renamed **Timeline** (a what-happened
+narrative plus a collapsible full ReAct trace) and Overview split into "Reported by
+source" vs. "Our assessment" provenance sections with a disagreement delta and the
+pinned deterministic `DecisionCard` as trust anchor; **Login**/**Wizard** polish
+(top-aligned login card, SSO folded into the paint gate, a faithful non-clipping
+branding preview, a pre-paint theme stamp; the Wizard dropped marketing cards and a
+double hero for a light numbered stepper); and a new **local/self-hosted LiteLLM
+(OpenAI-compatible) model provider** — reuses the existing `openai_compatible` gateway
+path with a zero-migration custom-models KV store, `POST/DELETE /api/llm/models/
+custom`, a non-metered `POST /api/llm/providers/test` reachability probe, $0 pricing,
+and an optional `litellm_api_key` secret (env `LITELLM_API_KEY`, or omitted for a
+no-auth local endpoint) — all surfaced through a new "Add local model" UI dialog
+(base_url + model id + optional key + "Fetch models"). The validation pass also fixed
+a **pre-existing
+bug**: the shared `POST /api/sources` was rebuilt from a payload that lacked
+`configured_secrets`/`created_at`, so every enable/disable toggle, bulk action, or
+make-primary call silently wiped a source's secret-name list and reset its creation
+date — now both fields carry forward, with a regression test. Additive; `decide()`
+**byte-identical**; ledger one-write-per-call (#6) preserved; attacker-influenceable
+values fenced/plain (#9); **zero new runtime deps**. Green: **1696 pytest / 1252
+Vitest (227 files) / build clean (entry 278.7 kB) / lint 0 errors (3 warnings)**;
+design gates + `tsc` clean. Merged into `Testing` via **PR #25** (`a69233b`). See
+`Journal.md:1457-1466`.
 
 ## [Unreleased] — 2026-07-05 — Round 8: UI cleanup + glitch fixes (from user feedback)
 

@@ -1,21 +1,28 @@
 # AGNOSTIC_ARCHITECTURE.md — vendor-agnostic, self-hosted agentic SOC
 
-> **Status:** IN PROGRESS — core delivered (see `ROADMAP.md` for live status).
-> Done: OCSF schema + connector SPI; Elastic + OpenSearch pull connectors (live);
-> 16 push receivers + push runtime (`/api/ingest`); wizard backend
-> (`/api/connectors`, `/api/sources`); standalone `webui/` SPA + first-run wizard.
-> In progress: Epoch A (SQL/Postgres StateStore). Pending: Wazuh connector, deep
-> UI surface port, scale-out. Backend suite: 192 green.
+> **Status: HISTORICAL DESIGN DOC.** This is the vendor-agnostic pivot's original
+> design rationale, written 2026-06-20 when the suite was still ELK/Kibana-coupled.
+> **Epochs A–D (§9) are all DONE** — the suite is fully vendor-agnostic today: a
+> selectable `StateStore` (Elasticsearch | PostgreSQL+pgvector | SQLite), the OCSF
+> canonical schema + connector SPI (3 pull connectors + 16 push/queue/object-store
+> receivers), a Wazuh connector, and a standalone web UI — later re-skinned from
+> its original EUI-reuse plan onto **Tailwind CSS + shadcn-style primitives on
+> Radix UI** in the Round-5 design-system overhaul (see §8, and `CLAUDE.md` §10).
+> Only **Epoch E (scale-out)** remains open; see `ROADMAP.md` for live status.
+> Read this document for the *why* behind the pivot, not for current state — for
+> current state see `CLAUDE.md` §§1–4 and `docs/HANDOFF.md`.
 > **Owner decisions locked (2026-06-20):** canonical schema = **OCSF**; internal
-> state = **decoupled from Elasticsearch (Postgres + pgvector)**; first new
-> connector after ELK + OpenSearch = **Wazuh**; UI = **standalone web app**
-> (retire the Kibana plugin).
+> state = **decoupled from Elasticsearch** (Postgres + pgvector shipped as
+> planned; SQLite was later added as a third, lighter-weight option); first new
+> connector after ELK + OpenSearch = **Wazuh**; UI = **standalone web app** (the
+> Kibana plugin was later **archived**, not merely retired mid-flight — see
+> `archive/kibana-plugin/`).
 >
-> This document is the master plan for turning the TLSOC Agentic Triage Suite
-> (today: an ELK/Kibana-coupled triage backend + Kibana plugin) into an
+> This document is the master plan that turned the TLSOC Agentic Triage Suite
+> (at the time: an ELK/Kibana-coupled triage backend + Kibana plugin) into an
 > **open-source, self-hosted, vendor-agnostic agentic SOC** that fetches alerts
 > from any SIEM/EDR/XDR. It complements `CLAUDE.md` (process), `README.md`
-> (overview) and `ROADMAP.md` (live tracking). Keep this in sync as we build.
+> (overview) and `ROADMAP.md` (live tracking).
 
 ---
 
@@ -68,8 +75,15 @@ the product requires the customer to run Kibana, it isn't agnostic.**
                  ▼
    StateStore  (Postgres + pgvector)        NOT a mandatory Elasticsearch
                  ▼
-   Standalone web UI (reused React/EUI components)   ·   REST/streaming API   ·   (optional) MCP server
+   Standalone web UI (webui/, React + Tailwind + shadcn/Radix)   ·   REST/streaming API   ·   (optional) MCP server
 ```
+
+> **Caveat (still true today):** of the sources drawn above, only **Elastic,
+> OpenSearch, and Wazuh** ship as built connectors (plus a 4th, `DemoPullConnector`,
+> active only in Demo Mode). **Splunk, Sentinel, QRadar, Chronicle, CrowdStrike,
+> SentinelOne, and Defender** are `SourceType` enum slots reserved for future
+> connectors — they're drawn here to show the shape the SPI was designed for, not
+> to claim they exist. See `docs/INGESTION.md` for what's actually built.
 
 Two choices make the whole thing cohere: **OCSF as the internal lingua franca**
 and a **pluggable connector SPI**.
@@ -92,7 +106,8 @@ OCSF-CIM add-on).
 **Plan:**
 - Define an `OCSFEvent` Pydantic model, **pinned to a specific OCSF version**
   (store `ocsf_version` on every event; classes have been renumbered across minor
-  versions). Wrap the 7 categories + the ~50 most-used classes first.
+  versions — today's pin is `"1.4.0"`, `constants.OCSF_VERSION`). Wrap the 7
+  categories + the ~50 most-used classes first.
 - `RawEvent` becomes a thin **projection over `OCSFEvent`** (keep the
   `ip/user/host/rule/severity/ts` accessors the agents already use, now reading
   OCSF paths: `src_endpoint.ip`, `user.name`, `severity_id`, `metadata`, …). This
@@ -130,6 +145,12 @@ class SourceConnector(ABC):
     # NORMALIZATION (always):
     async def to_ocsf(self, raw: dict) -> OCSFEvent: ...
 ```
+
+*(As shipped, this single sketch split into a `Connector` base +
+`PullConnector`/`PushReceiver` subclasses — `connectors/base.py` — rather than one
+combined ABC; the `search()` shape above is realised as `PullConnector.search(prefs,
+query: StructuredQuery) -> SearchResult`, with `StructuredQuery` shipped as sketched
+below.)*
 
 **Discovery (no core changes to add a source):**
 
@@ -236,8 +257,19 @@ front of the engine (back-pressure: slow LLM workers fall behind and catch up,
 ingest never blocks); **stateless workers** partitioned by tenant/source pulling
 from the queue; **semantic caching** of similar incidents (30–60% hit rate on
 repetitive alerts → large cost cut); **batch API** for low-urgency cases (~50%
-off); usage/audit analytics → **ClickHouse**; per-tenant virtual keys + budgets
-(e.g. via a LiteLLM proxy) for multi-tenant.
+off, shipped — see below); usage/audit analytics → **ClickHouse**; per-tenant
+virtual keys + budgets (e.g. via a LiteLLM proxy routing *in front of* the
+gateway) for multi-tenant — **not** the same thing as the Round-9 local-model
+feature described next.
+
+**Shipped since this doc was written:** the LLM batch API (`llm/batch.py`
+`BatchProvider` — Anthropic Message Batches + OpenAI Batch + `service_tier='flex'`,
+at 0.5× price) and, separately, a **local/self-hosted LiteLLM-compatible model
+provider** (Round 9): the gateway can call any OpenAI-compatible endpoint
+(LiteLLM/vLLM/Ollama/LM Studio) as one more `llm/providers.py` provider via
+`POST /api/llm/models/custom`, at $0 pricing. That is a *provider* the gateway
+talks to directly, not the *proxy-in-front-of-the-gateway* pattern described in
+the paragraph above — the two are easy to conflate by name alone.
 
 **Never:** re-store raw logs in the app (leave them in the source SIEM; keep only
 references + the normalized incident + agent artifacts); per-alert LLM calls (if
@@ -263,55 +295,69 @@ abstraction (semantic methods, not `search(index, body)`):
 - **RAG** — implement the existing `VectorStore` ABC on **pgvector** (the ABC and
   a dynamic-selection wiring point already exist in `state.py`).
 
-The ES implementation is kept as an optional backend; **Postgres + pgvector is the
-default** for a clean single-container self-hosted deploy. Preserve the audit
+**As shipped, this landed slightly differently than planned here:** `STATE_BACKEND`
+defaults to `elasticsearch` (for backward compatibility with existing deployments),
+with `postgres` (+pgvector) and `sqlite` as the two selectable alternatives — not
+Postgres-as-default. The Postgres+pgvector path is still the recommended one for a
+clean, ES-free, single-container self-hosted deploy (`deploy/docker-compose.
+agnostic.yml`); SQLite is the added lightweight option for dev/test. The audit
 append-only invariant (#2) and the read-only/scoped credential split philosophy
-(#1) across the move.
+(#1) were preserved across the move.
 
 ---
 
-## 8. UI — standalone web app (retire the Kibana plugin)
+## 8. UI — standalone web app (archive the Kibana plugin)
 
-An agnostic product can't assume Kibana. Promote the existing React/EUI surfaces
-(Chat · Investigate · Scans · Standup · Cost · Settings/Wizard) into a
-**standalone single-page app served by the backend**, talking to the existing
-FastAPI contract directly (the backend already owns its API; the Kibana server
-proxy goes away). Consequences:
+An agnostic product can't assume Kibana. This section's original plan was to
+promote the existing React/EUI Kibana-plugin surfaces (Chat · Investigate · Scans ·
+Standup · Cost · Settings/Wizard) into a **standalone single-page app served by the
+backend**, talking to the existing FastAPI contract directly (the backend already
+owns its API; the Kibana server proxy goes away). Consequences called out at the
+time:
 
 - Query-dialect-in-output (KQL `reproduce_query`, Discover deep-links,
   `meta.language="kuery"`) becomes **per-source**: render the *source's* native
   query language and a deep-link to *that* product's UI (Discover for Elastic, SPL
   search for Splunk, etc.) — driven by the active connector.
-- EUI is usable outside Kibana (`@elastic/eui` standalone) so the component
-  refresh and design system (`public/components/ui.tsx`, `public/lib/format.ts`,
-  `public/index.scss`) carry over with little change. Confirm licensing/build for
-  standalone EUI early.
 - The **"add a source" wizard** becomes central: pick connector → enter config →
   `test_connection()` → save. This is the product's front door.
+
+**What actually shipped diverged from the EUI-reuse plan above:** the standalone
+`webui/` was built as a fresh Vite + React + TypeScript SPA, and — rather than
+reusing `@elastic/eui` standalone — it was built on (and later, in the Round-5
+design-system overhaul, fully committed to) **Tailwind CSS + shadcn-style
+primitives on Radix UI**. There is no `@elastic/eui` dependency anywhere in the
+webui today. The "add a source" wizard did become the product's front door as
+planned (a 4-step Welcome → Sources → Provider keys → Review flow), and per-source
+query-language rendering is driven by the active connector as described. See
+`webui/README.md` for the current stack and `CLAUDE.md` §8 for the design system.
 
 ---
 
 ## 9. Phased roadmap (high level — tracked live in `ROADMAP.md`)
 
-- **Epoch A — Decouple internal state (Postgres + pgvector).** `StateStore` SPI +
-  Postgres impl + pgvector RAG; keep ES impl behind the abstraction. Unblocks
-  ES-free self-hosting. *(Medium; do first — highest "self-hostable" payoff,
-  contained blast radius.)*
-- **Epoch B — Connector SPI + query IR + OCSF.** `OCSFEvent`; `RawEvent` as a
-  projection over OCSF; `StructuredQuery` IR; `LogSource`/`SourceConnector` SPI +
-  entry-point registry; refactor `es_query`/poller/standup onto it. Ship the
-  **Elastic** connector (parity) + **OpenSearch** connector. *(Hard; the
-  query-IR + DSL-removal is the riskiest refactor — keep `pytest -q` green at
-  every step.)*
-- **Epoch C — Wazuh connector.** Reuse the OpenSearch connector for the Wazuh
-  indexer + an alert→OCSF mapper. Proves third-party breadth.
-- **Epoch D — Standalone web UI.** Stand up the SPA from existing components;
-  per-source query rendering + deep-links; the "add a source" wizard; retire the
-  Kibana plugin (or demote to optional embed if we reverse course).
-- **Epoch E — Scale-out (as needed).** Kafka/Redpanda buffer; stateless workers;
-  semantic cache; batch API; multi-tenant keys/budgets; ClickHouse analytics.
+- **✅ DONE — Epoch A — Decouple internal state (Postgres + pgvector).**
+  `StateStore` SPI + Postgres impl + pgvector RAG shipped; the ES impl is kept
+  behind the same abstraction (and remains the default `STATE_BACKEND`, see §7); a
+  SQLite backend was added as a third option. ES-free self-hosting is unblocked.
+- **✅ DONE — Epoch B — Connector SPI + query IR + OCSF.** `OCSFEvent`; `RawEvent`
+  as a projection over OCSF; the `StructuredQuery` IR; the `Connector`/
+  `PullConnector`/`PushReceiver` SPI + `tlsoc.connectors` entry-point registry;
+  `es_query`/poller/standup refactored onto it. The **Elastic** and **OpenSearch**
+  pull connectors shipped.
+- **✅ DONE — Epoch C — Wazuh connector.** Reuses the OpenSearch connector for the
+  Wazuh indexer + an alert→OCSF mapper. Proved third-party breadth.
+- **✅ DONE — Epoch D — Standalone web UI.** The SPA shipped (diverging from the
+  original EUI-reuse plan — see §8), the "add a source" wizard is the product's
+  front door, and the Kibana plugin was **archived** (not merely retired) once the
+  standalone UI became the sole primary surface.
+- **○ OPEN — Epoch E — Scale-out (as needed).** Kafka/Redpanda buffer; stateless
+  workers; semantic cache; multi-tenant keys/budgets; ClickHouse analytics. (The
+  batch API itself — one specific cost lever originally scoped under this epoch —
+  already shipped in Round 4, see §6.) This is the only epoch still open; see
+  `ROADMAP.md`'s backlog for live tracking.
 
-Every epoch ends with: `pytest -q` green, offline build verified, docs + Journal
+Every epoch ended with: `pytest -q` green, the webui build verified, docs + Journal
 updated, commit + push. The 12 non-negotiables in `CLAUDE.md` still hold —
 notably read-only scoped source access (#1), full audit (#2), LLM-verdict /
 deterministic-close (#3), durable no-skip/no-dup cursor (#4), one LLM gateway +
@@ -333,6 +379,11 @@ covering OCSF `unmapped`).
   clients against vendor APIs (permitted) — do **not** derive from vendors'
   proprietary SDKs/MCP apps (e.g. Elastic's MCP security app is Elastic-2.0). Use
   descriptive, non-endorsing names + "not affiliated" disclaimers.
-- **Standalone EUI** build/licensing outside Kibana — validate early.
+- **Standalone EUI build/licensing outside Kibana** — **resolved by not doing
+  it**: the webui was built (and later fully re-skinned) on Tailwind + shadcn/Radix
+  instead, sidestepping the question entirely.
 - **Naming/branding** — "TLSOC … Kibana" branding is ELK-specific; an
-  open-source agnostic product likely wants a neutral name. Deferred.
+  open-source agnostic product likely wants a neutral name. **Resolved**: the
+  product settled on **TLSOC Agentic Triage Suite** as its formal name (no Kibana
+  reference), with operator-configurable white-label branding (`BrandingConfig`)
+  layered on top for deployments that want their own identity.

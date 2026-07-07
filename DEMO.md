@@ -3,7 +3,8 @@
 A crisp, copy-pasteable script for **presenting** the Agentic SOC Triage Suite.
 It brings the suite up locally with **auth enabled** (so the redesigned login,
 6-role RBAC, MFA, sessions, and SSO surfaces are all live) and walks a presenter
-through every headline feature in order. Budget ~15-20 minutes.
+through every headline feature in order. Budget ~25-30 minutes for the full tour
+(trim §3k–§3p for a shorter walkthrough).
 
 > **New here / setting this up cold?** Read **[`docs/HANDOFF.md`](docs/HANDOFF.md)**
 > first (the onboarding map: repo layout, the green baseline, how to run it), then
@@ -16,14 +17,19 @@ through every headline feature in order. Budget ~15-20 minutes.
 > live), then one click clears it all. Everything else below still works on top of
 > it.
 
-> **What you'll show (Round 2 included, in order):** the **redesigned 2-column
-> login** + account self-service, the **Cmd-K command palette** + global search,
-> **Demo Mode** (one-click populated showcase), a **case overview** + **bulk
-> actions**, **sessions** (device list + remote sign-out), the **consolidated
-> Settings IA**, **per-feed sources** (alerts/events/ignore), **notifications**
-> (incl. Resend + SES + customizable email templates), **per-user customization**
-> (saved views, table columns, terminology, theme), MFA/SSO, run-a-playbook +
-> threat context, the **audit viewer**, and the Overview / RiskGauge.
+> **What you'll show, in order:** the **redesigned 2-column login** + account
+> self-service, the **Cmd-K command palette** + global search, **Demo Mode**
+> (one-click populated showcase), a **case overview** + **bulk actions**,
+> **sessions** (device list + remote sign-out), the **consolidated Settings IA**
+> (five groups × 25 sections), **custom RBAC roles**, the **QRadar-style Sources
+> table**, **notifications** (incl. Resend + SES + customizable email templates)
+> and the **in-app inbox**, **per-user customization** (saved views, table
+> columns, terminology, theme), MFA/SSO, the **Detection & Rules** editor
+> (test/preview + version rollback), the **self-improving detection loop**
+> (campaigns, entity baseline, threshold auto-tuning), **case collaboration**
+> (threads/tasks/@mentions), **custom dashboards**, a **local/self-hosted model
+> provider**, **MITRE ATT&CK coverage + Navigator export**, the **audit viewer**,
+> and the Overview **Security Command Center**.
 
 ---
 
@@ -113,7 +119,8 @@ Things to point out on the **redesigned login** before you sign in:
   the **MFA** step (a 6-cell segmented OTP input), and any configured **SSO**
   buttons (per-provider Google / Microsoft / generic brand icons).
 
-Sign in. (For a real deployment, change this immediately — see §3i.)
+Sign in. (For a real deployment, change this immediately — see `docs/USAGE.md`
+§24 for the forced-change-password OOBE flow.)
 
 > If you ran `run-demo.sh`, these creds are also echoed in the startup banner.
 
@@ -121,12 +128,13 @@ Sign in. (For a real deployment, change this immediately — see §3i.)
 
 ## 3. The guided tour (hit these in order)
 
-### 3a. ⭐ Demo Mode — the one-click populated showcase — *Settings → Experimental* (super_admin)
+### 3a. ⭐ Demo Mode — the one-click populated showcase — *Settings → Organization → Experimental & Demo* (super_admin)
 This is the showpiece. It populates the whole product with realistic, **isolated,
 $0** synthetic data so every page has something to show — no source wiring, no LLM
 spend, no risk to real state. It is **fully reversible in one click**.
 
-- Open **Settings → Experimental** and **enable Demo Mode**. Two modes:
+- Open **Settings → Organization → Experimental & Demo** and **enable Demo Mode**.
+  Two modes:
   - **`seeded`** — instantly back-fills ~2 weeks of synthetic cases (old + recent),
     audit, and cost rows from a fixed seed, so it's deterministic and repeatable.
   - **`live`** — also starts a background simulator that keeps emitting benign
@@ -199,49 +207,80 @@ spend, no risk to real state. It is **fully reversible in one click**.
     (`GET /api/admin/sessions`, `POST /api/admin/sessions/{sid}/revoke`).
 
 ### 3e. Consolidated Settings IA — *Settings*
-- Show the new **two-scope Settings**: a **Personal Account** scope (Profile /
-  Preferences / Notifications / Security / Sessions — open to every signed-in user)
-  and an **Organization** scope (admin-gated: Users, Security & SSO, Sources,
-  Automation, Branding, token policy, …) in **one left rail** with grouped headers.
-- Note that **RBAC hides what you can't touch**: admin sections simply don't appear
-  for a lower-tier user (and the rail auto-collapses empty groups). When auth is
-  off, everything shows.
-- The whole top-level nav is grouped into **≤5 areas** (Overview / Triage /
-  Intelligence / Analytics / Admin) and several near-duplicate pages were merged
-  into tabbed surfaces (Investigate into Chat; Cost/Feedback into Metrics; Standup
-  into Overview; Knowledge/Memory/Catalog under Intelligence).
+- Show the current Settings: **one left rail, five groups, 25 sections**
+  (`webui/src/soc/pages/settings/settings-sections-meta.ts`) — **Account**
+  (Profile / Security & two-factor / Sessions & activity / Appearance &
+  customization — open to every signed-in user), **General** (data scope, models,
+  detection, Detection & Rules, cases, SLA/priority/suppression, automation,
+  standup), **Integrations** (alerting & notifications, enrichment, knowledge &
+  threat context), **Security & access** (Users, Roles & permissions, single
+  sign-on & policy, active sessions, secret keys), and **Organization** (branding,
+  advanced, all-settings, Experimental & Demo, danger zone).
+- Note that **RBAC hides what you can't touch**: a section a role can't reach
+  simply doesn't appear (and the rail auto-jumps off a hidden active section).
+  When auth is off, everything shows.
+- This is a *Settings*-only regroup — it's separate from the app's top-level
+  left-nav, which has its own **six groups**: **Overview** (Dashboard, Dashboards,
+  Standup), **Triage** (Cases, Campaigns, Logs, Workspace → Chat/Investigate,
+  Automated scans, Approvals), **Intelligence** (Knowledge, Memory, Playbooks),
+  **Analytics** (Metrics, Cost, Models, Baseline, Batch jobs), **Notifications**
+  (Inbox), and **Platform** (Sources, Audit log, Auto-tuning, Settings). Point out
+  Sources and Audit log are standalone **Platform** pages now, not buried in
+  Settings.
 
-### 3f. Users, roles, MFA & SSO — *Settings → Organization → Users / Security*
-- **Users & roles (RBAC):** show the **users list** (persisted in a KV-doc; no new
-  index/table). **Create a user** and assign one of the **6 roles**:
-  `super_admin` · `soc_manager` · `analyst_tier2` · `analyst_tier1` ·
-  `responder` · `auditor`. Server-side, every route is gated by
-  `require_permission`; the UI mirrors it with `<Can>` guards.
-- **MFA enrollment (TOTP):** click **Enroll MFA** — a **QR code renders inline**
-  (SVG, no external calls). Scan it with any authenticator; enter the 6-digit code
-  to confirm; **single-use recovery codes** are shown — save them. Log out and back
-  in to show the **two-phase login** (password → the §2 segmented OTP).
-- **SSO configuration:** add an **OIDC provider** (Google / Microsoft / generic);
-  fill issuer + client id; the **client secret goes to the SECRET tier** (env or
-  runtime push), never the config store. Show **group → role provisioning**. The
-  callback URI to register with the IdP is **`<base-url>/api/auth/sso/callback`**
-  (see `DEPLOY.md` §10).
-- **Token / session policy** (*Organization → Security*): the idle timeout,
-  absolute lifetime, refresh TTL, and step-up ("sudo") re-auth window are all
-  **UI-editable** here (defaults: 12h idle, 30-day absolute/refresh, 10-min sudo).
+### 3f. Users, custom roles, MFA & SSO — *Settings → Security & access*
+- **Users (RBAC):** *Settings → Security & access → Users* — show the **users
+  list** (persisted in a KV-doc; no new index/table). **Create a user** and
+  assign one of the **6 built-in roles**: `super_admin` · `soc_manager` ·
+  `analyst_tier2` · `analyst_tier1` · `responder` · `auditor`. Server-side, every
+  route is gated by `require_permission`; the UI mirrors it with `<Can>` guards.
+- **Custom roles:** *Settings → Security & access → Roles & permissions* — create
+  a role that **inherits** a built-in one (e.g. `analyst_tier1`), **grants** it one
+  extra permission (e.g. `cases:close`), and **denies** another. Use **Preview**
+  (`POST /api/roles/preview`) to show the resolved effective grants before saving,
+  and **Simulate** (`GET /api/roles/simulate`) to answer "can this role do X?" on
+  the spot. Point out a built-in role name can never be overwritten through this
+  surface — the platform owner can't be locked out.
+- **MFA enrollment (TOTP):** *Settings → Account → Security & two-factor* — click
+  **Enroll MFA**: a **QR code renders inline** (SVG, no external calls). Scan it
+  with any authenticator; enter the 6-digit code to confirm; **single-use recovery
+  codes** are shown — save them. Log out and back in to show the **two-phase
+  login** (password → the §2 segmented OTP).
+- **SSO configuration:** *Settings → Security & access → Single sign-on & policy*
+  — add an **OIDC provider** (Google / Microsoft / generic); fill issuer + client
+  id; the **client secret goes to the SECRET tier** (env or runtime push), never
+  the config store. Show **group → role provisioning**. The callback URI to
+  register with the IdP is **`<base-url>/api/auth/sso/callback`** (see
+  `DEPLOY.md` §10).
+- **Token / session policy** (same *Single sign-on & policy* section): the idle
+  timeout, absolute lifetime, refresh TTL, and step-up ("sudo") re-auth window are
+  all **UI-editable** here (defaults: 30-min idle, 12-hour absolute, 7-day
+  refresh, 10-min sudo).
 
-### 3g. Sources — per-feed config + Auto-Correlate + inline help — *Settings → Sources* (or wizard)
-- **Add a source** (a webhook is the fastest live demo: no external cluster).
-- **Per-feed (multi-feed) config:** each index pattern is now its own **feed** with
-  a **role** — **alerts** (auto-investigate), **events** (correlate only), or
-  **ignore** (skip entirely) — plus per-feed **query**, **field-mapping override**,
-  **severity floor**, **schedule**, and split **correlate** / **auto-investigate**
-  switches. Mention that a severity floor never *drops* an event (#4) — it just
-  holds it back from auto-forwarding.
+### 3g. Sources — the QRadar-style Log Source Management table — *Platform → Sources* (or the wizard)
+- Land on **Platform → Sources**: a dense, sortable **DataTable** (not a card
+  stack) — a toolbar (search + faceted filter + a live "Log Sources (N)" count +
+  a prominent **"+ New Log Source"** + a manage-columns gear), multi-row
+  **bulk-select** with an Enable/Disable/Remove strip, and per-row **Status**
+  dot + **Last Event** (both honestly derived from `GET /api/sources/health` —
+  the poll-cursor age for a pull source, the live-tail buffer depth for a push
+  receiver), an inline **Enabled** toggle, and a kebab menu (Browse logs · Make
+  primary · Edit · Remove).
+- **Add a source** (a webhook is the fastest live demo: no external cluster) —
+  Add/Edit opens the same manifest-driven `SourceEditor` the wizard uses.
+- **Per-feed (multi-feed) config:** each index pattern is its own **feed** with a
+  **role** — **alerts** (auto-investigate), **events** (correlate only), or
+  **ignore** (skip entirely) — plus per-feed **query**, **field-mapping
+  override**, **severity floor**, **schedule**, and split **correlate** /
+  **auto-investigate** switches. Mention that a severity floor never *drops* an
+  event (#4) — it just holds it back from auto-forwarding.
 - Hover the **(?) HelpTips** and open the **connector setup help**; use the
   **analyze-sample** affordance to paste a sample event and preview the field
-  mapping. *(Optional)* enable **cross-source correlation** to link related cases by
-  a shared entity (ip / host / user / file_hash / domain).
+  mapping. *(Optional)* enable **cross-source correlation** to link related cases
+  by a shared entity (ip / host / user / file_hash / domain).
+- **Browse logs** from the kebab menu opens the `SourceLogsSheet` — a live tail
+  of that one source; or open **Triage → Logs** to browse across *every* enabled
+  source at once, merged newest-first.
 - *(If you want a real non-demo case)* push a sample alert (replace the token + id):
 
   ```bash
@@ -253,8 +292,8 @@ spend, no risk to real state. It is **fully reversible in one click**.
     -d '{"event.module":"web_auth","source.ip":"203.0.113.7","user.name":"alice"}'
   ```
 
-### 3h. Notifications + email templates — *Settings → Notifications*
-- Add a channel. Email options now include the **`email` (SMTP, 13 provider
+### 3h. Notifications + email templates — *Settings → Integrations → Alerting & notifications*
+- Add a channel. Email options include the **`email` (SMTP, 13 provider
   presets)** channel, the **`resend`** channel (HTTPS API), and an **SES** preset
   (an SMTP-preset entry — host `email-smtp.{region}.amazonaws.com`, region from
   channel config); plus **Slack / Teams / webhook / PagerDuty / Telegram**.
@@ -271,35 +310,128 @@ spend, no risk to real state. It is **fully reversible in one click**.
 - Click **Send test** and show the message land. Show **per-condition triggers** +
   **dedup / rate-limit / digest** controls.
 
-### 3i. Per-user customization — saved views, columns, terminology, theme — *across the app + Settings → Appearance*
+### 3i. Per-user customization — saved views, columns, terminology, theme — *across the app + Settings → Account → Appearance & customization*
 - **Saved views:** filter/sort the Cases list, then **save the view** from the
   saved-views bar; switch between personal views (`GET/POST/PUT/DELETE /api/views`,
   `POST /api/views/{id}/clone`). Org-default views can be cloned to personal.
 - **Table columns:** show/hide and reorder columns; the choice persists per user
   (`PUT /api/prefs/user/tables/{table_id}`).
-- **Terminology:** in **Appearance**, relabel domain nouns (e.g. "Case" → "Alert",
-  "Source" → "Sensor"); the change cascades through the UI via the `t()` helper
-  (`GET/PUT /api/terminology`, admin PUT).
+- **Terminology:** in **Appearance & customization**, relabel domain nouns (e.g.
+  "Case" → "Alert", "Source" → "Sensor"); the change cascades through the UI via
+  the `t()` helper (`GET/PUT /api/terminology`, admin PUT).
 - **Theme:** toggle **light / dark / system**; it persists in your user prefs.
 - These resolve through a cascade — org Preferences then per-user prefs — exposed
   at `GET /api/prefs/effective` (`/api/prefs/user`, `/api/prefs/org`).
 
-### 3j. Automation rule — *Settings → Automation*
-- Create a **threshold rule**. Show the **#3-safe** action menu:
-  `tag` / `recommend` / `notify` / `run_playbook` / `request_approval`.
-- Emphasize: **automation NEVER sets case status** — `request_approval` raises a
-  **HITL proposal** for a human to approve; it cannot close or escalate on its own.
+### 3j. Detection & Rules — the rule-authoring home — *Settings → General → Detection & rules*
+- Open the **Detection & Rules** home — the single place that replaced the old
+  scattered per-rule editors. Show all three rule classes: a **detection-match /
+  threshold rule**, a **correlation / clustering rule**, and a **case-automation
+  rule** (the **#3-safe** action menu: `tag` / `recommend` / `notify` /
+  `run_playbook` / `request_approval`).
+- **Test/Preview** a rule (`POST /api/triage/preview-decision`) against recent
+  data — emphasize it **never bills the LLM and never calls `decide()`** (zero
+  gateway calls, zero cost, no case created).
+- Show the **version ledger** for a rule and **roll back** to an earlier version
+  with one click — every create/update/enable/disable/delete/rollback is audited
+  and versioned.
+- Emphasize: **automation NEVER sets case status directly** —
+  `request_approval` raises a **HITL proposal** for a human to approve in the
+  **Approvals** queue (*Triage → Approvals*); it cannot close or escalate a case
+  on its own.
 
-### 3k. Audit viewer — *Audit* (or Admin → Audit)
-- Open the **audit viewer** (`GET /api/audit`): an append-only, filterable record
-  of every agent and operator action (#2). Filter by actor / action type / surface
-  and show a few demo entries — including the **Demo-Mode enable** you triggered in
-  §3a, which is recorded on the *real* audit log as a real admin action.
+### 3k. The self-improving detection loop — campaigns, entity baseline & auto-tuning
+- **Campaigns** (*Triage → Campaigns*): a daily deterministic pass groups
+  already-created cases that share an entity into a `Campaign` — show one, and a
+  case's campaign chip on its Overview tab. Talking point: a campaign only
+  **references** case ids — it never re-clusters, closes, or escalates a member
+  case.
+- **Entity baseline** (*Analytics → Baseline*): an online per-signature anomaly
+  sketch (EWMA/EWMV across 168 hour-of-week buckets, p50/p95/p99) with a warm-up
+  gauge — show a signature's baseline card. It's a pure advisory producer; it
+  never calls `decide()`.
+- **Threshold auto-tuning** (*Platform → Auto-tuning*): a nightly, deterministic
+  observer that measures a rule's false-positive rate (Wilson lower-bound) and
+  proposes a **bounded +1** nudge. Show a recommendation, **apply** it, then
+  **roll it back** — and point out a proposed suppression *drop* always routes to
+  the **HITL Approvals** queue instead of auto-applying.
+- All three are **default OFF** and none of them can ever close/escalate a case
+  or bypass `decide()` — the through-line for this whole beat.
 
-### 3l. Overview / RiskGauge — *Overview / Dashboard*
-- Land on the **Overview**: KPI tiles, verdict/status mix, trend (all populated by
-  Demo Mode).
-- Show the redesigned **RiskGauge** (the Active-Risk-Index glitch is fixed).
+### 3l. Case collaboration — threads, tasks & @mentions — *a case's Collab tab*
+- Open a case and switch to the **Collab** tab. Post a thread message, **@mention**
+  a teammate (it fans into their in-app inbox, §3m), and toggle an emoji
+  **reaction**. Add a **task** to the checklist, assign it, and mark it done.
+- Talking point (#3, twice over): none of this — posting, editing, reacting,
+  tasking — ever reads or sets the case's `status`/`verdict`/`disposition`. A
+  deleted message is always a soft-delete tombstone, never erased (#2).
+
+### 3m. The in-app inbox — *Notifications → Inbox*
+- Open **Inbox**: your personal, self-scoped notification feed, including the
+  @mention you just triggered in §3l. Show the unread-count bell badge, mark one
+  read, mark all read, and the per-category × channel delivery **prefs**
+  (`GET/PUT /api/notifications/prefs`) — a user manages their own inbox; there's
+  no admin view into someone else's.
+
+### 3n. Custom dashboards — *Overview → Dashboards*
+- Create a new dashboard and drag/resize widgets on the 12-column grid
+  (`react-grid-layout`, lazy-loaded, edit-mode only) — pick from the widget
+  allowlist (KPI tiles, verdict/autonomy charts, the MITRE heatmap, the active-risk
+  gauge, connector-health and recent-cases tables). An unknown widget type is
+  rejected server-side, never silently stored.
+- Clone a **role-default** curated layout into your own set and customize it.
+  Everything is scoped to you — one user can never read or mutate another's
+  dashboard. Talking point (#3): a dashboard is advisory presentation state only.
+
+### 3o. A local / self-hosted model provider — *Settings → General → Models → "Add local model"*
+- Point the dialog at a self-hosted **LiteLLM** proxy (or vLLM/Ollama/LM Studio) —
+  `base_url` + an optional key. Click **Test** first
+  (`POST /api/llm/providers/test`) — a **non-metered** reachability probe that
+  lists the endpoint's models before you commit to anything.
+- **Add it** (`POST /api/llm/models/custom`): the model appears in the per-role
+  pickers immediately, priced at **$0** automatically (belt-and-suspenders — a
+  price overlay *and* a gateway fallback both guarantee it). Great talking point
+  for a cost-conscious or air-gapped deployment.
+
+### 3p. MITRE coverage + ATT&CK Navigator export — *Analytics → Metrics*
+- Show the **MITRE heatmap**: per-tactic technique coverage tallied from the live
+  case load against the bundled **697-technique** ATT&CK corpus — no network
+  call, no live STIX feed.
+- Download the **ATT&CK Navigator v4.5 layer** (`GET /api/mitre/coverage/
+  navigator.layer.json`) and, if you want the full effect, drop the file into the
+  public [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) to
+  show the same coverage rendered as an interactive heatmap outside the suite.
+
+### 3q. Audit viewer — *Platform → Audit log*
+- Open the **Audit log** — a standalone top-level page now, not tucked under
+  Settings. It's an append-only, filterable record of every agent and operator
+  action (#2). Filter by actor / action type / surface and show a few demo
+  entries — including the **Demo-Mode enable** you triggered in §3a, which is
+  recorded on the *real* audit log as a real admin action.
+
+### 3r. Overview — the Security Command Center
+- Land on the **Overview** (Dashboard). Walk it top to bottom:
+  - **Masthead** — the time-range picker, auto-refresh, and a "last updated" stamp.
+  - **KPI strip** — 5 tiles: **Open Cases**, **Critical / High**, **Escalated To
+    Human**, **False Positive Rate**, **Auto-Resolved** (all populated by Demo
+    Mode, with period-over-period deltas).
+  - **Hero row** — the **Active Risk Index** (the one risk instrument on the
+    page — the old Active-Risk-Index glitch is fixed), plus a "Cases resolved"
+    and an "Open cases" donut snapshot.
+  - **Noise-Reduction flow ribbon** — the value-prop headline: raw ingested
+    volume, split by severity, thinning left-to-right through *clustered* →
+    *cases* → *auto_cleared* / *escalated* / *closed-by-human*. Hover a stage for
+    its exact count, share, and a per-severity/per-disposition breakdown; point
+    out the "noise reduced by X%" figure.
+  - **Third row** — a cases **burndown** (opened vs. resolved), a card showing
+    real **MTTD** (mean time-to-detect, measured from the cluster's first event to
+    case creation) alongside **first-response time** (the ACK clock — a talking
+    point: this was deliberately renamed *away* from "MTTR" mid-round because it
+    measures first human response, not full dwell/resolution time), and a
+    **top-open-cases** work list.
+  - **Deeper analytics** (collapsed by default) — the LLM spend tripwire, full
+    response-timing detail, the autonomy split, connector health, case volume,
+    workload, and top signatures/entities.
 - Point out the polish layer: **skeleton/shimmer loading**, staggered reveals,
   8px-grid alignment, **WCAG AA** contrast.
 
@@ -307,8 +439,8 @@ spend, no risk to real state. It is **fully reversible in one click**.
 
 ## 4. Reset / teardown
 
-- **Exit Demo Mode first** (if you enabled it in §3a): *Settings → Experimental →
-  **Exit & clear*** (or `POST /api/demo/disable`). This stops the live simulator and
+- **Exit Demo Mode first** (if you enabled it in §3a): *Settings → Organization →
+  Experimental & Demo →* **Exit & clear** (or `POST /api/demo/disable`). This stops the live simulator and
   **hard-deletes all synthetic data by `run_id`** — leaving any real state
   untouched. (Use **Reset** instead to re-seed the same dataset for another run.)
 - **`run-demo.sh`:** press **Ctrl-C** — it tears down both processes.
@@ -333,7 +465,8 @@ spend, no risk to real state. It is **fully reversible in one click**.
   real tokens or writes real state. For a *non-demo* live investigation you need a
   real provider key; otherwise the **mock LLM** is used (perfectly fine for a UI
   walkthrough).
-- **Demo Mode requires super_admin** and is found under *Settings → Experimental*;
-  the same gate (`require_admin`) protects all `/api/demo/*` endpoints.
+- **Demo Mode requires super_admin** and is found under *Settings → Organization →
+  Experimental & Demo*; the same gate (`require_admin`) protects all `/api/demo/*`
+  endpoints.
 - Secret values are **never** shown in the UI — you only ever see `configured ✓`.
   That includes the new **Resend API key** and **SES** credentials.

@@ -6,33 +6,40 @@
 There are **two distinct environments**. Confusing them causes most build/deploy
 pain, so they are documented separately.
 
-> The suite is now **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
+> The suite is **vendor-agnostic**: the backend (FastAPI+LangGraph) plus a
 > **standalone web UI** (`webui/`, Vite+React+TS+**Tailwind+shadcn/Radix** — EUI was
 > removed in the UI overhaul) are the primary artifacts; the Kibana plugin is
-> **archived** (`archive/kibana-plugin/`). The suite's own state runs on a
-> **selectable backend** (Elasticsearch, PostgreSQL, or SQLite). Optional auth
-> (RBAC/MFA/SSO + **server-enforced sessions** with idle/absolute/revocation and
-> refresh rotation) is **DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on.
-> A reversible, $0 **Demo Mode** populates the product with synthetic data without
-> any source wiring (see `DEMO.md`). See `COMPATIBILITY.md` for the full matrix.
+> **archived** (`archive/kibana-plugin/`, frozen, not built/shipped). The suite's own
+> state runs on a **selectable backend** (Elasticsearch, PostgreSQL, or SQLite).
+> Optional auth (6-role RBAC + custom roles / MFA-TOTP / OIDC SSO + **server-enforced
+> sessions** with idle/absolute/revocation and refresh rotation) is **fully built but
+> DEFAULT OFF** — `TLSOC_AUTH_ENABLED=true` to turn it on. A reversible, $0 **Demo
+> Mode** populates the product with synthetic data without any source wiring (see
+> `DEMO.md`). See `COMPATIBILITY.md` for the full matrix.
 >
-> **Round 3** added optional, default-off **cloud LLM providers** (Azure OpenAI / AWS
-> Bedrock / Google Vertex + any OpenAI-compatible `base_url`) and **17 enrichment
-> providers** behind an `EnrichmentProvider` SPI — all keyed via env (see §2.6 / §2.7).
-> The keyless enrichment providers are default-on; everything else stays default-off,
-> additive, and degrades gracefully.
+> Environment-relevant additions since the vendor-agnostic pivot include optional
+> **cloud LLM providers** (Azure OpenAI / AWS Bedrock / Google Vertex), a **local /
+> self-hosted LiteLLM-compatible provider** (any OpenAI-compatible `base_url`), and
+> **19 enrichment providers** behind an `EnrichmentProvider` SPI — all keyed via env
+> (see §2.6 / §2.7). The keyless enrichment providers are default-on; everything
+> else stays default-off, additive, and degrades gracefully. For the full round-by-
+> round feature history, see `CLAUDE.md` §10 and `Journal.md` — this doc only tracks
+> the environment/variable surface.
 
 ---
 
 ## 1. The build / development sandbox (Claude Code on the web)
 
-Where the code is written, the backend tests run, the **web UI is built**, and the
-plugin zips are built.
+Where the code is written, the backend tests run, the **web UI is built**, and — if
+you choose to revive the **archived** Kibana plugin (`archive/kibana-plugin/`, not
+built/tested/shipped by default) — where its zips can still be rebuilt manually.
 
 ### 1.1 Nature
 - **Ephemeral, isolated cloud container.** The repo is cloned fresh when the
   session starts and the container is reclaimed on inactivity. **Anything not
-  committed + pushed is lost.** Push to `claude/sharp-tesla-t73bqy`.
+  committed + pushed is lost.** Push to the active working branch (**`Testing`**
+  for day-to-day work, or the session-specific branch you were handed — check
+  `git status`/`git branch` before you push).
 - ~252 GB volume, typically **18–22 GB free** (Kibana checkouts in `/tmp` are
   large — ~6 GB each). 15 GB RAM, 4 CPUs.
 
@@ -65,10 +72,10 @@ plugin zips are built.
 
 ### 1.4 Consequences for verification
 - **Backend:** fully testable offline — `cd backend && . .venv/bin/activate &&
-  pytest -q` uses the in-memory fake ES and the mock LLM provider. **1142+ tests**
-  green (rising each harden wave — see `Journal.md` for the exact current count) is
-  the primary correctness gate (auth DEFAULT OFF, so the suite runs
-  unauthenticated). A `conftest` autouse **network guard** blocks non-loopback egress
+  pytest -q` uses the in-memory fake ES and the mock LLM provider. A fully green run
+  (see `Journal.md` for the exact current count) is the primary correctness gate
+  (auth DEFAULT OFF, so the suite runs unauthenticated). A `conftest` autouse
+  **network guard** blocks non-loopback egress
   so the new enrichment-provider tests stay deterministic and offline (opt out per
   test with `@pytest.mark.allow_network`). The **SQL state backend is tested offline
   on SQLite** (`sqlalchemy`+`aiosqlite`); `asyncpg`/`pgvector` are imported lazily,
@@ -79,17 +86,21 @@ plugin zips are built.
   ```
   The clean `tsc + vite` build (a `dist/` bundle) **is the check** here — there is
   no browser to render it in this sandbox. A dev-only **Vitest** harness
-  (`npm run test`, **181+ tests**) covers render/regression of key surfaces (Settings,
-  Demo Mode, command palette, customization, the Round-3 nav sidebar / Roles editor /
-  Models page / Metrics tabs / CaseDetail chips + trace timeline / Inbox) and runs in
-  the CI gate. **Zero new runtime deps** were added across Round 2 **or** Round 3.
-- **Plugin (legacy):** builds fully. Verify **statically**: `tsc --noEmit` clean,
-  `unzip -l` shows `target/public/tlsocAgenticTriage.plugin.js`, manifest
-  `kibanaVersion` correct, `grep -c tlsoc-backend` in the browser bundle = 0.
+  (`npm run test`; see `Journal.md` for the current spec count) covers
+  render/regression of every major surface (Settings, Demo Mode, command palette,
+  customization, the nav sidebar, Roles editor, Models page, Metrics tabs, CaseDetail
+  tabs + trace timeline, Inbox, Detection & Rules, custom dashboards, and more) and
+  runs in the CI gate. **Zero new webui runtime deps** have been added since the
+  Round-5 baseline.
+- **Plugin (archived, opt-in revival only):** still buildable manually if you
+  revive it — see `archive/kibana-plugin/BUILD.md`. Verify **statically**:
+  `tsc --noEmit` clean, `unzip -l` shows
+  `target/public/tlsocAgenticTriage.plugin.js`, manifest `kibanaVersion` correct,
+  `grep -c tlsoc-backend` in the browser bundle = 0.
 - **Live install / running stacks are NOT possible here** (no images). They are
   deploy-time steps with a checklist in `DEPLOY.md`.
 
-### 1.5 Plugin build env vars (legacy plugin only — export before bootstrap AND build)
+### 1.5 Plugin build env vars (archived plugin revival only — export before bootstrap AND build)
 ```bash
 export PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
        CYPRESS_INSTALL_BINARY=0 CHROMEDRIVER_SKIP_DOWNLOAD=true \
@@ -145,7 +156,8 @@ CA under `./certs/`) as a **read-only consumer**:
   listens on `8088`, and runs `STATE_BACKEND=elasticsearch` (own-state in
   `tlsoc-agent-*` via `ES_MGMT_API_KEY`).
 - `tlsoc-redis` (optional) — enrichment cache.
-- The legacy Kibana plugin zip installed into the existing `kibana` container.
+- The **archived** Kibana plugin's pre-built zip (`archive/kibana-plugin/dist/`)
+  installed into the existing `kibana` container.
 - Logs land in `all-logs-*` (the wizard default data view may be
   `fosstlsoc-logs-*` — confirm on the live stack and set it in Settings).
 
@@ -172,9 +184,13 @@ unprefixed backend vars, so the suite's `.env` cannot clash with the host stack'
 | `TLSOC_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `TLSOC_AWS_REGION` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION` | **Round 3** — AWS Bedrock cloud LLM (stdlib SigV4, no boto3) (optional) |
 | `TLSOC_VERTEX_PROJECT` / `_LOCATION` / `_API_KEY` | `VERTEX_PROJECT` / `VERTEX_LOCATION` / `VERTEX_API_KEY` | **Round 3** — Google Vertex cloud LLM (short-lived OAuth Bearer) (optional) |
 | `TLSOC_GREYNOISE_API_KEY` · `TLSOC_SHODAN_API_KEY` · `TLSOC_CENSYS_API_ID`/`_SECRET` · `TLSOC_BINARYEDGE_API_KEY` · `TLSOC_IPINFO_TOKEN` · `TLSOC_OTX_API_KEY` · `TLSOC_PULSEDIVE_API_KEY` · `TLSOC_SPUR_API_KEY` · `TLSOC_XFORCE_API_KEY`/`_PASSWORD` · `TLSOC_URLSCAN_API_KEY` · `TLSOC_HIBP_API_KEY` · `TLSOC_HONEYPOT_ACCESS_KEY` · `TLSOC_ABUSECH_AUTH_KEY` | the same names unprefixed | **Round 3** — the 17-provider enrichment SPI (§2.7); all optional + default-off; keyless providers (Shodan InternetDB / IPinfo Lite / abuse.ch trio / RDAP-DoH) need no key and are default-on |
+| `TLSOC_LITELLM_API_KEY` | `LITELLM_API_KEY` | **Round 9** — optional key for a self-hosted LiteLLM-proxy / vLLM / Ollama / LM Studio endpoint (the `openai_compatible` provider path). **Not forwarded by the agnostic compose today** — add a matching `- LITELLM_API_KEY=${TLSOC_LITELLM_API_KEY:-}` line to `tlsoc-backend`'s `environment:` block yourself if you need it. Also settable at runtime via the "Add local model" dialog (`POST /api/llm/models/custom`), or omit entirely for a no-auth local endpoint (falls back to `OPENAI_API_KEY`). |
 | `TLSOC_EMBEDDING_API_KEY` | `EMBEDDING_API_KEY` | embeddings (falls back to the OpenAI key) |
 | `TLSOC_REDIS_URL` | `REDIS_URL` | enrichment cache (degrades to in-memory) |
 | `TLSOC_LOG_LEVEL` | `LOG_LEVEL` | backend log level |
+| `TLSOC_SECURITY_HEADERS_ENABLED` | `SECURITY_HEADERS_ENABLED` | HTTP security headers on backend-served responses. Default **`true`** (harmless; no behavior change for existing clients). |
+| `TLSOC_RATE_LIMIT_ENABLED` | `RATE_LIMIT_ENABLED` | per-client token-bucket rate limiting. Default **`false`** so the no-auth "old version" is unchanged out of the box; enable for a hardened profile. |
+| `TLSOC_CSRF_ENABLED` | `CSRF_ENABLED` | double-submit CSRF-token enforcement on state-changing requests. Default **`false`** — the standalone webui does not yet echo the CSRF cookie on login, so enable this only for API clients that set `X-CSRF-Token` themselves (see `SECURITY.md`). |
 | `TLSOC_AUTH_ENABLED` | `AUTH_ENABLED` | **DEFAULT OFF.** `true` turns on login + 6-role RBAC + MFA/SSO and (on first run, no users) seeds **Admin / Admin@123** (super_admin). Leaving it unset preserves the no-auth "old version" + the offline test path. |
 | `TLSOC_AUTH_JWT_SECRET` | `AUTH_JWT_SECRET` | HS256 signing secret for the session/access JWTs (auto-generated per process if unset → **all sessions invalidated on restart**; set a stable 32+ byte value in prod, e.g. `openssl rand -hex 32`, so sessions survive restarts). |
 | `TLSOC_AUTH_TOKEN_HOURS` | `AUTH_TOKEN_HOURS` | session-cookie / access-token lifetime in **hours** (default `12`). NOTE: the *richer* session policy below (idle / absolute / refresh / step-up) is **UI-editable Preferences**, not env. |
@@ -240,12 +256,15 @@ analyst browser ─ webui:80 (nginx) ─ /api proxy ─ tlsoc-backend:8088
 > configured LLM + enrichment providers (or a local/vLLM gateway). Without LLM
 > egress, investigations fail safe to NEEDS_HUMAN (never dropped).
 
-### 2.6 Cloud LLM providers (Round 3 — optional, default-off)
+### 2.6 Cloud + local LLM providers (Rounds 3 & 9 — optional, default-off)
 
-The single LLM gateway (`llm/gateway.py`, #6 — one ledger write per call) is now
-provider-agnostic. `anthropic` + `openai` remain the default; Round 3 added three
-first-class cloud providers plus any OpenAI-compatible endpoint, all keyed via env
-and all **default-off** (no behavior change unless you wire a model to one in
+The single LLM gateway (`llm/gateway.py`, #6 — one ledger write per call) is
+provider-agnostic across **7 providers**: `anthropic`, `openai`, `azure`,
+`bedrock`, `vertex`, `openai_compatible`, `mock` (offline tests only). `anthropic` +
+`openai` remain the default; Round 3 added three first-class cloud providers plus
+any OpenAI-compatible endpoint, and Round 9 added a first-class **local / self-hosted
+LiteLLM-compatible** provider on that same `openai_compatible` path — all keyed via
+env and all **default-off** (no behavior change unless you wire a model to one in
 **Settings → Models**). Keys are booleans in the UI (`configured ✓`), never values.
 
 | Provider | Backend env | Notes |
@@ -254,6 +273,7 @@ and all **default-off** (no behavior change unless you wire a model to one in
 | **AWS Bedrock** | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` | the gateway signs requests with a **stdlib SigV4** ladder (the same HMAC pattern as the SES email preset) — **no `boto3` dependency** |
 | **Google Vertex** | `VERTEX_PROJECT`, `VERTEX_LOCATION` (e.g. `us-central1`), `VERTEX_API_KEY` | `VERTEX_API_KEY` is a **short-lived OAuth access token** carried as a Bearer (mint with your own credential flow / `gcloud auth print-access-token`) |
 | **OpenAI-compatible** (vLLM / Ollama / OpenRouter / Together / Groq) | reuses `OPENAI_API_KEY` | no new key — set the model's **`base_url`** (+ optional `api_version`/`region`) in Settings → Models; one generalized client class drives them all |
+| **Local / self-hosted (LiteLLM-compatible, Round 9)** | `LITELLM_API_KEY` (optional; falls back to `OPENAI_API_KEY`, or omit for a no-auth endpoint) | register via **Settings → Models → "Add local model"** (`POST/DELETE /api/llm/models/custom`); $0 pricing by default; a non-metered `POST /api/llm/providers/test` probes the endpoint without billing the ledger; see §2.3 for the three secret-supply paths |
 
 A bundled `llm/model_registry.json` carries context-window / max-output / modality /
 capability + input/output/cache pricing for the catalog; operators override prices

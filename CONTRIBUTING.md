@@ -5,10 +5,12 @@ How to work on the **Agentic SOC Triage Suite** (vendor-agnostic). Read
 non-negotiables, environment, and the Journal mandate). This file is the practical
 workflow that sits on top of it.
 
-> **Surfaces.** The standalone web UI (`webui/`, Vite + React + EUI) is the
-> **primary** UI; the Kibana plugin (`plugin/tlsoc_agentic_triage/`) is **legacy**.
-> The backend (`backend/`) is OCSF-canonical with a pluggable connector layer and a
-> selectable state backend (ES / Postgres / SQLite).
+> **Surfaces.** The standalone web UI (`webui/`, Vite + React + Tailwind +
+> shadcn-style primitives on Radix UI) is the **sole primary** UI; the Kibana
+> plugin (`archive/kibana-plugin/tlsoc_agentic_triage/`) is **ARCHIVED** (frozen
+> 2026-06-21, not built/tested/shipped — see §3b). The backend (`backend/`) is
+> OCSF-canonical with a pluggable connector layer and a selectable state backend
+> (ES / Postgres / SQLite).
 
 > The build/dev environment is an **ephemeral** cloud container: the repo is
 > cloned fresh and reclaimed on inactivity. **Commit + push or it is lost.**
@@ -16,13 +18,9 @@ workflow that sits on top of it.
 
 ## 1. Branch, commits, and the Journal mandate
 
-- **Branch:** `claude/sharp-tesla-t73bqy`. Commit focused changes; push often.
-- **Commit / PR trailer** (every commit and PR body):
-
-  ```
-  https://claude.ai/code/session_01JxMk6xXxXEgQ1JKUnD7EF6
-  ```
-
+- **Branch:** `Testing` is the active development branch — every shipped round
+  lands here (see [`CLAUDE.md`](CLAUDE.md) §10 for the current round and
+  status). Commit focused changes; push when asked.
 - **The Journal mandate (non-negotiable process rule).** Every agent (and the
   orchestrator) **MUST** append an entry to [`Journal.md`](Journal.md) at the
   start and end of any session, and after any meaningful milestone (a feature
@@ -62,17 +60,22 @@ green and **add/keep offline tests** for any behaviour you touch.
 
 ## 3. Web UI (`webui/`) — the primary frontend
 
-A standalone Vite + React + `@elastic/eui` SPA that talks to the backend directly
-over `/api/*` (see `webui/README.md`).
+A standalone Vite + React + TypeScript + Tailwind CSS SPA with shadcn-style
+primitives on Radix UI, talking to the backend directly over `/api/*` (see
+`webui/README.md`). **Not** `@elastic/eui` — EUI was fully removed in the UI
+overhaul.
 
 ### 3.1 Conventions
 
 - **No Kibana / `@kbn/*` imports** — this is a self-contained npm project, so new
-  dependencies **are** allowed here (unlike the plugin). Use **EUI**; functional
-  components + hooks.
-- **Reuse `ConnectorForm`** (`src/components/common/`) for anything that renders an
-  `AuthField[]` — it turns a connector manifest into a validated form, so a new
-  source needs zero bespoke UI.
+  dependencies **are** allowed here (unlike the archived plugin). Compose the
+  shared design system rather than re-rolling it: low-level primitives live in
+  `src/ui/*` (shadcn-style wrappers on Radix — wrap, don't fork), SOC-domain
+  components in `src/soc/components/*`; functional components + hooks
+  throughout.
+- **Reuse `SourceEditor`** (`src/soc/components/SourceEditor.tsx`) for anything
+  that renders an `AuthField[]` — it turns a connector manifest into a validated
+  form, so a new source needs zero bespoke UI.
 - **Typed API client.** Route all calls through `src/lib/api.ts` (non-2xx →
   `ApiError` carrying the backend `detail`).
 
@@ -86,36 +89,18 @@ npm run build        # tsc --noEmit + vite build -> dist/  (MUST stay clean)
 npm run typecheck    # type check only
 ```
 
-## 3b. Legacy Kibana plugin (`plugin/tlsoc_agentic_triage/`)
+## 3b. Archived Kibana plugin (`archive/kibana-plugin/`)
 
-> The plugin is **legacy** (superseded by `webui/`). Touch it only for legacy
-> deployments; the rules below still apply if you do.
-
-### Conventions
-
-- **`@kbn/*` import aliases**, never deep relative platform paths — they move
-  between Kibana versions (`COMPATIBILITY.md`; `CLAUDE.md` §8).
-- **NO new npm deps.** Only monorepo packages are available; adding a dependency
-  breaks the build. Use **EUI** for all UI; functional components + hooks.
-- **Backend ↔ plugin contract.** Additive request/response JSON fields are safe
-  — the Kibana proxy forwards arbitrary JSON, so additive fields need **no proxy
-  change** (`CLAUDE.md` §3). **Keep `common/index.ts` types in sync with
-  `backend/app/models.py`** whenever a contract changes.
-
-### Build & verify
-
-Build per [`plugin/BUILD.md`](plugin/BUILD.md) (the authoritative recipe, both
-versions). New builds **MUST** produce `plugin/dist/tlsocAgenticTriage-8.19.12.zip`
-(`CLAUDE.md` §2). Triple-verify statically (live install is a deploy step,
-`docs/ENVIRONMENT.md` §1.4):
-
-```bash
-tsc --noEmit                                                   # clean
-unzip -l build/*.zip | grep tlsocAgenticTriage.plugin.js       # bundle present
-unzip -p <zip> kibana/tlsocAgenticTriage/kibana.json | grep kibanaVersion   # correct version
-# no-leak: the backend URL must NOT appear in the browser bundle
-grep -c tlsoc-backend <browser-bundle>                         # == 0
-```
+> **ARCHIVED (frozen 2026-06-21) — not built, tested, or shipped.** The
+> standalone `webui/` is the sole primary surface; **do not develop the
+> plugin.** If a deployment genuinely needs the console embedded inside an
+> existing Kibana, reviving it is a do-it-yourself exercise — see
+> [`archive/README.md`](archive/README.md) for what that involves and
+> [`archive/kibana-plugin/BUILD.md`](archive/kibana-plugin/BUILD.md) for the
+> original build recipe (both Kibana versions, `@kbn/*` aliasing, manifest
+> quirks, verification steps). The backend API contract is additive-only, so
+> the plugin's old server-side proxy would still work in principle without a
+> backend change — see `COMPATIBILITY.md` §F.
 
 ## 4. Repo layout & extension points
 
@@ -135,8 +120,15 @@ backend/app/
                 the ES stores back STATE_BACKEND=elasticsearch.
   engine/ agents/ tools/ llm/   correlation/risk/case-manager, the ReAct agents,
                 MCP-shaped tools, and the single cost-ledger gateway.
-  api/routes.py the HTTP contract (connectors, sources, ingest, analytics).
-webui/          the standalone SPA (primary UI). plugin/  the legacy Kibana plugin.
+  api/          the HTTP contract. routes.py is the base router (setup, health,
+                core case/audit CRUD); every self-contained feature (rules,
+                dashboards, metrics, notifications, RAG, search, roles, tuning,
+                campaigns, baseline, batch, reset, setup, …) lives in its own
+                `routes_<feature>.py` module and is **auto-discovered** at boot
+                (`main.py::discover_feature_routers()` walks `app.api.routes_*`
+                for a top-level `router: APIRouter` — no manual registration).
+webui/          the standalone SPA (sole primary UI).
+archive/kibana-plugin/   the ARCHIVED Kibana plugin — do not develop it (§3b).
 ```
 
 Each extension point is small and deterministic by design. Whatever you add,
@@ -151,10 +143,13 @@ Each extension point is small and deterministic by design. Whatever you add,
   `config.py:Preferences` wired into `model_for(...)`, and call it through the
   **single gateway** (`llm/gateway.py`) — never a provider directly, so the cost
   ledger stays complete (non-negotiable #6).
-- **A new surface** — add a backend route in `api/routes.py` (return
-  `model_dump(mode="json")`), then the matching web UI component + `webui/src/lib/api.ts`
-  call. (Keep `plugin/common/index.ts` in sync only if you also touch the legacy
-  plugin.)
+- **A new surface** — add a backend route in `api/routes.py`, or a new
+  `app/api/routes_<feature>.py` module for a self-contained feature (it is
+  auto-discovered, see §4 above); return `model_dump(mode="json")`. Then add the
+  matching web UI component, a `webui/src/lib/api.ts` call, and **keep
+  `webui/src/lib/types.ts` in sync with `backend/app/models.py`** for the new
+  response/request shape. (The archived plugin's `common/index.ts` is frozen —
+  no need to touch it.)
 - **A new Preference** — add the field (with a working default) to
   `config.py:Preferences`. It **round-trips automatically** through
   `GET`/`PUT /api/settings` (the deep-merge + `Preferences.model_validate` in
@@ -212,8 +207,8 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
   to sub-agents. Give each the exact files, interfaces, acceptance criteria, and
   "run `pytest`/`tsc` until green" (`CLAUDE.md` §9).
 - **Sequence** agents that touch shared files (`models.py`, `config.py`,
-  `routes.py`, plugin `app.tsx`) to avoid edit conflicts; **parallelize** only
-  non-overlapping work.
+  `routes.py`, `webui/src/soc/registry.tsx`) to avoid edit conflicts;
+  **parallelize** only non-overlapping work.
 - Every sub-agent ends its report with a **Journal entry** for the orchestrator
   to append (sub-agents don't commit). The orchestrator owns cross-cutting
   contracts and integration, runs the final build + tests, commits, pushes, and
@@ -223,16 +218,15 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 ## 6. Pre-commit checklist (every change)
 
 - [ ] `pytest -q` green (backend, offline).
-- [ ] `webui`: `npm run build` clean (if the web UI changed).
+- [ ] `webui` (if changed): `npm run build` clean, `npx vitest run` green,
+      `npm run lint` 0 errors.
 - [ ] New connector: manifest + OCSF mapping + registration + lazy deps + offline
       tests (if you added one).
-- [ ] Legacy plugin (only if touched): `tsc --noEmit` clean; 8.19.12 zip rebuilt +
-      verified; `common/index.ts` in sync with `models.py`.
 - [ ] No secret in git / state store / logs; UI shows booleans only.
 - [ ] None of the 12 non-negotiables regressed.
 - [ ] Companion docs updated (USAGE / TROUBLESHOOTING / RUNBOOK / SECURITY /
       webui/README / DEPLOY / README as relevant).
-- [ ] **`Journal.md` updated**; commit carries the session trailer.
+- [ ] **`Journal.md` updated**.
 
 ---
 

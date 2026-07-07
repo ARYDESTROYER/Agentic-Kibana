@@ -5,8 +5,8 @@ was built next to the original TrustLab / IIT Bombay ELK pipeline and still slot
 into it cleanly as a **read-only consumer**, but it is no longer tied to that one
 stack: log sources are pluggable connectors, the canonical internal schema is
 **OCSF**, the suite's own state runs on a **selectable backend** (Elasticsearch,
-PostgreSQL+pgvector, or SQLite), and the primary surface is now a **standalone
-web UI** (the Kibana plugin is kept as a legacy/optional surface).
+PostgreSQL+pgvector, or SQLite), and the **sole primary surface** is a
+**standalone web UI** (the Kibana plugin is **archived** — see §F).
 
 This document is the compatibility matrix: what each piece needs, what is
 supported today, and which upstream-compatibility guarantees still hold.
@@ -115,10 +115,10 @@ is shared (`receivers/formats.py`); records are normalised to OCSF via
 | Component | Requirement |
 |---|---|
 | Backend | **Python 3.11**; FastAPI + LangGraph; deps pinned in `backend/requirements.txt` (`sqlalchemy`/`aiosqlite`/`asyncpg`/`pgvector` added for the SQL backends) |
-| Standalone web UI | **Node 22**; Vite + React 18 + TypeScript + **@elastic/eui 95** (`@elastic/eui` 95.12.0); builds with `tsc --noEmit && vite build`; **no Kibana** required |
-| Kibana plugin (legacy) | Kibana **8.12.2** and **8.19.12** (see §F) |
-| LLM providers | **Anthropic** and **OpenAI** through the single gateway (`mock` provider for offline tests); embeddings default to OpenAI |
-| Enrichment | AbuseIPDB + VirusTotal (Redis-cached; degrades to in-memory) |
+| Standalone web UI | **Node 22**; Vite + React 18 + TypeScript + **Tailwind CSS** + shadcn-style primitives on **Radix UI** (**not** `@elastic/eui` — fully removed); builds with `tsc --noEmit && vite build`; **no Kibana** required |
+| Kibana plugin | **ARCHIVED** (`archive/kibana-plugin/`, frozen 2026-06-21) — not built, tested, or shipped; last built for Kibana **8.12.2** and **8.19.12** (see §F) |
+| LLM providers | **7**, all through the single gateway: `anthropic`, `openai`, `azure`, `bedrock`, `vertex`, `openai_compatible` (self-hosted LiteLLM/vLLM/Ollama/LM Studio), `mock` (offline tests only); embeddings default to OpenAI |
+| Enrichment | **19 registered providers** across 17 files — AbuseIPDB, VirusTotal, GreyNoise, Shodan, Shodan InternetDB, Censys, BinaryEdge, IPinfo, OTX, Pulsedive, Spur, XForce, URLScan, HIBP, ProjectHoneypot, RDAP, URLhaus, ThreatFox, MalwareBazaar (Redis-cached; degrades to in-memory); several keyless ones default ON |
 
 ---
 
@@ -127,33 +127,33 @@ is shared (`receivers/formats.py`); records are normalised to OCSF via
 | Stack | File | Brings up | When |
 |---|---|---|---|
 | Agnostic (recommended) | `deploy/docker-compose.agnostic.yml` | Postgres+pgvector, Redis, backend (`STATE_BACKEND=postgres`), standalone webui (nginx) | Self-hosted; **no Elasticsearch for the app's own state**. Connect your SIEM/EDR from the wizard. |
-| Legacy ELK merge | `deploy/docker-compose.tlsoc.yml` | `tlsoc-backend` (+ optional `tlsoc-redis`) joined to the existing ELK stack; plugin zip dropped into the existing Kibana | Attaching to an existing `TLSOCDockerDeploy` ELK stack as a read-only consumer. |
+| Legacy ELK merge | `deploy/docker-compose.tlsoc.yml` | `tlsoc-backend` (+ optional `tlsoc-redis`) joined to the existing ELK stack | Attaching to an existing `TLSOCDockerDeploy` ELK stack as a read-only consumer. The standalone webui remains the surface (deployed separately or via the agnostic webui image) — the Kibana plugin is **archived**, not part of this flow (see §F). |
 
 ---
 
-## F. Kibana plugin — LEGACY, still supported
+## F. Kibana plugin — ARCHIVED, not built or shipped
 
-The standalone web UI is the **primary** surface. The Kibana plugin
-(`plugin/`) is retained for sites that want the console embedded in an existing
-Kibana, and **still builds** for **Kibana 8.12.2 and 8.19.12** as two committed,
-pre-built zips (`plugin/dist/tlsocAgenticTriage-8.12.2.zip` and `-8.19.12.zip`).
-Install the one matching the running Kibana — the installer rejects a mismatch.
+The standalone web UI is the **sole primary** surface. The Kibana plugin that
+used to embed the console inside an existing Kibana was retired into
+[`archive/kibana-plugin/`](archive/kibana-plugin/) on 2026-06-21 when the suite
+completed its vendor-agnostic transition (see
+[`archive/README.md`](archive/README.md)). It is **frozen**: not built, tested,
+or shipped by any current tooling — do not develop it.
 
-Portability from a **single source tree** (not a fork):
+While it was live it built from a **single source tree** for two Kibana
+versions — **8.12.2** and **8.19.12** — as two pre-built zips
+(`tlsocAgenticTriage-8.12.2.zip` / `-8.19.12.zip`), portable via `@kbn/*` import
+aliases (the 8.12 → 8.19 delta was import paths only, no EUI/logic/contract
+change) and a `--kibana-version` build stamp. The full recipe (version matrix,
+manifest quirks, verification steps) is preserved at
+[`archive/kibana-plugin/BUILD.md`](archive/kibana-plugin/BUILD.md).
 
-- **`@kbn/*` import aliases** (`@kbn/core/*`, `@kbn/navigation-plugin/public`,
-  `@kbn/data-plugin/public`, `@kbn/data-views-plugin/public`,
-  `@kbn/share-plugin/public`) resolve in both versions even though 8.19 relocated
-  several plugins to `src/platform/plugins/shared`. The 8.12 → 8.19 delta was
-  **import paths only** — no EUI/logic/contract change.
-- **`--kibana-version` stamping** — one source produces both artifacts; the build
-  stamps the target version into the zip manifest.
-- **Legacy `kibana.json` manifest on both.** (A `kibana.jsonc` package manifest
-  exists for forward-compat reference only and is **not** used by the build — 8.19's
-  `plugin_helpers build` rejects package plugins.) See `plugin/BUILD.md`.
-
-The plugin remains a thin viewer that talks to Kibana only (the server-side proxy
-at `/api/tlsoc/*`); the backend and its API contract are identical across versions.
+**If a deployment genuinely needs the embedded-in-Kibana experience again:** the
+backend API contract is unchanged and additive-only, so the plugin's
+server-side proxy (`/api/tlsoc/*`) still works in principle — reviving it is a
+do-it-yourself exercise (move it back under a build root, re-pin it against the
+target Kibana's `@kbn/*` packages, rebuild per `BUILD.md`). The standalone
+`webui/` is the supported path.
 
 ---
 
@@ -201,4 +201,5 @@ at runtime** (non-negotiable #1).
 - Does **not** use `kibana_system` or the `elastic` superuser at runtime.
 - Does **not** add a Kafka consumer to the upstream path or any new upstream
   ingestion (push/queue receivers are the suite's OWN inbound surface, separate).
-- Does **not** compile the plugin on the SIEM server (pre-built zip only).
+- Does **not** compile the archived Kibana plugin on the SIEM server, if ever
+  revived (pre-built zip only, §F).

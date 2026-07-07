@@ -8,10 +8,13 @@ runbook is selected by a fuzzy keyword/rule score, a playbook is selected by an
 **explicit, auditable match contract**.
 
 > **Playbooks can only RECOMMEND.** A playbook never closes, escalates, or sets a
-> verdict on its own. Deterministic code (`engine/case_manager.py`) and operator
-> settings make every close/escalate decision — a `TRUE_POSITIVE` is never
-> auto-closed (non-negotiable #3). `escalate_if` and `suggested_verdict_bias` are
-> *hints for the investigator*, not actions.
+> verdict on its own — only deterministic code (`engine/case_manager.py`'s
+> `decide()`) against the operator-configured `AutoClosePolicy` can do that
+> (non-negotiable #3). FALSE_POSITIVE auto-close is on by default above a
+> confidence/risk bar; TRUE_POSITIVE auto-close is a real, opt-in (off by default)
+> policy knob; only NEEDS_HUMAN never auto-closes. A playbook's `escalate_if` and
+> `suggested_verdict_bias` are *hints for the investigator*, not actions, and can
+> never override that policy.
 
 Each file has two parts: a **front-matter manifest** (between the `---` fences) and
 a free-text **Markdown body** (your operator procedure). The body is injected as
@@ -102,17 +105,56 @@ When nothing matches, selection returns `(None, "no_playbook_matched")`.
 
 ## Real rule ids in this repo's catalog
 
-Use these when authoring `match.rule_ids`:
+Use these when authoring `match.rule_ids`. This is the full, live set generated
+from the default rule catalog (`backend/app/config.py`,
+`_REAL_EVENT_MODULES` + `_MODSEC_SUBRULES`) — 13 `event.module` rules plus 5
+ModSecurity sub-rules, 18 real ids total:
 
-`mail_auth`, `waf_auth`, `web_auth`, `roundcube_login`, `postfix`,
-`modsec_sqli`, `modsec_xss`, `suricata_mail`, `openvas_report`.
+**`event.module` rules** (priority 100):
+`mail_apache_access`, `mail_auth`, `mail_fim`, `ml_stats`, `modsec_audit_log`,
+`openvas_report`, `postfix`, `roundcube_login`, `suricata_mail`,
+`waf-nginx-access`, `waf_auth`, `web_apache_access`, `web_auth`.
 
-## Loading & reload
+**ModSecurity OWASP CRS sub-rules** (`rule.id` prefix match, priority 50 — these
+classify before the generic `modsec_audit_log` rule above):
+`modsec_xss` (941xxx), `modsec_sqli` (942xxx), `modsec_lfi` (930xxx),
+`modsec_rce` (932xxx), `modsec_scanner` (913xxx).
 
-Playbooks live in this directory as `*.md` files. They are loaded in sorted order;
-an invalid file is **skipped** (logged) and never breaks the rest. The registry
-reloads **atomically** (validate-then-swap) so a broken edit can never replace a
-known-good live set.
+Operators can edit, disable, or extend this catalog freely — nothing here is
+hardcoded beyond seeding these real detections.
+
+## Shipped playbooks in this directory
+
+| File / `id` | Name | Priority | Scope (`rule_ids` / `entity_types`) |
+|---|---|---|---|
+| `brute_force_login.md` | Brute-force / password-spray login | 50 | `mail_auth, waf_auth, web_auth, roundcube_login, postfix` / `ip, user, host` |
+| `phishing_reported_email.md` | Reported phishing email | 45 | `postfix, roundcube_login, mail_auth, mail_apache_access, suricata_mail` / `user, ip` |
+| `suspicious_outbound_connection.md` | Suspicious outbound / beacon-like connection | 40 | `suricata_mail, ml_stats` / `ip, host` |
+
+Each also carries `mitre` (T1110/T1078, T1566, T1071 respectively) and
+`any_tags` hints — see each file's front matter for the full match contract and
+its Markdown body for the phased investigation procedure.
+
+## API + configuration
+
+- `GET /api/playbooks` — list the loaded catalog (id/name/version/priority/
+  description/match summary).
+- `POST /api/playbooks/reload` — atomically re-read this directory and hot-swap
+  the live registry (validate-then-swap; a broken file never replaces a
+  known-good set).
+- `GET /api/playbooks/selection/{case_id}` — show which playbook (if any) was
+  selected for a given case and why.
+- **`Preferences.playbooks.dir`** overrides the default location (this
+  directory, `backend/playbooks/`) if you want to point at an operator-owned
+  playbook directory instead. `Preferences.playbooks.enabled` (default `true`)
+  turns the whole system off if you never want playbook injection.
+
+## Loading order
+
+Playbooks live in this directory (or the `Preferences.playbooks.dir` override) as
+`*.md` files, loaded in sorted order at boot and on every
+`POST /api/playbooks/reload`. An invalid file is **skipped** (logged) and never
+breaks the rest.
 
 > **Selection note — `mitre` / `any_tags` are advisory, not hard filters.** A
 > cluster carries no MITRE techniques or tags at *selection* time (those come from

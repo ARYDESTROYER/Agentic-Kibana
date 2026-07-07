@@ -14,12 +14,12 @@ Kibana and talked to the backend **only** through a Kibana server-side proxy
 (`server/routes/index.ts` → `${backendUrl}/api/{path}`).
 
 It was moved here when the suite completed its **vendor-agnostic transition**:
-the standalone **web UI** (`webui/`, Vite + React + @elastic/eui, served by nginx
-with its own `/api` proxy) is now the single primary surface, and the suite no
-longer assumes Elastic/Kibana is present at all (state can run on
-Elasticsearch **or** PostgreSQL+pgvector **or** SQLite; log sources are pluggable
-connectors). Maintaining a second EUI frontend against moving `@kbn/*` platform
-APIs was pure tax for a path almost no one uses.
+the standalone **web UI** (`webui/`, Vite + React + TypeScript + Tailwind CSS +
+shadcn-style primitives on Radix UI, served by nginx with its own `/api` proxy)
+is now the single primary surface, and the suite no longer assumes Elastic/Kibana
+is present at all (state can run on Elasticsearch **or** PostgreSQL+pgvector **or**
+SQLite; log sources are pluggable connectors). Maintaining a second frontend
+against moving `@kbn/*` platform APIs was pure tax for a path almost no one uses.
 
 What's preserved here:
 - `kibana-plugin/tlsoc_agentic_triage/` — the full plugin source (public + server + common).

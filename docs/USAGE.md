@@ -2,22 +2,23 @@
 
 A deep, example-driven guide to operating the suite once it is deployed (see
 `DEPLOY.md`) and the standalone web UI is up. Everything here maps 1:1 to the
-shipped UI and the backend API contract (`backend/app/api/routes.py`).
+shipped UI (`webui/src/soc/`) and the backend API contract (`backend/app/api/`).
 
 > **The standalone web UI is the primary surface.** It is a self-hosted SPA
-> (Vite + React + **Tailwind + shadcn**, in `webui/`) that talks to the FastAPI
-> backend **directly** over `/api/*` (proxied by nginx in production). The old
-> Kibana plugin (`archive/kibana-plugin/`) is **archived/legacy**; this document
-> describes the standalone UI.
+> (Vite + React + TypeScript + Tailwind + shadcn-style primitives on Radix UI, in
+> `webui/`) that talks to the FastAPI backend **directly** over `/api/*` (proxied
+> by nginx in production). The old Kibana plugin (`archive/kibana-plugin/`) is
+> **archived** (frozen, not built/tested/shipped); this document describes the
+> standalone UI only.
 >
 > **New here?** Start with **[`docs/HANDOFF.md`](HANDOFF.md)** for the
 > orientation map (what's where, the green baseline, how to run it), then come
 > back here for the feature-by-feature how-to.
 
 The suite is **vendor-agnostic**: it ingests from any number of configured
-**sources** (pull connectors like Elasticsearch / OpenSearch / Wazuh, or push
-receivers like webhook / HEC / syslog / Kafka / SQS / …), normalises every event
-to **OCSF** (`backend/app/ocsf/`), and runs the same correlate → risk →
+**sources** (pull connectors — Elasticsearch / OpenSearch / Wazuh — or push
+receivers — webhook / HEC / syslog / Kafka / SQS / …), normalises every event to
+**OCSF** (`backend/app/ocsf/`), and runs the same correlate → risk →
 two-tier-LLM → deterministic-case-manager pipeline regardless of where the alert
 came from.
 
@@ -37,65 +38,54 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build
 ```
 
 On first load the UI checks `GET /api/setup/status`; if `setup_complete` is
-`false` it shows the **first-run wizard** instead of the console. After setup the
-console exposes these surfaces:
+`false` it shows the **first-run wizard** instead of the console. After setup, the
+left rail (`webui/src/soc/registry.tsx`, the single `FEATURES[]` table that derives
+the nav, the routes, and the Cmd-K command palette from one place) groups every
+surface into **six top-level nav groups**:
 
-| Surface | What it does |
+| Group | What lives there |
 |---|---|
-| **Sources** | Add / edit / test / delete log sources (pull + push); per-feed config; mark one primary |
-| **Cases** | Browse cases; open case detail + lifecycle; bulk actions; saved views |
-| **Chat** | Ask read-only questions; get a two-turn analysis + result table |
-| **Investigate** | Investigate an IP/user/host into a verdict card (a tab alongside Chat) |
-| **Scans** | The auto-investigation queue |
-| **Standup** | Aggregate-then-summarise daily report (a panel on Overview) |
-| **Cost** | Today's spend, tokens, call count, top cost drivers (a tab under Analytics) |
-| **Settings** | Two-scope IA (Personal Account / Organization): profile, sessions, prefs, sources, models, security, notifications, branding, demo, admin |
+| **Overview** | Dashboard (the Security Command Center), Dashboards (custom, §21), Standup (§7) — each a full page |
+| **Triage** | Cases (§3), Campaigns (§16), Logs (a unified cross-source log browser, §2a), Workspace → **Chat** (§5) and **Investigate** (§4) as left-nav children, Automated scans (§6), Approvals |
+| **Intelligence** | Knowledge (§9), Memory (§10), Playbooks |
+| **Analytics** | Metrics, Cost (§8), Models (§22), Baseline (§17), Batch jobs (§22) |
+| **Notifications** | Inbox (the in-app notification inbox, §23) |
+| **Platform** | Sources (§2, standalone — not inside Settings), Audit log (§32), Auto-tuning (§15), Settings (§25, with Users and Roles as children) |
 
-> **Top-level nav (Wave 4 consolidation).** The left rail is grouped into ≤5
-> areas (Overview / Triage / Intelligence / Analytics / Admin). Investigate is a
-> segmented control on the Chat scaffold (one chat engine), Cost is a tab under
-> Metrics, and Standup is a panel on Overview. The analytics surfaces call their
-> endpoints directly; every backend endpoint is also usable via `curl` (Section 9).
-
-> **Round 2 features.** This release adds account self-service + a redesigned
-> login (§12), session management + a token policy (§13), the consolidated
-> Settings IA (§14), **Demo Mode** (§15), per-source **feeds** (§16), Resend/SES
-> email + customizable templates (§17), per-user customization — saved views,
-> table columns, terminology, theme (§18), and the **Cmd-K command palette +
-> global search + bulk case actions + the audit viewer** (§19). Auth must be
-> enabled (§8h) for the account/session features to be reachable.
+Every analytics/triage surface calls its backend endpoints directly; every
+endpoint below is also usable via `curl` (§33). RBAC (`<Can>` guards) hides an
+item a signed-in user's role can't reach; with auth off, everything shows.
 
 ---
 
-## 1. First-run wizard (5 steps)
+## 1. First-run wizard (4 steps)
 
-The wizard (`webui/src/components/Wizard/`) is a five-step flow that collects
-every key, value, and input the backend exposes. It shows automatically when
-`GET /api/setup/status` reports `setup_complete: false`, and is re-runnable from
-**Settings**.
+The wizard (`webui/src/soc/pages/Wizard.tsx`) is a focused four-step flow. It
+shows automatically when `GET /api/setup/status` reports `setup_complete: false`,
+and is re-runnable from **Settings**.
 
-### Step 1 — Welcome / deployment
+### Step 1 — Welcome
 
-Name the deployment and optionally toggle a non-destructive **Demo mode**.
+Name the deployment and optionally toggle a non-destructive **Demo Mode** (§29).
 
-### Step 2 — Add your first source
+### Step 2 — Sources
 
-This is the heart of the vendor-agnostic design. The wizard lists every available
-connector from `GET /api/connectors` (grouped by category: `siem`, `edr_xdr`,
-`transport`, `queue`, `object_store`, `file`). Pick one and the wizard renders a
-**dynamic form** from that connector's `auth_fields` + `config_fields` (no
-per-connector UI code — `ConnectorForm` turns the manifest into a validated
-form).
+This is the heart of the vendor-agnostic design. The step embeds the same
+manifest-driven **`SourceEditor`** the standalone Sources page uses (§2) — no
+per-connector UI code. Pick a connector from `GET /api/connectors` (grouped by
+category: `siem`, `edr_xdr`, `transport`, `queue`, `object_store`, `file`) and the
+editor renders a validated form from that connector's `auth_fields` +
+`config_fields`.
 
 - **Pull sources** (Elasticsearch / OpenSearch / Wazuh): supply the cluster URL,
-  a **read-only** API key, optional CA cert, and the **per-source field mapping**
+  a **read-only** API key, an optional CA cert, and the **field mapping**
   (`data_view_pattern`, `time_field`, `source_ip_field`, `user_field`,
   `host_field`, `rule_field`, `rule_name_field`, `severity_field`). Defaults match
   ECS (`source.ip` / `user.name` / `host.name` / `event.module` / `@timestamp`).
-- **Push sources** (webhook / HEC / syslog / Kafka / SQS / Kinesis / Event Hub /
-  Pub/Sub / RabbitMQ / NATS / MQTT / Redis Streams / S3 / GCS / Azure Blob /
-  file): supply the transport's auth + config (e.g. a webhook `auth_mode` +
-  `token`, or a syslog `bind_host` / `port` / `protocol`).
+- **Push sources** (webhook / HEC / syslog / Kafka / Kinesis / Event Hub / Pub/Sub
+  / RabbitMQ / NATS / MQTT / Redis Streams / S3 / GCS / Azure Blob / file): supply
+  the transport's auth + config (e.g. a webhook `auth_mode` + `token`, or a
+  syslog `bind_host` / `port` / `protocol`).
 
 **Test the connection** (`POST /api/connectors/test`) before saving. Saving sends
 secret fields to the secret tier (`POST /api/setup/secrets` for the primary
@@ -103,59 +93,72 @@ source's keys, or `POST /api/sources/{id}/secrets` per-source) and the
 non-secret config to `POST /api/sources`. You can add multiple sources and mark
 one **primary** (the agent's main read surface).
 
-### Step 3 — LLM providers
+### Step 3 — Provider keys
 
-Paste an **Anthropic** and/or **OpenAI** key and pick the per-role models (router
-/ investigator / formatter / standup / chat / overview / embedding) from
-`GET /api/models`. Defaults: investigator `claude-sonnet-4-6`, router/formatter/
-standup/chat/overview `claude-haiku-4-5-20251001`, embeddings OpenAI
-`text-embedding-3-small` (falls back to local hashing embeddings if no embedding
-key is set).
+Paste an **Anthropic** and/or **OpenAI** key (or point at a self-hosted
+OpenAI-compatible endpoint — see §22's local/LiteLLM provider) and pick the
+per-role models (router / investigator / formatter / standup / chat / overview /
+embedding) from `GET /api/models`. Defaults: investigator `claude-sonnet-4-6`,
+router/formatter/standup/chat/overview `claude-haiku-4-5-20251001`, embeddings
+OpenAI `text-embedding-3-small` (falls back to local hashing embeddings if no
+embedding key is set).
 
-### Step 4 — Enrichment & detection
-
-Optional **AbuseIPDB** / **VirusTotal** keys, correlation defaults, risk weights,
-the auto-forward allowlist, and the kill switch.
-
-### Step 5 — Review & finish
+### Step 4 — Review & finish
 
 A summary, then **Finish** → `POST /api/setup/complete`. That flips
 `setup_complete=true`, starts the poller (if `polling_enabled`), and starts any
 background push receivers for enabled sources. The console replaces the wizard.
+(Correlation defaults, risk weights, the auto-forward allowlist, the kill switch,
+and enrichment keys are all editable afterward in **Settings** — see §25 — rather
+than as a dedicated wizard step.)
 
 ---
 
 ## 2. Managing sources (day-to-day)
 
-The **Sources** screen (`webui/src/components/Sources/`) lists every configured
-source and lets you add / edit / test / delete and set the primary — reusing the
-wizard's `ConnectorForm`. Behind it:
+**Sources** is a standalone top-level **Platform** nav page (`webui/src/soc/pages/
+Sources.tsx`) — not nested inside Settings. It presents every configured source as
+a dense, sortable, QRadar-style **`DataTable`** (`webui/src/soc/components/
+DataTable.tsx`), the same shape as a "Log Source Management" console: a toolbar
+(faceted filter + free-text search + a live "Log Sources (N)" count + a prominent
+**"+ New Log Source"** + a manage-columns gear), multi-row **bulk-select** with an
+Enable / Disable / Remove strip, and per-row **Status** dot, **Last Event**, an
+inline **Enabled** toggle, and a kebab menu (Browse logs · Make primary · Edit ·
+Remove).
+
+**Status** and **Last Event** are derived, honestly, from `GET /api/sources/health`
+— the durable poll cursor age for a PULL source, the live-tail buffer depth for a
+PUSH receiver. Add/Edit open the manifest-driven **`SourceEditor`** in a dialog
+(the same form the wizard uses, §1); **Browse** opens the **`SourceLogsSheet`**
+(§2a).
 
 | Action | Endpoint |
 |---|---|
 | List configured sources | `GET /api/sources` |
+| Per-source health (status + last event, feeds the table) | `GET /api/sources/health` |
 | List available connectors (+ field schema) | `GET /api/connectors`, `GET /api/connectors/{source_type}` |
 | Add / update a source | `POST /api/sources` |
 | Set / clear a per-source secret | `POST /api/sources/{id}/secrets` |
 | Test connectivity | `POST /api/connectors/test` |
-| Browse a source's recent logs | `GET /api/sources/{id}/logs?limit=&query=&from=&to=` (see §2b) |
+| Browse a source's recent logs | `GET /api/sources/{id}/logs?limit=&query=&from=&to=` (see §2a) |
 | Delete a source | `DELETE /api/sources/{id}` |
 
 **Pull vs push at runtime:**
 
-- **Pull** sources are polled by the in-process poller on `poll_interval_seconds`
-  (and on a manual `POST /api/poll`). Each pull connector compiles the agent's
-  structured queries to its own dialect; the agent never emits raw DSL.
+- **Pull** sources are polled by the in-process poller — `engine/poller_manager.py`
+  fans out over **every** enabled pull source, on `poll_interval_seconds` (and on a
+  manual `POST /api/poll`). Each pull connector compiles the agent's structured
+  queries to its own dialect; the agent never emits raw DSL.
 - **Push** sources arrive asynchronously:
   - **Webhook / HEC** are **route-driven** — a source POSTs to
-    `POST /api/ingest/{source_id}` (Section 9). No background task; the route
-    verifies auth, parses + normalises to OCSF, and feeds the same pipeline.
+    `POST /api/ingest/{source_id}` (§33). No background task; the route verifies
+    auth, parses + normalises to OCSF, and feeds the same pipeline.
   - **syslog / Kafka / SQS / Kinesis / Event Hub / Pub/Sub / RabbitMQ / NATS /
     MQTT / Redis Streams / S3 / GCS / Azure Blob / file** run as **background
     receivers** that start on app startup (and on save) and `emit` batches into
     the shared ingest path. Their optional client libraries are imported lazily
-    (see TROUBLESHOOTING) and, for socket receivers (syslog), the configured port
-    must be **published** in your compose file.
+    (see `docs/TROUBLESHOOTING.md`) and, for socket receivers (syslog), the
+    configured port must be **published** in your compose file.
 
 Per-source secrets (a webhook token, a Splunk HEC token, a cloud credential) live
 in the **in-memory secret tier** and are **never persisted** — only the configured
@@ -164,7 +167,7 @@ backend restart unless also supplied via env/`.env`.
 
 ### Test connection — what `ok`, `mode`, and `cluster_monitor` mean
 
-`POST /api/connectors/test` returns `ConnectionTest` `{ ok, message, mode?,
+`POST /api/connectors/test` returns a `ConnectionTest`: `{ ok, message, mode?,
 cluster_monitor? }`. For a **pull** source the test runs the **cheap, scoped,
 read-only search first** — that read is the authoritative pass/fail gate, so a
 correctly-scoped **read-only API key passes** (it does **not** need cluster
@@ -180,7 +183,7 @@ privileges):
   "Connection verified" callout.
 - **`ok:false`** — only when the **scoped read itself fails**: auth (`401`/`403` on
   the index → wrong/under-scoped key) or network/TLS (URL not routable, or a
-  private CA isn't trusted). A failed `ping()` alone is **not** a failure anymore.
+  private CA isn't trusted). A failed `ping()` alone is **not** a failure.
 
 > A read-only key cannot do `HEAD /` (a cluster-level op), so the test no longer
 > gates on `ping()` — `ping()` is now only the extra `cluster_monitor` signal that
@@ -188,12 +191,12 @@ privileges):
 
 ---
 
-## 2b. Browse a source's logs
+## 2a. Browse a source's logs
 
-Each source card on the **Sources** screen has a **"Logs"** button — shown only for
+From the Sources table's kebab menu, **"Browse logs"** is shown only for
 connectors that advertise the `browse` capability (`capabilities:["browse"]`: all
-pull connectors, and every push receiver). It opens the **Source Logs flyout**
-(`SourceLogsFlyout`), a live window onto that one source's recent events, backed by
+pull connectors, and every push receiver). It opens the **`SourceLogsSheet`**, a
+live window onto that one source's recent events, backed by
 `GET /api/sources/{id}/logs?limit=&query=&from=&to=` (auth-protected).
 
 | Control | What it does |
@@ -208,9 +211,9 @@ How the rows are produced depends on the source's runtime mode:
 
 - **Pull sources** (Elasticsearch / OpenSearch / Wazuh) run a **bounded
   (hard-capped at 200), read-only, field-mapping-aware scoped search** against the
-  source's own `data_view_pattern` / field mapping / TLS — so what you see is
-  exactly what the agent can read, with the same per-source field resolution and
-  certificate settings.
+  source's own `data_view_pattern` / field mapping / TLS (via the per-source ES
+  client, `state.es_client_for_source()`) — so what you see is exactly what the
+  agent can read.
 - **Push sources** (webhook / HEC / syslog / queues / object-stores) have no index
   to query, so they return the **last N events from an in-memory live-tail ring
   buffer** (capped at **500 events per source**) that `IngestService` keeps as
@@ -222,6 +225,14 @@ id returns `404`; a read failure (e.g. an auth/TLS error against a pull source)
 returns `502`. All log content renders as plain text / code blocks — it is
 attacker-influenceable and fenced/escaped as UNTRUSTED (see `SECURITY.md`).
 
+**Browse across every source at once.** `GET /api/logs` (the **Logs** page under
+**Triage**) fans out the *exact* per-source read above over **every enabled,
+browse-capable source** concurrently, merges the rows newest-first, and tags each
+with a mandatory `source_id`/`source_name` provenance column. One slow or failing
+source degrades to a per-source error entry and never blocks the rest
+(`asyncio.gather(return_exceptions=True)`); still hard-capped at 200 rows and
+read-only.
+
 ---
 
 ## 3. Cases (Surface)
@@ -231,15 +242,16 @@ The triage workbench. The cases table (`GET /api/cases?limit=100`) shows **Entit
 filtering (`?status=escalated`), per-surface filtering (`?surface=automated_scan`),
 and per-entity filtering (`?entity=10.10.1.152`).
 
-**Two-axis taxonomy (Wave 3).** A case now carries both a lifecycle **status** and
-an analyst **disposition** — they are independent.
+**Two-axis taxonomy.** A case carries both a lifecycle **status** and an analyst
+**disposition** — they are independent.
 
 - **status** (where the case is in its lifecycle): `new` (candidate, pre-LLM),
   `open` (investigated, awaiting an analyst), `investigating` (actively worked),
   `escalated` (flagged for senior / Tier-3), `on_hold` (paused), `resolved` (worked
   to completion, pending final close), `closed` (terminal). `needs_human` is
-  **retained as a deprecated alias** of "open · awaiting analyst" — the deterministic
-  `decide()` still uses it internally, and old stored cases load unchanged.
+  **retained as a deprecated alias** of "open · awaiting analyst" — the
+  deterministic `decide()` still uses it internally, and old stored cases load
+  unchanged.
 - **disposition** (what the case turned out to be): `true_positive`,
   `false_positive`, `benign`, `suspicious`, `duplicate`, `undetermined` (the default
   for cases that predate the taxonomy). Set it explicitly with the `set_disposition`
@@ -249,9 +261,14 @@ an analyst **disposition** — they are independent.
 ### Case detail + lifecycle
 
 Opening a case loads the **stored** case by id (`GET /api/cases/{id}`) — it does
-**not** re-investigate. The detail view shows the verdict, status, confidence/risk
-badges, entity, rules, summary, the `trigger_reason` ("why this fired"), evidence,
-MITRE techniques, recommended action, the reproduce query, and the **History**.
+**not** re-investigate. `CaseDetail` renders **six tabs**: **Overview** (the
+verdict/status/confidence/risk badges, entity, rules, evidence, MITRE techniques,
+recommended action, reproduce query, provenance split into "Reported by source" vs
+"Our assessment" with a disagreement delta), **Timeline** (the "what happened"
+narrative — see §3's Timeline note below), **Investigation** (the AI assessment,
+the pinned deterministic `DecisionCard`, and the full agent trace — see §11),
+**Threat** (§12's threat-context panel), **Collab** (§18's threads/tasks), and
+**Chat** (a case-scoped chat follow-up, §5).
 
 **Analyst actions** go through `POST /api/cases/{id}/action` with
 `{ "action": "...", "note": "...", "analyst": "..." }` (plus the optional fields
@@ -269,7 +286,7 @@ noted below):
 | `resume` | `open` | take a held case off hold |
 | `set_status` | the `status` field | move to an arbitrary legal status |
 | `set_disposition` | unchanged | set the analyst `disposition` (no status change) |
-| `acknowledge` | unchanged | record an ack in history (no status change) |
+| `acknowledge` | `investigating` | mark the case as being worked (the first-response clock stops here) |
 
 The body may carry `status` (for `set_status`), `disposition` (for
 `set_disposition`), `level` (for `escalate`), `reason` (recorded as `status_reason`
@@ -278,35 +295,39 @@ on `hold` / `resolve` / `set_status`), and the existing `resolution` / `assignee
 terminal status (`closed` / `resolved`) is only legal via `reopen` (a `400`
 otherwise). Every action sets `decision_by=analyst`, stamps `updated_at`, appends
 an entry to the case **history** + `status_history`, and is audited. A `close` /
-`confirm_fp` also
-indexes the resolved case (entity, rules, verdict, risk, note, trigger reason)
-into the **resolved-case RAG baseline** when `rag.enabled` + `rag.use_resolved_cases`
-— a RAG/embedding failure can never break the action (fail-safe).
+`confirm_fp` also indexes the resolved case (entity, rules, verdict, risk, note,
+trigger reason) into the **resolved-case RAG baseline** when `rag.enabled` +
+`rag.use_resolved_cases` — a RAG/embedding failure can never break the action
+(fail-safe).
 
 **Re-investigate in place** (`POST /api/cases/{id}/investigate`) re-runs the same
 pipeline for a stored case with `force=True`, rebuilding the cluster (preferring an
 exact id-based re-query of the member events, falling back to a config-windowed
 entity re-query with the auto-widen ladder) and **preserving the case's original
-provenance**. A NEUTRAL `400` is returned if the activity has aged out of the
-retained window.
+provenance**. If the retained log window has aged out, it rebuilds the
+investigation from the **stored evidence already on the case** rather than
+failing; a NEUTRAL `400` is returned only when neither a re-query nor the stored
+evidence is usable.
 
-**Agent trace** (`GET /api/cases/{id}/trace`) projects the append-only audit index
-into an ordered timeline (router → investigator → tool calls → verdict → formatter
-→ case-manager decision). Raw prompt excerpts are included only when
-`trace.include_prompts` is true (default on).
-
-> **Decision invariants (code-enforced):** a **TRUE_POSITIVE is never
-> auto-closed** — it routes to a human (`needs_human`), escalated when confidence
-> ≥ the escalation threshold or risk is critical. A FALSE_POSITIVE only auto-closes
-> under the strict, off-by-default `fp_auto_close` conditions; otherwise a human
-> confirms. Anything else fails safe to a human.
+> **Decision invariants (code-enforced):** the **close/escalate decision is a
+> pure, deterministic function** (`case_manager.decide()`) over `(verdict,
+> confidence, risk_score, policy)` — never raw LLM output. **FALSE_POSITIVE
+> auto-close is ON by default** above a confidence/risk bar
+> (`auto_close.false_positive`: 0.85 confidence, ≤30 risk, a 1440-minute human
+> objection window). **TRUE_POSITIVE auto-close is a real, opt-in policy knob**
+> (`auto_close.true_positive`, **off by default**; when enabled: 0.95 confidence,
+> ≤10 risk, a 4320-minute objection window). Only **NEEDS_HUMAN** (or a
+> missing/unknown verdict) is the **code-enforced, non-tunable** never-auto-close
+> guard — everything else fails safe to a human. The legacy `fp_auto_close` field
+> is deprecated and migrated once into `auto_close.false_positive`.
 
 ---
 
 ## 4. Investigate (Surface)
 
-Choose **IP / User / Host**, type a value, and Investigate. This POSTs
-`/api/investigate` with
+A left-nav child under **Workspace** (alongside Chat, §5 — they share one chat
+engine, not a segmented control). Choose **IP / User / Host**, type a value, and
+Investigate. This POSTs `/api/investigate` with
 `{ "entity": { "type": "ip", "value": "10.10.1.152" }, "source_surface": "investigate" }`.
 The backend pulls in-scope events for that entity (same scope + suppression
 filters the poller uses), correlates them into a cluster, and runs the full
@@ -342,13 +363,15 @@ empty-state, not a red error).
 
 ## 5. Chat (Surface)
 
-A read-only natural-language console (`POST /api/chat`). Type a question; the
-agent may turn your intent into a single read-only structured query, render the
-first 50 hits as a table, and produce a **two-turn analysis**: the first model
-turn decides the query, then the engine builds a compact, fenced-UNTRUSTED
-aggregate of the hits and re-prompts the model for the analysis you read. If the
-second turn is unavailable, chat degrades gracefully (it never hard-fails). Both
-turns are metered through the single gateway.
+A read-only natural-language console (`POST /api/chat`), the **Chat** child under
+**Workspace** (the same left-nav host as Investigate, §4 — **ONE** chat engine, two
+entry points). Type a question; the agent may turn your intent into a single
+read-only structured query, render the first 50 hits as a table, and produce a
+**two-turn analysis**: the first model turn decides the query, then the engine
+builds a compact, fenced-UNTRUSTED aggregate of the hits and re-prompts the model
+for the analysis you read. If the second turn is unavailable, chat degrades
+gracefully (it never hard-fails). Both turns are metered through the single
+gateway.
 
 Add `case_id` to seed a case follow-up (the engine already knows the case's
 entity, verdict, confidence, risk, rules, and top evidence). Add a `context`
@@ -362,7 +385,7 @@ silently errors.
 
 ---
 
-## 6. Scans (Surface)
+## 6. Automated scans (Surface)
 
 The background-investigation queue (`GET /api/scans?limit=100`). The poller
 correlates each new in-scope cluster and either:
@@ -376,7 +399,7 @@ Every case carries a `trigger_reason` (which rule, how many events, in what
 window, grouped on which entity, plus a plain-English sentence). The new-scan
 badge polls `GET /api/scans/notifications?since=now-24h`.
 
-**Control auto-forwarding** in Settings → Polling & detection: turn on
+**Control auto-forwarding** in **Settings → Organization → Advanced** (§25): turn on
 **Background scan enabled** and set the **Auto-forward allowlist** to the rule
 values you want auto-investigated (comma-separated; `*` = all; empty = candidates
 only).
@@ -385,32 +408,51 @@ only).
 
 ## 7. Standup (Surface)
 
-Aggregate-then-summarise (`GET /api/standup?window_hours=24`). The backend runs
-near-free aggregations over the window (events from the log source, case stats from
-the state store), then sends ONLY the compact JSON aggregate to the cheap model for
-prose — **raw logs are never sent to a model**. You get a prose **Summary**, stat tiles (total events
-· unique IPs · cases opened), the case breakdown by-verdict and by-status, and
-top rules / source IPs / users / hosts.
+Aggregate-then-summarise (`GET /api/standup/report?window_hours=24`, the legacy
+`GET /api/standup?window_hours=24` alias still works). The backend runs near-free
+aggregations over the window (events from the log source, case stats from the
+state store), then sends ONLY the compact JSON aggregate to the cheap model for
+prose — **raw logs are never sent to a model**. You get a prose **Summary**, stat
+tiles (total events · unique IPs · cases opened), the case breakdown by-verdict
+and by-status, and top rules / source IPs / users / hosts.
 
 If the summariser model is unavailable, the response is the **deterministic**
 summary (ends with *"(LLM summary unavailable; this is the deterministic
 aggregate.)"*). If standup is disabled, the response is
 `{ "enabled": false, "summary": "Standup is disabled in settings." }`.
 
+**Forward-looking: attention queue, action items, and shift handoff.** Standup is
+not just a look back — `engine/shift_report.py` also derives a deterministic
+**attention queue** (aging/SLA-breaching/unassigned cases + workload-by-analyst),
+surfaced alongside the report. Analysts can raise + track **action items** for the
+next shift:
+
+| Action | Endpoint |
+|---|---|
+| Action items for the window | `GET /api/standup/action-items` |
+| Create an action item | `POST /api/standup/action-items` |
+| Update an action item | `PUT /api/standup/action-items/{item_id}` |
+| Delete an action item | `DELETE /api/standup/action-items/{item_id}` |
+| Acknowledge the shift report (handoff) | `POST /api/standup/acknowledge` |
+| List acknowledgements | `GET /api/standup/acknowledgements` |
+
+Action items and acknowledgements are advisory shift-handoff bookkeeping only —
+aggregate-derived, never fed raw logs, and never touching `decide()` (non-negotiable
+#7, #3).
+
 ---
 
 ## 8. Cost (Surface)
 
-`GET /api/usage/summary?window_hours=24`. Because **100% of LLM calls go through
-the single gateway**, every token is metered. Top tiles: today's spend, total
-tokens, call count, total cost (window). Breakdown tables: **by model**, **by
-role** (`router` / `investigator` / `formatter` / `standup` / `chat` / `overview`
-/ `embedding`), **by surface** (`investigate` / `automated_scan` / `chat` / …).
-Scope to one case with `&case_id=...`.
+A tab under **Analytics → Metrics**. `GET /api/usage/summary?window_hours=24`.
+Because **100% of LLM calls go through the single gateway**, every token is
+metered. Top tiles: today's spend, total tokens, call count, total cost (window).
+Breakdown tables: **by model**, **by role** (`router` / `investigator` /
+`formatter` / `standup` / `chat` / `overview` / `embedding`), **by surface**
+(`investigate` / `automated_scan` / `chat` / …). Scope to one case with
+`&case_id=...`.
 
----
-
-## 8b. Per-log AI overview
+### 8a. Per-log AI overview
 
 `POST /api/overview` returns a one-click AI summary of a **single event** (no
 full investigation, no case) on the cheap `overview_model`, cost-ledgered like any
@@ -430,13 +472,13 @@ other call:
 
 ---
 
-## 8c. Knowledge base (RAG) — see and grow the corpus
+## 9. Knowledge base (RAG) — see and grow the corpus
 
 The agent's retrieval corpus is no longer a black box. The **Knowledge** page
-(`webui/src/components/Knowledge/`, under the new **Platform** nav group) lets you
-inspect exactly what RAG holds and add to it. A **document** is a set of chunks that
-share a `document_id`; the built-in seed knowledge is grouped by source
-(`runbook` / `mitre` / `suppression` / `resolved_case`).
+(`webui/src/soc/pages/Knowledge.tsx`, under the **Intelligence** nav group) lets
+you inspect exactly what RAG holds and add to it. A **document** is a set of
+chunks that share a `document_id`; the built-in seed knowledge is grouped by
+source (`runbook` / `mitre` / `suppression` / `resolved_case`).
 
 | Action | Endpoint | Notes |
 |---|---|---|
@@ -457,7 +499,7 @@ store the investigator retrieves from. Imported docs are immediately retrievable
 **Browse + inspect chunks.** The documents table lists every document with its
 source, tags, and chunk count; open one to see its individual chunks in a flyout (so
 you can see precisely what text will be retrieved and fed to the model — fenced as
-UNTRUSTED at prompt time, see `SECURITY.md`).
+UNTRUSTED at prompt time — see below).
 
 **Run a test retrieval.** Use "Try a retrieval" (`GET /api/rag/search`) to type a
 query and see the ranked snippets RAG would surface for it — the fastest way to
@@ -469,9 +511,15 @@ a one-click `DELETE /api/rag/documents/{id}`. The **built-in seed sources**
 is refused; you must pass **`?force=true`** to remove seed knowledge (the UI prompts
 for the force confirmation). This prevents accidentally wiping the baseline corpus.
 
+> **Trust boundary.** Only `runbook` / `mitre` / `suppression` are the RAG
+> **TRUSTED** allowlist. Everything else RAG retrieves — including your own
+> **imported documents** and `resolved_case` text — is rendered **UNTRUSTED-fenced**
+> at prompt time, exactly like log evidence (`SECURITY.md`). Importing a document
+> does not make it instructions; it only makes it *retrievable* context.
+
 ---
 
-## 8d. Agent memory — durable operator facts
+## 10. Agent memory — durable operator facts
 
 The suite carries a small, durable **memory** of operator-supplied facts
 (Claude.ai-style: "remember this"), so the agent applies your standing context to
@@ -489,9 +537,10 @@ informs the LLM; it can NEVER override the deterministic Case Manager** (the
 close/escalate decision stays code-controlled — non-negotiable #3). Forged
 `<<<MEMORY>>>` markers in event data are neutralised by `fence()`.
 
-**Add / edit / remove on the Memory page** (`webui/src/components/Memory/`, under the
-**Platform** nav): add a fact, inline-edit its text, toggle it **active/inactive**,
-or delete it. A human-vs-agent **source badge** shows where each fact came from.
+**Add / edit / remove on the Memory page** (`webui/src/soc/pages/Memory.tsx`, under
+the **Intelligence** nav group): add a fact, inline-edit its text, toggle it
+**active/inactive**, or delete it. A human-vs-agent **source badge** shows where
+each fact came from.
 
 **…or in Chat.** Say **"remember: <fact>"** to store a fact (saved with
 `source=agent`, audited) or **"forget …"** to deactivate one. Chat surfaces two
@@ -513,33 +562,40 @@ non-destructive way to retire guidance.
 
 ---
 
-## 8e. Case "Why" — explainability
+## 11. Case explainability — the Investigation tab
 
-Every case can explain itself. The case-detail flyout has a **"Why"** tab backed by
-`GET /api/cases/{id}/rationale`, and the investigator records a **CONTEXT audit
-entry** (`ActionType.CONTEXT`) capturing everything it was handed. The rationale
-object — assembled defensively from the case + audit trail — has these sections:
+Every case can explain itself, right where you're already looking: `CaseDetail`'s
+**Investigation** tab (one of the six tabs, §3) — there is **no** separate "Why" or
+"Agent trace" tab. It combines three things:
 
-- **Decision (deterministic) — `decision_rationale`.** Shown prominently. This is the
-  **code-made** close/escalate rationale from the Case Manager — *not* the model's
-  opinion. The verdict/confidence are the LLM's recommendation; the **decision** is
-  deterministic (non-negotiable #3).
-- **Reasoning.** The investigator's reasoning excerpt (carried on the VERDICT record).
-- **Knowledge used.** The RAG / runbook snippets retrieved for this case, each with
-  its **source + snippet** provenance.
-- **Memory applied.** The operator memory facts (§8d) that were in context.
-- **Tools / commands run.** The exact ES queries and tool calls the agent executed.
-- **Enrichment.** Any IP/indicator reputation that was pulled.
-- **Persona / playbook / MITRE / evidence.** The routed specialist persona, the
-  selected playbook (+ why), MITRE techniques, and the evidence list.
+- **A pinned `DecisionCard`.** The **code-made** close/escalate rationale from the
+  Case Manager, shown prominently and separately from the model's opinion — the
+  verdict/confidence are the LLM's recommendation; the *decision* is deterministic
+  (non-negotiable #3).
+- **A "why" / rationale panel**, backed by `GET /api/cases/{id}/rationale`. The
+  investigator records a **CONTEXT audit entry** (`ActionType.CONTEXT`) capturing
+  everything it was handed; the rationale object — assembled defensively from the
+  case + audit trail — surfaces: the investigator's **reasoning** excerpt; **RAG /
+  runbook knowledge** used (each with its source + snippet); **memory applied**
+  (§10); the exact **tool calls / ES queries** run; **enrichment** pulled; and the
+  routed **persona**, selected **playbook** (+ why), **MITRE** techniques, and
+  evidence list.
+- **A collapsible `TraceTimeline`** — the step-by-step agent trace
+  (`GET /api/cases/{id}/trace`), projecting the append-only audit index into an
+  ordered timeline (router → investigator → tool calls → verdict → formatter →
+  case-manager decision). Raw prompt excerpts are included only when
+  `trace.include_prompts` is true (default on).
 
-Use it to audit *how* a verdict was reached and to confirm the close/escalate was a
-deterministic policy outcome rather than raw model output. (The **Agent trace** tab,
-§3, remains the step-by-step timeline; "Why" is the assembled rationale.)
+The separate **Timeline** tab is deliberately narrower: it is ONLY the "what
+happened" narrative — a 6-stage story (input → correlate → risk → triage →
+investigate → decide), backed by `GET /api/cases/{id}/stages`. Use Investigation
+to audit *how* a verdict was reached and confirm the close/escalate was a
+deterministic policy outcome; use Timeline to see the sequence of events at a
+glance.
 
 ---
 
-## 8f. Run a playbook on a case + threat context
+## 12. Run a playbook on a case + threat context
 
 **Run a playbook** (`POST /api/cases/{id}/run-playbook` with
 `{ "playbook_id": "...", "analyst": "..." }`). A run is a **context-only**
@@ -547,76 +603,470 @@ re-investigation: the chosen playbook is **forced** into the investigator's
 TRUSTED `<<<PLAYBOOK>>>` block and the case is re-investigated through the shared
 pipeline. The playbook can only RECOMMEND — it can never change the deterministic
 close/escalate outcome (non-negotiable #3). An unknown `playbook_id` returns `404`.
-List the catalog first with `GET /api/playbooks`. In the UI, open a case and use
-**Run playbook** (pick from the catalog); the resulting re-investigation renders in
-place.
+List the catalog first with `GET /api/playbooks`. In the UI, open a case's
+**Investigation** tab and use **Run playbook** (pick from the catalog); the
+resulting re-investigation renders in place.
 
 **Threat context** (`GET /api/cases/{id}/threat-context`) assembles a defensive,
 **fail-open** panel for the case (each section degrades independently if its source
-is missing):
+is missing), shown as the **Threat** tab (§3):
 
-- **IOC reputation** — AbuseIPDB / VirusTotal lookups for the case's indicators
+- **IOC reputation** — enrichment-provider lookups (§19) for the case's indicators
   (an indicator is flagged malicious above `threat_context.ioc_malicious_threshold`,
   default 50).
 - **MITRE ATT&CK** — technique metadata (name, tactics, platforms, sub-techniques)
   resolved from a **bundled corpus of 697 enterprise techniques**
   (`backend/app/threat/mitre_techniques.json`); no network call.
-- **Related cases** — cases sharing the entity (the cross-source linkage from §8g).
+- **Related cases** — cases sharing the entity (the cross-source linkage from §13)
+  or belonging to the same campaign (§16).
 
-The case-detail flyout shows this as a **Threat Context** tab. All untrusted log /
-intel text renders as plain text / code blocks (#9). You can grow the intel corpus
-with `POST /api/threat-context/import` (admin) — `{ title, content, tags? }` —
-which chunks the doc into RAG as `source="threat_context"` and injects it as a
-fenced TRUSTED block at investigation time.
+All untrusted log / intel text renders as plain text / code blocks (#9). You can
+grow the intel corpus with `POST /api/threat-context/import` (admin) — `{ title,
+content, tags? }` — which chunks the doc into RAG as `source="threat_context"` and
+injects it as a fenced TRUSTED block at investigation time.
 
 **Resolved-case knowledge loop.** When a case transitions to `closed`/`resolved`,
 the suite auto-chunks it into the RAG corpus (`source="resolved_case"`, best-effort,
 never blocks the action) so future investigations retrieve *"we've seen this
-before"*. Gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
-`rag.use_resolved_cases`.
+before."* Gated by `rag.enabled` + `threat_context.reuse_resolved_cases` /
+`rag.use_resolved_cases`. (Resolved-case text is UNTRUSTED-fenced when retrieved —
+see §9.)
 
 ---
 
-## 8g. Multi-source correlation — Auto-Correlate + cross-source related cases
+## 13. Multi-source correlation — Auto-Correlate + cross-source related cases
 
 By default each configured source is correlated on its own. Two controls change
-that, both in the **source editor** (and on the `SourceInstance` config):
+that, both in the **`SourceEditor`** (§2, and on the `SourceInstance` config):
 
 - **Auto-Correlate (per source).** A switch on each source. When **on** (default),
   that source's correlated clusters auto-forward into triage. When **off**, its
   clusters are still formed but routed to **candidates** (Cases, manual triage) —
   use this to keep a noisy source from auto-investigating. Stored as the source's
   `config.auto_correlate`.
-- **Auto-Correlate (per sub-source).** Each pull source can carry multiple **index
-  patterns** with an `events` / `alerts` role; each pattern has its **own**
-  Auto-Correlate toggle (`IndexPattern.auto_correlate`). This lets you, say,
-  auto-investigate the `alerts` pattern while leaving a high-volume `events` pattern
-  on manual.
+- **Auto-Correlate (per feed).** Each pull source can carry multiple **feeds**
+  (index patterns) with an `alerts` / `events` / `ignore` **role**; each feed has
+  its **own** Auto-Correlate toggle (`correlate`). This lets you, say,
+  auto-investigate the `alerts` feed while leaving a high-volume `events` feed
+  on manual — see §30 for the full per-feed model.
 
 **Cross-source correlation (opt-in, default OFF).** Enable
-`cross_source_correlation` (Settings → Automation) to run a **second** pass that
-links clusters from *different* sources that share an entity
+`cross_source_correlation` (**Settings → General → Detection**) to run a **second**
+pass that links clusters from *different* sources that share an entity
 (`ip` / `host` / `user` / `file_hash` / `domain`) within a time window. Tunables:
 `time_window_seconds` (default 300), `min_sources_to_cluster` (default 2), and the
 `entity_keys`. The result is surfaced as **RELATED cases** — the cases are linked
 (`related_case_ids`, `cross_source_cluster_id`, a source breakdown) but **never
 force-merged**, so the per-source 1:1 cluster→case signature and audit trail stay
-intact. The case-detail flyout shows a "Sources" pill and a "Related cases" facet;
-the Cases list can filter to related-only.
+intact. The Overview tab shows a "Sources" pill and a "Related cases" facet; the
+Cases list can filter to related-only.
 
 **Per-source field-mapping overrides + connector help.** Beyond the wizard's field
 mapping, a source's config can carry `field_mappings_extra` overrides applied at
 ingest. Each connector field can also ship contextual setup help (`help_link` /
-`help_code`), rendered as a (?) `HelpTip` in the source editor so you can see, e.g.,
+`help_code`), rendered as a (?) `HelpTip` in the `SourceEditor` so you can see, e.g.,
 the exact read-only API-key grant for that connector inline.
 
 ---
 
-## 8h. Authentication — enabling auth, users, RBAC, MFA, SSO
+## 14. Detection & Rules — the rule-authoring home
+
+**Settings → General → Detection & rules** (nav-anchored, deep-linkable at
+`#/settings?s=detection_rules`) is the single home for authoring every rule class
+the engine reads, replacing the old scattered per-rule editors:
+
+- **Detection-match / threshold rules** (`RuleDefinition`, the `rule_catalog`) —
+  `PUT /rules/detection/{rule_name}`, `POST /rules/detection/{rule_name}/enabled`,
+  `DELETE /rules/detection/{rule_name}`.
+- **Correlation / threshold clustering rules** (`CorrelationRule`, the
+  `correlation_rules` map, §25) — `PUT /rules/correlation/{rule_key}`,
+  `DELETE /rules/correlation/{rule_key}`.
+- **Case-automation rules** (`CaseAutomationRule`, `threshold_automation.rules`) —
+  the **#3-safe post-decision rules**: each has `conditions` (on verdict / risk /
+  severity / entity type / rule / source) and an `action`, evaluated in priority
+  order **after** the Case Manager decides — `tag` (add a tag), `recommend`
+  (attach a recommendation), `notify` (fire a notification, §23), `run_playbook`
+  (queue a context-only re-investigation, §12), or `request_approval` (raise a
+  HITL `Proposal` — the admin-gated approve/reject queue). `PUT
+  /rules/case-automation/{rule_id}`, `POST /rules/case-automation/{rule_id}/
+  enabled`, `DELETE /rules/case-automation/{rule_id}`.
+
+**The hard guarantee:** every rule editor here is a **config writer**. Nothing
+imports or calls `case_manager.decide()`, sets a case status/disposition/verdict,
+or recomputes a `cluster_signature`. A case-automation rule **never sets
+`case.status` directly** — a SAFE action (tag/recommend/notify) is applied and
+audited; `request_approval` routes through the HITL `Proposal` path; a
+`run_playbook` re-investigation calls `decide()` again with new inputs.
+`decide()` remains the only producer of a CLOSED / auto-closed case, and
+`NEEDS_HUMAN` never auto-closes (non-negotiable #3, CI-asserted). An impossible
+condition — a disposition value (`suspicious`/`benign`) stored where only a real
+`Verdict` is legal — is rejected on write.
+
+**Test/Preview — never bills the LLM, never decides.** `POST
+/api/triage/preview-decision` runs a rule's predicate against recent events
+(through the scoped read-only key, hard-capped, the exact `GET /api/logs`
+scatter-gather path) and returns match counts / a histogram — **zero** gateway
+calls, **zero** `UsageDoc` writes, and it never calls `decide()` or creates a
+case (non-negotiables #3 and #6 both hold here).
+
+**Version ledger + rollback.** Every create / update / enable / disable / delete /
+rollback writes an append-only audit row *and* an immutable version snapshot
+(`stores/rule_versions.py`). `GET /rules/{kind}/{rule_id}/versions` lists the
+ledger; `POST /rules/{kind}/{rule_id}/rollback/{version_id}` restores an earlier
+version (itself versioned, so a rollback is never a dead end).
+
+Everything here is gated by the unified `rules` grant (`rules:read` /
+`rules:manage`) — including custom roles (§25) granted just that resource.
+
+Settings still keeps a lightweight **Automation** section (**Settings → General
+→ Automation**) as the master enable switch + a pointer here — there is no
+per-rule editor left inside it.
+
+---
+
+## 15. Adaptive threshold auto-tuning
+
+**Auto-tuning** (top-level **Platform** nav item, backed by
+`engine/threshold_tuner.py`) is a nightly, deterministic observer — default
+**OFF** — that measures each detection rule's noise (a Wilson-lower-bound false-
+positive rate + a minimum-sample gate + EWMA smoothing) and proposes a **bounded
++1** nudge to a rule's correlation `n` or a feed's `severity_floor`.
+
+| Action | Endpoint |
+|---|---|
+| Recommendations (current noise + the proposed change + the ledger) | `GET /api/tuning/recommendations` |
+| Read / update the tuner config | `GET`/`PUT /api/tuning/config` |
+| Apply a proposed change for one rule | `POST /api/tuning/{rule_id}/apply` |
+| Roll back the latest applied change | `POST /api/tuning/{rule_id}/rollback` |
+
+The tuner **never imports `case_manager`/`decide()`, risk weights, or
+signatures** — it only moves detection-*volume* knobs the pipeline already reads
+live. A proposed **suppression DROP is never auto-applied**: it is always routed
+to the HITL `Proposal` queue (the **Approvals** page under **Triage**) for a
+human to accept. Every
+apply/rollback/config change is shadow-evaluated first and writes an append-only
+`ActionType.TUNING` audit row, so a bad tune is always visible and always
+reversible.
+
+---
+
+## 16. Campaigns — cross-case shared-entity correlation
+
+**Campaigns** (a top-level **Triage** nav item, backed by `engine/campaigns.py`,
+default OFF via `CampaignConfig`) runs a **daily deterministic** pass over shared
+entities across already-created cases and groups related ones into a `Campaign`
+object — the same idea as §13's cross-source linkage, but running over the whole
+case store rather than a live correlation window.
+
+| Action | Endpoint |
+|---|---|
+| List running campaigns (newest first, with member case ids / entities / MITRE / severity rollup) | `GET /api/campaigns` |
+| One campaign | `GET /api/campaigns/{id}` |
+| The campaign a case belongs to (or `null`) | `GET /api/cases/{id}/campaign` |
+| Trigger the pass on demand | `POST /api/campaigns/recorrelate` (admin) |
+| Read / update campaign config | `GET`/`PUT /api/campaigns/config` |
+
+A campaign only **references** `case_ids`; it never recomputes or mutates a
+case's `cluster_signature`, and it can never close or escalate a member case — a
+`NEEDS_HUMAN` case that joins a campaign stays `NEEDS_HUMAN` (non-negotiable #3,
+#4). The CaseDetail Overview tab shows a campaign chip when a case belongs to one.
+
+---
+
+## 17. Entity baseline — anomaly detection over time
+
+**Baseline** (under **Analytics**, backed by `engine/baseline.py` +
+`stores/baseline.py`, default OFF via `BaselineConfig`) keeps an online
+EWMA/EWMV sketch per cluster-signature across **168 hour-of-week buckets**, plus
+a bounded t-digest for **p50/p95/p99**, with a robust modified-z (`|M| > 3.5`)
+anomaly test and a 3×-period warm-up (`H=14d`) before it trusts its own numbers.
+
+| Action | Endpoint |
+|---|---|
+| Warm-up + coverage overview across every signature | `GET /api/baseline/stats` |
+| One signature's per-bucket warm-up + p50/p95/p99 | `GET /api/baseline/{signature}` |
+| Read / update baseline config | `GET`/`PUT /api/baseline/config` |
+
+Baseline is a **pure advisory producer** — it is keyed by `cluster_signature` but
+never recomputes or mutates one, never reads risk weights, and never calls
+`decide()`; it can never close or escalate a case on its own (non-negotiable #3,
+#4). The webui shows a "warm-up gauge" on `CaseDetail` for a case whose signature
+has an active baseline.
+
+---
+
+## 18. Case collaboration — threads, tasks, and @mentions
+
+Every case has a per-case **thread** (`Collab` tab, §3) for human+AI ticket
+collaboration, plus a lightweight **task checklist**:
+
+| Action | Endpoint |
+|---|---|
+| List the thread (chronological; legacy `Case.comments` migrate in as root messages) | `GET /api/cases/{id}/thread` |
+| Post a message (`human`/`ai`/`system` author, optional one-level reply `parent_id`) | `POST /api/cases/{id}/thread` |
+| Edit a message | `PATCH /api/cases/{id}/thread/{msg_id}` |
+| Soft-delete (tombstone) a message | `DELETE /api/cases/{id}/thread/{msg_id}` |
+| Toggle a `{emoji, user}` reaction | `POST /api/cases/{id}/thread/{msg_id}/reactions` |
+| List the case's activity feed | `GET /api/cases/{id}/activity` |
+| List the task checklist | `GET /api/cases/{id}/tasks` |
+| Add a task | `POST /api/cases/{id}/tasks` |
+| Patch a task (title/assignee/status/order) | `PATCH /api/cases/{id}/tasks/{tid}` |
+| Log a note on a task | `POST /api/cases/{id}/tasks/{tid}/log` |
+
+**@mentions** in a thread message body (plus an explicit `mentions` list) are
+resolved against the user store and fanned out into each mentioned user's
+in-app **Inbox** (§23). Deleting a message is always a **soft delete** (a
+tombstone, never a hard delete, non-negotiable #2) so threaded replies keep their
+parent and the audit/UI can render a "deleted" placeholder.
+
+**#3 guarantee, twice over.** Posting/editing/deleting a thread message, adding a
+reaction, or creating/patching a task **never** reads, sets, or influences the
+case's `status` / `verdict` / `disposition` — a task's own `status` (open /
+in_progress / done / blocked) is work tracking, not a case status. All bodies,
+titles, and log notes are plain data (#9); every write is audited and, best-
+effort, published to the per-case realtime event stream so an open `CaseDetail`
+updates live.
+
+---
+
+## 19. Enrichment providers (19 registered)
+
+**Settings → Integrations → Enrichment** (`GET /api/enrichment/providers`) lists
+every registered indicator-reputation provider's manifest plus its current
+config/key state (booleans only — secret values are never returned):
+**AbuseIPDB, VirusTotal, GreyNoise, Shodan, Shodan InternetDB, Censys, BinaryEdge,
+IPinfo, OTX, Pulsedive, Spur, XForce, URLScan, HIBP, ProjectHoneypot, RDAP,
+URLhaus, ThreatFox,** and **MalwareBazaar** — 19 classes across 17 files (the
+abuse.ch trio — URLhaus/ThreatFox/MalwareBazaar — share one file). Several
+**keyless** providers default ON (Shodan InternetDB, IPinfo, the abuse.ch trio,
+RDAP); the rest need a key set in the secret tier.
+
+| Action | Endpoint |
+|---|---|
+| List every provider's manifest + configured state | `GET /api/enrichment/providers` |
+| Look up one observable (type-routed IP/domain/hash/url/email) | `GET /api/enrichment/lookup?indicator=` |
+| Set a provider's secret | `POST /api/enrichment/providers/{name}/secrets` |
+
+Every lookup is **Redis-cached** (non-negotiable #8) and **fail-open** — a
+provider outage degrades that one signal, never the investigation. Multiple
+providers on the same indicator are fused (default: `max()` across normalised
+scores; an opt-in weighted-fusion mode is available via
+`enrichment.fusion_enabled`). Results feed both the automated investigation (as
+enrichment evidence) and the case-detail **Threat** tab (§12).
+
+---
+
+## 20. MITRE coverage + ATT&CK Navigator export
+
+`GET /api/mitre/coverage` tallies **per-tactic** MITRE ATT&CK technique coverage
+from your case load against the bundled **697-technique** corpus
+(`backend/app/threat/mitre_techniques.json`) — up to the most-recent 5000 cases
+(a `truncated` flag marks the tally as a lower bound when the store holds more).
+`window_hours=0` (the default) covers every fetched case; a positive value
+time-bounds it to cases created within that window. Forged/invalid technique ids
+on a case are dropped, never surfaced (#9).
+
+`GET /api/mitre/coverage/navigator.layer.json` returns the same coverage as an
+**ATT&CK Navigator v4.5** layer — a pure JSON document you can hand straight to
+the [MITRE ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) (or
+save/import it there) to visualize your organization's technique coverage as a
+heatmap. The webui's Metrics page renders the same coverage inline via a
+`MitreHeatmap` component and offers the layer file as a one-click download.
+
+---
+
+## 21. Custom dashboards
+
+**Dashboards** (under **Overview**, alongside the built-in Dashboard) lets each
+user build their own widget grid over the existing tile/chart registry — a
+per-user, drag/resize `react-grid-layout` grid (lazy-loaded, edit-mode only).
+
+| Action | Endpoint |
+|---|---|
+| List my saved dashboards | `GET /api/dashboards` |
+| The server's widget-type allowlist | `GET /api/dashboards/widget-types` |
+| Create (or replace by id) a dashboard | `POST /api/dashboards` |
+| Replace one dashboard | `PUT /api/dashboards/{id}` |
+| Delete a dashboard | `DELETE /api/dashboards/{id}` |
+| Clone an existing (or org/role-default) dashboard into my own set | `POST /api/dashboards/{dashboard_id}/clone` |
+
+Widgets are drawn from a fixed, versioned allowlist (KPI tiles, verdict/autonomy
+mix charts, a connector-health table, a recent-cases table, the MITRE heatmap, and
+the active-risk gauge) — an unknown widget `type` is rejected with a `400`, never
+silently stored. Everything is scoped to the **authenticated** caller (the shared
+`default` bucket when auth is off), so one user can never read or mutate another's
+board. Per-role **curated default layouts** ship pre-packed (12-column grid, no
+default board stacks at `(0,0)`); editing a default clones it into your own
+personal set on first change.
+
+A dashboard is **advisory presentation state only** — nothing here imports or
+calls `case_manager.decide()` (non-negotiable #3), and building/reading one never
+bills the LLM.
+
+---
+
+## 22. Models, batch jobs, and the budget gate
+
+**Settings → General → Models** (`GET /api/llm/models`, `GET /api/llm/providers`)
+is the per-role model picker (router / investigator / formatter / standup / chat /
+overview / embedding), populated from the bundled model registry across **seven**
+LLM providers: `anthropic`, `openai`, `azure`, `bedrock`, `vertex`,
+`openai_compatible`, and `mock` (offline tests only). Each role picker also
+carries temperature and max-tokens; the gateway handles per-model quirks
+automatically (e.g. `gpt-5`/`o`-series omit `temperature`, use
+`max_completion_tokens`). `POST /api/llm/models/test` verifies a model+key work
+before you save it. Per-model price overrides live in a price overlay
+(`PUT`/`DELETE /api/llm/models/{model_id}/pricing`) for when you need to correct a
+list price.
+
+### A self-hosted / local model provider (LiteLLM, vLLM, Ollama, LM Studio, …)
+
+Beyond the five hosted providers, `openai_compatible` is a generic path for any
+OpenAI-Chat-Completions-compatible endpoint — most commonly a self-hosted
+**LiteLLM** proxy, but equally vLLM/Ollama/LM Studio/etc. **"Add local model"** in
+the Models page walks you through it:
+
+1. **Test it first** — `POST /api/llm/providers/test` is a **non-metered**
+   reachability probe: it calls `GET {base_url}/models` (falling back to `/v1/
+   models`) with an optional Bearer key, so you know the endpoint answers before
+   you wire it in.
+2. **Add it** — `POST /api/llm/models/custom` with `{ model_id, base_url, label?,
+   context_window?, api_key? }`. The model is stored (provider
+   `openai_compatible`) with a **$0** price overlay applied automatically (belt-
+   and-suspenders — the store row *and* the gateway's fallback both guarantee
+   $0), so pointing at a local model never appears on a spend chart.
+3. **Remove it** — `DELETE /api/llm/models/custom/{model_id}` also clears its $0
+   overlay.
+
+The optional key has **three** supply paths, in order of precedence: (a) the
+per-model `api_key` you pass to `POST /api/llm/models/custom` (goes straight to
+the in-memory secret tier, never the config store); (b) the backend env var
+`LITELLM_API_KEY` (unprefixed; add `TLSOC_LITELLM_API_KEY` to `.env` for the
+agnostic compose stack — see `DEPLOY.md`); or (c) nothing at all — a no-auth
+local endpoint is driven by `base_url` alone, and the gateway falls back to
+`OPENAI_API_KEY` if one happens to be set. None of this is a real spend risk:
+the model is priced at $0 regardless.
+
+### Batch jobs — discounted async inference
+
+**Batch jobs** (under **Analytics**) is a **read-only** window onto the durable
+async batch-inference registry: low-urgency investigations can be routed through
+a provider's discounted batch API (Anthropic Message Batches, OpenAI Batch, or
+OpenAI `service_tier="flex"`) instead of a synchronous call.
+
+| Action | Endpoint |
+|---|---|
+| List batch jobs | `GET /api/batch/jobs` |
+| One job's detail | `GET /api/batch/jobs/{job_id}` |
+| Read / update batch config | `GET`/`PUT /api/batch/config` |
+
+Submit / poll / retrieve is driven out-of-band by the batch service, not this
+router — you only observe progress here (submitted → polling → retrieved).
+Results are billed **exactly once per result** (deduped by the provider's
+`custom_id`) at the batch discount rate (0.5×); this page never records a ledger
+row itself, and nothing here calls `decide()`.
+
+### Budget gate — a pre-flight spend ceiling
+
+`GET`/`PUT /api/budget` reads/writes a daily + monthly USD ceiling
+(`BudgetConfig`: `enabled`, `daily_usd`, `monthly_usd`, `on_exceed`).
+`GET /api/budget/status` reports where you currently stand against it.
+`POST /api/cost/estimate` (`{ model, prompt, max_tokens }`) gives a pre-flight
+cost estimate for a hypothetical call, using any price overlay first and the
+pricing table otherwise. The gate is a **pure pre-flight check**: when a call
+would exceed budget it routes the investigation to `NEEDS_HUMAN` rather than
+silently degrading or dropping the alert — it never overrides `decide()`, it only
+gates *whether* the LLM is called at all.
+
+---
+
+## 23. Notifications — channels, templates, and the in-app inbox
+
+Configure notifications in **Settings → Integrations → Alerting & notifications**.
+The suite ships a pluggable `NotificationChannel` abstraction; the channel types
+available are **email**, **Resend**, **Slack**, **Microsoft Teams**, **webhook**,
+**PagerDuty**, and **Telegram**.
+
+**Email (SMTP).** Pick a **provider preset** from the dropdown — 13 are built in
+(gmail, o365, yahoo, zoho, icloud, sendgrid, mailgun, postmark, brevo, sparkpost,
+**SES**, … and `custom`) — which fills host/port/encryption; supply `from_addr`,
+recipients, and the SMTP credential (stored in the **secret tier**, never in
+Preferences). `GET /api/notifications/providers` returns the preset table the UI
+renders. **SES** ships as an SMTP preset (host `email-smtp.{region}.amazonaws.com`,
+STARTTLS); supply ready-made SES SMTP credentials **or** a raw IAM access-key
+pair — the backend derives the SMTP password via the stdlib AWS4-HMAC chain (no
+new dependency).
+
+**Resend** (`type:"resend"`) is an HTTPS-API channel — its secret is the Resend
+API key; it POSTs to `https://api.resend.com/emails` with an idempotency key per
+case/trigger and a client-side rate limit.
+
+**Slack / Teams / webhook / PagerDuty / Telegram.** Add the channel and supply its
+secret (a Slack/Teams incoming-webhook URL, a PagerDuty routing key, a Telegram bot
+token, etc.) via `POST /api/notifications/channels/{channel_id}/secret`.
+
+**Triggers, dedup, digest.** Each channel chooses **triggers** — on case create,
+on verdict change, on escalate, on close — plus an `immediate_severity_threshold`.
+Noise control is built in: **dedup** within `dedup_window_seconds`, per-recipient
+**rate limiting**, and **digest** batching within `digest_window_seconds`.
+
+**When sends happen.** Notifications fire **fire-and-forget, *after* the
+deterministic `apply()` + save** — never inside `decide()` — so a channel failure
+can never block or alter a case decision. Every send is audited; untrusted log
+fields in the message body are fenced as plain text (#9).
+
+### Customizable email templates
+
+There are **5 preloaded templates** keyed by trigger — `case.new`
+(`case_created`), `case.escalation` (`escalated`), `case.resolved` (`closed`),
+`digest.daily` (`digest_daily`), and `test`. They render through a tiny **stdlib
+mustache-subset** renderer: `{{var}}` is auto HTML-escaped, `{{{var}}}` is raw
+**only** for trusted header HTML, with `{{#section}}`/`{{^section}}` and dotted
+lookup (no `eval`/`getattr`). Subjects are CRLF-stripped/capped (header-injection
+safe) and untrusted text in the `.txt` part is newline-stripped (#9). Override
+the per-trigger `{subject, html, text}` in the template editor (stored under
+`notifications.templates.overrides`); anything you don't override falls back to
+the built-in default. `POST /api/notifications/preview?trigger=case_created`
+renders a **sample** case server-side and returns the exact wire output for
+review (no real send, no secret leak).
+
+```bash
+curl -s localhost:8088/api/notifications/providers      # presets + channel_types + template_ids
+curl -s -b cookies.txt -X POST "localhost:8088/api/notifications/preview?trigger=escalated" \
+  -H 'content-type: application/json' \
+  -d '{"subject":"[{{org_name}}] ESCALATED {{case.case_number}}"}'   # preview an unsaved edit
+curl -s -b cookies.txt -X POST localhost:8088/api/notifications/channels/resend-1/secret \
+  -H 'content-type: application/json' -d '{"field":"api_key","value":"re_..."}'
+```
+
+### In-app inbox
+
+Every notification also fans into a per-user, self-scoped **in-app inbox**
+(the **Inbox** page under the **Notifications** nav group) — including @mention
+fan-out from case threads (§18). Every route reads/writes only the requesting
+user's bucket; there is no admin view of another user's inbox.
+
+| Action | Endpoint |
+|---|---|
+| List my inbox (optionally unread-only) | `GET /api/notifications/inbox?unread_only=` |
+| Unread count (for the bell badge) | `GET /api/notifications/inbox/unread-count` |
+| Mark one read | `POST /api/notifications/inbox/{notification_id}/read` |
+| Mark all read | `POST /api/notifications/inbox/read-all` |
+| Dismiss one | `POST /api/notifications/inbox/{notification_id}/dismiss` |
+| Read / update my per-category × channel prefs | `GET`/`PUT /api/notifications/prefs` |
+
+The inbox is advisory (never feeds `decide()`, #3); titles/bodies are plain,
+render-escaped data (#9); no secret is ever read or returned here.
+
+---
+
+## 24. Authentication — users, RBAC, custom roles, MFA, SSO
 
 Auth is **default OFF** (the no-auth "old version" is the default and stays fully
-functional, which is also why the offline tests run unauthenticated). Turn it on
-with the env flag and restart the backend:
+functional, which is also why the offline tests run unauthenticated) — but it is
+**fully built**: six built-in roles plus operator-defined custom roles, TOTP MFA,
+OIDC SSO, and a session policy. Turn it on with the env flag and restart the
+backend:
 
 ```bash
 # in .env (mapped to the backend's UNPREFIXED env names by compose)
@@ -634,15 +1084,20 @@ On first boot with an **empty** user store, the suite seeds a single
 the login screen sign in as `Admin` / `Admin@123`; the login flow detects the flag
 and forces a **change-password** step (`POST /api/auth/change-password`) before it
 issues a real session. **Change this password immediately** — the seed is a known
-default. (You can disable the seed with `TLSOC_AUTH_SEED_ADMIN=false` and create the
-first admin via `POST /api/setup/init-admin`, which is only accepted while no users
-exist.)
+default. You can disable the seed with `TLSOC_AUTH_SEED_ADMIN=false`; the platform
+then self-bootstraps via the public **`POST /api/setup/account`** endpoint — a
+strong-password-enforced (min length, must differ from the username, rejects
+common passwords), one-shot OOBE that is only callable while auth is on, setup is
+not yet complete, and **no** user exists yet. The moment one admin exists the
+endpoint **self-locks** (`409` on any further call) — it can never be used to add
+or escalate an account on a live platform. (There is no `/api/setup/init-admin` —
+that legacy, weaker path was removed.)
 
 ### Roles (RBAC)
 
-The suite ships a **six-role** permission matrix, enforced **in code** on every
-state-changing route (and mirrored in the UI by `<Can>` guards that hide actions a
-role can't perform):
+The suite ships a **six-role** built-in permission matrix, enforced **in code** on
+every state-changing route (and mirrored in the UI by `<Can>` guards that hide
+actions a role can't perform):
 
 | Role | Typical scope |
 |---|---|
@@ -653,8 +1108,8 @@ role can't perform):
 | `responder` | act on assigned cases |
 | `auditor` | read-only (cases, audit, metrics) |
 
-`GET /api/roles` returns the role→permission matrix the UI renders. Manage users
-(super_admin only):
+`GET /api/roles` returns the built-in role→permission matrix the UI renders.
+Manage users (super_admin only) on **Settings → Security & access → Users**:
 
 ```bash
 curl -s localhost:8088/api/users                                   # list
@@ -666,15 +1121,37 @@ curl -s -X PUT localhost:8088/api/users/alice \
 curl -s -X DELETE localhost:8088/api/users/alice
 ```
 
-In the UI, **Settings → Administration → Users** is the add / disable /
-reset-password / role-picker table.
+### Custom roles
+
+**Settings → Security & access → Roles & permissions** manages **operator-defined
+custom roles** layered on top of the six built-ins: a custom role `inherits` one or
+more base roles, `grants` additional `resource → [action]` permissions, and can
+`deny` specific ones (deny always wins). A built-in role name can never be
+created/mutated/deleted through this surface, and the effective-matrix resolver
+drops a custom role that would shadow a built-in one — so the platform owner can
+never be locked out. An unknown/deleted role assigned to a user fails safe to a
+default role at resolution time.
+
+| Action | Endpoint |
+|---|---|
+| Create a custom role | `POST /api/roles` |
+| Update (replace by name) a custom role | `PUT /api/roles` |
+| Delete a custom role | `DELETE /api/roles/{name}` |
+| Preview a draft role's effective grants (no persistence) | `POST /api/roles/preview` |
+| Simulate `can(role, resource, action)` | `GET /api/roles/simulate` |
+| My own resolved permissions (drives the webui `<Can>` guard) | `GET /api/account/permissions` |
+| Assign a base role + custom roles to a user | `PUT /api/users/{username}/roles` |
+
+Every RBAC mutation is audited; role names/grant maps are returned as plain data
+(#9) and are never fed to an LLM prompt.
 
 ### Enrolling MFA (TOTP)
 
 MFA is per-user, RFC-6238 TOTP, stdlib-only:
 
-1. Signed in, go to **Settings → Security → MFA** (or `POST /api/auth/mfa/setup`).
-   The backend returns `{ secret, otpauth_uri, recovery_codes }`.
+1. Signed in, go to **Settings → Account → Security & two-factor** (or
+   `POST /api/auth/mfa/setup`). The backend returns `{ secret, otpauth_uri,
+   recovery_codes }`.
 2. The UI renders the `otpauth://` URI as an **inline-SVG QR** — **scan it** with
    Google Authenticator / Authy / 1Password / etc. (or type the `secret` by hand).
    **Save the recovery codes** (single-use, shown once).
@@ -689,12 +1166,13 @@ admin can force-disable). `mfa.enforce_for_roles` can require MFA for chosen rol
 
 ### Configuring SSO (OIDC)
 
-Configure an OIDC provider in **Settings → Security → SSO** (writes the `sso`
-Preferences block). Supported: **Google**, **Microsoft**, and **generic** OIDC.
-The flow is server-side: the suite redirects to the provider, exchanges the `code`
-server-side, then calls the provider's **`userinfo`** endpoint and maps the claims
-to a user (id_token *signature* verification is intentionally skipped — see
-`SECURITY.md` — so there is **no `PyJWT`/JWKS dependency**).
+Configure an OIDC provider in **Settings → Security & access → Single sign-on &
+policy** (writes the `sso` Preferences block). Supported: **Google**,
+**Microsoft**, and **generic** OIDC. The flow is server-side: the suite redirects
+to the provider, exchanges the `code` server-side, then calls the provider's
+**`userinfo`** endpoint and maps the claims to a user (id_token *signature*
+verification is intentionally skipped — see `SECURITY.md` — so there is **no
+`PyJWT`/JWKS dependency**).
 
 1. Set `sso.enabled=true`, the provider `type`, `client_id`, `discovery_url` (for
    generic), `scopes`, the `allowed_domains` / `allowed_tenants`, and the
@@ -711,95 +1189,35 @@ mints the JWT, redirects to `/`).
 
 ---
 
-## 8i. Notifications — email, Slack, and other channels
+## 25. Settings — full reference
 
-Configure notifications in **Settings → Notifications** (the `notifications`
-Preferences block). The suite ships a pluggable `NotificationChannel` abstraction;
-the channel types available are **email**, **Slack**, **Microsoft Teams**,
-**webhook**, **PagerDuty**, and **Telegram**.
+`GET /api/settings` returns `{ prefs, configured, read_only }`; `PUT
+/api/settings` applies a partial patch (deep-merged server-side, validated against
+the `Preferences` schema). When **read-only mode** is on, a `403` is returned.
+Large subtrees can be fetched section-by-section with `GET
+/api/settings/{section}`, and `GET /api/settings/schema` returns the
+form-generation schema.
 
-**Email (SMTP).** Pick a **provider preset** from the dropdown — 13 are built in
-(gmail, o365, yahoo, zoho, icloud, sendgrid, mailgun, postmark, brevo, sparkpost,
-… and `custom`) — which fills host / port / encryption; supply `from_addr`,
-recipients, and the SMTP credential (stored in the **secret tier**, never in
-Preferences). `GET /api/notifications/providers` returns the preset table the UI
-renders.
+**Layout: five Settings groups, 25 sections** (`webui/src/soc/pages/settings/
+settings-sections-meta.ts`, the single source of truth the rail, the deep-link
+router, and the Cmd-K "jump to a setting" search all derive from):
 
-**Slack / Teams / webhook / PagerDuty / Telegram.** Add the channel and supply its
-secret (a Slack/Teams incoming-webhook URL, a PagerDuty routing key, a Telegram bot
-token, etc.) via `POST /api/notifications/channels/{channel_id}/secret`.
+| Group | Sections |
+|---|---|
+| **Account** | Profile · Security & two-factor · Sessions & activity · Appearance & customization |
+| **General** | Data scope · Models · Detection · Detection & rules (§14) · Cases (case-ID format, below) · SLA, priority & suppression · Automation (master switch, §14) · Standup |
+| **Integrations** | Alerting & notifications (§23) · Enrichment (§19) · Knowledge & threat context (§9, §12) |
+| **Security & access** | Users · Roles & permissions (§24's custom roles) · Single sign-on & policy (§24) · Active sessions (§27) · Secret keys |
+| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Danger zone (§28's tiered reset) |
 
-**Triggers, dedup, digest.** Each channel chooses **triggers** — on case create,
-on verdict change, on escalate, on close — plus an `immediate_severity_threshold`.
-Noise control is built in: **dedup** within `dedup_window_seconds`, per-recipient
-**rate limiting**, and **digest** batching within `digest_window_seconds`.
-
-**When sends happen.** Notifications fire **fire-and-forget, *after* the
-deterministic `apply()` + save** — never inside `decide()` — so a channel failure
-can never block or alter a case decision. Every send is audited; untrusted log
-fields in the message body are fenced as plain text (#9).
-
-```bash
-# Send a sample notification to one configured channel (settings:manage)
-curl -s -X POST localhost:8088/api/notifications/test \
-  -H 'content-type: application/json' -d '{"channel_id":"email-1"}'
-
-# Manually notify on a specific case (cases:write); omit channel_id to fan out
-curl -s -X POST localhost:8088/api/cases/case-abc123/notify \
-  -H 'content-type: application/json' -d '{"channel_id":"slack-1"}'
-```
-
----
-
-## 8j. Threshold automation — #3-safe post-decision rules
-
-**Settings → Automation** holds the threshold-automation rules
-(`threshold_automation`, default OFF). Each rule has `conditions` (on verdict /
-risk / severity / entity type / rule / source) and an `action`, evaluated in
-priority order **after** the Case Manager decides:
-
-- `tag` — add a tag to the case.
-- `recommend` — attach a recommendation.
-- `notify` — fire a notification (§8i).
-- `run_playbook` — queue a context-only playbook re-investigation (§8f).
-- `request_approval` — raise a **HITL `Proposal`** (the existing admin-gated
-  approve/reject path — see the Approvals queue).
-
-**The hard guarantee:** automation **never sets `case.status` directly**. A SAFE
-action (tag / recommend / notify) is applied and audited; anything that would write
-the world routes through the HITL `Proposal` path; a re-investigation calls
-`decide()` again with new inputs. `decide()` remains the only producer of a
-CLOSED / auto-closed case, and `NEEDS_HUMAN` never auto-closes (CI-asserted,
-non-negotiable #3). Automation rules ride `PUT /api/settings` under
-`threshold_automation`.
-
----
-
-## 9. Settings — full reference
-
-Settings GET `/api/settings` (`{ prefs, configured, read_only }`) and PUT a
-partial patch (deep-merged server-side; validated against the `Preferences`
-schema). When **read-only mode** is on, a `403` is returned. Large subtrees can be
-fetched section-by-section with `GET /api/settings/{section}`, and
-`GET /api/settings/schema` returns the form-generation schema.
-
-**Consolidated layout (Wave 7).** The page is organised into **13 sections across
-4 nav groups** rather than one long form: Data Sources; Models & LLM; Correlation &
-Cases (incl. the case-ID format, §below); Automation (playbooks + threshold
-automation §8j + cross-source correlation §8g); Notifications (§8i); Security
-(RBAC / MFA / SSO / rate-limits, §8h); Knowledge & Threat Context (§8c/§8f);
-Enrichment; Appearance (branding); Advanced (caps, read-only mode); plus the
-admin-only **Administration** group (Users, audit). It still renders **every**
-`Preferences` field — data scope, entity mapping, severity/rules, polling, the
-**seven per-role models** (router, investigator, formatter, standup, chat,
-`overview_model`, embedding), decision thresholds, the correlation table + risk
-weights + `asset_networks`, caps + kill switch, suppression rules, the auto-forward
-allowlist, enrichment, RAG, standup, the **rule catalog** + per-rule model
-overrides, the **trace** toggle, and read-only mode.
+RBAC hides a section a role can't reach (and auto-jumps off a hidden active
+section); with auth/RBAC off, everything shows. Every section still round-trips
+through `/api/settings`, `/api/branding`, `/api/roles`, and the per-feature routes
+covered elsewhere in this document.
 
 ### Custom case-ID nomenclature
 
-`case_id_format` (Settings → Correlation & Cases) controls the human-facing
+`case_id_format` (**Settings → General → Cases**) controls the human-facing
 **case number** (the immutable system `case_id` is unchanged). Set `enabled=true`
 and a `template` (placeholders include `{prefix}`, `{sep}`, `{year}`, `{yy}`,
 `{mm}`, `{seq:0Nd}`, `{source}`, `{verdict}` — e.g. `CASE-{year}-{seq:06d}` →
@@ -809,24 +1227,18 @@ by period. Preview candidate templates without persisting:
 `POST /api/settings/case-id/preview`. When set, the UI shows `case_number` and
 falls back to `case_id`.
 
-### Per-role model selection
-
-Each role has a provider + model picker (populated from `GET /api/models`), plus
-temperature and max-tokens. The catalog covers Anthropic and an expanded OpenAI
-set (`gpt-4.1`, `gpt-4.1-mini`, `gpt-4-turbo`, `gpt-4`, `o4-mini`, `gpt-5`,
-`gpt-5-mini`); the gateway handles per-model quirks automatically (`gpt-5` /
-`o`-series omit `temperature`, use `max_completion_tokens`). Listed prices are
-operator-verifiable approximations — edit `backend/app/llm/pricing.py` to correct.
-
 ### Configured credentials
 
 Badges per secret show **`configured ✓`** or **`not set`** — values are never
 returned. Covered: `es_api_key`, `es_mgmt_api_key`, `openai_api_key`,
-`anthropic_api_key`, `abuseipdb_api_key`, `virustotal_api_key`,
-`embedding_api_key`. Per-source secrets show as `configured_secrets` on each
+`anthropic_api_key`, `litellm_api_key` (§22), the enrichment-provider keys (§19),
+and `embedding_api_key`. Per-source secrets show as `configured_secrets` on each
 source.
 
 ### Polling & detection
+
+A themed field reference spanning **General → Data scope** (the first three rows)
+and **Organization → Advanced** (the last two):
 
 | Field | Pref | Default | Notes |
 |---|---|---|---|
@@ -842,25 +1254,34 @@ source.
 |---|---|---|
 | Max tool calls | `caps.max_tool_calls` | 8 |
 | Max tokens | `caps.max_tokens` | 20000 |
+| Max concurrent investigations | `caps.max_concurrent` | see schema |
 | Kill switch | `caps.kill_switch` | false |
 
 The **kill switch** is a global emergency stop: when on, the poller does not run
 and an investigation returns a `NEEDS_HUMAN` case with *"Kill switch engaged;
 investigation skipped."* (`caps.timeout_seconds` = 120 is schema-level.)
 
-### Automation toggles
+### Auto-close policy
+
+Lives on **Settings → General → Detection**:
 
 | Toggle | Pref | Default |
 |---|---|---|
-| FP auto-close enabled | `fp_auto_close.enabled` | false |
-| Enrichment enabled | `enrichment.enabled` | true |
-| RAG enabled | `rag.enabled` | true |
-| Standup enabled | `standup.enabled` | true |
+| FALSE_POSITIVE auto-close | `auto_close.false_positive.enabled` | **true** (0.85 confidence, ≤30 risk, 1440min objection window) |
+| TRUE_POSITIVE auto-close | `auto_close.true_positive.enabled` | **false** (opt-in; 0.95 confidence, ≤10 risk, 4320min objection window when enabled) |
 
-`fp_auto_close` also has (schema-level, off by default): `min_confidence` 0.95,
-`max_risk_score` 30.0, `objection_window_minutes` 60.
+(`fp_auto_close` is the deprecated predecessor field, migrated once into
+`auto_close.false_positive` for back-compat.)
 
-### Per-rule correlation (JSON editor)
+### Other feature toggles
+
+| Toggle | Pref | Default | Section |
+|---|---|---|---|
+| Enrichment enabled | `enrichment.enabled` | true | Integrations → Enrichment |
+| RAG enabled | `rag.enabled` | true | Integrations → Knowledge & threat context |
+| Standup enabled | `standup.enabled` | true | General → Standup |
+
+### Per-rule correlation (JSON editor, also reachable through §14's Detection & Rules editor)
 
 A JSON map of **rule value → `{ mode, n, window_seconds, group_by }`**:
 
@@ -880,279 +1301,24 @@ A JSON map of **rule value → `{ mode, n, window_seconds, group_by }`**:
 
 ---
 
-## 10. Using the API directly (`curl`)
+## 26. Your account — profile, avatar, activity
 
-Every surface is backed by an HTTP route under `/api` (`backend/app/api/routes.py`).
-You can drive them directly for ops/automation. Examples below hit the backend on
-`localhost:8088` (the agnostic stack publishes it); through the web UI's nginx,
-the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
-
-```bash
-# Health
-curl -s localhost:8088/api/health
-# -> {"status":"ok","version":"1.0.0","es_connected":true,"store_type":"...","setup_complete":true}
-
-# Setup status (configured booleans, entity mapping, es_connected)
-curl -s localhost:8088/api/setup/status
-```
-
-### Connectors + sources
-
-```bash
-# List every available connector + its wizard field schema (auth/config)
-curl -s localhost:8088/api/connectors
-# One connector's manifest
-curl -s localhost:8088/api/connectors/elasticsearch
-
-# Create (or update) a source — a webhook push receiver, id "edr-webhook"
-curl -s -X POST localhost:8088/api/sources \
-  -H 'content-type: application/json' \
-  -d '{
-        "id": "edr-webhook",
-        "source_type": "webhook",
-        "display_name": "EDR webhook",
-        "ingest_mode": "push_http",
-        "is_primary": false,
-        "config": { "auth_mode": "bearer", "path": "/webhook", "format_hint": "auto" }
-      }'
-
-# Set a per-source secret (the bearer token) — secret tier, never persisted
-curl -s -X POST localhost:8088/api/sources/edr-webhook/secrets \
-  -H 'content-type: application/json' \
-  -d '{ "token": "s3cr3t-webhook-token" }'
-
-# Test connectivity (tests the live primary log source)
-curl -s -X POST localhost:8088/api/connectors/test \
-  -H 'content-type: application/json' -d '{}'
-
-# List configured sources
-curl -s localhost:8088/api/sources
-
-# Browse a source's recent logs (pull=bounded scoped search ≤200; push=live-tail buffer)
-curl -s "localhost:8088/api/sources/prod-es/logs?limit=50&query=ssh&from=now-15m&to=now"
-# -> [{ "ts": "...", "source_ip": "...", "user": "...", "host": "...",
-#       "rule": "...", "severity": "...", "message": "...", "_raw": { ... } }]
-# 404 unknown source · 501 browse-unsupported connector · 502 read failure
-
-# Delete a source
-curl -s -X DELETE localhost:8088/api/sources/edr-webhook
-```
-
-A pull source (Elasticsearch) follows the same shape; its secret is the read-only
-key:
-
-```bash
-curl -s -X POST localhost:8088/api/sources \
-  -H 'content-type: application/json' \
-  -d '{
-        "id": "prod-es",
-        "source_type": "elasticsearch",
-        "is_primary": true,
-        "config": {
-          "es_url": "https://elasticsearch:9200",
-          "data_view_pattern": "all-logs-*",
-          "time_field": "@timestamp",
-          "source_ip_field": "source.ip",
-          "user_field": "user.name",
-          "host_field": "host.name",
-          "rule_field": "event.module"
-        }
-      }'
-curl -s -X POST localhost:8088/api/sources/prod-es/secrets \
-  -H 'content-type: application/json' -d '{ "es_api_key": "<encoded-read-only-key>" }'
-```
-
-### Push an alert to a webhook source
-
-The receiver verifies auth (here bearer), parses + normalises to OCSF, and the
-events flow into the same correlate → case pipeline:
-
-```bash
-curl -s -X POST localhost:8088/api/ingest/edr-webhook \
-  -H 'authorization: Bearer s3cr3t-webhook-token' \
-  -H 'content-type: application/json' \
-  -d '{ "source.ip": "10.10.1.152", "user.name": "alice", "event.module": "sshd",
-        "event.severity": 7, "message": "Failed password for alice" }'
-# -> {"ok":true,"received":1,"clusters":...,"investigated":...,"candidates":...}
-# A bad/missing token returns 401.
-```
-
-### Cases / analytics
-
-```bash
-# List cases (filterable: status, surface, entity, limit, offset)
-curl -s "localhost:8088/api/cases?limit=20&status=needs_human"
-curl -s localhost:8088/api/cases/case-abc123                       # one case
-curl -s localhost:8088/api/cases/case-abc123/trace                 # agent trace
-curl -s localhost:8088/api/cases/case-abc123/rationale             # the "Why" object (deterministic decision + reasoning + knowledge + commands + memory)
-
-# Analyst lifecycle actions (close/confirm_fp/resolve/reopen/escalate/deescalate/
-# hold/resume/set_status/set_disposition/acknowledge); illegal moves → 400
-curl -s -X POST localhost:8088/api/cases/case-abc123/action \
-  -H 'content-type: application/json' \
-  -d '{"action":"escalate","level":2,"note":"paging on-call","analyst":"alice"}'
-curl -s -X POST localhost:8088/api/cases/case-abc123/action \
-  -H 'content-type: application/json' \
-  -d '{"action":"set_disposition","disposition":"true_positive","analyst":"alice"}'
-
-# Re-investigate a stored case in place (NEUTRAL 400 if activity aged out)
-curl -s -X POST localhost:8088/api/cases/case-abc123/investigate
-
-# Run a playbook on a case (context-only re-investigation; #3-safe)
-curl -s -X POST localhost:8088/api/cases/case-abc123/run-playbook \
-  -H 'content-type: application/json' \
-  -d '{"playbook_id":"brute-force-login","analyst":"alice"}'
-
-# Threat context for a case (IOC reputation + MITRE + related cases; fail-open)
-curl -s localhost:8088/api/cases/case-abc123/threat-context
-
-# Investigate an entity (optional "lookback" overrides; auto-widens on 0 hits)
-curl -s -X POST localhost:8088/api/investigate \
-  -H 'content-type: application/json' \
-  -d '{"entity":{"type":"ip","value":"10.10.1.152"},"source_surface":"investigate"}'
-
-# Chat (add "case_id" / "context" for follow-ups + screen context)
-curl -s -X POST localhost:8088/api/chat \
-  -H 'content-type: application/json' \
-  -d '{"message":"list all logs from 10.10.1.152 today","history":[]}'
-
-# Per-log AI overview
-curl -s -X POST localhost:8088/api/overview \
-  -H 'content-type: application/json' \
-  -d '{"source":{"source.ip":"10.10.1.152","user.name":"alice","event.module":"sshd"}}'
-
-# Model catalog for the per-role pickers
-curl -s localhost:8088/api/models
-
-# Knowledge base (RAG): stats, browse, import, test-retrieve, delete (seeds need force)
-curl -s localhost:8088/api/rag/stats
-curl -s localhost:8088/api/rag/documents
-curl -s localhost:8088/api/rag/documents/doc-abc123                 # one document's chunks
-curl -s "localhost:8088/api/rag/search?q=ssh%20brute%20force&top_k=5"   # live retrieval — see what RAG returns
-curl -s -X POST localhost:8088/api/rag/import \
-  -H 'content-type: application/json' \
-  -d '{"title":"SSH brute-force runbook","text":"...","source":"runbook","tags":["ssh"]}'
-curl -s -X DELETE "localhost:8088/api/rag/documents/doc-abc123"        # imported doc
-curl -s -X DELETE "localhost:8088/api/rag/documents/seed:runbook?force=true"  # guarded seed needs force
-
-# Agent memory (durable operator facts; source=human via REST)
-curl -s localhost:8088/api/memory
-curl -s -X POST localhost:8088/api/memory \
-  -H 'content-type: application/json' \
-  -d '{"text":"10.0.0.0/8 is our internal corporate range","category":"asset","tags":["network"]}'
-curl -s -X PUT localhost:8088/api/memory/mem-abc123 \
-  -H 'content-type: application/json' -d '{"active":false}'          # retire without deleting
-curl -s -X DELETE localhost:8088/api/memory/mem-abc123
-
-# Automated scans + badge
-curl -s "localhost:8088/api/scans?limit=20"
-curl -s "localhost:8088/api/scans/notifications?since=now-24h"
-
-# Standup, cost
-curl -s "localhost:8088/api/standup?window_hours=24"
-curl -s "localhost:8088/api/usage/summary?window_hours=24"
-
-# Settings get / patch (+ section / schema / case-id preview)
-curl -s localhost:8088/api/settings
-curl -s localhost:8088/api/settings/schema
-curl -s localhost:8088/api/settings/notifications        # one section
-curl -s -X PUT localhost:8088/api/settings \
-  -H 'content-type: application/json' \
-  -d '{"background_scan_enabled":true,"auto_forward_allowlist":["sshd","suricata"]}'
-curl -s -X POST localhost:8088/api/settings/case-id/preview \
-  -H 'content-type: application/json' \
-  -d '{"template":"CASE-{year}-{seq:06d}","count":3}'
-
-# Manual poll (pull sources)
-curl -s -X POST localhost:8088/api/poll
-```
-
-### Auth, users + RBAC (only when TLSOC_AUTH_ENABLED=true)
-
-```bash
-# Login (returns {requires_mfa, pending_token} when the user has MFA; else {token, user})
-curl -s -X POST localhost:8088/api/auth/login \
-  -H 'content-type: application/json' -d '{"username":"Admin","password":"Admin@123"}'
-# Forced on the seeded admin's first login:
-curl -s -X POST localhost:8088/api/auth/change-password \
-  -H 'content-type: application/json' \
-  -d '{"current_password":"Admin@123","new_password":"<strong-new>"}'
-curl -s localhost:8088/api/auth/me                 # current user + role + must_change_password
-curl -s localhost:8088/api/roles                   # role → permission matrix
-
-# Users (super_admin)
-curl -s localhost:8088/api/users
-curl -s -X POST localhost:8088/api/users \
-  -H 'content-type: application/json' \
-  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2"}'
-curl -s -X PUT localhost:8088/api/users/alice \
-  -H 'content-type: application/json' -d '{"role":"soc_manager","active":true}'
-curl -s -X DELETE localhost:8088/api/users/alice
-
-# MFA enrolment (self): setup → scan the otpauth_uri QR → confirm
-curl -s -X POST localhost:8088/api/auth/mfa/setup     # -> {secret, otpauth_uri, recovery_codes}
-curl -s -X POST localhost:8088/api/auth/mfa/confirm -H 'content-type: application/json' -d '{"code":"123456"}'
-# Login phase 2: exchange the pending_token + a TOTP (or recovery) code for a session
-curl -s -X POST localhost:8088/api/auth/mfa/verify  -H 'content-type: application/json' -d '{"pending_token":"...","code":"123456"}'
-
-# SSO (OIDC)
-curl -s localhost:8088/api/auth/sso/providers
-curl -s "localhost:8088/api/auth/sso/authorize?provider=google"
-```
-
-### Notifications
-
-```bash
-curl -s localhost:8088/api/notifications/providers        # email presets + channel types
-curl -s -X POST localhost:8088/api/notifications/test \
-  -H 'content-type: application/json' -d '{"channel_id":"email-1"}'   # send a sample to one configured channel
-curl -s -X POST localhost:8088/api/notifications/channels/slack-1/secret \
-  -H 'content-type: application/json' -d '{"field":"webhook_url","value":"https://hooks.slack.com/..."}'
-curl -s -X POST localhost:8088/api/cases/case-abc123/notify \
-  -H 'content-type: application/json' -d '{"channel_id":"slack-1"}'
-```
-
----
-
-## 11. Safety guarantees you can rely on
-
-These are enforced in **code**, not prompts (see `SECURITY.md`):
-
-- **A TRUE_POSITIVE is never auto-closed.** It always routes to a human.
-- **FALSE_POSITIVE auto-close is off by default** and, when enabled, requires high
-  confidence AND low risk AND grants a human objection window.
-- **Fail-safe routing.** Missing/unknown verdict, router unavailable, kill switch,
-  or any pipeline exception → a `needs_human` case (an alert is never dropped).
-- **Every LLM call is metered.** 100% of completions and embeddings pass the single
-  gateway, which writes the usage/cost ledger (including `error` outcomes).
-- **Every agent action is audited**, append-only, from the first prompt.
-- **Read-only sources.** Every connector reads with a least-privilege, read-only
-  credential; the agent's tools never write the source.
-- **No duplicate cases (idempotent).** Cases are keyed by an entity-centric cluster
-  signature; re-polling attaches new events to the open case.
-- **Inbound push payloads are untrusted.** Push receivers verify auth and fence the
-  normalised data as UNTRUSTED in prompts. Raw logs are never sent to a model in
-  standup.
-
----
-
-## 12. Your account — profile, avatar, login (Round 2)
-
-> Account self-service is reachable **only when auth is enabled** (§8h). With auth
+> Account self-service is reachable **only when auth is enabled** (§24). With auth
 > off the suite has no concept of a per-user identity, so these surfaces are hidden
 > and `GET /api/account/me` reports `auth_enabled:false`.
 
-The redesigned login is a two-column split (brand hero + form). It still drives the
-same four modes — normal sign-in, the forced **OOBE change-password** on the seeded
-admin's first login, the **MFA** code step (a 6-cell segmented OTP entry; §8h), and
-SSO buttons — and adds a client-only password-strength meter on the OOBE/change
-screens. The hero consumes your branding (`org_name`, `logo_data_url`, accent +
-secondary accent), so it looks like *your* SOC.
+The login screen is a two-column split (a left brand hero consuming your
+branding — org name / logo / accent colours from `GET /api/branding` — and a
+right form card, `hidden lg:block` on the hero so a phone just sees the clean
+form). It drives four modes from one screen: normal sign-in, the forced OOBE
+change-password step on the seeded admin's first login (with a live,
+dependency-free password-strength meter), the **MFA** code step (a 6-cell
+segmented OTP entry, §24), and any configured **SSO** buttons.
 
 ### Edit your profile + avatar
 
-Open **Settings → Personal Account → Profile**. It reads `GET /api/account/me` and
-writes `PUT /api/account/me`. Every field is optional and only the fields you change
+Open **Settings → Account → Profile**. It reads `GET /api/account/me` and writes
+`PUT /api/account/me`. Every field is optional and only the fields you change
 are written; clearing a field is an explicit empty string (never null):
 
 | Field | Body key | Notes |
@@ -1189,8 +1355,8 @@ curl -s -b cookies.txt -X PUT localhost:8088/api/me/avatar \
 **The env single-admin can't self-edit.** If auth runs as the legacy
 environment-seeded single admin (no persisted user record), `account/me` returns
 `env_managed:true` and a `PUT` is refused with `400` ("managed via environment
-configuration") — exactly like the change-password seam. Create real users (§8h) to
-get editable profiles. Secrets never leak: `public()` excludes `password_hash`,
+configuration") — exactly like the change-password seam. Create real users (§24)
+to get editable profiles. Secrets never leak: `public()` excludes `password_hash`,
 `mfa_secret`, and the recovery-code hashes. Every profile/avatar change is audited.
 
 Your recent account activity is available at `GET /api/account/activity?limit=50`
@@ -1199,9 +1365,9 @@ account page.
 
 ---
 
-## 13. Sessions & token policy (Round 2)
+## 27. Sessions & token policy
 
-When auth is enabled, the stdlib HS256 JWT is now a short-lived **access token**
+When auth is enabled, the stdlib HS256 JWT is a short-lived **access token**
 carrying a session id (`sid`) + token-version (`tv`) claim, backed by a durable
 `SessionStore` (in your `STATE_BACKEND`, so sessions survive a restart). Every login
 path (password, MFA-verify, SSO callback) registers a session row with its device /
@@ -1209,7 +1375,7 @@ browser / OS / IP (+ city/country when resolvable) — all rendered as **plain d
 
 ### See and revoke your own sessions
 
-**Settings → Personal Account → Security → Sessions** lists your session cards. The
+**Settings → Account → Sessions & activity** lists your session cards. The
 current one is pinned with a **"This device"** badge; each other row has a
 destructive **Revoke**, and a top-right **"Sign out all other sessions"**.
 
@@ -1224,11 +1390,11 @@ the other sessions is rejected on its next request (the kept `sid` is preserved)
 
 ### Admin: terminate anyone's sessions
 
-Admins (`users:manage`) get **Settings → Administration → Sessions** — every session
-across all users, force-terminable. These admin writes are **step-up gated**: if your
-last password re-auth is older than the sudo window you get `401 {code:"reauth_required"}`
-and the UI pops a re-auth modal (`POST /api/auth/reauth` with your password stamps a
-fresh `last_authn_at`).
+Admins (`users:manage`) get **Settings → Security & access → Active sessions** —
+every session across all users, force-terminable. These admin writes are
+**step-up gated**: if your last password re-auth is older than the sudo window
+you get `401 {code:"reauth_required"}` and the UI pops a re-auth modal
+(`POST /api/auth/reauth` with your password stamps a fresh `last_authn_at`).
 
 | Action | Endpoint |
 |---|---|
@@ -1238,20 +1404,21 @@ fresh `last_authn_at`).
 
 ### Token policy (idle / absolute / refresh / sudo)
 
-**Settings → Organization → Security → Token policy** edits the `session_policy`
-Preferences sub-model: `access_ttl` (default 900s), `idle_timeout` (1800s),
-`absolute_lifetime` (43200s), `refresh_ttl` (604800s), `sudo_reauth_window` (600s),
-plus notify-on-new-device / notify-on-terminate toggles. Idle + absolute expiry and
-revocation are enforced in `require_auth` (the async gate), not in the hot-path sync
-`verify()`. A session whose idle/absolute window has lapsed gets `401
-{code:"session_expired"}`.
+**Settings → Security & access → Single sign-on & policy** edits the
+`session_policy` Preferences sub-model: `access_ttl` (default 900s), `idle_timeout`
+(1800s), `absolute_lifetime` (43200s), `refresh_ttl` (604800s),
+`sudo_reauth_window` (600s), plus notify-on-new-device / notify-on-terminate
+toggles. Idle + absolute expiry and revocation are enforced in `require_auth`
+(the async gate), not in the hot-path sync `verify()`. A session whose
+idle/absolute window has lapsed gets `401 {code:"session_expired"}`.
 
-**Refresh rotation + theft detection.** `POST /api/auth/refresh` rotates the refresh
-token (old hash slides to a previous-hash slot) and mints a fresh access token. If a
-caller replays an **already-rotated** refresh token, that is treated as theft: the
-session is revoked, the user's `token_version` is bumped (global sign-out), the event
-is audited + best-effort notified, and a `401 {code:"session_invalid"}` is returned.
-`POST /api/auth/logout` revokes the current `sid`.
+**Refresh rotation + theft detection.** `POST /api/auth/refresh` rotates the
+refresh token (old hash slides to a previous-hash slot) and mints a fresh access
+token. If a caller replays an **already-rotated** refresh token, that is treated
+as theft: the session is revoked, the user's `token_version` is bumped (global
+sign-out), the event is audited + best-effort notified, and a `401
+{code:"session_invalid"}` is returned. `POST /api/auth/logout` revokes the
+current `sid`.
 
 ```bash
 curl -s -b cookies.txt localhost:8088/api/sessions
@@ -1264,38 +1431,15 @@ curl -s -b cookies.txt -X POST localhost:8088/api/auth/refresh \
 
 ---
 
-## 14. Settings, reorganised — the two-scope IA (Round 2)
-
-Settings is now one left rail split into two scopes:
-
-- **Personal Account** (every signed-in user): Profile (§12), Account, Preferences
-  (§18), Notifications view, Security → MFA + Sessions (§13).
-- **Organization** (perm-gated): Data Sources & Connectors (incl. per-source feeds,
-  §16), Models & LLM, Correlation & Cases, Automation, Notifications (channels +
-  templates, §17), Security & SSO + Token policy (§13), Knowledge & Threat Context,
-  Enrichment, Appearance / Terminology (§18), Experimental (Demo Mode, §15), and the
-  admin-only **Administration** group (Users, Sessions, Audit viewer §19).
-
-RBAC hides sections a role can't use (and auto-jumps off a hidden active section);
-with auth/RBAC **off** the default profile still shows everything. The whole tree
-still round-trips through the existing `/api/settings`, `/api/branding`,
-`/api/roles`, and the per-feature routes — see §9 for the full Preferences reference,
-which is unchanged by the IA move.
-
-Several pages were also consolidated: Investigate is a segmented control on the Chat
-scaffold, Cost is a tab under Metrics, Standup is a panel on Overview, and
-Knowledge / Memory / Catalog live under one **Intelligence** area as distinct tabs.
-
----
-
-## 15. Demo Mode — a safe, reversible showcase (Round 2)
+## 28. Demo Mode — a safe, reversible showcase
 
 Demo Mode is a first-class, **reversible, fully isolated** tenant state (not a
 fork). Synthetic OCSF events flow through the **real** correlate → risk → decide
 pipeline, but every write lands in a **separate in-memory store** with a
 **deterministic mock LLM**, so the demo is **$0**, leaves your real data untouched,
-and is removed with one flip. Enable it from **Settings → Organization → Experimental**
-(admin-only). All demo cases are tagged `demo` and id-prefixed `demo-…`.
+and is removed with one flip. Enable it from **Settings → Organization →
+Experimental & Demo** (admin-only). All demo cases are tagged `demo` and
+id-prefixed `demo-…`.
 
 | Action | Endpoint | What it does |
 |---|---|---|
@@ -1333,21 +1477,26 @@ the gate) and `NEEDS_HUMAN` stays open as the HITL showcase. The real polling cu
 is left untouched, and `POST /api/demo/disable` flips the state back to `off` and
 hard-deletes every demo case / audit / usage / event by `run_id`.
 
+**Tiered reset.** Beyond Demo Mode, **Settings → Organization → Danger zone** offers
+an admin-gated, type-to-confirm **tiered reset** (cases / sources / factory) via
+`POST /api/admin/reset` — the cost ledger and audit log survive the cases tier, and
+**environment-supplied secrets are never wiped by any tier**.
+
 ---
 
-## 16. Source feeds — alerts / events / ignore (Round 2)
+## 29. Source feeds — alerts / events / ignore
 
-A pull source's index patterns are now richer **feeds**. The model keeps its wire key
+A pull source's index patterns are richer **feeds**. The model keeps its wire key
 (`config.index_patterns`) and class name (`IndexPattern`) for back-compat, but each
-entry can now carry a per-feed **role**, query, mapping, severity floor, and
-correlation behaviour. Edit them in the **per-source editor** (Settings → Data Sources
-& Connectors → a source → Feeds); the source round-trips through the existing
-`POST /api/sources` (additive `config`, no migration).
+entry carries a per-feed **role**, query, mapping, severity floor, and correlation
+behaviour. Edit them in the **`SourceEditor`** (§2, a source's Feeds panel); the
+source round-trips through the existing `POST /api/sources` (additive `config`, no
+migration).
 
 **Role** (`role`): `alerts` (auto-investigate by default, bypasses the allowlist),
-`events` (correlate → auto-forward only when on the allowlist), or the new
-**`ignore`** (skip ingest entirely — excluded from the union read, useful to carve a
-noisy sub-index out of a broad `events` pattern; longest-pattern-wins precedence).
+`events` (correlate → auto-forward only when on the allowlist), or **`ignore`**
+(skip ingest entirely — excluded from the union read, useful to carve a noisy
+sub-index out of a broad `events` pattern; longest-pattern-wins precedence).
 
 **Per-feed knobs:**
 
@@ -1389,59 +1538,14 @@ curl -s -X POST localhost:8088/api/sources \
 
 ---
 
-## 17. Email — Resend + SES + customizable templates (Round 2)
-
-Two new email channels join the pluggable `NotificationChannel` SPI (§8i), and the
-suite now ships **operator-overridable email templates**. Configure both in
-**Settings → Organization → Notifications**.
-
-- **Resend** (`type:"resend"`) — an HTTPS-API channel. Its secret is the Resend API
-  key (`POST /api/notifications/channels/{id}/secret`); the channel POSTs to
-  `https://api.resend.com/emails` with an idempotency key per case/trigger and a
-  client-side rate limit. It self-registers, so it appears in
-  `GET /api/notifications/providers` → `channel_types`.
-- **SES** — shipped as an **SMTP provider preset** (`ses`, host
-  `email-smtp.{region}.amazonaws.com:587`, STARTTLS). Supply either ready-made SES
-  SMTP credentials **or** a raw IAM access-key pair — the backend derives the SMTP
-  password via the stdlib AWS4-HMAC SES chain. No new dependency.
-
-### Customizable templates + live preview
-
-There are **5 preloaded templates** keyed by trigger — `case.new` (`case_created`),
-`case.escalation` (`escalated`), `case.resolved` (`closed`), `digest.daily`
-(`digest_daily`), and `test`. They render through a tiny **stdlib mustache-subset**
-renderer: `{{var}}` is auto HTML-escaped, `{{{var}}}` is raw **only** for trusted
-header HTML, with `{{#section}}`/`{{^section}}` and dotted lookup (no `eval`/`getattr`).
-Subjects are CRLF-stripped/capped (header-injection safe) and untrusted text in the
-`.txt` part is newline-stripped (#9). You override the per-trigger `{subject, html,
-text}` in the Notifications template editor (stored under
-`notifications.templates.overrides`); anything you don't override falls back to the
-built-in default.
-
-**Preview before you save.** `POST /api/notifications/preview?trigger=case_created`
-renders a **sample** case server-side and returns the exact `{subject, html, text,
-headers}` that would ship — the escaping is authoritative, so the preview pane shows
-precisely the wire output. Pass an unsaved `{subject?, html?, text?}` body to preview
-edits you haven't persisted yet. No real case data, no real send, no secret leak.
-
-```bash
-curl -s localhost:8088/api/notifications/providers      # presets + channel_types + template_ids
-curl -s -b cookies.txt -X POST "localhost:8088/api/notifications/preview?trigger=escalated" \
-  -H 'content-type: application/json' \
-  -d '{"subject":"[{{org_name}}] ESCALATED {{case.case_number}}"}'   # preview an unsaved edit
-curl -s -b cookies.txt -X POST localhost:8088/api/notifications/channels/resend-1/secret \
-  -H 'content-type: application/json' -d '{"field":"api_key","value":"re_..."}'
-```
-
----
-
-## 18. Personal customization — saved views, table columns, terminology, theme (Round 2)
+## 30. Personal customization — saved views, columns, terminology, theme
 
 Customization is a **two-store cascade**: **ORG defaults** on
 `Preferences.customization` (admin-only) ← **personal** overrides in a per-user
 `UserPrefsStore` (keyed by username when auth is on, a shared `default` bucket when
 auth is off — so even the no-auth profile gets real, persisted personal prefs). The
-webui hydrates `GET /api/prefs/effective` once on mount and merges the two.
+webui hydrates `GET /api/prefs/effective` once on mount and merges the two. Most
+of this lives under **Settings → Account → Appearance & customization**.
 
 ### Saved views
 
@@ -1494,7 +1598,7 @@ curl -s -b cookies.txt -X PUT localhost:8088/api/terminology \
 
 ---
 
-## 19. Command palette, global search, bulk actions & the audit viewer (Round 2)
+## 31. Command palette, global search, bulk actions & the audit viewer
 
 ### Cmd-K palette + global search
 
@@ -1505,7 +1609,7 @@ Press **⌘K / Ctrl-K** anywhere to open the command palette. It calls
   / `source_name` (works in Demo Mode too — it reads the active case store).
 - **sources** — matched on name / type / id.
 - **nav** — static page + settings-section targets, so the palette can navigate the
-  whole app.
+  whole app (including a jump straight to one settings section or card, §25).
 
 The endpoint is bounded (`limit` hard-capped) and degrades gracefully (a case-listing
 failure just yields no case hits). All matched text is operator/log data rendered as
@@ -1536,12 +1640,337 @@ curl -s -b cookies.txt -X POST localhost:8088/api/cases/bulk \
 
 ### Audit viewer
 
-Admins/auditors get **Settings → Administration → Audit** — a bounded, read-only view
-of the append-only audit log (#2). It is gated on `audit:view` (the auditor/admin
-grant) and filterable; rows are **newest-first**, hard-capped (≤500), and all text is
-rendered as plain (#9 — audit rows carry fenced UNTRUSTED log excerpts).
+The **Audit log** is a standalone top-level **Platform** nav page (`GET
+/api/audit`) — a bounded, read-only view of the append-only audit log (#2). It is
+gated on `audit:view` (the auditor/admin grant) and filterable; rows are
+**newest-first**, hard-capped (≤500), and all text is rendered as plain (#9 —
+audit rows carry fenced UNTRUSTED log excerpts).
 
 ```bash
 curl -s -b cookies.txt "localhost:8088/api/audit?limit=100&actor=alice&action=DECISION&from=now-24h"
 # filters: actor, action, surface, case_id, from (alias), to, limit
 ```
+
+---
+
+## 32. Using the API directly (`curl`)
+
+Every surface is backed by an HTTP route under `/api` — the base monolith
+(`backend/app/api/routes.py`) plus 20 auto-discovered `routes_*.py` feature
+routers (`main.py::discover_feature_routers()`; no manual registration needed).
+You can drive them directly for ops/automation. Examples below hit the backend on
+`localhost:8088` (the agnostic stack publishes it); through the web UI's nginx,
+the same paths work under the SPA origin (e.g. `http://localhost:8080/api/...`).
+
+```bash
+# Health
+curl -s localhost:8088/api/health
+# -> {"status":"ok","version":"1.0.0","es_connected":true,"store_type":"...","setup_complete":true}
+# NOTE: "store_type" is the log-surface ES CLIENT CLASS ("RealESClient" /
+# "InMemoryESClient") — it never reports your STATE_BACKEND (elasticsearch /
+# postgres / sqlite). "InMemoryESClient" with no pull source wired is expected,
+# not a database outage (see docs/TROUBLESHOOTING.md).
+
+# Setup status (configured booleans, entity mapping, es_connected)
+curl -s localhost:8088/api/setup/status
+```
+
+### Connectors + sources
+
+```bash
+# List every available connector + its wizard field schema (auth/config)
+curl -s localhost:8088/api/connectors
+# One connector's manifest
+curl -s localhost:8088/api/connectors/elasticsearch
+
+# Create (or update) a source — a webhook push receiver, id "edr-webhook"
+curl -s -X POST localhost:8088/api/sources \
+  -H 'content-type: application/json' \
+  -d '{
+        "id": "edr-webhook",
+        "source_type": "webhook",
+        "display_name": "EDR webhook",
+        "ingest_mode": "push_http",
+        "is_primary": false,
+        "config": { "auth_mode": "bearer", "path": "/webhook", "format_hint": "auto" }
+      }'
+
+# Set a per-source secret (the bearer token) — secret tier, never persisted
+curl -s -X POST localhost:8088/api/sources/edr-webhook/secrets \
+  -H 'content-type: application/json' \
+  -d '{ "token": "s3cr3t-webhook-token" }'
+
+# Test connectivity (tests the live primary log source)
+curl -s -X POST localhost:8088/api/connectors/test \
+  -H 'content-type: application/json' -d '{}'
+
+# List configured sources + their health
+curl -s localhost:8088/api/sources
+curl -s localhost:8088/api/sources/health
+
+# Browse a source's recent logs (pull=bounded scoped search ≤200; push=live-tail buffer)
+curl -s "localhost:8088/api/sources/prod-es/logs?limit=50&query=ssh&from=now-15m&to=now"
+# -> [{ "ts": "...", "source_ip": "...", "user": "...", "host": "...",
+#       "rule": "...", "severity": "...", "message": "...", "_raw": { ... } }]
+# 404 unknown source · 501 browse-unsupported connector · 502 read failure
+
+# Browse across EVERY enabled, browse-capable source at once
+curl -s "localhost:8088/api/logs?limit=50&query=ssh&from=now-15m&to=now"
+
+# Delete a source
+curl -s -X DELETE localhost:8088/api/sources/edr-webhook
+```
+
+A pull source (Elasticsearch) follows the same shape; its secret is the read-only
+key:
+
+```bash
+curl -s -X POST localhost:8088/api/sources \
+  -H 'content-type: application/json' \
+  -d '{
+        "id": "prod-es",
+        "source_type": "elasticsearch",
+        "is_primary": true,
+        "config": {
+          "es_url": "https://elasticsearch:9200",
+          "data_view_pattern": "all-logs-*",
+          "time_field": "@timestamp",
+          "source_ip_field": "source.ip",
+          "user_field": "user.name",
+          "host_field": "host.name",
+          "rule_field": "event.module"
+        }
+      }'
+curl -s -X POST localhost:8088/api/sources/prod-es/secrets \
+  -H 'content-type: application/json' -d '{ "es_api_key": "<encoded-read-only-key>" }'
+```
+
+### Push an alert to a webhook source
+
+The receiver verifies auth (here bearer), parses + normalises to OCSF, and the
+events flow into the same correlate → case pipeline:
+
+```bash
+curl -s -X POST localhost:8088/api/ingest/edr-webhook \
+  -H 'authorization: Bearer s3cr3t-webhook-token' \
+  -H 'content-type: application/json' \
+  -d '{ "source.ip": "10.10.1.152", "user.name": "alice", "event.module": "sshd",
+        "event.severity": 7, "message": "Failed password for alice" }'
+# -> {"ok":true,"received":1,"clusters":...,"investigated":...,"candidates":...}
+# A bad/missing token returns 401.
+```
+
+### Cases / analytics
+
+```bash
+# List cases (filterable: status, surface, entity, limit, offset)
+curl -s "localhost:8088/api/cases?limit=20&status=needs_human"
+curl -s localhost:8088/api/cases/case-abc123                       # one case
+curl -s localhost:8088/api/cases/case-abc123/trace                 # agent trace
+curl -s localhost:8088/api/cases/case-abc123/rationale             # the deterministic decision + reasoning + knowledge + commands + memory
+curl -s localhost:8088/api/cases/case-abc123/stages                # the 6-stage "what happened" timeline
+
+# Analyst lifecycle actions (close/confirm_fp/resolve/reopen/escalate/deescalate/
+# hold/resume/set_status/set_disposition/acknowledge); illegal moves -> 400
+curl -s -X POST localhost:8088/api/cases/case-abc123/action \
+  -H 'content-type: application/json' \
+  -d '{"action":"escalate","level":2,"note":"paging on-call","analyst":"alice"}'
+curl -s -X POST localhost:8088/api/cases/case-abc123/action \
+  -H 'content-type: application/json' \
+  -d '{"action":"set_disposition","disposition":"true_positive","analyst":"alice"}'
+
+# Re-investigate a stored case in place (rebuilds from stored evidence if the log
+# window has aged out; NEUTRAL 400 only when neither path is usable)
+curl -s -X POST localhost:8088/api/cases/case-abc123/investigate
+
+# Run a playbook on a case (context-only re-investigation; #3-safe)
+curl -s -X POST localhost:8088/api/cases/case-abc123/run-playbook \
+  -H 'content-type: application/json' \
+  -d '{"playbook_id":"brute-force-login","analyst":"alice"}'
+
+# Threat context for a case (IOC reputation + MITRE + related cases; fail-open)
+curl -s localhost:8088/api/cases/case-abc123/threat-context
+
+# The campaign a case belongs to (or null)
+curl -s localhost:8088/api/cases/case-abc123/campaign
+
+# The case thread + tasks (collaboration, §18)
+curl -s localhost:8088/api/cases/case-abc123/thread
+curl -s localhost:8088/api/cases/case-abc123/tasks
+
+# Investigate an entity (optional "lookback" overrides; auto-widens on 0 hits)
+curl -s -X POST localhost:8088/api/investigate \
+  -H 'content-type: application/json' \
+  -d '{"entity":{"type":"ip","value":"10.10.1.152"},"source_surface":"investigate"}'
+
+# Chat (add "case_id" / "context" for follow-ups + screen context)
+curl -s -X POST localhost:8088/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"message":"list all logs from 10.10.1.152 today","history":[]}'
+
+# Per-log AI overview
+curl -s -X POST localhost:8088/api/overview \
+  -H 'content-type: application/json' \
+  -d '{"source":{"source.ip":"10.10.1.152","user.name":"alice","event.module":"sshd"}}'
+
+# Model catalog + providers for the per-role pickers
+curl -s localhost:8088/api/llm/models
+curl -s localhost:8088/api/llm/providers
+
+# Knowledge base (RAG): stats, browse, import, test-retrieve, delete (seeds need force)
+curl -s localhost:8088/api/rag/stats
+curl -s localhost:8088/api/rag/documents
+curl -s localhost:8088/api/rag/documents/doc-abc123                 # one document's chunks
+curl -s "localhost:8088/api/rag/search?q=ssh%20brute%20force&top_k=5"   # live retrieval — see what RAG returns
+curl -s -X POST localhost:8088/api/rag/import \
+  -H 'content-type: application/json' \
+  -d '{"title":"SSH brute-force runbook","text":"...","source":"runbook","tags":["ssh"]}'
+curl -s -X DELETE "localhost:8088/api/rag/documents/doc-abc123"        # imported doc
+curl -s -X DELETE "localhost:8088/api/rag/documents/seed:runbook?force=true"  # guarded seed needs force
+
+# Agent memory (durable operator facts; source=human via REST)
+curl -s localhost:8088/api/memory
+curl -s -X POST localhost:8088/api/memory \
+  -H 'content-type: application/json' \
+  -d '{"text":"10.0.0.0/8 is our internal corporate range","category":"asset","tags":["network"]}'
+curl -s -X PUT localhost:8088/api/memory/mem-abc123 \
+  -H 'content-type: application/json' -d '{"active":false}'          # retire without deleting
+curl -s -X DELETE localhost:8088/api/memory/mem-abc123
+
+# Automated scans + badge
+curl -s "localhost:8088/api/scans?limit=20"
+curl -s "localhost:8088/api/scans/notifications?since=now-24h"
+
+# Standup, cost
+curl -s "localhost:8088/api/standup/report?window_hours=24"
+curl -s "localhost:8088/api/usage/summary?window_hours=24"
+
+# Detection & Rules (§14): CRUD + preview + version ledger
+curl -s localhost:8088/api/rules
+curl -s -X POST localhost:8088/api/triage/preview-decision \
+  -H 'content-type: application/json' -d '{"kind":"detection","rule_name":"sshd"}'
+curl -s localhost:8088/api/rules/detection/sshd/versions
+
+# Campaigns, baseline, tuning, batch jobs (§15-17, §22)
+curl -s localhost:8088/api/campaigns
+curl -s localhost:8088/api/baseline/stats
+curl -s localhost:8088/api/tuning/recommendations
+curl -s localhost:8088/api/batch/jobs
+
+# Custom dashboards (§21)
+curl -s localhost:8088/api/dashboards
+curl -s localhost:8088/api/dashboards/widget-types
+
+# MITRE coverage + ATT&CK Navigator layer export (§20)
+curl -s localhost:8088/api/mitre/coverage
+curl -s localhost:8088/api/mitre/coverage/navigator.layer.json -o navigator-layer.json
+
+# Enrichment providers (§19)
+curl -s localhost:8088/api/enrichment/providers
+curl -s "localhost:8088/api/enrichment/lookup?indicator=10.10.1.152"
+
+# Budget gate + cost estimate (§22)
+curl -s localhost:8088/api/budget/status
+curl -s -X POST localhost:8088/api/cost/estimate \
+  -H 'content-type: application/json' -d '{"model":"claude-sonnet-4-6","prompt":"...","max_tokens":1000}'
+
+# Settings get / patch (+ section / schema / case-id preview)
+curl -s localhost:8088/api/settings
+curl -s localhost:8088/api/settings/schema
+curl -s localhost:8088/api/settings/notifications        # one section
+curl -s -X PUT localhost:8088/api/settings \
+  -H 'content-type: application/json' \
+  -d '{"background_scan_enabled":true,"auto_forward_allowlist":["sshd","suricata"]}'
+curl -s -X POST localhost:8088/api/settings/case-id/preview \
+  -H 'content-type: application/json' \
+  -d '{"template":"CASE-{year}-{seq:06d}","count":3}'
+
+# Manual poll (pull sources)
+curl -s -X POST localhost:8088/api/poll
+```
+
+### Auth, users + RBAC (only when TLSOC_AUTH_ENABLED=true)
+
+```bash
+# Login (returns {requires_mfa, pending_token} when the user has MFA; else {token, user})
+curl -s -X POST localhost:8088/api/auth/login \
+  -H 'content-type: application/json' -d '{"username":"Admin","password":"Admin@123"}'
+# Forced on the seeded admin's first login:
+curl -s -X POST localhost:8088/api/auth/change-password \
+  -H 'content-type: application/json' \
+  -d '{"current_password":"Admin@123","new_password":"<strong-new>"}'
+curl -s localhost:8088/api/auth/me                 # current user + role + must_change_password
+curl -s localhost:8088/api/roles                   # built-in role -> permission matrix
+
+# One-shot OOBE bootstrap (only while auth is on, setup incomplete, no user exists yet)
+curl -s -X POST localhost:8088/api/setup/account \
+  -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"a-strong-unique-password","display_name":"Alice Ng"}'
+
+# Users (super_admin)
+curl -s localhost:8088/api/users
+curl -s -X POST localhost:8088/api/users \
+  -H 'content-type: application/json' \
+  -d '{"username":"alice","password":"<temp>","role":"analyst_tier2"}'
+curl -s -X PUT localhost:8088/api/users/alice \
+  -H 'content-type: application/json' -d '{"role":"soc_manager","active":true}'
+curl -s -X DELETE localhost:8088/api/users/alice
+
+# Custom roles (§24)
+curl -s -X POST localhost:8088/api/roles \
+  -H 'content-type: application/json' \
+  -d '{"name":"tier1_plus","inherits":["analyst_tier1"],"grants":{"cases":["close"]}}'
+curl -s "localhost:8088/api/roles/simulate?role=tier1_plus&resource=cases&action=close"
+
+# MFA enrolment (self): setup -> scan the otpauth_uri QR -> confirm
+curl -s -X POST localhost:8088/api/auth/mfa/setup     # -> {secret, otpauth_uri, recovery_codes}
+curl -s -X POST localhost:8088/api/auth/mfa/confirm -H 'content-type: application/json' -d '{"code":"123456"}'
+# Login phase 2: exchange the pending_token + a TOTP (or recovery) code for a session
+curl -s -X POST localhost:8088/api/auth/mfa/verify  -H 'content-type: application/json' -d '{"pending_token":"...","code":"123456"}'
+
+# SSO (OIDC)
+curl -s localhost:8088/api/auth/sso/providers
+curl -s "localhost:8088/api/auth/sso/authorize?provider=google"
+```
+
+### Notifications
+
+```bash
+curl -s localhost:8088/api/notifications/providers        # email presets + channel types
+curl -s -X POST localhost:8088/api/notifications/test \
+  -H 'content-type: application/json' -d '{"channel_id":"email-1"}'   # send a sample to one configured channel
+curl -s -X POST localhost:8088/api/notifications/channels/slack-1/secret \
+  -H 'content-type: application/json' -d '{"field":"webhook_url","value":"https://hooks.slack.com/..."}'
+curl -s -X POST localhost:8088/api/cases/case-abc123/notify \
+  -H 'content-type: application/json' -d '{"channel_id":"slack-1"}'
+curl -s -b cookies.txt localhost:8088/api/notifications/inbox
+```
+
+---
+
+## 33. Safety guarantees you can rely on
+
+These are enforced in **code**, not prompts (see `SECURITY.md`):
+
+- **The close/escalate decision is deterministic code**, never raw LLM output.
+  FALSE_POSITIVE auto-close is ON by default above a bar; TRUE_POSITIVE auto-close
+  is a real, off-by-default opt-in; only NEEDS_HUMAN (or a missing verdict) is the
+  code-enforced never-auto-close case.
+- **Fail-safe routing.** Missing/unknown verdict, router unavailable, kill switch,
+  budget-exceeded, or any pipeline exception → a `needs_human` case (an alert is
+  never dropped).
+- **Every LLM call is metered.** 100% of completions and embeddings pass the single
+  gateway, which writes the usage/cost ledger (including `error` outcomes).
+- **Every agent action is audited**, append-only, from the first prompt.
+- **Read-only sources.** Every connector reads with a least-privilege, read-only
+  credential; the agent's tools never write the source.
+- **No duplicate cases (idempotent).** Cases are keyed by an entity-centric cluster
+  signature; re-polling attaches new events to the open case.
+- **Inbound push payloads are untrusted.** Push receivers verify auth and fence the
+  normalised data as UNTRUSTED in prompts. Raw logs are never sent to a model in
+  standup or the event-detection funnel.
+- **Advisory surfaces never decide.** Threshold automation, tuning, campaigns,
+  baseline anomaly detection, case collaboration (threads/tasks), and custom
+  dashboards are all deliberately incapable of calling `decide()` or setting a
+  case's status/verdict/disposition — they can only tag, recommend, notify, propose
+  (HITL), or display.

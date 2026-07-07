@@ -5,15 +5,22 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `feature/round7-ui-overhaul` (off `Testing`)  ·  **Date:** 2026-07-06
-- **Status:** Rounds 1–6 complete on `Testing`; **Round 7** (Security Command Center overhaul + Noise-Reduction funnel + `source|ai|code` provenance + CaseDetail 8→5 story) and **Round 8** (UI-cleanup + glitch fixes: risk-index card, Cases sticky fix, horizontal QRadar Sankey ribbon, de-carded header, reinvestigate stored-evidence fallback, chat/collab tidy) **complete and committed** on `feature/round7-ui-overhaul` (local, **not pushed** — awaiting the PR). See `docs/research/2026-07-round7/` + `docs/research/2026-07-round8/`.
-- **Green baseline (verified 2026-07-06):** backend **1678 pytest** pass · webui **build clean** (tsc + vite,
-  entry chunk **~282 kB**) · **1238 vitest** pass / 223 files (counts rise each round — see `Journal.md` for the
-  exact current totals) · **eslint 0 errors** (3 benign warnings) · `route_auth_coverage` +
-  `design-gate` green · `engine/case_manager.py` `decide()` **byte-identical** to the pre-Round-5
-  baseline `27f0983` · **one added webui runtime dep** in Round 5 (`react-grid-layout`, lazy-loaded
-  in dashboard edit-mode only; backend added **zero**). The 12 non-negotiables held throughout (incl.
-  #3 — the deterministic decision; #6 — one LLM-gateway ledger write per call).
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-07-07
+- **Status: Round 9c is the current, shipped state.** Rounds 1 through 9c are ALL merged into
+  `Testing` and **pushed** to `origin/Testing` (HEAD `559ce88`) — there is no outstanding
+  unmerged/unpushed branch. `feature/round7-ui-overhaul` (Rounds 7–8) is a fully-merged
+  ancestor (landed via PR #23/#24); Round 9 landed via PR #25, Round 9b via PR #26, Round 9c
+  via PR #27 (current HEAD). See §5 for the round-by-round summary and
+  `docs/research/2026-07-round7/` + `docs/research/2026-07-round8/` (Rounds 9/9b/9c
+  intentionally have no research folder — see §7).
+- **Green baseline (verified 2026-07-07):** backend **1708 pytest** pass · webui **build clean**
+  (tsc + vite, entry chunk **279.32 kB**, gzip 82.55 kB) · **1268 vitest** pass / 229 files
+  (counts rise each round — see `Journal.md` for the exact current totals) · **eslint 0 errors**
+  (3 benign warnings) · `route_auth_coverage` + `design-gate` green · `engine/case_manager.py`
+  `decide()` **byte-identical** to the pre-Round-5 baseline `27f0983` · **zero new webui runtime
+  deps** since the Round-5 baseline (Round 5 added `react-grid-layout`, lazy-loaded in dashboard
+  edit-mode only; backend added **zero** through every round). The 12 non-negotiables held
+  throughout (incl. #3 — the deterministic decision; #6 — one LLM-gateway ledger write per call).
 
 ---
 
@@ -41,15 +48,15 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1601 passed (rises as harden-wave tests land; see Journal.md)
+python -m pytest -q                         # -> 1708 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build  -> clean (entry chunk ~264 kB after Round-5 code-splitting)
-npx vitest run     # -> 625 passed (see Journal.md for the current count)
+npm run build      # tsc --noEmit && vite build  -> clean (entry chunk ~279 kB, gzip ~83 kB)
+npx vitest run     # -> 1268 passed / 229 files (see Journal.md for the current count)
 npm run lint       # eslint; must be 0 ERRORS (a handful of benign warnings OK) — now also 20 jsx-a11y rules at error
 ```
 
@@ -76,18 +83,28 @@ backend/app/
   config.py        Secrets (env-only) + Preferences (UI-editable). EVERY new setting lands here.
   constants.py     enums (CaseStatus/Disposition, Verdict, UserRole, IndexRole incl. ignore, ...)
   models.py        Pydantic contracts (Case, User(+profile/MFA/SSO), Session, SavedView, ...)
-  api/routes.py    THE big FastAPI router.  api/deps.py = auth/RBAC gates (+ custom-role union).
-                   Round 3 added 8 per-feature routers mounted in main.py: routes_metrics ·
-                   routes_standup · routes_enrichment · routes_models · routes_inapp ·
-                   routes_cases_collab · routes_triage · routes_roles
-                   Round 4 added 6 more (mounted under require_auth): routes_tuning ·
-                   routes_campaigns · routes_baseline · routes_batch · routes_reset ·
-                   routes_setup — plus GET /api/logs (unified scatter-gather),
-                   /api/cases/{id}/forwarding + /api/sources/health in routes.py
+  api/routes.py    THE base FastAPI router (incl. /sources, /auth+/users, /sessions,
+                   /account/me, /demo/*, /proposals, /settings/schema).  api/deps.py =
+                   auth/RBAC gates (+ custom-role union). **20 `routes_*.py` feature
+                   routers total**, ALL auto-discovered at boot
+                   (`main.py::discover_feature_routers()` walks `app.api.routes_*`, needs
+                   only a top-level `router: APIRouter` — no manual registration):
+                   Round 3 added 8: routes_metrics · routes_standup · routes_enrichment ·
+                   routes_models · routes_inapp · routes_cases_collab · routes_triage ·
+                   routes_roles
+                   Round 4 added 6 more: routes_tuning · routes_campaigns · routes_baseline
+                   · routes_batch · routes_reset · routes_setup — plus GET /api/logs
+                   (unified scatter-gather), /api/cases/{id}/forwarding +
+                   /api/sources/health in routes.py
                    Round 5 added routes_rules + routes_dashboards + POST /api/triage/
                    preview-decision (pure what-if over decide() — never bills the LLM) +
-                   typed config endpoints (baseline/campaign/batch); routes.py was
-                   DECOMPOSED into domain routers with byte-identical paths
+                   typed config endpoints (baseline/campaign/batch), and DECOMPOSED
+                   routes.py into domain routers with byte-identical paths — including
+                   **4 routers commonly missed in docs**: routes_notifications
+                   (`/notifications/*`), routes_prefs (`/branding`, `/prefs/*`,
+                   `/terminology`, `/views*`), routes_rag (`/rag/*`, `/memory*`),
+                   routes_search (`/search`, `/audit`). None of those paths remain in
+                   `routes.py`, and there is no `/branding/presets` endpoint.
   auth/            passwords (PBKDF2) · tokens (stdlib HS256 JWT, sid/tv claims) · service ·
                    mfa (RFC-6238 TOTP) · oidc (SSO code-exchange)
   rbac/policy.py   the role->resource->action permission matrix + can()
@@ -117,8 +134,15 @@ backend/app/
   agents/          router · investigator · formatter · chat · standup · overview · personas · pipeline
   threat/          bundled compact MITRE ATT&CK technique map (+ refresh script)
 webui/src/
-  soc/pages/       Login, Cases, CaseDetail (Round-3 4 chips + TraceTimeline + collaboration;
-                   Round-5 split from a 4210-line god-file into ~1529 LOC + sub-components),
+  soc/pages/       Login, Cases (Round-9c: 6-tile summary strip + monogram Assignee column),
+                   CaseDetail (Round-5 split from a 4210-line god-file into ~1529 LOC +
+                   sub-components; **6 tabs**: overview | timeline | investigation | threat |
+                   collab | chat — Round 9/9b split the old Investigation tab into a
+                   "Timeline" [ONLY the what-happened narrative: input → correlate → risk →
+                   triage → investigate → decide] and "Investigation" [the AI's assessment +
+                   the pinned deterministic `DecisionCard` + a collapsible full ReAct trace];
+                   there is NO standalone "Why" tab or "Agent trace" tab — both live inside
+                   Investigation),
                    Dashboards (Round-5 custom dashboards), Settings (Round-5 data-driven registry;
                    the 2673-line hub -> a section-registry + pages/settings/* files, 5 groups,
                    Security promoted to top-level), Account, Sessions, Users, Security, Audit,
@@ -352,6 +376,86 @@ verdict case-bug), **H3** (dashboards billed the LLM), **H4** (19 unnamed combob
 | `8b91fc0` | G9 | Resolve all 9 adversarial-audit must-fix findings |
 | `05552c7` | Polish | Audit polish items P1–P18 + a page-consistency sweep |
 
+### Round 6 (one commit, 2026-07-02) — "fleet glitch-hunt + integration polish"
+A ~500-agent Opus fleet audited **every** webui file (155 units: file groups + 12 thematic +
+4 API-contract auditors, each adversarially verified) → 464 real findings; 30 conflict-free
+fix batches + a handoff/closer wave resolved 423 of them (47 verified-not-real). `decide()`
+untouched; API paths byte-identical (additive only: optional `GET /api/cases` `from`/`to`,
+`GET /api/roles` raw defs, a per-provider SSO configured map, `CaseAutomationRule.name`).
+Headlines: custom-dashboard VIEW-mode packing (dashboards no longer stack at `(0,0)`);
+`PageContainer` as the single width authority; the rules version ledger actually recording;
+ONE `SecretField` everywhere (an empty save can never clobber a stored secret); WCAG-AA
+contrast fixes in both themes; an `AutomationNudge` beginner journey. See
+`docs/research/2026-07-round6/IMPLEMENTATION.md`.
+
+**GREEN (2026-07-02):** backend **1613 pytest** · webui **1051 vitest** / 199 files · build
+clean (entry 281.6 kB) · eslint 0 errors (3 warnings) · `decide()` byte-identical · zero new
+deps.
+
+### Round 7 (`850600f` → `7355a9a`, PR #23) — Security Command Center + Noise-Reduction funnel
+Overview became a **Security Command Center**: an Active Risk Index with a `(?)` explainer,
+honest MTTA/MTTR/Dwell tiles, live-delta KPIs, and Top-Contributors; a durable-counter
+**Noise-Reduction** funnel (`GET /api/metrics/noise-reduction` + `stores/noise_counters.py` +
+`engine/noise_counters.py`); a shared `source|ai|code` `ProvenanceTag`; the Cases
+severity-column bug fixed; CaseDetail retold 8→5 tabs as a story (facts → AI assessment →
+the pinned deterministic `DecisionCard`); feedback-at-close; an Auto-closed-by-AI badge; a
+motion system. See `docs/research/2026-07-round7/`.
+
+**GREEN (2026-07-06):** backend **1678 pytest** · webui **1238 vitest** / 223 files · build
+clean (entry ~282 kB) · eslint 0 errors (3 warnings) · `decide()` byte-identical · zero new
+deps in Rounds 7–8.
+
+### Round 8 (`58745fa` → `91aae40`, PR #24) — UI cleanup + glitch fixes
+The risk index moved into its own card; the Cases sticky-header glitch fixed (root cause: a
+double-nested overflow trapping the sticky `<thead>`); a horizontal QRadar-style Sankey
+ribbon for Noise-Reduction (superseded twice since — see Round 9/9b below); a de-carded
+plain header; reinvestigate rebuilding from a case's stored evidence when the log window has
+aged out; chat/collab tidy. See `docs/research/2026-07-round8/`.
+
+### Round 9 (`709e758` → `26c4266`, PR #25, 2026-07-05) — 11-ask UI/UX overhaul
+Removed the redundant in-page tab strips that duplicated the left nav; Overview dropped LLM
+Spend from the hero (→5 alert/case KPIs) with a bigger Active Risk Index card and tightened
+rhythm; Noise-Reduction redesigned to horizontal aligned stage bars (a Sankey is wrong for a
+linear reduction); **Sources** rebuilt as a QRadar-style "Log Source Management" `DataTable`
+(over the existing `GET /api/sources/health`); CaseDetail's Investigation tab split into
+**Timeline** (what-happened + full trace) and Investigation, with the Overview split into
+"Reported by source" vs "Our assessment" provenance sections; Login/Wizard jank fixed; a
+**local/self-hosted LiteLLM (OpenAI-compatible) model provider** shipped
+(`POST/DELETE /api/llm/models/custom`, `POST /api/llm/providers/test`, $0 pricing, a
+`litellm_api_key` secret). Adversarial validation also fixed a pre-existing bug: the shared
+`POST /api/sources` dropped `configured_secrets`/`created_at` on every toggle/bulk/
+make-primary (now carried forward, regression-tested). **No `docs/research/` folder** (done
+efficiency-first) — see `Journal.md`'s 2026-07-05 Round-9 entry + git log `709e758..26c4266`.
+
+**GREEN (2026-07-05):** backend **1696 pytest** · webui **1252 vitest** / 227 files · build
+clean (entry ~278.7 kB) · eslint 0 errors (3 warnings) · `decide()` byte-identical · zero new
+deps.
+
+### Round 9b (`71153f2` → `b0d8747`, PR #26, 2026-07-05 later) — dashboard/case feedback pass
+Hover-to-expand sidebar (the collapsed rail now expands to a floating drawer on hover/focus);
+Noise-Reduction reverted flat-bars→ribbon (prettier, with per-stage hover detail); the main
+dashboard reorganized into a dense multi-zone grid with Response timing (MTTA/MTTR/Dwell) and
+only a shallow "Deeper analytics" fold; CaseDetail redesign (Timeline = "what happened" only;
+Investigation = AI assessment + the pinned `DecisionCard` + the full trace); the case Sheet
+widened to `max-w-[min(98vw,1400px)]` + an "Open in new tab" button; Overview → a
+Decision-Brief hero + a SOURCE SAYS/AGENT FOUND/CODE DECIDED provenance row. No research
+folder — see `Journal.md`'s Round-9b entry.
+
+**GREEN:** webui **1264 vitest** / 228 files · build clean (entry 279.3 kB); no backend
+change this round.
+
+### Round 9c (`20118a7` → `2cc94c5`, PR #27, 2026-07-06, current HEAD) — dashboard from scratch + honest timing
+The dashboard rebuilt from scratch (Prisma/XSIAM-style): real **MTTD**
+(`Case.first_seen_millis` → case creation) and **MTTR-as-first-human-response** (the ACK
+clock — NOT dwell; a same-round bug where an AI auto-close was miscounted as a human response
+was caught and fixed); a burndown chart; the Noise-Reduction ribbon extended with a terminal
+"closed by human" stage; the Cases list rebuilt (a 6-tile summary strip, a monogram Assignee
+column). No research folder — see `Journal.md`'s Round-9c entry.
+
+**GREEN (2026-07-07):** backend **1708 pytest** · webui **1268 vitest** / 229 files · build
+clean (entry 279.32 kB, gzip 82.55 kB) · eslint 0 errors (3 warnings) · all 5 design gates
+pass · `decide()` byte-identical · zero new deps.
+
 ---
 
 ## 6. Known issues / deferred (next-round candidates)
@@ -396,6 +500,10 @@ case linking/merge, an integrations marketplace.
 | Round-4 design + what-shipped (extend a feature) | `docs/research/2026-07-round4/PROPOSAL.md` · `IMPLEMENTATION.md` |
 | Round-5 design + what-shipped (UI/UX + rules + dashboards + coupling) | `docs/research/2026-07-round5/PROPOSAL.md` · `DESIGN_STANDARD.md` · `IMPLEMENTATION.md` |
 | The design standard (color tokens, primitives, card grammar) — READ before touching webui | `docs/research/2026-07-round5/DESIGN_STANDARD.md` |
+| Round-6 what-shipped (fleet glitch-hunt, 464 findings) | `docs/research/2026-07-round6/IMPLEMENTATION.md` |
+| Round-7 design + what-shipped (Security Command Center + Noise-Reduction funnel) | `docs/research/2026-07-round7/` |
+| Round-8 what-shipped (UI cleanup + glitch fixes) | `docs/research/2026-07-round8/` |
+| Round-9 / 9b / 9c what-shipped | **no `docs/research/` folder** (done efficiency-first) — see `Journal.md`'s 2026-07-05/2026-07-06 entries + §5 above |
 | Audit findings + dispositions | `docs/research/2026-06-round2/ROUND2_AUDIT.md` · `docs/research/2026-07-round5/AUDIT_FINDINGS.md` |
 | What's next | `ROADMAP.md` · `ROUND2_BEST_OF_BEST.md` |
 
@@ -406,9 +514,10 @@ case linking/merge, an integrations marketplace.
 1. `CLAUDE.md` is auto-loaded — it has the non-negotiables, the module map, and the status. Trust it,
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
 2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
-3. **Before committing anything:** `pytest -q` (1601) green, `npm run build` clean (entry chunk ~264 kB),
-   `npx vitest run` (625) green, `npm run lint` 0 errors, and `git diff backend/app/engine/case_manager.py`
-   **empty** (decision logic unchanged — byte-identical to `27f0983`). The `route_auth_coverage` +
-   `design-gate` tests must also stay green. Commit focused changes; **don't push** unless asked.
+3. **Before committing anything:** `pytest -q` (1708) green, `npm run build` clean (entry chunk
+   ~279 kB), `npx vitest run` (1268 / 229 files) green, `npm run lint` 0 errors, and
+   `git diff backend/app/engine/case_manager.py` **empty** (decision logic unchanged —
+   byte-identical to `27f0983`). The `route_auth_coverage` + `design-gate` tests must also stay
+   green. Commit focused changes; **don't push** unless asked.
 4. This repo was built with review-gated, self-verifying waves (research → implement → pytest/build/
    vitest/lint → fix-loop → independent re-verify → commit). Keep that rhythm.

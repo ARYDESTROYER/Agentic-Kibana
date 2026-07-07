@@ -1,7 +1,17 @@
 # TLSOC Dashboards & Data Views
 
-Pre-built Kibana 8.12 saved objects for the TLSOC Agentic Triage suite. They cover
-the backend's own bookkeeping indices (created by the management API key):
+Pre-built Kibana 8.12 saved objects for the TLSOC Agentic Triage suite.
+
+> **Mode-B (legacy ELK merge) only.** These dashboards are relevant only when the
+> backend joins an existing Kibana as a read-only consumer
+> (`deploy/docker-compose.tlsoc.yml`, `STATE_BACKEND=elasticsearch`). They were
+> captured against **Kibana 8.12.2** and rely on Kibana's own saved-object
+> migration to import cleanly into the current compatibility target,
+> **Elastic/Kibana 8.19.12** (see `COMPATIBILITY.md`). The primary, vendor-agnostic
+> stack (`deploy/docker-compose.agnostic.yml`, Postgres+pgvector) has no Kibana at
+> all and does not use this directory.
+
+They cover the backend's own bookkeeping indices (created by the management API key):
 
 | Data view title        | Time field   | Index pattern         |
 | ---------------------- | ------------ | --------------------- |

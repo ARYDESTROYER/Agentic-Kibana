@@ -93,6 +93,18 @@ Optional for Mode A:
   `boto3`); `TLSOC_VERTEX_PROJECT` / `_LOCATION` / `_API_KEY` for Google Vertex. Any
   OpenAI-compatible endpoint (vLLM/Ollama/OpenRouter/Together/Groq) needs no new key —
   set the model's `base_url` in Settings → Models. See `docs/ENVIRONMENT.md` §2.6.
+- **Local / self-hosted models — LiteLLM-compatible (Round 9, optional):** a
+  self-hosted LiteLLM proxy / vLLM / Ollama / LM Studio endpoint reuses the
+  `openai_compatible` provider path and needs **no new key at all** if it's
+  unauthenticated — just set the model's `base_url` in **Settings → Models → "Add
+  local model"** (`POST /api/llm/models/custom`). If your endpoint *does* require a
+  key, the optional secret is `litellm_api_key` (env `LITELLM_API_KEY`), with three
+  supply paths: (a) set `TLSOC_LITELLM_API_KEY` in `.env` **and** add a matching
+  `- LITELLM_API_KEY=${TLSOC_LITELLM_API_KEY:-}` line to the `tlsoc-backend`
+  `environment:` block yourself — **the agnostic compose does not forward it yet**;
+  (b) push it at runtime through the "Add local model" dialog; or (c) omit it
+  entirely and let the gateway fall back to `OPENAI_API_KEY`. See
+  `docs/ENVIRONMENT.md` §2.6.
 - **More enrichment providers (Round 3, optional):** 17 providers behind an
   `EnrichmentProvider` SPI. Keyless ones (Shodan InternetDB, IPinfo Lite, abuse.ch
   URLhaus/MalwareBazaar/ThreatFox, RDAP/DoH) are **default-on, no key**. Keyed +
@@ -282,9 +294,20 @@ RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 # Backend health (directly, or through the UI proxy at :8080/api/health):
 curl -s http://localhost:8088/api/health
 #   -> {"status":"ok","version":"...","es_connected":...,"store_type":"...","setup_complete":...}
-#   In Mode A, store_type reflects the Postgres-backed store; es_connected is the
-#   LOG-SOURCE connection (false until you add+test a pull source — expected).
+```
 
+> **Reading `store_type` and `es_connected` correctly.** `store_type` is always
+> `type(state.es).__name__` — `RealESClient` or `InMemoryESClient`, the **log-surface
+> ES client class** — it **never** reports which `STATE_BACKEND` you chose. In
+> **Mode A** (Postgres/SQLite own-state) **with no Elasticsearch/OpenSearch/Wazuh
+> pull source wired**, `store_type:InMemoryESClient` is **expected and benign**, not
+> a Postgres/SQLite outage. `es_connected` is the pull-source connection — `false`
+> until you add and test one, also expected at this point. `store_type` only matters
+> for durability when `STATE_BACKEND=elasticsearch` (Mode B): there, `RealESClient`
+> means own-state writes land in real Elasticsearch, while `InMemoryESClient` means
+> the ES connection failed and data is not durable.
+
+```bash
 # Service status + logs:
 docker compose -f deploy/docker-compose.agnostic.yml ps
 docker compose -f deploy/docker-compose.agnostic.yml logs -f tlsoc-backend
@@ -404,8 +427,13 @@ resolves (the merge block expects `./agentic-kibana/backend`), then **copy the
 - joins the existing default network and reaches `https://elasticsearch:9200` by
   container name,
 - mounts the existing CA read-only (`./certs/ca/ca.crt:/certs/ca.crt:ro`),
-- reads its config from `TLSOC_*` env vars (mapped to `ES_URL`, `ES_API_KEY`,
-  `ES_MGMT_API_KEY`, `ANTHROPIC_API_KEY`, …).
+- reads its **secrets** from `TLSOC_*` env vars (mapped to `ES_API_KEY`,
+  `ES_MGMT_API_KEY`, `ANTHROPIC_API_KEY`, …). The ES **connection** fields
+  (`ES_URL=https://elasticsearch:9200`, `ES_CA_CERT=/certs/ca.crt`,
+  `ES_VERIFY_CERTS=true`) are **hard-coded literals in the shipped merge block**, not
+  `.env`-driven — they assume a container named `elasticsearch` and a CA mounted at
+  that exact path. If your topology differs, edit those three lines directly in the
+  block rather than looking for a `TLSOC_*` override.
 
 ### 7.2 Two scoped Elasticsearch API keys (NEVER the superuser)
 
@@ -522,7 +550,12 @@ Then `docker compose -f deploy/docker-compose.agnostic.yml up -d` to apply.
 - **First-run seed.** When auth is enabled **and the user store is empty**, the
   backend auto-seeds a demo **super_admin**: **`Admin` / `Admin@123`**. **Change it
   immediately** — create real users and delete/disable the seed (the suite blocks
-  removing the *last* super_admin to avoid lockout).
+  removing the *last* super_admin to avoid lockout). The seed is controlled by
+  backend `Secrets` fields (`auth_seed_admin` / `auth_seed_admin_username` /
+  `auth_seed_admin_password`), but **neither compose file nor `.env.example` maps
+  them today** — to disable seeding or change the seeded username/password, add the
+  corresponding `AUTH_SEED_ADMIN*` line(s) directly to the `tlsoc-backend`
+  `environment:` block yourself.
 - **6 roles:** `super_admin` · `soc_manager` · `analyst_tier2` · `analyst_tier1` ·
   `responder` · `auditor`. Enforced **server-side** (every `/api` route is gated by
   `require_permission`, deny-by-default + a CI coverage test) **and** in the UI
@@ -549,7 +582,7 @@ TLSOC_MFA_OBFUSCATION_KEY=$(openssl rand -hex 32)
 > `SECURITY.md`). Treat the obfuscation key (or the JWT secret it derives from) as
 > sensitive.
 
-### 9.4 Session & token policy (revocation, idle / absolute lifetime, step-up)
+### 9.3 Session & token policy (revocation, idle / absolute lifetime, step-up)
 
 With auth enabled, the stdlib HS256 JWT is the short-lived **access token**; every
 login also registers a **session** (a `sid` + per-user `token_version` claim) in a
@@ -584,7 +617,7 @@ devices in **Settings → Account → Security / Sessions**.
 > every restart invalidates all tokens (the persisted session rows still load, but
 > their JWTs no longer verify).
 
-### 9.5 SSO (OIDC — Google / Microsoft / generic)
+### 9.4 SSO (OIDC — Google / Microsoft / generic)
 
 Configure providers in **Settings → Security → SSO** (issuer, client id, the
 group→role mapping). The **client secret** stays in the SECRET tier — set it via

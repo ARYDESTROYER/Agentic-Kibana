@@ -9,6 +9,12 @@ indices the backend owns (Section 7 of the spec):
 | `tlsoc-agent-audit.template.json` | `tlsoc-agent-audit-*` | `ts` | append-only audit of every agent action |
 | `tlsoc-agent-usage.template.json` | `tlsoc-agent-usage-*` | `ts` | token & cost ledger (one doc per LLM call) |
 
+> **Only relevant when `STATE_BACKEND=elasticsearch`.** These templates describe
+> the suite's own bookkeeping indices on the Elasticsearch state backend. The
+> agnostic stack (`deploy/docker-compose.agnostic.yml`) defaults to
+> `STATE_BACKEND=postgres`, and a SQLite deployment needs no Elasticsearch at
+> all — in either case, this whole directory is irrelevant and can be ignored.
+
 ## You normally do NOT need these
 
 The backend **creates these templates and the backing write indices/aliases

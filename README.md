@@ -4,8 +4,9 @@
 > alerts/logs from **any** SIEM/EDR/XDR, normalises everything to **OCSF**,
 > correlates and risk-gates in deterministic code, runs a two-tier LLM
 > investigation (cheap router → strong investigator), and lets a deterministic
-> case manager close or escalate — **a TRUE_POSITIVE is never auto-closed**. It is
-> a **read-only consumer**: your upstream pipeline is never modified.
+> case manager close or escalate — **auto-close is a tunable per-verdict policy, and a
+> case with no clear verdict is never auto-closed**. It is a **read-only consumer**:
+> your upstream pipeline is never modified.
 
 > **New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)** — the authoritative
 > onboarding doc (what's built, how to run it, where everything lives).
@@ -31,9 +32,11 @@ Raw alert volume from any source becomes audited, cost-metered, human-reviewable
 FastAPI + LangGraph) that holds all the agentic logic, connectors, OCSF
 normalisation, the deterministic funnel, the LLM gateway + cost ledger, and the
 suite's own state; and a **standalone web UI** (`webui/`, Vite + React + Tailwind
-+ shadcn) that talks to the backend directly over `/api`. The legacy Kibana
-plugin (`plugin/`) still works but is **optional** — the standalone UI is the
-primary front door.
++ shadcn) that talks to the backend directly over `/api` — the **sole primary**
+front door. The original Kibana plugin (`archive/kibana-plugin/`) is **archived**
+(frozen 2026-06-21): it is no longer built, tested, or shipped. Revive it from the
+archive only if a site truly needs the embedded-in-Kibana experience — see
+`archive/kibana-plugin/BUILD.md`.
 
 ## Architecture
 
@@ -55,7 +58,8 @@ primary front door.
                           ▼
    router (cheap LLM) ─▶ investigator (strong LLM, ReAct) ─▶ formatter
                           ▼
-   Case Manager (deterministic close/escalate; never auto-closes a TP)
+   Case Manager (deterministic close/escalate; a tunable per-verdict auto-close
+   policy — NEEDS_HUMAN can never be auto-closed)
                           ▼
    Case Manager decides ─▶ notifications (fire-and-forget) ─▶ threshold automation
                           ▼
@@ -233,17 +237,19 @@ the deterministic close/escalate decision and never alter it. See
   bundled MITRE ATT&CK corpus (697 techniques), and related cases (fail-open); a
   resolved-case → RAG knowledge loop lets future investigations learn from closures.
 - **Settings-centric information architecture.** A single Settings surface
-  (`GET /api/settings/schema`) is the home for nearly all configuration, organised
-  into two scopes — **Personal Account** (profile, account security, sessions,
-  preferences, notifications) and **Organization** (data sources, models, correlation
-  & cases, automation, notifications, security & SSO, knowledge, enrichment,
-  appearance/terminology, advanced) plus the admin areas (Users, RBAC, MFA, SSO).
-  Near-duplicate top-level pages were consolidated into tabbed surfaces and the rail
-  grouped into a handful of areas, with RBAC hiding sections the signed-in role can't
-  see. Everything rides `GET/PUT /api/settings` (deep-merge + validate). **Round 5**
-  replaced the old 2673-line Settings god-file with a **data-driven section registry**
-  (one file per section), collapsed **6 → 5** nav groups, **promoted Security to
-  top-level**, and capped nesting at two levels — deep-links preserved (redirect-tested).
+  (`GET /api/settings/schema`), reached as its own **Platform** nav item, is the home
+  for nearly all configuration — organised into **5 groups × 25 sections**: Account
+  (profile, account security, sessions, personal customization), General (sources,
+  models, detection/rules, cases, automation, standup), Integrations (notifications,
+  enrichment, knowledge), Security & access (users, roles, security, admin sessions,
+  keys), and Organization (appearance/branding, advanced, demo, danger zone) — not a
+  "Personal Account vs. Organization" two-scope split. Near-duplicate top-level pages
+  were consolidated into tabbed surfaces, with RBAC hiding sections the signed-in role
+  can't see. Everything rides `GET/PUT /api/settings` (deep-merge + validate).
+  **Round 5** replaced the old 2673-line Settings god-file with a **data-driven
+  section registry** (one file per section), collapsed **6 → 5** nav groups,
+  **promoted Security to top-level**, and capped nesting at two levels — deep-links
+  preserved (redirect-tested).
 - **Rules customization — a Detection & Rules editor (Round 5).** A first-class home for
   editing rules across **three tiers** — detection-match / threshold rules, anomaly /
   baseline rules, and case-automation — behind a **polymorphic editor** with a flat
@@ -269,18 +275,33 @@ the deterministic close/escalate decision and never alter it. See
   `FEATURES[]` registry derives the nav, routes, and command palette, and `React.lazy`
   code-splitting brought the entry bundle to **264 kB** — none of which changes any API path
   or the deterministic decision.
-- **The Security Command Center + Noise-Reduction funnel (Round 7).** The Overview became a
-  **Security Command Center**: an Active Risk Index with a `(?)` explainer, honest **MTTA /
-  MTTR / Dwell** tiles, live-delta KPIs, and Top-Contributors. A durable-counter **Noise
-  Reduction** view (`GET /api/metrics/noise-reduction`) shows how far the AI cut raw alert
-  volume down to cases. Every triage value carries a `source | ai | code` **provenance** tag,
-  the case view is retold as a clean story (facts → AI assessment → the pinned deterministic
-  `DecisionCard`), feedback is captured at close, and auto-closed cases are badged as such —
-  all additive, `decide()` byte-identical.
-- **UI cleanup pass (Round 8).** Glitch fixes + a visible declutter: the risk index in its own
-  card, a horizontal **QRadar-style Sankey ribbon** for Noise Reduction, a de-carded plain
-  big-title header, bigger page titles + tighter spacing app-wide, and reinvestigate that
-  rebuilds from a case's stored evidence when the log window has aged out.
+- **The Security Command Center + Noise-Reduction funnel (Rounds 7–9c).** The Overview is a
+  **Security Command Center**: a masthead + a 5-tile alert/case KPI strip (LLM spend was
+  dropped from the hero, demoted to a "Deeper analytics" tripwire), a bigger **Active Risk
+  Index** card with a `(?)` explainer, real **MTTD** (first-event → case-open) and
+  **MTTR-as-first-human-response** (the ACK clock — an AI auto-close is never counted as a
+  human response) with trend deltas, and a burndown chart. A durable-counter **Noise
+  Reduction** ribbon (`GET /api/metrics/noise-reduction`) flows `ingested → clustered → cases
+  → auto-cleared by AI → escalated → closed (by human)`, showing exactly how far the AI cut
+  raw alert volume down to cases and how the survivors were disposed of. Every triage value
+  carries a `source | ai | code` **provenance** tag; the case view is retold as a clean story
+  (facts → AI assessment → the pinned deterministic `DecisionCard`); feedback is captured at
+  close; auto-closed cases are badged as such — all additive, `decide()` byte-identical.
+- **QRadar-style Sources + Cases (Round 9/9c).** **Sources** is a standalone "Log Source
+  Management" `DataTable` (search/filter/"+ New"/columns-gear/bulk-select/inline Enabled
+  switch/Status/Last Event via `GET /api/sources/health`) instead of a card layout. **Cases**
+  is a dense incident-summary list (a 6-tile summary strip, a monogram Assignee column).
+- **CaseDetail Timeline vs. Investigation (Round 9/9b).** The case view splits "what
+  happened" (a **Timeline** narrative: input → correlate → risk → triage → investigate →
+  decide) from "why" (an **Investigation** tab: the AI's assessment, the pinned deterministic
+  `DecisionCard`, and the full ReAct trace) — six tabs total
+  (`overview | timeline | investigation | threat | collab | chat`).
+- **Local / self-hosted LLM provider (Round 9).** Add any OpenAI-compatible endpoint
+  (LiteLLM router, vLLM, Ollama, LM Studio) at runtime from the UI — no rebuild, no new env
+  var required. Backed by a zero-migration custom-models store
+  (`POST/DELETE /api/llm/models/custom`), a non-metered `POST /api/llm/providers/test`
+  reachability probe, and $0 pricing end-to-end (the ledger meters a real $0, never the
+  conservative default rate).
 
 ## Quick start (deploy)
 
@@ -299,8 +320,11 @@ You add your SIEM/EDR/XDR **in the wizard** ("add a source"). For the full recip
 TLS/CA mounts, push-receiver port publishing, and the legacy ELK path, see
 **[DEPLOY.md](DEPLOY.md)**.
 
-**Legacy path:** to merge into an existing ELK stack and keep the Kibana plugin,
-use [`deploy/docker-compose.tlsoc.yml`](deploy/docker-compose.tlsoc.yml).
+**Legacy path:** to merge into an existing ELK stack as a read-only consumer, use
+[`deploy/docker-compose.tlsoc.yml`](deploy/docker-compose.tlsoc.yml). The Kibana
+plugin itself is **archived** (`archive/kibana-plugin/`) — this path attaches the
+backend + standalone webui to your existing Kibana/ELK stack, it does not install
+the plugin.
 
 ## Connectors / how data gets in
 
@@ -364,8 +388,9 @@ webui/                  standalone Vite + React + Tailwind + shadcn SPA (primary
 deploy/                 docker-compose.agnostic.yml (self-contained) ·
                         docker-compose.tlsoc.yml (legacy ELK) · mappings · dashboards
 docs/                   USAGE · INGESTION · AGNOSTIC_ARCHITECTURE · ENVIRONMENT ·
-                        TROUBLESHOOTING · RUNBOOK
-plugin/                 legacy Kibana plugin (optional; superseded by webui/)
+                        TROUBLESHOOTING · RUNBOOK · research/2026-0X-roundN/
+archive/kibana-plugin/  ARCHIVED (frozen 2026-06-21) Kibana plugin — not built/
+                        tested/shipped; superseded by webui/
 ```
 
 ## Configuration
@@ -393,40 +418,51 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline this cycle (2026-07-02): **1601 backend tests green** (fake/in-memory
-backends + mock LLM, no network — an autouse `conftest` network guard keeps the enrichment
-tests offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **264 kB**
-after Round-5 code-splitting) with a dev-only Vitest harness (**625 tests**); eslint clean
-(0 errors, incl. 20 `jsx-a11y` rules at error). (Test counts rise each harden wave — see
-`Journal.md` for the exact current totals.)
-**Round 5** ("UI/UX overhaul + rules customization + custom dashboards + loose coupling" — a
-cohesive WCAG-AA color system + one enforced shadcn/Radix/Tailwind design standard, a
-decluttered data-driven Settings, a wider dashboard + compact hero, a **Detection & Rules
-editor** with rule versioning + a **pure-what-if preview that never bills the LLM**,
-**custom per-user dashboards**, and a loose-coupling refactor — a single `FEATURES[]` registry,
-restored code-splitting to a 264 kB entry, and a domain-router decomposition with
-byte-identical API paths — plus an accessibility pass and a 16-dimension adversarial audit,
-9 must-fix all resolved) followed
-**Round 4** ("fix the logic, fine-tune the product" — the multi-source poller fix +
-2 more confirmed bugs, adaptive threshold auto-tuning, two-tier alert/event ingestion with
-campaign correlation + agent-driven event detection, an entity baseline, batch/flex + a
-broadened correctly-priced model catalog, a unified log view, tiered reset + fresh OOBE, and
-a white-label login) — like **Round 3** (12 requests: expandable nav, richer Settings
-real-estate, deeper branding/material, per-case human+AI collaboration, a posture dashboard +
-MITRE-coverage, fine-grained custom-role RBAC, +17 new enrichment providers (19 total), in-app
+Verified offline (2026-07-07): **1708 backend tests green** (fake/in-memory backends +
+mock LLM, no network — an autouse `conftest` network guard keeps the enrichment tests
+offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **279.32 kB**
+gzip **82.55 kB**) with a dev-only Vitest harness (**1268 tests** / 229 files); eslint
+clean (0 errors, 3 benign warnings, incl. 20 `jsx-a11y` rules at error). (Test counts
+rise each round — see `Journal.md` for the exact current totals.)
+
+**Round 9c** (2026-07-06, current — the dashboard rebuilt from scratch: real **MTTD** +
+**MTTR-as-first-human-response** off the ACK clock, a burndown chart, a terminal
+"closed by human" noise stage, a cleaner Cases list) followed **Round 9b** (hover-to-expand
+sidebar, the noise-reduction ribbon restored + polished, a CaseDetail Timeline/Investigation
+redesign, a wider case sheet) followed **Round 9** (an 11-ask UI/UX overhaul: removed
+redundant in-page tab strips, a QRadar-style Sources `DataTable`, the CaseDetail
+Timeline/Investigation split, a local self-hosted LiteLLM model provider, login/wizard
+fixes) followed **Round 8** (UI cleanup + glitch fixes) followed **Round 7** (the Security
+Command Center + the Noise-Reduction funnel) followed **Round 6** (a ~500-agent Opus fleet
+glitch-hunt, 464 adversarially-verified findings fixed) followed **Round 5** ("UI/UX
+overhaul + rules customization + custom dashboards + loose coupling" — a cohesive WCAG-AA
+color system + one enforced shadcn/Radix/Tailwind design standard, a decluttered
+data-driven Settings, a wider dashboard + compact hero, a **Detection & Rules editor** with
+rule versioning + a **pure-what-if preview that never bills the LLM**, **custom per-user
+dashboards**, and a loose-coupling refactor — a single `FEATURES[]` registry and a
+domain-router decomposition with byte-identical API paths) followed **Round 4** ("fix the
+logic, fine-tune the product" — the multi-source poller fix + 2 more confirmed bugs,
+adaptive threshold auto-tuning, two-tier alert/event ingestion with campaign correlation +
+agent-driven event detection, an entity baseline, batch/flex + a broadened correctly-priced
+model catalog, a unified log view, tiered reset + fresh OOBE, and a white-label login)
+followed **Round 3** (12 requests: expandable nav, richer Settings real-estate, deeper
+branding/material, per-case human+AI collaboration, a posture dashboard + MITRE coverage,
+fine-grained custom-role RBAC, +17 new enrichment providers (19 total), in-app
 notifications, a standardized Models page, distinctive UI, a forward-looking Standup, and
-clearer cases + agent-work visualization), **Round 2** (login redesign + account self-service,
-sessions + token policy, the Settings-centric IA, Demo Mode, per-feed sources, Resend/SES +
-email templates, per-user customization, command palette + global search + bulk actions +
-audit viewer), and the seven-wave overhaul before it — was **additive** and left
-`case_manager.decide()` byte-identical (CI-verified: still identical to the pre-Round-5
-baseline). The backend stayed **zero-new-runtime-dep** through all five rounds; Round 5 added
-exactly **one** lazy webui runtime dep (`react-grid-layout`, dashboard edit-mode only) and
-removed `framer-motion`. The 12 non-negotiables held throughout, and a 16-dimension adversarial
-audit closed both Round 4 (16 confirmed, all fixed) and Round 5 (23 findings, 9 must-fix all
-fixed) with regression tests. A shipped security fix inverts RAG-knowledge
-fencing to a TRUSTED allowlist so operator-imported documents can no longer reach the model
-unfenced (OWASP LLM01). Live-stack validation against a real SIEM is a deploy step. New here?
-See [`docs/HANDOFF.md`](docs/HANDOFF.md). See
-[`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) for roadmap
-status and [`CHANGELOG.md`](CHANGELOG.md) for the change history.
+clearer cases + agent-work visualization), **Round 2** (login redesign + account
+self-service, sessions + token policy, the Settings-centric IA, Demo Mode, per-feed
+sources, Resend/SES + email templates, per-user customization, command palette + global
+search + bulk actions + audit viewer), and the seven-wave overhaul before it — every round
+was **additive** and left `case_manager.decide()` byte-identical to the pre-Round-5
+baseline `27f0983` (CI-verified every round since). The backend stayed
+**zero-new-runtime-dep** through every round; Round 5 added exactly **one** lazy webui
+runtime dep (`react-grid-layout`, dashboard edit-mode only) and removed `framer-motion` —
+zero more added or removed since. The 12 non-negotiables held throughout, and repeated
+adversarial audits (16-dimension audits on Rounds 4/5, a ~500-agent fleet on Round 6,
+smaller adversarial-validation passes on Rounds 7–9c) found and fixed real issues every
+time. A shipped security fix inverted RAG-knowledge fencing to a TRUSTED allowlist
+(`runbook`/`mitre`/`suppression` only — operator-imported documents stay UNTRUSTED-fenced)
+so imported documents can no longer reach the model unfenced (OWASP LLM01). Live-stack
+validation against a real SIEM is a deploy step. New here? See
+[`docs/HANDOFF.md`](docs/HANDOFF.md). See [`CHANGELOG.md`](CHANGELOG.md) for the full
+per-round change history and [`ROADMAP.md`](ROADMAP.md) for live backlog status.

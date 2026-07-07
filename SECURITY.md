@@ -12,18 +12,28 @@ inline. See also the 12 non-negotiables in [`CLAUDE.md`](CLAUDE.md) §5,
 [`README.md`](README.md), and [`docs/RUNBOOK.md`](docs/RUNBOOK.md) (rotation).
 New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-> **Round 2 security additions (2026-06-30).** The auth/identity surface gained:
-> a server-side **session registry** (`stores/sessions.py`) with explicit revocation,
-> per-user **token-version** invalidation, and idle/absolute/refresh **token policy**
-> (`Preferences.session_policy`); refresh-token rotation with reuse (theft) detection;
-> and step-up re-auth. The new **Demo Mode** is fully **isolated** — synthetic data flows
-> through a separate in-memory store with a `$0` deterministic mock LLM, never touching the
-> real stores or the durable poll cursor, and `disable` purges it (reversible). Email
-> templates **auto-escape** every untrusted variable and strip CRLF from headers
-> (`notifications/templates.py`). RBAC enforcement is now **CI-verified**:
-> `tests/test_route_auth_coverage.py` fails if any non-GET `/api` route lacks an authZ gate.
-> Remaining hardening TODOs (session-store optimistic concurrency, multi-generation
-> refresh-reuse detection) are tracked in
+> **Security-relevant additions since Round 2 (running summary — see
+> [`CHANGELOG.md`](CHANGELOG.md) / [`Journal.md`](Journal.md) for full detail).**
+> **Round 2** (2026-06-30): a server-side **session registry**
+> (`stores/sessions.py`) with explicit revocation, per-user **token-version**
+> invalidation, and idle/absolute/refresh **token policy**
+> (`Preferences.session_policy`); refresh-token rotation with reuse (theft)
+> detection; step-up re-auth; a fully **isolated** Demo Mode (synthetic data in a
+> separate in-memory store with a `$0` deterministic mock LLM, never touching the
+> real stores or the durable poll cursor); auto-escaping/CRLF-safe email
+> templates (`notifications/templates.py`); and a **CI-verified** RBAC gate
+> (`tests/test_route_auth_coverage.py` fails if any non-GET `/api` route lacks an
+> authZ dependency). **Round 3**: the RAG **TRUSTED-knowledge allowlist** was
+> inverted to default-deny (§4.3) — operator-imported documents and resolved-case
+> text are now UNTRUSTED-fenced instead of trusted verbatim (an OWASP LLM01 fix);
+> **19 enrichment providers** (§7) replaced the original 2; fine-grained **custom
+> RBAC roles** (inheritance + explicit DENY) layered on the 6 built-in roles.
+> **Round 9**: an optional **local/self-hosted LLM provider**
+> (`openai_compatible`, e.g. LiteLLM/vLLM/Ollama) lets a deployment run with no
+> third-party LLM egress at all (§7). Remaining hardening TODOs (session-store
+> optimistic concurrency, multi-generation refresh-reuse detection, MFA-secret
+> envelope encryption, `id_token` signature verification) are called out inline
+> below and tracked in
 > [`docs/research/2026-06-round2/ROUND2_AUDIT.md`](docs/research/2026-06-round2/ROUND2_AUDIT.md).
 
 ## 1. Trust boundaries
@@ -47,9 +57,9 @@ superuser/admin credential at runtime.
         │           │                            │                        │             │
         ▼           ▼                            ▼                        ▼             │
   ┌──────────────────────────┐   ┌────────────────────────┐   ┌──────────────────────┐ │
-  │ LOG SOURCES (READ-ONLY)  │   │ OWN STATE              │   │ LLM (anthropic/openai)│ │
-  │  pull: ES/OpenSearch/    │   │  ES tlsoc-agent-* OR   │   │ Enrich: AbuseIPDB /   │ │
-  │   Wazuh; push: webhook/  │   │  Postgres+pgvector OR  │   │         VirusTotal    │ │
+  │ LOG SOURCES (READ-ONLY)  │   │ OWN STATE              │   │ LLM (7 providers)     │ │
+  │  pull: ES/OpenSearch/    │   │  ES tlsoc-agent-* OR   │   │ Enrich: 19 providers  │ │
+  │   Wazuh; push: webhook/  │   │  Postgres+pgvector OR  │   │  (AbuseIPDB, VT, ...) │ │
   │   HEC/syslog/queues/…    │   │  SQLite                │   │ Cache:  Redis         │ │
   │  — UNTRUSTED DATA        │   │  — suite bookkeeping   │   └──────────────────────┘ │
   └──────────────────────────┘   └────────────────────────┘                            │
@@ -102,8 +112,9 @@ is **auth-protected** (subject to the optional API-auth gate below) and returns
 client** (honoring that source's `es_verify_certs`/`es_ca_cert`), are **bounded**
 (pull: hard-cap 200; push: an in-memory ≤500/source live-tail buffer), and **never
 include secret values**. The returned `_raw` document and every field are
-attacker-influenceable, so the webui renders them strictly as plain text /
-`EuiCodeBlock` (non-negotiable #9).
+attacker-influenceable, so the webui renders them strictly as plain text via
+`CodeBlock`/`InlineCode` (`webui/src/soc/components/CodeBlock.tsx`), never
+`dangerouslySetInnerHTML` (non-negotiable #9).
 
 ## 3. Secrets handling
 
@@ -177,43 +188,77 @@ The verdict is **advisory only**; the consequential decision is deterministic co
 
 - The **verdict** (`TRUE_POSITIVE`/`FALSE_POSITIVE`/`NEEDS_HUMAN`) is an LLM
   *recommendation* (`constants.Verdict`).
-- The **close/escalate decision** is a pure function in
-  `engine/case_manager.py:decide`.
-- A **TRUE_POSITIVE is NEVER auto-closed** — it routes to a human, with a
-  defence-in-depth assertion that raises if anything tries to close one
-  (`case_manager.apply`). Non-negotiable #3.
-- A FALSE_POSITIVE may auto-close **only** when `fp_auto_close.enabled` AND
-  confidence ≥ `min_confidence` (0.95) AND risk ≤ `max_risk_score` (30), and then
-  **only** with an objection window (`FpAutoCloseConfig`, disabled by default).
+- The **close/escalate decision** is a pure function, `decide()`, in
+  `engine/case_manager.py`, over `(verdict, confidence, risk_score, policy)` —
+  never raw LLM output, never playbook text.
+- **Only `NEEDS_HUMAN` (or a missing verdict) is the code-enforced,
+  non-tunable never-auto-close case.** `CaseManager.apply()` carries a
+  defence-in-depth assertion that raises if anything tries to close one:
+  `AssertionError("Invariant violated: attempted to auto-close a NEEDS_HUMAN
+  case")`. This guard protects `NEEDS_HUMAN`, not `TRUE_POSITIVE` (see below).
+- **FALSE_POSITIVE auto-close is ON by default.** The live `AutoClosePolicy`
+  (`config.py`, `Preferences.auto_close`) auto-closes a FALSE_POSITIVE when
+  `false_positive.enabled` (default **true**) AND `confidence >=
+  min_confidence` (default **0.85**) AND `risk_score <= max_risk_score`
+  (default **30**), then only with an `objection_window_minutes` (default
+  **1440**, i.e. 24h) during which a human can reopen it. This is the live
+  knob — the deprecated `FpAutoCloseConfig` is migrated forward into it
+  automatically for old persisted preferences.
+- **TRUE_POSITIVE auto-close is a real, opt-in policy knob — OFF by
+  default**, not "never." An operator can enable
+  `auto_close.true_positive` (default `enabled=false`, `min_confidence=0.95`,
+  `max_risk_score=10`, `objection_window_minutes=4320`); while disabled (the
+  default), every TRUE_POSITIVE routes to a human. Unlike `NEEDS_HUMAN`, there
+  is no code-level ban on auto-closing a TRUE_POSITIVE — the protection is a
+  conservative default-off *policy*, tunable by an operator who accepts the
+  trade-off.
 - Anything else — `NEEDS_HUMAN`, a missing verdict, or any LLM/source/tool failure —
   **fails safe to a human**: an alert is never dropped.
 
 ### 4.3 TRUSTED operator context (memory + RAG) — informs, never decides
 
-Two operator-controlled inputs are injected as **TRUSTED** context, distinct from the
-fenced UNTRUSTED evidence: **agent memory** (durable operator facts, `stores/memory.py`)
-in a `<<<MEMORY>>>` block, and the **RAG knowledge** retrieved for the case (runbooks,
-imported documents, prior-case baselines). Their safety posture:
+**Agent memory** (durable operator facts, `stores/memory.py`) is injected as
+**TRUSTED** context in a `<<<MEMORY>>>` block, distinct from the fenced
+UNTRUSTED evidence. RAG knowledge is **not** uniformly trusted — it is split by
+an explicit, default-deny allowlist:
 
+- **The TRUSTED-knowledge allowlist is `runbook` / `mitre` / `suppression`
+  ONLY** (`tools/rag.py:TRUSTED_KNOWLEDGE_SOURCES`, `is_trusted_knowledge()`) —
+  the system-verified seed corpus: shipped operator runbooks, the bundled
+  MITRE ATT&CK technique descriptions, and the suite's own suppression
+  guidance. These are rendered as TRUSTED reference material because they are
+  authored/verified by the system, not reachable by an attacker or an
+  arbitrary operator upload.
+- **Everything else retrieved by RAG is UNTRUSTED and fenced exactly like log
+  evidence**, including operator-**imported** documents (`source="imported"`,
+  `RagService.import_document`) and **resolved-case** text
+  (`source="resolved_case"`, prior-case baselines/notes) — both are
+  default-deny under the allowlist and wrapped in the same
+  `<<<UNTRUSTED_...>>>` fences (§4) before reaching a prompt. This closes an
+  **OWASP LLM01** (prompt-injection) gap: an operator-imported threat-intel
+  document, or text an attacker can influence via a prior case's notes,
+  cannot smuggle instructions into the model as "trusted" text.
 - **They inform the LLM only; they can NEVER override the deterministic Case
-  Manager.** Memory and RAG content can shape the model's *verdict recommendation*,
-  but the consequential close/escalate decision is still the pure function in
-  `engine/case_manager.py:decide` (§4.2, non-negotiable #3). No operator fact and no
-  retrieved snippet can auto-close a case.
-- **Precedence is fixed and explicit:** `policy > base-prompt > playbook > MEMORY >
-  untrusted`. Operator-authored TRUSTED context sits above the untrusted evidence but
-  below the immutable policy/base prompt.
+  Manager.** Memory and TRUSTED knowledge can shape the model's *verdict
+  recommendation*, but the consequential close/escalate decision is still the
+  pure function in `engine/case_manager.py:decide` (§4.2, non-negotiable #3).
+  No operator fact and no retrieved snippet — trusted or not — can auto-close
+  a case.
+- **Precedence is fixed and explicit:** `policy > base-prompt > playbook >
+  MEMORY > untrusted`. TRUSTED knowledge sits above the fenced UNTRUSTED
+  evidence but below the immutable policy/base prompt.
 - **Forged TRUSTED markers in event data are neutralised.** `fence()` in
-  `agents/prompts.py` escapes any attacker-planted `<<<MEMORY>>>` (and `<<<PLAYBOOK>>>`)
-  markers in log-derived data, so untrusted content cannot smuggle itself into a
-  TRUSTED block.
-- **Provenance is preserved.** Memory carries its `source` (`human` for explicit REST
-  edits, `agent` for chat "remember:" actions — which only store user-directed text
-  and are audited); agent-authored memory text and RAG chunk text are still treated as
-  **UNTRUSTED in the UI** and rendered as plain text / `EuiCodeBlock`
-  (never `dangerouslySetInnerHTML`) so a poisoned fact/snippet cannot inject markup
-  into the analyst's browser (non-negotiable #9). The `/api/cases/{id}/rationale`
-  "Why" view surfaces exactly which memory/knowledge a case used and presents the
+  `agents/prompts.py` escapes any attacker-planted `<<<MEMORY>>>` (and
+  `<<<PLAYBOOK>>>`) markers in log-derived data, so untrusted content cannot
+  smuggle itself into a TRUSTED block.
+- **Provenance is preserved.** Memory carries its `source` (`human` for
+  explicit REST edits, `agent` for chat "remember:" actions — which only
+  store user-directed text and are audited); agent-authored memory text and
+  UNTRUSTED RAG chunk text are rendered in the UI as plain text via
+  `CodeBlock`/`InlineCode` (never `dangerouslySetInnerHTML`), so a poisoned
+  fact/snippet cannot inject markup into the analyst's browser
+  (non-negotiable #9). The `/api/cases/{id}/rationale` "Why" view surfaces
+  exactly which memory/knowledge a case used and presents the
   **deterministic** decision rationale prominently.
 
 ## 5. Read-only guarantee, audit, cost ledger, caps & kill switch
@@ -254,15 +299,24 @@ fenced (`prompts.render_cluster`). The standup writer gets a **pre-aggregated**
 JSON summary only — aggregate-then-summarise, never raw logs to a model
 (non-negotiable #7).
 
-**Enrichment egress.** When enabled, the suite sends **IPs/indicators** to
-**AbuseIPDB**/**VirusTotal** (`tools/enrich.py`), Redis-cached to protect free-tier
-limits and reduce egress (non-negotiable #8). GeoIP already in the event is read
-as-is (no egress).
+**Enrichment egress.** When enabled, the suite sends **IPs/indicators** to one or
+more of **19 registered providers** across 17 files (`enrichment/providers/`,
+dispatched via `enrichment/dispatch.py` and the `tools/enrich.py` tool):
+AbuseIPDB, VirusTotal, GreyNoise, Shodan, Shodan InternetDB, Censys, BinaryEdge,
+IPinfo, OTX, Pulsedive, Spur, XForce, URLScan, HIBP, ProjectHoneypot, RDAP,
+URLhaus, ThreatFox, and MalwareBazaar. Every call is Redis-cached to protect
+free-tier limits and reduce egress (non-negotiable #8). Each provider is
+independently toggleable; several **keyless** ones (Shodan InternetDB, IPinfo,
+the abuse.ch trio, RDAP) default ON, the rest are opt-in per-key. GeoIP already
+present in the event is read as-is (no egress).
 
 **Running fully local.** The single LLM gateway is the abstraction seam: a
-local/GPU model server (vLLM / LiteLLM) drops in behind `llm/gateway.py` with no
-caller change. Disabling enrichment removes the AbuseIPDB/VirusTotal egress.
-Together these let a deployment run with **no third-party egress**.
+local/self-hosted model server (LiteLLM / vLLM / Ollama / LM Studio) registers as
+an `openai_compatible` provider behind `llm/gateway.py` with no caller change —
+either supply a `litellm_api_key` (env `LITELLM_API_KEY`, or push one at runtime
+via `POST /api/llm/models/custom`) or omit it for a no-auth local endpoint driven
+by `base_url` alone. Disabling enrichment removes all provider egress. Together
+these let a deployment run with **no third-party network egress at all**.
 
 ## 8. Responsible disclosure
 

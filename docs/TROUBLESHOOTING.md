@@ -7,7 +7,7 @@ runtime, and usage of the **vendor-agnostic** suite. Each entry tells you how to
 - How everything is supposed to behave: `docs/USAGE.md`.
 - Day-2 operations: `docs/RUNBOOK.md`.
 - Security posture: `SECURITY.md`.
-- Legacy Kibana-plugin build deep dive: `plugin/BUILD.md`.
+- Archived Kibana-plugin build deep dive: [`archive/kibana-plugin/BUILD.md`](../archive/kibana-plugin/BUILD.md).
 
 Quick triage:
 
@@ -26,11 +26,15 @@ docker logs tlsoc-backend --tail=100
 docker logs tlsoc-webui --tail=50
 ```
 
-> **`store_type` and `es_connected` are backend-conditional.** With
-> `STATE_BACKEND=postgres` or `sqlite`, the suite's OWN state lives in
-> Postgres/SQLite, not Elasticsearch — `es_connected` then reflects only whether a
-> *pull log source* (if any) is reachable, and `store_type` names the SQL store.
-> Push-only deployments may have no ES at all.
+> **`store_type` is not the state backend — read it carefully.** It is always
+> `type(state.es).__name__` (`RealESClient` or `InMemoryESClient`), the class of
+> the **log-surface ES client**, built from whether an ES key is configured. It
+> **never** names `STATE_BACKEND` (`elasticsearch`/`postgres`/`sqlite`) or any SQL
+> store. With `STATE_BACKEND=postgres`/`sqlite` and **no ES/OpenSearch/Wazuh pull
+> source wired**, `store_type:InMemoryESClient` is **expected and benign** — not a
+> Postgres/SQLite outage; `es_connected` there reflects only whether that optional
+> pull source is reachable. Push-only deployments may have no ES at all. `store_type`
+> only signals a durability problem when `STATE_BACKEND=elasticsearch` (see §C).
 
 ---
 
@@ -54,8 +58,10 @@ host/port/db, the password is wrong, or Postgres isn't up yet.
   Postgres delays — not breaks — startup; check `docker logs tlsoc-postgres`.
 
 **How to confirm.** `docker exec tlsoc-postgres pg_isready` → `accepting
-connections`; backend logs `Built async SQL engine` + `SQL state schema ensured`;
-`GET /api/health` returns `store_type` naming the SQL store.
+connections`; backend logs `Built async SQL engine` + `SQL state schema ensured` +
+`OWN-state backend: SQL (postgres)`; `GET /api/health` returns
+`{"status":"ok",...}` (note: `store_type` there is the unrelated log-surface ES
+client — see the callout above; it does not confirm Postgres).
 
 ### A2. pgvector extension missing
 
@@ -91,8 +97,11 @@ never guesses production credentials — it raises
 `state_backend='postgres' requires state_db_url`). `sqlite` is fine for a
 single-node demo but the file must be on a persistent volume to survive restarts.
 
-**How to confirm.** `GET /api/health` `store_type` matches your intent; the data
-you expect is listed by `GET /api/cases`.
+**How to confirm.** Backend logs show the state backend you intended (`OWN-state
+backend: SQL (postgres|sqlite)`, or the ES-backend bootstrap in §C) — **not**
+`GET /api/health`'s `store_type`, which never names `STATE_BACKEND` (see the
+callout at the top of this file); the data you expect is listed by
+`GET /api/cases`.
 
 ---
 
@@ -197,7 +206,7 @@ rows, or returns `501` / `502`.
   / supply `es_ca_cert` on the source; the browse endpoint uses the per-source ES
   client, so the source-level TLS setting applies).
 - **Empty but `200`** — for a **pull** source, nothing matched the (bounded ≤200)
-  scoped search in the chosen time range / `query`; widen the `EuiSuperDatePicker`
+  scoped search in the chosen time range / `query`; widen the time-range picker
   window or clear the search box. For a **push** source, the in-memory live-tail
   buffer (≤500/source) is empty until events arrive — and it is **reset on a backend
   restart** (it is not persisted).
@@ -321,9 +330,12 @@ lists cases.
 Cases are keyed by an **entity-centric cluster signature** (one open case per
 `(entity_type, entity_value)`). Re-polling **attaches** new events to the existing
 open case instead of creating a duplicate; the durable cursor uses an inclusive
-lower bound + boundary-id dedup. If you genuinely see two *open* cases for the same
-entity, confirm the entity values are byte-identical (a closed historical case does
-not block a new open case for later activity).
+lower bound + boundary-id dedup. **With multiple enabled pull sources**, the poller
+also holds a per-cluster-signature in-flight lock during a fan-out tick, so two
+sources polled in the same tick can never both create a case for the same signature.
+If you genuinely see two *open* cases for the same entity, confirm the entity values
+are byte-identical (a closed historical case does not block a new open case for
+later activity).
 
 ---
 
@@ -332,15 +344,20 @@ not block a new open case for later activity).
 **Symptom.** Thin enrichment, weak RAG, or the deterministic standup fallback.
 
 **Likely cause (by design these degrade gracefully).**
-- **Enrichment** (AbuseIPDB/VirusTotal): without keys, reputation context is
-  limited; GeoIP already in the source is still read.
+- **Enrichment** (19 registered providers behind the `EnrichmentProvider` SPI;
+  e.g. AbuseIPDB/VirusTotal are two of the keyed ones): without a given provider's
+  key, that provider's context is unavailable, but the keyless ones (Shodan
+  InternetDB, IPinfo Lite, the abuse.ch trio, RDAP) still run, and GeoIP already in
+  the source is still read.
 - **RAG embeddings**: without an embedding/OpenAI key, the gateway **falls back to
   local hashing embeddings**; on Postgres without pgvector, to JSON cosine.
 - **Standup**: if the summariser model is unavailable, it returns the
   **deterministic** summary.
 
-**Fix.** Add the relevant keys (`ABUSEIPDB_API_KEY`, `VIRUSTOTAL_API_KEY`,
-`EMBEDDING_API_KEY` / `OPENAI_API_KEY`), or accept degraded-but-working behaviour.
+**Fix.** Add the relevant provider keys you need (e.g. `ABUSEIPDB_API_KEY`,
+`VIRUSTOTAL_API_KEY`, `EMBEDDING_API_KEY` / `OPENAI_API_KEY` — see
+`docs/ENVIRONMENT.md` §2.7 for the full 19-provider list), or accept
+degraded-but-working behaviour.
 
 **How to confirm.** The usage ledger records provider failures as `outcome: error`
 (visible in the **Cost** summary). A standup summary that is *not* the
@@ -389,6 +406,15 @@ situation.
 **Fix.** Configure a valid provider key (Settings shows `anthropic_api_key:
 configured ✓` and/or `openai_api_key: configured ✓`); confirm the per-role model
 names are valid for that provider.
+
+> **A registered local / self-hosted (LiteLLM-compatible) model behaves the same
+> way.** If a role is pointed at a custom model whose `base_url` is unreachable,
+> whose endpoint requires a key you didn't set (`litellm_api_key` / `LITELLM_API_KEY`
+> blank), or that returns an incompatible response shape, the gateway call fails and
+> the case (or chat turn) fails safe to `needs_human` / "assistant unavailable" —
+> exactly like a missing cloud key. Use **Settings → Models → "Add local model" →
+> Test** (`POST /api/llm/providers/test`, non-metered) to isolate a bad `base_url` /
+> missing key from an unrelated pipeline issue before touching anything else.
 
 **How to confirm.** The provider shows configured; the usage ledger stops logging
 `outcome: error` for completions; new investigations produce real verdicts.

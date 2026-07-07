@@ -1,5 +1,13 @@
 # Vigil SOC — deep study & what we should take from it
 
+> **Status: HISTORICAL — a 2026-06-21 point-in-time study.** The comparative
+> analysis below (Vigil vs. us, §§1–4) is a snapshot of Vigil `v0.2.3` and our repo
+> as they stood that day; it is **not re-verified against Vigil's current state**
+> and shouldn't be cited as a live comparison. The **execution plan (§5)** it
+> produced has since **~90% shipped, under different round names** than the
+> Wave 1–4 labels below — see each Wave's status tag inline and `CLAUDE.md` §10 for
+> what actually landed and when.
+>
 > Author: orchestrator (Opus) + a fleet of 10 Opus sub-agents that read Vigil
 > (`github.com/Vigil-SOC/vigil`, v0.2.3) and its `mempalace` memory submodule
 > end-to-end, plus a fresh ground-truth map of our own repo.
@@ -141,6 +149,14 @@ OTEL ─▶ collector ─▶ Jaeger + Prometheus ─▶ Grafana
 | **Frontend** | Auto-Ops, AI-Decisions, builders, graph/timeline (MUI) | Wizard/Cases/Chat/Cost (EUI) | **Re-implement top surfaces in EUI** |
 | **Ops** | Helm + ARQ/KEDA + OTEL/Grafana | docker-compose only | **Adopt as Epoch E/F** |
 
+*(Table preserved as originally written for this 2026-06-21 snapshot — do not
+re-read the "Us" column as current state. Two cells are now stale in ways worth
+flagging: **Security/auth** — auth shipped, but defaults OFF rather than ON, see
+the Wave 2 note in §5; **Frontend** — the webui was never built in EUI at all; it
+shipped and was later fully re-skinned on Tailwind + shadcn/Radix, so "re-
+implement top surfaces in EUI" was never the path taken. See `CLAUDE.md` §10 for
+current state.)*
+
 ---
 
 ## 3. What to port — ranked, with where it lives in our tree
@@ -211,10 +227,14 @@ OTEL ─▶ collector ─▶ Jaeger + Prometheus ─▶ Grafana
    guarantee). 11. OTEL GenAI metrics + a Grafana cost dashboard from our ledger.
 12. UX: an Auto-Ops/Orchestrator surface, an **AI-Decisions/HITL** page (blocking
    approvals + retrospective multi-axis grading), reasoning-trace + chain-of-custody
-   viewers, cache-aware cost analytics — all doable in EUI without new deps (graph/
-   timeline viz being the only dep-requiring extras, webui-only). 13. A real MITRE
-   module from a bundled STIX file (NOT Vigil's hardcoded dict); detection rules
-   embedded into the RAG corpus (NOT substring search).
+   viewers, cache-aware cost analytics — all doable without new deps (graph/
+   timeline viz being the only dep-requiring extras, webui-only; written when the
+   plan was still "in EUI" — the webui ended up on Tailwind + shadcn/Radix
+   instead, see §2's footnote). 13. A real MITRE module from a bundled STIX file
+   (NOT Vigil's hardcoded dict) — **shipped as a bundled 697-technique JSON
+   corpus**, not literally STIX-formatted, but no longer a hardcoded dict either;
+   detection rules embedded into the RAG corpus (NOT substring search) — not
+   built.
 
 ---
 
@@ -240,16 +260,39 @@ OTEL ─▶ collector ─▶ Jaeger + Prometheus ─▶ Grafana
 
 ## 5. Execution plan (this overhaul)
 
-**Wave 1 (this session) — additive, fully offline-tested, spine intact:**
+**✅ Wave 1 (this session) — additive, fully offline-tested, spine intact:**
 agent personas · plain-text runbooks · hybrid RAG · tool tiers · fencing+pricing
 provenance. Plus: archive the legacy Kibana plugin (done), this study doc, journal.
 Acceptance: `pytest -q` green (was 221), `webui` build green, all 12
-non-negotiables intact.
+non-negotiables intact. **Shipped in full** as "the Vigil-inspired overhaul — Wave
+1" (see `CLAUDE.md` §10).
 
-**Wave 2 (recommended next) — auth-by-default + CI coverage test + CSRF/headers/
-rate-limit; approval workflow + pre-flight cost projection + `$`-budget.**
+**⚠️ Wave 2 (recommended next) — auth-by-default + CI coverage test + CSRF/headers/
+rate-limit; approval workflow + pre-flight cost projection + `$`-budget.** **Shipped,
+but with one deliberate deviation from this plan:** auth, RBAC (6 roles + custom
+roles), MFA/TOTP, OIDC SSO, session policy, CSRF/rate-limit/security-headers
+middleware, and the CI route-auth-coverage test all shipped (the 7-wave SOC
+overhaul's W1–W3, plus Round 2's session work) — but **auth defaults OFF**
+(`Secrets.auth_enabled=false`), not ON as this plan recommended (§4 "if we add
+auth, it defaults ON"). This was a conscious choice to keep the no-auth "old
+version" and the offline test suite working unchanged for existing deployments;
+an operator opts in with `TLSOC_AUTH_ENABLED=true`. The approval workflow (HITL
+`Proposal`s), pre-flight `BudgetGate`, and `$`-ceiling all shipped too (Round 3/4).
+**Do not read this deviation as accidental — it's the one place we knowingly
+diverged from this document's own recommendation.**
 
-**Wave 3 — cross-case memory + KG; MITRE-from-STIX; detection-rule RAG corpus;
-HITL/Auto-Ops/reasoning-trace UI surfaces.**
+**◔ Wave 3 — cross-case memory + KG; MITRE-from-STIX; detection-rule RAG corpus;
+HITL/Auto-Ops/reasoning-trace UI surfaces.** **Partially shipped:** an operator
+`MemoryStore` (durable, Claude.ai-style facts auto-injected into investigations +
+chat) and a `Proposal`s-backed HITL Approvals surface + a full `TraceTimeline`
+reasoning-trace UI all shipped — but as a different shape than sketched here (the
+memory store is operator-authored facts, not an auto-captured cross-case
+verdict/reasoning memory keyed by cluster signature, and there's no bitemporal
+knowledge graph). MITRE shipped as a bundled 697-technique JSON corpus (not a
+hardcoded 15-technique dict, and not literally STIX-formatted). A dedicated
+detection-rule RAG corpus and a standalone Auto-Ops orchestrator console were not
+built.
 
-**Wave 4 (Epoch E/F) — ARQ/KEDA scale-out; Helm chart; OTEL+Grafana.**
+**○ Wave 4 (Epoch E/F) — ARQ/KEDA scale-out; Helm chart; OTEL+Grafana.** **Not
+started** — this remains the one open item on the suite's own Epoch E backlog; see
+`ROADMAP.md`.
