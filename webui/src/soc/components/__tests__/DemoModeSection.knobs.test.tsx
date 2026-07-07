@@ -3,11 +3,28 @@
  * LabeledSlider primitives (steppers + clamp-on-blur + raw-text-while-editing) instead
  * of a hand-rolled raw `<input type=number>` that snapped to 0 on clear and never clamped.
  *
+ * Demo overhaul — the two new rate knobs (alert interval + event rate) render and
+ * round-trip through `onEnable`'s `DemoConfig` body.
+ *
  * `useDemo()` returns a safe OFF default without a provider, so the enable form (with the
  * knobs) renders standalone.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+
+// Mock the api + toast so the Enable round-trip can be asserted without a backend.
+const demoEnableMock = vi.fn().mockResolvedValue({ mode: 'seeded', active: true });
+vi.mock('@/lib/api', () => ({
+  api: {
+    demo: {
+      enable: (...a: unknown[]) => demoEnableMock(...a),
+      status: vi.fn().mockResolvedValue({ mode: 'off', active: false }),
+      reset: vi.fn().mockResolvedValue({}),
+      disable: vi.fn().mockResolvedValue({}),
+    },
+  },
+}));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { DemoModeSection } from '../DemoModeSection';
 import { TooltipProvider } from '@/ui/tooltip';
@@ -20,6 +37,8 @@ const renderDemo = () =>
   );
 
 describe('DemoModeSection knobs (Round-6 #31/#32)', () => {
+  beforeEach(() => demoEnableMock.mockClear());
+
   it('renders NumberField steppers and clamps an over-range History value on blur', () => {
     renderDemo();
     // NumberField exposes +/- IconButtons — proof the raw number input was replaced.
@@ -38,5 +57,31 @@ describe('DemoModeSection knobs (Round-6 #31/#32)', () => {
     fireEvent.focus(history);
     fireEvent.change(history, { target: { value: '' } });
     expect(history.value).toBe(''); // stays empty (old raw input snapped to 0)
+  });
+
+  it('renders the two new rate knobs (demo overhaul)', () => {
+    renderDemo();
+    expect(screen.getByLabelText('Alert interval')).toBeInTheDocument();
+    expect(screen.getByLabelText('Event rate')).toBeInTheDocument();
+  });
+
+  it('round-trips the alert-interval + event-rate knobs through onEnable', async () => {
+    renderDemo();
+    const alert = screen.getByLabelText('Alert interval') as HTMLInputElement;
+    fireEvent.focus(alert);
+    fireEvent.change(alert, { target: { value: '90' } });
+    fireEvent.blur(alert);
+    const rate = screen.getByLabelText('Event rate') as HTMLInputElement;
+    fireEvent.focus(rate);
+    fireEvent.change(rate, { target: { value: '25' } });
+    fireEvent.blur(rate);
+
+    fireEvent.click(screen.getByRole('button', { name: /enable demo mode/i }));
+
+    // The enable body carries the two new rate fields.
+    await vi.waitFor(() => expect(demoEnableMock).toHaveBeenCalledTimes(1));
+    const body = demoEnableMock.mock.calls[0][0];
+    expect(body.alert_interval_seconds).toBe(90);
+    expect(body.event_rate_per_second).toBe(25);
   });
 });

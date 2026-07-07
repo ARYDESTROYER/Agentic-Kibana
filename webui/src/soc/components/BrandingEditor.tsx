@@ -638,7 +638,7 @@ export interface BrandingEditorProps {
 }
 
 export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
-  const { branding: ctxBranding, setTheme, isDark } = useTheme();
+  const { branding: ctxBranding, setTheme, isDark, refreshBranding } = useTheme();
 
   // The server-confirmed baseline (for dirty-tracking) and the working draft.
   const seed = React.useMemo<BrandingDoc>(
@@ -879,6 +879,13 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
       applyThemeTokensPreview(merged.theme_tokens || {});
       applyMaterialPreview((merged.material as Material) || 'quiet');
       applyFaviconPreview(merged.favicon_data_url || '');
+      // Resync the SHARED ThemeProvider context (Login, AppShell, the browser tab
+      // title/favicon, …) so the just-saved branding is visible everywhere in THIS SPA
+      // session without a hard reload — the actual fix for "saved branding doesn't show
+      // on the login screen": ThemeProvider is mounted once at the app root and
+      // otherwise never refetches. The backend persists synchronously before the PUT
+      // responds, so this fresh GET is guaranteed to observe the just-saved doc.
+      void refreshBranding();
       toast.success('Branding saved.');
     } catch (e) {
       toast.error(errMsg(e, 'Could not save branding.'));

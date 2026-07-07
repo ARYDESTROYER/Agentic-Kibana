@@ -142,6 +142,11 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
       );
     }
 
+    // Hole size as a % of the chart box's smaller dimension — the SINGLE source of
+    // truth reused for the Pie's `innerRadius` AND the center overlay bound below, so
+    // oversized center content is clipped to the actual hole and never bleeds onto the ring.
+    const innerPct = Math.round((1 - thickness) * 70);
+
     return (
       <div
         ref={ref}
@@ -156,7 +161,7 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
               data={data}
               dataKey="value"
               nameKey="label"
-              innerRadius={`${Math.round((1 - thickness) * 70)}%`}
+              innerRadius={`${innerPct}%`}
               outerRadius="70%"
               paddingAngle={data.length > 1 ? 2 : 0}
               stroke="hsl(var(--card))"
@@ -174,8 +179,16 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
           </PieChart>
         </ResponsiveContainer>
         {center != null ? (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            {center}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+              className="flex max-w-full flex-col items-center justify-center gap-0.5 overflow-hidden text-center"
+              // Bound the overlay to the ACTUAL hole (same formula as the Pie's
+              // `innerRadius` above) so oversized/long center content is clipped
+              // instead of bleeding onto the colored ring.
+              style={{ width: `${innerPct}%`, height: `${innerPct}%` }}
+            >
+              {center}
+            </div>
           </div>
         ) : null}
       </div>

@@ -298,7 +298,18 @@ async def list_sources(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("sources", "read")),
 ) -> dict[str, Any]:
-    return {"sources": [s.model_dump(mode="json") for s in state.prefs.sources]}
+    rows = [s.model_dump(mode="json") for s in state.prefs.sources]
+    # Demo Mode: overlay the 3 synthetic sources at READ time only (never persisted to
+    # Preferences.sources). Collision-guarded against a real source id.
+    if state.demo_active:
+        real_ids = {str(r.get("id")) for r in rows}
+        for extra in state.demo_sources_overlay():
+            if str(extra.get("id")) in real_ids:
+                logger.warning("demo source overlay id %s collides with a real source; dropped",
+                               extra.get("id"))
+                continue
+            rows.append(extra)
+    return {"sources": rows}
 
 
 @router.post("/sources")
@@ -525,6 +536,26 @@ async def source_logs(
         rows = [_log_row(ev) for ev in result.events]
         return {"source_id": source_id, "mode": "search", "count": len(rows),
                 "total": result.total, "logs": rows, "query": "*"}
+    # The three per-segment demo sources (demo-siem/xdr/edr) advertise can_browse=true
+    # but never enter prefs.sources — serve their bounded, read-only synthetic slice from
+    # the live DemoStack's own per-segment connector (else they 404 through the lookup).
+    if state.demo_active and state._demo is not None:
+        from ..engine.demo_generator import SEGMENT_SOURCE_IDS
+
+        segment = next(
+            (seg for seg, sid in SEGMENT_SOURCE_IDS.items() if sid == source_id), None
+        )
+        conn = state._demo.sources.get(segment) if segment else None
+        if conn is not None:
+            from ..connectors.base import StructuredQuery
+
+            result = await conn.search(
+                state.prefs,
+                StructuredQuery(contains=(query or None), size=limit, sort_desc=True),
+            )
+            rows = [_log_row(ev) for ev in result.events]
+            return {"source_id": source_id, "mode": "search", "count": len(rows),
+                    "total": result.total, "logs": rows, "query": "*"}
     src = next((s for s in state.prefs.sources if s.id == source_id), None)
     if src is None:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -770,6 +801,33 @@ async def sources_health(
         elif is_pull and src.enabled:
             row["last_poll_millis"] = await _cursor_millis(src)
         out.append(row)
+    # Demo Mode: overlay the 3 synthetic sources' health at READ time only (never
+    # persisted). They are not driven by the durable poller (the DemoSimulator ticks
+    # them), so ``last_poll_millis`` stays 0 and we report a synthetic ``last_event_millis``
+    # instead of fabricating a cursor row. Collision-guarded against a real source id.
+    if state.demo_active:
+        real_ids = {str(r.get("source_id")) for r in out}
+        from ..utils import to_millis
+
+        now_ms = to_millis(now_utc())
+        for extra in state.demo_sources_overlay():
+            sid = str(extra.get("id"))
+            if sid in real_ids:
+                continue
+            out.append({
+                "source_id": sid,
+                "source_name": extra.get("display_name") or sid,
+                "source_type": "generic",
+                "enabled": True,
+                "is_primary": False,
+                "ingest_mode": "pull",
+                "kind": "pull",
+                "can_browse": True,
+                "buffer_depth": 0,
+                "last_poll_millis": 0,
+                "last_event_millis": now_ms,
+                "demo": True,
+            })
     return {"sources": out}
 
 
@@ -1387,6 +1445,12 @@ class DemoEnableBody(BaseModel):
     tick_seconds: float | None = None
     tick_jitter: float | None = None
     incident_rate: float | None = None
+    alert_interval_seconds: float | None = None
+    event_rate_per_second: float | None = None
+    preseed_recent_minutes: int | None = None
+    preseed_case_count: int | None = None
+    preseed_event_count: int | None = None
+    force_capabilities: bool | None = None
 
 
 @router.get("/demo/status")
@@ -1407,6 +1471,12 @@ async def demo_enable(
         mode=mode, seed=body.seed, history_days=body.history_days,
         tick_seconds=body.tick_seconds, tick_jitter=body.tick_jitter,
         incident_rate=body.incident_rate,
+        alert_interval_seconds=body.alert_interval_seconds,
+        event_rate_per_second=body.event_rate_per_second,
+        preseed_recent_minutes=body.preseed_recent_minutes,
+        preseed_case_count=body.preseed_case_count,
+        preseed_event_count=body.preseed_event_count,
+        force_capabilities=body.force_capabilities,
     )
     # Audit the admin action on the REAL audit log (demo enable is a real action).
     await state.real_audit.record(

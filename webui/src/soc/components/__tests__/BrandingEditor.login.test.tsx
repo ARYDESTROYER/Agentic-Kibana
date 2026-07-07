@@ -14,12 +14,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // ---- Mock the typed api client BEFORE importing the component ------------- //
 const getMock = vi.fn();
 const putMock = vi.fn();
+// Named so we can assert ThemeProvider's mount fetch + save()'s refresh resync (Ask #6).
+const getBrandingMock = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   api: {
     get: (path: string) => getMock(path),
     put: (path: string, body: unknown) => putMock(path, body),
-    getBranding: vi.fn().mockResolvedValue({}),
+    getBranding: () => getBrandingMock(),
   },
 }));
 
@@ -67,7 +69,9 @@ describe('BrandingEditor — login white-label section', () => {
   beforeEach(() => {
     getMock.mockReset();
     putMock.mockReset();
+    getBrandingMock.mockReset();
     getMock.mockResolvedValue({ ...SAVED_BRANDING });
+    getBrandingMock.mockResolvedValue({ ...SAVED_BRANDING });
     putMock.mockImplementation((_path: string, body: unknown) => Promise.resolve(body));
   });
 
@@ -138,6 +142,20 @@ describe('BrandingEditor — login white-label section', () => {
     await waitFor(() => expect(putMock).toHaveBeenCalled());
     const [, body] = putMock.mock.calls[0];
     expect(body).toMatchObject({ login_illustration: 'radar' });
+  });
+
+  it('re-fetches GET /api/branding (shared-context resync) after a successful Save', async () => {
+    renderEditor();
+    const headline = await screen.findByLabelText('Headline');
+    fireEvent.change(headline, { target: { value: 'X' } });
+    const saveBtn = screen.getByRole('button', { name: /Save branding/i });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    // Once for ThemeProvider's own mount fetch, once triggered by save()'s
+    // refreshBranding() — the resync that makes the saved branding reach Login/AppShell
+    // in the same session (Ask #6).
+    await waitFor(() => expect(getBrandingMock).toHaveBeenCalledTimes(2));
   });
 });
 

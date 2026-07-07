@@ -52,6 +52,8 @@ export function DemoModeSection() {
   const [historyDays, setHistoryDays] = React.useState<number>(14);
   const [tickSeconds, setTickSeconds] = React.useState<number>(10);
   const [incidentRatePct, setIncidentRatePct] = React.useState<number>(5);
+  const [alertIntervalSeconds, setAlertIntervalSeconds] = React.useState<number>(120);
+  const [eventRatePerSecond, setEventRatePerSecond] = React.useState<number>(40);
   const [busy, setBusy] = React.useState<'enable' | 'reset' | 'disable' | null>(null);
 
   // When the live status changes (e.g. another tab armed it), reflect the seed so
@@ -63,9 +65,16 @@ export function DemoModeSection() {
       if (typeof status.tick_seconds === 'number') setTickSeconds(status.tick_seconds);
       if (typeof status.incident_rate === 'number')
         setIncidentRatePct(Math.round(status.incident_rate * 100));
+      if (typeof status.alert_interval_seconds === 'number' && status.alert_interval_seconds > 0)
+        setAlertIntervalSeconds(status.alert_interval_seconds);
+      if (typeof status.event_rate_per_second === 'number')
+        setEventRatePerSecond(status.event_rate_per_second);
       if (status.mode === 'live' || status.mode === 'seeded') setMode(status.mode);
     }
-  }, [active, status.seed, status.history_days, status.tick_seconds, status.incident_rate, status.mode]);
+  }, [
+    active, status.seed, status.history_days, status.tick_seconds, status.incident_rate,
+    status.alert_interval_seconds, status.event_rate_per_second, status.mode,
+  ]);
 
   const onEnable = React.useCallback(async () => {
     const config: DemoConfig = {
@@ -74,6 +83,8 @@ export function DemoModeSection() {
       history_days: historyDays,
       tick_seconds: tickSeconds,
       incident_rate: incidentRatePct / 100,
+      alert_interval_seconds: alertIntervalSeconds,
+      event_rate_per_second: eventRatePerSecond,
     };
     setBusy('enable');
     try {
@@ -85,7 +96,10 @@ export function DemoModeSection() {
     } finally {
       setBusy(null);
     }
-  }, [mode, seed, historyDays, tickSeconds, incidentRatePct, refresh]);
+  }, [
+    mode, seed, historyDays, tickSeconds, incidentRatePct,
+    alertIntervalSeconds, eventRatePerSecond, refresh,
+  ]);
 
   const onReset = React.useCallback(async () => {
     setBusy('reset');
@@ -217,6 +231,22 @@ export function DemoModeSection() {
               description="Live mode only — how often a new synthetic batch arrives."
             />
             <NumberField
+              label="Alert interval"
+              unit="s"
+              value={alertIntervalSeconds}
+              min={1}
+              onChange={setAlertIntervalSeconds}
+              description="SIEM ALERT feed cadence — seconds between alerts (~120 = 1 / 2 min)."
+            />
+            <NumberField
+              label="Event rate"
+              unit="/s"
+              value={eventRatePerSecond}
+              min={0}
+              onChange={setEventRatePerSecond}
+              description="XDR+EDR EVENT feeds — logical events/sec (pre-aggregated, bounded)."
+            />
+            <NumberField
               label="Seed"
               value={seed}
               min={0}
@@ -247,13 +277,46 @@ export function DemoModeSection() {
             <SummaryTile label="Mode" value={status.mode === 'live' ? 'Live' : 'Seeded'} />
             <SummaryTile label="Seed" value={String(status.seed ?? seed)} mono />
             <SummaryTile
-              label="History"
-              value={`${status.history_days ?? historyDays} days`}
+              label="Sources"
+              value={
+                Array.isArray(status.sources) && status.sources.length > 0
+                  ? String(status.sources.length)
+                  : '3'
+              }
             />
             <SummaryTile
               label="Synthetic cases"
               value={typeof status.case_count === 'number' ? String(status.case_count) : '—'}
             />
+          </div>
+
+          {/* Live capability signal — "these features are working" (demo overhaul). */}
+          <div>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Capabilities live
+            </Label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryTile
+                label="HITL approvals"
+                value={fmtCount(status.proposals_open)}
+              />
+              <SummaryTile
+                label="Campaigns"
+                value={fmtCount(status.campaigns_found)}
+              />
+              <SummaryTile
+                label="Tuning observations"
+                value={fmtCount(status.tuning_events)}
+              />
+              <SummaryTile
+                label="RAG corpus"
+                value={
+                  typeof status.rag_chunks === 'number'
+                    ? `${status.rag_chunks} chunks`
+                    : '—'
+                }
+              />
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -277,6 +340,11 @@ export function DemoModeSection() {
       )}
     </div>
   );
+}
+
+/** Render a best-effort capability count (falls back to a dash when absent). */
+function fmtCount(n: number | undefined): string {
+  return typeof n === 'number' ? String(n) : '—';
 }
 
 function SummaryTile({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

@@ -36,6 +36,7 @@ import {
   Tag as TagIcon,
   SlidersHorizontal,
   CircleSlash,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -583,6 +584,11 @@ export default function Cases({
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [bulkError, setBulkError] = React.useState<string | null>(null);
 
+  // Bulk reinvestigate — a separate confirm gate because (unlike tag/assign/status)
+  // it spends real LLM tokens per case and can change verdict/status (mirrors the
+  // single-case Reinvestigate popover's cost warning in CaseDetail.tsx).
+  const [reinvestConfirmOpen, setReinvestConfirmOpen] = React.useState(false);
+
   // The one-click row "Close" is a reversible lifecycle move — gate it behind a plain
   // ConfirmDialog. The close still posts through the SAME analyst action endpoint
   // (server-side decide()), never a client-side status write (#3).
@@ -775,6 +781,64 @@ export default function Cases({
     },
     [selectedCases, bulkBusy, load],
   );
+
+  // Bulk REINVESTIGATE — loops the EXISTING single-case POST /cases/{id}/reinvestigate
+  // over the selection (no backend bulk route: that would just re-loop the same call
+  // and grow the authZ-exempt allowlist for no gain). Unlike the cheap sequential
+  // `runBulkForEach` (tag/assign), reinvestigate is LLM-backed + slow + costly per case
+  // (#6), so this runs a small bounded-concurrency pool — capped at REINVESTIGATE_
+  // CONCURRENCY, matching the backend's own `caps.max_concurrent` fan-out ceiling — with
+  // a single live-updating toast so a long batch shows honest progress. Per-item
+  // try/catch → deduped failure summary; the batch never aborts on one failure. Each
+  // per-case call re-runs the FULL shared pipeline (force=True) → re-verdicts via the
+  // deterministic decide() (#3) and bills exactly one ledger write per LLM call (#6).
+  const REINVESTIGATE_CONCURRENCY = 3;
+
+  const runBulkReinvestigate = React.useCallback(async () => {
+    const targets = selectedCases;
+    if (!targets.length || bulkBusy) return;
+    setBulkBusy(true);
+    setBulkError(null);
+    const total = targets.length;
+    let done = 0;
+    let okCount = 0;
+    const failures: string[] = [];
+    const toastId = toast.loading(`Reinvestigating 0/${total}…`);
+    let cursor = 0;
+    const worker = async () => {
+      for (;;) {
+        const i = cursor++;
+        if (i >= targets.length) return;
+        const c = targets[i];
+        try {
+          // No model override — bulk reinvestigate always uses the configured model.
+          await api.reinvestigateCase(c.case_id);
+          okCount += 1;
+        } catch (e) {
+          failures.push(e instanceof Error ? e.message : 'unknown error');
+        } finally {
+          done += 1;
+          toast.loading(`Reinvestigating ${done}/${total}…`, { id: toastId });
+        }
+      }
+    };
+    // Each worker already catches per-item, so Promise.all can never reject.
+    await Promise.all(
+      Array.from({ length: Math.min(REINVESTIGATE_CONCURRENCY, targets.length) }, worker),
+    );
+    if (failures.length) {
+      const reasons = Array.from(new Set(failures)).slice(0, 3);
+      setBulkError(
+        `${failures.length} of ${total} case${total === 1 ? '' : 's'} could not be reinvestigated: ${reasons.join('; ')}`,
+      );
+      toast.warning(`${okCount} reinvestigated, ${failures.length} failed`, { id: toastId });
+    } else {
+      toast.success(`${okCount} case${okCount === 1 ? '' : 's'} reinvestigated`, { id: toastId });
+    }
+    setSelected([]);
+    await load();
+    setBulkBusy(false);
+  }, [selectedCases, bulkBusy, load]);
 
   // Perform the confirmed row-close. Posts the SAME `close` analyst action as the
   // bulk bar / CaseDetail close dialog — the backend's decide() adjudicates (#3).
@@ -1102,7 +1166,14 @@ export default function Cases({
 
   /* ------------------------------------------------------------- render ---- */
   return (
-    <PageContainer variant="wide" className="space-y-6">
+    <PageContainer
+      variant="wide"
+      // Reserve bottom space whenever the fixed bulk bar is showing so it never
+      // covers the last table rows/pager (#3). Keyed to the SAME selection state
+      // the bar's own visibility gate reads, so the padding and the bar are always
+      // in lockstep (no stale gutter after the selection clears).
+      className={cn('space-y-6', selectedCases.length > 0 && 'pb-28')}
+    >
       <PageHeader
         variant="dense"
         breadcrumb={[{ label: 'Triage' }, { label: t('cases', 'Cases') }]}
@@ -1503,6 +1574,7 @@ export default function Cases({
         onSetDisposition={(disposition) =>
           void runBulk({ action: 'set_disposition', disposition })
         }
+        onReinvestigate={() => setReinvestConfirmOpen(true)}
         onClear={() => setSelected([])}
       />
 
@@ -1533,6 +1605,22 @@ export default function Cases({
         confirmLabel="Close case"
         onConfirm={() => {
           void confirmClose();
+        }}
+      />
+
+      {/* Bulk reinvestigate confirmation — spends LLM tokens per case (#6) and can
+          change verdict/status, so gate it like the single-case Reinvestigate popover's
+          cost warning (CaseDetail.tsx) rather than firing on one click. Not destructive
+          (it's cost-incurring, not data-destroying), so overlay/Escape dismiss stays on. */}
+      <ConfirmDialog
+        open={reinvestConfirmOpen}
+        onOpenChange={setReinvestConfirmOpen}
+        title={`Reinvestigate ${selectedCases.length} case${selectedCases.length === 1 ? '' : 's'}?`}
+        description="Each case re-runs the full AI investigation pipeline and may change its verdict, confidence, and status. This spends LLM tokens per case."
+        confirmLabel="Reinvestigate"
+        onConfirm={() => {
+          setReinvestConfirmOpen(false);
+          void runBulkReinvestigate();
         }}
       />
     </PageContainer>
@@ -1569,6 +1657,7 @@ const BulkActionBar: React.FC<{
   onAddTag: (tag: string) => void;
   onSetStatus: (status: string) => void;
   onSetDisposition: (disposition: string) => void;
+  onReinvestigate: () => void;
   onClear: () => void;
 }> = ({
   count,
@@ -1580,6 +1669,7 @@ const BulkActionBar: React.FC<{
   onAddTag,
   onSetStatus,
   onSetDisposition,
+  onReinvestigate,
   onClear,
 }) => {
   const [assignOpen, setAssignOpen] = React.useState(false);
@@ -1608,18 +1698,30 @@ const BulkActionBar: React.FC<{
     <div
       role="region"
       aria-label="Bulk actions"
-      className="fixed bottom-5 left-1/2 z-50 max-w-[94vw] -translate-x-1/2 animate-rise-in"
+      // `w-max` lets the pill hug its content up to the max-w-[94vw] ceiling, so the
+      // Card's `overflow-x-auto` (below) actually engages once the controls exceed the
+      // viewport instead of the wrapper silently stretching.
+      className="fixed bottom-5 left-1/2 z-50 w-max max-w-[94vw] -translate-x-1/2 animate-rise-in"
     >
       <Card
         elevation="none"
-        className="flex flex-wrap items-center gap-2 px-3 py-2.5 shadow-elev2"
+        // Single scrollable row, never a wrapped second line (#3): flex-nowrap +
+        // overflow-x-auto scroll the controls horizontally when narrow; [&>*]:shrink-0
+        // keeps every direct child at its natural width so flex-shrink can't squeeze
+        // them before the row starts scrolling.
+        className="flex flex-nowrap items-center gap-2 overflow-x-auto px-3 py-2.5 shadow-elev2 [&>*]:shrink-0"
       >
         <span className="inline-flex items-center rounded-md bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
           {count} selected
         </span>
 
-        {/* cases:write tier */}
-        <Button size="sm" variant="secondary" onClick={onAcknowledge} disabled={busy}>
+        {/* cases:write tier — primary CTA of the bar: the single most common bulk
+            action, so it gets the filled/primary treatment (matches the "N selected"
+            badge) instead of `secondary`, whose fill token is identical to `muted`
+            (theme.css `--secondary` === `--muted` === `--surface-sunken`, all
+            `--slate-3`) and read as a disabled/washed-out control next to the bordered
+            `outline` buttons beside it. */}
+        <Button size="sm" variant="default" onClick={onAcknowledge} disabled={busy}>
           <Check className="mr-1.5 size-4" aria-hidden />
           Acknowledge
         </Button>
@@ -1737,6 +1839,19 @@ const BulkActionBar: React.FC<{
             ))}
           </SelectContent>
         </Select>
+
+        {/* Reinvestigate (cases:write-equivalent today — NOT wrapped in <Can>, matching
+            the single-case Reinvestigate button in CaseDetail, which is also ungated
+            pending the tracked RBAC follow-up). Gated behind a ConfirmDialog by the
+            caller since it spends LLM tokens per case (#6). */}
+        <Button size="sm" variant="outline" onClick={onReinvestigate} disabled={busy}>
+          {busy ? (
+            <RefreshCw className="mr-1.5 size-4 animate-spin" aria-hidden />
+          ) : (
+            <Zap className="mr-1.5 size-4" aria-hidden />
+          )}
+          Reinvestigate
+        </Button>
 
         {/* Close / resolve — cases:close. Hidden unless granted (RBAC-mirrored). */}
         <Can resource="cases" action="close">

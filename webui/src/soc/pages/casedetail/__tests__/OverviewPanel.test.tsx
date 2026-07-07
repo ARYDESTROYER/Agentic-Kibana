@@ -156,6 +156,74 @@ describe('OverviewPanel — provenance row (source vs. agent vs. code)', () => {
   });
 });
 
+describe('OverviewPanel — detection-rule chip wraps instead of overflowing (bug #2)', () => {
+  // The same rule-id string is also echoed (read-only) in the mini attack-story
+  // step and the entity-relationship "Detection" value, so `getByText` alone is
+  // ambiguous — disambiguate to the actual chip via its `max-w-full` class,
+  // which is unique to the Badge fixed here (see OverviewPanel.tsx, the
+  // rule-id Badge in the "Detection rule(s)" block).
+  function getRuleChip(text: string) {
+    const matches = screen.getAllByText(text);
+    const chip = matches.find((el) => el.className.includes('max-w-full'));
+    expect(chip).toBeDefined();
+    return chip as HTMLElement;
+  }
+
+  it('renders a long detection-rule name WITHOUT forcing whitespace-nowrap (it must wrap)', () => {
+    renderOverview({
+      ...CASE,
+      rule_ids: ['Moodle: Grading Interface Access from Non-Campus or Foreign IP'],
+    } as unknown as Case);
+    const chip = getRuleChip('Moodle: Grading Interface Access from Non-Campus or Foreign IP');
+    // The Badge's default `whitespace-nowrap` must be overridden — this is the
+    // exact regression bug #2 fixes (a long rule name overflowing the card).
+    expect(chip).not.toHaveClass('whitespace-nowrap');
+    expect(chip).toHaveClass('whitespace-normal');
+    expect(chip).toHaveClass('break-all');
+  });
+
+  it('still renders a short detection-rule id as a normal single-line chip (no regression)', () => {
+    renderOverview({ ...CASE, rule_ids: ['T1078.004'] } as unknown as Case);
+    const chip = getRuleChip('T1078.004');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveClass('whitespace-normal');
+  });
+
+  it('wraps a SPACE-LESS/hyphen-less long rule id (no soft-wrap points) via min-w-0 + break-all, not just break-words', () => {
+    // `break-words` (overflow-wrap) only wraps at existing soft-wrap opportunities
+    // (spaces/hyphens); an id like this has none, so overflow-wrap never kicks in
+    // and the flex item's automatic min-content width keeps forcing the card
+    // wider UNLESS the item itself also has `min-w-0` and uses `break-all`
+    // (word-break), which forces a break anywhere and actually reduces the
+    // item's min-content contribution per spec.
+    const longId = 'Trojan_Generic_Suspicious_PowerShell_EncodedCommand_Execution_Detected';
+    renderOverview({ ...CASE, rule_ids: [longId] } as unknown as Case);
+    const chip = getRuleChip(longId);
+    expect(chip).toHaveClass('min-w-0');
+    expect(chip).toHaveClass('break-all');
+    expect(chip).not.toHaveClass('whitespace-nowrap');
+    expect(chip).not.toHaveClass('break-words');
+  });
+
+  it('wraps multiple long rule ids independently', () => {
+    renderOverview({
+      ...CASE,
+      rule_ids: [
+        'Moodle: Grading Interface Access from Non-Campus or Foreign IP',
+        'Excessive Failed Logon Attempts Against a Single Account from Multiple Source IPs',
+      ],
+    } as unknown as Case);
+    expect(
+      getRuleChip('Moodle: Grading Interface Access from Non-Campus or Foreign IP'),
+    ).not.toHaveClass('whitespace-nowrap');
+    expect(
+      getRuleChip(
+        'Excessive Failed Logon Attempts Against a Single Account from Multiple Source IPs',
+      ),
+    ).not.toHaveClass('whitespace-nowrap');
+  });
+});
+
 describe('OverviewPanel — entity, story, evidence, reproduce (task 7c)', () => {
   it('renders the primary entity, attack story, and entity-relationship cards', () => {
     renderOverview({

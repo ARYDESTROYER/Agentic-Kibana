@@ -108,7 +108,7 @@ function oobePasswordPolicyError(password: string, username: string): string | n
 }
 
 export default function Login({ onAuthenticated }: LoginProps) {
-  const { branding: brandingBase } = useTheme();
+  const { branding: brandingBase, refreshBranding } = useTheme();
   // Read the additive Round-4 login white-label fields structurally (they are not in
   // the shared `Branding` interface yet; see login.api.ts). All are operator-set →
   // rendered as PLAIN text / mapped to CODE-defined layouts (#6/#9).
@@ -157,6 +157,11 @@ export default function Login({ onAuthenticated }: LoginProps) {
   const [ssoResolved, setSsoResolved] = React.useState(false);
   const [ssoBusy, setSsoBusy] = React.useState<string | null>(null);
 
+  // Whether the branding probe has settled. Folded into the first-paint gate so the
+  // login never paints with stale/default branding then SNAPS to the operator's real
+  // login_layout/headline/illustration (a FOUC). Fails safe: set on both ok + error.
+  const [brandingResolved, setBrandingResolved] = React.useState(false);
+
   // Detect the first-run OOBE state once on mount.
   React.useEffect(() => {
     let alive = true;
@@ -197,6 +202,24 @@ export default function Login({ onAuthenticated }: LoginProps) {
       alive = false;
     };
   }, []);
+
+  // Force a fresh GET /api/branding whenever Login mounts (e.g. immediately after a
+  // logout, in the SAME SPA session): ThemeProvider (mounted once at the app root)
+  // otherwise fetches branding exactly ONCE for the whole session, so a just-saved
+  // BrandingEditor edit would never reach the login screen without a hard page reload.
+  // Folded into the first-paint gate below (same pattern as the statusResolved /
+  // ssoResolved probes) so the operator's branding is never shown stale-then-corrected.
+  // Fails safe: the flag flips in `finally`, so an unreachable backend still resolves to
+  // whatever branding is already in the shared context.
+  React.useEffect(() => {
+    let alive = true;
+    void refreshBranding().finally(() => {
+      if (alive) setBrandingResolved(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [refreshBranding]);
 
   // Surface an SSO callback error (the backend redirects to /login?sso_error=...).
   React.useEffect(() => {
@@ -825,13 +848,14 @@ export default function Login({ onAuthenticated }: LoginProps) {
     </div>
   );
 
-  // Hold first paint until BOTH the setup-status probe AND the SSO-providers probe
-  // settle, so a first-run install never flashes the sign-in form before switching to
-  // the create-admin form, AND the SSO block never pops in a beat after the form (it is
-  // present from the first painted frame). Both probes fire on mount in parallel, so
-  // this waits for the slower one, not their sum. Each fails safe (its flag flips on
-  // error too), so an unreachable backend still resolves to the fallback form.
-  if (!statusResolved || !ssoResolved) {
+  // Hold first paint until the setup-status probe, the SSO-providers probe, AND the
+  // branding probe settle, so a first-run install never flashes the sign-in form before
+  // switching to the create-admin form, the SSO block never pops in a beat after the
+  // form, and the login never paints with stale/default branding then snaps to the
+  // operator's real login_layout/headline/illustration. All three probes fire on mount
+  // in parallel, so this waits for the slowest one, not their sum. Each fails safe (its
+  // flag flips on error too), so an unreachable backend still resolves to the fallback.
+  if (!statusResolved || !ssoResolved || !brandingResolved) {
     return (
       <div
         className="flex min-h-screen items-center justify-center bg-canvas text-muted-foreground"

@@ -188,6 +188,12 @@ class AppState:
         # real engine — byte-for-byte as before.
         return self._demo.chat_engine if self._demo is not None else self._real_chat_engine
 
+    @property
+    def rag_service(self):
+        # In demo, the RAG service is the demo's SHARED (pipeline+chat) vector store so
+        # the Knowledge surface reflects the demo corpus; off demo, the real service.
+        return self._demo.rag_service if self._demo is not None else self.rag
+
     def _wire(self) -> None:
         es = self.es
         # OWN-state backend (Epoch A): cases/audit/usage/config/cursor live EITHER
@@ -1568,12 +1574,22 @@ class AppState:
         self, *, mode: str = "seeded", seed: int | None = None,
         history_days: int | None = None, tick_seconds: float | None = None,
         tick_jitter: float | None = None, incident_rate: float | None = None,
+        alert_interval_seconds: float | None = None,
+        event_rate_per_second: float | None = None,
+        preseed_recent_minutes: int | None = None,
+        preseed_case_count: int | None = None,
+        preseed_event_count: int | None = None,
+        force_capabilities: bool | None = None,
     ) -> dict:
         """Engage demo mode: stamp a run_id, build the isolated stack, pre-generate a
-        backdated historical case spread, and (in ``live``) start the simulator. If a
-        demo is already running it is disabled first (clean re-seed)."""
+        backdated historical case spread + a tight "just happened" pre-seed (recent
+        cases + already-processed events), eagerly seed the shared RAG corpus, run one
+        demo-local capability pass, and (in ``live``) start the simulator. If a demo is
+        already running it is disabled first (clean re-seed)."""
         from .config import DemoConfig
-        from .engine.demo_generator import build_org, generate_historical_cases
+        from .engine.demo_generator import (
+            build_org, generate_historical_cases, generate_recent_preseed, hits_to_raw,
+        )
         from .engine.demo_runtime import DemoSimulator, DemoStack
         from .utils import new_id, now_utc, to_millis
 
@@ -1589,6 +1605,24 @@ class AppState:
             tick_seconds=float(tick_seconds if tick_seconds is not None else cur.tick_seconds),
             tick_jitter=float(tick_jitter if tick_jitter is not None else cur.tick_jitter),
             incident_rate=float(incident_rate if incident_rate is not None else cur.incident_rate),
+            alert_interval_seconds=float(
+                alert_interval_seconds if alert_interval_seconds is not None
+                else cur.alert_interval_seconds),
+            event_rate_per_second=float(
+                event_rate_per_second if event_rate_per_second is not None
+                else cur.event_rate_per_second),
+            preseed_recent_minutes=int(
+                preseed_recent_minutes if preseed_recent_minutes is not None
+                else cur.preseed_recent_minutes),
+            preseed_case_count=int(
+                preseed_case_count if preseed_case_count is not None
+                else cur.preseed_case_count),
+            preseed_event_count=int(
+                preseed_event_count if preseed_event_count is not None
+                else cur.preseed_event_count),
+            force_capabilities=bool(
+                force_capabilities if force_capabilities is not None
+                else cur.force_capabilities),
         )
         # Persist the demo block FIRST so get_prefs() (read by the demo stack/sim)
         # already reflects the active run.
@@ -1605,6 +1639,13 @@ class AppState:
         except Exception:  # noqa: BLE001
             pass
 
+        # Eagerly seed the SHARED demo RAG corpus so the Knowledge page shows a populated
+        # corpus immediately (idempotent; picks up any CLOSED demo cases too).
+        try:
+            await self._demo.rag_service.ensure_seeded()
+        except Exception as exc:  # noqa: BLE001 — a cold RAG never breaks enable
+            logger.debug("demo RAG eager-seed failed: %s", exc)
+
         # Pre-generate the backdated historical spread so "old" cases exist instantly.
         org = build_org(new_demo.seed)
         now_ms = to_millis(now_utc())
@@ -1616,12 +1657,78 @@ class AppState:
             self._write_guard(case, demo=True)
             await self._demo.cases.save(case)
 
+        # Pre-seed a tight "just happened" window: a varied trio of recent cases (1
+        # TP-escalate, 1 NEEDS_HUMAN, 1 FP — not all terminal) + ~100 events already
+        # batch-processed (fed through ingest ONCE so they count as ingested/correlated
+        # volume in the noise-reduction/metrics surfaces, not decoration).
+        recent_cases, recent_hits = generate_recent_preseed(
+            new_demo.seed, org, run_id=new_demo.run_id, now_millis=now_ms,
+            recent_minutes=new_demo.preseed_recent_minutes,
+            case_count=new_demo.preseed_case_count,
+            event_count=new_demo.preseed_event_count,
+        )
+        for case in recent_cases:
+            self._write_guard(case, demo=True)
+            await self._demo.cases.save(case)
+        # Count the ~100 pre-seed events as ALREADY-processed ingested volume in the
+        # DEMO noise-reduction counters (benign noise the AI already cleared → ingested,
+        # not clustered). We record a DETERMINISTIC counter delta instead of running the
+        # case-creating pipeline over them: the realtime EVERY,n=1 path would mint a
+        # VARIABLE number of ``case-<uuid>`` cases (non-deterministic ids + count),
+        # breaking the demo's determinism guarantees. This keeps the "already
+        # batch-processed" volume visible without polluting the case list.
+        if recent_hits:
+            try:
+                from .engine import noise_counters as nc
+
+                dprefs = self._demo._demo_prefs()  # noqa: SLF001 — same module owner
+                raws = hits_to_raw(recent_hits, dprefs)
+                ingested = nc.count_events_by_band(raws, "ocsf_0_100")
+                await self._demo.noise_counters.record({
+                    "ingested": ingested, "clustered": nc.zero_bands(),
+                    "suppressed": 0, "ignored": 0,
+                })
+                self._demo.preseed_events = len(raws)
+            except Exception as exc:  # noqa: BLE001 — a bad pre-seed count never breaks enable
+                logger.warning("demo pre-seed event counting failed: %s", exc)
+
+        # Capability seeding: make the HITL / campaign / adaptive-tuning capabilities show
+        # REAL signal on a fresh enable (previously only RAG did). Deterministic + demo-
+        # scoped — a shared-entity NEEDS_HUMAN pair (→ fired threshold-automation opens
+        # HITL proposals AND the pair folds into >= 1 campaign) plus a block of same-rule
+        # CLOSED false-positives (→ the tuner clears its min-samples/Wilson-LB bar and
+        # records one bounded observation). Every write lands in the DEMO stores; the real
+        # HITL/tuning/campaign ledgers are untouched. Gated on force_capabilities because
+        # the seeded automation rule + the tuner/campaign blocks are only forced ON there.
+        if new_demo.force_capabilities:
+            try:
+                from .engine.demo_generator import generate_capability_seed_cases
+
+                hitl_cases, tuner_cases = generate_capability_seed_cases(
+                    new_demo.seed, org, run_id=new_demo.run_id, now_millis=now_ms,
+                )
+                for case in (*hitl_cases, *tuner_cases):
+                    self._write_guard(case, demo=True)
+                    await self._demo.cases.save(case)
+                # Fire threshold-automation on the NEEDS_HUMAN pair → >= 1 demo HITL proposal
+                # (deterministic, $0 — runs on the already-saved demo cases; no LLM).
+                await self._demo.seed_hitl_proposals(hitl_cases)
+            except Exception as exc:  # noqa: BLE001 — capability seeding never blocks enable
+                logger.warning("demo capability seeding failed: %s", exc)
+
+        # Run ONE synchronous capability pass so even a 'seeded' demo (no ticker) shows a
+        # campaign + a tuning observation immediately.
+        try:
+            await self._demo.run_capability_pass()
+        except Exception as exc:  # noqa: BLE001 — never break enable on a capability pass
+            logger.debug("demo initial capability pass failed: %s", exc)
+
         # Start the live simulator (only ticks in 'live' mode).
         if new_demo.mode == "live":
             self._demo_sim = DemoSimulator(self._demo, self.get_prefs, seed=new_demo.seed)
             self._demo_sim.start()
-        logger.info("Demo mode ENABLED (mode=%s run_id=%s seeded %d cases)",
-                    new_demo.mode, new_demo.run_id, len(cases))
+        logger.info("Demo mode ENABLED (mode=%s run_id=%s seeded %d + %d recent cases)",
+                    new_demo.mode, new_demo.run_id, len(cases), len(recent_cases))
         return await self.demo_status()
 
     async def reset_demo(self) -> dict:
@@ -1632,10 +1739,18 @@ class AppState:
             return await self.demo_status()
         mode, seed = cur.mode, cur.seed
         hd, ts, tj, ir = cur.history_days, cur.tick_seconds, cur.tick_jitter, cur.incident_rate
+        # Carry ALL the overhaul fields through the disable→enable round-trip so a reset
+        # never silently drops them back to the DemoConfig defaults.
+        ais, erps = cur.alert_interval_seconds, cur.event_rate_per_second
+        prm, pcc, pec = cur.preseed_recent_minutes, cur.preseed_case_count, cur.preseed_event_count
+        fc = cur.force_capabilities
         await self.disable_demo()
         return await self.enable_demo(
             mode=mode, seed=seed, history_days=hd, tick_seconds=ts,
             tick_jitter=tj, incident_rate=ir,
+            alert_interval_seconds=ais, event_rate_per_second=erps,
+            preseed_recent_minutes=prm, preseed_case_count=pcc, preseed_event_count=pec,
+            force_capabilities=fc,
         )
 
     async def disable_demo(self) -> dict:
@@ -1692,11 +1807,41 @@ class AppState:
         mode = getattr(demo, "mode", "off") if demo else "off"
         run_id = getattr(demo, "run_id", "") if demo else ""
         case_count = 0
+        proposals_open = 0
+        campaigns_found = 0
+        tuning_events = 0
+        rag_chunks = 0
+        sources: list[str] = []
         if self._demo is not None:
             try:
                 _cases, case_count = await self._demo.cases.list(limit=1)
             except Exception:  # noqa: BLE001
                 case_count = 0
+            # Per-capability signal so the UI can show "these are live" (all best-effort).
+            try:
+                proposals_open = await self._demo.open_proposal_count()
+            except Exception:  # noqa: BLE001
+                proposals_open = 0
+            try:
+                # CampaignStore.list() returns (page, total).
+                _cpage, campaigns_found = await self._demo.campaign_store.list()
+                campaigns_found = int(campaigns_found)
+            except Exception:  # noqa: BLE001
+                campaigns_found = 0
+            try:
+                tuning_events = len(await self._demo.tuning_store.list())
+            except Exception:  # noqa: BLE001
+                tuning_events = 0
+            try:
+                rag_chunks = int((await self._demo.vectorstore.stats()).get("total_chunks", 0))
+            except Exception:  # noqa: BLE001
+                rag_chunks = 0
+            try:
+                sources = list(self._demo.sources.keys())
+                from .engine.demo_generator import SEGMENT_SOURCE_IDS
+                sources = [SEGMENT_SOURCE_IDS.get(s, s) for s in sources]
+            except Exception:  # noqa: BLE001
+                sources = []
         return {
             "mode": mode,
             "active": bool(demo and demo.active),
@@ -1705,9 +1850,51 @@ class AppState:
             "history_days": getattr(demo, "history_days", 0) if demo else 0,
             "tick_seconds": getattr(demo, "tick_seconds", 0.0) if demo else 0.0,
             "incident_rate": getattr(demo, "incident_rate", 0.0) if demo else 0.0,
+            "alert_interval_seconds": getattr(demo, "alert_interval_seconds", 0.0) if demo else 0.0,
+            "event_rate_per_second": getattr(demo, "event_rate_per_second", 0.0) if demo else 0.0,
+            "preseed_recent_minutes": getattr(demo, "preseed_recent_minutes", 0) if demo else 0,
+            "preseed_case_count": getattr(demo, "preseed_case_count", 0) if demo else 0,
+            "preseed_event_count": getattr(demo, "preseed_event_count", 0) if demo else 0,
+            "force_capabilities": bool(getattr(demo, "force_capabilities", True)) if demo else True,
             "simulator_running": self._demo_sim is not None,
             "case_count": case_count,
+            "preseed_events": int(getattr(self._demo, "preseed_events", 0)) if self._demo else 0,
+            "proposals_open": proposals_open,
+            "campaigns_found": campaigns_found,
+            "tuning_events": tuning_events,
+            "rag_chunks": rag_chunks,
+            "sources": sources,
         }
+
+    def demo_sources_overlay(self) -> list[dict]:
+        """The three demo sources shaped like a ``SourceInstance.model_dump`` for the
+        read-time-only overlay on GET /api/sources + /sources/health. Built PURELY from
+        the live ``DemoStack`` — NEVER written into ``Preferences.sources`` (so the real
+        PollerManager / PUT /api/settings / the wizard never see them). Returns ``[]``
+        when demo is off. Collision-guarding against a real source id is the caller's
+        job (see routes.list_sources / sources_health)."""
+        if self._demo is None:
+            return []
+        from .engine.demo_generator import (
+            DEMO_INDEX, SEGMENT_CATEGORIES, SEGMENT_SOURCE_IDS, SEGMENT_SOURCE_NAMES,
+        )
+
+        rows: list[dict] = []
+        for seg in self._demo.sources:
+            sid = SEGMENT_SOURCE_IDS.get(seg, f"demo-{seg}")
+            rows.append({
+                "id": sid,
+                "display_name": SEGMENT_SOURCE_NAMES.get(seg, sid),
+                "source_type": "generic",
+                "category": SEGMENT_CATEGORIES.get(seg, "siem"),
+                "enabled": True,
+                "is_primary": False,
+                "ingest_mode": "pull",
+                "demo": True,
+                "config": {"data_view_pattern": DEMO_INDEX},
+                "configured_secrets": [],
+            })
+        return rows
 
     @staticmethod
     def _write_guard(case, *, demo: bool) -> None:

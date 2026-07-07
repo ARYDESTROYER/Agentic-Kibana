@@ -109,4 +109,34 @@ describe('Cases bulk actions (W7c)', () => {
     expect(new Set(ids)).toEqual(new Set(['case-001', 'case-002']));
     expect(input).toMatchObject({ action: 'acknowledge' });
   });
+
+  it('does not wrap the bulk bar onto multiple lines and reserves bottom space (#3)', async () => {
+    renderCases();
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Select all rows'));
+
+    const bar = await screen.findByRole('region', { name: /bulk actions/i });
+    // The Card is the bar's only child — assert it carries flex-nowrap +
+    // overflow-x-auto and NOT flex-wrap (regression guard for the wrap glitch).
+    const card = bar.firstElementChild as HTMLElement;
+    expect(card.className).toMatch(/flex-nowrap/);
+    expect(card.className).toMatch(/overflow-x-auto/);
+    expect(card.className).not.toMatch(/flex-wrap\b/);
+
+    // The page root (PageContainer, carries `space-y-6`) reserves bottom space while
+    // the bar is visible so the fixed pill never covers the last rows/pager.
+    const pageRoot = card.closest('body')?.querySelector('[class*="space-y-6"]');
+    expect(pageRoot?.className).toMatch(/pb-28/);
+  });
+
+  it('renders Acknowledge as the primary (filled) CTA, not the muted/secondary style (#3)', async () => {
+    renderCases();
+    await waitFor(() => expect(screen.getByText('Alpha')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Select all rows'));
+
+    const bar = await screen.findByRole('region', { name: /bulk actions/i });
+    const ack = within(bar).getByRole('button', { name: /acknowledge/i });
+    expect(ack.className).toMatch(/bg-primary/);
+    expect(ack.className).not.toMatch(/bg-secondary/);
+  });
 });

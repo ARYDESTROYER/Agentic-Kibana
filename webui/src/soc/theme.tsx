@@ -159,6 +159,15 @@ export interface ThemeContextValue {
   material: Material;
   /** True once the initial branding fetch has settled (ok or failed). */
   ready: boolean;
+  /**
+   * Re-fetch GET /api/branding and re-apply it to every consumer (accent CSS vars,
+   * favicon, document title, material). Exposed so a WRITER (the BrandingEditor's
+   * Save) or a READER that must never show stale copy (the Login screen, on every
+   * mount) can force this shared, session-lived context back in sync with the backend
+   * without a full page reload. Best-effort: a failed refetch silently keeps whatever
+   * branding is currently in effect (never regresses to built-in defaults).
+   */
+  refreshBranding: () => Promise<void>;
 }
 
 const ThemeContext = React.createContext<ThemeContextValue | null>(null);
@@ -201,29 +210,38 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => mq.removeEventListener?.('change', onChange);
   }, [mode]);
 
+  // Fetch + apply the latest branding doc (best-effort; on any failure it keeps
+  // whatever branding is already in effect — never regresses to defaults). Shared by
+  // the initial mount fetch below AND any external caller (the BrandingEditor's Save,
+  // the Login screen's own mount) that needs every consumer of this session-lived
+  // context resynced with the backend without a hard page reload — this is the fix for
+  // "saved branding doesn't reach the login screen": the provider is mounted once at
+  // the app root and otherwise never refetches.
+  const mounted = React.useRef(true);
+  const refreshBranding = React.useCallback(async () => {
+    try {
+      const b = await api.getBranding();
+      if (!mounted.current) return;
+      const merged: Branding = { ...DEFAULT_BRANDING, ...b };
+      const resolvedMaterial = applyBranding(merged);
+      setBranding(merged);
+      setMaterial(resolvedMaterial);
+    } catch {
+      /* legacy / unreachable backend → keep the branding currently in effect */
+    } finally {
+      if (mounted.current) setReady(true);
+    }
+  }, []);
+
   // Initial branding fetch — apply side effects on success; keep defaults on
   // failure so the no-branding path is identical to the legacy app.
-  const mounted = React.useRef(true);
   React.useEffect(() => {
     mounted.current = true;
-    void (async () => {
-      try {
-        const b = await api.getBranding();
-        if (!mounted.current) return;
-        const merged: Branding = { ...DEFAULT_BRANDING, ...b };
-        const resolvedMaterial = applyBranding(merged);
-        setBranding(merged);
-        setMaterial(resolvedMaterial);
-      } catch {
-        /* legacy / unreachable backend → defaults already in effect */
-      } finally {
-        if (mounted.current) setReady(true);
-      }
-    })();
+    void refreshBranding();
     return () => {
       mounted.current = false;
     };
-  }, []);
+  }, [refreshBranding]);
 
   const setTheme = React.useCallback((next: ThemeMode) => {
     setMode(next);
@@ -231,8 +249,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const value = React.useMemo<ThemeContextValue>(
-    () => ({ theme: mode, isDark, setTheme, branding, material, ready }),
-    [mode, isDark, setTheme, branding, material, ready],
+    () => ({ theme: mode, isDark, setTheme, branding, material, ready, refreshBranding }),
+    [mode, isDark, setTheme, branding, material, ready, refreshBranding],
   );
 
   return (

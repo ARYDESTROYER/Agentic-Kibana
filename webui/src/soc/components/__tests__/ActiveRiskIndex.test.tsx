@@ -5,11 +5,33 @@
  * RiskGauge over the mean deterministic risk of the currently OPEN cases, degrading to
  * an honest DASH "no open cases" placeholder when there is nothing open to gauge.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { ActiveRiskIndex } from '../ActiveRiskIndex';
+import { ActiveRiskIndex, MIN_GAUGE_SIZE, MAX_GAUGE_SIZE } from '../ActiveRiskIndex';
 import { ACTIVE_RISK_HELP_TEXT } from '../riskCopy';
+
+/** jsdom reports `clientWidth === 0`; mock it to exercise the responsive-sizing path. */
+function mockClientWidth(px: number) {
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get: () => px,
+  });
+}
+
+afterEach(() => {
+  // Restore jsdom's real (0) clientWidth so other tests/files aren't affected.
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
+    configurable: true,
+    get: () => 0,
+  });
+});
+
+/** Read the rendered gauge bowl width off RiskGauge's own `.relative` sizing div. */
+function gaugeBowlWidth(container: HTMLElement): number {
+  const bowl = container.querySelector('.relative') as HTMLElement;
+  return Number(bowl.style.width.replace('px', ''));
+}
 
 describe('ActiveRiskIndex (#1 Command-Center risk instrument)', () => {
   it('renders the RiskGauge with the score when there are open cases (count > 0)', () => {
@@ -64,5 +86,53 @@ describe('ActiveRiskIndex (#1 Command-Center risk instrument)', () => {
     expect(ACTIVE_RISK_HELP_TEXT.length).toBeGreaterThan(80);
     // The band-cut ladder is documented in the copy (Round-7 W0.3 requirement).
     expect(ACTIVE_RISK_HELP_TEXT).toContain('Critical ≥74');
+  });
+});
+
+describe('responsive gauge sizing (bug #5)', () => {
+  it('falls back to a clamped default size when unmeasured (jsdom/no layout)', () => {
+    const { container } = render(<ActiveRiskIndex score={62} count={7} />);
+    // default `size` prop is 180, already inside [MIN_GAUGE_SIZE, MAX_GAUGE_SIZE].
+    expect(gaugeBowlWidth(container)).toBe(180);
+  });
+
+  it('grows the gauge toward MAX_GAUGE_SIZE on a wide card, never past the cap', () => {
+    mockClientWidth(600);
+    const { container } = render(<ActiveRiskIndex score={62} count={7} />);
+    expect(gaugeBowlWidth(container)).toBe(MAX_GAUGE_SIZE);
+  });
+
+  it('floors the gauge at MIN_GAUGE_SIZE on a very narrow card', () => {
+    mockClientWidth(40);
+    const { container } = render(<ActiveRiskIndex score={62} count={7} />);
+    expect(gaugeBowlWidth(container)).toBe(MIN_GAUGE_SIZE);
+  });
+
+  it('tracks a mid-range measured width 1:1 inside the clamp band', () => {
+    const mid = Math.round((MIN_GAUGE_SIZE + MAX_GAUGE_SIZE) / 2);
+    mockClientWidth(mid);
+    const { container } = render(<ActiveRiskIndex score={62} count={7} />);
+    expect(gaugeBowlWidth(container)).toBe(mid);
+  });
+});
+
+describe('vertical space usage (bug #5)', () => {
+  it('the content wrapper stretches and centers (flex-1 + justify-center)', () => {
+    render(<ActiveRiskIndex score={62} count={7} />);
+    const content = screen.getByTestId('active-risk-content');
+    expect(content.className).toContain('flex-1');
+    expect(content.className).toContain('justify-center');
+  });
+
+  it('shows the open-case count + escalation-threshold mini-legend', () => {
+    render(<ActiveRiskIndex score={62} count={7} />);
+    expect(screen.getByText(/7 open cases/i)).toBeInTheDocument();
+    expect(screen.getByText(/escalates ≥74/i)).toBeInTheDocument();
+  });
+
+  it('singularizes the mini-legend for exactly one open case', () => {
+    render(<ActiveRiskIndex score={62} count={1} />);
+    expect(screen.getByText(/1 open case\b/i)).toBeInTheDocument();
+    expect(screen.queryByText(/1 open cases/i)).toBeNull();
   });
 });

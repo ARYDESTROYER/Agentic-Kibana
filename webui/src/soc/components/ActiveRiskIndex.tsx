@@ -19,13 +19,17 @@
 import * as React from 'react';
 
 import { cn } from '@/lib/cn';
-import { DASH } from '@/lib/format';
+import { DASH, fmtNumber } from '@/lib/format';
 
 import { Card } from '@/ui/card';
 import { Skeleton } from '@/ui/skeleton';
 import { RiskGauge } from '@/soc/components/RiskGauge';
 import { HelpTip } from '@/soc/components/HelpTip';
 import { ACTIVE_RISK_HELP_TEXT } from '@/soc/components/riskCopy';
+
+/** Comfortable instrument-size bounds for the responsive gauge (bug #5). */
+export const MIN_GAUGE_SIZE = 140;
+export const MAX_GAUGE_SIZE = 220;
 
 export interface ActiveRiskIndexProps {
   /** Mean deterministic risk (0-100) over the open cases; null when unknown/loading. */
@@ -34,7 +38,12 @@ export interface ActiveRiskIndexProps {
   count?: number;
   /** Show a placeholder while the metric is loading. */
   loading?: boolean;
-  /** Gauge width in px (default 180 — a prominent, self-contained instrument card). */
+  /**
+   * Fallback/floor gauge width in px (default 180), used only before the container is
+   * measured (e.g. jsdom tests, first paint with no ResizeObserver). The rendered
+   * gauge otherwise scales responsively to the card's content width, clamped to
+   * [MIN_GAUGE_SIZE, MAX_GAUGE_SIZE].
+   */
   size?: number;
   className?: string;
 }
@@ -61,39 +70,81 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
 }) => {
   const hasOpen = (count ?? 0) > 0 && score != null && Number.isFinite(score);
 
+  // Bug #5 fix (1/2) — the gauge SCALES TO THE CARD WIDTH instead of a fixed 160/180px.
+  // Measure the padded content area via ResizeObserver (identical pattern to
+  // BrandingEditor's LoginPreview) and clamp to a comfortable instrument range;
+  // jsdom (no RO / zero width in tests) simply falls back to `size`, which is harmless
+  // for the non-visual test env — every existing test renders unchanged.
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+  const [measuredWidth, setMeasuredWidth] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const measure = () => setMeasuredWidth(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const gaugeSize = Math.max(
+    MIN_GAUGE_SIZE,
+    Math.min(MAX_GAUGE_SIZE, measuredWidth || size),
+  );
+
   return (
     <Card
       data-testid="active-risk-index"
       className={cn('flex flex-col items-center gap-2 p-5', className)}
     >
       <Caption />
-      {loading ? (
-        <Skeleton
-          className="rounded-lg"
-          style={{ width: size, height: Math.round(size * 0.72) }}
-          data-testid="active-risk-loading"
-        />
-      ) : hasOpen ? (
-        // `notch={74}` marks the critical auto-escalate boundary on the track so the
-        // gauge reads active pressure AGAINST the escalation threshold, not in a vacuum.
-        <RiskGauge score={score as number} size={size} notch={74} />
-      ) : (
-        <div
-          data-testid="active-risk-empty"
-          className="flex flex-col items-center justify-center gap-0.5 py-2"
-          style={{ minWidth: size }}
-        >
-          <span
-            aria-hidden
-            className="text-3xl font-semibold leading-none tabular-nums text-muted-foreground"
+      {/* Bug #5 fix (2/2) — `flex-1` + `justify-center` so any EXTRA height the grid's
+          `items-stretch` hands this card (to match the taller SnapshotCard siblings) is
+          used to vertically CENTER the instrument, instead of collapsing into dead space
+          below it (the old `flex-start` default). This div is also the ResizeObserver
+          measurement target for `gaugeSize` above. */}
+      <div
+        ref={wrapRef}
+        data-testid="active-risk-content"
+        className="flex w-full flex-1 flex-col items-center justify-center gap-2"
+      >
+        {loading ? (
+          <Skeleton
+            className="rounded-lg"
+            style={{ width: gaugeSize, height: Math.round(gaugeSize * 0.72) }}
+            data-testid="active-risk-loading"
+          />
+        ) : hasOpen ? (
+          <>
+            {/* `notch={74}` marks the critical auto-escalate boundary on the track so
+                the gauge reads active pressure AGAINST the escalation threshold, not in
+                a vacuum. */}
+            <RiskGauge score={score as number} size={gaugeSize} notch={74} />
+            {/* Bug #5 — a small mini-legend using the freed card space: names the sample
+                size + the escalation threshold the notch marks (both already known to the
+                component, previously unused/undisplayed here). */}
+            <p className="text-2xs text-muted-foreground">
+              {fmtNumber(count as number)} open case{count === 1 ? '' : 's'} · escalates ≥74
+            </p>
+          </>
+        ) : (
+          <div
+            data-testid="active-risk-empty"
+            className="flex flex-col items-center justify-center gap-0.5 py-2"
+            style={{ minWidth: gaugeSize }}
           >
-            {DASH}
-          </span>
-          <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-            no open cases
-          </span>
-        </div>
-      )}
+            <span
+              aria-hidden
+              className="text-3xl font-semibold leading-none tabular-nums text-muted-foreground"
+            >
+              {DASH}
+            </span>
+            <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
+              no open cases
+            </span>
+          </div>
+        )}
+      </div>
     </Card>
   );
 };

@@ -14,6 +14,7 @@ The non-negotiable spine of this feature:
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import random
 
@@ -317,3 +318,520 @@ async def test_read_endpoints_serve_demo_store(demo_state: AppState) -> None:
     cases2, _ = await demo_state.cases.list(limit=300)
     ids2 = {c.case_id for c in cases2}
     assert "case-real-99" in ids2                # real case back after disable
+
+
+# --------------------------------------------------------------------------- #
+# Demo overhaul — 3 segments, bounded rates, pre-seed, forced capabilities
+# --------------------------------------------------------------------------- #
+def _mk_closed_fp_case(cid: str, rule_id: str, now_iso: str):
+    """A demo-tagged CLOSED / FALSE_POSITIVE case for a given noisy rule."""
+    from app.models import Case, Entity, StatusHistoryEntry
+    from app.constants import CaseStatus, Disposition, EntityType
+
+    return Case(
+        case_id=cid, cluster_signature=f"sig-{cid}",
+        source_surface=SourceSurface.AUTOMATED_SCAN,
+        entity=Entity(type=EntityType.IP, value=f"45.148.10.{abs(hash(cid)) % 250 + 2}"),
+        rule_ids=[rule_id], verdict=Verdict.FALSE_POSITIVE,
+        disposition=Disposition.FALSE_POSITIVE, status=CaseStatus.CLOSED,
+        created_at=now_iso, updated_at=now_iso,
+        status_history=[StatusHistoryEntry(from_status="new", to_status="closed",
+                                           by="agent", at=now_iso, reason="demo fp")],
+        tags=["demo"],
+    )
+
+
+def test_three_segments_use_distinct_source_ids() -> None:
+    from app.engine.demo_generator import SEGMENT_SOURCE_IDS
+
+    assert set(SEGMENT_SOURCE_IDS.values()) == {"demo-siem", "demo-xdr", "demo-edr"}
+    assert len(set(SEGMENT_SOURCE_IDS.values())) == 3
+
+
+def test_segment_rule_and_host_pools_are_disjoint() -> None:
+    org = gen.build_org(1337)
+    # Each segment draws only its own hosts.
+    for seg in ("siem", "xdr", "edr"):
+        r = random.Random(11)
+        batch = gen.generate_benign_batch(r, org, 1_700_000_000_000, 40, seg)
+        hosts = {h["_source"].get("host", {}).get("name") for h in batch}
+        seg_hosts = {h.name for h in org.segment_hosts(seg)}
+        assert hosts <= seg_hosts, f"{seg} drew a host outside its pool: {hosts - seg_hosts}"
+        modules = {h["_source"]["event"]["module"] for h in batch}
+        seg_modules = {r_[0] for r_ in gen._SEGMENT_RULES[seg]}
+        assert modules <= seg_modules, f"{seg} drew a rule outside its pool"
+    # The 3 segment host pools are mutually disjoint.
+    pools = [{h.name for h in org.segment_hosts(s)} for s in ("siem", "xdr", "edr")]
+    assert pools[0].isdisjoint(pools[1]) and pools[1].isdisjoint(pools[2]) and pools[0].isdisjoint(pools[2])
+
+
+def test_segment_none_is_backcompat_full_pool() -> None:
+    org = gen.build_org(1337)
+    r1, r2 = random.Random(5), random.Random(5)
+    a = gen.generate_benign_batch(r1, org, 1_700_000_000_000, 20)          # no segment
+    b = gen.generate_benign_batch(r2, org, 1_700_000_000_000, 20, None)    # explicit None
+    assert a == b  # None == default, byte-identical
+
+
+def test_storylines_are_tagged_with_a_segment() -> None:
+    assert gen.STORYLINES, "expected demo storylines"
+    for s in gen.STORYLINES:
+        assert s.segment in {"siem", "xdr", "edr"}, f"{s.id} has bad segment {s.segment!r}"
+
+
+def test_all_storyline_mitre_ids_are_in_the_bundled_corpus() -> None:
+    import json
+    from pathlib import Path
+
+    corpus = json.loads(
+        (Path(__file__).resolve().parents[1] / "app" / "threat" / "mitre_techniques.json").read_text()
+    )
+    ids = set(corpus.keys())
+    used = {t for s in gen.STORYLINES for t in s.techniques}
+    used |= {t for tmpl in gen._HIST_TEMPLATES for t in tmpl["mitre"]}
+    missing = used - ids
+    assert not missing, f"storyline MITRE ids missing from the bundled corpus: {missing}"
+
+
+def test_org_is_rethemed_to_lumenpay() -> None:
+    org = gen.build_org(1337)
+    assert org.name == "LumenPay Financial" and org.domain == "lumenpay.in"
+    # LumenPay employees + segment-partitioned hosts exist.
+    assert "pnair" in {e.user for e in org.employees}
+    assert any(h.name.startswith("LP-") for h in org.hosts)
+    kinds = {h.kind for h in org.hosts}
+    assert {"dc", "vip_laptop", "server", "workstation"} <= kinds
+
+
+@pytest.mark.asyncio
+async def test_rates_are_bounded_at_high_event_rate(demo_state: AppState) -> None:
+    # 40 evt/s, tick=1s: routing many transient batches must NOT create O(N*40) cases.
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2,
+                                 event_rate_per_second=40, tick_seconds=1)
+    _c, before = await demo_state._demo.cases.list(limit=1)
+    dprefs = demo_state._demo._demo_prefs()
+    org = gen.build_org(1337)
+    rng = random.Random(9)
+    now = to_millis(now_utc())
+    for _ in range(30):
+        # ~40 events per tick, materialised transiently and dropped after the funnel.
+        events = gen.hits_to_raw(gen.generate_benign_batch(rng, org, now, 40, "xdr"), dprefs)
+        await demo_state._demo.route_event_batch(events, "xdr")
+    _c2, after = await demo_state._demo.cases.list(limit=1)
+    # 30 ticks * 40 events = 1200 logical events; the pre-aggregating funnel keeps cases
+    # BOUNDED (a small multiple of tdigest_compression=100), never ~1200.
+    assert (after - before) < 200, f"event routing created {after - before} cases (unbounded!)"
+
+
+@pytest.mark.asyncio
+async def test_pre_seed_creates_recent_non_terminal_cases(demo_state: AppState) -> None:
+    from app.constants import CaseStatus
+
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=7,
+                                 preseed_case_count=3, preseed_recent_minutes=10)
+    cases, _ = await demo_state.cases.list(limit=400, sort_field="created_at")
+    recent = [c for c in cases if c.case_id.startswith("demo-recent-")]
+    assert len(recent) >= 3
+    now_ms = to_millis(now_utc())
+    for c in recent:
+        first = getattr(c, "first_seen_millis", 0) or 0
+        # created within the pre-seed window (allow a little slack for save latency).
+        assert first == 0 or (now_ms - first) <= 20 * 60_000
+    # At least one pre-seed case is still OPEN ("just arrived", not all terminal).
+    non_terminal = {CaseStatus.NEW.value, CaseStatus.INVESTIGATING.value, CaseStatus.ESCALATED.value}
+    assert any(c.status.value in non_terminal for c in recent)
+
+
+@pytest.mark.asyncio
+async def test_pre_seed_events_are_counted_as_ingested_volume(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2,
+                                 preseed_event_count=100)
+    # The ~100 pre-seed events are recorded as ingested volume in the DEMO noise counters.
+    assert demo_state._demo.preseed_events >= 80
+    window = await demo_state._demo.noise_counters.read_window(0)
+    assert window.get("available") is True
+    total = sum(int(v) for v in (window.get("ingested") or {}).values())
+    assert total >= 80, f"noise counter reflected only {total} ingested events"
+    # Real state untouched.
+    _rc, rt = await demo_state._real_cases.list(limit=5)
+    assert rt == 0
+
+
+@pytest.mark.asyncio
+async def test_force_capabilities_true_by_default(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    dprefs = demo_state._demo._demo_prefs()
+    assert dprefs.threshold_tuning.enabled is True
+    assert dprefs.baseline.enabled is True
+    assert dprefs.campaign.enabled is True
+    assert dprefs.threshold_automation.enabled is True
+    # The REAL prefs are UNTOUCHED (still default-OFF).
+    assert demo_state.prefs.threshold_tuning.enabled is False
+    assert demo_state.prefs.campaign.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_force_capabilities_false_preserves_legacy(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1,
+                                 force_capabilities=False)
+    dprefs = demo_state._demo._demo_prefs()
+    # Inherit the (default-OFF) live capability config — no forcing.
+    assert dprefs.threshold_tuning.enabled is False
+    assert dprefs.campaign.enabled is False
+    assert dprefs.threshold_automation.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_seed_automation_rule_injected_when_none(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    ta = demo_state._demo._demo_prefs().threshold_automation
+    assert any(r.action == "request_approval" for r in ta.rules)
+
+
+@pytest.mark.asyncio
+async def test_seed_automation_rule_not_injected_when_operator_has_rules(demo_state: AppState) -> None:
+    from app.config import CaseAutomationRule, ThresholdAutomationConfig
+
+    prefs = demo_state.prefs.model_copy(update={
+        "threshold_automation": ThresholdAutomationConfig(
+            enabled=False, rules=[CaseAutomationRule(id="op-rule", action="tag")],
+        ),
+    })
+    await demo_state.update_prefs(prefs)
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    ta = demo_state._demo._demo_prefs().threshold_automation
+    ids = {r.id for r in ta.rules}
+    assert "op-rule" in ids and "demo-seed-approval" not in ids
+    assert ta.enabled is True  # forced on, but the operator's own rule is preserved
+
+
+@pytest.mark.asyncio
+async def test_hitl_proposal_created_during_live_demo(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    # Ignite a NEEDS_HUMAN storyline through the EDR source → the seeded request_approval
+    # rule opens a demo HITL proposal.
+    src = demo_state._demo.sources["edr"]
+    dprefs = demo_state._demo._demo_prefs()
+    raws = src.storyline_raw(gen._STORYLINE_BY_ID["impossible_travel"], random.Random(3),
+                             to_millis(now_utc()), dprefs)
+    await demo_state._demo.ingest_service.ingest(
+        raws, dprefs, source_surface=SourceSurface.AUTOMATED_SCAN,
+        source_id=gen.SEGMENT_SOURCE_IDS["edr"],
+    )
+    demo_props = await demo_state._demo.proposals.list()
+    assert demo_props, "expected a demo HITL proposal from the NEEDS_HUMAN storyline"
+    # The REAL proposal queue is untouched.
+    real_props = await demo_state.proposals.list()
+    assert real_props == []
+
+
+@pytest.mark.asyncio
+async def test_threshold_tuning_writes_demo_store_not_real(demo_state: AppState) -> None:
+    # Disable shadow-eval on the real prefs so a clean noisy-FP signal auto-applies
+    # deterministically (the sandbox copy inherits shadow_eval=False).
+    prefs = demo_state.prefs.model_copy(deep=True)
+    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={"shadow_eval": False})
+    await demo_state.update_prefs(prefs)
+
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    now_iso = __import__("app.utils", fromlist=["iso_now"]).iso_now()
+    for i in range(40):
+        await demo_state._demo.cases.save(_mk_closed_fp_case(f"demo-noisy-{i:03d}", "noisy_rule", now_iso))
+
+    await demo_state._demo.run_capability_pass()
+
+    demo_tuning = await demo_state._demo.tuning_store.list()
+    real_tuning = await demo_state.tuning_store.list()
+    assert demo_tuning, "expected a demo tuning observation from the noisy rule"
+    assert real_tuning == [], "the REAL tuning store must be untouched (isolation)"
+    # The tuned correlation-n bump is stashed on the demo stack (never real prefs).
+    assert "noisy_rule" in demo_state._demo._tuned_correlation_rules
+    assert demo_state.prefs.correlation_rules.get("noisy_rule") is None
+
+
+@pytest.mark.asyncio
+async def test_correlation_n_tuning_dedups_across_passes(demo_state: AppState) -> None:
+    prefs = demo_state.prefs.model_copy(deep=True)
+    prefs.threshold_tuning = prefs.threshold_tuning.model_copy(update={"shadow_eval": False})
+    await demo_state.update_prefs(prefs)
+
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    now_iso = __import__("app.utils", fromlist=["iso_now"]).iso_now()
+    for i in range(40):
+        await demo_state._demo.cases.save(_mk_closed_fp_case(f"demo-noisy-{i:03d}", "noisy_rule", now_iso))
+
+    await demo_state._demo.run_capability_pass()
+    first = len(await demo_state._demo.tuning_store.list())
+    await demo_state._demo.run_capability_pass()
+    second = len(await demo_state._demo.tuning_store.list())
+    # The same unchanging trailing window must NOT re-bump the same rule (already_tuned).
+    assert second == first, "correlation-n tuning re-bumped the same rule (no dedup)"
+
+
+@pytest.mark.asyncio
+async def test_campaigns_populate_demo_store_not_real(demo_state: AppState) -> None:
+    from app.models import Case, Entity
+    from app.constants import EntityType, CaseStatus
+
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    now_iso = __import__("app.utils", fromlist=["iso_now"]).iso_now()
+    # Two related cases sharing an entity + MITRE within the campaign window.
+    for i in range(2):
+        c = Case(
+            case_id=f"demo-camp-{i}", cluster_signature=f"camp-sig-{i}",
+            source_surface=SourceSurface.AUTOMATED_SCAN,
+            entity=Entity(type=EntityType.USER, value="pnair"),
+            rule_ids=["demo_phishing_chain"], mitre=["T1566"],
+            status=CaseStatus.ESCALATED, verdict=Verdict.TRUE_POSITIVE,
+            created_at=now_iso, updated_at=now_iso, tags=["demo"],
+        )
+        await demo_state._demo.cases.save(c)
+
+    await demo_state._demo.run_capability_pass()
+
+    demo_campaigns, demo_total = await demo_state._demo.campaign_store.list()
+    _real_page, real_total = await demo_state.campaign_store.list()
+    assert demo_total >= 1 and demo_campaigns, "expected a demo campaign from the two shared-entity cases"
+    assert real_total == 0, "the REAL campaign store must be untouched (isolation)"
+
+
+@pytest.mark.asyncio
+async def test_baseline_warms_across_ticks(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    dprefs = demo_state._demo._demo_prefs()
+    org = gen.build_org(1337)
+    now = to_millis(now_utc())
+    # A FIXED event list (same signatures/buckets) routed twice → the baseline sketch's
+    # observation count for those signatures must GROW.
+    events = gen.hits_to_raw(gen.generate_benign_batch(random.Random(2), org, now, 30, "xdr"), dprefs)
+
+    await demo_state._demo.route_event_batch(list(events), "xdr")
+    snap1 = await demo_state._demo.baseline_store.snapshot()
+    n1 = sum(st.n for buckets in snap1.values() for st in buckets.values())
+    assert n1 > 0, "baseline did not warm on the first batch"
+
+    await demo_state._demo.route_event_batch(list(events), "xdr")
+    snap2 = await demo_state._demo.baseline_store.snapshot()
+    n2 = sum(st.n for buckets in snap2.values() for st in buckets.values())
+    assert n2 > n1, "baseline did not keep learning across ticks"
+    # Real baseline store untouched.
+    assert await demo_state.baseline_store.snapshot() == {}
+
+
+@pytest.mark.asyncio
+async def test_rag_shares_one_vectorstore(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    stack = demo_state._demo
+    # The pipeline RAG and the chat RAG share ONE store (the duplicate-store bug fix).
+    assert stack.pipeline._rag._store is stack.chat_engine._rag._store
+    assert stack.pipeline._rag._store is stack.vectorstore
+
+
+@pytest.mark.asyncio
+async def test_rag_seeded_immediately_on_enable(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    stats = await demo_state._demo.vectorstore.stats()
+    assert int(stats.get("total_chunks", 0)) > 0, "RAG corpus was not eager-seeded on enable"
+
+
+@pytest.mark.asyncio
+async def test_demo_never_touches_real_stores_capstone(demo_state: AppState) -> None:
+    # Drive a full live-ish session: ticks (SIEM alert + XDR/EDR funnel) + a capability pass.
+    await demo_state.enable_demo(mode="live", seed=1337, history_days=3)
+    for _ in range(6):
+        await demo_state.demo_tick()
+    await demo_state._demo.run_capability_pass()
+
+    # EVERY real store is empty/untouched — the capstone isolation guard.
+    _rc, rt = await demo_state._real_cases.list(limit=50)
+    assert rt == 0
+    assert await demo_state.tuning_store.list() == []
+    _real_campaigns, real_total = await demo_state.campaign_store.list()
+    assert real_total == 0
+    assert await demo_state.baseline_store.snapshot() == {}
+    assert await demo_state.proposals.list() == []
+    real_usage = await demo_state._real_usage_store.summary(window_hours=48)
+    assert real_usage["call_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_disable_mid_capability_pass_does_not_raise(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="live", seed=1337, history_days=2)
+    # Kick a capability pass and a disable "concurrently" — disable tears the stack down;
+    # neither must raise into the caller.
+    stack = demo_state._demo
+    task = asyncio.create_task(stack.run_capability_pass())
+    await demo_state.disable_demo()
+    try:
+        await task
+    except Exception as exc:  # noqa: BLE001
+        pytest.fail(f"capability pass raised after disable: {exc}")
+    status = await demo_state.demo_status()
+    assert status["active"] is False
+
+
+@pytest.mark.asyncio
+async def test_reset_demo_preserves_new_config_fields(demo_state: AppState) -> None:
+    s1 = await demo_state.enable_demo(
+        mode="seeded", seed=1337, history_days=3,
+        alert_interval_seconds=90.0, event_rate_per_second=25.0,
+        preseed_case_count=4, preseed_event_count=60,
+    )
+    assert s1["alert_interval_seconds"] == 90.0
+    s2 = await demo_state.reset_demo()
+    # The overhaul fields survive the disable→enable round-trip (not reset to defaults).
+    assert s2["alert_interval_seconds"] == 90.0
+    assert s2["event_rate_per_second"] == 25.0
+    assert s2["preseed_case_count"] == 4
+    assert s2["preseed_event_count"] == 60
+
+
+@pytest.mark.asyncio
+async def test_demo_status_reports_capability_signal(demo_state: AppState) -> None:
+    st = await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    for key in ("proposals_open", "campaigns_found", "tuning_events", "rag_chunks", "sources"):
+        assert key in st
+    assert st["sources"] == ["demo-siem", "demo-xdr", "demo-edr"]
+    # ALL capabilities must show live signal on a fresh enable — not just RAG. This is the
+    # core "everything is on and working" showcase (the guard that was previously too weak,
+    # only asserting rag_chunks > 0 while the others silently stayed 0).
+    assert int(st["rag_chunks"]) > 0, "RAG corpus not seeded"
+    assert int(st["proposals_open"]) > 0, "no demo HITL proposal opened on enable"
+    assert int(st["campaigns_found"]) > 0, "no demo campaign formed on enable"
+    assert int(st["tuning_events"]) > 0, "no demo tuning observation recorded on enable"
+    # The signal is DEMO-scoped — the real capability ledgers stay untouched.
+    assert await demo_state.proposals.list() == []
+    assert await demo_state.tuning_store.list() == []
+    _real_campaigns, real_camp_total = await demo_state.campaign_store.list()
+    assert real_camp_total == 0
+
+
+@pytest.mark.asyncio
+async def test_capability_signal_is_purged_on_disable(demo_state: AppState) -> None:
+    # The seeded HITL / campaign / tuning signal lives only in the throwaway demo stack:
+    # disabling demo tears it down entirely (nothing survives into the real state).
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    st = await demo_state.demo_status()
+    assert int(st["proposals_open"]) > 0 and int(st["campaigns_found"]) > 0
+    await demo_state.disable_demo()
+    off = await demo_state.demo_status()
+    assert off["mode"] == "off" and not off["active"]
+    assert int(off["proposals_open"]) == 0 and int(off["campaigns_found"]) == 0
+    assert int(off["tuning_events"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_source_logs_demo_segment_returns_rows() -> None:
+    # Defect (2): the 3 demo segment sources advertise can_browse=true; browsing one must
+    # serve a bounded read-only page (200), not 404 through the prefs.sources lookup.
+    from contextlib import asynccontextmanager
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.routes import router as core_router
+    from app.api.routes_rag import router as rag_router
+
+    secrets = Secrets(_env_file=None, es_store_enabled=False, redis_url="",
+                      anthropic_api_key=None, openai_api_key=None)
+    overrides = {"anthropic": MockProvider(), "openai": MockProvider(), "mock": MockProvider()}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        st = AppState.create(secrets=secrets, es=InMemoryESClient(), provider_overrides=overrides)
+        await st.startup(start_poller=False)
+        await st.update_prefs(st.prefs.model_copy(update={"setup_complete": True}))
+        app.state.tlsoc = st
+        yield
+        await st.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(core_router)
+    api.include_router(rag_router)
+    with TestClient(api) as c:
+        # Before demo: an unknown source id 404s (the segment id is NOT in prefs.sources).
+        assert c.get("/api/sources/demo-siem/logs").status_code == 404
+        assert c.post("/api/demo/enable", json={"mode": "seeded", "seed": 1337}).status_code == 200
+        for sid in ("demo-siem", "demo-xdr", "demo-edr"):
+            r = c.get(f"/api/sources/{sid}/logs?limit=25")
+            assert r.status_code == 200, (sid, r.text)
+            data = r.json()
+            assert data["mode"] == "search"
+            assert data["count"] <= 25
+            assert data["logs"] and data["logs"][0]["id"]  # real rows (contract shape)
+        # --- Defect (4) via the route: an import during demo lands in the DEMO corpus and
+        # is listed there; disabling demo purges it (the real corpus never sees it).
+        imp = c.post("/api/rag/import", json={"title": "Demo-only note",
+                                              "text": "isolated demo knowledge blob " * 20})
+        assert imp.status_code == 200, imp.text
+        docs = c.get("/api/rag/documents").json()["documents"]
+        assert any(d.get("title") == "Demo-only note" for d in docs)
+        assert c.post("/api/demo/disable").status_code == 200
+        docs_after = c.get("/api/rag/documents").json()["documents"]
+        assert not any(d.get("title") == "Demo-only note" for d in docs_after)
+
+
+@pytest.mark.asyncio
+async def test_demo_rag_routes_isolated_from_real_corpus(demo_state: AppState) -> None:
+    # Defect (4) at the seam the routes use: state.rag_service is demo-aware.
+    # Off demo it IS the real RagService (production unaffected).
+    assert demo_state.rag_service is demo_state.rag
+
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
+    # During demo, rag_service is the demo's shared store — NOT the real corpus.
+    assert demo_state.rag_service is demo_state._demo.rag_service
+    assert demo_state.rag_service is not demo_state.rag
+    res = await demo_state.rag_service.import_document(
+        "Demo isolated doc", "demo body text " * 30, source="imported", tags=[],
+    )
+    assert res.get("chunk_count", 0) > 0
+    demo_docs = await demo_state.rag_service.list_documents()
+    assert any(d.get("title") == "Demo isolated doc" for d in demo_docs)
+    # The REAL corpus never saw the demo import.
+    real_docs = await demo_state.rag.list_documents()
+    assert not any(d.get("title") == "Demo isolated doc" for d in real_docs)
+
+    await demo_state.disable_demo()
+    # Back on the real corpus; the demo import is gone.
+    assert demo_state.rag_service is demo_state.rag
+    real_docs2 = await demo_state.rag_service.list_documents()
+    assert not any(d.get("title") == "Demo isolated doc" for d in real_docs2)
+
+
+@pytest.mark.asyncio
+async def test_demo_baseline_store_stays_bounded_across_many_ticks(demo_state: AppState) -> None:
+    # Defect (3): the demo baseline store must NOT grow one signature per unique random IP
+    # (~thousands). The EVENT funnel groups by the bounded HOST pool, so the signature
+    # cardinality saturates at a small set no matter how many ticks run.
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1,
+                                 event_rate_per_second=40, tick_seconds=1)
+    stack = demo_state._demo
+    dprefs = stack._demo_prefs()
+    org = gen.build_org(1337)
+    rng = random.Random(9)
+    now = to_millis(now_utc())
+    for _ in range(40):
+        # Each tick materialises ~40 benign xdr events with fresh random IPs (as the live
+        # simulator does) and routes them through the funnel, then drops the raw list.
+        events = gen.hits_to_raw(gen.generate_benign_batch(rng, org, now, 40, "xdr"), dprefs)
+        await stack.route_event_batch(events, "xdr")
+    snap = await stack.baseline_store.snapshot()
+    n_signatures = len(snap)
+    # Host-grouped: bounded by the ~10 xdr hosts (× a couple of hour-of-week buckets),
+    # never ~1600 unique IPs across 40 ticks.
+    assert n_signatures <= 60, f"demo baseline store grew to {n_signatures} signatures (unbounded per-IP!)"
+    # It still WARMED (the whole point of flushing observed buckets).
+    total_obs = sum(st.n for buckets in snap.values() for st in buckets.values())
+    assert total_obs > 0
+    # Real baseline store untouched.
+    assert await demo_state.baseline_store.snapshot() == {}
+
+
+def test_no_new_real_store_writers_in_demo_runtime() -> None:
+    # #0 regression: the demo runtime must NEVER reach a real pipeline/case/audit store.
+    import inspect
+    from app.engine import demo_runtime
+
+    src = inspect.getsource(demo_runtime)
+    for marker in ("_real_pipeline", "_real_cases", "_real_audit"):
+        assert marker not in src, f"demo_runtime must not reference {marker} ($0/isolation break)"

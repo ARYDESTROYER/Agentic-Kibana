@@ -53,6 +53,12 @@ class MemoryListResponse(BaseModel):
 # --------------------------------------------------------------------------- #
 # RAG knowledge base — see + manage the corpus the investigator/chat retrieve
 # from. Imports take effect immediately (same in-process corpus as retrieve()).
+#
+# These routes use ``state.rag_service`` (NOT the always-real ``state.rag``): while
+# demo is engaged it returns the DEMO's isolated shared vector store, so the Knowledge
+# page reflects the demo corpus and an import lands in the throwaway store (purged on
+# demo disable) rather than surviving into the real corpus. Off demo the property is the
+# real RagService — production behaviour is byte-identical.
 # --------------------------------------------------------------------------- #
 class RagImportRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=512)
@@ -67,20 +73,20 @@ _RAG_MAX_TEXT = 1_000_000  # ~1MB cap on a single imported document body
 @router.get("/rag/stats")
 async def rag_stats(state: AppState = Depends(get_state)) -> dict[str, Any]:
     """Corpus stats: total chunks, count by source, embedding model/dim, doc count."""
-    return await state.rag.rag_stats()
+    return await state.rag_service.rag_stats()
 
 
 @router.get("/rag/documents", response_model=RagDocumentsResponse)
 async def rag_documents(state: AppState = Depends(get_state)) -> dict[str, Any]:
     """List all documents in the RAG corpus (seeds grouped as seed:<source>)."""
-    docs = await state.rag.list_documents()
+    docs = await state.rag_service.list_documents()
     return {"documents": docs, "count": len(docs)}
 
 
 @router.get("/rag/documents/{document_id}")
 async def rag_document(document_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
     """A single document + its chunks. 404 if no such document."""
-    doc = await state.rag.get_document(document_id)
+    doc = await state.rag_service.get_document(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail="document not found")
     return doc
@@ -100,7 +106,7 @@ async def rag_import(
         raise HTTPException(status_code=400, detail="title and text are required")
     if len(text) > _RAG_MAX_TEXT:
         raise HTTPException(status_code=400, detail="text too large (max ~1MB)")
-    result = await state.rag.import_document(
+    result = await state.rag_service.import_document(
         title, text, source=(body.source or "imported").strip() or "imported", tags=body.tags
     )
     if not result.get("chunk_count"):
@@ -117,7 +123,7 @@ async def rag_delete_document(
 ) -> dict[str, Any]:
     """Delete an imported document. 404 if missing; 400 if a guarded seed source
     (runbook/mitre/suppression/resolved_case) unless ``?force=true``."""
-    result = await state.rag.delete_document(document_id, force=force)
+    result = await state.rag_service.delete_document(document_id, force=force)
     if not result.get("found"):
         raise HTTPException(status_code=404, detail="document not found")
     if result.get("guarded"):
@@ -139,8 +145,8 @@ async def rag_search(
     query = (q or "").strip()
     if not query:
         return {"query": "", "chunks": [], "count": 0}
-    await state.rag.ensure_seeded()
-    chunks = await state.rag.retrieve(query, top_k=max(1, min(int(top_k or 5), 50)))
+    await state.rag_service.ensure_seeded()
+    chunks = await state.rag_service.retrieve(query, top_k=max(1, min(int(top_k or 5), 50)))
     return {
         "query": query,
         "count": len(chunks),

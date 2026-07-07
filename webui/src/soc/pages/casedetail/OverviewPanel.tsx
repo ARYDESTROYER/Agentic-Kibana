@@ -258,7 +258,7 @@ const ProvenanceColumn: React.FC<{
   icon: React.ComponentType<{ className?: string }>;
   children: React.ReactNode;
 }> = ({ title, kind, icon: Icon, children }) => (
-  <PanelCard className="flex flex-col">
+  <PanelCard className="flex min-w-0 flex-col">
     <div className="mb-3 flex items-center gap-2">
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
       <h3 className="flex-1 text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -890,10 +890,27 @@ export const OverviewPanel: React.FC<{
                     <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
                       Detection rule{ruleIds.length === 1 ? '' : 's'}
                     </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {/* UNTRUSTED rule ids — plain text nodes, mono. */}
+                    <div className="flex min-w-0 flex-wrap gap-1.5">
+                      {/* UNTRUSTED rule ids — plain text nodes, mono. Long rule names
+                          must wrap inside the chip, never force the card wider
+                          (`whitespace-normal break-all` overrides the Badge's
+                          default `whitespace-nowrap` — both are in tailwind-merge's
+                          `whitespace` class group so the override wins). `min-w-0`
+                          must live on the Badge ITSELF — that's the flex item whose
+                          automatic min-width needs zeroing; a space-less/hyphen-less
+                          id (e.g. "demo_rdp_bruteforce" or a long
+                          Trojan_Generic_..._Detected style id) has no soft-wrap
+                          points, so `break-words` (overflow-wrap) never kicks in and
+                          the item keeps overflowing — `break-all` (word-break) DOES
+                          reduce min-content size per spec and matches this file's
+                          own convention for other UNTRUSTED long strings (see the
+                          InlineCode `break-all` usage above). */}
                       {ruleIds.map((r, i) => (
-                        <Badge key={`${r}-${i}`} variant="outline" className="font-mono">
+                        <Badge
+                          key={`${r}-${i}`}
+                          variant="outline"
+                          className="min-w-0 max-w-full whitespace-normal break-all font-mono"
+                        >
                           {r}
                         </Badge>
                       ))}

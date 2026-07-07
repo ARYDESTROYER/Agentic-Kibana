@@ -1247,6 +1247,18 @@ export interface DemoConfig {
   tick_jitter?: number;
   /** Per-tick probability of igniting a queued attack storyline (0..1). */
   incident_rate?: number;
+  /** SIEM ALERT feed cadence — seconds between synthetic alerts (~120 = 1 / 2 min). */
+  alert_interval_seconds?: number;
+  /** XDR+EDR EVENT feeds' logical throughput target (events/sec, pre-aggregated). */
+  event_rate_per_second?: number;
+  /** Pre-seed "just happened" window in minutes (recent cases + processed events). */
+  preseed_recent_minutes?: number;
+  /** How many recent cases to pre-seed on enable. */
+  preseed_case_count?: number;
+  /** How many already-processed events to pre-seed on enable. */
+  preseed_event_count?: number;
+  /** Force tuning/baseline/campaign/HITL ON in the isolated demo sandbox (default true). */
+  force_capabilities?: boolean;
 }
 
 /**
@@ -1267,12 +1279,31 @@ export interface DemoStatus {
   tick_seconds?: number;
   tick_jitter?: number;
   incident_rate?: number;
+  alert_interval_seconds?: number;
+  event_rate_per_second?: number;
+  preseed_recent_minutes?: number;
+  preseed_case_count?: number;
+  preseed_event_count?: number;
+  force_capabilities?: boolean;
   /** When the current run was seeded (ISO). */
   started_at?: string | null;
   /** Best-effort count of synthetic cases in the demo store. */
   case_count?: number;
+  /** Count of pre-seed events already batch-processed (ingested volume). */
+  preseed_events?: number;
   /** Whether the live-sim tick task is running (live mode). */
   ticking?: boolean;
+  /** ── Live capability signal (demo overhaul) — "these features are working". ── */
+  /** Open HITL approval proposals awaiting review in the demo. */
+  proposals_open?: number;
+  /** Cross-case campaigns the demo campaign-correlator found. */
+  campaigns_found?: number;
+  /** Threshold-tuning observations recorded in the demo. */
+  tuning_events?: number;
+  /** Seeded/indexed RAG corpus chunks in the demo. */
+  rag_chunks?: number;
+  /** The three demo source ids (["demo-siem","demo-xdr","demo-edr"]). */
+  sources?: string[];
   [key: string]: unknown;
 }
 

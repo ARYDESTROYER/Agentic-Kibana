@@ -131,6 +131,17 @@ const NOISE_HIDE_KEY = 'tlsoc.overview.noiseFunnelHidden';
 const fmtInt = (n: number): string => fmtNumber(n);
 
 /**
+ * Format the SnapshotCard donut CENTER number only. The center hole is pinned to
+ * ~62px (innerPct=43% of the 136/144px ring) with `overflow-hidden` as a
+ * deliberate anti-overlap guardrail — a 4+ digit total in `fmtInt`'s
+ * thousands-separated form (e.g. "1,234") is wider than the hole and gets
+ * clipped rather than overlapping the ring. Abbreviate >=1000 (e.g. "1.2K") so
+ * the center always fits; the legend rows beside it keep their exact,
+ * unabbreviated counts via `fmtNumber`.
+ */
+const fmtSnapshotCenter = (n: number): string => fmtTokens(n);
+
+/**
  * Adapt a `deltaView()` result to the KpiTile `delta` prop. Only render a delta when a
  * real comparison exists; the "new growth" case carries a 0 so the tile draws a neutral
  * marker with the "new" label.
@@ -272,6 +283,7 @@ function SnapshotCard({
   counts,
   ariaLabel,
   ctaLabel,
+  centerLabel,
   onClick,
 }: {
   title: string;
@@ -282,6 +294,10 @@ function SnapshotCard({
   counts: SevCounts;
   ariaLabel: string;
   ctaLabel: string;
+  /** Short, single-word caption rendered INSIDE the donut hole ("resolved" / "open") —
+   *  intentionally NOT the multi-word card `title` (which sits above), so the center
+   *  label never overflows the ring. */
+  centerLabel: string;
   onClick?: () => void;
 }) {
   const segments = sevSegments(counts);
@@ -300,18 +316,17 @@ function SnapshotCard({
           <DonutChart
             segments={segments}
             height={136}
-            thickness={0.44}
             className="w-full shrink-0 sm:w-36"
             ariaLabel={ariaLabel}
             center={
               <>
                 <CountUp
                   value={total}
-                  format={fmtInt}
-                  className="font-mono text-3xl font-semibold tabular-nums text-foreground"
+                  format={fmtSnapshotCenter}
+                  className="font-mono text-2xl font-semibold tabular-nums text-foreground"
                 />
                 <span className="text-2xs uppercase tracking-wide text-muted-foreground">
-                  {title}
+                  {centerLabel}
                 </span>
               </>
             }
@@ -322,10 +337,12 @@ function SnapshotCard({
             aria-label={`${ariaLabel} (none)`}
             className="flex h-[136px] w-full flex-col items-center justify-center gap-0.5 sm:w-36"
           >
-            <span className="font-mono text-3xl font-semibold tabular-nums text-muted-foreground">
+            <span className="font-mono text-2xl font-semibold tabular-nums text-muted-foreground">
               0
             </span>
-            <span className="text-2xs uppercase tracking-wide text-muted-foreground">{title}</span>
+            <span className="text-2xs uppercase tracking-wide text-muted-foreground">
+              {centerLabel}
+            </span>
           </div>
         )}
         <ul className="w-full space-y-1.5">
@@ -1060,7 +1077,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
             <ActiveRiskIndex
               score={activeRisk.score}
               count={activeRisk.count}
-              size={160}
               className="h-full w-full"
             />
             <SnapshotCard
@@ -1072,6 +1088,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
               counts={derived.resolvedSev}
               ariaLabel="Resolved cases by severity"
               ctaLabel="View resolved cases"
+              centerLabel="resolved"
               onClick={navigate ? () => navigate('cases', { status: 'closed', window: navWindow }) : undefined}
             />
             <SnapshotCard
@@ -1083,6 +1100,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
               counts={derived.openSev}
               ariaLabel="Open cases by severity"
               ctaLabel="View open cases"
+              centerLabel="open"
               onClick={navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined}
             />
           </Reveal>

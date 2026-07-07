@@ -136,3 +136,20 @@ async def test_off_demo_chat_engine_is_the_real_engine(demo_state: AppState) -> 
     await state._real_cases.save(real_case)
     seed = await state.chat_engine._seed_context("case-real-11")
     assert seed and "case-real-11" in seed
+
+
+@pytest.mark.asyncio
+async def test_chat_rag_sees_pipeline_seeded_knowledge(demo_state: AppState) -> None:
+    """The shared-vectorstore fix: the chat RAG and the pipeline RAG are ONE store, so a
+    corpus the pipeline seeded on enable is visible to a chat retrieval (end-to-end)."""
+    state = demo_state
+    await state.enable_demo(mode="seeded", seed=1337, history_days=2)
+    stack = state._demo
+    # Identity: one shared store behind both RAG surfaces.
+    assert stack.pipeline._rag._store is stack.chat_engine._rag._store
+    # The eager ensure_seeded() populated the shared corpus...
+    stats = await stack.vectorstore.stats()
+    assert int(stats.get("total_chunks", 0)) > 0
+    # ...and a chat-engine retrieval surfaces at least one chunk from it.
+    hits = await stack.chat_engine._rag.retrieve("investigate a suspicious sign-in", top_k=5)
+    assert hits, "chat RAG saw no chunks — the pipeline-seeded corpus did not connect"

@@ -1451,6 +1451,33 @@ class DemoConfig(BaseModel):
     tick_jitter: float = Field(default=0.3, ge=0.0, le=1.0)
     incident_rate: float = Field(default=0.05, ge=0.0, le=1.0)
 
+    # --- Demo overhaul: 3-source rates + pre-seed + forced capabilities (additive,
+    # defaulted, NO migration — an absent block deserialises byte-identically). ---
+    # The SIEM segment is a low-volume ALERT feed: one benign alert (or, with
+    # probability ``incident_rate``, one storyline ignition) every ~2 min. The two
+    # knobs COMPOSE: ``alert_interval_seconds`` is the SIEM tick cadence and
+    # ``incident_rate`` is the per-tick chance of an attack story vs. a benign alert.
+    alert_interval_seconds: float = Field(default=120.0, gt=0.0)
+    # A LOGICAL benign-event throughput target (events/sec) for the XDR+EDR EVENT
+    # segments COMBINED. It is NOT emitted as N individual RawEvent objects/sec — the
+    # DemoSimulator materialises them transiently, feeds them straight into the
+    # cheap-first ``event_detection.funnel()`` (which pre-aggregates into bounded
+    # per-(signature, bucket) sketches) and drops the raw list, so memory is bounded
+    # by the sketch size, never by retained events.
+    event_rate_per_second: float = Field(default=40.0, ge=0.0)
+    # Pre-seed on enable(): a tight "just happened" window, separate from the backdated
+    # ``history_days`` spread — ``preseed_case_count`` cases that "just arrived" plus
+    # ``preseed_event_count`` events already batch-processed (counted in noise/metrics).
+    preseed_recent_minutes: int = Field(default=10, ge=0, le=120)
+    preseed_case_count: int = Field(default=3, ge=0, le=20)
+    preseed_event_count: int = Field(default=100, ge=0, le=2000)
+    # Force threshold_tuning / baseline / campaign / threshold_automation ON for the
+    # DEMO SANDBOX ONLY while demo is engaged (never touches the real prefs these are
+    # read from — see DemoStack._demo_prefs). Default True so "ALL capabilities ON in
+    # demo" is the out-of-the-box behaviour; set False to inherit the live tenant's
+    # (default-OFF) capability config for a "my real automation, demo data" walkthrough.
+    force_capabilities: bool = True
+
     @property
     def active(self) -> bool:
         """True when demo mode is engaged (seeded OR live)."""

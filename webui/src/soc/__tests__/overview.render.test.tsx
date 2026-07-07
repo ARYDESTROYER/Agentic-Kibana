@@ -205,8 +205,51 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(screen.getByRole('heading', { name: 'Cases resolved', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Open cases', level: 2 })).toBeInTheDocument();
     // The resolved snapshot severity ring is present + labelled.
-    expect(screen.getByRole('img', { name: /Resolved cases by severity/i })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: /Open cases by severity/i })).toBeInTheDocument();
+    const resolvedRing = screen.getByRole('img', { name: /Resolved cases by severity/i });
+    const openRing = screen.getByRole('img', { name: /Open cases by severity/i });
+    expect(resolvedRing).toBeInTheDocument();
+    expect(openRing).toBeInTheDocument();
+
+    // Bug #1: the donut hole no longer DUPLICATES the card's full <h2> title — each
+    // multi-word title appears exactly once (the heading), never a second time in the ring.
+    expect(screen.getAllByText('Cases resolved', { exact: true })).toHaveLength(1);
+    expect(screen.getAllByText('Open cases', { exact: true })).toHaveLength(1);
+
+    // The short single-word center captions render once each, and are tied to the CORRECT
+    // donut (not a stray "open"/"resolved" match elsewhere on the page).
+    expect(screen.getByText('resolved', { exact: true }).closest('[role="img"]')).toBe(resolvedRing);
+    expect(screen.getByText('open', { exact: true }).closest('[role="img"]')).toBe(openRing);
+
+    // Bug #1: the center count is the calmer text-2xl (matches every sibling donut), not text-3xl.
+    expect(within(resolvedRing).getAllByTestId('count-up')[0]).not.toHaveClass('text-3xl');
+    expect(within(resolvedRing).getAllByTestId('count-up')[0]).toHaveClass('text-2xl');
+  });
+
+  it('abbreviates a 4+ digit SnapshotCard center total so it never clips the ~62px donut hole (#minor)', async () => {
+    // 1,234 closed cases -> `derived.resolved` = 1234. At the pinned 144px donut
+    // (innerPct=43%, overflow-hidden), the raw thousands-separated "1,234" (fmtInt)
+    // is wider than the ~62px hole and gets clipped. The center must instead show
+    // the compact form ("1.2K"); the legend row beside it keeps the exact count.
+    const many: Case[] = Array.from({ length: 1234 }, (_, i) => ({
+      case_id: `bulk-${i}`,
+      status: 'closed',
+      risk_score: 15, // 'low' band (8-21 -> low, not 'info'); out of the critical/high KPI counts
+      source_name: 'Elastic SIEM',
+      entity: { type: 'ip', value: '10.0.0.1' },
+    }));
+    listCasesMock.mockResolvedValue({ cases: many, total: many.length });
+
+    render(<Overview onNavigate={vi.fn()} />);
+    await screen.findByTestId('page-hero');
+    const resolvedRing = await screen.findByRole('img', { name: /Resolved cases by severity/i });
+
+    // The center count-up shows the ABBREVIATED form, never the raw grouped digits.
+    expect(within(resolvedRing).getByText('1.2K')).toBeInTheDocument();
+    expect(within(resolvedRing).queryByText('1,234')).toBeNull();
+
+    // The legend row keeps the exact, unabbreviated count for the (sole) severity band.
+    const legendRow = screen.getByText('Low', { exact: true }).closest('li')!;
+    expect(within(legendRow).getByText('1,234')).toBeInTheDocument();
   });
 
   it('leads with the burndown · detect/respond · top-cases zone', async () => {
