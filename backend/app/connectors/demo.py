@@ -127,8 +127,13 @@ class DemoPullConnector(PullConnector):
         """A bounded recent slice (backs browse + es_query). Synthetic + read-only."""
         now = to_millis(now_utc())
         rng = random.Random(self._seed ^ 0xB0B)
+        # Span a full 24h so the browse/es_query slice is never empty: the benign
+        # volume is diurnal (``benign_per_hour * diurnal_weight(hour)``), so a short
+        # 1h window rounds to ZERO hits at trough hours (~02:00-04:00) — which made
+        # the browse view go blank (and this test flaky) depending on wall-clock hour.
+        # A 24h window always includes the daytime peak, so it is hour-of-day-stable.
         hits = gen.generate_window_hits(
-            rng, self._org, from_millis=now - 3_600_000, to_millis=now,
+            rng, self._org, from_millis=now - 24 * 3_600_000, to_millis=now,
             benign_per_hour=self._benign_per_hour, segment=self._segment,
         )
         size = min(int(query.size or 50), 200)
