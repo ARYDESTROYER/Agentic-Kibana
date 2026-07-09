@@ -303,11 +303,23 @@ async def handle_clusters(
                 fn = getattr(pipeline, "_investigate_cluster_locked", None) or pipeline.investigate_cluster
                 await fn(cluster, source_surface, prefs)
                 stats["investigated"] += 1
+            elif existing is not None:
+                # An un-investigated CANDIDATE that stays a candidate this tick (still below
+                # the risk floor, or cap-deferred): merge the new events into the SAME case
+                # and count it as an ATTACH — never a second ``candidates`` create. Counting
+                # it as a new candidate would double-count the noise counters and, under a
+                # concurrent same-signature run (Round-4 poller-concurrency, #4), report two
+                # candidates for one signature. It stays a candidate, so it can still drain to
+                # investigation on a later tick once it becomes eligible + uncapped.
+                if capped:
+                    stats["deferred"] += 1
+                await attach_cluster(cases, existing, cluster)
+                stats["attached"] += 1
             else:
                 if capped:
                     stats["deferred"] += 1
-                # Honest candidate stage label: WHY this cluster is not (yet) LLM-reasoned,
-                # so the UI can show candidates aren't yet investigated (advisory, #3-safe).
+                # A brand-new candidate: register it (+ live-tail) with an honest stage label
+                # of WHY it is not (yet) LLM-reasoned (advisory, #3-safe).
                 reason = _candidate_reason(cluster, prefs, capped=capped, floor=floor)
                 fn = getattr(pipeline, "_register_candidate_locked", None) or pipeline.register_candidate
                 await _register_candidate(fn, cluster, source_surface, prefs, reason)

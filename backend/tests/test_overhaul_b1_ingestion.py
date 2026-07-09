@@ -155,6 +155,31 @@ async def test_events_below_floor_stays_candidate_not_dropped(app_state):
 
 
 @asyncio
+async def test_reencountered_candidate_attaches_not_double_counts(app_state):
+    """A below-floor CANDIDATE re-encountered on a later run (same signature, still below
+    the floor) merges its events onto the SAME case and counts as an ATTACH — never a
+    second ``candidates`` create. Guards the deterministic single-thread form of the
+    Round-4 poller-concurrency invariant (one signature → one candidate)."""
+    p = _threshold(app_state.prefs.model_copy(deep=True))
+    p.enrichment.enabled = False
+    p.auto_forward_allowlist = []
+    p.auto_investigate_risk_floor = 90               # normal cluster (~33) stays a candidate
+    c1 = correlate(_events("3.3.3.9", 6, sev=7.0, role="events"), p)
+    c2 = correlate(_events("3.3.3.9", 6, sev=7.0, role="events"), p)
+    assert c1[0].signature == c2[0].signature
+    s1 = await handle_clusters(c1, p, cases=app_state.cases, pipeline=app_state.pipeline,
+                               source_surface=SourceSurface.AUTOMATED_SCAN)
+    s2 = await handle_clusters(c2, p, cases=app_state.cases, pipeline=app_state.pipeline,
+                               source_surface=SourceSurface.AUTOMATED_SCAN)
+    # Exactly ONE candidate created across both runs; the second run attaches (never a
+    # second candidate), and the store holds ONE case for the signature (#4).
+    assert s1["candidates"] == 1 and s2["candidates"] == 0
+    assert s2["attached"] >= 1
+    _, total = await app_state.cases.list()
+    assert total == 1
+
+
+@asyncio
 async def test_default_floor_70_maxed_cluster_investigates_normal_stays_candidate(app_state):
     """At the STANDARDS default floor (70): a genuinely high-risk (maxed) events cluster
     forwards; a normal-risk events cluster stays a candidate. No allowlist, no alerts."""
