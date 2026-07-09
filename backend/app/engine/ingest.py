@@ -18,7 +18,7 @@ from ..config import Preferences
 from ..constants import OPEN_CASE_STATUSES, ActionType, IndexRole, SourceSurface
 from ..engine.cost_gate import passes_suppression
 from ..models import Cluster, RawEvent
-from ..utils import iso_now
+from ..utils import iso_now, now_utc
 
 if TYPE_CHECKING:  # avoid import cycles (these import connectors/agents)
     from ..audit.audit_log import AuditLogger
@@ -193,10 +193,20 @@ async def handle_clusters(
     (which skip re-acquiring) INSIDE the lock. A signature with no configured lock
     registry (e.g. a bare pipeline in a test) degrades to a no-op nullcontext, so
     single-source behaviour is byte-identical."""
+    from ..engine.risk import compute_risk  # local import avoids an import cycle
+
     stats = {"clusters": len(clusters), "investigated": 0, "candidates": 0,
-             "attached": 0, "suppressed": 0, "ignored": 0}
+             "attached": 0, "suppressed": 0, "ignored": 0, "deferred": 0}
     allow = set(prefs.auto_forward_allowlist)
     wildcard = "*" in allow
+    floor = prefs.auto_investigate_risk_floor
+    # Per-tick auto-investigation ceiling (cost bound): how many clusters may be forwarded
+    # to the strong LLM investigator in THIS call. Once reached, remaining ELIGIBLE clusters
+    # stay $0 CANDIDATES (never dropped, #4) and drain over later ticks — bounding per-tick
+    # spend + the cold-start herd. Investigations stay SEQUENTIAL (this loop awaits each,
+    # never asyncio.gather) so peak $ / provider load is predictable (no 429 storm).
+    cap = max(1, int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)))
+    investigated_this_tick = 0
     for cluster in clusters:
         # IGNORE feed (Wave 6): the only role that DROPS. A cluster every member of
         # which belongs to an ignore feed is muted entirely — skip ingest (no case,
@@ -214,7 +224,24 @@ async def handle_clusters(
         # the ONE pipeline, so a signature is only ever created/attached once at a time.
         async with _sig_lock(pipeline, cluster.signature):
             existing = await cases.find_open_by_signature(cluster.signature)
-            if existing:
+            # An already-DECIDED open case (``existing.verdict is not None``) is
+            # ATTACH-ONLY: merge the new events (idempotent, #4) and never re-investigate
+            # here. That preserves P1 verdict stability — a poll/attach burst can never
+            # re-bill or drift a case that already has a verdict.
+            #
+            # An un-investigated CANDIDATE (``existing.verdict is None``) is NOT
+            # short-circuited: it FALLS THROUGH to the SAME eligibility → risk-gate → cap
+            # ladder as a brand-new signature, so a cluster that was DEFERRED on an earlier
+            # tick (below-floor, auto-correlate-off, or per-tick capped) actually DRAINS to
+            # investigation the instant it is eligible and cap headroom is free — instead of
+            # being stuck attach-only forever. Draining IS a real state transition now, not
+            # a promised-but-never-kept "will drain next tick" label. The two downstream
+            # branches both attach the new events first (the pipeline's locked internals
+            # merge ``existing.member_event_ids + cluster.member_event_ids``), so a
+            # still-ineligible/over-cap candidate keeps its events and simply refreshes its
+            # honest stage label — nothing is ever dropped (#4). A drained-candidate
+            # investigation counts against the per-tick cap exactly like a fresh one.
+            if existing is not None and existing.verdict is not None:
                 await attach_cluster(cases, existing, cluster)
                 stats["attached"] += 1
                 continue
@@ -222,7 +249,8 @@ async def handle_clusters(
             # wants EVERY one of triaged: an alerts-role cluster is auto-forwarded to
             # investigation regardless of the auto-forward allowlist (still gated by
             # background_scan_enabled, the global automated-investigation switch).
-            # Events-role clusters keep the existing correlate→allowlist behaviour.
+            # Events-role clusters now auto-forward on the DETERMINISTIC RISK GATE below
+            # (allowlist still honored) instead of an empty-allowlist no-op.
             #
             # The per-source + per-feed "Auto-Correlate" toggle (Wave 5 / F6 + Wave 6) is
             # an ADDITIONAL gate on top of all of the above: a cluster auto-forwards only
@@ -234,26 +262,83 @@ async def handle_clusters(
             # ``cluster.auto_investigate_eligible`` is False only when EVERY member is
             # below its feed floor — such a cluster is registered as a CANDIDATE (+ live-
             # tail), never dropped, never auto-forwarded.
-            forwarded = (
+            # Deterministic pre-forward RISK (reputation 0.0 — the honest, enrichment-free
+            # score the events-role risk gate reads). ``compute_risk`` is pure + cheap; the
+            # pipeline recomputes it downstream (candidate: same 0.0; investigation: with
+            # enrichment reputation) so this never diverges the persisted case risk. Routing
+            # input only — NEVER feeds ``decide()`` (#3).
+            cluster.risk_score = compute_risk(cluster, prefs, 0.0).total
+            # Comprehensive-ingestion gate (Autopilot overhaul, #1/#2). An events-role
+            # cluster now auto-forwards on the DETERMINISTIC RISK GATE
+            # (``risk_score >= auto_investigate_risk_floor``) — not an empty allowlist — so a
+            # zero-config install reasons over high-risk events out of the box. Alerts-role
+            # clusters (``is_alert``) bypass the gate: every SIEM detection is triaged. The
+            # ``auto_forward_allowlist`` is still honored (a listed rule forwards regardless
+            # of risk — explicit operator control, back-compat). Below-floor events-role
+            # clusters stay $0 CANDIDATES (risk-scored + visible, never dropped, #4). All of
+            # it is bounded by the per-tick ``cap`` + the default budget backstop, so "read
+            # everything" can never become "spend everything".
+            eligible = (
                 prefs.background_scan_enabled
                 and cluster.auto_investigate_eligible
                 and _auto_correlate_allowed(cluster, prefs)
-                and (cluster.is_alert or wildcard or any(r in allow for r in cluster.rule_values))
+                and (
+                    cluster.is_alert
+                    or wildcard
+                    or any(r in allow for r in cluster.rule_values)
+                    or cluster.risk_score >= floor
+                )
             )
+            # Per-tick cap: an eligible cluster over the ceiling is DEFERRED to a candidate
+            # (never dropped, #4) and drains next tick. Investigations remain sequential.
+            capped = eligible and investigated_this_tick >= cap
+            forwarded = eligible and not capped
             # The non-reentrant per-signature lock is already held → call the ``_locked``
             # pipeline internals (they perform the find→save WITHOUT re-acquiring, so no
             # self-deadlock). Falls back to the public method for a pipeline that predates
             # the split ONLY when the lock is a no-op (``_sig_lock`` returned nullcontext),
             # so the fallback can never re-enter a held lock.
             if forwarded:
+                investigated_this_tick += 1
                 fn = getattr(pipeline, "_investigate_cluster_locked", None) or pipeline.investigate_cluster
                 await fn(cluster, source_surface, prefs)
                 stats["investigated"] += 1
             else:
+                if capped:
+                    stats["deferred"] += 1
+                # Honest candidate stage label: WHY this cluster is not (yet) LLM-reasoned,
+                # so the UI can show candidates aren't yet investigated (advisory, #3-safe).
+                reason = _candidate_reason(cluster, prefs, capped=capped, floor=floor)
                 fn = getattr(pipeline, "_register_candidate_locked", None) or pipeline.register_candidate
-                await fn(cluster, source_surface, prefs)
+                await _register_candidate(fn, cluster, source_surface, prefs, reason)
                 stats["candidates"] += 1
     return stats
+
+
+def _register_candidate(fn, cluster, source_surface, prefs, reason: str):
+    """Call the pipeline's candidate registration, threading the honest ``awaiting_reason``
+    when the target supports it. Falls back to the 3-arg call for a stub pipeline that
+    predates the kwarg, so ``handle_clusters`` stays robust against a bare test pipeline."""
+    try:
+        return fn(cluster, source_surface, prefs, awaiting_reason=reason)
+    except TypeError:
+        return fn(cluster, source_surface, prefs)
+
+
+def _candidate_reason(cluster: Cluster, prefs: Preferences, *, capped: bool, floor: int) -> str:
+    """A short, honest label for WHY a cluster became a $0 candidate rather than being
+    auto-investigated — surfaced on the candidate case so the UI never implies reasoning
+    that has not happened. Advisory presentation only; never feeds ``decide()`` (#3)."""
+    if capped:
+        return ("deferred: per-tick auto-investigation cap reached; drains to investigation "
+                "on a later tick once cap headroom frees")
+    if not prefs.background_scan_enabled:
+        return "automated background investigation is disabled"
+    if not cluster.auto_investigate_eligible:
+        return "every event is below its feed's severity floor"
+    if not _auto_correlate_allowed(cluster, prefs):
+        return "auto-correlate is off for this source or feed"
+    return f"risk {int(cluster.risk_score or 0)} is below the auto-investigate floor {floor}"
 
 
 def _sig_lock(pipeline, signature: str):
@@ -433,6 +518,13 @@ class IngestService:
         # tail). Keyed by source_id; capped per source so memory stays bounded.
         self._recent: dict[str, collections.deque] = {}
         self._recent_max = 500
+        # Coverage observability (A5.2): a parallel tiny per-source ring of
+        # ``(epoch_seconds, count)`` tick samples (the PUSH analogue of the poller's
+        # ``_recent_ticks``) so a push source reports an ``events_per_min`` rate on
+        # GET /api/sources/health, symmetric with pull. In-memory, advisory, fail-open;
+        # never feeds ``decide()`` (#3).
+        self._recent_ticks: dict[str, collections.deque] = {}
+        self._recent_ticks_max = 6
         # Round-7 Noise-Reduction counters: an OPTIONAL fail-open sink recording each PUSH
         # batch's raw-alert-by-severity tally into the durable NoiseCounterStore. Wired by
         # AppState (``ingest_service._noise_sink = state.noise_counters.record``). None (the
@@ -472,6 +564,11 @@ class IngestService:
                 "clustered": count_clusters_by_band(clusters or [], scale),
                 "suppressed": int((stats or {}).get("suppressed", 0) or 0),
                 "ignored": int((stats or {}).get("ignored", 0) or 0),
+                # Coverage observability (A5.4): thread the push source's identity so the
+                # durable counters keep a per-source ``by_source`` breakdown AND the
+                # baseline/silent-source clock (state._observe_tick_volume) attributes the
+                # volume — symmetric with the pull poller. Additive/None-safe.
+                "source_id": getattr(src, "id", None),
             })
         except Exception as exc:  # noqa: BLE001 — counters never break ingest
             logger.debug("ingest noise-counter assembly failed: %s", exc)
@@ -513,6 +610,11 @@ class IngestService:
                 buf = collections.deque(maxlen=self._recent_max)
                 self._recent[source_id] = buf
             buf.extend(events)
+            # Coverage observability (A5.2): sample this batch's arrival for the per-source
+            # events/min rate (the PUSH analogue of the poller's per-tick rate). In-memory,
+            # advisory, fail-open — counts ALL received events (incl. an ignore batch, which
+            # is still inbound volume) before any ignore short-circuit below.
+            self._record_tick_rate(source_id, len(events))
             # IGNORE feed (Wave 6): a wholesale-ignore PUSH source is muted — its
             # events are still BUFFERED for browse/live-tail but skip ingest entirely
             # (no correlate, no case). This is the ONLY drop; a below-floor event is
@@ -527,7 +629,14 @@ class IngestService:
             # agnostic correlation; default auto preserves today's behaviour).
             src = next((s for s in prefs.sources if s.id == source_id), None) if source_id else None
             strategy = prefs.entity_strategy_for(src)
-            clusters = correlate(events, prefs, entity_strategy=strategy)
+            # Push = pull symmetry (#1, A6): a PUSH source declared WHOLESALE ``alerts``
+            # correlates with mode EVERY so every pushed detection becomes exactly one case,
+            # exactly like an alerts-role PULL feed. ``role`` is the whole-batch hint (the
+            # push events are also individually tagged ``index_role='alerts'`` above, so this
+            # is belt-and-suspenders); an ``events`` role is a no-op (byte-identical). The
+            # clusters then hit the SAME ``handle_clusters`` risk-gate ladder as pull.
+            batch_role = _push_source_role(src) if src is not None else None
+            clusters = correlate(events, prefs, entity_strategy=strategy, role=batch_role)
             stats = await handle_clusters(
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=source_surface,
@@ -546,6 +655,7 @@ class IngestService:
             logger.exception("ingest failed for a %d-event batch: %s", len(events), exc)
             await self._audit.record(
                 action_type=ActionType.ERROR, surface="ingest", actor="ingest",
+                source_id=source_id,
                 result_summary=f"ingest error on {len(events)} events: {exc}",
             )
             return {**base, "received": len(events)}
@@ -555,6 +665,7 @@ class IngestService:
         await self._record_ingest_noise(events, clusters, stats, src)
         await self._audit.record(
             action_type=ActionType.POLL, surface="ingest", actor="ingest",
+            source_id=source_id,
             result_summary=(f"received={len(events)} clusters={stats['clusters']} "
                             f"investigated={stats['investigated']} candidates={stats['candidates']} "
                             f"attached={stats['attached']}"),
@@ -567,3 +678,24 @@ class IngestService:
         if not buf:
             return []
         return list(buf)[-max(1, limit):][::-1]
+
+    def _record_tick_rate(self, source_id: str, count: int) -> None:
+        """Sample one push batch's ``(arrival_ts, count)`` for the per-source events/min
+        rate (coverage observability, A5.2). In-memory, advisory, fail-open — never raises,
+        never feeds ``decide()`` (#3)."""
+        try:
+            if not source_id:
+                return
+            buf = self._recent_ticks.get(source_id)
+            if buf is None:
+                buf = collections.deque(maxlen=self._recent_ticks_max)
+                self._recent_ticks[source_id] = buf
+            buf.append((now_utc().timestamp(), int(count)))
+        except Exception:  # noqa: BLE001 — a rate sample must never break a receiver
+            pass
+
+    def events_per_min_for_source(self, source_id: str) -> float:
+        """Smoothed events/min for a PUSH source over its recent batches (A5.2)."""
+        from .noise_counters import events_per_min_from_ticks
+
+        return events_per_min_from_ticks(self._recent_ticks.get(source_id))

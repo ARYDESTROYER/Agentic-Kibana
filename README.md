@@ -302,6 +302,48 @@ the deterministic close/escalate decision and never alter it. See
   (`POST/DELETE /api/llm/models/custom`), a non-metered `POST /api/llm/providers/test`
   reachability probe, and $0 pricing end-to-end (the ledger meters a real $0, never the
   conservative default rate).
+- **Comprehensive ingestion + autopilot smart defaults (Round 10).** `background_scan_enabled`
+  is now **default TRUE**: every event from every source is correlated, risk-scored (0–100),
+  and made visible — nothing is silently dropped. `events`-role clusters auto-forward to the
+  strong-LLM investigation through a **deterministic risk gate**
+  (`auto_investigate_risk_floor`, default **70** — the cross-vendor "High" entity-risk band
+  start); below-floor clusters stay **$0 candidates**, never dropped (#4). `alerts`-role feeds
+  bypass the gate entirely and correlate in `mode=EVERY` (same-signature bursts still coalesce
+  onto one open case, so every alert becomes exactly one case). A per-source per-tick cap
+  (`caps.max_auto_investigations_per_tick`, default **25**) throttles investigation volume —
+  cap-deferred candidates drain to investigation on a later tick once headroom frees,
+  investigations run **sequentially**, and the push path is symmetric with pull; a single
+  **daily budget is the global spend bound**. Alongside it, an **autopilot dial**
+  (`Preferences.autopilot_profile`: `conservative` / `balanced` / `aggressive`, default
+  `balanced`) turns a bundle of already-$0/#3-safe engines **default ON** — threshold tuning
+  (shadow-eval forced on), campaign correlation, cross-source correlation, SLA policy, the
+  priority matrix, realtime SSE, threshold automation (empty ruleset), and entity baselining
+  (producer + a silent-source detector) — and scales `(risk_floor, daily_usd, cap)` per
+  profile: conservative **90 / $5 / 10** · balanced **70 / $10 / 25** · aggressive
+  **40 / $50 / 100**. Batch, `on_exceed="block"`, default notify/run-playbook rules, and
+  baseline-driven investigation stay explicit opt-in. A **default budget backstop**
+  (`BudgetConfig` now `enabled=True`, `daily_usd=$10` — roughly a coffee budget, ~10× below
+  AI-SOC entry pricing —, `soft_warn_pct=0.80`, `on_exceed="warn"`) keeps "read everything by
+  default" from becoming "spend everything": over-budget routes to `NEEDS_HUMAN`, never a
+  silent close (#3). A **stored pre-overhaul config auto-adopts** the new defaults exactly
+  once (an `autopilot_config_version` marker, preserving any opt-outs set after it), and the
+  `AutomationNudge` card is **inverted** into a reassurance banner ("autopilot is on — here's
+  what it's doing / turn it off").
+- **Coverage observability (Round 10).** `GET /api/sources/health` gains a per-source
+  last-poll snapshot (`last_poll_at` / `last_poll_ok` / `last_poll_error` / `events_per_min` /
+  `silent`) and now reports `ok:false` when every feed on a multi-feed source is failing; a new
+  `GET /api/sources/coverage` rollup (`sources_total` / `sources_enabled` / `sources_silent` /
+  `events_per_min` / `alerts_triaged_24h` / `worst_last_event_seconds`) and `AuditDoc.source_id`
+  (`GET /api/audit?source_id=`) make "is anything going dark" answerable at a glance. The
+  webui adds a Sources coverage banner + server-truth per-row status, an Overview coverage
+  tile, and an honest "awaiting / candidate" stage in the Noise-Reduction funnel.
+- **motion.dev page transitions (Round 10).** A single new runtime dep, **`motion` 12.42.2**
+  (replacing the `framer-motion` removed in Round 5), lands **lazily** — `LazyMotion` + `m` +
+  `domAnimation` + `MotionConfig reducedMotion="user"` — in an ~83.85 kB chunk that is never
+  modulepreloaded, so the entry chunk holds at **281.44 kB**. Animates route/page transitions,
+  the CaseDetail tab enter, the Cases bulk-bar exit + row reflow, the NavSidebar rail, and
+  dashboard KPI count-ups (a dynamically-imported `AnimatedNumber` inside `KpiTile`);
+  reduced-motion users get instant snaps, not disabled motion.
 
 ## Quick start (deploy)
 
@@ -418,51 +460,69 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline (2026-07-07): **1708 backend tests green** (fake/in-memory backends +
+Verified offline (2026-07-09): **1796 backend tests green** (fake/in-memory backends +
 mock LLM, no network — an autouse `conftest` network guard keeps the enrichment tests
-offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **279.32 kB**
-gzip **82.55 kB**) with a dev-only Vitest harness (**1268 tests** / 229 files); eslint
-clean (0 errors, 3 benign warnings, incl. 20 `jsx-a11y` rules at error). (Test counts
-rise each round — see `Journal.md` for the exact current totals.)
+offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **281.44 kB**
+— a lazy `motion` chunk of **83.85 kB** sits off the critical path, never modulepreloaded)
+with a dev-only Vitest harness (**1332 tests** / 239 files); eslint clean (0 errors, 3
+benign warnings, incl. 20 `jsx-a11y` rules at error). (Test counts rise each round — see
+`Journal.md` for the exact current totals.)
 
-**Round 9c** (2026-07-06, current — the dashboard rebuilt from scratch: real **MTTD** +
-**MTTR-as-first-human-response** off the ACK clock, a burndown chart, a terminal
-"closed by human" noise stage, a cleaner Cases list) followed **Round 9b** (hover-to-expand
-sidebar, the noise-reduction ribbon restored + polished, a CaseDetail Timeline/Investigation
-redesign, a wider case sheet) followed **Round 9** (an 11-ask UI/UX overhaul: removed
-redundant in-page tab strips, a QRadar-style Sources `DataTable`, the CaseDetail
-Timeline/Investigation split, a local self-hosted LiteLLM model provider, login/wizard
-fixes) followed **Round 8** (UI cleanup + glitch fixes) followed **Round 7** (the Security
-Command Center + the Noise-Reduction funnel) followed **Round 6** (a ~500-agent Opus fleet
-glitch-hunt, 464 adversarially-verified findings fixed) followed **Round 5** ("UI/UX
-overhaul + rules customization + custom dashboards + loose coupling" — a cohesive WCAG-AA
-color system + one enforced shadcn/Radix/Tailwind design standard, a decluttered
-data-driven Settings, a wider dashboard + compact hero, a **Detection & Rules editor** with
-rule versioning + a **pure-what-if preview that never bills the LLM**, **custom per-user
-dashboards**, and a loose-coupling refactor — a single `FEATURES[]` registry and a
-domain-router decomposition with byte-identical API paths) followed **Round 4** ("fix the
-logic, fine-tune the product" — the multi-source poller fix + 2 more confirmed bugs,
-adaptive threshold auto-tuning, two-tier alert/event ingestion with campaign correlation +
-agent-driven event detection, an entity baseline, batch/flex + a broadened correctly-priced
-model catalog, a unified log view, tiered reset + fresh OOBE, and a white-label login)
-followed **Round 3** (12 requests: expandable nav, richer Settings real-estate, deeper
-branding/material, per-case human+AI collaboration, a posture dashboard + MITRE coverage,
-fine-grained custom-role RBAC, +17 new enrichment providers (19 total), in-app
-notifications, a standardized Models page, distinctive UI, a forward-looking Standup, and
-clearer cases + agent-work visualization), **Round 2** (login redesign + account
-self-service, sessions + token policy, the Settings-centric IA, Demo Mode, per-feed
-sources, Resend/SES + email templates, per-user customization, command palette + global
-search + bulk actions + audit viewer), and the seven-wave overhaul before it — every round
-was **additive** and left `case_manager.decide()` byte-identical to the pre-Round-5
-baseline `27f0983` (CI-verified every round since). The backend stayed
-**zero-new-runtime-dep** through every round; Round 5 added exactly **one** lazy webui
-runtime dep (`react-grid-layout`, dashboard edit-mode only) and removed `framer-motion` —
-zero more added or removed since. The 12 non-negotiables held throughout, and repeated
-adversarial audits (16-dimension audits on Rounds 4/5, a ~500-agent fleet on Round 6,
-smaller adversarial-validation passes on Rounds 7–9c) found and fixed real issues every
-time. A shipped security fix inverted RAG-knowledge fencing to a TRUSTED allowlist
-(`runbook`/`mitre`/`suppression` only — operator-imported documents stay UNTRUSTED-fenced)
-so imported documents can no longer reach the model unfenced (OWASP LLM01). Live-stack
-validation against a real SIEM is a deploy step. New here? See
-[`docs/HANDOFF.md`](docs/HANDOFF.md). See [`CHANGELOG.md`](CHANGELOG.md) for the full
-per-round change history and [`ROADMAP.md`](ROADMAP.md) for live backlog status.
+**Round 10** (2026-07-09, current — "Autopilot & Comprehensive Ingestion + motion.dev": a
+**behavior change** that flips the suite from "reads what you tell it to" to "reads +
+reasons over everything by default" — `background_scan_enabled=True`, a deterministic risk
+gate (`auto_investigate_risk_floor`, default 70) routes every correlated cluster to
+investigation or a $0 candidate, ALERT feeds bypass the gate and coalesce same-signature
+bursts onto one case, a per-tick investigation cap drains on later ticks, and a new
+`autopilot_profile` dial (conservative / balanced / aggressive) turns tuning / campaigns /
+cross-source correlation / SLA / priority / SSE / automation / baseline default ON —
+backstopped by a default-enabled $10/day budget ceiling (over-budget → `NEEDS_HUMAN`,
+never a silent close, #3), an auto-adopt migration + one-time banner for existing tenants,
+per-source coverage observability (`GET /api/sources/coverage`, per-source last-poll
+health), and lazy `motion.dev` page-transition animation) followed **Round 9c** (the
+dashboard rebuilt from scratch: real **MTTD** + **MTTR-as-first-human-response** off the
+ACK clock, a burndown chart, a terminal "closed by human" noise stage, a cleaner Cases
+list) followed **Round 9b** (hover-to-expand sidebar, the noise-reduction ribbon restored +
+polished, a CaseDetail Timeline/Investigation redesign, a wider case sheet) followed
+**Round 9** (an 11-ask UI/UX overhaul: removed redundant in-page tab strips, a QRadar-style
+Sources `DataTable`, the CaseDetail Timeline/Investigation split, a local self-hosted
+LiteLLM model provider, login/wizard fixes) followed **Round 8** (UI cleanup + glitch
+fixes) followed **Round 7** (the Security Command Center + the Noise-Reduction funnel)
+followed **Round 6** (a ~500-agent Opus fleet glitch-hunt, 464 adversarially-verified
+findings fixed) followed **Round 5** ("UI/UX overhaul + rules customization + custom
+dashboards + loose coupling" — a cohesive WCAG-AA color system + one enforced
+shadcn/Radix/Tailwind design standard, a decluttered data-driven Settings, a wider
+dashboard + compact hero, a **Detection & Rules editor** with rule versioning + a
+**pure-what-if preview that never bills the LLM**, **custom per-user dashboards**, and a
+loose-coupling refactor — a single `FEATURES[]` registry and a domain-router decomposition
+with byte-identical API paths) followed **Round 4** ("fix the logic, fine-tune the
+product" — the multi-source poller fix + 2 more confirmed bugs, adaptive threshold
+auto-tuning, two-tier alert/event ingestion with campaign correlation + agent-driven event
+detection, an entity baseline, batch/flex + a broadened correctly-priced model catalog, a
+unified log view, tiered reset + fresh OOBE, and a white-label login) followed **Round 3**
+(12 requests: expandable nav, richer Settings real-estate, deeper branding/material,
+per-case human+AI collaboration, a posture dashboard + MITRE coverage, fine-grained
+custom-role RBAC, +17 new enrichment providers (19 total), in-app notifications, a
+standardized Models page, distinctive UI, a forward-looking Standup, and clearer cases +
+agent-work visualization), **Round 2** (login redesign + account self-service, sessions +
+token policy, the Settings-centric IA, Demo Mode, per-feed sources, Resend/SES + email
+templates, per-user customization, command palette + global search + bulk actions + audit
+viewer), and the seven-wave overhaul before it — every round was **additive** and left
+`case_manager.decide()` byte-identical to the pre-Round-5 baseline `27f0983` (CI-verified
+every round since; Round 10 also left `risk.py`/`signatures.py` untouched — the new risk
+gate only *routes* on `compute_risk()`'s existing output, it never changes scoring or the
+decision). The backend stayed **zero-new-runtime-dep** through every round; Round 5 added
+exactly **one** lazy webui runtime dep (`react-grid-layout`, dashboard edit-mode only) and
+removed `framer-motion`; Round 10 added exactly one more, equally lazy, dep (`motion`
+12.42.2, page-transition animation only) — zero other deps added or removed since. The 12
+non-negotiables held throughout — note that #10 ("sane defaults") now *means*
+smart-autopilot-on, and #3 (`decide()` is the sole close/escalate authority) still holds:
+the Round-10 risk gate is routing only. Repeated adversarial audits (16-dimension audits on
+Rounds 4/5, a ~500-agent fleet on Round 6, smaller adversarial-validation passes on Rounds
+7–10, Round 10's own pass finding 5 major + 6 minor issues, all fixed before re-verify)
+found and fixed real issues every time. A shipped security fix inverted RAG-knowledge
+fencing to a TRUSTED allowlist (`runbook`/`mitre`/`suppression` only — operator-imported
+documents stay UNTRUSTED-fenced) so imported documents can no longer reach the model
+unfenced (OWASP LLM01). Live-stack validation against a real SIEM is a deploy step. New
+here? See [`docs/HANDOFF.md`](docs/HANDOFF.md). See [`CHANGELOG.md`](CHANGELOG.md) for the
+full per-round change history and [`ROADMAP.md`](ROADMAP.md) for live backlog status.

@@ -305,6 +305,29 @@ class PollerManager:
     def _all_pollers(self) -> list[Poller]:
         return [self._primary, *self._children]
 
+    @staticmethod
+    def _safe_record_fail(p: Poller, exc: Exception) -> None:
+        """Record a failed-tick snapshot on a child (A5.1); never raises on the error path."""
+        try:
+            p.record_tick(ok=False, error=str(exc), stats=None)
+        except Exception:  # noqa: BLE001 — observability must never mask the real error
+            pass
+
+    def last_tick_by_source(self) -> dict[str, Any]:
+        """Per-source IN-MEMORY "last tick" snapshot (coverage observability, A5.1).
+
+        Keyed by each child's ``connector_id`` → ``{ts, ok, error, stats, events_per_min}``
+        (or ``None`` when a source has not ticked yet this process). Read-only, in-memory
+        (resets on restart); advisory presentation state only — never feeds ``decide()``
+        (#3). Sources sharing no connector_id (the un-configured default) are skipped."""
+        out: dict[str, Any] = {}
+        for p in self._all_pollers():
+            cid = getattr(getattr(p, "_source", None), "connector_id", None)
+            if not cid:
+                continue
+            out[str(cid)] = getattr(p, "_last_tick", None)
+        return out
+
     def _close_owned(self) -> None:
         for client in self._owned_clients:
             try:
@@ -336,9 +359,16 @@ class PollerManager:
     async def _poll_once_locked(self, prefs: Preferences) -> dict[str, Any]:
         pollers = self._all_pollers()
         # Single-poll fast path: 0/1 poller behaves BYTE-IDENTICALLY to the old single
-        # Poller (no semaphore overhead, same return object).
+        # Poller (no semaphore overhead, same return object). Coverage observability
+        # (A5.1): on a raise, record the failed-tick snapshot (ok:False) BEFORE re-raising
+        # so a broken single source is still visible on /api/sources/health — the success
+        # path already records its snapshot inside ``poll_once``.
         if len(pollers) <= 1:
-            return await self._primary.poll_once(prefs)
+            try:
+                return await self._primary.poll_once(prefs)
+            except Exception as exc:  # noqa: BLE001 — capture then propagate (loop shields)
+                self._safe_record_fail(self._primary, exc)
+                raise
 
         limit = max(1, int(getattr(prefs.caps, "max_concurrent", 3)))
         sem = asyncio.Semaphore(limit)
@@ -352,6 +382,10 @@ class PollerManager:
                         "poll_once failed for source %s (fan-out continues): %s",
                         getattr(getattr(p, "_source", None), "connector_id", "?"), exc,
                     )
+                    # Coverage observability (A5.1): a broken connector no longer fails
+                    # SILENTLY — capture ok:False + the error on the child so its
+                    # /api/sources/health row shows the failure (silent-vs-broken fix).
+                    self._safe_record_fail(p, exc)
                     return None
 
         results = await asyncio.gather(*[_run_one(p) for p in pollers])

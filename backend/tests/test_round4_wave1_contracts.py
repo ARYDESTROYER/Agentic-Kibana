@@ -203,15 +203,16 @@ def test_baseline_state_is_small_and_serialisable() -> None:
 # --------------------------------------------------------------------------- #
 def test_new_preferences_blocks_default_disabled() -> None:
     p = Preferences()
+    # Autopilot overhaul: the $0/#3-safe smart engines default ON (batch stays opt-in).
     assert isinstance(p.threshold_tuning, ThresholdTuningConfig)
-    assert p.threshold_tuning.enabled is False
-    assert p.threshold_tuning.min_samples == 25
+    assert p.threshold_tuning.enabled is True
+    assert p.threshold_tuning.min_samples == 30          # STANDARDS.md
     assert p.threshold_tuning.shadow_eval is True
-    assert isinstance(p.batch, BatchConfig) and p.batch.enabled is False
+    assert isinstance(p.batch, BatchConfig) and p.batch.enabled is False   # cost lever stays opt-in
     assert p.batch.providers == ["anthropic", "openai"]
-    assert isinstance(p.baseline, BaselineConfig) and p.baseline.enabled is False
+    assert isinstance(p.baseline, BaselineConfig) and p.baseline.enabled is True
     assert p.baseline.modified_z_threshold == 3.5
-    assert isinstance(p.campaign, CampaignConfig) and p.campaign.enabled is False
+    assert isinstance(p.campaign, CampaignConfig) and p.campaign.enabled is True
     assert p.caps.max_concurrent == 3
     # Full canonical round-trip: no new field breaks the serializer.
     assert Preferences.model_validate(p.model_dump(mode="json")) == p

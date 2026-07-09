@@ -76,6 +76,10 @@ import { Badge } from '@/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/ui/alert';
 import { Sheet, SheetContent } from '@/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/ui/tabs';
+// motion.dev (lazy — CaseDetail is loaded off the lazy Cases chunk, never the eager
+// first-paint graph): the tab-body cross-fade + the DecisionCard "verdict lands" one-shot.
+// CaseDetail mounts its OWN MotionProvider so in-page motion works even on a deep link.
+import { MotionProvider, TabPanelMotion } from '@/soc/components/motion';
 import {
   Dialog,
   DialogContent,
@@ -1005,6 +1009,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
           className="w-full max-w-[min(98vw,1400px)] p-0"
           aria-label="Case detail"
         >
+          <MotionProvider>
           <div className="flex h-full min-h-0 flex-col">
             {/* ----------------------------------------------------- header */}
             <header className="flex shrink-0 items-start gap-4 border-b border-border bg-card px-6 py-4">
@@ -1449,7 +1454,8 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                   </div>
 
                   <div className="min-h-0 flex-1 overflow-y-auto">
-                    <TabsContent value="overview" className="mt-0 animate-fade-in">
+                    <TabsContent value="overview" className="mt-0">
+                     <TabPanelMotion>
                       <OverviewPanel
                         c={c}
                         fpPolicy={fpPolicy}
@@ -1457,8 +1463,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         triageLoading={triageLoading}
                         onNavigate={onNavigate}
                       />
+                     </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="timeline" className="mt-0 animate-fade-in">
+                    <TabsContent value="timeline" className="mt-0">
+                     <TabPanelMotion>
                       {/* The clean "what happened" six-stage narrative, alone (task 5).
                           `stages` is fetched on first visit to this tab by the lazy effect
                           above. */}
@@ -1468,8 +1476,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         stagesError={stagesError}
                         onRetryStages={loadStages}
                       />
+                     </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="investigation" className="mt-0 animate-fade-in">
+                    <TabsContent value="investigation" className="mt-0">
+                     <TabPanelMotion>
                       {/* AI assessment → pinned deterministic DecisionCard + a collapsible
                           full ReAct trace (task 5). rationale/timeline are fetched on first
                           visit by the lazy effects above; DecisionCard reads its
@@ -1485,8 +1495,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         timelineError={timelineError}
                         onRetryTimeline={loadTimeline}
                       />
+                     </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="threat" className="mt-0 animate-fade-in">
+                    <TabsContent value="threat" className="mt-0">
+                     <TabPanelMotion>
                       <ThreatContextPanel
                         c={c}
                         panel={threat}
@@ -1495,8 +1507,10 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onRetry={loadThreat}
                         onNavigate={onNavigate}
                       />
+                     </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="collab" className="mt-0 animate-fade-in">
+                    <TabsContent value="collab" className="mt-0">
+                     <TabPanelMotion>
                       <CollaborationThreadTab
                         c={c}
                         thread={thread}
@@ -1528,9 +1542,12 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
                         onLiveThread={liveRefreshThread}
                         onLiveActivity={liveRefreshActivity}
                       />
+                     </TabPanelMotion>
                     </TabsContent>
-                    <TabsContent value="chat" className="mt-0 animate-fade-in">
+                    <TabsContent value="chat" className="mt-0">
+                     <TabPanelMotion>
                       <ChatTab c={c} onNavigate={onNavigate} onClose={onClose} />
+                     </TabPanelMotion>
                     </TabsContent>
                   </div>
                 </Tabs>
@@ -1641,6 +1658,7 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ caseId, onClose, onNavig
               </footer>
             ) : null}
           </div>
+          </MotionProvider>
         </SheetContent>
       </Sheet>
 

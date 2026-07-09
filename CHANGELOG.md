@@ -10,6 +10,109 @@ to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additi
 targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
 History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-09 — Round 10: Autopilot & Comprehensive Ingestion + motion.dev
+
+A **behavior-changing** round — **the suite now reads and reasons over everything, and
+self-tunes, BY DEFAULT.** Built research (vendor + industry-standards) → code (5
+batches) → adversarial verify → fix → re-verify; the verify pass found **5 major + 6
+minor** findings, all fixed and re-verified before sign-off. Non-negotiables hold
+throughout: `case_manager.decide()` stays the sole close/escalate authority and is
+**byte-identical**; `engine/risk.py` and `engine/signatures.py` are **untouched** — the
+new comprehensive-ingestion risk gate only *reads* `compute_risk()` to route a
+candidate to investigation, it never changes scoring or the decision itself (#3). No
+`docs/research/` folder this round (efficiency-first) — see `Journal.md`'s Round-10
+entry. Developed directly on `Testing` — **local, uncommitted** at this doc sync.
+
+### Changed — comprehensive ingestion is now the default
+- `background_scan_enabled` defaults to **TRUE**: every event from every source is now
+  correlated, risk-scored (0–100), and made visible — nothing is silently dropped
+  from view.
+- EVENTS-role clusters auto-forward to the strong-LLM investigation through a new
+  **deterministic risk gate**: `risk_score >= auto_investigate_risk_floor` (default
+  **70**). Below-floor clusters stay **$0 candidates** — visible, never dropped (#4).
+- ALERTS-role feeds **bypass the gate entirely** and correlate in `mode=EVERY`, so
+  every alert becomes exactly one case (same-signature bursts coalesce onto the one
+  open case).
+- A per-source, per-tick cap — `caps.max_auto_investigations_per_tick` (default
+  **25**) — bounds concurrent LLM spend; cap-deferred candidates **drain** to
+  investigation on a later tick once headroom frees, never lost.
+- Investigations run **sequentially**; the push ingestion path is symmetric with pull;
+  the daily budget (below) is the **global** spend bound across all sources.
+
+### Added — autopilot smart defaults
+- **Default-ON, $0 / #3-safe:** threshold tuning (`shadow_eval` forced on),
+  campaigns, cross-source correlation, SLA policy, priority matrix, realtime SSE, the
+  threshold-automation engine (seeded with an empty rule set), and baseline (the
+  producer + a new silent-source detector).
+- **Still opt-in:** batch LLM processing, `BudgetConfig.on_exceed="block"`,
+  `run_playbook`/`notify` default automation rules, and baseline-drives-investigation.
+- New **`Preferences.autopilot_profile`** dial — `conservative` / `balanced` (default)
+  / `aggressive` — scales `(risk_floor, daily_usd, cap)` together: conservative
+  **90 / $5 / 10**, balanced **70 / $10 / 25**, aggressive **40 / $50 / 100**.
+
+### Added — default budget backstop
+- `BudgetConfig` now defaults **enabled**, `daily_usd=$10`, `soft_warn_pct=0.80`,
+  `on_exceed="warn"`. An over-budget day routes candidates to **NEEDS_HUMAN** — it
+  **never** auto-closes (#3) — so "read everything by default" cannot become "spend
+  everything."
+
+### Changed — migration: auto-adopt + one-time banner
+- A stored pre-overhaul config **auto-adopts** the new ON defaults behind a new
+  `autopilot_config_version` marker and sets `show_autopilot_banner=True`; any
+  explicit opt-out an operator made **before** upgrading is preserved verbatim. The
+  `AutomationNudge` card is **inverted** — from "turn automation on" to an "autopilot
+  is ON — here's what it's doing / turn it off" reassurance card. Migrated tenants
+  get the tuner's `shadow_eval` force-enabled the same as fresh ones.
+
+### Added — coverage observability
+- Per-source **last-poll snapshot** — `last_poll_at` / `last_poll_ok` /
+  `last_poll_error` / `events_per_min` / `silent` — additive fields on
+  `GET /api/sources/health`; a source whose feeds **all** raise now correctly reports
+  `ok=False` (multi-feed failure detection).
+- `AuditDoc.source_id` (+ the ES `AUDIT_MAPPING` keyword field) enables
+  `GET /api/audit?source_id=`; a new per-source noise dimension.
+- New **`GET /api/sources/coverage`** rollup — `{sources_total, sources_enabled,
+  sources_silent, events_per_min, alerts_triaged_24h, worst_last_event_seconds}`.
+- webui: a Sources coverage banner + server-truth per-row status, an Overview
+  coverage tile, and an honest "awaiting / candidate" stage in the Noise-Reduction
+  funnel (below-floor candidates are no longer invisible).
+
+### Added — motion.dev (lazy)
+- **ONE new runtime dependency: `motion` 12.42.2** (`framer-motion` was removed in
+  Round 5). Loaded behind `LazyMotion` + `m` + `domAnimation` + `MotionConfig
+  reducedMotion="user"`, landing in a **LAZY ~83.85 kB chunk** — the entry chunk
+  stays **281.44 kB** and never modulepreloads it.
+- Animates route/page transitions, the CaseDetail tab-enter, the Cases bulk-bar exit
+  + row reflow, the NavSidebar rail, and dashboard KPI count-ups (`AnimatedNumber`
+  dynamic-imported into `KpiTile` so it too stays lazy). Reduced-motion is honored
+  throughout (count-ups snap instead of animating).
+
+### Standards cited (industry-grounded defaults)
+- Risk floor **70** ≈ Elastic entity-risk "High" band start (cross-vendor High
+  midpoint ~70). Tuner: `min_samples=30`, Wilson **0.95** lower-bound, modified-z
+  **3.5**, bounded **±1** nudge, `target_fp_rate=0.10`. Baseline warm-up **14d**
+  (Sentinel UEBA precedent) / modified-z **3.5**. Anomaly-alert threshold **75**
+  (Elastic ML precedent). `daily_usd=$10` ≈ a coffee budget, roughly **10×** below
+  typical AI-SOC entry pricing.
+
+### Fixed — adversarial verification pass
+- The verify pass over the 5 code batches found **5 major + 6 minor** findings; all
+  11 were fixed and the fix was re-verified before sign-off.
+
+### Dependencies
+- **Added** `motion` **12.42.2** (runtime, LAZY-loaded — see above). **Zero** other
+  new deps, backend or webui.
+
+### Verification (2026-07-09)
+- Backend **1796 pytest** green (was 1708); webui `tsc + vite build` clean, **entry
+  chunk 281.44 kB** (motion lazy-chunk 83.85 kB, never modulepreloaded); **1332
+  Vitest** specs / 239 files green (was 1268 / 229); eslint **0 errors** (3 benign
+  warnings); `engine/case_manager.py` `decide()` **byte-identical**; `engine/risk.py` /
+  `engine/signatures.py` **untouched**; **zero new deps except the deliberate lazy
+  `motion`**. Developed on `Testing` (**local, uncommitted** at this doc sync).
+
+---
+
 ## [Unreleased] — 2026-07-06 — Round 9c: dashboard rebuilt from scratch, real MTTD + first-response MTTR, cleaner Cases
 
 A third follow-up round on user feedback, referencing Prisma Cloud "Cloud Security

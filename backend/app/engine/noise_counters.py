@@ -49,10 +49,43 @@ __all__ = [
     "count_clusters_by_band",
     "merge_bands",
     "empty_noise_delta",
+    "events_per_min_from_ticks",
     "build_noise_reduction",
 ]
 
 _INFO = "info"
+
+
+# --------------------------------------------------------------------------- #
+# Coverage observability — per-source ingest RATE from a small rolling tick deque.
+# Shared by the pull poller (A5.1) + the push IngestService (A5.2). Pure + advisory
+# (never feeds ``decide()``, #3); a deque hiccup degrades to 0.0, never raises.
+# --------------------------------------------------------------------------- #
+def events_per_min_from_ticks(ticks: Any) -> float:
+    """Smoothed events/min from a rolling deque of ``(epoch_seconds, count)`` tick samples.
+
+    Uses the wall-clock span between the FIRST and LAST sample; the arrivals counted are
+    the tick counts AFTER the first sample (the first sample only marks the window START).
+    Fewer than 2 samples or a non-positive span → ``0.0`` (not enough signal to state a
+    rate yet — an honest zero, not a fabricated number). Never raises."""
+    try:
+        pts = list(ticks or [])
+        if len(pts) < 2:
+            return 0.0
+        first_ts = float(pts[0][0])
+        last_ts = float(pts[-1][0])
+        span = last_ts - first_ts
+        if span <= 0:
+            return 0.0
+        total = 0
+        for _ts, cnt in pts[1:]:
+            try:
+                total += max(0, int(cnt or 0))
+            except (TypeError, ValueError):
+                continue
+        return round(total / span * 60.0, 2)
+    except Exception:  # noqa: BLE001 — a rate is advisory; never break a health read
+        return 0.0
 
 
 # --------------------------------------------------------------------------- #

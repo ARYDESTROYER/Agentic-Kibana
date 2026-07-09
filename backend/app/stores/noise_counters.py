@@ -16,8 +16,18 @@ backend stores it as a doc in the config index; the SQL backend uses the shared 
 The KV value is::
 
     {"buckets": {"<epoch_hour>": {"ingested": {band: int}, "clustered": {band: int},
-                                  "suppressed": int, "ignored": int}, ...},
+                                  "suppressed": int, "ignored": int,
+                                  "by_source": {"<source_id>": {"ingested": {band: int},
+                                                "clustered": {band: int}, "suppressed": int,
+                                                "ignored": int}, ...}}, ...},
      "since": "<iso of first record>"}
+
+The pooled per-hour totals are UNCHANGED (byte-identical) — the ``by_source`` nested map
+(A5.4 coverage observability) is a purely additive dimension: an old doc that predates it
+has no ``by_source`` key and reads as ``{}`` (``_norm_bucket`` defaults it), and a delta
+without a ``source_id`` folds into the pooled totals only, exactly as before. A delta that
+DOES carry ``source_id`` folds the SAME counts into both the pooled totals and that
+source's sub-bucket, so the per-source breakdown always sums to the pooled total.
 
 Writes go through :func:`app.stores.base.kv_mutate` (per-store lock + ``_rev`` CAS) so
 concurrent poller children / push receivers can't silently clobber one another. Buckets
@@ -58,6 +68,13 @@ def _zero_bands() -> dict[str, int]:
     return {b: 0 for b in SEVERITY_BANDS}
 
 
+def _zero_counts() -> dict[str, Any]:
+    """A fresh zero ``{ingested, clustered, suppressed, ignored}`` count block (the shape of
+    both a per-hour total and one per-source sub-bucket)."""
+    return {"ingested": _zero_bands(), "clustered": _zero_bands(),
+            "suppressed": 0, "ignored": 0}
+
+
 def _safe_int(value: Any) -> int | None:
     """Coerce a bucket key / count to int, or None when it can't be (skip corrupt)."""
     try:
@@ -66,10 +83,10 @@ def _safe_int(value: Any) -> int | None:
         return None
 
 
-def _norm_bucket(raw: Any) -> dict[str, Any]:
-    """Parse one stored bucket into a well-formed ``{ingested, clustered, suppressed,
-    ignored}`` dict, coercing every band count to a non-negative int and dropping any
-    unknown band. Never raises — a corrupt bucket reads as all-zero."""
+def _norm_counts(raw: Any) -> dict[str, Any]:
+    """Parse a ``{ingested, clustered, suppressed, ignored}`` count block (NO nested
+    ``by_source``) — the shape of both a whole-bucket total and one per-source sub-bucket.
+    Coerces every band to a non-negative int, drops unknown bands, never raises."""
     ingested = _zero_bands()
     clustered = _zero_bands()
     suppressed = 0
@@ -87,6 +104,25 @@ def _norm_bucket(raw: Any) -> dict[str, Any]:
             "suppressed": suppressed, "ignored": ignored}
 
 
+def _norm_bucket(raw: Any) -> dict[str, Any]:
+    """Parse one stored bucket into a well-formed ``{ingested, clustered, suppressed,
+    ignored, by_source}`` dict, coercing every band count to a non-negative int and
+    dropping any unknown band. The ``by_source`` map (A5.4) is additive — a pre-migration
+    bucket with no ``by_source`` key reads as ``{}``. Never raises — a corrupt bucket
+    reads as all-zero with no per-source rows."""
+    out = _norm_counts(raw)
+    by_source: dict[str, Any] = {}
+    if isinstance(raw, dict):
+        raw_by_source = raw.get("by_source")
+        if isinstance(raw_by_source, dict):
+            for sid, sub in raw_by_source.items():
+                if sid is None:
+                    continue
+                by_source[str(sid)] = _norm_counts(sub)
+    out["by_source"] = by_source
+    return out
+
+
 def _delta_is_empty(delta: dict[str, Any]) -> bool:
     """True when a delta carries no ingested/clustered/suppressed/ignored activity — an
     empty tick is a NO-OP (no write, no bucket created), so a quiet deployment never
@@ -101,10 +137,9 @@ def _delta_is_empty(delta: dict[str, Any]) -> bool:
            (_safe_int(delta.get("ignored")) or 0) <= 0
 
 
-def _merge_delta(bucket: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
-    """Fold ``delta`` into a normalised ``bucket`` (returns a fresh dict). Unknown bands
-    are ignored; counts are clamped non-negative."""
-    out = _norm_bucket(bucket)
+def _fold_counts(out: dict[str, Any], delta: dict[str, Any]) -> None:
+    """Fold ``delta``'s ingested/clustered/suppressed/ignored into a normalised counts
+    block ``out`` IN PLACE (unknown bands ignored, counts clamped non-negative)."""
     for band, n in (delta.get("ingested") or {}).items():
         if band in out["ingested"]:
             out["ingested"][band] += max(0, _safe_int(n) or 0)
@@ -113,6 +148,22 @@ def _merge_delta(bucket: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any
             out["clustered"][band] += max(0, _safe_int(n) or 0)
     out["suppressed"] += max(0, _safe_int(delta.get("suppressed")) or 0)
     out["ignored"] += max(0, _safe_int(delta.get("ignored")) or 0)
+
+
+def _merge_delta(bucket: dict[str, Any], delta: dict[str, Any]) -> dict[str, Any]:
+    """Fold ``delta`` into a normalised ``bucket`` (returns a fresh dict). Unknown bands
+    are ignored; counts are clamped non-negative. The pooled totals are folded exactly as
+    before (byte-identical); when ``delta`` carries a ``source_id`` the SAME counts are
+    ALSO folded into ``by_source[source_id]`` (A5.4) so the per-source breakdown always
+    sums to the pooled total."""
+    out = _norm_bucket(bucket)
+    _fold_counts(out, delta)
+    sid = delta.get("source_id")
+    if sid is not None and str(sid):
+        key = str(sid)
+        sub = out["by_source"].get(key) or _zero_counts()
+        _fold_counts(sub, delta)
+        out["by_source"][key] = sub
     return out
 
 
@@ -218,6 +269,7 @@ class NoiseCounterStore:
         clustered = _zero_bands()
         suppressed = 0
         ignored = 0
+        by_source: dict[str, dict[str, Any]] = {}
         for k, raw in buckets.items():
             h = _safe_int(k)
             if h is None:
@@ -230,6 +282,17 @@ class NoiseCounterStore:
                 clustered[band] += nb["clustered"][band]
             suppressed += nb["suppressed"]
             ignored += nb["ignored"]
+            # Per-source breakdown (A5.4): sum each source's sub-bucket over the window.
+            for sid, sub in (nb.get("by_source") or {}).items():
+                agg = by_source.get(sid)
+                if agg is None:
+                    agg = _zero_counts()
+                    by_source[sid] = agg
+                for band in SEVERITY_BANDS:
+                    agg["ingested"][band] += sub["ingested"][band]
+                    agg["clustered"][band] += sub["clustered"][band]
+                agg["suppressed"] += sub["suppressed"]
+                agg["ignored"] += sub["ignored"]
 
         incomplete = False
         if available and hours > 0:
@@ -245,6 +308,10 @@ class NoiseCounterStore:
             "clustered": clustered,
             "suppressed": suppressed,
             "ignored": ignored,
+            # A5.4 coverage observability — durable per-source ingest/clustered/drop
+            # breakdown over the window (empty ``{}`` for pre-migration docs). Additive:
+            # existing consumers (build_noise_reduction) read only the pooled keys above.
+            "by_source": by_source,
         }
 
     async def clear(self) -> None:

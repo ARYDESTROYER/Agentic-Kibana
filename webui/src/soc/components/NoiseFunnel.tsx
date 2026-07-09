@@ -90,6 +90,9 @@ const OUTCOME_TOKEN: Record<string, string> = {
 const STAGE_LABEL: Record<string, string> = {
   ingested: 'Ingested',
   clustered: 'Clustered',
+  // Below-floor candidates: risk-scored but NOT yet promoted to an LLM investigation.
+  candidate: 'Awaiting review',
+  awaiting: 'Awaiting review',
   cases: 'Cases opened',
   auto_cleared: 'Auto-cleared',
   escalated: 'Escalated',
@@ -102,6 +105,15 @@ const STAGE_LABEL: Record<string, string> = {
 const STAGE_MEANING: Record<string, string> = {
   ingested: 'Every raw alert pulled from your connected sources, before any triage.',
   clustered: 'Related alerts grouped into deduplicated clusters by the correlation engine.',
+  // Honest about the below-floor tier: these are seen + risk-scored, not silently dropped,
+  // but they have NOT been reasoned over by the strong LLM yet (they sit below the
+  // auto-investigate risk floor). They stay $0 candidates until risk/anomaly promotes them.
+  candidate:
+    'Clusters the agent risk-scored but kept below the auto-investigate floor — seen and ' +
+    'tracked as $0 candidates, not yet reasoned over by the AI.',
+  awaiting:
+    'Clusters the agent risk-scored but kept below the auto-investigate floor — seen and ' +
+    'tracked as $0 candidates, not yet reasoned over by the AI.',
   cases: 'Clusters the agent promoted into investigable cases.',
   auto_cleared: 'Cases the agent auto-closed as false positives — no human needed.',
   escalated: 'Cases raised in priority for faster analyst attention.',
@@ -176,9 +188,29 @@ export function deriveFunnel(data: NoiseReduction): DerivedFunnel {
   const esc = byKey.get('escalated')?.total ?? 0;
   const closed = byKey.get('closed')?.total ?? 0;
 
+  // A below-floor "Awaiting review" tier: clusters that were correlated + risk-scored but
+  // stayed below the auto-investigate floor, so they are kept as $0 candidates and have NOT
+  // been reasoned over by the LLM. Rendered between `clustered` and `cases` ONLY when the
+  // backend emits such a stage — so the flow is BYTE-IDENTICAL (six stages) when it doesn't,
+  // and honestly shows the candidate tier when it does. Keeps the UI from implying reasoning
+  // that isn't happening for below-floor candidates.
+  const candidateKey = byKey.has('candidate')
+    ? 'candidate'
+    : byKey.has('awaiting')
+      ? 'awaiting'
+      : null;
+
   // Full flow from ingested, or case-only when the counters are still warming up.
   const visibleKeys = countersOk
-    ? ['ingested', 'clustered', 'cases', 'auto_cleared', 'escalated', 'closed']
+    ? [
+        'ingested',
+        'clustered',
+        ...(candidateKey ? [candidateKey] : []),
+        'cases',
+        'auto_cleared',
+        'escalated',
+        'closed',
+      ]
     : ['cases', 'auto_cleared', 'escalated', 'closed'];
 
   const topKey = countersOk ? 'ingested' : 'cases';

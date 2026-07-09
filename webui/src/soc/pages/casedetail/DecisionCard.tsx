@@ -36,6 +36,11 @@ import {
   isAutoClosedByAI,
 } from '@/soc/components/badges';
 import { decisionPayload } from '@/soc/components/TraceTimeline';
+// motion.dev (lazy — part of the CaseDetail chunk, under its MotionProvider): the
+// restrained "verdict lands" one-shot that reinforces the #3 "computed, not guessed"
+// trust story. Reduced motion (MotionConfig reducedMotion="user") drops the scale,
+// keeps the fade — never a loop.
+import { motion, verdictLandVariants } from '@/soc/components/motion';
 
 /* ------------------------------------------------------------------ helpers -- */
 
@@ -143,7 +148,13 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ c, rationale, timeli
       </div>
 
       {/* ------------------------------------------------ outcome badge row */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {/* "Verdict lands" — a one-shot scale-settle on mount (never a loop). */}
+      <motion.div
+        className="mt-3 flex flex-wrap items-center gap-2"
+        variants={verdictLandVariants}
+        initial="hidden"
+        animate="show"
+      >
         <VerdictBadge verdict={verdict} />
         <StatusBadge status={status} />
         {typeof confidence === 'number' ? <ConfidenceBadge confidence={confidence} /> : null}
@@ -151,7 +162,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ c, rationale, timeli
           <User className="h-3 w-3" />
           Decided by {decider.isHuman ? decider.text : 'Automated'}
         </Badge>
-      </div>
+      </motion.div>
 
       <p className="mt-3 text-xs text-muted-foreground">
         The close / escalate decision is made by deterministic code against the operator-

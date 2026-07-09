@@ -142,7 +142,7 @@ def test_derive_priority_itil_lookup_and_default():
 def test_derive_priority_disabled_matrix_has_no_level():
     # bug #14: a DISABLED matrix yields NO effective priority (level=None) — the chip
     # previously (wrongly) derived "P1" here while the shift report showed nothing.
-    disabled = PriorityMatrix(enabled=False)  # the default
+    disabled = PriorityMatrix(enabled=False)  # explicitly disabled
     got = derive_priority("high", "high", disabled)
     assert got["enabled"] is False
     assert got["level"] is None
@@ -172,9 +172,11 @@ def test_derive_triage_four_distinct_chips():
 
 
 def test_derive_triage_priority_none_when_matrix_disabled():
-    # bug #14 agreement: with the matrix OFF (the default) the priority chip has NO
-    # level — matching what the shift report shows for the same case.
-    prefs = Preferences(asset_criticality={"203.0.113.50": 95.0})  # matrix disabled
+    # bug #14 agreement: with the matrix OFF the priority chip has NO level — matching
+    # what the shift report shows for the same case. (Autopilot overhaul flipped the
+    # DEFAULT to ON; pin it OFF here to exercise the disabled path.)
+    prefs = Preferences(asset_criticality={"203.0.113.50": 95.0})
+    prefs.priority_matrix.enabled = False
     case = _case(risk=72.0, severity_max=8.0)
     chips = derive_triage(case, prefs)
     assert chips["priority"]["enabled"] is False

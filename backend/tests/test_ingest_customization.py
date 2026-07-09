@@ -456,13 +456,16 @@ async def test_cross_source_links_across_separate_ingests_via_store_pool(app_sta
 
 @asyncio
 async def test_cross_source_disabled_leaves_cases_unlinked(app_state):
-    """Default config (cross-source OFF) → cases are NOT linked (single-source path)."""
+    """Cross-source OFF → cases are NOT linked (single-source path).
+
+    (Autopilot overhaul flipped the DEFAULT to ON; pin it OFF for this scenario.)"""
     prefs = app_state.prefs.model_copy(deep=True)
     prefs.background_scan_enabled = False
     prefs.default_correlation = CorrelationRule(
         mode=CorrelationMode.EVERY, window_seconds=120, group_by=EntityType.IP
     )
-    assert prefs.cross_source_correlation.enabled is False  # default
+    prefs.cross_source_correlation.enabled = False
+    assert prefs.cross_source_correlation.enabled is False
     prefs.sources = [
         SourceInstance(id="srcA", source_type=SourceType.ELASTICSEARCH),
         SourceInstance(id="srcB", source_type=SourceType.ELASTICSEARCH),

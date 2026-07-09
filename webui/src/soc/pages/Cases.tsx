@@ -99,6 +99,10 @@ import { ProvenanceTag, severityProvenance } from '@/soc/components/ProvenanceTa
 import type { Navigate } from '@/soc/router';
 import { useRoute } from '@/soc/router';
 import { CaseDetail } from '@/soc/pages/CaseDetail';
+// motion.dev (lazy — Cases is a lazy page chunk, off the eager first-paint graph): the
+// bulk-action bar's slide-out EXIT (today it just vanishes). Cases mounts its OWN
+// MotionProvider so the portaled bar animates even on a deep link.
+import { motion, AnimatePresence, MotionProvider, HOUSE_SPRING } from '@/soc/components/motion';
 
 /* --------------------------------------------------------------- helpers --- */
 
@@ -1166,6 +1170,7 @@ export default function Cases({
 
   /* ------------------------------------------------------------- render ---- */
   return (
+    <MotionProvider>
     <PageContainer
       variant="wide"
       // Reserve bottom space whenever the fixed bulk bar is showing so it never
@@ -1624,6 +1629,7 @@ export default function Cases({
         }}
       />
     </PageContainer>
+    </MotionProvider>
   );
 }
 
@@ -1686,22 +1692,33 @@ const BulkActionBar: React.FC<{
     }
   }, [count]);
 
-  if (count === 0) return null;
-
   // Render via a portal to <body> so the `position: fixed` bar anchors to the VIEWPORT.
   // The page is wrapped in <PageContainer> which sets `@container`
   // (container-type: inline-size); per CSS containment that makes the container a
   // containing block for fixed descendants, so an in-tree fixed bar would dock ~20px
   // above the (tall) page content instead of floating at the bottom of the screen — the
   // well-known container-query gotcha. Portaling out escapes that containing block.
+  //
+  // motion.dev: the bar springs UP on select and slides back DOWN + fades on deselect
+  // (an `AnimatePresence` EXIT — today it just vanishes). motion owns the FULL transform,
+  // so `x: '-50%'` REPLACES the old `-translate-x-1/2` centering class (otherwise the
+  // enter/exit `y` tween would wipe the horizontal centre). Under reduced motion the
+  // transform is applied but not animated (bar stays centred; only opacity cross-fades).
+  // AnimatePresence caches the exiting element with its last props, so the frozen bar
+  // shows the last selected count during the slide-out — never a "0 selected" flash.
   const bar = (
-    <div
+    <motion.div
+      key="bulk-bar"
       role="region"
       aria-label="Bulk actions"
+      initial={{ opacity: 0, x: '-50%', y: 16 }}
+      animate={{ opacity: 1, x: '-50%', y: 0 }}
+      exit={{ opacity: 0, x: '-50%', y: 16 }}
+      transition={HOUSE_SPRING}
       // `w-max` lets the pill hug its content up to the max-w-[94vw] ceiling, so the
       // Card's `overflow-x-auto` (below) actually engages once the controls exceed the
       // viewport instead of the wrapper silently stretching.
-      className="fixed bottom-5 left-1/2 z-50 w-max max-w-[94vw] -translate-x-1/2 animate-rise-in"
+      className="fixed bottom-5 left-1/2 z-50 w-max max-w-[94vw]"
     >
       <Card
         elevation="none"
@@ -1869,8 +1886,11 @@ const BulkActionBar: React.FC<{
           Clear
         </Button>
       </Card>
-    </div>
+    </motion.div>
   );
 
-  return typeof document === 'undefined' ? bar : createPortal(bar, document.body);
+  // AnimatePresence stays mounted across count → 0 so the bar can play its exit; the
+  // `count > 0` gate (not an early `return null`) is what triggers the enter/exit.
+  const presence = <AnimatePresence>{count > 0 ? bar : null}</AnimatePresence>;
+  return typeof document === 'undefined' ? presence : createPortal(presence, document.body);
 };

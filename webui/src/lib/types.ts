@@ -607,11 +607,67 @@ export interface SourceHealthRow {
   buffer_depth: number;
   /** PULL durable cursor position as epoch millis (0 = never polled / N/A). */
   last_poll_millis: number;
+  // --- Coverage observability (A5.2) — additive, advisory (#3), NEVER a secret (#10). //
+  /**
+   * Wall-clock ISO of the poller's LAST TICK ATTEMPT (independent of whether any
+   * event arrived), from the poller's in-memory last-tick snapshot. `null` when never
+   * polled or on a PUSH source. This is the server truth that disambiguates
+   * "legitimately quiet" from "broken connector" — the old client-side 24h cursor
+   * heuristic could not.
+   */
+  last_poll_at?: string | null;
+  /**
+   * Whether that last poll ATTEMPT succeeded. `null` when never polled. A `false`
+   * (paired with `last_poll_error`) means the connector is broken, not merely idle.
+   */
+  last_poll_ok?: boolean | null;
+  /**
+   * The connector error string from the last FAILED poll. UNTRUSTED (source-controlled)
+   * → render as PLAIN text only, never as markup (#9). `null` when healthy.
+   */
+  last_poll_error?: string | null;
+  /**
+   * Wall-clock / event watermark epoch millis of the last observed event (0 = never
+   * seen). Drives `worst_last_event_seconds` and the honest "Last Event" column.
+   */
+  last_event_millis?: number;
+  /** Smoothed recent ingest rate (events/min); 0 when idle / unknown. */
+  events_per_min?: number;
+  /**
+   * The server's v0 flat SILENT-source flag: an ENABLED source with no recent events
+   * past the flat silence threshold (now − last_event > k × poll_interval). This is the
+   * backend truth that replaces the pure-client 24h staleness guess.
+   */
+  silent?: boolean;
+  /** `true` on the Demo-Mode overlay rows (never a real configured source). */
+  demo?: boolean;
 }
 
 /** Response of GET /api/sources/health. */
 export interface SourcesHealthResponse {
   sources: SourceHealthRow[];
+}
+
+/**
+ * GET /api/sources/coverage — the aggregate "am I seeing everything?" rollup (A5.5;
+ * the Google SecOps Health-Hub big-number model). Read-only, advisory (#3), NO secrets.
+ * Every value is an aggregate count / rate over the REAL configured sources (the Demo-
+ * Mode overlay is excluded so the numbers stay honest). `alerts_triaged_24h` uses the
+ * SAME 24h window the noise-reduction funnel's `cases` stage uses, so the two agree.
+ */
+export interface SourceCoverage {
+  /** Total configured sources. */
+  sources_total: number;
+  /** Sources currently enabled (the poller/receivers actually read from). */
+  sources_enabled: number;
+  /** Enabled sources flagged SILENT (no recent events past the flat silence threshold). */
+  sources_silent: number;
+  /** Summed smoothed ingest rate across enabled sources (events/min). */
+  events_per_min: number;
+  /** Cases opened in the last 24h (cross-consistent with the noise funnel's `cases`). */
+  alerts_triaged_24h: number;
+  /** Worst (largest) seconds-since-last-event across enabled sources (0 when none seen). */
+  worst_last_event_seconds: number;
 }
 
 /**

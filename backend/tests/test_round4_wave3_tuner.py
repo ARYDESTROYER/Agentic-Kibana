@@ -355,7 +355,9 @@ async def test_suppression_drop_always_routes_to_proposal(app_state: AppState) -
 # Disabled config → byte-identical no-op
 # --------------------------------------------------------------------------- #
 async def test_disabled_config_is_noop(app_state: AppState) -> None:
-    prefs = Preferences()  # threshold_tuning defaults enabled=False
+    # Autopilot overhaul flipped the DEFAULT to ON; pin it OFF to exercise the no-op path.
+    prefs = Preferences()
+    prefs.threshold_tuning.enabled = False
     assert prefs.threshold_tuning.enabled is False
     store = TuningStore(app_state._kv)
     audit = FakeAudit()

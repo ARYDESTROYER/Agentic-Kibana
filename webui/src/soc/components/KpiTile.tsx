@@ -16,6 +16,20 @@ const LazySparkline = React.lazy(() =>
   import('./charts').then((m) => ({ default: m.Sparkline })),
 );
 
+/**
+ * Round-9 motion — the KPI numeral rolls via the motion.dev spring `AnimatedNumber`
+ * (which had been dead code: nothing imported it). AnimatedNumber pulls in the motion.dev
+ * runtime, so — exactly like `LazySparkline` above — it is `React.lazy`-loaded to keep
+ * motion.dev OFF KpiTile's static import graph and therefore off the eager first-paint
+ * chunk (bundle-first-paint.test.ts). Until the lazy chunk resolves, the Suspense
+ * fallback is the CSS-rAF `<CountUp>`: a fully-working count-up that shows the correct
+ * number immediately and snaps under reduced motion, so the numeral only UPGRADES to the
+ * spring once motion has arrived (progressive enhancement — never a blank first paint).
+ */
+const LazyAnimatedNumber = React.lazy(() =>
+  import('./motion/AnimatedNumber').then((m) => ({ default: m.AnimatedNumber })),
+);
+
 export type KpiAccent =
   | 'primary'
   | 'critical'
@@ -205,10 +219,17 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
 
     // The rendered numeral: roll to `countTo` when it's a finite integer, else the
-    // caller-supplied `value` (string or node) unchanged.
+    // caller-supplied `value` (string or node) unchanged. The roll is the lazy motion.dev
+    // spring (`AnimatedNumber`); its Suspense fallback is the CSS-rAF `<CountUp>` (see
+    // LazyAnimatedNumber above). Both are handed the SAME formatter (`format ?? String`,
+    // matching CountUp's historical `String` default) so the fallback→spring upgrade never
+    // changes the displayed text. Both honour reduced motion by snapping to the target.
+    const rollFormat = format ?? ((n: number) => String(n));
     const valueNode =
       typeof countTo === 'number' && Number.isFinite(countTo) ? (
-        <CountUp value={countTo} format={format} as="span" />
+        <React.Suspense fallback={<CountUp value={countTo} format={format} as="span" />}>
+          <LazyAnimatedNumber value={countTo} format={rollFormat} />
+        </React.Suspense>
       ) : (
         value
       );

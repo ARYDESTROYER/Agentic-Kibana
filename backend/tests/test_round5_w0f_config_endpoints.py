@@ -83,9 +83,10 @@ def test_baseline_config_get_defaults(state_and_client) -> None:
     r = client.get("/api/baseline/config")
     assert r.status_code == 200, r.text
     cfg = r.json()["config"]
-    # Matches BaselineConfig() defaults — nothing enabled out of the box.
+    # Matches BaselineConfig() defaults — Autopilot overhaul: the baseline PRODUCER
+    # defaults ON.
     assert cfg == BaselineConfig().model_dump(mode="json")
-    assert cfg["enabled"] is False
+    assert cfg["enabled"] is True
 
 
 def test_baseline_config_put_deep_merges_only_changed_keys(state_and_client) -> None:
@@ -137,7 +138,7 @@ def test_campaign_config_get_defaults(state_and_client) -> None:
     assert r.status_code == 200, r.text
     cfg = r.json()["config"]
     assert cfg == CampaignConfig().model_dump(mode="json")
-    assert cfg["enabled"] is False
+    assert cfg["enabled"] is True   # Autopilot overhaul: campaign clustering defaults ON
     assert cfg["cadence"] == "daily"
 
 

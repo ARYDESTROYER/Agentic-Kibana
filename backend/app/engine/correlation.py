@@ -73,6 +73,7 @@ def correlate(
     prefs: Preferences,
     *,
     entity_strategy: EntityStrategy | None = None,
+    role: str | None = None,
 ) -> list[Cluster]:
     """Group a polled batch into candidate investigations (clusters).
 
@@ -81,8 +82,23 @@ def correlate(
     ``prefs.entity_strategy``), so an event that lacks the primary entity still
     clusters (host/user/rule) instead of being silently dropped. With strategy
     ``auto`` and events that HAVE the per-rule ``group_by`` entity, grouping is
-    byte-identical to before."""
+    byte-identical to before.
+
+    Comprehensive ingestion (Autopilot overhaul, #1): the correlation MODE is derived
+    from the FEED ROLE so every SIEM ALERT becomes exactly one case. An event carrying
+    the ``alerts`` feed role (``ev.index_role == "alerts"``, stamped by the connector
+    per its feed / by the push ingest for an alerts source) correlates with mode
+    ``EVERY`` (n=1) — a lone detection forms a cluster instead of being hidden below the
+    per-rule THRESHOLD. Same-signature bursts still COALESCE onto ONE open case downstream
+    (``find_open_by_signature`` → attach, #4), so one alert type = one case that events
+    attach to, never one-per-event. ``role`` is an OPTIONAL whole-batch role hint for a
+    caller that KNOWS every event shares one role (e.g. the push path for a source declared
+    wholesale ``alerts``); when ``"alerts"`` it forces the EVERY override for the whole
+    batch even if a connector forgot to stamp ``index_role``. Default ``None`` + events-role
+    (``index_role == "events"``) is byte-identical to before. This changes cluster FORMATION
+    only; it NEVER touches ``decide()`` (#3)."""
     strategy = entity_strategy or prefs.entity_strategy
+    batch_is_alerts = str(role or "").lower() == "alerts"
     # (entity_type, value) -> the PRIMARY triggering rule's metadata.
     triggers: dict[tuple[EntityType, str], dict] = {}
 
@@ -110,15 +126,25 @@ def correlate(
             if resolved is not None:
                 by_entity[resolved].append(ev)
         for (entity_type, value), group in by_entity.items():
-            detail = _window_detail(group, cfg)
+            # ALERTS-role override (#1): a group carrying an alerts-role member (or a
+            # whole batch declared ``alerts`` by the caller) correlates with mode EVERY
+            # (n=1) so every SIEM detection forms EXACTLY one cluster — a lone alert is
+            # never hidden below the THRESHOLD. Events-role groups keep ``cfg`` verbatim,
+            # so the default correlate path is byte-identical. An explicit ``NEVER`` rule
+            # is still respected (handled above) — that is the operator's suppression
+            # escape hatch and wins even for alerts feeds.
+            eff_cfg = cfg
+            if batch_is_alerts or any(ev.index_role == "alerts" for ev in group):
+                eff_cfg = cfg.model_copy(update={"mode": CorrelationMode.EVERY, "n": 1})
+            detail = _window_detail(group, eff_cfg)
             if detail is None:
                 continue
             sev = [g.severity for g in group if g.severity is not None]
             meta = {
                 "rule_value": rule,
-                "mode": cfg.mode.value,
-                "n": cfg.n,
-                "window_seconds": cfg.window_seconds,
+                "mode": eff_cfg.mode.value,
+                "n": eff_cfg.n,
+                "window_seconds": eff_cfg.window_seconds,
                 "group_by": entity_type.value,
                 "observed_count": detail.observed_count,
                 "window_start": detail.window_start,

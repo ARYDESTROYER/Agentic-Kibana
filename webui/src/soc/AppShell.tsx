@@ -72,6 +72,13 @@ import { NavSidebar, useNavPrefs } from './components/NavSidebar';
 import { NotificationBell } from './components/NotificationBell';
 import { navItem, navLabel, type PageId } from './nav';
 import type { Navigate } from './router';
+// TYPE-ONLY import (elided at build → zero runtime import): motion.dev must NEVER ride
+// the eager App/AppShell first-paint graph, so RouteMotion is reached purely through the
+// DYNAMIC `import()` below. See soc/components/motion/* + bundle-first-paint.test.ts.
+import type { RouteMotionProps } from './components/motion/RouteMotion';
+
+/** The single content inset (gutter + vertical rhythm) applied to every routed page. */
+const CONTENT_INSET = 'mx-auto w-full min-w-0 px-4 py-6 sm:px-6 lg:px-8 2xl:px-12';
 
 export interface AppShellProps {
   /** The currently-active page id (drives the rail highlight + breadcrumb). */
@@ -430,6 +437,47 @@ export const AppShell: React.FC<AppShellProps> = ({
     void refreshDemo();
   }, [page, refreshDemo]);
 
+  // ---- Route/page transitions (motion.dev, lazy) ------------------------------------
+  // Progressive enhancement: the motion.dev layer is dynamically imported AFTER first
+  // paint (never on the eager entry graph — that would break the <400 kB entry budget),
+  // and the animated route wrapper is engaged only on an ACTUAL page navigation that
+  // happens WHILE the chunk is already loaded. That keeps the initial landing page — and
+  // any page shown when the chunk merely finishes resolving — on its cheap CSS
+  // `animate-fade-in` with NO remount / no double data-fetch; from the first navigation
+  // after motion is ready onward, AnimatePresence cross-fades page → page.
+  const [RouteMotion, setRouteMotion] = React.useState<React.ComponentType<RouteMotionProps> | null>(
+    null,
+  );
+  React.useEffect(() => {
+    let alive = true;
+    void import('./components/motion/RouteMotion').then((mod) => {
+      if (alive) setRouteMotion(() => mod.RouteMotion);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // BUG FIX (motion #1): the render branch must NOT flip plain→motion merely because the
+  // lazy chunk RESOLVED. Keying the branch on `Boolean(RouteMotion)` meant that when the
+  // chunk arrived mid-session while a page was already displayed, React unmounted +
+  // remounted that SAME page (losing its component state, double-firing mount effects,
+  // re-fetching data). Instead, a monotonic `motionActive` latch flips to `true` ONLY at
+  // the moment of a real navigation (`page` changed since the last render) AND only when
+  // the chunk is already loaded then — never on the chunk resolving while the page is
+  // unchanged. Both set-states run during render (React's supported "adjust state while
+  // rendering" pattern; React discards the intermediate render and re-renders with the
+  // updated state BEFORE committing), so the first motion-engaging navigation lands
+  // straight in the motion branch with no plain→motion remount of the incoming page.
+  const [prevPage, setPrevPage] = React.useState(page);
+  const [motionActive, setMotionActive] = React.useState(false);
+  if (page !== prevPage) {
+    setPrevPage(page);
+    // A real navigation just happened. Engage motion from now on IFF the chunk is loaded;
+    // if it is not, stay plain — a later chunk resolution alone must never flip the branch.
+    if (RouteMotion && !motionActive) setMotionActive(true);
+  }
+  const useMotionRoute = motionActive && Boolean(RouteMotion);
+
   // Product name for the breadcrumb prefix; falls back to a neutral default.
   const productName = branding.product_name?.trim() || branding.org_name?.trim() || 'ASP';
   const logoUrl = branding.logo_data_url?.trim() || '';
@@ -535,7 +583,10 @@ export const AppShell: React.FC<AppShellProps> = ({
           semantically wrong. */}
       <div
         className={cn(
-          'relative shrink-0 min-w-0 transition-[width] duration-200 motion-reduce:transition-none',
+          // Springy ease (the app's `--motion-ease-premium` curve) gives the rail a
+          // physical "settle" without pulling the motion.dev runtime onto the eager
+          // first-paint graph (NavSidebar/AppShell are eager; motion stays lazy, §budget).
+          'relative shrink-0 min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
           collapsed ? 'z-40 w-16' : 'w-60',
         )}
         onMouseEnter={() => setRailHovered(true)}
@@ -706,14 +757,26 @@ export const AppShell: React.FC<AppShellProps> = ({
             not-yet-migrated pages share one consistent inset. Keep `min-w-0` so
             flex/grid children can shrink + truncate. */}
         <main id="socMain" role="main" tabIndex={-1} className="flex-1 outline-none">
-          <div
-            key={page}
-            className="mx-auto w-full min-w-0 px-4 py-6 animate-fade-in sm:px-6 lg:px-8 2xl:px-12"
-          >
-            {/* Demo-mode banner — renders only when the demo tenant is active. */}
-            <DemoBanner />
-            <div className={cn(demoActive && 'mt-4')}>{children}</div>
-          </div>
+          {/* Once a real navigation has engaged motion (the lazy chunk was loaded AT the
+              time of that navigation — see the `motionActive` latch above), the routed
+              content is wrapped in RouteMotion's AnimatePresence for a page → page
+              cross-fade; before that it keeps the cheap enter-only CSS fade. The branch
+              never flips just because the chunk finished resolving, so neither the landing
+              page nor the page shown when the chunk arrives is ever remounted. Both paths
+              share CONTENT_INSET so the gutter/vertical rhythm is identical. */}
+          {useMotionRoute && RouteMotion ? (
+            <RouteMotion routeKey={page} className={CONTENT_INSET}>
+              {/* Demo-mode banner — renders only when the demo tenant is active. */}
+              <DemoBanner />
+              <div className={cn(demoActive && 'mt-4')}>{children}</div>
+            </RouteMotion>
+          ) : (
+            <div key={page} className={cn(CONTENT_INSET, 'animate-fade-in')}>
+              {/* Demo-mode banner — renders only when the demo tenant is active. */}
+              <DemoBanner />
+              <div className={cn(demoActive && 'mt-4')}>{children}</div>
+            </div>
+          )}
         </main>
       </div>
 

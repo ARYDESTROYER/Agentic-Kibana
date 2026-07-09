@@ -193,6 +193,7 @@ class SqlAuditRepository(AuditRepository):
         surface: str = "",
         actor: str = "",
         case_id: str | None = None,
+        source_id: str | None = None,
         model: str | None = None,
         prompt_excerpt: str | None = None,
         query_text: str | None = None,
@@ -207,6 +208,7 @@ class SqlAuditRepository(AuditRepository):
                 surface=surface,
                 actor=actor,
                 case_id=case_id,
+                source_id=source_id,
                 model=model,
                 prompt_excerpt=truncate(prompt_excerpt, 1000) if prompt_excerpt else None,
                 query_text=query_text,
@@ -268,6 +270,7 @@ class SqlAuditRepository(AuditRepository):
         action_type: str | None = None,
         surface: str | None = None,
         case_id: str | None = None,
+        source_id: str | None = None,
         ts_from: str | None = None,
         ts_to: str | None = None,
         limit: int = 100,
@@ -275,9 +278,10 @@ class SqlAuditRepository(AuditRepository):
         """Filtered, bounded listing for the admin audit viewer (W7c), NEWEST first.
 
         ``action_type`` + ``case_id`` are real columns (pushed into SQL); ``actor`` +
-        ``surface`` live inside the JSON ``doc``, so we bound-scan a recent ts window
-        and filter those in Python (cross-dialect, correct on SQLite + Postgres). The
-        ``ts`` range is applied in SQL on the column. Read-only; never raises."""
+        ``surface`` + ``source_id`` (A5.3) live inside the JSON ``doc``, so we bound-scan a
+        recent ts window and filter those in Python (cross-dialect, correct on SQLite +
+        Postgres). The ``ts`` range is applied in SQL on the column. Read-only; never
+        raises."""
         scan = max(limit * 20, 500)
         stmt = select(AuditRow)
         if action_type:
@@ -298,6 +302,8 @@ class SqlAuditRepository(AuditRepository):
                 if actor and str(doc.get("actor", "")) != actor:
                     continue
                 if surface and str(doc.get("surface", "")) != surface:
+                    continue
+                if source_id and str(doc.get("source_id", "")) != source_id:
                     continue
                 out.append(doc)
                 if len(out) >= limit:

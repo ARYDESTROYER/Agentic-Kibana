@@ -128,14 +128,19 @@ Remove).
 
 **Status** and **Last Event** are derived, honestly, from `GET /api/sources/health`
 — the durable poll cursor age for a PULL source, the live-tail buffer depth for a
-PUSH receiver. Add/Edit open the manifest-driven **`SourceEditor`** in a dialog
-(the same form the wizard uses, §1); **Browse** opens the **`SourceLogsSheet`**
-(§2a).
+PUSH receiver. Since Round 10 the health payload also carries `last_poll_at` /
+`last_poll_ok` / `last_poll_error` / `events_per_min` / `silent` (a multi-feed
+source whose feeds **all** raise now honestly reports unhealthy instead of merely
+looking quiet), and the page shows a top-of-table **coverage banner** rolled up
+from `GET /api/sources/coverage` — see §33 for the full coverage-observability
+story. Add/Edit open the manifest-driven **`SourceEditor`** in a dialog (the same
+form the wizard uses, §1); **Browse** opens the **`SourceLogsSheet`** (§2a).
 
 | Action | Endpoint |
 |---|---|
 | List configured sources | `GET /api/sources` |
 | Per-source health (status + last event, feeds the table) | `GET /api/sources/health` |
+| Fleet-wide coverage rollup (feeds the banner + Overview tile, §33) | `GET /api/sources/coverage` |
 | List available connectors (+ field schema) | `GET /api/connectors`, `GET /api/connectors/{source_type}` |
 | Add / update a source | `POST /api/sources` |
 | Set / clear a per-source secret | `POST /api/sources/{id}/secrets` |
@@ -387,22 +392,27 @@ silently errors.
 
 ## 6. Automated scans (Surface)
 
-The background-investigation queue (`GET /api/scans?limit=100`). The poller
-correlates each new in-scope cluster and either:
+The background-investigation queue (`GET /api/scans?limit=100`). **`background_scan_enabled`
+now defaults ON** (Round 10 — comprehensive ingestion, §33), so this queue is live
+out of the box, not something you have to switch on first. The poller correlates
+each new in-scope cluster and either:
 
-- **auto-investigates** it (if `background_scan_enabled` is on AND the cluster's
-  rule is on the **auto-forward allowlist**, or the allowlist contains `*`), or
+- **auto-investigates** it — an `alerts`-role cluster always does (every SIEM
+  detection is triaged); an `events`-role cluster does once its deterministic
+  `risk_score` clears `auto_investigate_risk_floor` (default **70**), or its rule
+  is on the **auto-forward allowlist** (`*` = all) — see §33 for the full gate, or
 - **registers it as an OPEN candidate** (deterministic risk only, no LLM cost) so
-  nothing is ever dropped — those appear in **Cases** for manual triage.
+  nothing is ever dropped — those appear in **Cases** for manual triage, honestly
+  labelled "awaiting" until it clears the floor or cap.
 
 Every case carries a `trigger_reason` (which rule, how many events, in what
 window, grouped on which entity, plus a plain-English sentence). The new-scan
 badge polls `GET /api/scans/notifications?since=now-24h`.
 
-**Control auto-forwarding** in **Settings → Organization → Advanced** (§25): turn on
-**Background scan enabled** and set the **Auto-forward allowlist** to the rule
-values you want auto-investigated (comma-separated; `*` = all; empty = candidates
-only).
+**Tune auto-forwarding** in **Settings → Organization → Advanced** (§25): the
+**Auto-forward allowlist** still force-forwards specific rule values
+(comma-separated; `*` = all), and the `autopilot_profile` dial (§33) moves the
+risk floor / daily budget / per-tick cap together in one step.
 
 ---
 
@@ -650,9 +660,9 @@ that, both in the **`SourceEditor`** (§2, and on the `SourceInstance` config):
   auto-investigate the `alerts` feed while leaving a high-volume `events` feed
   on manual — see §30 for the full per-feed model.
 
-**Cross-source correlation (opt-in, default OFF).** Enable
-`cross_source_correlation` (**Settings → General → Detection**) to run a **second**
-pass that links clusters from *different* sources that share an entity
+**Cross-source correlation (default ON since Round 10, §33).** `cross_source_correlation`
+(**Settings → General → Detection**) runs a **second** pass that links clusters
+from *different* sources that share an entity
 (`ip` / `host` / `user` / `file_hash` / `domain`) within a time window. Tunables:
 `time_window_seconds` (default 300), `min_sources_to_cluster` (default 2), and the
 `entity_keys`. The result is surfaced as **RELATED cases** — the cases are linked
@@ -727,10 +737,12 @@ per-rule editor left inside it.
 ## 15. Adaptive threshold auto-tuning
 
 **Auto-tuning** (top-level **Platform** nav item, backed by
-`engine/threshold_tuner.py`) is a nightly, deterministic observer — default
-**OFF** — that measures each detection rule's noise (a Wilson-lower-bound false-
-positive rate + a minimum-sample gate + EWMA smoothing) and proposes a **bounded
-+1** nudge to a rule's correlation `n` or a feed's `severity_floor`.
+`engine/threshold_tuner.py`) is a nightly, deterministic observer — default **ON**
+since Round 10 (§33; `shadow_eval` is **forced on**, even for a migrated tenant) —
+that measures each detection rule's noise (a Wilson-lower-bound false-positive
+rate + a minimum-sample gate + EWMA smoothing) and proposes a **bounded +1** nudge
+to a rule's correlation `n` or a feed's `severity_floor`. A cold tenant under the
+`min_samples` gate (default 30) simply proposes nothing yet.
 
 | Action | Endpoint |
 |---|---|
@@ -753,7 +765,7 @@ reversible.
 ## 16. Campaigns — cross-case shared-entity correlation
 
 **Campaigns** (a top-level **Triage** nav item, backed by `engine/campaigns.py`,
-default OFF via `CampaignConfig`) runs a **daily deterministic** pass over shared
+default **ON** since Round 10, §33) runs a **daily deterministic** pass over shared
 entities across already-created cases and groups related ones into a `Campaign`
 object — the same idea as §13's cross-source linkage, but running over the whole
 case store rather than a live correlation window.
@@ -776,10 +788,14 @@ case's `cluster_signature`, and it can never close or escalate a member case —
 ## 17. Entity baseline — anomaly detection over time
 
 **Baseline** (under **Analytics**, backed by `engine/baseline.py` +
-`stores/baseline.py`, default OFF via `BaselineConfig`) keeps an online
-EWMA/EWMV sketch per cluster-signature across **168 hour-of-week buckets**, plus
-a bounded t-digest for **p50/p95/p99**, with a robust modified-z (`|M| > 3.5`)
-anomaly test and a 3×-period warm-up (`H=14d`) before it trusts its own numbers.
+`stores/baseline.py`, default **ON as a pure producer** since Round 10, §33) keeps
+an online EWMA/EWMV sketch per cluster-signature across **168 hour-of-week
+buckets**, plus a bounded t-digest for **p50/p95/p99**, with a robust modified-z
+(`|M| > 3.5`) anomaly test and a 3×-period warm-up (`H=14d`, `warmup_days=14`
+advisory) before it trusts its own numbers. Learning starts from day one
+(including a silent-source/volume-flood detector); **baseline-driven
+auto-investigation stays a separate, opt-in knob** (§33) — the producer itself
+never triggers one.
 
 | Action | Endpoint |
 |---|---|
@@ -969,7 +985,10 @@ row itself, and nothing here calls `decide()`.
 ### Budget gate — a pre-flight spend ceiling
 
 `GET`/`PUT /api/budget` reads/writes a daily + monthly USD ceiling
-(`BudgetConfig`: `enabled`, `daily_usd`, `monthly_usd`, `on_exceed`).
+(`BudgetConfig`: `enabled`, `daily_usd`, `monthly_usd`, `on_exceed`). Since
+**Round 10** this ships **ON by default** — `enabled: true`, `daily_usd: 10`,
+`soft_warn_pct: 0.8`, `on_exceed: "warn"` — as the spend backstop for
+comprehensive ingestion (§33); `on_exceed="block"` remains an explicit opt-in.
 `GET /api/budget/status` reports where you currently stand against it.
 `POST /api/cost/estimate` (`{ model, prompt, max_tokens }`) gives a pre-flight
 cost estimate for a hypothetical call, using any price overlay first and the
@@ -1208,7 +1227,7 @@ router, and the Cmd-K "jump to a setting" search all derive from):
 | **General** | Data scope · Models · Detection · Detection & rules (§14) · Cases (case-ID format, below) · SLA, priority & suppression · Automation (master switch, §14) · Standup |
 | **Integrations** | Alerting & notifications (§23) · Enrichment (§19) · Knowledge & threat context (§9, §12) |
 | **Security & access** | Users · Roles & permissions (§24's custom roles) · Single sign-on & policy (§24) · Active sessions (§27) · Secret keys |
-| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Danger zone (§28's tiered reset) |
+| **Organization** | Branding · Advanced (caps, kill switch, background-scan/auto-forward allowlist, the autopilot dial + risk floor + budget backstop, §33, read-only lock) · All settings (a schema-generated long tail) · Experimental & Demo (§28) · Danger zone (§28's tiered reset) |
 
 RBAC hides a section a role can't reach (and auto-jumps off a hidden active
 section); with auth/RBAC off, everything shows. Every section still round-trips
@@ -1238,15 +1257,17 @@ source.
 ### Polling & detection
 
 A themed field reference spanning **General → Data scope** (the first three rows)
-and **Organization → Advanced** (the last two):
+and **Organization → Advanced** (the rest, incl. the Round-10 autopilot knobs, §33):
 
 | Field | Pref | Default | Notes |
 |---|---|---|---|
 | Poll interval (seconds) | `poll_interval_seconds` | 30 | loop sleeps `max(5, value)` |
 | Severity threshold | `severity_threshold` | 0.0 | min numeric severity in scope |
 | Polling enabled | `polling_enabled` | true | starts/stops the loop |
-| Background scan enabled | `background_scan_enabled` | false | gate for auto-forwarding |
-| Auto-forward allowlist | `auto_forward_allowlist` | `[]` | comma-separated rule values; `*` = all |
+| Background scan enabled | `background_scan_enabled` | **true** (Round 10) | comprehensive ingestion — every source correlated + risk-scored; see §33 |
+| Auto-forward risk floor | `auto_investigate_risk_floor` | **70** (Round 10) | the deterministic risk gate for `events`-role clusters — §33 |
+| Autopilot profile | `autopilot_profile` | `"balanced"` (Round 10) | `conservative` \| `balanced` \| `aggressive` — moves the risk floor + daily budget + per-tick cap together, §33 |
+| Auto-forward allowlist | `auto_forward_allowlist` | `[]` | comma-separated rule values; `*` = all; forwards regardless of risk |
 
 ### Caps & kill switch
 
@@ -1255,6 +1276,7 @@ and **Organization → Advanced** (the last two):
 | Max tool calls | `caps.max_tool_calls` | 8 |
 | Max tokens | `caps.max_tokens` | 20000 |
 | Max concurrent investigations | `caps.max_concurrent` | see schema |
+| Max auto-investigations / tick, **per source** (§33) | `caps.max_auto_investigations_per_tick` | **25** (Round 10) |
 | Kill switch | `caps.kill_switch` | false |
 
 The **kill switch** is a global emergency stop: when on, the poller does not run
@@ -1648,7 +1670,8 @@ audit rows carry fenced UNTRUSTED log excerpts).
 
 ```bash
 curl -s -b cookies.txt "localhost:8088/api/audit?limit=100&actor=alice&action=DECISION&from=now-24h"
-# filters: actor, action, surface, case_id, from (alias), to, limit
+# filters: actor, action, surface, case_id, source_id (§33 coverage), from (alias), to, limit
+curl -s -b cookies.txt "localhost:8088/api/audit?source_id=prod-es&limit=50"   # one source's audit history
 ```
 
 ---
@@ -1707,6 +1730,7 @@ curl -s -X POST localhost:8088/api/connectors/test \
 # List configured sources + their health
 curl -s localhost:8088/api/sources
 curl -s localhost:8088/api/sources/health
+curl -s localhost:8088/api/sources/coverage   # rollup: silent sources, events/min, worst last-event age (§33)
 
 # Browse a source's recent logs (pull=bounded scoped search ≤200; push=live-tail buffer)
 curl -s "localhost:8088/api/sources/prod-es/logs?limit=50&query=ssh&from=now-15m&to=now"
@@ -1948,7 +1972,122 @@ curl -s -b cookies.txt localhost:8088/api/notifications/inbox
 
 ---
 
-## 33. Safety guarantees you can rely on
+## 33. Autopilot — smart defaults, self-tuning, and coverage
+
+**Round 10** flipped the suite's out-of-the-box posture: instead of waiting for an
+operator to opt every source and every detection knob in, the suite now **reads and
+reasons over everything by default**, and the $0/#3-safe advisory engines that used
+to ship OFF now ship ON. Nothing here changes non-negotiable #3 — the close/escalate
+decision is still `case_manager.decide()` and only `decide()`; everything below is
+routing, cost-governance, or presentation.
+
+### Comprehensive ingestion — every event, risk-scored, never dropped
+
+`background_scan_enabled` now defaults **`true`** (§6, §25): every correlated cluster
+from every source is risk-scored (0–100) and made visible, whether or not it is
+auto-forwarded to the strong-LLM investigation.
+
+- **`alerts`-role feeds** (§29 — SIEM-generated detections) bypass the gate entirely
+  and correlate in **`EVERY`** mode: every alert becomes exactly one case
+  (same-signature bursts still coalesce onto one open case, #4).
+- **`events`-role feeds** auto-forward through a **deterministic risk gate**:
+  `risk_score >= auto_investigate_risk_floor` (default **70** — the cross-vendor
+  "High" severity-band floor). Below-floor clusters stay **`$0` OPEN candidates** —
+  risk-scored and visible in Cases, never dropped (#4). The `auto_forward_allowlist`
+  (§25) still works exactly as before and forwards a listed rule regardless of risk.
+- A **per-source, per-poll-tick cap** (`caps.max_auto_investigations_per_tick`,
+  default **25**) bounds how many clusters one source can forward to the strong LLM
+  in a single tick; cap-deferred candidates **drain** to investigation on a later
+  tick once headroom frees, and investigations run **sequentially** (never a burst
+  fan-out) so provider load stays predictable. The push-ingest path applies the
+  exact same gate as the pull poller. The **daily USD budget is the one GLOBAL
+  bound** across every source — the per-tick cap only smooths *when* spend happens,
+  not the ceiling.
+
+### The autopilot dial
+
+`autopilot_profile` (**Settings → Organization → Advanced**, `conservative` |
+**`balanced`** (default) | `aggressive`) moves the three knobs above together:
+
+| Profile | Risk floor | Daily budget | Per-tick cap |
+|---|---|---|---|
+| `conservative` | 90 | $5 | 10 |
+| `balanced` (default) | 70 | $10 | 25 |
+| `aggressive` | 40 | $50 | 100 |
+
+Applying a profile only writes `auto_investigate_risk_floor` / `budget.daily_usd` /
+`caps.max_auto_investigations_per_tick` — it is a pure config-writer and never
+touches `decide()`. (The floors track cross-vendor entity-risk banding — 70 ≈ the
+"High" band start, 90 ≈ "Critical", 40 ≈ "Medium"; $10/day is roughly a coffee
+budget, an order of magnitude below a typical AI-SOC entry price.)
+
+### The default budget backstop
+
+`BudgetConfig` (§22) now defaults **`enabled: true`, `daily_usd: 10`,
+`soft_warn_pct: 0.8`, `on_exceed: "warn"`** — the one thing that keeps "read
+everything by default" from turning into "spend everything." Crossing the ceiling
+in `warn` mode never blocks a call; an operator opts into hard `on_exceed: "block"`
+if they want the ceiling to actually stop spend. Either way, a budget-blocked
+investigation fails safe to `NEEDS_HUMAN` (#3) — never a silent drop, never a
+silent close.
+
+### What's ON by default now, and what's still opt-in
+
+**Default ON (Round 10):** background scan (above), the deterministic risk gate,
+the budget backstop, **adaptive threshold tuning** (§15, with `shadow_eval`
+**forced on** even for a migrated tenant), **campaigns** (§16), **cross-source
+correlation** (§13), the **SLA policy** and **priority matrix** (advisory
+badges/reporting), **realtime SSE** (the live-update plumbing behind §0's app
+shell), the **threshold-automation engine** (§14 — the engine runs, but ships with
+an empty `rules: []`, so it is a byte-identical no-op until an operator adds a
+rule), and **entity baseline** (§17) as a pure producer — it learns from day one
+(the warm-up gauge + a silent-source/volume-flood detector) but still never
+triggers an investigation by itself.
+
+**Still opt-in:** batch inference (§22), `budget.on_exceed: "block"`, any
+`run_playbook` / `notify` action on a case-automation rule (§14), and
+baseline-driven auto-investigation — baseline stays advisory-only (#3/#4).
+
+### Migration — an announcement, not a silent flip
+
+A `Preferences` document **persisted before this round** auto-adopts the new ON
+defaults **exactly once** (an internal `autopilot_config_version` marker) and sets
+`show_autopilot_banner: true`, so the change is surfaced, not silent: the
+`AutomationNudge` card on Overview — previously a "turn this on" prompt — is
+**inverted** into an "autopilot is ON — here's what it's doing, and how to turn it
+off" reassurance card. Any explicit opt-out an operator saved *after* the marker is
+preserved byte-for-byte — the migration never re-overwrites a deliberate choice. A
+**fresh install** simply starts at the new defaults with no banner at all.
+
+### Coverage observability — "am I seeing everything?"
+
+Reading everything only matters if you can tell it's actually happening:
+
+- **`GET /api/sources/health`** (§2) gained additive per-source fields:
+  `last_poll_at` / `last_poll_ok` / `last_poll_error`, `events_per_min`, and a
+  `silent` flag — a multi-feed source whose feeds **all** raise now correctly
+  reports `last_poll_ok: false` instead of merely looking quiet.
+- **`GET /api/sources/coverage`** (new) rolls those rows up into one answer:
+  `{sources_total, sources_enabled, sources_silent, events_per_min,
+  alerts_triaged_24h, worst_last_event_seconds}`.
+- The webui surfaces this as a **coverage banner** atop **Sources** (§2 — honest,
+  server-truth per-row status straight from `/health`, no more guessing) and a
+  **coverage tile** on **Overview**.
+- The **Noise-Reduction funnel** (Overview) gained an honest **"awaiting /
+  candidate"** stage, so a below-floor `events`-role cluster shows up as exactly
+  what it is — scored and waiting, not silently discarded.
+- **`AuditDoc.source_id`** is now recorded on every audited action, so
+  **`GET /api/audit?source_id=<id>`** (§31) narrows the append-only log to one
+  source's history — useful for confirming a specific connector is actually
+  polling.
+
+All of this is read-only and advisory: nothing in this section can set a case's
+status, verdict, or disposition, and none of it ever calls `decide()`
+(non-negotiable #3).
+
+---
+
+## 34. Safety guarantees you can rely on
 
 These are enforced in **code**, not prompts (see `SECURITY.md`):
 

@@ -484,20 +484,30 @@ class InvestigationPipeline:
             return case
 
     async def register_candidate(
-        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences
+        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences,
+        *, awaiting_reason: str = "",
     ) -> Case:
         """Create/refresh an OPEN candidate case with NO LLM cost (deterministic
         risk only). Every correlated cluster becomes a visible case so nothing is
         ever dropped; auto-forwarded clusters are investigated separately.
 
+        ``awaiting_reason`` (optional) is an honest, already-render-safe stage label
+        explaining WHY this cluster is not (yet) LLM-reasoned — e.g. "risk 33 is below the
+        auto-investigate floor 70", "deferred: per-tick auto-investigation cap reached".
+        It is recorded on the candidate ``summary`` so the UI can honestly show candidates
+        are awaiting analysis; it NEVER feeds ``decide()`` (advisory presentation, #3).
+
         The ``find_open_by_signature → save`` critical section is serialized PER
         SIGNATURE (:meth:`signature_lock`) so two concurrent per-source pollers
         registering the SAME signature never both mint a candidate case (#4)."""
         async with self.signature_lock(cluster.signature):
-            return await self._register_candidate_locked(cluster, source_surface, prefs)
+            return await self._register_candidate_locked(
+                cluster, source_surface, prefs, awaiting_reason=awaiting_reason
+            )
 
     async def _register_candidate_locked(
-        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences
+        self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences,
+        *, awaiting_reason: str = "",
     ) -> Case:
         existing = await self._cases.find_open_by_signature(cluster.signature)
         case_id = existing.case_id if existing else new_id("case-")
@@ -529,7 +539,9 @@ class InvestigationPipeline:
             title=truncate(
                 f"{cluster.entity.type.value}:{cluster.entity.value} — "
                 f"{', '.join(cluster.rule_values) or 'activity'}", 200),
-            summary="Candidate cluster awaiting investigation.",
+            summary=truncate(
+                f"Candidate awaiting analysis — {awaiting_reason}." if awaiting_reason
+                else "Candidate cluster awaiting investigation.", 300),
             history=(existing.history if existing else []),
             verdict_history=(existing.verdict_history if existing else []),
             trigger_reason=_trigger(existing, cluster),

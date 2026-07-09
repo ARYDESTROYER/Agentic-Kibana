@@ -11,7 +11,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { getMock, putMock } = vi.hoisted(() => ({ getMock: vi.fn(), putMock: vi.fn() }));
 vi.mock('@/lib/api', () => ({ api: { get: getMock, put: putMock } }));
 
-import { enableRecommendedAutomation, anyEnabled, anyFailed } from '../automation';
+import {
+  enableRecommendedAutomation,
+  anyEnabled,
+  anyFailed,
+  disableAutopilot,
+  anyDisabled,
+  setAutopilotProfile,
+  AUTOPILOT_PROFILES,
+} from '../automation';
 
 describe('enableRecommendedAutomation', () => {
   beforeEach(() => {
@@ -82,5 +90,68 @@ describe('enableRecommendedAutomation', () => {
     expect(res.tuning).toBe('failed');
     expect(res.campaigns).toBe('enabled');
     expect(putMock).toHaveBeenCalledWith('campaigns/config', { enabled: true });
+  });
+});
+
+describe('autopilot dial + one-click OFF (overhaul)', () => {
+  beforeEach(() => {
+    getMock.mockReset().mockResolvedValue({ config: { enabled: true, shadow_eval: true } });
+    putMock.mockReset().mockResolvedValue({ ok: true });
+  });
+
+  it('AUTOPILOT_PROFILES matches the STANDARDS bounds', () => {
+    expect(AUTOPILOT_PROFILES.conservative).toEqual({
+      auto_investigate_risk_floor: 90,
+      daily_usd: 5,
+      max_auto_investigations_per_tick: 10,
+    });
+    expect(AUTOPILOT_PROFILES.balanced.auto_investigate_risk_floor).toBe(70);
+    expect(AUTOPILOT_PROFILES.aggressive.daily_usd).toBe(50);
+  });
+
+  it('setAutopilotProfile deep-merges the three resolved knobs onto settings', async () => {
+    const ok = await setAutopilotProfile('conservative');
+    expect(ok).toBe(true);
+    expect(putMock).toHaveBeenCalledWith('settings', {
+      autopilot_profile: 'conservative',
+      auto_investigate_risk_floor: 90,
+      caps: { max_auto_investigations_per_tick: 10 },
+      budget: { daily_usd: 5 },
+    });
+  });
+
+  it('setAutopilotProfile returns false on failure (never throws)', async () => {
+    putMock.mockRejectedValue(new Error('403'));
+    await expect(setAutopilotProfile('aggressive')).resolves.toBe(false);
+  });
+
+  it('disableAutopilot halts the master switch + tuning, and campaigns for admins', async () => {
+    const res = await disableAutopilot({ tuning: true, campaigns: true });
+    expect(putMock).toHaveBeenCalledWith('settings', { background_scan_enabled: false });
+    expect(getMock).toHaveBeenCalledWith('tuning/config');
+    expect(putMock).toHaveBeenCalledWith(
+      'tuning/config',
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(putMock).toHaveBeenCalledWith('campaigns/config', { enabled: false });
+    expect(res.autopilot).toBe('disabled');
+    expect(res.campaigns).toBe('disabled');
+    expect(anyDisabled(res)).toBe(true);
+  });
+
+  it('disableAutopilot skips campaigns without the admin grant', async () => {
+    const res = await disableAutopilot({ tuning: true, campaigns: false });
+    expect(res.autopilot).toBe('disabled');
+    expect(res.campaigns).toBe('skipped');
+    const putPaths = putMock.mock.calls.map((c) => c[0]);
+    expect(putPaths).not.toContain('campaigns/config');
+  });
+
+  it('disableAutopilot reports failure without throwing (setup never blocked)', async () => {
+    putMock.mockRejectedValue(new Error('boom'));
+    const res = await disableAutopilot({ tuning: true, campaigns: true });
+    expect(res.autopilot).toBe('failed');
+    expect(res.campaigns).toBe('failed');
+    expect(anyDisabled(res)).toBe(false);
   });
 });

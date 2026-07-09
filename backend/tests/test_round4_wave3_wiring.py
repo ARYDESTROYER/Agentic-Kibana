@@ -93,9 +93,11 @@ def test_appstate_exposes_the_four_round4_services():
 
 def test_batch_service_and_engines_are_gated_off_by_default():
     st = _build_state()
-    assert st.prefs.threshold_tuning.enabled is False
-    assert st.prefs.campaign.enabled is False
-    assert st.prefs.baseline.enabled is False
+    # Autopilot overhaul: the $0/#3-safe smart engines default ON; only the BATCH cost
+    # lever (+ its service) stays off by default.
+    assert st.prefs.threshold_tuning.enabled is True
+    assert st.prefs.campaign.enabled is True
+    assert st.prefs.baseline.enabled is True
     assert st.prefs.batch.enabled is False
     assert st.batch_service.enabled() is False
 
@@ -127,10 +129,11 @@ async def test_fresh_appstate_boots_with_all_round4_features_disabled():
         # No batch/tuning/baseline background loop attribute leaked onto the AppState.
         assert not hasattr(st, "_scheduler_task")
         assert not hasattr(st, "_tuning_task")
-        # All four features remain OFF after startup loads persisted prefs.
-        assert st.prefs.threshold_tuning.enabled is False
-        assert st.prefs.campaign.enabled is False
-        assert st.prefs.baseline.enabled is False
+        # Autopilot overhaul: the smart engines default ON, but with start_poller=False no
+        # scheduler ticks, so nothing ran; the BATCH cost lever stays off.
+        assert st.prefs.threshold_tuning.enabled is True
+        assert st.prefs.campaign.enabled is True
+        assert st.prefs.baseline.enabled is True
         assert st.prefs.batch.enabled is False
         # The stores are still reachable + empty (nothing ran).
         assert await st.tuning_store.list() == []

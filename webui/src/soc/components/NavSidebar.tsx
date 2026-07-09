@@ -630,7 +630,12 @@ export function NavSidebar({
   return (
     <aside
       className={cn(
-        'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 motion-reduce:transition-none',
+        // Springy `--motion-ease-premium` easing on the rail-width settle. motion.dev's
+        // spring/`layoutId` continuity is deliberately NOT used here: NavSidebar is on the
+        // eager AppShell first-paint graph, and statically importing motion.dev would drag
+        // its runtime onto the entry chunk (breaking the <400 kB budget). Full spring/
+        // shared-layout on the nav is deferred to a lazy-boundary follow-up.
+        'sticky top-0 flex h-screen shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
         collapsed ? 'w-16 items-center' : 'w-60',
         // TASK 6 — while a floating rail is expanded over the content (hover/focus), give
         // the drawer a drop shadow so it reads as an overlay above the page. Only when it

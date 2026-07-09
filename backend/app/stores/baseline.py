@@ -140,6 +140,11 @@ class BaselineStore:
         """Every signature that has a persisted baseline (sorted, stable)."""
         return sorted((await self._load()).keys())
 
+    async def signature_count(self) -> int:
+        """How many distinct series are persisted (used to assert the engine-side
+        ``max_series`` LRU bound keeps the durable set bounded)."""
+        return len(await self._load())
+
     async def delete(self, signature: str) -> bool:
         """Drop one signature's whole baseline (e.g. on a cases/logs reset). Returns
         whether anything was removed."""

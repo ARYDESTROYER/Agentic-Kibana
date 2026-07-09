@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +82,22 @@ class AppState:
         # holds per-(signature, bucket) sketches in memory so the funnel's anomaly pass
         # improves across polls. Rebuilt on _wire() (fresh prefs/store handles).
         self._funnel_baseline = None
+        # Autopilot overhaul (A4): the long-lived REALTIME baseline PRODUCER — a SEPARATE
+        # engine from the funnel one, fed every tick with per-cluster + per-source ingest
+        # volume so the baseline learns from day one (advisory anomaly + silent-source /
+        # flood detection). Warmed from baseline_store on first use; rebuilt on _wire().
+        self._realtime_baseline = None
+        # Per-source last-event wall clock (v0 flat silent-source check — works BEFORE the
+        # baseline warm-up). Kept across _wire() rebuilds so a source edit never resets a
+        # source's silence clock. Advisory only — never feeds decide() (#3).
+        self._source_last_event: dict[str, datetime] = {}
+        # Per-source count of NON-EMPTY observed ticks (how many times this source actually
+        # delivered events). Kept across _wire() rebuilds like _source_last_event. Gates the
+        # silent-source check (B3): only an ESTABLISHED source — one with a genuine activity
+        # history — earns the raised long-quiet tolerance; a barely-seen / just-started
+        # source keeps the conservative cold-start flat window. Advisory only — never feeds
+        # decide() (#3).
+        self._source_event_ticks: dict[str, int] = {}
         self._wire()
 
     # ------------------------------------------------------------------ #
@@ -362,6 +379,11 @@ class AppState:
         # never calls the hook and the realtime path is byte-identical. Rebuilt on _wire()
         # (fresh baseline model). Best-effort — a rewire never breaks on this assignment.
         self._funnel_baseline = None
+        # Autopilot overhaul (A4): reset the realtime baseline producer too so it re-warms
+        # from the (possibly rebuilt) baseline_store on next observe. Cheap — it is lazily
+        # rebuilt on first tick. The per-source silence clock (``_source_last_event``)
+        # deliberately SURVIVES a rewire.
+        self._realtime_baseline = None
         try:
             # Assign the hook DIRECTLY to the PRIMARY child so correctness does not depend
             # on a subsequent rebuild() running first (FINDING #8). The poller-concurrency
@@ -380,8 +402,14 @@ class AppState:
         # ``IngestService`` records directly. Fail-open: the poll/ingest path is byte-identical
         # when the sink is unset, and a counter-wiring glitch never breaks a rewire.
         try:
-            self.poller.set_noise_sink(self.noise_counters.record)
-            self._real_ingest_service._noise_sink = self.noise_counters.record
+            # Autopilot overhaul (A4): the sink is now a COMPOSITE — the durable
+            # Noise-Reduction counters (Round-7) PLUS the realtime baseline producer
+            # (per-source ingest volume for silent-source / flood detection). Both are
+            # advisory + fail-open; the counter behaviour is byte-identical (the baseline
+            # branch is a pure additive observer that never raises into the poll/ingest
+            # path). ``noise_counters.record`` still receives the FULL payload unchanged.
+            self.poller.set_noise_sink(self._noise_and_baseline_sink)
+            self._real_ingest_service._noise_sink = self._noise_and_baseline_sink
         except Exception as exc:  # noqa: BLE001 — counter wiring must never break a rewire
             logger.warning("noise-counter sink wiring failed (%s); counters disabled", exc)
 
@@ -895,6 +923,204 @@ class AppState:
                     await self.baseline_store.put(sig, snap)
         except Exception as exc:  # noqa: BLE001 — persistence is best-effort
             logger.debug("funnel baseline flush failed (%s)", exc)
+
+    # ------------------------------------------------------------------ #
+    # Autopilot overhaul (A4) — the REALTIME baseline PRODUCER + silent-source detector.
+    #
+    # A pure advisory PRODUCER wired onto the per-tick noise sink: it folds per-source
+    # ingest volume (and, when a caller supplies it, per-cluster volume) into a long-lived,
+    # persisted baseline so "learn over time" is real from day one. It NEVER triggers an
+    # investigation, closes/escalates a case, or touches ``decide()`` (#3) — learning-as-
+    # producer is default-ON, learning-as-trigger stays opt-in. Every method is fail-open:
+    # a glitch degrades to "no signal this tick", never a dropped/duplicated event.
+    # ------------------------------------------------------------------ #
+    async def _ensure_realtime_baseline(self):
+        """The long-lived REALTIME baseline producer, warmed from the persistent
+        ``baseline_store`` on first use (so it resumes a warmed baseline across restarts)
+        + LRU-bounded by ``prefs.baseline.max_series``. Built lazily; reset on _wire()."""
+        if self._realtime_baseline is None:
+            engine = self.build_baseline_engine()
+            try:
+                series = await self.baseline_store.snapshot()
+                for sig, buckets in (series or {}).items():
+                    engine.restore(sig, buckets)
+            except Exception as exc:  # noqa: BLE001 — a cold baseline is fine
+                logger.debug("realtime baseline warm-from-store failed (%s); cold start", exc)
+            self._realtime_baseline = engine
+        return self._realtime_baseline
+
+    def _baseline_learning_on(self) -> bool:
+        """Whether the baseline PRODUCER should observe this tick: baseline learning is
+        enabled AND we are not running against isolated demo data."""
+        prefs = self.prefs
+        if getattr(getattr(prefs, "demo", None), "active", False):
+            return False
+        return bool(getattr(getattr(prefs, "baseline", None), "enabled", False))
+
+    async def _flush_realtime_baseline(self, engine, signature: str) -> None:
+        """Persist the ONE signature's sketches back to the baseline_store (best-effort),
+        then delete any signatures the LRU bound evicted this tick so ``max_series`` bounds
+        the durable store too, not just memory."""
+        try:
+            snap = engine.snapshot(signature)
+            if snap:
+                await self.baseline_store.put(signature, snap)
+        except Exception as exc:  # noqa: BLE001 — persistence is best-effort
+            logger.debug("realtime baseline flush failed (%s)", exc)
+        try:
+            for evicted in engine.drain_evictions():
+                if evicted != signature:
+                    await self.baseline_store.delete(evicted)
+        except Exception as exc:  # noqa: BLE001 — eviction cleanup is best-effort
+            logger.debug("realtime baseline eviction cleanup failed (%s)", exc)
+
+    async def observe_source_volume(self, source_id, count, *, when: datetime | None = None):
+        """Fold ONE tick's PER-SOURCE ingest volume into the baseline (silent-source /
+        flood producer, A4). ALWAYS stamps the source's last-event wall clock when
+        ``count > 0`` (so the v0 flat silent check works BEFORE the baseline warm-up),
+        then — only when baseline learning is on — folds ``count`` into the namespaced
+        ``__source_volume__:<id>`` series and persists it. Returns the advisory
+        :class:`BaselineSignal` (or None). Advisory only — NEVER triggers an
+        investigation / touches ``decide()`` (#3). Fail-open."""
+        sid = str(source_id or "").strip()
+        if not sid:
+            return None
+        now = when or datetime.now(timezone.utc)
+        try:
+            if int(count) > 0:
+                self._source_last_event[sid] = now
+                # B3: count this non-empty tick so the silent-source check can tell an
+                # established source (raised long-quiet tolerance) from a barely-seen one.
+                self._source_event_ticks[sid] = self._source_event_ticks.get(sid, 0) + 1
+        except (TypeError, ValueError):
+            pass
+        if not self._baseline_learning_on():
+            return None
+        try:
+            from .engine.baseline import source_volume_signature
+
+            engine = await self._ensure_realtime_baseline()
+            sig = source_volume_signature(sid)
+            signal = engine.observe(sig, engine.bucket_for_time(now), float(count))
+            await self._flush_realtime_baseline(engine, sig)
+            return signal
+        except Exception as exc:  # noqa: BLE001 — the producer must never break a tick
+            logger.debug("source-volume baseline observe failed (%s)", exc)
+            return None
+
+    async def observe_cluster_volume(self, signature, count, *, when: datetime | None = None):
+        """Fold ONE tick's PER-CLUSTER volume into the baseline for an advisory anomaly
+        chip (A4). A hook a caller (the poll/ingest batch) may invoke per correlated
+        cluster; no-op unless baseline learning is on. Returns the advisory
+        :class:`BaselineSignal` (or None). It can NEVER trigger an investigation by
+        itself (#3) — the signal is presentation-only. Fail-open."""
+        sig = str(signature or "").strip()
+        if not sig or not self._baseline_learning_on():
+            return None
+        now = when or datetime.now(timezone.utc)
+        try:
+            engine = await self._ensure_realtime_baseline()
+            signal = engine.observe(sig, engine.bucket_for_time(now), float(count))
+            await self._flush_realtime_baseline(engine, sig)
+            return signal
+        except Exception as exc:  # noqa: BLE001 — the producer must never break a tick
+            logger.debug("cluster-volume baseline observe failed (%s)", exc)
+            return None
+
+    #: Multiplier on ``poll_interval_seconds`` for the COLD-START flat check — the
+    #: conservative fallback used before a source has a genuine activity history. k=4 ~
+    #: four missed polls, an "it stopped" signal, not a single jittered gap.
+    _SILENT_SOURCE_K = 4.0
+    #: Absolute floor (seconds) on the silence threshold for an ESTABLISHED source. B3
+    #: recalibration: the old flat check flagged a source SILENT after only ~k×poll_interval
+    #: (~2 min at the default 30s interval), which false-positives constantly on the
+    #: legitimately quiet / bursty ALERT feeds this overhaul makes standard. A source with a
+    #: real activity history is therefore tolerated quiet for at least this long (30 minutes)
+    #: before being called silent — so a true outage still surfaces without spamming normal
+    #: quiet gaps. Advisory only — never feeds decide() (#3).
+    _SILENT_SOURCE_FLOOR_SECONDS = 30 * 60
+    #: Number of prior NON-EMPTY observed ticks that makes a source "established" (and thus
+    #: eligible for the raised floor above). Below this a source keeps the conservative
+    #: cold-start flat check — a barely-seen / just-started source is judged on the short
+    #: window; an established one on the long window (so brief quiet gaps never spam).
+    _SILENT_SOURCE_ESTABLISHED_OBS = 2
+
+    def silent_sources(self, prefs: Preferences | None = None, *, now: datetime | None = None,
+                       k: float | None = None) -> list[str]:
+        """SILENT-SOURCE check: enabled sources whose last observed event is older than the
+        silence threshold. Pure + advisory (feeds a UI flag, never ``decide()``, #3) and
+        works BEFORE the ~14d baseline warm-up.
+
+        Two-tier threshold (B3 recalibration — stop false-positives on quiet/bursty ALERT
+        feeds): an ESTABLISHED source (one that has delivered at least
+        ``_SILENT_SOURCE_ESTABLISHED_OBS`` non-empty ticks) is only flagged once quiet past
+        ``max(k×poll_interval, _SILENT_SOURCE_FLOOR_SECONDS)`` — a raised, minutes-to-hours
+        floor — so a normal quiet gap on a real feed is never spammed as silent. A barely-
+        seen / just-started source keeps the conservative cold-start flat check
+        (``k×poll_interval``). A source never yet seen is NOT flagged (it is 'awaiting first
+        event', not 'went silent')."""
+        prefs = prefs or self.prefs
+        now = now or datetime.now(timezone.utc)
+        kk = float(self._SILENT_SOURCE_K if k is None else k)
+        interval = max(1, int(getattr(prefs, "poll_interval_seconds", 30) or 30))
+        base = kk * interval
+        floor = float(self._SILENT_SOURCE_FLOOR_SECONDS)
+        silent: list[str] = []
+        for s in getattr(prefs, "sources", []) or []:
+            if not getattr(s, "enabled", False):
+                continue
+            sid = getattr(s, "id", None)
+            last = self._source_last_event.get(sid)
+            if last is None:
+                continue  # never reported yet — awaiting first event, not silent
+            # Established sources (a real activity history) get the raised long-quiet
+            # tolerance; cold-start sources keep the short flat window. Observation counts
+            # come from observe_source_volume; a directly-stamped clock with no count reads
+            # as 0 → the conservative cold-start window.
+            established = self._source_event_ticks.get(sid, 0) >= self._SILENT_SOURCE_ESTABLISHED_OBS
+            threshold = max(base, floor) if established else base
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            if (now - last).total_seconds() > threshold:
+                silent.append(s.id)
+        return silent
+
+    async def _noise_and_baseline_sink(self, payload: dict) -> None:
+        """Composite per-tick sink (wired in _wire): the durable Noise-Reduction counters
+        PLUS the realtime baseline producer. Both are advisory + fail-open; a glitch in
+        either NEVER breaks a poll/ingest tick (#3). Counter behaviour is byte-identical —
+        ``noise_counters.record`` receives the FULL payload unchanged; the baseline branch
+        is a pure additive observer."""
+        try:
+            await self.noise_counters.record(payload)
+        except Exception as exc:  # noqa: BLE001 — counters never break a tick
+            logger.debug("noise-counter record failed: %s", exc)
+        try:
+            await self._observe_tick_volume(payload)
+        except Exception as exc:  # noqa: BLE001 — the producer never breaks a tick
+            logger.debug("realtime baseline tick observe failed: %s", exc)
+
+    async def _observe_tick_volume(self, payload: dict) -> None:
+        """Extract the per-source ingest total from a noise-sink payload and feed it to the
+        realtime baseline producer. ``source_id`` is threaded onto the payload by the
+        poller/ingest sink call sites (coverage-observability); when it is absent (an older
+        call site) there is no per-source key to attribute the volume to, so the per-source
+        producer is skipped — direct callers (and the observability batch) can still invoke
+        ``observe_source_volume``/``observe_cluster_volume`` explicitly."""
+        if not isinstance(payload, dict):
+            return
+        source_id = payload.get("source_id")
+        if not source_id:
+            return
+        ingested = payload.get("ingested") or {}
+        total = 0
+        if isinstance(ingested, dict):
+            for v in ingested.values():
+                try:
+                    total += int(v)
+                except (TypeError, ValueError):
+                    continue
+        await self.observe_source_volume(source_id, total)
 
     def _funnel_batch_provider(self, prefs: Preferences) -> str:
         """Pick the batch provider for the funnel: the first configured

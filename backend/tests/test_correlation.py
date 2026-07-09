@@ -104,14 +104,19 @@ def _item(case_id: str, source_id: str, ts: int, et: EntityType, value: str) -> 
     )
 
 
-def test_cross_source_disabled_by_default_is_noop():
-    """Default config → cross_source_correlation.enabled is False → no groups."""
-    assert Preferences().cross_source_correlation.enabled is False
+def test_cross_source_disabled_is_noop():
+    """When cross_source_correlation is disabled → no groups (the off-path).
+
+    (Autopilot overhaul flipped the DEFAULT to ON; here we pin it OFF to exercise the
+    disabled no-op.)"""
+    prefs = _prefs()
+    prefs.cross_source_correlation.enabled = False
+    assert prefs.cross_source_correlation.enabled is False
     items = [
         _item("c1", "srcA", 1_000_000, EntityType.IP, "9.9.9.9"),
         _item("c2", "srcB", 1_000_500, EntityType.IP, "9.9.9.9"),
     ]
-    assert cross_source_correlate(items, _prefs()) == []
+    assert cross_source_correlate(items, prefs) == []
 
 
 def test_cross_source_links_shared_ip_across_two_sources():

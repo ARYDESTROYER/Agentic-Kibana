@@ -86,7 +86,7 @@ async def test_list_campaigns_empty(app_state):
     res = await list_campaigns(state=app_state)
     assert res["campaigns"] == []
     assert res["total"] == 0
-    assert res["enabled"] is False
+    assert res["enabled"] is True   # Autopilot overhaul: campaign clustering defaults ON
 
 
 async def test_list_campaigns_populated_and_shape(app_state):
@@ -227,7 +227,7 @@ async def test_baseline_stats_empty(app_state):
     # Default weekly seasonality → warmup_target = 3 × 168 = 504.
     assert res["warmup_target"] == 504
     assert res["seasonality"] == "hour_of_week"
-    assert res["enabled"] is False
+    assert res["enabled"] is True   # Autopilot overhaul: baseline defaults ON (producer)
 
 
 async def test_baseline_stats_counts_warm_buckets(app_state):

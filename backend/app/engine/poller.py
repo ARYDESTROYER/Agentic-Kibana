@@ -15,6 +15,7 @@ Correctness invariants (Non-negotiable #4), all restart-tested:
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 from typing import Any, Callable
 
@@ -33,6 +34,7 @@ from ..engine.ingest import (
 from ..engine.noise_counters import (
     count_clusters_by_band,
     count_events_by_band,
+    events_per_min_from_ticks,
     severity_scale_for_source,
     zero_bands,
 )
@@ -123,6 +125,20 @@ class Poller:
         # poll cycle. None (the default) → no counters recorded (byte-identical poll path);
         # advisory presentation state only, never feeds ``decide()`` (#3).
         self._noise_sink: Callable | None = None
+        # Coverage observability (A5.1): an IN-MEMORY per-source "last tick" snapshot,
+        # populated at the END of every ``poll_once`` (and, on a failed tick, by
+        # ``PollerManager._run_one``'s except path via ``record_tick``). Shape:
+        # ``{ts, ok, error, stats, events_per_min}``. This gives a genuine wall-clock
+        # "last poll attempt" + ``ok``/``error`` per source — independent of whether any
+        # event arrived — so a broken connector (``ok:False``) is no longer indistinguishable
+        # from a legitimately-quiet one (frozen cursor). In-memory only (resets on restart;
+        # the durable cursor stays the source of truth for "has this ever polled"), zero
+        # schema change. Advisory presentation state; NEVER feeds ``decide()`` (#3). The
+        # rolling ``_recent_ticks`` deque of ``(epoch_seconds, polled)`` samples smooths the
+        # ``events_per_min`` rate over the last few ticks (same pattern as
+        # ``IngestService._recent``).
+        self._last_tick: dict[str, Any] | None = None
+        self._recent_ticks: collections.deque = collections.deque(maxlen=6)
         # The durable cursor key used by the LEGACY / un-fed union path (a source with
         # no ``index_patterns`` feeds). Defaults to ``"primary"`` so a single-source
         # deployment reads the legacy ``CURSOR_DOC_ID`` doc unchanged (#4 — no
@@ -230,6 +246,32 @@ class Poller:
         boundary = [e.id for e in events if e.timestamp_millis == max_ts] if max_ts > 0 else []
         return FeedScan(events=events, scan_max_ts=max_ts, scan_boundary_ids=boundary)
 
+    def record_tick(self, *, ok: bool, error: str | None = None,
+                    stats: dict[str, Any] | None = None) -> None:
+        """Capture this poll cycle's IN-MEMORY "last tick" snapshot (coverage observability,
+        A5.1). Called at the END of a successful ``poll_once`` (``ok=True``) AND by
+        ``PollerManager._run_one``'s except path on a failed tick (``ok=False`` + the error
+        string). Fail-open — a snapshot glitch must never break a poll. Advisory only,
+        never feeds ``decide()`` (#3). The error string is source-controlled connector text
+        and is rendered as PLAIN text by the health surface (#9)."""
+        try:
+            moment = now_utc()
+            polled = int((stats or {}).get("polled", 0) or 0) if isinstance(stats, dict) else 0
+            self._recent_ticks.append((moment.timestamp(), polled))
+            self._last_tick = {
+                "ts": moment.isoformat(),
+                "ok": bool(ok),
+                "error": (str(error) if error else None),
+                "stats": dict(stats) if isinstance(stats, dict) else {},
+                "events_per_min": self.events_per_min(),
+            }
+        except Exception:  # noqa: BLE001 — observability must never break a poll
+            pass
+
+    def events_per_min(self) -> float:
+        """Smoothed events/min over the last few ticks (A5.1). ``0.0`` until ≥2 ticks."""
+        return events_per_min_from_ticks(self._recent_ticks)
+
     async def poll_once(self, prefs: Preferences | None = None) -> dict[str, Any]:
         prefs = prefs or self._get_prefs()
         cold_from = to_millis(now_utc()) - prefs.cold_start_lookback_minutes * 60 * 1000
@@ -257,6 +299,17 @@ class Poller:
         # newer events forever (the dropped hits are owned + processed by the narrower
         # feed via that feed's own cursor; no skip, no dup).
         feed_state: list[tuple[str, Cursor, Cursor]] = []
+        # Coverage observability (B3 silent-vs-broken fix): a MULTI-FEED source isolates
+        # each feed's failure (the per-feed try/except below logs + continues). Before this
+        # fix, ``poll_once`` then recorded ``ok=True`` at the end regardless — so a source
+        # whose EVERY feed raised reported ``last_poll_ok=True`` and showed as HEALTHY on
+        # GET /api/sources/health (only the legacy un-fed path, where the exception escapes,
+        # detected failure). Accumulate each failed feed's ``(feed_id, error)`` here and fold
+        # it into ``record_tick`` at the end: any failed feed → ``ok=False`` + the error
+        # list, while partial success still records the events that DID arrive. Advisory
+        # only; never feeds ``decide()`` (#3). The un-fed path leaves this empty → byte-
+        # identical ``ok=True``.
+        feed_failures: list[tuple[str, str]] = []
         if feeds:
             for feed in feeds:
                 # Per-feed exception isolation (#4): a single feed whose operator
@@ -269,11 +322,15 @@ class Poller:
                     key = self._cursor_key(prefs, feed.id)
                     fcursor = await self._cursor_store.load_keyed(key)
                     scan = await self._poll_feed_scan(prefs, feed, fcursor, cold_from)
-                except Exception:  # noqa: BLE001 — isolate one feed's failure
+                except Exception as exc:  # noqa: BLE001 — isolate one feed's failure
                     logger.exception(
                         "poll_feed failed for feed %s; skipping it this tick (cursor untouched)",
                         getattr(feed, "id", "?"),
                     )
+                    # Record this feed's failure so the tick is reported ok=False below
+                    # (silent-vs-broken fix) — the cursor stays untouched, healthy feeds
+                    # proceed, and the events that DID arrive are still processed.
+                    feed_failures.append((str(getattr(feed, "id", "?")), str(exc)))
                     continue
                 fbatch = scan.events
                 # Advance over the full scanned watermark, not just the kept batch (#4).
@@ -368,6 +425,13 @@ class Poller:
             # / implicit-source case, byte-identical to before).
             own_source = prefs.source_by_id(getattr(self._source, "connector_id", None))
             strategy = prefs.entity_strategy_for(own_source or prefs.primary_source())
+            # Comprehensive ingestion (#1): the FEED ROLE is threaded into ``correlate``
+            # PER EVENT — the connector stamps ``ev.index_role`` from each feed's role, so
+            # this mixed multi-feed window keeps events-role events on the THRESHOLD path
+            # while ALERTS-role events each form EXACTLY one cluster (mode EVERY). We pass no
+            # single ``role`` here precisely because the window unions feeds of DIFFERENT
+            # roles; correlate reads the per-event role. Same-signature bursts still coalesce
+            # onto ONE open case downstream (#4).
             clusters = correlate(window_events, prefs, entity_strategy=strategy)
             # Attach/investigate/register is the SHARED ingest path (identical for
             # push receivers): see app/engine/ingest.handle_clusters.
@@ -441,6 +505,12 @@ class Poller:
                     "clustered": noise_clustered,
                     "suppressed": noise_suppressed,
                     "ignored": noise_ignored,
+                    # Coverage observability (A5.4): thread THIS source's already-resolved
+                    # identity onto the delta so the durable counters keep a per-source
+                    # ``by_source`` breakdown AND the realtime baseline/silent-source clock
+                    # (state._observe_tick_volume) can attribute the volume. Additive — a
+                    # None source_id folds into the pooled totals only (byte-identical).
+                    "source_id": getattr(self._source, "connector_id", None),
                 })
             except Exception as exc:  # noqa: BLE001 — the sink must never break a poll cycle
                 logger.debug("noise-counter sink failed: %s", exc)
@@ -457,10 +527,27 @@ class Poller:
 
         await self._audit.record(
             action_type=ActionType.POLL, surface="poller", actor="poller",
+            source_id=(getattr(self._source, "connector_id", None) or None),
             result_summary=(f"polled={stats['polled']} new={stats['new']} "
                             f"clusters={stats['clusters']} investigated={stats['investigated']} "
                             f"candidates={stats['candidates']} attached={stats['attached']}"),
         )
+        # Coverage observability (A5.1): record this tick's in-memory snapshot AFTER the
+        # durable audit write, so the "last poll attempt" wall-clock + ok/error + events/min
+        # rate are available to GET /api/sources/health without a schema change.
+        #
+        # B3 silent-vs-broken fix: if ANY feed failed this tick (a multi-feed source), record
+        # ``ok=False`` + the accumulated per-feed error list — even though per-feed isolation
+        # let healthy feeds proceed (partial success still recorded the events that arrived).
+        # A multi-feed source where EVERY feed raised is now visibly ``ok=False`` instead of a
+        # misleading ``ok=True``. The un-fed / single-cursor path never populates
+        # ``feed_failures`` → byte-identical ``ok=True``. The error string is source-controlled
+        # connector text, rendered PLAIN by the health surface (#9).
+        if feed_failures:
+            tick_error = "; ".join(f"{fid}: {err}" for fid, err in feed_failures)
+            self.record_tick(ok=False, error=tick_error, stats=stats)
+        else:
+            self.record_tick(ok=True, error=None, stats=stats)
         return stats
 
     async def _attach(self, existing, cluster) -> None:

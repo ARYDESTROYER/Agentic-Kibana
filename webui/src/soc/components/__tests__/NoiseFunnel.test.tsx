@@ -228,6 +228,61 @@ describe('NoiseFunnel', () => {
     const group = screen.getByRole('group', { name: /^Closed by human:/i });
     expect(group).toHaveAttribute('data-state', 'closed');
   });
+
+  it('surfaces the below-floor "Awaiting review" candidate stage ONLY when the backend emits it', () => {
+    // Absent by default → the flow is byte-identical (no candidate row).
+    const base = deriveFunnel(fixture());
+    expect(base.rows.find((r) => r.key === 'candidate' || r.key === 'awaiting')).toBeUndefined();
+    expect(base.rows.map((r) => r.key)).toEqual([
+      'ingested',
+      'clustered',
+      'cases',
+      'auto_cleared',
+      'escalated',
+      'closed',
+    ]);
+
+    // When the backend adds a `candidate` stage it renders between clustered and cases —
+    // honest that below-floor candidates were seen + risk-scored but NOT yet LLM-reasoned.
+    const withCandidate = fixture();
+    withCandidate.stages = [
+      ...withCandidate.stages.slice(0, 2),
+      {
+        key: 'candidate',
+        label: 'Awaiting review',
+        source: 'counters',
+        deterministic: true,
+        total: 120,
+        by_severity: { medium: 60, low: 60 },
+      },
+      ...withCandidate.stages.slice(2),
+    ];
+    const derived = deriveFunnel(withCandidate);
+    expect(derived.rows.map((r) => r.key)).toEqual([
+      'ingested',
+      'clustered',
+      'candidate',
+      'cases',
+      'auto_cleared',
+      'escalated',
+      'closed',
+    ]);
+    const cand = derived.rows.find((r) => r.key === 'candidate')!;
+    expect(cand.total).toBe(120);
+    // It is a spine node, not a terminal case outcome.
+    expect(cand.isOutcome).toBe(false);
+  });
+
+  it('renders the fallback "Awaiting review" label when the candidate stage carries no label', () => {
+    const data = fixture();
+    data.stages = [
+      ...data.stages.slice(0, 2),
+      { key: 'candidate', label: '', source: 'counters', deterministic: true, total: 80, by_severity: {} },
+      ...data.stages.slice(2),
+    ];
+    render(<NoiseFunnel data={data} animate={false} />);
+    expect(screen.getByText('Awaiting review')).toBeInTheDocument();
+  });
 });
 
 describe('ribbonPath (Sankey link geometry)', () => {

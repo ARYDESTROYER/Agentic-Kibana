@@ -1,7 +1,8 @@
 /**
- * AutomationNudge — the Overview onboarding banner (F3).
- *   - auth off / privileged → renders and its "Turn on" button enables the #3-safe
- *     engines through enableRecommendedAutomation (tuning GET-then-PUT + campaigns),
+ * AutomationNudge — the inverted "Autopilot is ON" Overview reassurance card.
+ *   - auth off / privileged → renders the reassurance + sensitivity dial + one-click OFF,
+ *   - changing the sensitivity PUTs the resolved autopilot bounds (deep-merge settings),
+ *   - "Turn autopilot off" halts auto-investigation + tuning (+ campaigns for admins),
  *   - a principal WITHOUT automation:manage → self-hides (no 403 dead-end).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -40,9 +41,9 @@ function renderNudge(overrides?: Partial<{ onEnabled: () => void }>) {
   return { onEnabled };
 }
 
-describe('AutomationNudge (F3)', () => {
+describe('AutomationNudge — inverted autopilot reassurance card', () => {
   beforeEach(() => {
-    getMock.mockReset().mockResolvedValue({ config: { enabled: false } });
+    getMock.mockReset().mockResolvedValue({ config: { enabled: true, shadow_eval: true } });
     putMock.mockReset().mockResolvedValue({ ok: true });
     authMeMock.mockReset().mockResolvedValue({ auth_enabled: false, authenticated: true, user: null });
     rolesGetMock
@@ -50,21 +51,54 @@ describe('AutomationNudge (F3)', () => {
       .mockResolvedValue({ roles: [], default_role: 'analyst_tier1', rbac_enabled: false, matrix: {} });
   });
 
-  it('renders and enables recommended automation on click (auth off)', async () => {
+  it('renders the "Autopilot is on" reassurance with a sensitivity dial + one-click OFF', async () => {
+    renderNudge();
+    expect(await screen.findByTestId('automation-nudge')).toBeInTheDocument();
+    expect(screen.getByText(/Autopilot is on/i)).toBeInTheDocument();
+    // The sensitivity dial + the OFF control are present.
+    expect(screen.getByRole('radio', { name: /Balanced/i })).toBeInTheDocument();
+    expect(screen.getByTestId('autopilot-off')).toBeInTheDocument();
+  });
+
+  it('changing the sensitivity to aggressive PUTs the resolved autopilot bounds', async () => {
     const user = userEvent.setup();
     const { onEnabled } = renderNudge();
 
-    const btn = await screen.findByRole('button', { name: /Turn on recommended automation/i });
-    await user.click(btn);
+    const aggressive = await screen.findByRole('radio', { name: /Aggressive/i });
+    await user.click(aggressive);
 
-    // Tuning is GET-then-PUT with shadow_eval kept true.
-    await waitFor(() => expect(getMock).toHaveBeenCalledWith('tuning/config'));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith(
+        'settings',
+        expect.objectContaining({
+          autopilot_profile: 'aggressive',
+          auto_investigate_risk_floor: 40,
+          caps: { max_auto_investigations_per_tick: 100 },
+          budget: { daily_usd: 50 },
+        }),
+      ),
+    );
+    await waitFor(() => expect(onEnabled).toHaveBeenCalled());
+  });
+
+  it('"Turn autopilot off" halts auto-investigation + tuning (+ campaigns for admins)', async () => {
+    const user = userEvent.setup();
+    const { onEnabled } = renderNudge();
+
+    const off = await screen.findByTestId('autopilot-off');
+    await user.click(off);
+
+    // Master switch off + tuning GET-then-PUT enabled:false.
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith('settings', { background_scan_enabled: false }),
+    );
+    expect(getMock).toHaveBeenCalledWith('tuning/config');
     expect(putMock).toHaveBeenCalledWith(
       'tuning/config',
-      expect.objectContaining({ enabled: true, shadow_eval: true }),
+      expect.objectContaining({ enabled: false }),
     );
-    // Campaigns via the PLURAL path (auth off → admin grant holds).
-    expect(putMock).toHaveBeenCalledWith('campaigns/config', { enabled: true });
+    // Campaigns off (auth off → admin grant holds).
+    expect(putMock).toHaveBeenCalledWith('campaigns/config', { enabled: false });
     await waitFor(() => expect(onEnabled).toHaveBeenCalled());
   });
 
@@ -83,10 +117,7 @@ describe('AutomationNudge (F3)', () => {
 
     renderNudge();
 
-    // Once the (auth-on, no-grant) context loads, the nudge removes itself.
-    await waitFor(() =>
-      expect(screen.queryByTestId('automation-nudge')).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByTestId('automation-nudge')).toBeNull());
     expect(putMock).not.toHaveBeenCalled();
   });
 });

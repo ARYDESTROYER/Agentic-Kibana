@@ -35,15 +35,20 @@ import {
   RefreshCw,
   KeyRound,
   Check,
+  Activity,
+  ShieldCheck,
+  AlertTriangle,
+  type LucideIcon,
 } from 'lucide-react';
 import type { Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
 import type {
   ConnectorManifest,
+  SourceCoverage,
   SourceHealthRow,
   SourceInstance,
 } from '@/lib/types';
-import { humanizeToken, humanizeAge, formatTimestamp, DASH } from '@/lib/format';
+import { humanizeToken, humanizeAge, formatTimestamp, fmtNumber, DASH } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { toast } from 'sonner';
 
@@ -143,27 +148,39 @@ function looseBool(cfg: SourceInstance['config'], key: string): boolean | undefi
   return typeof v === 'boolean' ? v : undefined;
 }
 
-type StatusKind = 'disabled' | 'ok' | 'idle';
+type StatusKind = 'disabled' | 'ok' | 'idle' | 'silent' | 'error';
 
 /**
- * HONEST status derivation from the health signal (no fake health):
+ * HONEST status derivation, now anchored on the SERVER truth (coverage-observability
+ * A5.2) instead of the old pure-client 24h staleness guess:
  *  - disabled → the source is turned off;
- *  - Active   → enabled AND RECENTLY active (a poll cursor moved within the last 24h, or a
- *               PUSH receiver currently holds buffered events);
- *  - Idle     → enabled but no recent activity — never polled, OR the last poll aged out.
- * Folding staleness in keeps Status honest: a source whose last poll is >24h old reads
- * "Idle", never a green "Active" beside a red, stale Last Event.
+ *  - Error    → the connector's LAST POLL FAILED (`last_poll_ok === false`) — broken,
+ *               not merely idle (the exact "silent vs broken" conflation the server fixes);
+ *  - Silent   → the backend flagged it SILENT (`silent === true`): enabled but no recent
+ *               events past the flat silence threshold (the source may have stopped reporting);
+ *  - Active   → a poll succeeded recently, events are flowing, or a PUSH receiver holds buffer;
+ *  - Idle     → enabled but nothing observed yet (never polled / no events).
+ *
+ * The legacy 24h cursor-age heuristic is kept ONLY as the fallback when the server gave no
+ * verdict (an older backend without the coverage fields), so behaviour degrades gracefully.
  */
 const STATUS_STALE_MS = 24 * 3600 * 1000;
 function sourceStatus(s: SourceInstance, h?: SourceHealthRow): { kind: StatusKind; label: string } {
   if (s.enabled === false) return { kind: 'disabled', label: 'Disabled' };
   if (h) {
+    // Server truth first — a failed poll is a BROKEN connector, and `silent` is the
+    // backend's own flat silence flag. Both beat any cursor-age guess.
+    if (h.last_poll_ok === false) return { kind: 'error', label: 'Error' };
+    if (h.silent === true) return { kind: 'silent', label: 'Silent' };
+    if (h.last_poll_ok === true) return { kind: 'ok', label: 'Active' };
+    if ((h.events_per_min ?? 0) > 0) return { kind: 'ok', label: 'Active' };
+    if (h.buffer_depth > 0) return { kind: 'ok', label: 'Active' };
+    // Legacy fallback (no server verdict): the last-poll cursor age.
     if (h.last_poll_millis > 0) {
       return Date.now() - h.last_poll_millis < STATUS_STALE_MS
         ? { kind: 'ok', label: 'Active' }
         : { kind: 'idle', label: 'Idle' };
     }
-    if (h.buffer_depth > 0) return { kind: 'ok', label: 'Active' };
   }
   return { kind: 'idle', label: 'Idle' };
 }
@@ -171,6 +188,10 @@ function sourceStatus(s: SourceInstance, h?: SourceHealthRow): { kind: StatusKin
 /** Millis-since-epoch of a source's last observed activity (0 when none). */
 function lastEventMillis(h?: SourceHealthRow): number {
   if (!h) return 0;
+  // Prefer the server's wall-clock event watermark (A5.2) — it's the honest "last event
+  // arrived" for BOTH pull + push, independent of the poll cursor. Fall back to the
+  // legacy cursor, then to any live buffer depth.
+  if ((h.last_event_millis ?? 0) > 0) return h.last_event_millis as number;
   if (h.last_poll_millis > 0) return h.last_poll_millis;
   // A PUSH receiver has no poll cursor; treat any buffered depth as "recent" so it
   // sorts above never-active sources without inventing a timestamp.
@@ -192,6 +213,7 @@ export default function Sources(_props: SourcesProps) {
   const [connectors, setConnectors] = React.useState<ConnectorManifest[]>([]);
   const [sources, setSources] = React.useState<SourceInstance[]>([]);
   const [health, setHealth] = React.useState<Record<string, SourceHealthRow>>({});
+  const [coverage, setCoverage] = React.useState<SourceCoverage | null>(null);
 
   const [editor, setEditor] = React.useState<EditorState>(null);
   const [logsSource, setLogsSource] = React.useState<SourceInstance | null>(null);
@@ -211,7 +233,7 @@ export default function Sources(_props: SourcesProps) {
     setLoading(true);
     setError(null);
     try {
-      const [conns, src, healthRes] = await Promise.all([
+      const [conns, src, healthRes, coverageRes] = await Promise.all([
         api.listConnectors(),
         api.listSources(),
         // Best-effort: a health failure (or an older/mocked client) must NEVER fail
@@ -219,12 +241,18 @@ export default function Sources(_props: SourcesProps) {
         typeof api.sourcesHealth === 'function'
           ? api.sourcesHealth().catch(() => ({ sources: [] as SourceHealthRow[] }))
           : Promise.resolve({ sources: [] as SourceHealthRow[] }),
+        // The aggregate coverage rollup (A5.5). Also best-effort + typeof-guarded so a
+        // minimal/older client simply falls back to the client-derived banner numbers.
+        typeof api.sourcesCoverage === 'function'
+          ? api.sourcesCoverage().catch(() => null)
+          : Promise.resolve(null),
       ]);
       setConnectors(conns.connectors);
       setSources(src.sources);
       const map: Record<string, SourceHealthRow> = {};
       for (const row of healthRes.sources) map[row.source_id] = row;
       setHealth(map);
+      setCoverage(coverageRes);
     } catch (e) {
       setError(e);
     } finally {
@@ -365,10 +393,15 @@ export default function Sources(_props: SourcesProps) {
         case 'type':
           return typeLabel(a).localeCompare(typeLabel(b));
         case 'status': {
-          const rank = (s: SourceInstance) => {
-            const k = sourceStatus(s, health[s.id]).kind;
-            return k === 'ok' ? 0 : k === 'idle' ? 1 : 2;
+          // Surface problem states first (error/silent) when sorting ascending.
+          const ORDER: Record<StatusKind, number> = {
+            error: 0,
+            silent: 1,
+            ok: 2,
+            idle: 3,
+            disabled: 4,
           };
+          const rank = (s: SourceInstance) => ORDER[sourceStatus(s, health[s.id]).kind] ?? 2;
           return rank(a) - rank(b);
         }
         case 'protocol':
@@ -412,6 +445,27 @@ export default function Sources(_props: SourcesProps) {
     const set = new Set(selected);
     return filteredSorted.filter((s) => set.has(s.id));
   }, [selected, filteredSorted]);
+
+  // ----- Coverage rollup (the "am I seeing everything?" banner) ------------ //
+  // Prefer the server rollup (GET /api/sources/coverage); fall back to deriving the
+  // counts client-side from the health rows + source list so the banner still renders
+  // against an older/mocked client. `alertsTriaged` is server-only (a case-window count),
+  // so it stays null in the fallback (rendered as an em-dash — never a fabricated number).
+  const coverageStats = React.useMemo(() => {
+    const enabledSources = sources.filter((s) => s.enabled !== false);
+    const derivedEventsPerMin = enabledSources.reduce(
+      (a, s) => a + (health[s.id]?.events_per_min ?? 0),
+      0,
+    );
+    const derivedSilent = enabledSources.filter((s) => health[s.id]?.silent === true).length;
+    return {
+      total: coverage?.sources_total ?? sources.length,
+      enabled: coverage?.sources_enabled ?? enabledSources.length,
+      silent: coverage?.sources_silent ?? derivedSilent,
+      eventsPerMin: coverage?.events_per_min ?? derivedEventsPerMin,
+      alertsTriaged: coverage?.alerts_triaged_24h ?? null,
+    };
+  }, [coverage, sources, health]);
 
   const activeFilters =
     (filters.search.trim() ? 1 : 0) +
@@ -578,21 +632,42 @@ export default function Sources(_props: SourcesProps) {
         const h = health[s.id];
         const st = sourceStatus(s, h);
         const dotCls =
-          st.kind === 'ok' ? 'bg-success' : st.kind === 'idle' ? 'bg-warning' : 'bg-muted-foreground/60';
+          st.kind === 'ok'
+            ? 'bg-success'
+            : st.kind === 'error'
+              ? 'bg-critical'
+              : st.kind === 'silent'
+                ? 'bg-warning'
+                : st.kind === 'idle'
+                  ? 'bg-muted-foreground/60'
+                  : 'bg-muted-foreground/40';
         const textCls =
           st.kind === 'ok'
             ? 'text-success-text'
-            : st.kind === 'idle'
-              ? 'text-warning-text'
-              : 'text-muted-foreground';
+            : st.kind === 'error'
+              ? 'text-critical-text'
+              : st.kind === 'silent'
+                ? 'text-warning-text'
+                : 'text-muted-foreground';
+        // A connector error string is source-controlled data → plain text only (#9).
         const title =
           st.kind === 'disabled'
             ? 'Source is disabled'
-            : st.kind === 'ok'
-              ? `Active${h?.kind ? ` · ${humanizeToken(h.kind)} source` : ''}`
-              : 'Enabled, no events observed yet';
+            : st.kind === 'error'
+              ? h?.last_poll_error
+                ? `Last poll failed: ${h.last_poll_error}`
+                : 'The last poll attempt failed'
+              : st.kind === 'silent'
+                ? 'Enabled but no recent events — the source may have stopped reporting'
+                : st.kind === 'ok'
+                  ? `Active${h?.kind ? ` · ${humanizeToken(h.kind)} source` : ''}`
+                  : 'Enabled, no events observed yet';
         return (
-          <span className="inline-flex items-center gap-1.5" title={title}>
+          <span
+            className="inline-flex items-center gap-1.5"
+            title={title}
+            data-testid={`source-status-${s.id}`}
+          >
             <span className={cn('h-2 w-2 shrink-0 rounded-full', dotCls)} aria-hidden />
             <span className={cn('text-sm font-medium', textCls)}>{st.label}</span>
           </span>
@@ -619,9 +694,16 @@ export default function Sources(_props: SourcesProps) {
       width: '9rem',
       cell: (s) => {
         const h = health[s.id];
-        if (h && h.last_poll_millis > 0) {
-          const iso = new Date(h.last_poll_millis).toISOString();
-          const ageMs = Date.now() - h.last_poll_millis;
+        // Prefer the server's wall-clock event watermark (A5.2), then the legacy poll cursor.
+        const evMs =
+          (h?.last_event_millis ?? 0) > 0
+            ? (h!.last_event_millis as number)
+            : h && h.last_poll_millis > 0
+              ? h.last_poll_millis
+              : 0;
+        if (evMs > 0) {
+          const iso = new Date(evMs).toISOString();
+          const ageMs = Date.now() - evMs;
           const staleCls =
             ageMs > 24 * 3600 * 1000
               ? 'text-critical-text'
@@ -776,6 +858,17 @@ export default function Sources(_props: SourcesProps) {
 
       {error ? (
         <LoadError error={error} title="Something went wrong" onRetry={() => void load()} />
+      ) : null}
+
+      {/* Coverage banner — the "am I seeing everything?" rollup (server truth). */}
+      {!error && sources.length > 0 ? (
+        <CoverageBanner
+          total={coverageStats.total}
+          enabled={coverageStats.enabled}
+          silent={coverageStats.silent}
+          eventsPerMin={coverageStats.eventsPerMin}
+          alertsTriaged={coverageStats.alertsTriaged}
+        />
       ) : null}
 
       {firstRun ? (
@@ -1110,6 +1203,104 @@ export default function Sources(_props: SourcesProps) {
 }
 
 /* ------------------------------------------------------------- sub-parts --- */
+
+/**
+ * The "am I seeing everything?" coverage banner — the Google SecOps Health-Hub big-number
+ * strip. Four honest aggregate signals over the connected sources: how many are reporting,
+ * the live event throughput, how many alerts were triaged in the last day, and (loudly, when
+ * nonzero) how many sources have gone SILENT. All values are server-derived aggregates /
+ * counts rendered as plain text — advisory only (#3), never a secret (#10).
+ */
+function CoverageBanner({
+  total,
+  enabled,
+  silent,
+  eventsPerMin,
+  alertsTriaged,
+}: {
+  total: number;
+  enabled: number;
+  silent: number;
+  eventsPerMin: number;
+  alertsTriaged: number | null;
+}) {
+  const hasSilent = silent > 0;
+  return (
+    <section
+      role="group"
+      aria-label="Ingest coverage"
+      data-testid="coverage-banner"
+      className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-border bg-surface/60 p-3 sm:grid-cols-4"
+    >
+      <CoverageStat
+        testId="coverage-sources"
+        icon={Database}
+        label="Sources"
+        value={`${fmtNumber(enabled)} of ${fmtNumber(total)}`}
+        sub="enabled"
+      />
+      <CoverageStat
+        testId="coverage-events"
+        icon={Activity}
+        label="Events / min"
+        value={fmtNumber(Math.round(eventsPerMin))}
+        sub="across enabled sources"
+      />
+      <CoverageStat
+        testId="coverage-alerts"
+        icon={ShieldCheck}
+        label="Alerts triaged"
+        value={alertsTriaged == null ? DASH : fmtNumber(alertsTriaged)}
+        sub="last 24h"
+      />
+      <CoverageStat
+        testId="coverage-silent"
+        icon={AlertTriangle}
+        label="Silent"
+        value={fmtNumber(silent)}
+        sub={hasSilent ? 'need attention' : 'all reporting'}
+        tone={hasSilent ? 'warning' : 'default'}
+      />
+    </section>
+  );
+}
+
+/** One big-number cell inside the {@link CoverageBanner}. */
+const CoverageStat: React.FC<{
+  testId: string;
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  sub: string;
+  tone?: 'default' | 'warning';
+}> = ({ testId, icon: Icon, label, value, sub, tone = 'default' }) => (
+  <div className="flex items-start gap-2.5" data-testid={testId}>
+    <span
+      className={cn(
+        'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border',
+        tone === 'warning'
+          ? 'border-warning/30 bg-warning/10 text-warning-text'
+          : 'border-border bg-surface text-muted-foreground',
+      )}
+    >
+      <Icon className="h-4 w-4" aria-hidden />
+    </span>
+    <div className="min-w-0">
+      <div
+        className={cn(
+          'font-mono text-lg font-semibold leading-none tabular-nums',
+          tone === 'warning' ? 'text-warning-text' : 'text-foreground',
+        )}
+      >
+        {value}
+      </div>
+      <div className="mt-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="text-2xs text-muted-foreground/80">{sub}</div>
+    </div>
+  </div>
+);
 
 /** A plain Yes / No / — cell for an optional derived boolean (never fakes data). */
 const BoolCell: React.FC<{ value: boolean | undefined }> = ({ value }) => {

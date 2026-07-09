@@ -188,6 +188,7 @@ class AuditRepository(ABC):
         surface: str = "",
         actor: str = "",
         case_id: str | None = None,
+        source_id: str | None = None,
         model: str | None = None,
         prompt_excerpt: str | None = None,
         query_text: str | None = None,
@@ -215,6 +216,7 @@ class AuditRepository(ABC):
         action_type: str | None = None,
         surface: str | None = None,
         case_id: str | None = None,
+        source_id: str | None = None,
         ts_from: str | None = None,
         ts_to: str | None = None,
         limit: int = 100,
@@ -222,7 +224,8 @@ class AuditRepository(ABC):
         """Filtered, bounded, read-only listing of the append-only audit (the admin
         audit viewer, W7c). NEWEST first. NON-abstract with a safe default ([]) so a
         third-party AuditRepository keeps working; the bundled ES/SQL stores override
-        it. Read-only (#2 — never mutates). Never raises."""
+        it. Read-only (#2 — never mutates). Never raises. ``source_id`` (A5.3 coverage
+        observability) filters to a single source's poll history."""
         return []
 
 

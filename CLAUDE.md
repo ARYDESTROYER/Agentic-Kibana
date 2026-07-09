@@ -337,7 +337,12 @@ docs/                USAGE.md · TROUBLESHOOTING.md · ENVIRONMENT.md · VIGIL_S
    selections, queries — anything attacker-influenceable. The OCSF `unmapped`
    catch-all and `raw_data` (`ocsf/model.py`) carry source-controlled values and
    are treated as UNTRUSTED the same way.
-10. Sane defaults; only keys + data scope required to run (`config.py`).
+10. Sane defaults; only keys + data scope required to run (`config.py`). **Since
+    Round 10, "sane defaults" means smart-autopilot-ON out of the box** (comprehensive
+    ingestion, adaptive tuning, campaigns, baseline all self-tune/learn by default) —
+    this never touches #3: `decide()` stays the sole close/escalate authority, and the
+    Round-10 risk gate is **routing-only** (reads `compute_risk()`, never changes
+    scoring or `decide()`).
 11. Spine first & tested (Gate 1); breadth degrades gracefully (Gate 2).
 12. Read-only consumer; upstream untouched; cold-deployable.
 
@@ -389,16 +394,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1708 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — currently 1796 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1708 passed (rises each round; see Journal)
+python -m pytest -q                         # -> 1796 passed (rises each round; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~279 kB)
-npx vitest run                             # -> 1268 passed / 229 files (see Journal for the current count)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~281.44 kB; motion lazy-chunk ~83.85 kB)
+npx vitest run                             # -> 1332 passed / 239 files (see Journal for the current count)
 npm run lint                               # 0 errors (3 benign warnings OK; jsx-a11y at error)
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -421,7 +426,9 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 - **TS/React (webui, the only surface):** functional components + hooks.
   Stack is **Vite + React + TypeScript + Tailwind CSS + shadcn-style primitives on
   Radix UI** — **NOT @elastic/eui** (EUI was fully removed in the UI overhaul). NO
-  new npm deps without a deliberate decision; the build is `tsc --noEmit && vite
+  new npm deps without a deliberate decision — **zero new deps except the deliberate
+  lazy `motion`** (12.42.2, Round 10: route/tab/KPI animation, behind `LazyMotion`/
+  `domAnimation`, never in the entry chunk); the build is `tsc --noEmit && vite
   build`. (The archived Kibana plugin's old `@kbn/*`/EUI conventions no longer apply.)
 - **UI design system (the suite's shared look — use it, don't re-roll it):**
   - **Design tokens** live in `webui/src/styles/theme.css` as CSS custom properties
@@ -441,8 +448,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1708) + `npm run build` clean
-  + `vitest run` (1268 / 229 files) + `npm run lint` (0 errors, jsx-a11y at error) before
+- **Tests:** add/keep offline tests; `pytest -q` green (1796) + `npm run build` clean
+  + `vitest run` (1332 / 239 files) + `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -460,21 +467,28 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-**Round 9c is the current, shipped state.** Active branch **`Testing`**, HEAD
-`559ce88`, **fully merged and pushed** to `origin/Testing` — there is no outstanding
-unmerged or unpushed branch. `feature/round7-ui-overhaul` (Rounds 7–8) merged via
-PR #23/#24 and is now a fully-merged ancestor of `Testing`; Round 9 landed via PR #25,
-Round 9b via PR #26, Round 9c via PR #27 (current HEAD).
+**Round 10 is the newest completed round — a behavior change, not just a UI/UX
+pass.** It is complete directly on `Testing` but **local and uncommitted** at this
+doc sync (see `Journal.md` for the commit once it lands). Round 9c (`559ce88`, PR
+#27) remains the last round **merged and pushed** to `origin/Testing`;
+`feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
+Round 9b via PR #26. Round 10 ("Autopilot & Comprehensive Ingestion + motion.dev")
+flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
+autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
-**Green baseline (verified 2026-07-07):** backend **1708 pytest** passed; webui
-**1268 Vitest** specs / 229 files, build clean (`tsc --noEmit && vite build`), entry
-chunk **279.32 kB** (gzip 82.55 kB); eslint **0 errors** (3 benign warnings); **zero
-new webui runtime deps** since the Round-5 baseline; backend **zero new runtime
+**Green baseline (verified 2026-07-09):** backend **1796 pytest** passed; webui
+**1332 Vitest** specs / 239 files, build clean (`tsc --noEmit && vite build`), entry
+chunk **281.44 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
+modulepreloaded); eslint **0 errors** (3 benign warnings); **zero new webui runtime
+deps except the deliberate lazy `motion`** (12.42.2); backend **zero new runtime
 deps** throughout. `engine/case_manager.py` `decide()` stays **byte-identical** to
-the pre-Round-5 baseline `27f0983`; every round's router/Settings decomposition kept
-all API paths byte-identical. The 12 non-negotiables (§5) held through every round.
-Test counts rise each round — treat the figures above as the last-verified snapshot
-and check `Journal.md` for the current one before citing a different number.
+the pre-Round-5 baseline `27f0983`; `engine/risk.py` / `engine/signatures.py`
+**untouched** by Round 10 (the new risk gate is routing-only, #3); every round's
+router/Settings decomposition kept all API paths byte-identical. The 12
+non-negotiables (§5) held through every round — **#10 "sane defaults" now explicitly
+means smart-autopilot-ON by default** (see §5, item 10). Test counts rise each
+round — treat the figures above as the last-verified snapshot and check
+`Journal.md` for the current one before citing a different number.
 
 ### Round-by-round summary
 
@@ -561,6 +575,39 @@ a retelling — do not re-derive round detail from here.
   response); a burndown chart; noise-counters gained a terminal "closed by human"
   stage; the Cases list rebuilt (6-tile summary strip, monogram Assignee column). No
   research folder — see `Journal.md`'s Round-9c entry.
+- **Round 10** (2026-07-09, local to `Testing`, uncommitted at this doc sync) —
+  "Autopilot & Comprehensive Ingestion + motion.dev": a **behavior change** — the
+  suite now reads+reasons over everything and self-tunes **by default**.
+  **Comprehensive ingestion** — `background_scan_enabled` default TRUE; every event
+  from every source is correlated + risk-scored + made visible; EVENTS-role clusters
+  auto-forward to investigation via a deterministic risk gate at
+  `risk_score >= auto_investigate_risk_floor` (default 70; below-floor stays a $0
+  candidate, never dropped, #4); ALERTS-role feeds bypass the gate and correlate
+  `mode=EVERY`; a per-source per-tick cap (`caps.max_auto_investigations_per_tick=25`)
+  drains cap-deferred candidates on later ticks; investigations sequential; push
+  symmetric with pull; the daily budget is the GLOBAL spend bound. **Autopilot smart
+  defaults** (default-ON, $0/#3-safe) — threshold tuning (shadow-eval forced on),
+  campaigns, cross-source correlation, SLA policy, priority matrix, realtime SSE, the
+  threshold-automation engine (empty rule set), baseline (producer + a new
+  silent-source detector); a new `Preferences.autopilot_profile` dial
+  (conservative/balanced/aggressive, default balanced) scales risk-floor/daily-budget/
+  cap together; batch, `on_exceed="block"`, and default notify/playbook rules stay
+  opt-in. **Default budget backstop** — `BudgetConfig` now enabled by default
+  ($10/day, 80% soft-warn, `on_exceed="warn"`; over-budget still routes to
+  NEEDS_HUMAN, never closes, #3). **Migration** — a stored pre-overhaul config
+  auto-adopts the new ON defaults behind an `autopilot_config_version` marker + a
+  one-time banner; the `AutomationNudge` inverted into an "autopilot is on — here's
+  what it's doing" reassurance card; pre-existing explicit opt-outs preserved.
+  **Coverage observability** — a per-source last-poll snapshot + a new
+  `GET /api/sources/coverage` rollup + `AuditDoc.source_id` filtering + a Sources
+  coverage banner/Overview tile/Noise-Reduction "awaiting" stage. **motion.dev** —
+  ONE new lazy runtime dep (`motion` 12.42.2, replacing the Round-5-removed
+  `framer-motion`) behind `LazyMotion`/`domAnimation`, landing in an ~83.85 kB lazy
+  chunk (entry stays 281.44 kB), animating route transitions, CaseDetail tabs, Cases
+  bulk-bar/row reflow, the nav rail, and KPI count-ups — reduced-motion honored.
+  Built research(vendor+standards) → code (5 batches) → adversarial verify (5 major +
+  6 minor found) → fix (all) → re-verify. No research folder (efficiency-first) — see
+  `Journal.md`'s Round-10 entry.
 
 **Auth is DEFAULT OFF** (`Secrets.auth_enabled`) so the no-auth profile and the
 offline test suite keep working unchanged; `TLSOC_AUTH_ENABLED=true` turns on the

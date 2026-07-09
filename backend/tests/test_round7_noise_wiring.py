@@ -236,7 +236,11 @@ async def test_clustered_counter_is_a_per_tick_delta_not_window_rescan(app_state
             doc_id=f"burst-{i}",
         )
     await _configure(app_state, [
-        _fed_source("s1", [{"pattern": "nx-logs*", "role": "alerts"}], primary=True),
+        # An EVENTS feed (not alerts): this test needs a below-threshold straggler to form
+        # NO cluster on tick 2. Under the comprehensive-ingestion overhaul an ALERTS feed
+        # now correlates with mode EVERY (every alert = one case), so a lone alert WOULD
+        # cluster — which is correct but would defeat this test's per-tick-delta mechanism.
+        _fed_source("s1", [{"pattern": "nx-logs*", "role": "events"}], primary=True),
     ])
 
     await app_state.poller.poll_once(app_state.prefs)          # TICK 1

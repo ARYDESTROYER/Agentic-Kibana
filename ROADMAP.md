@@ -9,22 +9,26 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`, HEAD `559ce88` — fully merged and pushed to
-`origin/Testing`):** Rounds 1 through 9c are **all** complete, merged, and pushed —
-there is no outstanding unmerged/unpushed branch. **Round 9c** ("dashboard rebuilt
+**Current baseline (branch `Testing`; Round 10 shipped LOCAL, not yet committed/pushed):**
+**Round 10** ("Autopilot & Comprehensive Ingestion + motion.dev" — a **behavior change**:
+`background_scan_enabled` default TRUE + a deterministic risk gate + an `autopilot_profile`
+smart-defaults dial + a default-enabled $10/day budget ceiling + per-source coverage
+observability + lazy `motion.dev` animation) is the current work, layered on top of the
+fully-merged-and-pushed Rounds 1 through 9c (HEAD `559ce88` on `origin/Testing` — no
+outstanding unmerged/unpushed branch as of that baseline). **Round 9c** ("dashboard rebuilt
 from scratch" — real MTTD + first-human-response MTTR, a cleaner Cases list; PR #27,
-`559ce88`, current HEAD) is the current shipped state, on top of **Round 9** (an
-11-ask UI/UX overhaul + a local LiteLLM model provider; PR #25) and **Round 9b**
-(dashboard reimagine + case redesign; PR #26) — all three developed on
-`claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) — and **Round 8**
-(UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center overhaul +
-Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
-findings fixed) before them. Verified green: backend **1708 pytest**, webui **1268
-Vitest** (229 files), build clean (entry chunk **279.32 kB**, gzip **82.55 kB**),
-eslint **0 errors** (3 warnings), `engine/case_manager.py` `decide()`
-**byte-identical**, and **zero new runtime deps** since the Round-5 baseline. See
-`CHANGELOG.md` for the full Round 6–9c narrative and the "Progress" log below for the
-per-round summary.
+`559ce88`) was on top of **Round 9** (an 11-ask UI/UX overhaul + a local LiteLLM model
+provider; PR #25) and **Round 9b** (dashboard reimagine + case redesign; PR #26) — all
+three developed on `claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) —
+and **Round 8** (UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center
+overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
+findings fixed) before them. Verified green (2026-07-09, Round 10): backend **1796
+pytest**, webui **1332 Vitest** (239 files), build clean (entry chunk **281.44 kB**, a
+lazy `motion` chunk **83.85 kB**), eslint **0 errors** (3 warnings), `engine/
+case_manager.py` `decide()` **byte-identical**, `risk.py`/`signatures.py` untouched, and
+**zero new runtime deps except the deliberate `motion`** (12.42.2) since the Round-5
+baseline. See `CHANGELOG.md` for the full Round 6–9c narrative and the "Progress" log
+below for the per-round summary (Round 10 first).
 
 ## Remaining / backlog
 
@@ -76,8 +80,9 @@ competitively — it is a dated research snapshot):
 - ☐ **SOAR / response actions** — real containment/response actions (isolate a host,
   block an IP/hash, disable an account, …) gated behind HITL action approval + a
   pre-flight `$`-budget ceiling. The groundwork is already in place (`ToolTier.
-  requires_approval`, the read-only pre-flight `BudgetGate`); this closes the loop
-  with actual write-side actions.
+  requires_approval`, the read-only pre-flight `BudgetGate` — **now default-enabled
+  as a $10/day backstop, Round 10**, see the Vigil-overhaul Wave-2 leftovers note
+  above); this closes the loop with actual write-side actions.
 - ☐ **A formal eval / detection-quality harness** — golden-set replay, precision/
   recall against known-good verdicts, prompt/model regression gating.
 - ☐ **Sigma / detection-as-code import** — an import path into the Detection & Rules
@@ -90,6 +95,23 @@ competitively — it is a dated research snapshot):
   **no connector class built yet** (roadmap slots only, alongside the 3 shipped pull
   connectors — Elastic/OpenSearch/Wazuh).
 
+**D. Round-10 follow-ups (still open):** now that comprehensive ingestion + autopilot
+smart defaults have shipped (see "Progress → Round 10" below), the genuinely open
+threads from that round are:
+
+- ☐ **Global per-tick investigation cap threading** — `caps.max_auto_investigations_per_tick`
+  (default 25) is enforced **per source**; a true cross-source *global* tick cap (so 10
+  busy sources can't collectively blow past the intended ceiling) is not yet threaded.
+- ☐ **Reputation-in-routing-gate opt-in** — enrichment/IOC reputation is currently
+  advisory/display-only; letting it *influence* the risk-gate's `auto_investigate_risk_floor`
+  (not just the case view) is scoped but not built, and must stay opt-in (#3/#9 —
+  reputation data is source-controlled and would need the same UNTRUSTED treatment).
+- ☐ **Batch as an autopilot default** — LLM Batch/flex economics remain explicit
+  opt-in; folding them into the `autopilot_profile` bundle needs a latency-tolerance
+  story first (batch results are not realtime).
+- ☐ **OTEL / scale-out** — unchanged by Round 10; see **Observability / tracing** and
+  **Scale-out** above (Section C) / **Epoch E** below.
+
 Each item ends with: `pytest -q` green (keep the count current), webui tsc+vite +
 Vitest clean, **#3 `decide()` byte-identical**, additive + zero new runtime deps
 where possible, docs + Journal updated, commit + push.
@@ -100,6 +122,79 @@ where possible, docs + Journal updated, commit + push.
 - ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Round 10 — "Autopilot & Comprehensive Ingestion + motion.dev"** (local on
+  `Testing`, not yet committed/pushed — no commit hash yet; backend **1796 pytest**
+  green + webui **1332 Vitest** green / 239 files + build clean (entry **281.44 kB**,
+  a lazy `motion` chunk **83.85 kB**, never modulepreloaded) + eslint **0 errors**
+  (3 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
+  `risk.py`/`signatures.py` **untouched**; **zero new runtime deps except the
+  deliberate `motion` 12.42.2**). A **behavior change**: the suite now reads +
+  reasons over everything and self-tunes **by default**.
+  - **Comprehensive ingestion** — `background_scan_enabled` is now **default TRUE**:
+    every event from every source is correlated + risk-scored (0–100) + made visible.
+    `events`-role clusters auto-forward to the strong-LLM investigation via a
+    **deterministic risk gate** at `risk_score >= auto_investigate_risk_floor`
+    (default **70** — below-floor stays a **$0 candidate, never dropped, #4**);
+    `alerts`-role feeds bypass the gate AND correlate `mode=EVERY` so every alert
+    becomes exactly one case (same-signature bursts still coalesce onto one open
+    case). A per-source per-tick cap (`caps.max_auto_investigations_per_tick=25`)
+    throttles volume — cap-deferred candidates **drain** to investigation on later
+    ticks as headroom frees; investigations run **sequentially**; the push path is
+    symmetric with pull; **the daily budget is the global spend bound**.
+  - **Smart defaults / autopilot** (default-ON, $0/#3-safe) — `ThresholdTuning`
+    (`shadow_eval` forced on), Campaigns, CrossSourceCorrelation, SlaPolicy,
+    PriorityMatrix, realtime SSE, the ThresholdAutomation engine (empty ruleset),
+    and Baseline (producer + a silent-source detector) all flip ON. **Still opt-in:**
+    Batch, `BudgetConfig.on_exceed="block"`, default notify/run-playbook rules,
+    baseline-driving investigation. A new `Preferences.autopilot_profile` dial
+    (`conservative` / `balanced` / `aggressive`, default `balanced`) scales
+    `(risk_floor, daily_usd, cap)`: conservative **90 / $5 / 10** · balanced
+    **70 / $10 / 25** · aggressive **40 / $50 / 100**.
+  - **Default budget backstop** — `BudgetConfig` default `enabled=True`,
+    `daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="warn"` (over-budget →
+    `NEEDS_HUMAN`, never a close, #3) — so "read everything by default" can't
+    become "spend everything." (Closes the long-standing Wave-2 leftover; see
+    above.)
+  - **Migration** — auto-adopt + a one-time banner: a stored pre-overhaul config
+    adopts the new ON defaults (an `autopilot_config_version` marker) and sets
+    `show_autopilot_banner=True`; the `AutomationNudge` card is **inverted** into
+    an "autopilot is ON — here's what it's doing / turn off" reassurance card;
+    explicit opt-outs set *after* the marker are preserved; tuner `shadow_eval`
+    is force-on for migrated tenants.
+  - **Coverage observability** — a per-source last-poll snapshot
+    (`last_poll_at`/`last_poll_ok`/`last_poll_error`/`events_per_min`/`silent`) on
+    `GET /api/sources/health` (additive fields) + multi-feed failure detection (a
+    source whose feeds all raise now reports `ok=False`); `AuditDoc.source_id`
+    (+ the ES `AUDIT_MAPPING` keyword) enables `GET /api/audit?source_id=`; a new
+    `GET /api/sources/coverage` rollup (`sources_total`/`sources_enabled`/
+    `sources_silent`/`events_per_min`/`alerts_triaged_24h`/`worst_last_event_seconds`).
+    Webui: a Sources coverage banner + server-truth per-row status, an Overview
+    coverage tile, and an honest "awaiting/candidate" stage in the Noise-Reduction
+    funnel.
+  - **motion.dev** — one new runtime dep, `motion` 12.42.2 (`framer-motion` was
+    removed in Round 5), LAZY behind `LazyMotion` + `m` + `domAnimation` +
+    `MotionConfig reducedMotion="user"` — lands in a lazy **~83.85 kB** chunk while
+    the entry chunk holds at **281.44 kB** (< 400 kB ceiling, never
+    modulepreloaded). Animates route/page transitions, the CaseDetail tab enter,
+    the Cases bulk-bar exit + row reflow, the NavSidebar rail, and dashboard KPI
+    count-ups (`AnimatedNumber` dynamically imported into `KpiTile` so it stays
+    lazy); reduced-motion honored (count-ups snap instead of animating).
+  - **Standards cited** (industry-grounded, not invented): risk floor **70** = the
+    Elastic entity-risk "High" band start (cross-vendor High midpoint ~70); tuner
+    `min_samples=30` / Wilson 0.95 lower-bound / modified-z 3.5 / bounded ±1 nudge /
+    `target_fp_rate=0.10`; baseline warm-up **14d** (Sentinel UEBA) / modified-z 3.5;
+    anomaly alert threshold **75** (Elastic ML); `daily_usd` **$10** ≈ a coffee
+    budget, ~10× below AI-SOC entry pricing.
+  - **Process** — research (vendor + standards) → code (5 batches) → adversarial
+    verify (found **5 major + 6 minor**) → fix (all) → re-verify.
+  - **12 non-negotiables held** throughout. Note: #10 ("sane defaults") now *means*
+    smart-autopilot-on — that is the point of this round. #3 (`decide()` is the sole
+    close/escalate authority) still holds without exception: the risk gate is
+    **routing only** (it reads `compute_risk()`'s existing output; it never changes
+    scoring or `decide()` itself).
+  - **Open follow-ups:** see "Remaining / backlog → D. Round-10 follow-ups" above
+    (global per-tick cap threading, the reputation-in-routing-gate opt-in, batch
+    staying opt-in, OTEL/scale-out unchanged).
 - ☑ **Round 9c — dashboard rebuilt from scratch + cleaner Cases + real MTTD/first-
   response MTTR** (`20118a7 → ceba59d → c4d1bb6 → 2cc94c5`, PR #27; backend **1708
   pytest** green + webui **1268 Vitest** green / 229 files + build clean (entry
@@ -277,16 +372,24 @@ where possible, docs + Journal updated, commit + push.
     nightly deterministic observer (Wilson-LB + min-samples + EWMA + shadow-eval), bounded +1
     rule-`n` / feed `severity_floor` with `ActionType.TUNING` audit + rollback; DROPs → HITL
     Proposal; config-writer only, NEVER imports `decide()`/risk/signature; **default OFF**.
+    *(Round 10: flipped to **default ON** as part of the autopilot bundle, with
+    `shadow_eval` force-on so a tuning change can never silently hide a confirmed TP.)*
   - ☑ **Two-tier alert/event ingestion** — `engine/event_detection.py` (EVENT-feed cheap-first
     funnel: pre-aggregate → rules → anomaly → batched Haiku detection) whose survivors re-enter
     the SAME correlate/decide pipeline (#3/#4), #9-fenced, #7 aggregate-only; ALERT feeds stay
     realtime per-alert. Gated default-OFF (engages only when batch + baseline both enabled).
+    *(Round 10: `background_scan_enabled` flipped to **default TRUE** — comprehensive
+    ingestion now runs this funnel on every EVENT-role feed by default, risk-gated at
+    `auto_investigate_risk_floor` [default 70] before it reaches the strong LLM; ALERT
+    feeds still bypass the gate entirely and correlate in `mode=EVERY`.)*
   - ☑ **Daily campaign correlation** — `engine/campaigns.py` + `stores/campaigns.py`:
     deterministic shared-entity graph → `Campaign` objects that only REFERENCE `case_ids`,
-    never re-clusters/closes (#4).
+    never re-clusters/closes (#4). *(Round 10: **default ON** via the autopilot bundle.)*
   - ☑ **Entity baseline** — `engine/baseline.py` + `stores/baseline.py`: online EWMA/EWMV +
     168 hour-of-week buckets + bounded t-digest + modified-z |M|>3.5 (warm-up 3× period,
-    H=14d); pure producer, never reads `decide()`.
+    H=14d); pure producer, never reads `decide()`. *(Round 10: the producer + a new
+    silent-source detector are **default ON**; baseline still only *drives* investigation
+    as an explicit opt-in.)*
   - ☑ **Batch/flex + broadened model catalog** — `llm/batch.py` (`BatchProvider` SPI:
     Anthropic Message Batches + OpenAI Batch + `flex`; custom_id-keyed idempotent) +
     `stores/batch_jobs.py`; cache-rate application in `pricing.cost_for` + provider cache-token
@@ -455,13 +558,19 @@ where possible, docs + Journal updated, commit + push.
   - ☑ **W5 Multi-source** — Auto-Correlate toggle per source AND per sub-source
     (`IndexPattern`); opt-in cross-source correlation linking RELATED cases by shared
     entity (ip/host/user/file_hash/domain); per-source mapping overrides + connector
-    `setup_help` + `HelpTip`s + analyze-sample. (600)
+    `setup_help` + `HelpTip`s + analyze-sample. (600) *(Round 10: cross-source
+    correlation flipped to **default ON** via the autopilot bundle; the toggle itself
+    is unchanged, only its factory value.)*
   - ☑ **W6 Automation + Threat-context** — **#3-safe** threshold automation
     (`engine/threshold_automation.py`: tag/recommend/notify/run_playbook/request_approval
     → HITL proposal; **never sets status**); run-a-playbook (context-only
     re-investigation); threat-context panel (`engine/threat_context.py`: IOC reputation
     + bundled **MITRE ATT&CK 697 techniques** in `threat/` + related cases, fail-open);
-    resolved-case → RAG knowledge loop. (638)
+    resolved-case → RAG knowledge loop. (638) *(Round 10: the threshold-automation
+    engine itself is now **default ON** with an empty ruleset — the HITL
+    tag/recommend/notify/run-playbook/request-approval machinery runs by default, it
+    just has no rules to match until an operator adds one; default notify/run-playbook
+    rules stay explicit opt-in.)*
   - ☑ **W7 Settings + UI** — consolidated Settings (13 sections / 4 nav groups) +
     `GET /api/settings/schema`; RiskGauge redesign (fixes Active-Risk-Index glitch);
     skeleton/shimmer loading + staggered reveals; 8px grid; WCAG AA. (649)
@@ -526,19 +635,22 @@ where possible, docs + Journal updated, commit + push.
   `fp_auto_close` migrated); optional auth (default OFF — no-auth version preserved):
   `app/auth/` (PBKDF2 + stdlib HS256) + `app/middleware/` + router-level
   `require_auth` + CI route-coverage test; webui login gate + Playbooks/Agents catalog.
-  - ◐ Wave-2 leftovers: approval workflow ☑ DONE (HITL `Proposal` + admin approve;
-    extended by W6 threshold `request_approval`). Still ☐: pre-flight projected-cost
-    gate + `$`-budget ceiling.
+  - ☑ Wave-2 leftovers: approval workflow ☑ DONE (HITL `Proposal` + admin approve;
+    extended by W6 threshold `request_approval`). Pre-flight projected-cost gate +
+    `$`-budget ceiling ☑ DONE (Round 10) — `BudgetConfig` is now `enabled=True` by
+    default (`daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="warn"`) so every tenant
+    gets a spend backstop out of the box; `on_exceed="block"` stays opt-in.
 - ☑ **Vigil-inspired overhaul — Wave 1** (additive, spine intact; 244 tests green;
   webui clean). Multi-agent persona roster (`agents/personas.py`, `GET /personas`),
   plain-text runbooks (`runbooks/*.md` + `engine/runbooks.py`, `GET /runbooks`),
   hybrid BM25+vector RAG (`tools/rag.py`), tool safety tiers (`ToolTier`), hardened
   fencing + `pricing_source` provenance. Legacy Kibana plugin archived →
   `archive/kibana-plugin/`. Full study + multi-wave plan in `docs/VIGIL_STUDY.md`.
-  - ◐ **Wave 2:** ☑ CI route-coverage test; CSRF/headers/rate-limit; ☑ auth-on
+  - ☑ **Wave 2:** ☑ CI route-coverage test; CSRF/headers/rate-limit; ☑ auth-on
     profile available (DEFAULT OFF, `TLSOC_AUTH_ENABLED=true` → RBAC/MFA/SSO +
-    Admin/Admin@123 seed — SOC overhaul W1/W2); ☑ approval workflow (HITL proposals).
-    Still ☐: pre-flight projected-cost gate + `$`-budget ceiling.
+    Admin/Admin@123 seed — SOC overhaul W1/W2); ☑ approval workflow (HITL proposals);
+    ☑ pre-flight projected-cost gate + `$`-budget ceiling (Round 10 — see the Wave-2
+    leftovers note above; default-enabled now, `on_exceed="block"` still opt-in).
   - ☑ **Wave 3:** durable operator memory + case explainability + RAG management/
     visibility DONE. Also DONE via the SOC overhaul: a real bundled **MITRE ATT&CK**
     module (`threat/mitre_techniques.json`, 697 techniques) + **HITL / Auto-Ops webui

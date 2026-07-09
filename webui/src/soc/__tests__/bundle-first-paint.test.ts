@@ -10,6 +10,13 @@
  *   2. framer-motion (111 KB / 37 KB gzip) loaded on first paint via the eager
  *      Login -> loginParts -> framer-motion chain. Fix: the login hero animation is
  *      now pure CSS, so framer-motion is gone from the bundle entirely.
+ *   3. motion.dev (the framer-motion successor, npm `motion`) was RE-ADDED behind a
+ *      single lazy boundary (soc/components/motion/*): the provider + `m` re-export are
+ *      reached ONLY through lazy page chunks (CaseDetail/Cases, each wrapping itself in
+ *      MotionProvider) + AppShell's DYNAMIC import() of RouteMotion. So a `motion-*.js`
+ *      chunk now EXISTS but must stay lazy — never modulepreloaded, never statically
+ *      imported by the entry, and never imported by the eager App/Login/Wizard/AppShell/
+ *      NavSidebar chain (mirrors the recharts lazy-chunk pattern).
  *
  * The assertions read the PRODUCED bundle (the static `dist/` output IS the check —
  * there is no browser/Playwright dependency). They run against an already-built
@@ -49,8 +56,10 @@ describe.skipIf(!HAS_DIST)('first-paint bundle graph', () => {
     expect(readHtml()).not.toMatch(/modulepreload[^>]*recharts/);
   });
 
-  it('does NOT modulepreload framer-motion (motion-*.js) on first paint', () => {
-    // The login hero is pure CSS now, so there is no motion chunk to preload.
+  it('does NOT modulepreload the motion.dev chunk (motion-*.js) on first paint', () => {
+    // motion.dev lives in a LAZY `motion-*.js` chunk (manualChunks routes
+    // node_modules/motion there). It must never be modulepreloaded from index.html —
+    // it loads only when a lazy page/AppShell dynamic import pulls it.
     // (`motion-reduce` Tailwind utility classes are not chunk filenames.)
     expect(readHtml()).not.toMatch(/modulepreload[^>]*\/motion-[^"']+\.js/);
   });
@@ -61,13 +70,18 @@ describe.skipIf(!HAS_DIST)('first-paint bundle graph', () => {
     expect(readEntry()).not.toMatch(/from\s*["']\.\/recharts-[^"']+\.js["']/);
   });
 
-  it('entry chunk does NOT statically import framer-motion (motion-*.js)', () => {
+  it('entry chunk does NOT statically import the motion.dev chunk (motion-*.js)', () => {
+    // A static `from"./motion-*.js"` in the entry would put motion.dev on first paint;
+    // a dynamic `import("./motion-*.js")` off a lazy page/AppShell is fine.
     expect(readEntry()).not.toMatch(/from\s*["']\.\/motion-[^"']+\.js["']/);
   });
 
-  it('no motion-*.js chunk is emitted at all (framer-motion removed from the bundle)', () => {
+  it('a LAZY motion-*.js chunk IS emitted (motion.dev is code-split, not on first paint)', () => {
+    // Mirrors the recharts assertions above: the chunk must EXIST (proof the animation
+    // layer shipped) but stay off the entry graph (the modulepreload + static-import +
+    // "entry imports ONLY vendor chunks" assertions guard that it never rides first paint).
     const assets = fs.readdirSync(path.join(DIST, 'assets'));
-    expect(assets.filter((f) => /^motion-[^/]+\.js$/.test(f))).toHaveLength(0);
+    expect(assets.filter((f) => /^motion-[^/]+\.js$/.test(f)).length).toBeGreaterThan(0);
   });
 
   /* -------------------------------------------------------------------------- *
@@ -128,6 +142,37 @@ describe('eager login chain does not pull framer-motion (source guard)', () => {
     // No `import ... from 'framer-motion'` anywhere in the eager login part.
     expect(src).not.toMatch(/\bfrom\s+['"]framer-motion['"]/);
     expect(src).not.toMatch(/\bimport\(\s*['"]framer-motion['"]\s*\)/);
+  });
+
+  it('the eager App/Login/Wizard/AppShell/NavSidebar chain never STATICALLY imports motion.dev', () => {
+    // motion.dev (`motion` / `motion/react` / `motion/react-m`) must be reached ONLY from
+    // lazy chunks. AppShell may DYNAMICALLY `import('./components/motion/RouteMotion')` (a
+    // local path, not the `motion` package) and hold a TYPE-ONLY import of its props; both
+    // are elided/lazy. Any STATIC `from 'motion…'` on this eager chain would drag the
+    // motion.dev runtime onto the entry chunk (the exact first-paint regression).
+    const EAGER = [
+      ['soc', 'App.tsx'],
+      ['soc', 'AppShell.tsx'],
+      ['soc', 'registry.tsx'],
+      ['soc', 'components', 'NavSidebar.tsx'],
+      ['soc', 'pages', 'Login.tsx'],
+      ['soc', 'pages', 'Wizard.tsx'],
+      ['soc', 'components', 'auth', 'loginParts.tsx'],
+    ];
+    // The `motion` PACKAGE specifier only — local `@/soc/components/motion` /
+    // `./components/motion/*` imports start with `@`/`.` and never match.
+    const STATIC_PKG = /\bfrom\s+['"]motion(?:\/[^'"]*)?['"]/;
+    const DYNAMIC_PKG = /\bimport\(\s*['"]motion(?:\/[^'"]*)?['"]\s*\)/;
+    const offenders: string[] = [];
+    for (const seg of EAGER) {
+      const full = path.join(WEBUI_ROOT, 'src', ...seg);
+      if (!fs.existsSync(full)) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      if (STATIC_PKG.test(text) || DYNAMIC_PKG.test(text)) offenders.push(seg.join('/'));
+    }
+    expect(offenders, `eager files importing the motion.dev package: ${offenders.join(', ')}`).toEqual(
+      [],
+    );
   });
 
   it('framer-motion is not imported anywhere under src/', () => {

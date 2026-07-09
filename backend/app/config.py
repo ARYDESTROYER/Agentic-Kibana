@@ -544,6 +544,20 @@ class CapsConfig(BaseModel):
     # run in parallel behind the pipeline semaphore. Default 3 preserves a modest
     # bound; a later wave applies it. Advisory to throughput only — never feeds #3.
     max_concurrent: int = Field(default=3, ge=1)
+    # Autopilot overhaul (additive): the PER-SOURCE, per-poll-tick ceiling on how many
+    # clusters may be auto-forwarded to the strong LLM investigator in one tick. It is
+    # enforced inside ``engine.ingest.handle_clusters``, which runs ONCE PER SOURCE (each
+    # per-source poller child + each push-ingest batch calls it independently), so this is
+    # a PER-SOURCE ceiling — an N-source fan-out permits up to N × this cap auto-
+    # investigations in a single tick. It is NOT a global-per-tick knob; the GLOBAL spend
+    # bound is ``budget.daily_usd`` (the day-scoped $ backstop the BudgetGate enforces
+    # across all sources), which is the real ceiling on total autopilot spend. Once this
+    # per-source cap is hit, the source's remaining eligible clusters stay $0 CANDIDATES
+    # (never dropped, #4) and drain over later ticks — bounding per-source per-tick spend +
+    # the cold-start herd. Default 25 (STANDARDS.md: top of the SANS 20-50 alerts/shift
+    # human-throughput band). The ``autopilot_profile`` dial scales it (conservative 10 /
+    # balanced 25 / aggressive 100). Never feeds #3.
+    max_auto_investigations_per_tick: int = Field(default=25, ge=1)
 
 
 class FpAutoCloseConfig(BaseModel):
@@ -1151,13 +1165,16 @@ class CaseAutomationRule(BaseModel):
 
 
 class ThresholdAutomationConfig(BaseModel):
-    """Threshold-automation policy (Wave 6 / F10). Default OFF so today's behaviour
-    is byte-identical out of the box. When ``enabled``, the matching ``rules`` are
-    evaluated (priority order) AFTER the deterministic decision + save and may TAG /
-    RECOMMEND / NOTIFY / QUEUE a playbook re-investigation / request HITL approval —
-    NEVER set the case status or close a case (#3)."""
+    """Threshold-automation policy (Wave 6 / F10). The ENGINE defaults ON (Autopilot
+    overhaul) but ``rules`` defaults EMPTY, so out of the box it is a byte-identical
+    NO-OP (``evaluate`` returns ``[]`` with no rule to match) — enabling the engine is
+    free and costs nothing until an operator ships a rule. When ``enabled`` and a rule
+    matches, it is evaluated (priority order) AFTER the deterministic decision + save
+    and may TAG / RECOMMEND / NOTIFY / QUEUE a playbook re-investigation / request HITL
+    approval — NEVER set the case status or close a case (#3). We ship NO default
+    cost-bearing rules: ``run_playbook``/``notify`` rules stay an explicit opt-in."""
 
-    enabled: bool = False
+    enabled: bool = True
     rules: list[CaseAutomationRule] = Field(default_factory=list)
 
 
@@ -1194,14 +1211,14 @@ class SlaTarget(BaseModel):
 
 
 class SlaPolicy(BaseModel):
-    """Per-priority SLA response/resolution targets (Round 3). Default OFF so today's
-    behaviour is unchanged. Keyed by priority level (P1..P4) with sane, descending
-    urgency defaults. ADVISORY: SLA timers/badges are presentation; they never touch
-    ``decide()`` (#3). A later wave derives the at-risk/breached state from a case's
-    lifecycle timestamps (``detected_at``/``acknowledged_at``/``first_response_at``)
-    against these targets."""
+    """Per-priority SLA response/resolution targets (Round 3). Defaults ON (Autopilot
+    overhaul) — pure advisory badges/reporting from sane, descending P1..P4 targets, so
+    every tenant gets SLA aging + attainment out of the box. ADVISORY: SLA timers/badges
+    are presentation; they never touch ``decide()`` (#3). The at-risk/breached state is
+    derived from a case's lifecycle timestamps
+    (``detected_at``/``acknowledged_at``/``first_response_at``) against these targets."""
 
-    enabled: bool = False
+    enabled: bool = True
     targets: dict[str, SlaTarget] = Field(
         default_factory=lambda: {
             "P1": SlaTarget(response_minutes=15, resolve_minutes=240),
@@ -1222,9 +1239,12 @@ class PriorityMatrix(BaseModel):
     from ``impact_band`` × ``urgency_band`` via this matrix; it NEVER changes the
     verdict or the deterministic decision (#3). ``levels`` lists the band labels (high
     → low) so the UI can render the grid; ``matrix`` maps ``"{impact}/{urgency}"`` →
-    a P-level, with ``default_priority`` as the fallback for any unmapped pair."""
+    a P-level, with ``default_priority`` as the fallback for any unmapped pair.
 
-    enabled: bool = False
+    Defaults ON (Autopilot overhaul): the standard ITIL grid is a good OOTB default and
+    pairs with :class:`SlaPolicy` (SLA tiers key off the P-level). Advisory only (#3)."""
+
+    enabled: bool = True
     levels: list[str] = Field(default_factory=lambda: ["high", "medium", "low"])
     default_priority: str = "P3"
     matrix: dict[str, str] = Field(
@@ -1243,21 +1263,31 @@ class BudgetConfig(BaseModel):
     at ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether
     crossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block
     affects whether an investigation RUNS — it never alters the close/escalate decision
-    of a case that DID run (#3)."""
+    of a case that DID run (#3).
 
-    enabled: bool = False
-    daily_usd: float | None = None
+    Defaults ON as the Autopilot spend BACKSTOP: ``enabled=True`` + a bounded
+    ``daily_usd=10`` (industry-grounded balanced default; ~20-40 Opus investigations —
+    see ``STANDARDS.md``) + ``soft_warn_pct=0.8`` + **``on_exceed='warn'``** (NEVER a
+    silent ``block`` by default — an over-budget investigation is routed to NEEDS_HUMAN,
+    never closed, #3). This is the single backstop that keeps "read everything by
+    default" from ever becoming "spend everything." An operator can raise ``daily_usd``,
+    disable it, or opt into hard ``block`` mode. The ``autopilot_profile`` dial scales
+    ``daily_usd`` (conservative $5 / balanced $10 / aggressive $50)."""
+
+    enabled: bool = True
+    daily_usd: float | None = 10.0
     monthly_usd: float | None = None
     soft_warn_pct: float = Field(default=0.8, ge=0.0, le=1.0)
     on_exceed: Literal["warn", "block"] = "warn"
 
 
 class RealtimeConfig(BaseModel):
-    """Live-update (SSE/websocket) plumbing config (Round 3). Default OFF so nothing
-    changes out of the box. ``heartbeat_seconds`` is the keep-alive cadence for a live
-    stream. Pure transport plumbing — no decision impact (#3)."""
+    """Live-update (SSE/websocket) plumbing config (Round 3). Defaults ON (Autopilot
+    overhaul) — pure transport, the webui already falls back to polling, so ON simply
+    upgrades responsiveness (and pairs with the motion layer). ``heartbeat_seconds`` is
+    the keep-alive cadence for a live stream. No decision impact (#3)."""
 
-    enabled: bool = False
+    enabled: bool = True
     heartbeat_seconds: int = Field(default=15, ge=1)
 
 
@@ -1294,12 +1324,21 @@ class ThresholdTuningConfig(BaseModel):
     the z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``
     smooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and
     ``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data
-    before it can be applied."""
+    before it can be applied.
 
-    enabled: bool = False
-    min_samples: int = Field(default=25, ge=1)
+    Defaults ON (Autopilot overhaul) — the flagship "self-tunes over time" engine, safe
+    on because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound
+    + ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory
+    ``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL
+    Proposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes
+    nothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard
+    floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``
+    (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge)."""
+
+    enabled: bool = True
+    min_samples: int = Field(default=30, ge=1)
     max_n_step: int = Field(default=1, ge=0)
-    fp_rate_target: float = Field(default=0.30, ge=0.0, le=1.0)
+    fp_rate_target: float = Field(default=0.10, ge=0.0, le=1.0)
     wilson_z: float = Field(default=1.96, ge=0.0)
     ewma_alpha: float = Field(default=0.2, gt=0.0, le=1.0)
     cadence: Literal["hourly", "nightly", "weekly", "manual"] = "nightly"
@@ -1329,13 +1368,29 @@ class BaselineConfig(BaseModel):
     ANOMALY candidates for triage (advisory — never feeds #3). ``half_life_days`` sets
     the EWMA decay; ``warmup_multiplier`` × ``min_samples`` guards a cold series;
     ``modified_z_threshold`` is the deviation bar; ``tdigest_compression`` bounds the
-    quantile sketch size; ``seasonality`` buckets observations (e.g. hour-of-week)."""
+    quantile sketch size; ``seasonality`` buckets observations (e.g. hour-of-week).
 
-    enabled: bool = False
+    Defaults ON (Autopilot overhaul) as a PURE PRODUCER: the realtime consumer wired in
+    ``state.py`` folds per-cluster and per-source volume into the sketches every tick, so
+    the baseline *learns from day one* (advisory anomaly chips + silent-source/flood
+    detection) WITHOUT ever driving a new LLM investigation by itself (learning-as-trigger
+    stays opt-in, #3). ``max_series`` LRU-bounds the in-memory/KV cardinality on
+    high-cardinality feeds (evict least-recently-updated once exceeded; 0 == unbounded).
+    ``warmup_days`` is the advisory wall-clock warm-up target (Sentinel UEBA ">=14 days")
+    surfaced in the UI warm-up gauge; the sketch's own warm-up gate is observation-based
+    (``warmup_multiplier x seasonal_period``) and unchanged. ``modified_z_threshold=3.5``
+    is the Iglewicz-Hoaglin canonical robust-outlier cutoff (``STANDARDS.md``)."""
+
+    enabled: bool = True
     half_life_days: float = Field(default=14.0, gt=0.0)
     warmup_multiplier: int = Field(default=3, ge=1)
+    warmup_days: int = Field(default=14, ge=0)
     modified_z_threshold: float = Field(default=3.5, ge=0.0)
     tdigest_compression: int = Field(default=100, ge=1)
+    # LRU cardinality bound on the number of distinct series (cluster signatures +
+    # per-source volume keys) held in memory / persisted. Least-recently-updated series
+    # are evicted once the count exceeds this. 0 == unbounded (legacy behaviour).
+    max_series: int = Field(default=50000, ge=0)
     seasonality: Literal["none", "hour_of_day", "hour_of_week", "day_of_week"] = "hour_of_week"
 
 
@@ -1344,9 +1399,13 @@ class CampaignConfig(BaseModel):
     is byte-identical. When ``enabled`` a later wave groups related cases (shared
     entities / overlapping MITRE) into a running :class:`app.models.Campaign` for the UI
     (advisory — it NEVER force-merges cases or feeds #3). ``cadence`` is how often the
-    clustering pass runs."""
+    clustering pass runs.
 
-    enabled: bool = False
+    Defaults ON (Autopilot overhaul): a $0, read-time shared-entity graph that references
+    ``case_ids`` only and never merges/closes — pure advisory grouping that makes
+    multi-case incidents legible out of the box."""
+
+    enabled: bool = True
     cadence: Literal["hourly", "daily", "weekly", "manual"] = "daily"
 
 
@@ -1411,9 +1470,13 @@ class CrossSourceCorrelationConfig(BaseModel):
 
     ``entity_keys`` lists the cross-source entity types considered (a superset of the
     per-rule ladder; ``file_hash``/``domain`` are extra keys read from the raw event).
+
+    Defaults ON (Autopilot overhaul): $0, additive ``related_case_ids`` links only, and a
+    single-source tenant is a no-op — a multi-source tenant automatically sees
+    related-across-sources links with no downside (#3/#4 untouched).
     """
 
-    enabled: bool = False
+    enabled: bool = True
     time_window_seconds: int = Field(default=300, ge=1)
     min_sources: int = Field(default=2, ge=2)
     entity_keys: list[str] = Field(
@@ -1979,8 +2042,162 @@ class NotificationConfig(BaseModel):
         return next((c for c in self.channels if c.id == channel_id), None)
 
 
+# --------------------------------------------------------------------------- #
+# Autopilot posture (overhaul) — one sensitivity dial that scales the three cost/
+# aggression knobs. ``balanced`` is the concrete out-of-the-box default and its bounds
+# match the field-level defaults above (risk floor 70 / daily $10 / per-tick cap 25),
+# so a fresh install with ``autopilot_profile='balanced'`` is internally consistent.
+# The resolver is a pure map; a caller (settings PUT / migration / the webui) applies a
+# profile by writing these three values. It NEVER feeds ``decide()`` (#3).
+# --------------------------------------------------------------------------- #
+AUTOPILOT_PROFILES: dict[str, dict[str, float]] = {
+    "conservative": {
+        "auto_investigate_risk_floor": 90,   # cross-vendor Critical floor (max precision)
+        "daily_usd": 5.0,                    # ~10-15 deep investigations
+        "max_auto_investigations_per_tick": 10,
+    },
+    "balanced": {
+        "auto_investigate_risk_floor": 70,   # cross-vendor High floor (STANDARD)
+        "daily_usd": 10.0,                   # ~20-40 Opus investigations
+        "max_auto_investigations_per_tick": 25,
+    },
+    "aggressive": {
+        "auto_investigate_risk_floor": 40,   # cross-vendor Medium floor (max recall)
+        "daily_usd": 50.0,                   # mid/large SOC volume
+        "max_auto_investigations_per_tick": 100,
+    },
+}
+
+# Bumped whenever the default posture changes in a way a STORED (pre-overhaul) config
+# should adopt exactly once. A stored config lacking this / carrying a lower value is
+# migrated to the new ON defaults + flagged with ``show_autopilot_banner`` (see the
+# ``_migrate_autopilot`` before-validator on :class:`Preferences`). Fresh installs get the
+# field default (== CURRENT) and are NEVER flagged.
+CURRENT_AUTOPILOT_CONFIG_VERSION = 1
+
+# Keys that are ALWAYS present in a full persisted ``Preferences`` dump but essentially
+# never in a small programmatic construction (a test that does
+# ``Preferences(campaign=CampaignConfig(enabled=False))`` passes only the one key). The
+# migration therefore fires ONLY for a genuine persisted document and never clobbers an
+# explicit programmatic opt-out.
+_PERSISTED_CONFIG_MARKERS = ("data_view_pattern", "poll_interval_seconds", "setup_complete")
+
+
 class Preferences(BaseModel):
     """The complete UI-editable configuration. Every field has a working default."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_autopilot(cls, data: Any) -> Any:
+        """AUTO-ADOPT + banner: a STORED ``Preferences`` predating the Autopilot overhaul
+        (its ``autopilot_config_version`` is absent / < current) adopts the new default-ON
+        smart-defaults ONCE and is flagged with ``show_autopilot_banner=True`` so the
+        change is announced, not silent (DECISIONS #v / #v-a).
+
+        Precisely:
+        * A FRESH install (``data`` is empty / not a persisted doc) is left untouched → the
+          field defaults apply (ON, ``autopilot_config_version=CURRENT``, banner False).
+        * A programmatic construction (e.g. ``Preferences(campaign=CampaignConfig(
+          enabled=False))`` in a test) lacks the full-dump markers → left untouched, so an
+          explicit opt-out is respected byte-for-byte.
+        * A persisted doc already at CURRENT is left untouched → an explicit opt-out saved
+          AFTER the marker is NEVER re-overwritten (respect stored intent).
+        * A persisted doc BELOW current adopts the ON defaults for the master switch,
+          budget backstop + the $0 smart engines (merged so unrelated sub-fields survive),
+          sets the banner, and stamps the marker so it never re-migrates.
+
+        Additive + #3-safe: it only flips advisory/plumbing/config-writer engines +
+        routing/cost knobs; it never touches ``decide()`` or a verdict."""
+        if not isinstance(data, dict) or not data:
+            return data
+        # Only a genuine persisted document (a full dump) carries these markers; a targeted
+        # programmatic construction does not → never clobber an explicit opt-out.
+        if not all(k in data for k in _PERSISTED_CONFIG_MARKERS):
+            return data
+        try:
+            stored_version = int(data.get("autopilot_config_version", 0) or 0)
+        except (TypeError, ValueError):
+            stored_version = 0
+        if stored_version >= CURRENT_AUTOPILOT_CONFIG_VERSION:
+            return data
+
+        data = dict(data)  # copy — never mutate the caller's dict in place
+
+        def _merge_enabled(
+            key: str,
+            extra: dict[str, Any] | None = None,
+            forced: dict[str, Any] | None = None,
+        ) -> None:
+            """Set ``<key>.enabled=True`` while preserving every other stored sub-field of
+            that nested config block. ``extra`` keys are filled only when ABSENT
+            (``setdefault`` — a stored value wins); ``forced`` keys are OVERWRITTEN
+            unconditionally — reserved for mandatory safety rails that a migrated tenant
+            must not be able to have left in an unsafe stored state."""
+            cur = data.get(key)
+            merged = dict(cur) if isinstance(cur, dict) else {}
+            merged["enabled"] = True
+            for k, v in (extra or {}).items():
+                merged.setdefault(k, v)
+            for k, v in (forced or {}).items():
+                merged[k] = v
+            data[key] = merged
+
+        # Master switch + the deterministic risk gate (adopt the new default floor).
+        data["background_scan_enabled"] = True
+        data.setdefault("auto_investigate_risk_floor", 70)
+        # $0 / #3-safe smart engines flip ON. For the tuner, ``shadow_eval`` is a
+        # MANDATORY safety rail (a suggestion is evaluated against recent data before it
+        # can apply — "never hides a confirmed TP"), so it is FORCED True unconditionally:
+        # auto-ENABLING the tuner while preserving a stored ``shadow_eval=False`` would
+        # silently defeat that rail for migrated tenants. All other stored tuner sub-fields
+        # (min_samples / cadence / …) are preserved by the merge.
+        _merge_enabled("threshold_tuning", forced={"shadow_eval": True})
+        _merge_enabled("campaign")
+        _merge_enabled("cross_source_correlation")
+        _merge_enabled("sla")
+        _merge_enabled("priority_matrix")
+        _merge_enabled("realtime")
+        _merge_enabled("threshold_automation")   # engine on; rules stay whatever was stored ([] OOTB)
+        _merge_enabled("baseline")               # producer on (realtime consumer in state.py)
+        # Default budget backstop (warn-only; NEVER force a silent block).
+        budget = data.get("budget")
+        budget = dict(budget) if isinstance(budget, dict) else {}
+        budget["enabled"] = True
+        if not budget.get("daily_usd"):
+            budget["daily_usd"] = 10.0
+        budget.setdefault("on_exceed", "warn")
+        data["budget"] = budget
+        # Per-tick auto-investigation cap (adopt the balanced default when unset).
+        caps = data.get("caps")
+        caps = dict(caps) if isinstance(caps, dict) else {}
+        caps.setdefault("max_auto_investigations_per_tick", 25)
+        data["caps"] = caps
+
+        data["show_autopilot_banner"] = True
+        data["autopilot_config_version"] = CURRENT_AUTOPILOT_CONFIG_VERSION
+        return data
+
+    @staticmethod
+    def autopilot_bounds(profile: str) -> dict[str, float]:
+        """The (risk-floor, daily-$, per-tick-cap) bounds for an autopilot ``profile``.
+
+        Pure resolver over :data:`AUTOPILOT_PROFILES`; an unknown profile falls back to
+        ``balanced`` (the standard). A caller applies a profile by writing these three
+        values onto ``auto_investigate_risk_floor`` / ``budget.daily_usd`` /
+        ``caps.max_auto_investigations_per_tick``. NEVER feeds ``decide()`` (#3)."""
+        return dict(AUTOPILOT_PROFILES.get(profile, AUTOPILOT_PROFILES["balanced"]))
+
+    def apply_autopilot_profile(self, profile: str) -> "Preferences":
+        """Return this Preferences with the three autopilot knobs set from ``profile``
+        (a new model; the original is untouched). The webui/settings path uses the
+        deep-merge PUT instead; this helper is for programmatic callers/tests."""
+        bounds = self.autopilot_bounds(profile)
+        updated = self.model_copy(deep=True)
+        updated.autopilot_profile = profile if profile in AUTOPILOT_PROFILES else "balanced"
+        updated.auto_investigate_risk_floor = int(bounds["auto_investigate_risk_floor"])
+        updated.caps.max_auto_investigations_per_tick = int(bounds["max_auto_investigations_per_tick"])
+        updated.budget.daily_usd = float(bounds["daily_usd"])
+        return updated
 
     @model_validator(mode="before")
     @classmethod
@@ -2123,8 +2340,21 @@ class Preferences(BaseModel):
     suppression_rules: list[SuppressionRule] = Field(default_factory=list)
 
     # --- Automated scans (Surface 3) ---
-    background_scan_enabled: bool = False
+    # Autopilot overhaul: the master switch defaults ON so a zero-config install actually
+    # reasons over every alert + risk-scores every event (the single biggest OOTB lever).
+    # Auto-investigation stays BOUNDED by the deterministic risk gate below + the per-tick
+    # cap + the default budget backstop, so "read everything" can never become "spend
+    # everything". Flip False to fully halt auto-investigation. Never feeds #3.
+    background_scan_enabled: bool = True
     auto_forward_allowlist: list[str] = Field(default_factory=list)  # rule values that auto-scan
+    # Autopilot overhaul: the deterministic RISK GATE for events-role clusters — a cluster
+    # auto-forwards to the strong LLM investigator when it is alerts-role (bypasses the
+    # gate) OR its deterministic ``risk_score >= auto_investigate_risk_floor``. Below-floor
+    # events-role clusters stay $0 CANDIDATES (risk-scored + visible, never dropped, #4).
+    # Default 70 == the cross-vendor "High" escalate floor (Elastic entity-risk banding,
+    # STANDARDS.md). The ``autopilot_profile`` dial scales it (conservative 90 / balanced
+    # 70 / aggressive 40). Advisory to routing only — NEVER feeds ``decide()`` (#3).
+    auto_investigate_risk_floor: int = Field(default=70, ge=0, le=100)
 
     # --- Enrichment / RAG / standup (Surfaces 3-4, Section 6.5/6.6) ---
     enrichment: EnrichmentConfig = Field(default_factory=EnrichmentConfig)
@@ -2195,6 +2425,22 @@ class Preferences(BaseModel):
     batch: BatchConfig = Field(default_factory=BatchConfig)
     baseline: BaselineConfig = Field(default_factory=BaselineConfig)
     campaign: CampaignConfig = Field(default_factory=CampaignConfig)
+
+    # --- Autopilot posture (overhaul) ---
+    # One sensitivity dial that scales the three cost/aggression knobs
+    # (auto_investigate_risk_floor / budget.daily_usd / caps.max_auto_investigations_per_tick)
+    # via :func:`autopilot_bounds`. ``balanced`` is the OOTB default and its bounds equal the
+    # field defaults, so a fresh install is internally consistent. Advisory routing/cost only
+    # — NEVER feeds ``decide()`` (#3).
+    autopilot_profile: Literal["conservative", "balanced", "aggressive"] = "balanced"
+    # Migration marker: the posture version this stored config has adopted. A stored config
+    # below :data:`CURRENT_AUTOPILOT_CONFIG_VERSION` auto-adopts the ON defaults ONCE via the
+    # ``_migrate_autopilot`` before-validator; fresh installs get CURRENT directly.
+    autopilot_config_version: int = Field(default=CURRENT_AUTOPILOT_CONFIG_VERSION, ge=0)
+    # One-time UI reassurance banner: set True only when an UPGRADE auto-adopted the new
+    # default-ON posture (so a suddenly-triaging install is announced, not surprising). The
+    # webui clears it after showing it once. False on every fresh install.
+    show_autopilot_banner: bool = False
 
     # --- Misc ---
     setup_complete: bool = False

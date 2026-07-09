@@ -1239,6 +1239,12 @@ class Case(BaseModel):
 class AuditDoc(BaseModel):
     ts: str = Field(default_factory=iso_now)
     case_id: str | None = None
+    # Coverage observability (A5.3): the source this action pertains to (e.g. the poller's
+    # connector_id / a push receiver's source_id). Additive + optional — old audit docs
+    # simply lack it and ES/SQL tolerate the unset field like every other optional one —
+    # so the append-only trail becomes a real per-source poll history (GET /api/audit?
+    # source_id=). Advisory provenance only; never read by ``decide()`` (#3).
+    source_id: str | None = None
     surface: str = ""
     actor: str = ""                 # which agent role / analyst id
     action_type: ActionType

@@ -117,9 +117,11 @@ async def test_all_toggles_off_boot_is_byte_identical():
         assert state._scheduler_running is True
         assert len(state._scheduler_tasks) == 3
         assert all(not t.done() for t in state._scheduler_tasks)
-        # ...but every feature is OFF by default, so a tick would NO-OP.
-        assert state.prefs.threshold_tuning.enabled is False
-        assert state.prefs.campaign.enabled is False
+        # Autopilot overhaul: the smart engines default ON, but setup is incomplete
+        # (fresh tenant) so every scheduler tick is gated OFF and NO-OPs; batch stays off.
+        assert state._schedulers_gated_off() is True
+        assert state.prefs.threshold_tuning.enabled is True
+        assert state.prefs.campaign.enabled is True
         assert state.prefs.batch.enabled is False
         # The poller is the unchanged PollerManager; the funnel hook is wired (idle).
         from app.engine.poller_manager import PollerManager

@@ -459,23 +459,39 @@ async def test_pre_seed_events_are_counted_as_ingested_volume(demo_state: AppSta
 
 @pytest.mark.asyncio
 async def test_force_capabilities_true_by_default(demo_state: AppState) -> None:
+    # Pin the LIVE capability config OFF so "forced ON in the sandbox only, real prefs
+    # untouched" is a strong isolation proof even under the Autopilot default-ON posture.
+    p = demo_state.prefs.model_copy(deep=True)
+    p.threshold_tuning.enabled = False
+    p.campaign.enabled = False
+    p.threshold_automation.enabled = False
+    await demo_state.update_prefs(p)
+
     await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1)
     dprefs = demo_state._demo._demo_prefs()
     assert dprefs.threshold_tuning.enabled is True
     assert dprefs.baseline.enabled is True
     assert dprefs.campaign.enabled is True
     assert dprefs.threshold_automation.enabled is True
-    # The REAL prefs are UNTOUCHED (still default-OFF).
+    # The REAL prefs are UNTOUCHED (still the OFF we pinned above — the sandbox is a copy).
     assert demo_state.prefs.threshold_tuning.enabled is False
     assert demo_state.prefs.campaign.enabled is False
 
 
 @pytest.mark.asyncio
 async def test_force_capabilities_false_preserves_legacy(demo_state: AppState) -> None:
+    # Pin the live capability config OFF so we can prove force_capabilities=False INHERITS
+    # it (rather than forcing ON) even under the Autopilot default-ON posture.
+    p = demo_state.prefs.model_copy(deep=True)
+    p.threshold_tuning.enabled = False
+    p.campaign.enabled = False
+    p.threshold_automation.enabled = False
+    await demo_state.update_prefs(p)
+
     await demo_state.enable_demo(mode="seeded", seed=1337, history_days=1,
                                  force_capabilities=False)
     dprefs = demo_state._demo._demo_prefs()
-    # Inherit the (default-OFF) live capability config — no forcing.
+    # Inherit the live capability config (pinned OFF here) — no forcing.
     assert dprefs.threshold_tuning.enabled is False
     assert dprefs.campaign.enabled is False
     assert dprefs.threshold_automation.enabled is False

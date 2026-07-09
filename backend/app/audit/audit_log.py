@@ -38,6 +38,7 @@ class AuditLogger(AuditRepository):
         surface: str = "",
         actor: str = "",
         case_id: str | None = None,
+        source_id: str | None = None,
         model: str | None = None,
         prompt_excerpt: str | None = None,
         query_text: str | None = None,
@@ -52,6 +53,7 @@ class AuditLogger(AuditRepository):
                 surface=surface,
                 actor=actor,
                 case_id=case_id,
+                source_id=source_id,
                 model=model,
                 prompt_excerpt=truncate(prompt_excerpt, 1000) if prompt_excerpt else None,
                 query_text=query_text,
@@ -107,13 +109,17 @@ class AuditLogger(AuditRepository):
         action_type: str | None = None,
         surface: str | None = None,
         case_id: str | None = None,
+        source_id: str | None = None,
         ts_from: str | None = None,
         ts_to: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Filtered, bounded listing of the append-only audit for the admin audit
         viewer (W7c). NEWEST first. A term/range bool query; absent filters are
-        omitted. Read-only on the management-scoped audit index; never raises."""
+        omitted. Read-only on the management-scoped audit index; never raises.
+
+        ``source_id`` (A5.3 coverage observability) filters to the append-only poll
+        history of a single source (e.g. ``GET /api/audit?source_id=elk-a``)."""
         filters: list[dict[str, Any]] = []
         if actor:
             filters.append({"term": {"actor": actor}})
@@ -123,6 +129,8 @@ class AuditLogger(AuditRepository):
             filters.append({"term": {"surface": surface}})
         if case_id:
             filters.append({"term": {"case_id": case_id}})
+        if source_id:
+            filters.append({"term": {"source_id": source_id}})
         if ts_from or ts_to:
             rng: dict[str, str] = {}
             if ts_from:

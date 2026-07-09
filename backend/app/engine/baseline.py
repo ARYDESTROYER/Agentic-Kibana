@@ -54,9 +54,23 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import datetime
 
 from ..config import BaselineConfig
 from ..models import BaselineState
+
+# Namespaced signature prefix for the PER-SOURCE ingest-volume series the realtime
+# producer folds in (silent-source / flood detection, A4). Kept distinct from every
+# real per-``cluster_signature`` key so the source-volume baseline can never collide with
+# or influence the detection baseline (#4). Shared here so the state.py consumer and any
+# observability reader key it identically.
+SOURCE_VOLUME_PREFIX = "__source_volume__:"
+
+
+def source_volume_signature(source_id: str) -> str:
+    """The baseline series key for a source's ingest volume: ``__source_volume__:<id>``."""
+    return f"{SOURCE_VOLUME_PREFIX}{source_id}"
+
 
 # The sketch layout version stamped onto every produced :class:`BaselineState`. Bump
 # this if the persisted shape changes so a later wave can migrate-on-read. It is
@@ -316,8 +330,17 @@ class BaselineEngine:
         self._compression = float(self._cfg.tdigest_compression)
         self._seasonality = self._cfg.seasonality
         self._period = SEASONAL_PERIODS.get(self._seasonality, 168)
-        # {signature: {bucket: BaselineState}}
+        # LRU cardinality bound: evict the least-recently-updated series once the count
+        # exceeds this (0 == unbounded, the legacy behaviour). Bounds memory / KV size on
+        # high-cardinality feeds without touching the per-bucket sketch math.
+        self._max_series = int(getattr(self._cfg, "max_series", 0) or 0)
+        # {signature: {bucket: BaselineState}} — insertion/update order is the LRU order
+        # (a plain dict preserves it; ``_touch`` re-inserts a series to the MRU end).
         self._series: dict[str, dict[int, BaselineState]] = {}
+        # Signatures the LRU bound evicted since the last ``drain_evictions()`` — the
+        # persistence layer drains these to delete the evicted series from durable KV too,
+        # so ``max_series`` bounds the STORE, not just memory.
+        self._evicted: list[str] = []
 
     # ---- config-derived constants (exposed for tests/UI) ----------------- #
     @property
@@ -335,9 +358,59 @@ class BaselineEngine:
         (3 × 168 = 504 for weekly). Exposed for the UI warm-up gauge."""
         return int(self._cfg.warmup_multiplier) * self._period
 
+    @property
+    def seasonality(self) -> str:
+        """The configured seasonality mode (``hour_of_week`` by default)."""
+        return self._seasonality
+
+    @property
+    def max_series(self) -> int:
+        """The LRU series cardinality bound (0 == unbounded)."""
+        return self._max_series
+
+    def series_count(self) -> int:
+        """How many distinct series are currently held in memory (for the LRU bound)."""
+        return len(self._series)
+
+    def drain_evictions(self) -> list[str]:
+        """Return + clear the signatures the LRU bound has evicted since the last drain,
+        so the persistence layer can delete them from durable KV (keeping the STORE
+        bounded, not just memory)."""
+        out = self._evicted
+        self._evicted = []
+        return out
+
+    def bucket_for_time(self, when: datetime) -> int:
+        """The seasonal bucket index for a wall-clock ``when`` under this engine's
+        seasonality — the realtime consumer uses it to fold a per-tick observation into
+        the right hour-of-week bucket without reaching into private state."""
+        return bucket_for(self._seasonality, when.weekday(), when.hour)
+
     # ---- core update recursion ------------------------------------------- #
+    def _touch(self, signature: str) -> None:
+        """Mark ``signature`` most-recently-used by re-inserting it at the dict's end.
+        No-op when the LRU bound is disabled (``max_series == 0``) so the unbounded path
+        is byte-identical to before."""
+        if not self._max_series:
+            return
+        buckets = self._series.pop(signature, None)
+        if buckets is not None:
+            self._series[signature] = buckets
+
     def _state(self, signature: str, bucket: int) -> BaselineState:
-        buckets = self._series.setdefault(signature, {})
+        buckets = self._series.get(signature)
+        if buckets is None:
+            # A NEW series — enforce the LRU cardinality bound BEFORE inserting it, so the
+            # count never exceeds ``max_series`` (evict the least-recently-updated first).
+            if self._max_series and len(self._series) >= self._max_series:
+                oldest = next(iter(self._series), None)
+                if oldest is not None:
+                    self._series.pop(oldest, None)
+                    self._evicted.append(oldest)
+            buckets = {}
+            self._series[signature] = buckets
+        else:
+            self._touch(signature)
         st = buckets.get(bucket)
         if st is None:
             st = BaselineState(version=SKETCH_VERSION)

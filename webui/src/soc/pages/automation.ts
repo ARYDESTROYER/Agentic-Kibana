@@ -89,3 +89,105 @@ export async function enableRecommendedAutomation(
 
   return result;
 }
+
+// --------------------------------------------------------------------------- //
+// Autopilot overhaul — the smart engines are now DEFAULT-ON in the backend, so the
+// onboarding surface flips from an opt-in NUDGE to an "Autopilot is ON — here's what
+// it's doing" REASSURANCE card with a one-click OFF + a sensitivity dial. These helpers
+// back that card. All are best-effort + RBAC-gated by the caller (never throw).
+// --------------------------------------------------------------------------- //
+
+/** The one sensitivity dial: scales the three cost/aggression knobs. Mirrors the
+ * backend ``AUTOPILOT_PROFILES`` resolver (STANDARDS.md) so the webui can apply a profile
+ * in one deep-merge settings PUT. Balanced == the concrete out-of-the-box defaults. */
+export type AutopilotProfile = 'conservative' | 'balanced' | 'aggressive';
+
+export const AUTOPILOT_PROFILES: Record<
+  AutopilotProfile,
+  { auto_investigate_risk_floor: number; daily_usd: number; max_auto_investigations_per_tick: number }
+> = {
+  conservative: { auto_investigate_risk_floor: 90, daily_usd: 5, max_auto_investigations_per_tick: 10 },
+  balanced: { auto_investigate_risk_floor: 70, daily_usd: 10, max_auto_investigations_per_tick: 25 },
+  aggressive: { auto_investigate_risk_floor: 40, daily_usd: 50, max_auto_investigations_per_tick: 100 },
+};
+
+/** Human-facing one-liners for each profile (rendered in the dial). */
+export const AUTOPILOT_PROFILE_BLURBS: Record<AutopilotProfile, string> = {
+  conservative: 'Max precision — investigate only critical (risk ≥ 90), lowest spend.',
+  balanced: 'The recommended default — investigate high & critical (risk ≥ 70).',
+  aggressive: 'Max recall — investigate medium+ (risk ≥ 40), higher spend.',
+};
+
+/**
+ * Apply an autopilot sensitivity profile in ONE deep-merge settings PUT: it scales the
+ * risk-gate floor, the per-tick investigation cap, and the daily $ budget. #3-safe — none
+ * of these feeds the deterministic close/escalate decision. Best-effort (returns false on
+ * failure, never throws).
+ */
+export async function setAutopilotProfile(profile: AutopilotProfile): Promise<boolean> {
+  const bounds = AUTOPILOT_PROFILES[profile] ?? AUTOPILOT_PROFILES.balanced;
+  try {
+    // PUT /api/settings deep-merges, so we send only the changed keys (nested caps/budget
+    // partials merge onto the stored config).
+    await api.put('settings', {
+      autopilot_profile: profile,
+      auto_investigate_risk_floor: bounds.auto_investigate_risk_floor,
+      caps: { max_auto_investigations_per_tick: bounds.max_auto_investigations_per_tick },
+      budget: { daily_usd: bounds.daily_usd },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type AutopilotToggleOutcome = 'disabled' | 'skipped' | 'failed';
+
+export interface AutopilotDisableResult {
+  /** The master auto-investigation switch + the tuning engine. */
+  autopilot: AutopilotToggleOutcome;
+  /** The campaign-grouping engine (admin-gated). */
+  campaigns: AutopilotToggleOutcome;
+}
+
+/** True when at least one thing was actually turned off. */
+export function anyDisabled(result: AutopilotDisableResult): boolean {
+  return result.autopilot === 'disabled' || result.campaigns === 'disabled';
+}
+
+/**
+ * The one-click "turn autopilot off": halts auto-investigation (the master switch) and
+ * the nightly self-tuning; admins also stop campaign grouping. Best-effort + RBAC-gated;
+ * each part is independent and never throws. #3-safe — turning autopilot off changes what
+ * gets INVESTIGATED, never how a case is closed/escalated.
+ */
+export async function disableAutopilot(
+  grants: AutomationGrants,
+): Promise<AutopilotDisableResult> {
+  const result: AutopilotDisableResult = { autopilot: 'skipped', campaigns: 'skipped' };
+
+  if (grants.tuning) {
+    try {
+      // Stop auto-investigating everything (master switch) + stop nightly tuning. The
+      // settings PUT deep-merges; the tuning PUT round-trips the live config so we only
+      // flip `enabled` (never dropping the advanced knobs).
+      await api.put('settings', { background_scan_enabled: false });
+      const cur = await api.get<{ config?: Record<string, unknown> }>('tuning/config');
+      await api.put('tuning/config', { ...(cur?.config ?? {}), enabled: false });
+      result.autopilot = 'disabled';
+    } catch {
+      result.autopilot = 'failed';
+    }
+  }
+
+  if (grants.campaigns) {
+    try {
+      await api.put('campaigns/config', { enabled: false });
+      result.campaigns = 'disabled';
+    } catch {
+      result.campaigns = 'failed';
+    }
+  }
+
+  return result;
+}

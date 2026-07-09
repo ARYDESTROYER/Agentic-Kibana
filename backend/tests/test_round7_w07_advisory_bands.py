@@ -128,8 +128,10 @@ def test_advisory_bands_severity_source_flip() -> None:
 
 
 def test_advisory_bands_priority_none_when_matrix_disabled() -> None:
-    # The default matrix is disabled -> no effective priority level (agrees with #14).
+    # A DISABLED matrix -> no effective priority level (agrees with #14). (Autopilot
+    # overhaul flipped the DEFAULT to ON; pin it OFF here to exercise the disabled path.)
     prefs = Preferences(asset_criticality={"203.0.113.50": 90.0})
+    prefs.priority_matrix.enabled = False
     bands = advisory_bands(_case(risk=72.0, severity_max=8.0), prefs)
     assert bands["impact_band"] == "high"
     assert bands["urgency_band"] == "high"

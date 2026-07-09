@@ -404,7 +404,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     await screen.findByTestId('page-hero');
     // Folded away by default.
     expect(screen.queryByRole('region', { name: /Autonomous vs human/i })).toBeNull();
-    expect(screen.queryByRole('region', { name: /Connector health/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Ingest coverage/i })).toBeNull();
     // Expand.
     const deeper = await screen.findByRole('button', { name: /Deeper analytics/i });
     await userEvent.click(deeper);
@@ -412,7 +412,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
       expect(screen.getByRole('region', { name: /Autonomous vs human/i })).toBeInTheDocument(),
     );
     expect(screen.getByText(/never influences that/i)).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: /Connector health/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /Ingest coverage/i })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /Case volume/i })).toBeInTheDocument();
     // The full response-timing (MTTA/MTTR p50) lives here, not on the default view.
     expect(screen.getAllByText('45m').length).toBeGreaterThan(0); // MTTA p50

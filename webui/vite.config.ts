@@ -53,7 +53,13 @@ export default defineConfig({
           // for it only when they load.
           if (/[\\/]node_modules[\\/](recharts|d3-|victory-vendor|internmap|decimal\.js-light)/.test(id))
             return 'recharts';
-          if (id.includes('framer-motion')) return 'motion';
+          // motion.dev (the framer-motion successor, npm package `motion`) — route it
+          // into its own lazy `motion` chunk. Match the package's OWN node_modules path
+          // (not a loose `id.includes('motion')`, which would also catch unrelated
+          // paths). The bundle-first-paint test asserts this chunk is emitted but is
+          // NEVER modulepreloaded / statically imported by the entry (motion lives behind
+          // the lazy `soc/components/motion/*` boundary).
+          if (/[\\/]node_modules[\\/]motion[\\/]/.test(id)) return 'motion';
           if (id.includes('lucide-react')) return 'icons';
           if (/[\\/]node_modules[\\/]@radix-ui[\\/]/.test(id)) return 'radix';
           // react / react-dom (and the JSX runtime / scheduler) form the core.

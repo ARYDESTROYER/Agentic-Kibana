@@ -54,7 +54,7 @@ import {
 
 import { useNavigateOptional, type Navigate } from '@/soc/router';
 import { api } from '@/lib/api';
-import type { Case, Metrics, NoiseReduction, UsageSummary } from '@/lib/types';
+import type { Case, Metrics, NoiseReduction, SourceCoverage, UsageSummary } from '@/lib/types';
 import {
   DASH,
   fmtMoney,
@@ -418,6 +418,132 @@ function TimingStat({
   );
 }
 
+/** One big-number signal inside the {@link CoverageTile}. */
+const CoverageMetric: React.FC<{
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  tone?: 'default' | 'warning';
+}> = ({ icon: Icon, label, value, tone = 'default' }) => (
+  <div
+    className={cn(
+      'rounded-md border px-2.5 py-2',
+      tone === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-border bg-muted/20',
+    )}
+  >
+    <div className="flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
+    </div>
+    <div
+      className={cn(
+        'mt-1 font-mono text-xl font-semibold leading-none tabular-nums',
+        tone === 'warning' ? 'text-warning-text' : 'text-foreground',
+      )}
+    >
+      {value}
+    </div>
+  </div>
+);
+
+/**
+ * The Overview "am I seeing everything?" coverage tile — the Google SecOps Health-Hub
+ * big-number model over `GET /api/sources/coverage`. Reports how many enabled sources are
+ * actually REPORTING (enabled − silent), the live event throughput, alerts triaged in the
+ * last day, and — loudly, when nonzero — how many sources have gone SILENT (with a jump to
+ * the Sources page to fix them). This REPLACES the old cases-per-source "Connector health"
+ * bar list, which was blind to a source that stopped sending or was suppressed before a
+ * case ever formed. Advisory only (#3); every value is a server aggregate rendered as plain
+ * text (#9); no secrets (#10).
+ */
+function CoverageTile({
+  coverage,
+  onNavigate,
+}: {
+  coverage: SourceCoverage;
+  onNavigate?: Navigate;
+}) {
+  const reporting = Math.max(0, coverage.sources_enabled - coverage.sources_silent);
+  const pctReporting =
+    coverage.sources_enabled > 0 ? Math.round((reporting / coverage.sources_enabled) * 100) : 0;
+  const hasSilent = coverage.sources_silent > 0;
+  const worstMins = Math.round((coverage.worst_last_event_seconds || 0) / 60);
+
+  return (
+    <div className="space-y-4" data-testid="coverage-tile">
+      {/* Hero — enabled sources actually reporting. */}
+      <div>
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-4xl font-semibold leading-none tabular-nums text-foreground">
+            <CountUp value={reporting} />
+          </span>
+          <span className="text-lg tabular-nums text-muted-foreground">
+            / {fmtNumber(coverage.sources_enabled)}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          sources reporting
+          {coverage.sources_total !== coverage.sources_enabled
+            ? ` · ${fmtNumber(coverage.sources_total)} configured`
+            : ''}
+        </p>
+      </div>
+
+      {/* Completeness bar (green reporting · amber silent remainder). */}
+      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted" aria-hidden>
+        <div className="h-full bg-success" style={{ width: `${pctReporting}%` }} />
+        {hasSilent ? <div className="h-full flex-1 bg-warning" /> : null}
+      </div>
+
+      {/* Three big signals. */}
+      <div className="grid grid-cols-3 gap-2">
+        <CoverageMetric
+          icon={Gauge}
+          label="Events / min"
+          value={fmtNumber(Math.round(coverage.events_per_min))}
+        />
+        <CoverageMetric
+          icon={ShieldCheck}
+          label="Triaged 24h"
+          value={fmtNumber(coverage.alerts_triaged_24h)}
+        />
+        <CoverageMetric
+          icon={ShieldAlert}
+          label="Silent"
+          value={fmtNumber(coverage.sources_silent)}
+          tone={hasSilent ? 'warning' : 'default'}
+        />
+      </div>
+
+      {/* Honest footer — the silent-source alarm, or an all-clear. */}
+      {hasSilent ? (
+        <button
+          type="button"
+          disabled={!onNavigate}
+          onClick={onNavigate ? () => onNavigate('sources') : undefined}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-left text-xs text-warning-text',
+            onNavigate &&
+              'transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+        >
+          <ShieldAlert className="h-4 w-4 shrink-0" aria-hidden />
+          <span className="min-w-0 flex-1">
+            {fmtNumber(coverage.sources_silent)} source
+            {coverage.sources_silent === 1 ? '' : 's'} stopped reporting — review coverage
+          </span>
+          {onNavigate ? <ChevronRight className="h-4 w-4 shrink-0" aria-hidden /> : null}
+        </button>
+      ) : (
+        <p className="text-2xs text-muted-foreground">
+          All enabled sources are reporting
+          {worstMins > 0 ? ` · oldest last event ${humanizeMins(worstMins)} ago` : ''}.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function Overview({ onNavigate }: OverviewProps) {
   // Navigation seam: an explicit prop (host/test) wins; otherwise resolve from the
   // router context (no-op when rendered provider-less in a unit test).
@@ -437,6 +563,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const [metrics, setMetrics] = React.useState<Metrics | null>(null);
   const [usage, setUsage] = React.useState<UsageSummary | null>(null);
   const [noise, setNoise] = React.useState<NoiseReduction | null>(null);
+  const [coverage, setCoverage] = React.useState<SourceCoverage | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
   const [lastRefreshMs, setLastRefreshMs] = React.useState<number | null>(null);
@@ -451,7 +578,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
         typeof api.noiseReduction === 'function'
           ? api.noiseReduction(hours)
           : Promise.resolve(null);
-      const [c, m, u, n, pc] = await Promise.allSettled([
+      // The aggregate coverage rollup (A5.5). typeof-guarded exactly like `noiseReduction`
+      // so a minimal test/mock surface simply resolves null and the coverage tile self-omits.
+      const coverageP: Promise<SourceCoverage | null> =
+        typeof api.sourcesCoverage === 'function'
+          ? api.sourcesCoverage()
+          : Promise.resolve(null);
+      const [c, m, u, n, pc, cov] = await Promise.allSettled([
         // #37: window the current case sample by created-at so the case-derived widgets
         // honour the range (backend caps at 200 by created-desc).
         api.listCases({ limit: 200, from: `now-${hours}h` }),
@@ -461,11 +594,13 @@ export default function Overview({ onNavigate }: OverviewProps) {
         // The immediately-preceding equal window — powers the honest open/resolved
         // snapshot trend deltas (omitted gracefully when the fetch fails).
         api.listCases({ limit: 200, from: `now-${2 * hours}h`, to: `now-${hours}h` }),
+        coverageP,
       ]);
       if (c.status === 'fulfilled') setCases(c.value.cases ?? []);
       if (m.status === 'fulfilled') setMetrics(m.value);
       if (u.status === 'fulfilled') setUsage(u.value);
       if (n.status === 'fulfilled') setNoise(n.value ?? null);
+      if (cov.status === 'fulfilled') setCoverage(cov.value ?? null);
       setPrevCases(pc.status === 'fulfilled' ? pc.value.cases ?? [] : null);
       // Only surface a page-level error if the load is wholly empty.
       if (c.status === 'rejected' && m.status === 'rejected') {
@@ -560,7 +695,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
     const sevCounts = emptySev();
     const openSev = emptySev();
     const resolvedSev = emptySev();
-    const productCounts: Record<string, number> = {};
 
     for (const k of cases) {
       const st = (k.status || '').toLowerCase();
@@ -575,12 +709,9 @@ export default function Overview({ onNavigate }: OverviewProps) {
       if (isClosed) resolvedSev[band] += 1;
       if (band === 'critical') critical += 1;
       if (band === 'critical' || band === 'high') criticalHighAlerts += 1;
-
-      const product = k.source_name || k.source_id || 'Unattributed';
-      productCounts[product] = (productCounts[product] ?? 0) + 1;
     }
 
-    return { open, resolved, critical, criticalHighAlerts, sevCounts, openSev, resolvedSev, productCounts };
+    return { open, resolved, critical, criticalHighAlerts, sevCounts, openSev, resolvedSev };
   }, [cases]);
 
   // Previous-window open/resolved counts (for the snapshot trend deltas). null when the
@@ -724,18 +855,6 @@ export default function Overview({ onNavigate }: OverviewProps) {
   );
 
   // ----- BarList datasets (Deeper analytics) ------------------------------ //
-  const productItems: BarListItem[] = React.useMemo(() => {
-    const total = cases.length || 1;
-    return Object.entries(derived.productCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([label, value]) => ({
-        label,
-        value,
-        sub: `${Math.round((value / total) * 100)}% of case telemetry`,
-      }));
-  }, [derived.productCounts, cases.length]);
-
   const signatureItems: BarListItem[] = React.useMemo(() => {
     const counts: Record<string, number> = {};
     for (const k of cases) {
@@ -1358,21 +1477,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
                 </Card>
               </DashboardGroup>
 
-              <DashboardGroup
-                title="Connector health"
-                count={productItems.length}
-                description="case telemetry by source"
-              >
+              <DashboardGroup title="Ingest coverage" description="am I seeing everything?">
                 <Card>
                   <CardContent className="py-4">
-                    {productItems.length ? (
-                      <BarList items={productItems} showRank showPercent />
+                    {coverage ? (
+                      <CoverageTile coverage={coverage} onNavigate={navigate} />
                     ) : (
                       <EmptyState
                         compact
                         icon={Plug}
-                        title="No source signals"
-                        description="Cases will group by their originating source here."
+                        title="Coverage not yet reported"
+                        description="Per-source ingest coverage appears once the poller reports its first tick."
                       />
                     )}
                   </CardContent>

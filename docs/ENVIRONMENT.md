@@ -21,10 +21,13 @@ pain, so they are documented separately.
 > **cloud LLM providers** (Azure OpenAI / AWS Bedrock / Google Vertex), a **local /
 > self-hosted LiteLLM-compatible provider** (any OpenAI-compatible `base_url`), and
 > **19 enrichment providers** behind an `EnrichmentProvider` SPI — all keyed via env
-> (see §2.6 / §2.7). The keyless enrichment providers are default-on; everything
-> else stays default-off, additive, and degrades gracefully. For the full round-by-
-> round feature history, see `CLAUDE.md` §10 and `Journal.md` — this doc only tracks
-> the environment/variable surface.
+> (see §2.6 / §2.7). The keyless enrichment providers are default-on; every keyed
+> provider/model stays default-off, additive, and degrades gracefully. **Round 10**
+> is the one deliberate exception on the *Preferences* (not env) side: comprehensive
+> ingestion + a self-tuning autopilot now ship **ON** out of the box, bounded by a
+> default $10/day budget backstop (see §2.8 — env surface unaffected). For the full
+> round-by-round feature history, see `CLAUDE.md` §10 and `Journal.md` — this doc
+> only tracks the environment/variable surface.
 
 ---
 
@@ -315,3 +318,37 @@ call site + the `EnrichmentResult` contract are unchanged (#3).
 > `- AZURE_OPENAI_API_KEY=${TLSOC_AZURE_OPENAI_API_KEY:-}` (etc.) line to the
 > `tlsoc-backend` `environment:` block for each provider you enable. Running the backend
 > directly, it reads them from the environment as-is.
+
+### 2.8 Autopilot defaults (Round 10 — UI-editable Preferences, not env)
+
+Round 10 flipped the suite's out-of-the-box posture from "wait for an operator to opt
+in" to **comprehensive ingestion + a self-tuning autopilot**: every event from every
+source is now correlated + risk-scored by default, and the $0/#3-safe advisory engines
+(threshold tuning, campaigns, cross-source correlation, SLA/priority, baseline,
+realtime SSE) ship **ON**. None of this is an env var — it all lives on
+**`Preferences`** (`GET`/`PUT /api/settings`), so it is operator-tunable at runtime,
+no restart required. See `docs/USAGE.md` §33 for the full behavioral explanation and
+the industry-standard citations behind the numbers; this is just the knob reference.
+
+| Preference | Default | Notes |
+|---|---|---|
+| `background_scan_enabled` | **`true`** (was `false`) | comprehensive ingestion — every source is correlated + risk-scored, not just what's on the auto-forward allowlist |
+| `auto_investigate_risk_floor` | **`70`** | the deterministic risk-gate floor: an `events`-role cluster auto-forwards to the strong-LLM investigation once `risk_score >= floor`; below-floor clusters stay `$0` OPEN candidates — risk-scored, visible, never dropped (#4) |
+| `autopilot_profile` | `"balanced"` (`conservative` \| `balanced` \| `aggressive`) | one dial that moves the three rows above/below together — see the profile table in `docs/USAGE.md` §33 |
+| `caps.max_auto_investigations_per_tick` | **`25`**, **PER SOURCE** | ceiling on clusters auto-forwarded to the strong LLM in one poll tick per source; cap-deferred candidates drain to investigation on a later tick once headroom frees. The **daily USD budget below is the one GLOBAL spend bound** across every source — the per-tick cap only smooths *when* spend happens |
+| `budget.{enabled,daily_usd,soft_warn_pct,on_exceed}` | `true` / `10.0` / `0.8` / `"warn"` | the default spend backstop (pairs with §2.6's per-model pricing); `on_exceed="warn"` never silently blocks — an over-budget investigation fails safe to `NEEDS_HUMAN`, never a silent drop or a silent close (#3) |
+| `baseline.{enabled,warmup_days,max_series}` | `true` / `14` / `50000` | the entity-baseline producer now runs from day one (silent-source + volume-flood detection); `warmup_days` is the advisory wall-clock warm-up target shown in the UI gauge, `max_series` LRU-bounds cardinality (`0` = unbounded) |
+| `threshold_tuning.enabled` (+ `shadow_eval` forced `true`) · `campaign.enabled` · `cross_source_correlation.enabled` · `sla.enabled` · `priority_matrix.enabled` · `realtime.enabled` · `threshold_automation.enabled` (ships with `rules: []`) | all **`true`** | the default-ON $0/#3-safe smart engines — full behavior + what's still opt-in in `docs/USAGE.md` §33 |
+
+**Migration, not a fork.** A `Preferences` document **persisted before this round**
+auto-adopts the new ON defaults exactly once (an internal `autopilot_config_version`
+marker) and sets `show_autopilot_banner=true` so the change is announced in the UI,
+never silent. An explicit opt-out an operator saved **after** that marker is preserved
+byte-for-byte — the migration never re-overwrites a deliberate choice. A **fresh
+install** simply starts at the defaults above with no banner at all.
+
+**Still opt-in (unchanged defaults):** `batch.enabled` (§2.6 covers the batch/flex LLM
+paths), `budget.on_exceed="block"`, any `run_playbook`/`notify` action on a
+case-automation rule, and baseline-driven auto-investigation — baseline stays a pure
+advisory producer that never calls `decide()` or forwards to investigation by itself
+(#3/#4).

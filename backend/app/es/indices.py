@@ -69,6 +69,15 @@ AUDIT_MAPPING = {
     "properties": {
         "ts": {"type": "date"},
         "case_id": {"type": "keyword"},
+        # B3 coverage observability: ``source_id`` is used as a term-filter in
+        # ``AuditLogger.records(source_id=...)`` (the per-source poll history behind
+        # GET /api/audit?source_id=). Without this explicit keyword mapping, real
+        # Elasticsearch dynamic-maps it to ANALYZED text, so a term query on a hyphenated /
+        # dotted / UUID source id silently returns ZERO hits (the in-memory FakeES masks the
+        # bug with plain equality). Keyword-map it like the other term-filter fields.
+        # NOTE: existing ES deployments must update the tlsoc-agent-audit index template
+        # (or roll a fresh write index) for this to take effect on already-created indices.
+        "source_id": {"type": "keyword"},
         "surface": {"type": "keyword"},
         "actor": {"type": "keyword"},
         "action_type": {"type": "keyword"},

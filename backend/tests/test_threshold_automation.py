@@ -63,10 +63,12 @@ def _prefs_with(rules: list[AutomationRule], *, enabled: bool = True) -> Prefere
 # --------------------------------------------------------------------------- #
 # evaluate() — matching + priority order + disabled-by-default
 # --------------------------------------------------------------------------- #
-def test_disabled_by_default_yields_no_actions() -> None:
-    # The OOB Preferences have threshold_automation.enabled=False.
+def test_no_rules_by_default_yields_no_actions() -> None:
+    # Autopilot overhaul: the ENGINE defaults ON, but the OOB Preferences ship NO rules,
+    # so evaluate() is still a byte-identical no-op (nothing to match).
     prefs = Preferences()
-    assert prefs.threshold_automation.enabled is False
+    assert prefs.threshold_automation.enabled is True
+    assert prefs.threshold_automation.rules == []
     assert evaluate(_case(), prefs) == []
 
 

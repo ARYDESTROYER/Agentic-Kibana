@@ -111,7 +111,11 @@ async def test_budget_gate_blocks_on_full_monthly_spend_not_the_truncated_total(
     await _seed_usage(store, 12000, per_cost=1.0, days_span=29)  # $12 000 in 30 days
 
     gate = BudgetGate(
-        get_budget=lambda: BudgetConfig(enabled=True, monthly_usd=5000.0, on_exceed="block"),
+        # daily_usd=None isolates the MONTHLY ceiling under test (the Autopilot overhaul
+        # made daily_usd default to $10, which would otherwise trip the daily window first).
+        get_budget=lambda: BudgetConfig(
+            enabled=True, daily_usd=None, monthly_usd=5000.0, on_exceed="block"
+        ),
         usage_store=store,
     )
     decision = await gate.check(prompt_chars=40, max_tokens=10, model="gpt-4o")

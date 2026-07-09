@@ -78,6 +78,7 @@ import type {
   SettingsResponse,
   SettingsSchema,
   SetupStatus,
+  SourceCoverage,
   SourceInstance,
   SourceLogsQuery,
   SourceLogsResponse,
@@ -935,8 +936,16 @@ export const api = {
     }),
   // Per-source runtime health for the Log Sources table (GET /api/sources/health):
   // enabled/kind/browse-capability + a PULL source's durable poll position and a
-  // PUSH source's live-tail buffer depth. Read-only; NEVER returns a secret (#10).
+  // PUSH source's live-tail buffer depth, PLUS the additive coverage-observability
+  // fields (last_poll_at/last_poll_ok/last_poll_error/events_per_min/silent).
+  // Read-only; NEVER returns a secret (#10).
   sourcesHealth: () => request<SourcesHealthResponse>('GET', 'sources/health'),
+  // Aggregate ingest-coverage rollup for the "am I seeing everything?" big-number tile
+  // (GET /api/sources/coverage; A5.5, the Google SecOps Health-Hub model). Read-only,
+  // advisory (#3), NO secrets. Every value is an aggregate count / rate over the REAL
+  // configured sources (the Demo-Mode overlay is excluded so the numbers stay honest).
+  // Kept typeof-guardable at the call site so a minimal test/mock surface can omit it.
+  sourcesCoverage: () => request<SourceCoverage>('GET', 'sources/coverage'),
   // Source-scoped helpers (F9). `analyzeSample` posts a pasted sample record and
   // gets back suggested field mappings + discovered field paths. The sample is
   // sanitized server-side and NEVER persisted to the source config.
