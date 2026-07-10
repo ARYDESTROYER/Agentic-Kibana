@@ -211,6 +211,16 @@ class AppState:
         # the Knowledge surface reflects the demo corpus; off demo, the real service.
         return self._demo.rag_service if self._demo is not None else self.rag
 
+    @property
+    def noise_counters(self):
+        # In demo, the Noise-Reduction funnel reads the DEMO counters so it reflects the
+        # demo's ingested→clustered volume (the demo sink records into
+        # ``DemoStack.noise_counters``); off demo, the real store — byte-identical.
+        # The REAL poller/ingest sink always writes ``_real_noise_counters`` directly (see
+        # ``_noise_and_baseline_sink``), so demo traffic never pollutes real counters and a
+        # ``disable_demo`` purge of the demo store leaves real counters intact.
+        return self._demo.noise_counters if self._demo is not None else self._real_noise_counters
+
     def _wire(self) -> None:
         es = self.es
         # OWN-state backend (Epoch A): cases/audit/usage/config/cursor live EITHER
@@ -664,7 +674,7 @@ class AppState:
         record path is fail-open)."""
         from .stores.noise_counters import NoiseCounterStore
 
-        self.noise_counters = NoiseCounterStore(self._kv)
+        self._real_noise_counters = NoiseCounterStore(self._kv)
 
     @property
     def enrichment_registry(self):
@@ -1092,7 +1102,9 @@ class AppState:
         ``noise_counters.record`` receives the FULL payload unchanged; the baseline branch
         is a pure additive observer."""
         try:
-            await self.noise_counters.record(payload)
+            # The REAL poller/ingest tick always records to the REAL store (never the
+            # demo-swap property) so demo mode never pollutes real counters (#isolation).
+            await self._real_noise_counters.record(payload)
         except Exception as exc:  # noqa: BLE001 — counters never break a tick
             logger.debug("noise-counter record failed: %s", exc)
         try:

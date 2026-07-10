@@ -320,6 +320,29 @@ async def test_read_endpoints_serve_demo_store(demo_state: AppState) -> None:
     assert "case-real-99" in ids2                # real case back after disable
 
 
+@pytest.mark.asyncio
+async def test_noise_counters_serve_demo_store_in_demo(demo_state: AppState) -> None:
+    # The Noise-Reduction funnel (GET /api/metrics/noise-reduction reads ``state.noise_counters``)
+    # must reflect the DEMO's ingested volume during demo — not the empty REAL counters, which
+    # would degrade the funnel to the case-only "counters warming up" fallback even though the
+    # demo IS recording ingest volume (the ~100-event pre-seed + live ticks land in the demo
+    # store). Off demo, the real store is served (byte-identical).
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=5)
+    # Read path is demo-swapped onto the demo store, which the pre-seed populated with ingest.
+    assert demo_state.noise_counters is demo_state._demo.noise_counters
+    demo_window = await demo_state.noise_counters.read_window(24)
+    assert demo_window["available"] is True          # full funnel, NOT "counters warming up"
+    # Isolation: the REAL counters were never written by the demo (still empty/unavailable).
+    real_window = await demo_state._real_noise_counters.read_window(24)
+    assert real_window["available"] is False
+
+    await demo_state.disable_demo()
+    # Back to the real store after disable (empty here → the honest case-only fallback).
+    assert demo_state.noise_counters is demo_state._real_noise_counters
+    off_window = await demo_state.noise_counters.read_window(24)
+    assert off_window["available"] is False
+
+
 # --------------------------------------------------------------------------- #
 # Demo overhaul — 3 segments, bounded rates, pre-seed, forced capabilities
 # --------------------------------------------------------------------------- #
