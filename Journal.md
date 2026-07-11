@@ -3,7 +3,7 @@
 > **Every agent (orchestrator + sub-agents) MUST add an entry here for every work
 > session and milestone.** This is our memory across context resets. Newest at the
 > bottom. Sub-agents that cannot commit must return their entry in their final
-> report so the orchestrator appends it. Format is defined in `CLAUDE.md`.
+> report so the orchestrator appends it. Format is defined in `AGENTS.md`.
 
 ```
 ### YYYY-MM-DD HH:MMZ — <agent/role> — <short title>
@@ -1765,3 +1765,17 @@
 - Tests: Full backend **1843/1843** passed (one intentional `verify_certs=False` fixture warning); webui **1332/1332** across 239 files passed; eslint **0 errors / 0 warnings**; all 5 design gates passed; `tsc --noEmit && vite build` passed (entry **281.60 kB**, gzip **83.35 kB**, lazy motion **83.85 kB**); OpenAPI/TypeScript drift check passed (189 paths); package/wheel contract 5/5 passed; `compileall`, canonical version, agnostic Compose, strict MkDocs, demo shell, secret-pattern scan, and `git diff --check` passed. A real `run-demo.sh` smoke completed auth, setup, seeded 45 cases, returned 200 from live/ready/build-info and the Vite root, then shut down cleanly.
 - Status: done for the requested local Bleeding Edge foundation; deliberately **not tag-ready** while the public blocker register remains open. The optional security scan was not completed and is not claimed.
 - Next: Create the local commit only. Before any public alpha tag, choose a license and close or deliberately reclassify the durable receipt/checkpoint/secrets/migrations/episode-identity plus reproducible-artifact gates in `docs/releases/known-limitations.md`.
+
+### 2026-07-11 16:15Z — Codex orchestrator — Claude include shorthand follow-up started
+- Context: Apply the owner's final request that `CLAUDE.md` contain only Claude Code's direct `@AGENTS.md` include shorthand.
+- Did: Reserved the exact one-line edit and a byte-level verification; no product behavior or release scope changes are involved.
+- Tests: Not applicable yet (documentation-only instruction entry point).
+- Status: in-progress.
+- Next: Verify the file contains exactly `@AGENTS.md` plus its terminating newline, journal completion, and commit locally without pushing.
+
+### 2026-07-11 16:15Z — Codex orchestrator — Claude include shorthand follow-up completed
+- Context: Close the exact one-line Claude entry-point adjustment requested by the owner.
+- Did: Replaced the prior prose forwarder with exactly `@AGENTS.md` and updated the journal's format pointer to the canonical file.
+- Tests: Byte assertion passed: `CLAUDE.md == b'@AGENTS.md\n'`; `git diff --check` is the final staging gate.
+- Status: done.
+- Next: Commit this documentation-only follow-up locally without pushing.
