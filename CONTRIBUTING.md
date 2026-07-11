@@ -1,7 +1,7 @@
 # CONTRIBUTING.md — Developer workflow
 
 How to work on the **Agentic SOC Triage Suite** (vendor-agnostic). Read
-[`CLAUDE.md`](CLAUDE.md) first — it is the master context (architecture, the 12
+[`AGENTS.md`](AGENTS.md) first — it is the canonical context (architecture, the 12
 non-negotiables, environment, and the Journal mandate). This file is the practical
 workflow that sits on top of it.
 
@@ -18,17 +18,18 @@ workflow that sits on top of it.
 
 ## 1. Branch, commits, and the Journal mandate
 
-- **Branch:** `Testing` is the active development branch — every shipped round
-  lands here (see [`CLAUDE.md`](CLAUDE.md) §10 for the current round and
-  status). Commit focused changes; push when asked.
+- **Branches:** use `next` for ongoing prerelease development and `main` for stable
+  releases; `Testing` is the legacy working branch during the initial transition.
+  See [`docs/releases/channels.md`](docs/releases/channels.md). Commit focused
+  changes; push only when asked.
 - **The Journal mandate (non-negotiable process rule).** Every agent (and the
   orchestrator) **MUST** append an entry to [`Journal.md`](Journal.md) at the
   start and end of any session, and after any meaningful milestone (a feature
   done, a build produced, a test run, a decision, a blocker). The Journal is the
   shared memory across context resets and sub-agents. **If you did work and did
-  not journal it, the work is not done** (`CLAUDE.md` §0). Sub-agents that cannot
+  not journal it, the work is not done** (`AGENTS.md`, process rule). Sub-agents that cannot
   commit must **return their Journal entry in their final report** so the
-  orchestrator appends it. Use the format at the bottom of `CLAUDE.md`.
+  orchestrator appends it. Use the format at the bottom of `AGENTS.md`.
 
 ## 2. Backend (`backend/`)
 
@@ -48,7 +49,7 @@ green and **add/keep offline tests** for any behaviour you touch.
 ### 2.2 Conventions
 
 - `from __future__ import annotations`, full type hints, module docstrings,
-  **async throughout** (`CLAUDE.md` §8).
+  **async throughout** (`AGENTS.md` §8).
 - **Pydantic v2.** Use `model_dump(mode="json")` for every ES write and every
   response body (see `api/routes.py`, `config.py`).
 - **Never drop an alert.** Any LLM / ES / tool error must route to
@@ -132,7 +133,7 @@ archive/kibana-plugin/   the ARCHIVED Kibana plugin — do not develop it (§3b)
 ```
 
 Each extension point is small and deterministic by design. Whatever you add,
-**the 12 non-negotiables (`CLAUDE.md` §5) must never regress.**
+**the 12 non-negotiables (`AGENTS.md` §5) must never regress.**
 
 - **A new tool** — add an MCP-shaped tool under `tools/` following
   `tools/base.py` (name, description, input schema, async `run`). It is exposed
@@ -205,7 +206,7 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 
 - Delegate context-heavy or isolated work (builds, tests, docs, isolated modules)
   to sub-agents. Give each the exact files, interfaces, acceptance criteria, and
-  "run `pytest`/`tsc` until green" (`CLAUDE.md` §9).
+  "run `pytest`/`tsc` until green" (`AGENTS.md` §9).
 - **Sequence** agents that touch shared files (`models.py`, `config.py`,
   `routes.py`, `webui/src/soc/registry.tsx`) to avoid edit conflicts;
   **parallelize** only non-overlapping work.

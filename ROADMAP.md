@@ -9,25 +9,25 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`; Round 10 shipped LOCAL, not yet committed/pushed):**
+**Current baseline (branch `Testing`; `3.0.0-alpha.1` candidate, not tagged or pushed):**
 **Round 10** ("Autopilot & Comprehensive Ingestion + motion.dev" — a **behavior change**:
 `background_scan_enabled` default TRUE + a deterministic risk gate + an `autopilot_profile`
 smart-defaults dial + a default-enabled $10/day budget ceiling + per-source coverage
-observability + lazy `motion.dev` animation) is the current work, layered on top of the
-fully-merged-and-pushed Rounds 1 through 9c (HEAD `559ce88` on `origin/Testing` — no
-outstanding unmerged/unpushed branch as of that baseline). **Round 9c** ("dashboard rebuilt
+observability + lazy `motion.dev` animation) is committed on `Testing`. The current
+release-readiness work layers source-safe ingest, pull correctness, packaging, versioning,
+health, CI, and public documentation on top. **Round 9c** ("dashboard rebuilt
 from scratch" — real MTTD + first-human-response MTTR, a cleaner Cases list; PR #27,
 `559ce88`) was on top of **Round 9** (an 11-ask UI/UX overhaul + a local LiteLLM model
 provider; PR #25) and **Round 9b** (dashboard reimagine + case redesign; PR #26) — all
 three developed on `claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) —
 and **Round 8** (UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center
 overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
-findings fixed) before them. Verified green (2026-07-09, Round 10): backend **1796
-pytest**, webui **1332 Vitest** (239 files), build clean (entry chunk **281.44 kB**, a
-lazy `motion` chunk **83.85 kB**), eslint **0 errors** (3 warnings), `engine/
-case_manager.py` `decide()` **byte-identical**, `risk.py`/`signatures.py` untouched, and
-**zero new runtime deps except the deliberate `motion`** (12.42.2) since the Round-5
-baseline. See `CHANGELOG.md` for the full Round 6–9c narrative and the "Progress" log
+findings fixed) before them. Verified green (2026-07-11 candidate): backend **1843
+pytest**, webui **1332 Vitest** (239 files), build clean (entry chunk **281.60 kB**, a
+lazy `motion` chunk **83.85 kB**), eslint **0 errors, 0 warnings**, `engine/
+case_manager.py` `decide()` **byte-identical**, and the generated-contract, distribution,
+version, Compose, and strict-docs gates pass. See `CHANGELOG.md` for the full Round 6–10
+narrative and the "Progress" log
 below for the per-round summary (Round 10 first).
 
 ## Remaining / backlog
@@ -119,14 +119,14 @@ where possible, docs + Journal updated, commit + push.
 ## Shipped (Phase 1)
 - ☑ Backend spine + 5 surfaces + tests (49 green); both plugin zips; full docs.
 - ☑ 8.19.12 plugin build (legacy `kibana.json`, Node 22.22.0, import-alias port).
-- ☑ CLAUDE.md, Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
+- ☑ AGENTS.md (with CLAUDE.md forwarder), Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
-- ☑ **Round 10 — "Autopilot & Comprehensive Ingestion + motion.dev"** (local on
-  `Testing`, not yet committed/pushed — no commit hash yet; backend **1796 pytest**
-  green + webui **1332 Vitest** green / 239 files + build clean (entry **281.44 kB**,
+- ☑ **Round 10 — "Autopilot & Comprehensive Ingestion + motion.dev"** (committed on
+  `Testing`; the later alpha hardening candidate verifies **1843 backend tests**
+  green + webui **1332 Vitest** green / 239 files + build clean (entry **281.60 kB**,
   a lazy `motion` chunk **83.85 kB**, never modulepreloaded) + eslint **0 errors**
-  (3 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
+  (0 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
   `risk.py`/`signatures.py` **untouched**; **zero new runtime deps except the
   deliberate `motion` 12.42.2**). A **behavior change**: the suite now reads +
   reasons over everything and self-tunes **by default**.
@@ -145,13 +145,13 @@ where possible, docs + Journal updated, commit + push.
     (`shadow_eval` forced on), Campaigns, CrossSourceCorrelation, SlaPolicy,
     PriorityMatrix, realtime SSE, the ThresholdAutomation engine (empty ruleset),
     and Baseline (producer + a silent-source detector) all flip ON. **Still opt-in:**
-    Batch, `BudgetConfig.on_exceed="block"`, default notify/run-playbook rules,
+    Batch, warning-only budget behavior, default notify/run-playbook rules,
     baseline-driving investigation. A new `Preferences.autopilot_profile` dial
     (`conservative` / `balanced` / `aggressive`, default `balanced`) scales
     `(risk_floor, daily_usd, cap)`: conservative **90 / $5 / 10** · balanced
     **70 / $10 / 25** · aggressive **40 / $50 / 100**.
   - **Default budget backstop** — `BudgetConfig` default `enabled=True`,
-    `daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="warn"` (over-budget →
+    `daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="block"` (over-budget →
     `NEEDS_HUMAN`, never a close, #3) — so "read everything by default" can't
     become "spend everything." (Closes the long-standing Wave-2 leftover; see
     above.)
@@ -638,8 +638,8 @@ where possible, docs + Journal updated, commit + push.
   - ☑ Wave-2 leftovers: approval workflow ☑ DONE (HITL `Proposal` + admin approve;
     extended by W6 threshold `request_approval`). Pre-flight projected-cost gate +
     `$`-budget ceiling ☑ DONE (Round 10) — `BudgetConfig` is now `enabled=True` by
-    default (`daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="warn"`) so every tenant
-    gets a spend backstop out of the box; `on_exceed="block"` stays opt-in.
+    default (`daily_usd=$10`, `soft_warn_pct=0.80`, `on_exceed="block"`) so every tenant
+    gets a hard preflight spend backstop out of the box; warning-only behavior is opt-in.
 - ☑ **Vigil-inspired overhaul — Wave 1** (additive, spine intact; 244 tests green;
   webui clean). Multi-agent persona roster (`agents/personas.py`, `GET /personas`),
   plain-text runbooks (`runbooks/*.md` + `engine/runbooks.py`, `GET /runbooks`),

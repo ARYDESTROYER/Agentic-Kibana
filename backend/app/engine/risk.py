@@ -50,6 +50,30 @@ def _asset_criticality(entity_value: str, prefs: Preferences) -> float:
     return float(prefs.asset_criticality.get(entity_value, 0.0))
 
 
+def _has_asset_context(entity_value: str, prefs: Preferences) -> bool:
+    """Whether asset criticality is a known signal for this entity.
+
+    A configured value of zero is still known context. This distinction lets the
+    routing score exclude a genuinely unavailable signal without treating an
+    explicitly low-criticality asset as missing.
+    """
+    if entity_value in prefs.asset_criticality:
+        return True
+    if not prefs.asset_networks:
+        return False
+    try:
+        addr = ipaddress.ip_address(entity_value)
+    except ValueError:
+        return False
+    for net in prefs.asset_networks:
+        try:
+            if addr in ipaddress.ip_network(net.cidr, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def compute_risk(cluster: Cluster, prefs: Preferences, reputation: float = 0.0) -> RiskBreakdown:
     weights = prefs.risk_weights
 
@@ -93,3 +117,37 @@ def compute_risk(cluster: Cluster, prefs: Preferences, reputation: float = 0.0) 
         asset_criticality=round(asset, 2),
         total=round(total, 2),
     )
+
+
+def compute_routing_risk(
+    cluster: Cluster,
+    prefs: Preferences,
+    reputation: float | None = None,
+) -> RiskBreakdown:
+    """Risk used only by the pre-LLM auto-investigation routing gate.
+
+    The canonical persisted risk score intentionally treats missing enrichment and
+    asset context as zero. That is conservative for a case decision, but it made the
+    default routing floor mathematically unreachable on a fresh install: the known
+    volume/velocity/diversity weights sum to only 0.60. Routing therefore normalizes
+    over signals that are actually available. It never feeds ``decide()`` and the
+    pipeline still persists :func:`compute_risk` unchanged after enrichment.
+    """
+    canonical = compute_risk(cluster, prefs, reputation or 0.0)
+    weights = prefs.risk_weights
+    weighted = (
+        weights.volume * canonical.volume
+        + weights.velocity * canonical.velocity
+        + weights.diversity * canonical.diversity
+    )
+    available_weight = weights.volume + weights.velocity + weights.diversity
+
+    if reputation is not None:
+        weighted += weights.reputation * canonical.reputation
+        available_weight += weights.reputation
+    if _has_asset_context(cluster.entity.value, prefs):
+        weighted += weights.asset_criticality * canonical.asset_criticality
+        available_weight += weights.asset_criticality
+
+    total = weighted / (available_weight or 1.0)
+    return canonical.model_copy(update={"total": round(max(0.0, min(100.0, total)), 2)})

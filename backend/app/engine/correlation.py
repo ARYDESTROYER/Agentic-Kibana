@@ -234,11 +234,15 @@ def _build_cluster(
     auto_investigate_eligible = any(ev.auto_investigate_eligible for ev in members_sorted)
     feed_ids = sorted({ev.feed_id for ev in members_sorted if ev.feed_id})
     return Cluster(
-        signature=cluster_signature(entity_type, value),
+        signature=cluster_signature(entity_type, value, source_id=source_id),
+        legacy_signature=(
+            cluster_signature(entity_type, value) if source_id else None
+        ),
         entity=Entity(type=entity_type, value=display_value),
         group_by=entity_type,
         rule_values=rule_values,
         member_event_ids=[ev.id for ev in members_sorted],
+        member_event_keys=[ev.event_key() for ev in members_sorted],
         member_events=members_sorted,
         first_seen_millis=members_sorted[0].timestamp_millis,
         last_seen_millis=members_sorted[-1].timestamp_millis,

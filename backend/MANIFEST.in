@@ -1,0 +1,4 @@
+include requirements.txt
+include requirements-connectors.txt
+recursive-include app *.json *.md
+recursive-include playbooks *.md

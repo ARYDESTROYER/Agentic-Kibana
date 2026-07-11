@@ -141,7 +141,7 @@ export function ModelsInner() {
     void load();
   }, [load]);
 
-  const models = catalog?.models ?? [];
+  const models = React.useMemo(() => catalog?.models ?? [], [catalog?.models]);
   const providerNames = React.useMemo(
     () => Array.from(new Set(models.map((m) => m.provider))).sort(),
     [models],

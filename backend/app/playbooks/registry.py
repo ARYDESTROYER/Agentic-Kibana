@@ -169,7 +169,9 @@ class PlaybookRegistry:
     def select(self, cluster: Cluster) -> tuple[Playbook | None, str]:
         return select_playbook(cluster, self.all())
 
-    async def run(self, pipeline, cluster, source_surface, prefs, playbook_id: str):
+    async def run(
+        self, pipeline, cluster, source_surface, prefs, playbook_id: str, *, query_source=...
+    ):
         """Manually RUN a specific playbook on a case (F10) — CONTEXT-ONLY.
 
         Re-investigates ``cluster`` through the SHARED pipeline with ``playbook_id``
@@ -182,6 +184,9 @@ class PlaybookRegistry:
         Returns the updated :class:`app.models.Case`."""
         if self.get(playbook_id) is None:
             raise KeyError(playbook_id)
+        kwargs = {"force": True, "force_playbook_id": playbook_id}
+        if query_source is not ...:
+            kwargs["query_source"] = query_source
         return await pipeline.investigate_cluster(
-            cluster, source_surface, prefs, force=True, force_playbook_id=playbook_id
+            cluster, source_surface, prefs, **kwargs
         )

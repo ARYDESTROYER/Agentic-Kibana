@@ -290,7 +290,7 @@ const DocumentSheet: React.FC<{
     };
   }, [documentId]);
 
-  const chunks = doc?.chunks ?? [];
+  const chunks = React.useMemo(() => doc?.chunks ?? [], [doc?.chunks]);
   const shownChunks = React.useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return chunks;

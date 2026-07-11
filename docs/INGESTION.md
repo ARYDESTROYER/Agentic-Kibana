@@ -3,7 +3,7 @@
 > How the suite ingests security logs/alerts/events from **anything**. This is the
 > reference for the connector framework (`backend/app/connectors/`) and the
 > supported transports. Companion to `docs/AGNOSTIC_ARCHITECTURE.md` (the why) and
-> `CLAUDE.md` (the rules). Every record, whatever its origin, is normalised to
+> `AGENTS.md` (the rules). Every record, whatever its origin, is normalised to
 > **OCSF** (`backend/app/ocsf/`) before the engine sees it.
 
 ## 1. Two ways data arrives

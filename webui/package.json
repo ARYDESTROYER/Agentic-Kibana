@@ -1,7 +1,7 @@
 {
   "name": "agentic-soc-webui",
   "private": true,
-  "version": "0.1.0",
+  "version": "3.0.0-alpha.1",
   "type": "module",
   "description": "Standalone, vendor-agnostic web UI for the Agentic SOC triage backend (replaces the Kibana plugin).",
   "scripts": {

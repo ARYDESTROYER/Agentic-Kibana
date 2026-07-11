@@ -518,12 +518,12 @@ def test_forwarding_auto_correlate_off_gate() -> None:
     assert exp.dropped is False
 
 
-def test_forwarding_allowlist_gate_for_events_cluster() -> None:
+def test_forwarding_risk_floor_gate_for_events_cluster() -> None:
     # background scan on, above floor, auto-correlate on, but the events-role cluster's
     # rules are not on the (empty) allowlist and it is NOT an alerts cluster.
     prefs = Preferences(background_scan_enabled=True, auto_forward_allowlist=[])
     exp = explain_forwarding(_cluster(is_alert=False, rule_values=["linux_auth"]), prefs)
-    assert exp.gate == "allowlist"
+    assert exp.gate == "risk_floor"
     assert exp.forwarded is False
     assert exp.dropped is False
 
@@ -602,7 +602,7 @@ def test_forwarding_gate_order_mirrors_ingest_handle_clusters() -> None:
     # The exposed GATES vocabulary is exactly the documented ordered chain.
     assert GATES == (
         "ignored", "suppressed", "background_scan", "severity_floor",
-        "auto_correlate", "allowlist", "forwarded",
+        "auto_correlate", "risk_floor", "forwarded",
     )
 
 

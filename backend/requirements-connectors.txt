@@ -1,0 +1,14 @@
+# Optional client libraries for the ``full`` backend image and the
+# ``tlsoc-agentic-triage[connectors]`` wheel extra.
+#
+# These make every client named by a built-in connector manifest importable.
+# They do not imply live-vendor certification or add unimplemented Parquet support.
+aio-pika==10.0.1
+azure-eventhub==5.15.1
+azure-storage-blob==12.30.0
+boto3==1.43.46
+confluent-kafka==2.15.0
+google-cloud-pubsub==2.39.0
+google-cloud-storage==3.12.1
+nats-py==2.15.0
+paho-mqtt==2.1.0

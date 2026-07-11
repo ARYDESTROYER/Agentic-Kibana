@@ -351,7 +351,7 @@ def shadow_eval_hides_true_positive(prop: TuningProposal, cases: list[Case]) -> 
 def _observed_count(case: Case) -> int | None:
     """The member count a cluster fired with, best-effort. Prefer the explicit member
     id list, else a trigger-reason observed_count, else None (unknown → conservative)."""
-    ids = getattr(case, "member_event_ids", None)
+    ids = getattr(case, "member_event_keys", None) or getattr(case, "member_event_ids", None)
     if ids:
         return len(ids)
     tr = getattr(case, "trigger_reason", None)

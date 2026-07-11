@@ -206,17 +206,7 @@ class WebhookReceiver(PayloadReceiver):
         return records_from_payload(payload, hint=hint)
 
     def _normalise(self, records: list[dict[str, Any]], prefs: Preferences) -> list[RawEvent]:
-        from ...ocsf import generic_to_ocsf
-
-        out: list[RawEvent] = []
-        for record in records:
-            if not isinstance(record, dict):
-                record = {"message": str(record)}
-            ev = generic_to_ocsf(
-                record, prefs, source_type=self.source_type, connector_id=self.connector_id
-            )
-            out.append(RawEvent.from_ocsf(ev))
-        return out
+        return self._normalise_records(records, prefs)
 
     def _preprocess(self, body: bytes) -> bytes | str | dict[str, Any] | list[Any]:
         """Hook for subclasses (e.g. HEC) to unwrap an envelope. Default: pass through."""

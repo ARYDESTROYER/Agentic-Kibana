@@ -8,7 +8,7 @@ with it, its design treats every external surface as hostile and makes its safet
 guarantees **deterministic code**, not model behaviour.
 
 Every claim below is enforced somewhere in the tree; the enforcement point is cited
-inline. See also the 12 non-negotiables in [`CLAUDE.md`](CLAUDE.md) §5,
+inline. See also the 12 non-negotiables in [`AGENTS.md`](AGENTS.md) §5,
 [`README.md`](README.md), and [`docs/RUNBOOK.md`](docs/RUNBOOK.md) (rotation).
 New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md).
 

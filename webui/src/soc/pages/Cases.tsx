@@ -149,6 +149,9 @@ function caseRules(c: Case): string[] {
 
 /** Count of related alerts/events on a case (best-effort over loose fields). */
 function alertCount(c: Case): number {
+  if (Array.isArray(c.member_event_keys) && c.member_event_keys.length) {
+    return c.member_event_keys.length;
+  }
   if (Array.isArray(c.member_event_ids)) return c.member_event_ids.length;
   if (Array.isArray(c.evidence)) {
     return c.evidence.reduce(

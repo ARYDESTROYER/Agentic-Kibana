@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app import __version__
 from app.api.routes import router
 from app.es.fake import InMemoryESClient
 from app.state import AppState
@@ -36,6 +37,59 @@ def test_health(client):
     r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    assert r.json()["version"] == __version__
+
+
+def test_health_live_ready_and_build_info(client, monkeypatch):
+    live = client.get("/api/health/live")
+    assert live.status_code == 200
+    assert live.json() == {
+        "status": "ok",
+        "service": "tlsoc-agentic-triage",
+        "version": __version__,
+    }
+
+    ready = client.get("/api/health/ready")
+    assert ready.status_code == 200
+    assert ready.json()["ready"] is True
+    assert ready.json()["checks"] == {"state_store": True}
+
+    monkeypatch.setenv("TLSOC_BUILD_SHA", "abc123")
+    monkeypatch.setenv("TLSOC_BUILD_DATE", "2026-07-11T00:00:00Z")
+    build = client.get("/api/health/build-info")
+    assert build.status_code == 200
+    assert build.json() == {
+        "service": "tlsoc-agentic-triage",
+        "version": __version__,
+        "release_channel": "alpha",
+        "commit_sha": "abc123",
+        "build_time": "2026-07-11T00:00:00Z",
+        "state_backend": "elasticsearch",
+        "ocsf_version": "1.4.0",
+    }
+
+
+def test_health_readiness_is_truthful_when_state_store_is_down(client, monkeypatch):
+    async def down() -> bool:
+        return False
+
+    state = client.app.state.tlsoc
+    monkeypatch.setattr(state.es, "ping_state", down)
+
+    legacy = client.get("/api/health")
+    assert legacy.status_code == 200
+    assert legacy.json()["status"] == "degraded"
+    assert legacy.json()["es_connected"] is False
+
+    ready = client.get("/api/health/ready")
+    assert ready.status_code == 503
+    assert ready.json()["status"] == "not_ready"
+    assert ready.json()["ready"] is False
+    assert ready.json()["checks"] == {"state_store": False}
+
+    # Liveness is intentionally independent of dependencies so an orchestrator
+    # does not restart-loop a healthy process during a store outage.
+    assert client.get("/api/health/live").status_code == 200
 
 
 def test_setup_status(client):

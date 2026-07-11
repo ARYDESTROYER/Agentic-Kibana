@@ -35,12 +35,62 @@ class PayloadReceiver(PushReceiver):
     #: Default parser hint; overridden per-instance from config when present.
     default_hint: str | None = None
 
+    # SourceEditor persists mapping suggestions under this focused config object.
+    # Push receivers must apply the same precedence as the Elastic pull connector:
+    # explicit ``field_mappings_extra`` -> legacy top-level source config -> global
+    # Preferences.  Keeping this list allow-listed prevents arbitrary source config
+    # from becoming a Preferences override.
+    _FIELD_MAPPING_KEYS = (
+        "source_ip_field",
+        "user_field",
+        "host_field",
+        "message_field",
+        "severity_field",
+        "rule_field",
+        "rule_name_field",
+        "time_field",
+    )
+
     def _hint(self) -> str | None:
         """Resolve the format hint for this instance from its config."""
         hint = self.config.get("format_hint") or self.config.get("format")
         if hint in (None, "", "auto"):
             return self.default_hint
         return str(hint)
+
+    def _effective_prefs(self, prefs: Preferences) -> Preferences:
+        """Overlay this source instance's saved field mappings onto ``prefs``."""
+        overrides = {
+            key: self.config[key]
+            for key in self._FIELD_MAPPING_KEYS
+            if self.config.get(key) not in (None, "")
+        }
+        extra = self.config.get("field_mappings_extra")
+        if isinstance(extra, dict):
+            for key in self._FIELD_MAPPING_KEYS:
+                value = extra.get(key)
+                if value not in (None, ""):
+                    overrides[key] = value
+        return prefs.model_copy(update=overrides) if overrides else prefs
+
+    def _normalise_records(
+        self, records: list[dict[str, Any]], prefs: Preferences
+    ) -> list[RawEvent]:
+        """Normalise decoded records with source mapping + deterministic ids."""
+        effective = self._effective_prefs(prefs)
+        out: list[RawEvent] = []
+        for ordinal, record in enumerate(records):
+            if not isinstance(record, dict):
+                record = {"message": str(record)}
+            ev = generic_to_ocsf(
+                record,
+                effective,
+                source_type=self.source_type,
+                connector_id=self.connector_id,
+                record_index=ordinal,
+            )
+            out.append(RawEvent.from_ocsf(ev))
+        return out
 
     def parse(self, payload: bytes | str | dict[str, Any], prefs: Preferences) -> list[RawEvent]:
         """Normalise one pushed payload into a list of :class:`RawEvent`.
@@ -50,18 +100,7 @@ class PayloadReceiver(PushReceiver):
         malformed input becomes a best-effort low-fidelity event so no alert is
         silently dropped (non-negotiable #4 spirit)."""
         records = self._records(payload)
-        out: list[RawEvent] = []
-        for record in records:
-            if not isinstance(record, dict):
-                record = {"message": str(record)}
-            ev = generic_to_ocsf(
-                record,
-                prefs,
-                source_type=self.source_type,
-                connector_id=self.connector_id,
-            )
-            out.append(RawEvent.from_ocsf(ev))
-        return out
+        return self._normalise_records(records, prefs)
 
     def _records(self, payload: bytes | str | dict[str, Any]) -> list[dict[str, Any]]:
         """Turn a payload into generic dict records (the parsing seam)."""

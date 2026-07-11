@@ -103,7 +103,7 @@ npm run lint          # eslint, 0 errors required (a few benign warnings are OK)
 ```
 
 `npm run build` + `npx vitest run` + `npm run lint` must all be clean before a
-commit touching `webui/` (see `CLAUDE.md` §7/§8).
+commit touching `webui/` (see `AGENTS.md` §7/§8).
 
 ## Production (Docker)
 
@@ -145,7 +145,7 @@ The console shares one look end-to-end — reuse it rather than re-rolling style
   `PageHeader`, `KpiTile`/`StatCard`, `DataTable`, `EmptyState`, `RiskGauge`,
   `Can` (the RBAC guard), `ChatPanel`, and more.
 
-See `CLAUDE.md` §8 for the full design-system pointer and conventions.
+See `AGENTS.md` §8 for the full design-system pointer and conventions.
 
 ## Notes
 

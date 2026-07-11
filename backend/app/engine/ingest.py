@@ -17,15 +17,30 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..config import Preferences
 from ..constants import OPEN_CASE_STATUSES, ActionType, IndexRole, SourceSurface
 from ..engine.cost_gate import passes_suppression
+from ..engine.signatures import find_open_case_for_cluster
 from ..models import Cluster, RawEvent
-from ..utils import iso_now, now_utc
+from ..ocsf import source_scoped_event_uid
+from ..utils import iso_now, now_utc, to_millis
 
 if TYPE_CHECKING:  # avoid import cycles (these import connectors/agents)
     from ..audit.audit_log import AuditLogger
     from ..agents.pipeline import InvestigationPipeline
+    from ..connectors.base import PullConnector
     from ..stores.cases import CaseStore
 
 logger = logging.getLogger("tlsoc.engine.ingest")
+
+
+class IngestBatchError(RuntimeError):
+    """Retryable failure raised when a pushed batch was not safely processed.
+
+    Receiver transports use this exception boundary to withhold their external
+    acknowledgement/checkpoint.  That gives webhook senders and durable brokers an
+    honest at-least-once contract: a failed case/candidate persistence operation is
+    retried instead of being reported as accepted.  A durable local receipt/outbox is
+    still required before the service can acknowledge independently of downstream
+    processing; until then, callers must retry the complete batch.
+    """
 
 
 def _push_source_role(src) -> str:
@@ -54,12 +69,43 @@ def _push_source_role(src) -> str:
 
 
 def dedup_by_id(events: list[RawEvent]) -> list[RawEvent]:
-    """De-dupe events by document id (overlapping windows/batches). First wins."""
+    """De-dupe events by source-index-qualified identity. First wins."""
     seen: dict[str, RawEvent] = {}
     for ev in events:
-        if ev.id not in seen:
-            seen[ev.id] = ev
+        key = ev.event_key()
+        if key not in seen:
+            seen[key] = ev
     return list(seen.values())
+
+
+def ensure_push_event_ids(
+    events: list[RawEvent], source_id: str | None = None
+) -> list[RawEvent]:
+    """Enforce stable, source-scoped ids before push-batch de-duplication.
+
+    Receivers already emit ids in this form.  The ingest boundary repeats the
+    invariant for custom/third-party receivers and direct API integrations.  The
+    helper is idempotent for an id already scoped to the same source.
+    """
+    for ordinal, event in enumerate(events):
+        scope = event.source_id or source_id
+        if scope:
+            event.id = source_scoped_event_uid(
+                scope,
+                native_uid=event.id or None,
+                record=event.source,
+                ordinal=ordinal,
+            )
+        elif not event.id:
+            # Back-compatible unconfigured receiver fallback: never collapse all
+            # empty ids, while keeping retry identity deterministic for the same
+            # batch order.
+            event.id = source_scoped_event_uid(
+                event.index or "unscoped-push",
+                record=event.source,
+                ordinal=ordinal,
+            )
+    return events
 
 
 def _auto_correlate_allowed(cluster: Cluster, prefs: Preferences) -> bool:
@@ -157,15 +203,36 @@ def _is_ignored_cluster(cluster: Cluster, prefs: Preferences) -> bool:
 async def attach_cluster(cases: "CaseStore", existing, cluster: Cluster) -> bool:
     """Merge a cluster's new events into an open case. Idempotent; returns True iff
     something new was attached."""
-    before = len(existing.member_event_ids)
-    merged = list(dict.fromkeys(existing.member_event_ids + cluster.member_event_ids))
-    if len(merged) == before:
+    prior_keys = list(existing.member_event_keys or existing.member_event_ids)
+    incoming_keys = list(cluster.member_event_keys or cluster.member_event_ids)
+    if existing.member_event_keys:
+        prior_key_set = set(prior_keys)
+        new_keys = [key for key in incoming_keys if key not in prior_key_set]
+    else:
+        # Upgrade compatibility: a pre-key case only knows native ids. Do not
+        # replay those members merely because the new representation is qualified.
+        prior_ids = set(existing.member_event_ids)
+        new_keys = [
+            key
+            for key, event_id in zip(incoming_keys, cluster.member_event_ids)
+            if event_id not in prior_ids
+        ]
+    merged_keys = list(dict.fromkeys(prior_keys + new_keys))
+    before = len(prior_keys)
+    if len(merged_keys) == before:
         return False  # nothing new
-    existing.member_event_ids = merged
+    existing.member_event_keys = merged_keys
+    existing.member_event_ids = list(dict.fromkeys(
+        existing.member_event_ids + cluster.member_event_ids
+    ))
+    # An open pre-source-scoping case migrates in place on its first new event.
+    existing.cluster_signature = cluster.signature
+    existing.source_id = cluster.source_id or existing.source_id
+    existing.source_name = cluster.source_name or existing.source_name
     existing.updated_at = iso_now()
     existing.rule_ids = sorted(set(existing.rule_ids) | set(cluster.rule_values))
     existing.history.append({"ts": existing.updated_at, "event": "attach",
-                             "added_events": len(merged) - before})
+                             "added_events": len(merged_keys) - before})
     # Carry a deterministic "why this fired" reason onto a case that lacks one
     # (e.g. a manually-opened case an automated burst now attaches to) — without
     # overwriting a reason it already has.
@@ -182,6 +249,7 @@ async def handle_clusters(
     cases: "CaseStore",
     pipeline: "InvestigationPipeline",
     source_surface: SourceSurface,
+    query_source: "PullConnector | None" = None,
 ) -> dict[str, int]:
     """Attach / investigate / register each cluster. Returns count stats.
 
@@ -193,7 +261,10 @@ async def handle_clusters(
     (which skip re-acquiring) INSIDE the lock. A signature with no configured lock
     registry (e.g. a bare pipeline in a test) degrades to a no-op nullcontext, so
     single-source behaviour is byte-identical."""
-    from ..engine.risk import compute_risk  # local import avoids an import cycle
+    from ..engine.risk import (  # local import avoids an import cycle
+        compute_risk,
+        compute_routing_risk,
+    )
 
     stats = {"clusters": len(clusters), "investigated": 0, "candidates": 0,
              "attached": 0, "suppressed": 0, "ignored": 0, "deferred": 0}
@@ -223,7 +294,7 @@ async def handle_clusters(
         # lock is shared across the whole fan-out (poller children + push-ingest) via
         # the ONE pipeline, so a signature is only ever created/attached once at a time.
         async with _sig_lock(pipeline, cluster.signature):
-            existing = await cases.find_open_by_signature(cluster.signature)
+            existing = await find_open_case_for_cluster(cases, cluster)
             # An already-DECIDED open case (``existing.verdict is not None``) is
             # ATTACH-ONLY: merge the new events (idempotent, #4) and never re-investigate
             # here. That preserves P1 verdict stability — a poll/attach burst can never
@@ -268,6 +339,7 @@ async def handle_clusters(
             # enrichment reputation) so this never diverges the persisted case risk. Routing
             # input only — NEVER feeds ``decide()`` (#3).
             cluster.risk_score = compute_risk(cluster, prefs, 0.0).total
+            routing_score = compute_routing_risk(cluster, prefs, reputation=None).total
             # Comprehensive-ingestion gate (Autopilot overhaul, #1/#2). An events-role
             # cluster now auto-forwards on the DETERMINISTIC RISK GATE
             # (``risk_score >= auto_investigate_risk_floor``) — not an empty allowlist — so a
@@ -286,7 +358,7 @@ async def handle_clusters(
                     cluster.is_alert
                     or wildcard
                     or any(r in allow for r in cluster.rule_values)
-                    or cluster.risk_score >= floor
+                    or routing_score >= floor
                 )
             )
             # Per-tick cap: an eligible cluster over the ceiling is DEFERRED to a candidate
@@ -301,7 +373,17 @@ async def handle_clusters(
             if forwarded:
                 investigated_this_tick += 1
                 fn = getattr(pipeline, "_investigate_cluster_locked", None) or pipeline.investigate_cluster
-                await fn(cluster, source_surface, prefs)
+                # Real InvestigationPipeline accepts the additive source kwarg,
+                # including explicit None for push-only sources (which removes the
+                # query tool rather than inheriting the primary connector). Bare
+                # test/extension pipelines may predate it; inspect before passing.
+                import inspect
+
+                params = inspect.signature(fn).parameters
+                if "query_source" in params:
+                    await fn(cluster, source_surface, prefs, query_source=query_source)
+                else:
+                    await fn(cluster, source_surface, prefs)
                 stats["investigated"] += 1
             elif existing is not None:
                 # An un-investigated CANDIDATE that stays a candidate this tick (still below
@@ -313,14 +395,25 @@ async def handle_clusters(
                 # investigation on a later tick once it becomes eligible + uncapped.
                 if capped:
                     stats["deferred"] += 1
-                await attach_cluster(cases, existing, cluster)
+                new_reason = _candidate_reason(
+                    cluster, prefs, capped=capped, floor=floor,
+                    routing_score=routing_score,
+                )
+                reason_changed = existing.awaiting_reason != new_reason
+                existing.awaiting_reason = new_reason
+                attached = await attach_cluster(cases, existing, cluster)
+                if reason_changed and not attached:
+                    await cases.save(existing)
                 stats["attached"] += 1
             else:
                 if capped:
                     stats["deferred"] += 1
                 # A brand-new candidate: register it (+ live-tail) with an honest stage label
                 # of WHY it is not (yet) LLM-reasoned (advisory, #3-safe).
-                reason = _candidate_reason(cluster, prefs, capped=capped, floor=floor)
+                reason = _candidate_reason(
+                    cluster, prefs, capped=capped, floor=floor,
+                    routing_score=routing_score,
+                )
                 fn = getattr(pipeline, "_register_candidate_locked", None) or pipeline.register_candidate
                 await _register_candidate(fn, cluster, source_surface, prefs, reason)
                 stats["candidates"] += 1
@@ -337,7 +430,14 @@ def _register_candidate(fn, cluster, source_surface, prefs, reason: str):
         return fn(cluster, source_surface, prefs)
 
 
-def _candidate_reason(cluster: Cluster, prefs: Preferences, *, capped: bool, floor: int) -> str:
+def _candidate_reason(
+    cluster: Cluster,
+    prefs: Preferences,
+    *,
+    capped: bool,
+    floor: int,
+    routing_score: float,
+) -> str:
     """A short, honest label for WHY a cluster became a $0 candidate rather than being
     auto-investigated — surfaced on the candidate case so the UI never implies reasoning
     that has not happened. Advisory presentation only; never feeds ``decide()`` (#3)."""
@@ -350,7 +450,10 @@ def _candidate_reason(cluster: Cluster, prefs: Preferences, *, capped: bool, flo
         return "every event is below its feed's severity floor"
     if not _auto_correlate_allowed(cluster, prefs):
         return "auto-correlate is off for this source or feed"
-    return f"risk {int(cluster.risk_score or 0)} is below the auto-investigate floor {floor}"
+    return (
+        f"available-signal routing score {int(routing_score)} is below the "
+        f"auto-investigate floor {floor}"
+    )
 
 
 def _sig_lock(pipeline, signature: str):
@@ -411,7 +514,7 @@ async def link_cross_source(
     seen_ids: set[str] = set()
     # 1) Items from THIS batch's clusters (full cross-source entity sets from members).
     for cluster in clusters:
-        existing = await cases.find_open_by_signature(cluster.signature)
+        existing = await find_open_case_for_cluster(cases, cluster)
         if existing is None:
             continue
         ents = cluster_cross_source_entities(cluster, entity_keys)
@@ -511,8 +614,10 @@ class IngestService:
 
     Unlike the poller (which owns a durable cursor over a pollable store), push
     sources hand us events as they arrive, so there is no cursor here — just the
-    shared correlate→handle_clusters path. Errors never propagate to the caller
-    (a receiver must not crash on a bad batch)."""
+    shared correlate→handle_clusters path. Processing failures propagate as
+    :class:`IngestBatchError` so transports do not acknowledge work that was not
+    persisted. Individual long-running receiver supervisors may restart/retry the
+    transport; swallowing the failure here would silently lose the alert."""
 
     def __init__(
         self,
@@ -576,6 +681,13 @@ class IngestService:
                 "clustered": count_clusters_by_band(clusters or [], scale),
                 "suppressed": int((stats or {}).get("suppressed", 0) or 0),
                 "ignored": int((stats or {}).get("ignored", 0) or 0),
+                # Aggregate-only input for the long-lived per-cluster baseline.
+                # NoiseCounterStore ignores this additive key.
+                "cluster_volumes": {
+                    str(cluster.signature): int(cluster.count)
+                    for cluster in (clusters or [])
+                    if getattr(cluster, "signature", None)
+                },
                 # Coverage observability (A5.4): thread the push source's identity so the
                 # durable counters keep a per-source ``by_source`` breakdown AND the
                 # baseline/silent-source clock (state._observe_tick_volume) attributes the
@@ -599,7 +711,7 @@ class IngestService:
             return base
         from ..engine.correlation import correlate  # local import avoids a cycle
 
-        events = dedup_by_id(events)
+        events = dedup_by_id(ensure_push_event_ids(events, source_id))
         if source_id:
             # Tag PUSH events with source provenance + role (the ElasticConnector
             # does this for PULL). A push source can be declared an ALL-alerts source
@@ -641,14 +753,50 @@ class IngestService:
             # agnostic correlation; default auto preserves today's behaviour).
             src = next((s for s in prefs.sources if s.id == source_id), None) if source_id else None
             strategy = prefs.entity_strategy_for(src)
+            # Push = pull symmetry (#1, A6): threshold correlation must span
+            # successive deliveries, not merely one transport callback. Queue and
+            # syslog receivers commonly emit one record at a time, so correlate the
+            # bounded, source-local look-back ring for events-role sources. Alerts
+            # remain batch-local/EVERY because each native detection is independent.
+            correlation_events = events
+            batch_role = _push_source_role(src) if src is not None else None
+            if source_id and batch_role != "alerts":
+                windows = [prefs.default_correlation.window_seconds]
+                windows.extend(r.window_seconds for r in prefs.correlation_rules.values())
+                widest = max(windows) if windows else prefs.default_correlation.window_seconds
+                interval = max(1, prefs.poll_interval_seconds)
+                lookback_ms = (max(widest, interval) + 2 * interval) * 1000
+                cutoff = to_millis(now_utc()) - lookback_ms
+                buffered = self._recent.get(source_id) or ()
+                correlation_events = dedup_by_id([
+                    *(
+                        event
+                        for event in buffered
+                        if event.timestamp_millis <= 0 or event.timestamp_millis >= cutoff
+                    ),
+                    # Always retain the delivery being processed even when a source
+                    # sends old event-time data/backfill outside the live look-back.
+                    *events,
+                ])
+
             # Push = pull symmetry (#1, A6): a PUSH source declared WHOLESALE ``alerts``
             # correlates with mode EVERY so every pushed detection becomes exactly one case,
             # exactly like an alerts-role PULL feed. ``role`` is the whole-batch hint (the
             # push events are also individually tagged ``index_role='alerts'`` above, so this
             # is belt-and-suspenders); an ``events`` role is a no-op (byte-identical). The
             # clusters then hit the SAME ``handle_clusters`` risk-gate ladder as pull.
-            batch_role = _push_source_role(src) if src is not None else None
-            clusters = correlate(events, prefs, entity_strategy=strategy, role=batch_role)
+            clusters = correlate(
+                correlation_events, prefs, entity_strategy=strategy, role=batch_role
+            )
+            # Only process clusters touched by this delivery. The surrounding
+            # look-back supplies threshold context; it must not re-handle an unrelated
+            # old cluster whenever another entity sends an event.
+            new_ids = {event.event_key() for event in events}
+            clusters = [
+                cluster
+                for cluster in clusters
+                if new_ids.intersection(cluster.member_event_keys or cluster.member_event_ids)
+            ]
             stats = await handle_clusters(
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=source_surface,
@@ -663,14 +811,19 @@ class IngestService:
                     )
                 except Exception as exc:  # noqa: BLE001 — never break ingestion
                     logger.warning("cross-source correlation failed: %s", exc)
-        except Exception as exc:  # noqa: BLE001 — a bad batch must not crash a receiver
+        except Exception as exc:  # noqa: BLE001 — convert to the receiver retry boundary
             logger.exception("ingest failed for a %d-event batch: %s", len(events), exc)
-            await self._audit.record(
-                action_type=ActionType.ERROR, surface="ingest", actor="ingest",
-                source_id=source_id,
-                result_summary=f"ingest error on {len(events)} events: {exc}",
-            )
-            return {**base, "received": len(events)}
+            try:
+                await self._audit.record(
+                    action_type=ActionType.ERROR, surface="ingest", actor="ingest",
+                    source_id=source_id,
+                    result_summary=f"ingest error on {len(events)} events: {exc}",
+                )
+            except Exception as audit_exc:  # noqa: BLE001 — preserve the processing failure
+                logger.warning("could not audit ingest failure: %s", audit_exc)
+            raise IngestBatchError(
+                f"batch of {len(events)} events was not processed; retry the batch"
+            ) from exc
         stats["received"] = len(events)
         # Round-7: record this batch's raw-alert-by-severity tally (fail-open; never blocks
         # or breaks the receiver). ``clusters``/``src`` are in scope from the try above.

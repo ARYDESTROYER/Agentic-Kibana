@@ -5,7 +5,7 @@
 > as they stood that day; it is **not re-verified against Vigil's current state**
 > and shouldn't be cited as a live comparison. The **execution plan (§5)** it
 > produced has since **~90% shipped, under different round names** than the
-> Wave 1–4 labels below — see each Wave's status tag inline and `CLAUDE.md` §10 for
+> Wave 1–4 labels below — see each Wave's status tag inline and `AGENTS.md` §10 for
 > what actually landed and when.
 >
 > Author: orchestrator (Opus) + a fleet of 10 Opus sub-agents that read Vigil
@@ -154,7 +154,7 @@ re-read the "Us" column as current state. Two cells are now stale in ways worth
 flagging: **Security/auth** — auth shipped, but defaults OFF rather than ON, see
 the Wave 2 note in §5; **Frontend** — the webui was never built in EUI at all; it
 shipped and was later fully re-skinned on Tailwind + shadcn/Radix, so "re-
-implement top surfaces in EUI" was never the path taken. See `CLAUDE.md` §10 for
+implement top surfaces in EUI" was never the path taken. See `AGENTS.md` §10 for
 current state.)*
 
 ---
@@ -265,7 +265,7 @@ agent personas · plain-text runbooks · hybrid RAG · tool tiers · fencing+pri
 provenance. Plus: archive the legacy Kibana plugin (done), this study doc, journal.
 Acceptance: `pytest -q` green (was 221), `webui` build green, all 12
 non-negotiables intact. **Shipped in full** as "the Vigil-inspired overhaul — Wave
-1" (see `CLAUDE.md` §10).
+1" (see `AGENTS.md` §10).
 
 **⚠️ Wave 2 (recommended next) — auth-by-default + CI coverage test + CSRF/headers/
 rate-limit; approval workflow + pre-flight cost projection + `$`-budget.** **Shipped,

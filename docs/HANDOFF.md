@@ -1,26 +1,20 @@
 # Developer & Agent Handoff — START HERE
 
 > **If you are a new chat session or a developer picking this up cold, read this file first,
-> then `CLAUDE.md` (the master rulebook, auto-loaded every session).** This is the single
+> then [`AGENTS.md`](../AGENTS.md) (the canonical rulebook).** `CLAUDE.md` is only a
+> forwarding entry point so Claude and Codex load the same instructions. This is the single
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Branch:** `Testing`  ·  **Date:** 2026-07-07
-- **Status: Round 9c is the current, shipped state.** Rounds 1 through 9c are ALL merged into
-  `Testing` and **pushed** to `origin/Testing` (HEAD `559ce88`) — there is no outstanding
-  unmerged/unpushed branch. `feature/round7-ui-overhaul` (Rounds 7–8) is a fully-merged
-  ancestor (landed via PR #23/#24); Round 9 landed via PR #25, Round 9b via PR #26, Round 9c
-  via PR #27 (current HEAD). See §5 for the round-by-round summary and
-  `docs/research/2026-07-round7/` + `docs/research/2026-07-round8/` (Rounds 9/9b/9c
-  intentionally have no research folder — see §7).
-- **Green baseline (verified 2026-07-07):** backend **1708 pytest** pass · webui **build clean**
-  (tsc + vite, entry chunk **279.32 kB**, gzip 82.55 kB) · **1268 vitest** pass / 229 files
-  (counts rise each round — see `Journal.md` for the exact current totals) · **eslint 0 errors**
-  (3 benign warnings) · `route_auth_coverage` + `design-gate` green · `engine/case_manager.py`
-  `decide()` **byte-identical** to the pre-Round-5 baseline `27f0983` · **zero new webui runtime
-  deps** since the Round-5 baseline (Round 5 added `react-grid-layout`, lazy-loaded in dashboard
-  edit-mode only; backend added **zero** through every round). The 12 non-negotiables held
-  throughout (incl. #3 — the deterministic decision; #6 — one LLM-gateway ledger write per call).
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-11
+- **Status:** Round 10 is committed. The current work prepares `3.0.0-alpha.1` as an
+  honest Bleeding Edge candidate; it is not tagged or pushed. `main` + `next` are the
+  recommended permanent release branches; see `docs/releases/channels.md`.
+- **Verification:** the integrated candidate is green at **1843 backend tests** and
+  **1332 web tests across 239 files**, with generated API contracts, production build,
+  lint/design gates, packaging, version, Compose, and strict docs checks passing. Read
+  the latest `Journal.md` entry for command-level evidence. The deterministic `decide()`
+  authority and the 12 non-negotiables remain mandatory.
 
 ---
 
@@ -48,16 +42,16 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1708 passed (rises each round; see Journal.md)
+python -m pytest -q                         # -> 1843 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build  -> clean (entry chunk ~279 kB, gzip ~83 kB)
-npx vitest run     # -> 1268 passed / 229 files (see Journal.md for the current count)
-npm run lint       # eslint; must be 0 ERRORS (a handful of benign warnings OK) — now also 20 jsx-a11y rules at error
+npm run build      # tsc --noEmit && vite build -> clean (entry 281.60 kB, gzip 83.35 kB)
+npx vitest run     # -> 1332 passed / 239 files
+npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enforced at error
 ```
 
 ### Run the demo locally (the fastest way to SEE everything)
@@ -65,8 +59,8 @@ npm run lint       # eslint; must be 0 ERRORS (a handful of benign warnings OK) 
 ./scripts/run-demo.sh
 # Starts the backend (app.main:app on :8088, AUTH ENABLED) + the webui dev server (:5173).
 # Open http://localhost:5173  ·  log in with  Admin / Admin@123  (seeded super_admin)
-# Then Settings -> Experimental -> Demo Mode: enable it for an instant, fully-populated,
-# isolated, $0 showcase (old + recent cases + live-simulated alerts). "Exit & clear" reverts.
+# The script completes local setup and enables the deterministic, isolated, $0 seeded
+# demo automatically. "Exit & clear" in Demo Mode reverts it.
 ```
 - **Auth is default-OFF** for the library/tests (the no-auth profile stays the out-of-the-box
   default). It is enabled by `TLSOC_AUTH_ENABLED=true` (which `run-demo.sh` sets). When enabled and
@@ -121,13 +115,13 @@ backend/app/
                    providers/ (19 registered classes, +17 new in Round 3: abuseipdb/virustotal/
                    greynoise/shodan(+internetdb)/censys/binaryedge/ipinfo/otx/pulsedive/spur/
                    xforce/urlscan/hibp/projecthoneypot/abusech[urlhaus+threatfox+malwarebazaar=3]/rdap)
-  realtime.py      Round 3 — multiplexed SSE EventBus (GET /api/events, default OFF, polling fallback)
+  realtime.py      Round 3 — multiplexed SSE EventBus (GET /api/events, default ON, polling fallback)
   connectors/      SPI + registry · elastic/opensearch/wazuh · demo.py · receivers/
   engine/          correlation · risk · case_manager (decide()/apply() — #3) · case_id · poller ·
                    poller_manager (Round-4 — fans out over EVERY enabled PULL source) · ingest ·
                    metrics (+ Round-3 posture) · mitre_coverage · shift_report · priority ·
                    budget (BudgetGate) · threshold_automation · threat_context · mitre · demo_generator/runtime +
-                   Round-4: threshold_tuner (nightly deterministic auto-tuner, default OFF) ·
+                   Round-4: threshold_tuner (nightly deterministic auto-tuner, default ON) ·
                    campaigns (daily shared-entity graph) · baseline (online EWMA/EWMV entity baseline) ·
                    event_detection (EVENT-feed batched agent-driven detection funnel) ·
                    forwarding (explain_forwarding) · reset (tiered danger-zone reset)
@@ -176,7 +170,7 @@ webui/src/
 
 ## 4. The rules you must not break (the 12 non-negotiables)
 
-Full text in `CLAUDE.md` §5. The ones that bite hardest:
+Full text in `AGENTS.md` §5. The ones that bite hardest:
 - **#3 — the deterministic decision.** `engine/case_manager.py` `decide()`/`apply()` decision logic
   is **byte-identical** and is the ONLY producer of CLOSED/auto-close. No LLM, playbook, automation,
   bulk action, or demo path may set a case's status/disposition outside `apply()` or the
@@ -444,7 +438,7 @@ folder — see `Journal.md`'s Round-9b entry.
 **GREEN:** webui **1264 vitest** / 228 files · build clean (entry 279.3 kB); no backend
 change this round.
 
-### Round 9c (`20118a7` → `2cc94c5`, PR #27, 2026-07-06, current HEAD) — dashboard from scratch + honest timing
+### Round 9c (`20118a7` → `2cc94c5`, PR #27, 2026-07-06, historical) — dashboard from scratch + honest timing
 The dashboard rebuilt from scratch (Prisma/XSIAM-style): real **MTTD**
 (`Case.first_seen_millis` → case creation) and **MTTR-as-first-human-response** (the ACK
 clock — NOT dwell; a same-round bug where an AI auto-close was miscounted as a human response
@@ -488,7 +482,7 @@ case linking/merge, an integrations marketplace.
 
 | You want to… | Read |
 |---|---|
-| Get the rules + current status (auto-loaded each session) | `CLAUDE.md` |
+| Get the rules + current status | `AGENTS.md` (`CLAUDE.md` forwards to it) |
 | Onboard / hand off (this) | `docs/HANDOFF.md` |
 | Use a feature (how-to + curl) | `docs/USAGE.md` |
 | Deploy (Docker, auth, SMTP/SSO env) | `DEPLOY.md` · `docs/ENVIRONMENT.md` · `.env.example` |
@@ -511,11 +505,11 @@ case linking/merge, an integrations marketplace.
 
 ## 8. For a new AI chat session specifically
 
-1. `CLAUDE.md` is auto-loaded — it has the non-negotiables, the module map, and the status. Trust it,
+1. `AGENTS.md` is canonical — it has the non-negotiables, module map, and status. `CLAUDE.md` forwards to it. Trust it,
    but **verify any file/function/flag it names still exists before acting** (the codebase moves).
 2. The memory files (auto-recalled) point back here. The Round-2/Round-3 design docs are the implementation blueprint.
-3. **Before committing anything:** `pytest -q` (1708) green, `npm run build` clean (entry chunk
-   ~279 kB), `npx vitest run` (1268 / 229 files) green, `npm run lint` 0 errors, and
+3. **Before committing anything:** `pytest -q` green, `npm run build` clean,
+   `npx vitest run` green, `npm run lint` 0 errors, and
    `git diff backend/app/engine/case_manager.py` **empty** (decision logic unchanged —
    byte-identical to `27f0983`). The `route_auth_coverage` + `design-gate` tests must also stay
    green. Commit focused changes; **don't push** unless asked.

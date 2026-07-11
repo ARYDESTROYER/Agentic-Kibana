@@ -519,7 +519,7 @@ def _decide_headline(pr: dict[str, Any]) -> str:
 def _build_stages(case_id: str, case: Any, rows: Any, state: Any) -> list[TimelineStage]:
     """Project a case + its audit rows into the six ordered narrative stages. Pure /
     read-time / mutates nothing (#3); untrusted source/log text is fenced in steps (#9)."""
-    n = len(case.member_event_ids) or len(case.evidence)
+    n = len(case.member_event_keys or case.member_event_ids) or len(case.evidence)
     plural = "s" if n != 1 else ""
     src = case.source_name or "the configured source"
 

@@ -18,14 +18,16 @@ is backed exclusively by the scoped, read-only API key (Non-negotiable #1).
 
 from __future__ import annotations
 
+import copy
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..config import IndexPattern, Preferences
 from ..constants import IndexRole, IngestMode, SourceType
 from ..es.base import BaseESClient
-from ..es.querybuilder import ids_query, poll_query
-from ..models import Cursor, RawEvent
+from ..es.querybuilder import ids_query, late_arrival_query, poll_query
+from ..models import Cursor, RawEvent, make_cursor_event_key
 from ..ocsf import OCSFEvent, ecs_to_ocsf, score_to_severity_id
 from ..utils import dotted_get, parse_es_timestamp, relative_to_millis, to_millis
 from .base import (
@@ -41,6 +43,11 @@ from .base import (
 # Parity constants with ``app/tools/es_query.py`` (keep these in lock-step).
 _MAX_SIZE = 200
 _DEFAULT_SIZE = 50
+_POLL_PIT_KEEP_ALIVE = "1m"
+_MAX_FRONTIER_PAGES = 64
+_MAX_LATE_PAGES = 32
+
+logger = logging.getLogger("tlsoc.connectors.elastic")
 
 
 @dataclass
@@ -56,11 +63,16 @@ class FeedScan:
     SKIPPED forever (#4). The dropped hits are independently owned + processed by the
     narrower feed via that feed's own cursor, so nothing is lost or duplicated.
 
-    ``scan_max_ts == 0`` means the feed read no hits this tick (cursor left untouched)."""
+    ``scan_recent_event_millis`` carries the exact identities observed in the
+    bounded late-arrival window; ``overlap_backfill_complete`` prevents an upgraded
+    cursor from replaying history before that ledger has been filled.  A
+    ``scan_max_ts`` of zero means the feed read no hits this tick."""
 
     events: list[RawEvent] = field(default_factory=list)
     scan_max_ts: int = 0
     scan_boundary_ids: list[str] = field(default_factory=list)
+    scan_recent_event_millis: dict[str, int] = field(default_factory=dict)
+    overlap_backfill_complete: bool = False
 
 
 def _http_status(exc: Exception) -> int | None:
@@ -484,10 +496,164 @@ class ElasticConnector(PullConnector):
         """Health probe — delegates to the underlying ES client."""
         return await self._es.ping()
 
+    async def _drain_pages(
+        self,
+        index: str,
+        base_body: dict[str, Any],
+        *,
+        time_field: str,
+        max_pages: int,
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Drain a bounded search window, preferring PIT + ``search_after``.
+
+        PIT supplies the stable per-document ``_shard_doc`` tie-breaker required
+        when many records share one timestamp.  Older OpenSearch/Wazuh-compatible
+        endpoints can decline/fail PIT; those use bounded offset pagination and the
+        final result is sorted deterministically client-side.  The compatibility
+        path is intentionally not described as exactly-once under concurrent index
+        refreshes; the durable inclusive cursor and case idempotency remain the
+        recovery backstops.
+        """
+        size = max(1, int(base_body.get("size", 1) or 1))
+        open_pit = getattr(self._es, "open_log_pit", None)
+        pit_id: str | None = None
+        if open_pit is not None:
+            try:
+                pit_id = await open_pit(index, _POLL_PIT_KEEP_ALIVE)
+            except Exception as exc:  # noqa: BLE001 — compatibility fallback
+                logger.debug("PIT unavailable for %s; using bounded paging: %s", index, exc)
+
+        if pit_id:
+            current_pit = pit_id
+            try:
+                hits: list[dict[str, Any]] = []
+                search_after: list[Any] | None = None
+                for _page in range(max_pages):
+                    body = copy.deepcopy(base_body)
+                    body.pop("from", None)
+                    body["pit"] = {"id": current_pit, "keep_alive": _POLL_PIT_KEEP_ALIVE}
+                    body["sort"] = [
+                        {time_field: {"order": "asc"}},
+                        {"_shard_doc": {"order": "asc"}},
+                    ]
+                    if search_after is not None:
+                        body["search_after"] = search_after
+                    resp = await self._es.search_logs(index, body)
+                    page_hits = list(resp.get("hits", {}).get("hits", []) or [])
+                    hits.extend(page_hits)
+                    refreshed_pit = resp.get("pit_id")
+                    if refreshed_pit:
+                        current_pit = str(refreshed_pit)
+                    if len(page_hits) < size:
+                        return self._stable_hits(hits, time_field), False
+                    marker = page_hits[-1].get("sort")
+                    if not isinstance(marker, list) or marker == search_after:
+                        raise RuntimeError("PIT search did not return a progressing sort token")
+                    search_after = list(marker)
+                return self._stable_hits(hits, time_field), True
+            except Exception as exc:  # noqa: BLE001 — older compatible engines
+                logger.warning("PIT pagination failed for %s; retrying compatibly: %s", index, exc)
+            finally:
+                close_pit = getattr(self._es, "close_log_pit", None)
+                if close_pit is not None:
+                    try:
+                        await close_pit(current_pit)
+                    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+                        logger.debug("PIT close failed for %s: %s", index, exc)
+
+        # Compatibility fallback: a bounded, oldest-first offset drain.  This path
+        # is used only when PIT is unavailable; it still fixes single-page loss and
+        # equal-timestamp starvation for a quiescent search view.
+        hits = []
+        for page in range(max_pages):
+            body = copy.deepcopy(base_body)
+            body.pop("pit", None)
+            body.pop("search_after", None)
+            body["from"] = page * size
+            resp = await self._es.search_logs(index, body)
+            page_hits = list(resp.get("hits", {}).get("hits", []) or [])
+            hits.extend(page_hits)
+            if len(page_hits) < size:
+                return self._stable_hits(hits, time_field), False
+        return self._stable_hits(hits, time_field), True
+
+    @staticmethod
+    def _stable_hits(hits: list[dict[str, Any]], time_field: str) -> list[dict[str, Any]]:
+        """Deduplicate and deterministically order hits by time, index and id."""
+        unique: dict[str, dict[str, Any]] = {}
+        for hit in hits:
+            key = make_cursor_event_key(str(hit.get("_index", "")), str(hit.get("_id", "")))
+            unique.setdefault(key, hit)
+
+        def key(hit: dict[str, Any]) -> tuple[int, str, str]:
+            ts = parse_es_timestamp(dotted_get(hit.get("_source", {}) or {}, time_field))
+            return (
+                to_millis(ts) if ts else 0,
+                str(hit.get("_index", "")),
+                str(hit.get("_id", "")),
+            )
+
+        return sorted(unique.values(), key=key)
+
+    async def _collect_poll_hits(
+        self,
+        prefs: Preferences,
+        cursor: Cursor,
+        from_millis: int,
+        *,
+        feed: IndexPattern | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+        """Return frontier hits, late-window hits, and late backfill completeness."""
+        frontier_body = poll_query(prefs, cursor, from_millis)
+        if feed is not None:
+            self._apply_feed_query(frontier_body, feed)
+        frontier, _frontier_truncated = await self._drain_pages(
+            prefs.data_view_pattern,
+            frontier_body,
+            time_field=prefs.time_field,
+            max_pages=_MAX_FRONTIER_PAGES,
+        )
+
+        late: list[dict[str, Any]] = []
+        late_complete = True
+        late_body = late_arrival_query(prefs, cursor)
+        if late_body is not None:
+            if feed is not None:
+                self._apply_feed_query(late_body, feed)
+            late, late_truncated = await self._drain_pages(
+                prefs.data_view_pattern,
+                late_body,
+                time_field=prefs.time_field,
+                max_pages=_MAX_LATE_PAGES,
+            )
+            late_complete = not late_truncated
+        return frontier, late, late_complete
+
+    async def poll_scan(
+        self, prefs: Preferences, cursor: Cursor, from_millis: int
+    ) -> FeedScan:
+        """Drain the legacy/un-fed source and return cursor bookkeeping metadata."""
+        fp = self._effective_prefs(prefs)
+        frontier, late, late_complete = await self._collect_poll_hits(
+            fp, cursor, from_millis
+        )
+        observed = self._stable_hits(frontier + late, fp.time_field)
+        emitted = frontier + (late if cursor.overlap_initialized else [])
+        events = self._tag_events([RawEvent.from_hit(h, fp) for h in emitted])
+        events.sort(key=lambda event: (event.timestamp_millis, event.index, event.id))
+        scan_max_ts, scan_boundary = self._scan_watermark(observed, fp)
+        return FeedScan(
+            events=events,
+            scan_max_ts=scan_max_ts,
+            scan_boundary_ids=scan_boundary,
+            scan_recent_event_millis=self._scan_recent_event_millis(observed, fp),
+            overlap_backfill_complete=late_complete,
+        )
+
     async def poll(
         self, prefs: Preferences, cursor: Cursor, from_millis: int
     ) -> list[RawEvent]:
-        """Fetch one in-scope polling batch at/after the cursor (oldest first).
+        """Fetch bounded in-scope polling pages at/after the cursor (oldest first).
 
         Splits the read into PER-FEED sub-queries (Wave 6) so each feed's own
         ``query`` (a connector-native, operator-TRUSTED filter) and ``severity_floor``
@@ -502,17 +668,11 @@ class ElasticConnector(PullConnector):
         body so a single shared cursor (a feed group of equal interval) never skips."""
         feeds = self._poll_feeds()
         if not feeds:
-            # Legacy / un-fed source: ONE union read over the effective data view —
-            # byte-identical to the pre-Wave-6 connector.
-            prefs = self._effective_prefs(prefs)
-            body = poll_query(prefs, cursor, from_millis)
-            resp = await self._es.search_logs(prefs.data_view_pattern, body)
-            hits = resp.get("hits", {}).get("hits", [])
-            return self._tag_events([RawEvent.from_hit(h, prefs) for h in hits])
+            return (await self.poll_scan(prefs, cursor, from_millis)).events
         out: list[RawEvent] = []
         for feed in feeds:
             out.extend(await self.poll_feed(prefs, feed, cursor, from_millis))
-        return out
+        return sorted(out, key=lambda event: (event.timestamp_millis, event.index, event.id))
 
     def feeds(self) -> list[IndexPattern]:
         """The enabled, NON-ignore feeds this connector polls (Wave 6).
@@ -556,18 +716,25 @@ class ElasticConnector(PullConnector):
         hits' window. The dropped hits remain owned + independently processed by the
         narrower feed via that feed's own cursor (no skip, no dup)."""
         fp = self._feed_prefs(prefs, feed)
-        body = poll_query(fp, cursor, from_millis)
-        self._apply_feed_query(body, feed)
-        resp = await self._es.search_logs(fp.data_view_pattern, body)
-        hits = resp.get("hits", {}).get("hits", [])
+        frontier, late, late_complete = await self._collect_poll_hits(
+            fp, cursor, from_millis, feed=feed
+        )
+        hits = self._stable_hits(frontier + late, fp.time_field)
         # Watermark over ALL scanned hits (kept + dropped) using the feed's own time
         # field (same projection ``from_hit`` uses), so a dropped narrower-feed hit at
         # the trailing edge still moves THIS feed's cursor and is never skipped.
         scan_max_ts, scan_boundary = self._scan_watermark(hits, fp)
-        kept = [h for h in hits if self._owns_index(feed, str(h.get("_index", "")))]
+        emitted = frontier + (late if cursor.overlap_initialized else [])
+        kept = [h for h in emitted if self._owns_index(feed, str(h.get("_index", "")))]
         events = self._tag_events([RawEvent.from_hit(h, fp) for h in kept], feed=feed)
-        return FeedScan(events=events, scan_max_ts=scan_max_ts,
-                        scan_boundary_ids=scan_boundary)
+        events.sort(key=lambda event: (event.timestamp_millis, event.index, event.id))
+        return FeedScan(
+            events=events,
+            scan_max_ts=scan_max_ts,
+            scan_boundary_ids=scan_boundary,
+            scan_recent_event_millis=self._scan_recent_event_millis(hits, fp),
+            overlap_backfill_complete=late_complete,
+        )
 
     @staticmethod
     def _scan_watermark(hits: list[dict[str, Any]], fp: Preferences) -> tuple[int, list[str]]:
@@ -582,13 +749,37 @@ class ElasticConnector(PullConnector):
             tms = to_millis(ts) if ts else 0
             if tms <= 0:
                 continue
-            ts_by_id.append((tms, str(h.get("_id", ""))))
+            ts_by_id.append(
+                (
+                    tms,
+                    make_cursor_event_key(
+                        str(h.get("_index", "")), str(h.get("_id", ""))
+                    ),
+                )
+            )
             if tms > max_ts:
                 max_ts = tms
         if max_ts <= 0:
             return 0, []
         boundary = list(dict.fromkeys(i for t, i in ts_by_id if t == max_ts))
         return max_ts, boundary
+
+    @staticmethod
+    def _scan_recent_event_millis(
+        hits: list[dict[str, Any]], fp: Preferences
+    ) -> dict[str, int]:
+        """Stable cursor-key → timestamp map for every hit observed in the scan."""
+        recent: dict[str, int] = {}
+        for hit in hits:
+            ts = parse_es_timestamp(dotted_get(hit.get("_source", {}) or {}, fp.time_field))
+            tms = to_millis(ts) if ts else 0
+            if tms <= 0:
+                continue
+            key = make_cursor_event_key(
+                str(hit.get("_index", "")), str(hit.get("_id", ""))
+            )
+            recent[key] = tms
+        return recent
 
     def _owns_index(self, feed: IndexPattern, index: str) -> bool:
         """True when ``feed`` is the most-specific (longest-pattern) feed matching

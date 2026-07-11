@@ -23,6 +23,7 @@ from ..constants import ActionType, CaseStatus, DecisionBy, EntityType, SourceSu
 from ..engine.case_manager import CaseManager
 from ..engine.cost_gate import CaseBudget
 from ..engine.risk import compute_risk
+from ..engine.signatures import find_open_case_for_cluster
 from ..es.base import BaseESClient
 from ..llm.gateway import LLMGateway
 from ..models import Case, Cluster, EnrichmentResult, VerdictResult
@@ -45,6 +46,11 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from ..stores.memory import MemoryStore
 
 logger = logging.getLogger("tlsoc.agents.pipeline")
+
+# Distinguishes the legacy/default primary query surface from an explicit ``None``.
+# ``None`` means the originating source is push-only and MUST NOT inherit another
+# source's read tool.
+_DEFAULT_QUERY_SOURCE = object()
 
 
 class InvestigationPipeline:
@@ -165,13 +171,24 @@ class InvestigationPipeline:
         except Exception as exc:  # noqa: BLE001 — realtime is advisory; never break the flow
             logger.debug("agent.step publish skipped for %s: %s", case_id, exc)
 
-    def _build_investigator(self, prefs: Preferences) -> tuple[Investigator, EnrichTool]:
+    def _build_investigator(
+        self,
+        prefs: Preferences,
+        query_source: PullConnector | None | object = _DEFAULT_QUERY_SOURCE,
+    ) -> tuple[Investigator, EnrichTool]:
+        """Build the tool-using investigator for the originating log source.
+
+        ``query_source`` is supplied by each per-source poller.  Falling back to the
+        primary source preserves manual/single-source compatibility, while the
+        explicit override prevents an alert from source B being investigated with
+        source A's read-only query tool.
+        """
         enrich = EnrichTool(self._secrets, prefs, self._cache)
-        registry = ToolRegistry([
-            EsQueryTool(self._source, prefs),
-            enrich,
-            RagTool(self._rag),
-        ])
+        effective_source = self._source if query_source is _DEFAULT_QUERY_SOURCE else query_source
+        tools = [enrich, RagTool(self._rag)]
+        if effective_source is not None:
+            tools.insert(0, EsQueryTool(effective_source, prefs))
+        registry = ToolRegistry(tools)
         formatter = Formatter(self._gateway, self._audit)
         investigator = Investigator(self._gateway, registry, self._audit, formatter)
         return investigator, enrich
@@ -252,6 +269,7 @@ class InvestigationPipeline:
         *,
         force: bool = False,
         force_playbook_id: str | None = None,
+        query_source: PullConnector | None | object = _DEFAULT_QUERY_SOURCE,
     ) -> Case:
         """Investigate a cluster into a case. The ``find_open_by_signature → save``
         critical section is serialized PER SIGNATURE (:meth:`signature_lock`) so two
@@ -261,6 +279,7 @@ class InvestigationPipeline:
             return await self._investigate_cluster_locked(
                 cluster, source_surface, prefs,
                 force=force, force_playbook_id=force_playbook_id,
+                query_source=query_source,
             )
 
     async def _investigate_cluster_locked(
@@ -271,11 +290,12 @@ class InvestigationPipeline:
         *,
         force: bool = False,
         force_playbook_id: str | None = None,
+        query_source: PullConnector | None | object = _DEFAULT_QUERY_SOURCE,
     ) -> Case:
         case_id = new_id("case-")
         existing: Case | None = None
         try:
-            existing = await self._cases.find_open_by_signature(cluster.signature)
+            existing = await find_open_case_for_cluster(self._cases, cluster)
             if existing:
                 case_id = existing.case_id
 
@@ -286,8 +306,20 @@ class InvestigationPipeline:
             # Re-investigate only when force=True, the case is an un-investigated
             # candidate (verdict is None), or new events were added.
             if existing and existing.verdict is not None and not force:
-                new_ids = set(cluster.member_event_ids) - set(existing.member_event_ids)
-                if not new_ids:
+                if existing.member_event_keys:
+                    new_keys = set(_cluster_event_keys(cluster)) - set(
+                        _case_event_keys(existing)
+                    )
+                else:
+                    prior_ids = set(existing.member_event_ids)
+                    new_keys = {
+                        key
+                        for key, event_id in zip(
+                            _cluster_event_keys(cluster), cluster.member_event_ids
+                        )
+                        if event_id not in prior_ids
+                    }
+                if not new_keys:
                     await self._audit.record(
                         action_type=ActionType.DECISION, surface=source_surface.value,
                         actor="pipeline", case_id=case_id,
@@ -303,7 +335,7 @@ class InvestigationPipeline:
             self._emit_step(case_id, "router", status="running",
                             detail="triage starting")
 
-            investigator, enrich = self._build_investigator(prefs)
+            investigator, enrich = self._build_investigator(prefs, query_source)
 
             # --- enrichment + deterministic risk ---
             enrichment: EnrichmentResult | None = None
@@ -473,14 +505,25 @@ class InvestigationPipeline:
         except Exception as exc:  # noqa: BLE001 — never drop an alert
             logger.exception("Pipeline failed for cluster %s; failing to human", cluster.signature)
             case = _fail_to_human_case(case_id, cluster, source_surface, str(exc), existing, prefs)
+            persist_error: Exception | None = None
             try:
                 await self._cases.save(case)
-            except Exception:  # noqa: BLE001
-                logger.error("Could not persist fail-to-human case %s", case_id)
-            await self._audit.record(
-                action_type=ActionType.ERROR, surface=source_surface.value,
-                actor="pipeline", case_id=case_id, result_summary=f"pipeline error: {exc}",
-            )
+            except Exception as save_exc:  # noqa: BLE001
+                persist_error = save_exc
+                logger.exception("Could not persist fail-to-human case %s", case_id)
+            try:
+                await self._audit.record(
+                    action_type=ActionType.ERROR, surface=source_surface.value,
+                    actor="pipeline", case_id=case_id, result_summary=f"pipeline error: {exc}",
+                )
+            finally:
+                if persist_error is not None:
+                    # Returning an unsaved Case would make a webhook/broker ack work
+                    # that vanished. Propagate only this terminal persistence failure;
+                    # IngestService converts it to its retry boundary.
+                    raise RuntimeError(
+                        f"could not persist fail-to-human case {case_id}"
+                    ) from persist_error
             return case
 
     async def register_candidate(
@@ -509,7 +552,7 @@ class InvestigationPipeline:
         self, cluster: Cluster, source_surface: SourceSurface, prefs: Preferences,
         *, awaiting_reason: str = "",
     ) -> Case:
-        existing = await self._cases.find_open_by_signature(cluster.signature)
+        existing = await find_open_case_for_cluster(self._cases, cluster)
         case_id = existing.case_id if existing else new_id("case-")
         breakdown = compute_risk(cluster, prefs, 0.0)
         cluster.risk_score = breakdown.total
@@ -517,6 +560,7 @@ class InvestigationPipeline:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         ))
+        member_keys = _merge_event_keys(existing, cluster)
         case_number = await self._allocate_case_number(existing, cluster, prefs)
         case = Case(
             case_id=case_id,
@@ -531,6 +575,7 @@ class InvestigationPipeline:
             source_id=_source_id(existing, cluster),
             source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
+            member_event_keys=member_keys,
             first_seen_millis=_first_seen(existing, cluster),
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
@@ -542,6 +587,7 @@ class InvestigationPipeline:
             summary=truncate(
                 f"Candidate awaiting analysis — {awaiting_reason}." if awaiting_reason
                 else "Candidate cluster awaiting investigation.", 300),
+            awaiting_reason=awaiting_reason,
             history=(existing.history if existing else []),
             verdict_history=(existing.verdict_history if existing else []),
             trigger_reason=_trigger(existing, cluster),
@@ -570,6 +616,7 @@ class InvestigationPipeline:
         member_ids = list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         ))
+        member_keys = _merge_event_keys(existing, cluster)
         created_at = existing.created_at if existing else iso_now()
         history = existing.history if existing else []
         token_cost = (existing.token_cost if existing else 0.0) + cost
@@ -606,6 +653,7 @@ class InvestigationPipeline:
             source_id=_source_id(existing, cluster),
             source_name=_source_name(existing, cluster),
             member_event_ids=member_ids,
+            member_event_keys=member_keys,
             first_seen_millis=_first_seen(existing, cluster),
             risk_score=cluster.risk_score,
             risk_breakdown=cluster.risk_breakdown,
@@ -656,6 +704,29 @@ def _source_id(existing: Case | None, cluster: Cluster) -> str | None:
     return cluster.source_id or (existing.source_id if existing else None)
 
 
+def _case_event_keys(case: Case | None) -> list[str]:
+    if case is None:
+        return []
+    return list(case.member_event_keys or case.member_event_ids)
+
+
+def _cluster_event_keys(cluster: Cluster) -> list[str]:
+    return list(cluster.member_event_keys or cluster.member_event_ids)
+
+
+def _merge_event_keys(existing: Case | None, cluster: Cluster) -> list[str]:
+    prior = _case_event_keys(existing)
+    incoming = _cluster_event_keys(cluster)
+    if existing is not None and not existing.member_event_keys:
+        prior_ids = set(existing.member_event_ids)
+        incoming = [
+            key
+            for key, event_id in zip(incoming, cluster.member_event_ids)
+            if event_id not in prior_ids
+        ]
+    return list(dict.fromkeys(prior + incoming))
+
+
 def _source_name(existing: Case | None, cluster: Cluster) -> str | None:
     return cluster.source_name or (existing.source_name if existing else None)
 
@@ -692,6 +763,7 @@ def _fail_to_human_case(
         member_event_ids=list(dict.fromkeys(
             (existing.member_event_ids if existing else []) + cluster.member_event_ids
         )),
+        member_event_keys=_merge_event_keys(existing, cluster),
         first_seen_millis=_first_seen(existing, cluster),
         risk_score=cluster.risk_score,
         risk_breakdown=cluster.risk_breakdown,

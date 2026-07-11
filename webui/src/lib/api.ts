@@ -905,9 +905,14 @@ export const api = {
   listConnectors: () => request<ConnectorsResponse>('GET', 'connectors'),
   getConnector: (sourceType: string) =>
     request<ConnectorManifest>('GET', `connectors/${encodeURIComponent(sourceType)}`),
-  testConnector: (sourceType?: string) =>
+  testConnector: (draft?: {
+    source_id?: string | null;
+    source_type?: string | null;
+    config?: Record<string, unknown>;
+    secrets?: Record<string, string>;
+  }) =>
     request<ConnectionTest>('POST', 'connectors/test', {
-      body: { source_type: sourceType ?? null },
+      body: draft ?? {},
     }),
   listSources: () => request<SourcesResponse>('GET', 'sources'),
   upsertSource: (source: SourceUpsert) =>

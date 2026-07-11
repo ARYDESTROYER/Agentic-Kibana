@@ -87,11 +87,43 @@ class RealESClient(BaseESClient):
             logger.warning("ES ping failed: %s", exc)
             return False
 
+    async def ping_state(self) -> bool:
+        """Readiness probe for the management client that owns app state."""
+        if self._mgmt is None:
+            return False
+        try:
+            return bool(await self._mgmt.ping())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ES state-store ping failed: %s", exc)
+            return False
+
     # --- read-only log surface ---
     async def search_logs(self, index: str, body: dict[str, Any]) -> dict[str, Any]:
         client = self._require_ro()
-        resp = await client.search(index=index, body=body)
+        # Elasticsearch rejects an explicit index when a PIT is supplied; the PIT
+        # already captures the scoped index set opened through this same read-only
+        # client.  Non-PIT searches preserve the original call exactly.
+        if body.get("pit"):
+            resp = await client.search(body=body)
+        else:
+            resp = await client.search(index=index, body=body)
         return resp.body if hasattr(resp, "body") else dict(resp)
+
+    async def open_log_pit(self, index: str, keep_alive: str = "1m") -> str | None:
+        client = self._require_ro()
+        resp = await client.open_point_in_time(index=index, keep_alive=keep_alive)
+        body = resp.body if hasattr(resp, "body") else resp
+        pit_id = body.get("id") if isinstance(body, dict) else None
+        return str(pit_id) if pit_id else None
+
+    async def close_log_pit(self, pit_id: str) -> None:
+        if not pit_id:
+            return
+        client = self._require_ro()
+        try:
+            await client.close_point_in_time(id=pit_id)
+        except TypeError:  # compatibility with clients requiring an explicit body
+            await client.close_point_in_time(body={"id": pit_id})
 
     # --- management ---
     async def index_template_exists(self, name: str) -> bool:

@@ -987,8 +987,8 @@ row itself, and nothing here calls `decide()`.
 `GET`/`PUT /api/budget` reads/writes a daily + monthly USD ceiling
 (`BudgetConfig`: `enabled`, `daily_usd`, `monthly_usd`, `on_exceed`). Since
 **Round 10** this ships **ON by default** — `enabled: true`, `daily_usd: 10`,
-`soft_warn_pct: 0.8`, `on_exceed: "warn"` — as the spend backstop for
-comprehensive ingestion (§33); `on_exceed="block"` remains an explicit opt-in.
+`soft_warn_pct: 0.8`, `on_exceed: "block"` — as the spend backstop for
+comprehensive ingestion (§33); warning-only mode remains an explicit opt-in.
 `GET /api/budget/status` reports where you currently stand against it.
 `POST /api/cost/estimate` (`{ model, prompt, max_tokens }`) gives a pre-flight
 cost estimate for a hypothetical call, using any price overlay first and the
@@ -2024,12 +2024,11 @@ budget, an order of magnitude below a typical AI-SOC entry price.)
 ### The default budget backstop
 
 `BudgetConfig` (§22) now defaults **`enabled: true`, `daily_usd: 10`,
-`soft_warn_pct: 0.8`, `on_exceed: "warn"`** — the one thing that keeps "read
+`soft_warn_pct: 0.8`, `on_exceed: "block"`** — the backstop that keeps "read
 everything by default" from turning into "spend everything." Crossing the ceiling
-in `warn` mode never blocks a call; an operator opts into hard `on_exceed: "block"`
-if they want the ceiling to actually stop spend. Either way, a budget-blocked
-investigation fails safe to `NEEDS_HUMAN` (#3) — never a silent drop, never a
-silent close.
+stops the provider call before it is made; an operator can explicitly select
+warning-only mode. A budget-blocked investigation fails safe to `NEEDS_HUMAN`
+(#3/#4) — never a silent drop or close.
 
 ### What's ON by default now, and what's still opt-in
 

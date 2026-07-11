@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from .. import __version__
@@ -23,6 +25,7 @@ from ..constants import (
     Disposition,
     EntityType,
     IngestMode,
+    OCSF_VERSION,
     SourceSurface,
     SourceType,
     UserRole,
@@ -79,14 +82,131 @@ class HealthResponse(BaseModel):
     setup_complete: bool
 
 
+class LivenessResponse(BaseModel):
+    status: str
+    service: str
+    version: str
+
+
+class ReadinessResponse(BaseModel):
+    status: str
+    ready: bool
+    version: str
+    store_type: str
+    checks: dict[str, bool]
+
+
+class BuildInfoResponse(BaseModel):
+    service: str
+    version: str
+    release_channel: str
+    commit_sha: str
+    build_time: str
+    state_backend: str
+    ocsf_version: str
+
+
+async def _state_store_probe(state: AppState) -> tuple[bool, str]:
+    """Probe the persistence dependency that must work before traffic is accepted.
+
+    Readiness performs a bounded write-path sentinel. Connectivity alone is not
+    enough: a reachable database user or Elasticsearch key may still be read-only,
+    in which case accepting alerts would create an acknowledgement/data-loss risk.
+    The fixed sentinel is overwritten, so probe cardinality stays constant.
+    """
+    backend = str(
+        getattr(state.secrets, "state_backend", "elasticsearch") or "elasticsearch"
+    )
+    if backend in {"sqlite", "postgres"}:
+        store_type = "SQLiteStateStore" if backend == "sqlite" else "PostgresStateStore"
+        engine = getattr(state, "sql_engine", None)
+        if engine is None:
+            return False, store_type
+        try:
+            async with engine.connect() as connection:
+                await connection.exec_driver_sql("SELECT 1")
+            sentinel = {"kind": "readiness_probe", "schema": 1}
+            await state.kv.put("health", "readiness", sentinel)
+            persisted = await state.kv.get("health", "readiness")
+            if not persisted or persisted.get("kind") != "readiness_probe":
+                return False, store_type
+            return True, store_type
+        except Exception as exc:  # noqa: BLE001 — probe failure is reported, never raised
+            logger.warning("%s readiness probe failed: %s", backend, type(exc).__name__)
+            return False, store_type
+
+    store_type = type(state.es).__name__
+    try:
+        if not await state.es.ping_state():
+            return False, store_type
+        return bool(await state.es.write_state_probe()), store_type
+    except Exception as exc:  # noqa: BLE001 — probe failure is reported, never raised
+        logger.warning("Elasticsearch readiness probe failed: %s", type(exc).__name__)
+        return False, store_type
+
+
+def _release_channel(version: str) -> str:
+    if "-" not in version:
+        return "stable"
+    prerelease = version.split("-", 1)[1].split("+", 1)[0].split(".", 1)[0]
+    return prerelease or "prerelease"
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health(state: AppState = Depends(get_state)) -> HealthResponse:
+    ready, store_type = await _state_store_probe(state)
     return HealthResponse(
-        status="ok",
+        status="ok" if ready else "degraded",
         version=__version__,
-        es_connected=await state.es.ping(),
-        store_type=type(state.es).__name__,
+        # Backward-compatible wire name: this now truthfully represents the OWN-state
+        # backend (ES, PostgreSQL, or SQLite), which is what existing clients use it for.
+        es_connected=ready,
+        store_type=store_type,
         setup_complete=state.prefs.setup_complete,
+    )
+
+
+@router.get("/health/live", response_model=LivenessResponse)
+async def health_live() -> LivenessResponse:
+    """Process liveness only; dependency failures must not trigger restart loops."""
+    return LivenessResponse(
+        status="ok",
+        service="tlsoc-agentic-triage",
+        version=__version__,
+    )
+
+
+@router.get(
+    "/health/ready",
+    response_model=ReadinessResponse,
+    responses={503: {"model": ReadinessResponse}},
+)
+async def health_ready(state: AppState = Depends(get_state)) -> ReadinessResponse | JSONResponse:
+    """Traffic readiness: fail closed when the suite cannot persist its own state."""
+    ready, store_type = await _state_store_probe(state)
+    result = ReadinessResponse(
+        status="ready" if ready else "not_ready",
+        ready=ready,
+        version=__version__,
+        store_type=store_type,
+        checks={"state_store": ready},
+    )
+    if not ready:
+        return JSONResponse(status_code=503, content=result.model_dump(mode="json"))
+    return result
+
+
+@router.get("/health/build-info", response_model=BuildInfoResponse)
+async def health_build_info(state: AppState = Depends(get_state)) -> BuildInfoResponse:
+    """Non-secret release identity for support, diagnostics, and upgrade checks."""
+    return BuildInfoResponse(
+        service="tlsoc-agentic-triage",
+        version=__version__,
+        release_channel=_release_channel(__version__),
+        commit_sha=os.getenv("TLSOC_BUILD_SHA", "unknown"),
+        build_time=os.getenv("TLSOC_BUILD_DATE", "unknown"),
+        state_backend=str(state.secrets.state_backend),
+        ocsf_version=OCSF_VERSION,
     )
 
 
@@ -258,9 +378,12 @@ class SourceUpsert(BaseModel):
 
 
 class ConnectorTestRequest(BaseModel):
-    """Test a source's connectivity. With no body, tests the wired primary source."""
+    """Test the exact saved or draft source configuration without persisting it."""
 
+    source_id: str | None = None
     source_type: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    secrets: dict[str, str | None] = Field(default_factory=dict)
 
 
 @router.get("/connectors")
@@ -285,12 +408,81 @@ async def get_connector(source_type: str, state: AppState = Depends(get_state)) 
 
 @router.post("/connectors/test")
 async def test_connector(
-    body: ConnectorTestRequest, state: AppState = Depends(get_state)
+    body: ConnectorTestRequest,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
 ) -> dict[str, Any]:
-    """Validate connectivity. Currently tests the live primary log source (the
-    agent's read surface) — the wizard's 'Test connection' for the main source."""
-    result = await state.log_source.test_connection(state.prefs)
-    return result.model_dump(mode="json")
+    """Validate the connector instance currently shown in the source editor.
+
+    Draft config/secrets are request-scoped and never written to Preferences or the
+    secret tier. With an empty body, preserve the legacy primary-source test.
+    """
+    if not body.source_id and not body.source_type and not body.config and not body.secrets:
+        result = await state.log_source.test_connection(state.prefs)
+        return result.model_dump(mode="json")
+
+    saved = state.prefs.source_by_id(body.source_id) if body.source_id else None
+    source_type_raw = body.source_type or (saved.source_type.value if saved else None)
+    if not source_type_raw:
+        raise HTTPException(status_code=400, detail="source_type or source_id is required")
+    try:
+        source_type = SourceType(source_type_raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Unknown source type: {source_type_raw}") from exc
+
+    reg = get_registry()
+    cls = reg.get(source_type)
+    if cls is None:
+        raise HTTPException(status_code=400, detail=f"No connector for: {source_type.value}")
+    if reg.is_receiver(source_type):
+        return {
+            "ok": False,
+            "message": (
+                "This push receiver has no safe one-shot connectivity probe. Save it, "
+                "send a test event, and inspect source health."
+            ),
+            "mode": "push",
+            "detail": {"supported": False},
+        }
+
+    effective_config: dict[str, Any] = {
+        **((saved.config or {}) if saved else {}),
+        **body.config,
+        **(state.secrets.source_secrets(saved.id) if saved else {}),
+        **{k: v for k, v in body.secrets.items() if v not in (None, "")},
+    }
+    draft = SourceInstance(
+        id=(body.source_id or f"test-{source_type.value}"),
+        source_type=source_type,
+        display_name=(saved.display_name if saved else "Connection test"),
+        enabled=True,
+        ingest_mode=IngestMode.PULL,
+        config=effective_config,
+    )
+    es_client, owned = state.es_client_for_source(draft)
+    try:
+        from ..connectors.elastic import ElasticConnector
+        from ..connectors.opensearch import OpenSearchConnector
+        from ..connectors.wazuh import WazuhConnector
+
+        connector_cls = {
+            SourceType.ELASTICSEARCH: ElasticConnector,
+            SourceType.OPENSEARCH: OpenSearchConnector,
+            SourceType.WAZUH: WazuhConnector,
+        }.get(source_type)
+        if connector_cls is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Draft connection testing is not implemented for {source_type.value}",
+            )
+        connector = connector_cls(
+            es_client, config=effective_config, connector_id=draft.id
+        )
+        result = await connector.test_connection(state.prefs)
+        return result.model_dump(mode="json")
+    finally:
+        if owned:
+            await es_client.close()
 
 
 @router.get("/sources")
@@ -348,7 +540,10 @@ async def upsert_source(
         display_name=body.display_name or manifest.display_name,
         enabled=body.enabled,
         ingest_mode=mode,
-        is_primary=body.is_primary,
+        # Only a pull/search connector can own the primary query surface. A push
+        # receiver marked primary would otherwise be rebuilt as an Elastic connector
+        # and could query the unrelated global data view.
+        is_primary=(body.is_primary and mode == IngestMode.PULL and not reg.is_receiver(st)),
         config=body.config,
         configured_secrets=(list(existing.configured_secrets) if existing else []),
         **({"created_at": existing.created_at} if existing else {}),
@@ -368,6 +563,7 @@ async def upsert_source(
     prefs = state.prefs.model_copy(update={"sources": others + [instance]})
     await state.update_prefs(prefs)
     state.rebuild_log_source()
+    await state.reconcile_receivers()
     return {"ok": True, "sources": [s.model_dump(mode="json") for s in prefs.sources]}
 
 
@@ -383,6 +579,10 @@ async def delete_source(
     prefs = state.prefs.model_copy(update={"sources": remaining})
     await state.update_prefs(prefs)
     state.rebuild_log_source()
+    # Revoke now-orphaned in-memory credentials and stop a deleted background
+    # receiver before returning success.
+    state.secrets.connector_secrets.pop(source_id, None)
+    await state.reconcile_receivers()
     return {"ok": True, "sources": [s.model_dump(mode="json") for s in remaining]}
 
 
@@ -406,6 +606,17 @@ async def set_source_secrets(
     updated = src.model_copy(update={"configured_secrets": configured})
     others = [s for s in state.prefs.sources if s.id != source_id]
     await state.update_prefs(state.prefs.model_copy(update={"sources": others + [updated]}))
+    # Pull clients snapshot per-source connection credentials when they are built.
+    # Rebuild the primary + fan-out immediately so a first key or key rotation takes
+    # effect on the next query/poll rather than after another source edit or restart.
+    # Receivers do not use these clients and are reconciled separately below; avoid
+    # churning unrelated pull connections when only a webhook/broker token rotates.
+    reg = get_registry()
+    if reg.is_pull(updated.source_type) or (
+        updated.ingest_mode == IngestMode.PULL and not reg.is_receiver(updated.source_type)
+    ):
+        state.rebuild_log_source()
+    await state.reconcile_receivers()
     return {"ok": True, "configured_secrets": configured}
 
 
@@ -470,7 +681,19 @@ async def ingest_push(
         events = receiver.handle_request(body, headers, state.prefs)
     except PermissionError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    stats = await state.ingest_service.ingest(events, state.prefs, source_id=source_id)
+    from ..engine.ingest import IngestBatchError
+
+    try:
+        stats = await state.ingest_service.ingest(events, state.prefs, source_id=source_id)
+    except IngestBatchError as exc:
+        # Do not claim acceptance when correlation/case persistence failed.  A 503
+        # makes the retry contract explicit for webhook/HEC senders; broker receivers
+        # see the same exception and withhold their ack/checkpoint.
+        raise HTTPException(
+            status_code=503,
+            detail="Ingestion could not be persisted; retry the complete request",
+            headers={"Retry-After": "1"},
+        ) from exc
     return {"ok": True, **stats}
 
 
@@ -1269,12 +1492,22 @@ def _chat_source_connector(state: AppState, source_id: str | None):
 # --------------------------------------------------------------------------- #
 @router.post("/investigate")
 async def investigate(body: InvestigateRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    cluster, widest = await _cluster_for_request(state, body)
+    query_source = (
+        state.poller.source_for_id(body.source_id) if body.source_id else state.log_source
+    )
+    if body.source_id and query_source is None:
+        raise HTTPException(
+            status_code=400,
+            detail="The selected source is not an enabled queryable pull source",
+        )
+    cluster, widest = await _cluster_for_request(state, body, query_source=query_source)
     if cluster is None:
         # NEUTRAL, specific detail so the FE shows an empty-state, not a scary error.
         detail = _no_events_detail(body, widest)
         raise HTTPException(status_code=400, detail=detail)
-    case = await state.pipeline.investigate_cluster(cluster, body.source_surface, state.prefs)
+    case = await state.pipeline.investigate_cluster(
+        cluster, body.source_surface, state.prefs, query_source=query_source
+    )
     return case.model_dump(mode="json")
 
 
@@ -3644,7 +3877,10 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    cluster = await _cluster_for_case(state, case)
+    query_source = state.poller.source_for_id(case.source_id)
+    cluster = await _cluster_for_case(
+        state, case, query_source=query_source
+    )
     if cluster is None:
         raise HTTPException(
             status_code=400,
@@ -3656,7 +3892,7 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
         )
     # force=True so an already-investigated OPEN case is genuinely re-investigated.
     updated = await state.pipeline.investigate_cluster(
-        cluster, case.source_surface, state.prefs, force=True
+        cluster, case.source_surface, state.prefs, force=True, query_source=query_source
     )
     return updated.model_dump(mode="json")
 
@@ -3695,7 +3931,10 @@ async def case_reinvestigate(
     # Rebuild the cluster from live logs; if the events aged out, fall back to a
     # minimal reconstruction from the case's STORED evidence so the re-investigation
     # runs over what we retained rather than dead-ending (#3 untouched).
-    cluster = await _cluster_for_case(state, case, allow_stored_reconstruction=True)
+    query_source = state.poller.source_for_id(case.source_id)
+    cluster = await _cluster_for_case(
+        state, case, allow_stored_reconstruction=True, query_source=query_source
+    )
     if cluster is None:
         raise HTTPException(
             status_code=400,
@@ -3719,7 +3958,7 @@ async def case_reinvestigate(
     # force=True so an already-verdicted case is genuinely re-investigated in place;
     # the pipeline preserves the original source_surface/origin_surface.
     updated = await state.pipeline.investigate_cluster(
-        cluster, case.source_surface, prefs_eff, force=True
+        cluster, case.source_surface, prefs_eff, force=True, query_source=query_source
     )
     return updated.model_dump(mode="json")
 
@@ -3754,7 +3993,10 @@ async def case_run_playbook(
     # Rebuild the cluster from live logs; if the events aged out, fall back to a
     # minimal reconstruction from the case's STORED evidence so the playbook can still
     # be run over what we retained rather than dead-ending (#3 untouched).
-    cluster = await _cluster_for_case(state, case, allow_stored_reconstruction=True)
+    query_source = state.poller.source_for_id(case.source_id)
+    cluster = await _cluster_for_case(
+        state, case, allow_stored_reconstruction=True, query_source=query_source
+    )
     if cluster is None:
         raise HTTPException(
             status_code=400,
@@ -3769,7 +4011,8 @@ async def case_run_playbook(
         ),
     )
     updated = await state.playbooks.run(
-        state.pipeline, cluster, case.source_surface, state.prefs, body.playbook_id
+        state.pipeline, cluster, case.source_surface, state.prefs, body.playbook_id,
+        query_source=query_source,
     )
     return updated.model_dump(mode="json")
 
@@ -3888,7 +4131,9 @@ async def case_forwarding(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    cluster = await _cluster_for_case(state, case)
+    cluster = await _cluster_for_case(
+        state, case, query_source=state.poller.source_for_id(case.source_id)
+    )
     if cluster is None:
         # No member events retrievable (e.g. purged logs) — return an honest,
         # non-erroring "unknown" gate rather than fabricating a decision.
@@ -4075,7 +4320,12 @@ def _widen_windows(start_window: str) -> list[str]:
 
 
 async def _entity_events_widening(
-    state: AppState, entity_type: EntityType, value: str, start_window: str
+    state: AppState,
+    entity_type: EntityType,
+    value: str,
+    start_window: str,
+    *,
+    query_source=None,
 ) -> tuple[list[RawEvent], str]:
     """Fetch an entity's in-scope events, auto-widening the lookback on 0 hits.
 
@@ -4083,21 +4333,45 @@ async def _entity_events_widening(
     events; if all are empty the events list is empty and widest_window_tried is
     the broadest window attempted."""
     prefs = state.prefs
-    field = _entity_field(prefs, entity_type)
     windows = _widen_windows(start_window)
     widest = windows[-1]
     for window in windows:
-        body = _scoped_entity_body(prefs, field, value, relative_to_millis(window))
-        resp = await state.es.search_logs(prefs.data_view_pattern, body)
-        hits = resp.get("hits", {}).get("hits", [])
-        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        if query_source is not None:
+            from ..connectors.base import StructuredQuery
+
+            filters: dict[str, Any] = {
+                "time_from": window,
+                "time_to": "now",
+                "size": 200,
+                "sort_desc": True,
+            }
+            if entity_type == EntityType.IP:
+                filters["ip"] = value
+            elif entity_type == EntityType.USER:
+                filters["user"] = value
+            elif entity_type == EntityType.HOST:
+                filters["host"] = value
+            elif entity_type == EntityType.RULE:
+                filters["rule"] = value
+            else:
+                # The current source-neutral query IR has no hash/domain field;
+                # do not silently query a different source as a fallback.
+                return [], widest
+            result = await query_source.search(prefs, StructuredQuery(**filters))
+            events = result.events
+        else:
+            field = _entity_field(prefs, entity_type)
+            body = _scoped_entity_body(prefs, field, value, relative_to_millis(window))
+            resp = await state.es.search_logs(prefs.data_view_pattern, body)
+            hits = resp.get("hits", {}).get("hits", [])
+            events = [RawEvent.from_hit(h, prefs) for h in hits]
         if events:
             return events, window
     return [], widest
 
 
 async def _cluster_for_request(
-    state: AppState, req: InvestigateRequest
+    state: AppState, req: InvestigateRequest, *, query_source=None
 ) -> tuple[Cluster | None, str]:
     """Resolve an InvestigateRequest to a Cluster (with a synthesized manual
     TriggerReason). Returns (cluster_or_None, widest_window_tried)."""
@@ -4105,11 +4379,17 @@ async def _cluster_for_request(
     start_window = req.lookback or prefs.investigate_lookback
 
     if req.event_ids:
-        resp = await state.es.search_logs(
-            prefs.data_view_pattern, ids_query(req.event_ids, size=len(req.event_ids))
-        )
-        hits = resp.get("hits", {}).get("hits", [])
-        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        if query_source is not None:
+            result = await query_source.fetch_by_ids(
+                prefs, req.event_ids, size=len(req.event_ids)
+            )
+            events = result.events
+        else:
+            resp = await state.es.search_logs(
+                prefs.data_view_pattern, ids_query(req.event_ids, size=len(req.event_ids))
+            )
+            hits = resp.get("hits", {}).get("hits", [])
+            events = [RawEvent.from_hit(h, prefs) for h in hits]
         if not events:
             return None, start_window
         entity_type = req.group_by
@@ -4120,7 +4400,9 @@ async def _cluster_for_request(
         window = start_window
     elif req.entity:
         entity_type, value = req.entity.type, req.entity.value
-        events, window = await _entity_events_widening(state, entity_type, value, start_window)
+        events, window = await _entity_events_widening(
+            state, entity_type, value, start_window, query_source=query_source
+        )
         if not events:
             return None, window
         members = [e for e in events if e.entity_value(entity_type) == value] or events
@@ -4133,7 +4415,11 @@ async def _cluster_for_request(
 
 
 async def _cluster_for_case(
-    state: AppState, case, *, allow_stored_reconstruction: bool = False
+    state: AppState,
+    case,
+    *,
+    allow_stored_reconstruction: bool = False,
+    query_source=None,
 ) -> Cluster | None:
     """Rebuild a cluster from a stored case for a human-triggered re-investigation.
 
@@ -4156,8 +4442,23 @@ async def _cluster_for_case(
     prefs = state.prefs
     entity_type, value = case.entity.type, case.entity.value
     has_trigger = case.trigger_reason is not None
+    # ``query_source=None`` is intentional for push/deleted sources: they have no
+    # upstream search surface. Only legacy cases without source provenance may use
+    # the implicit global ES client as a compatibility fallback.
+    implicit_legacy_source = (
+        not prefs.sources
+        and case.source_id == getattr(state.log_source, "connector_id", None)
+    )
+    can_query_live = query_source is not None or not case.source_id or implicit_legacy_source
 
     def _finalize(cluster: Cluster, window: str) -> Cluster:
+        # Re-investigation is an update of this exact stored case, not a fresh
+        # correlation pass. Pin identity and provenance even when live events were
+        # found; otherwise a legacy/manual case (or a source-scoping change) can
+        # compute a new signature and mint a duplicate case.
+        cluster.signature = case.cluster_signature
+        cluster.source_id = case.source_id
+        cluster.source_name = case.source_name
         # Only synthesize a manual reason when the case lacks one; otherwise leave
         # the cluster's reason None so the pipeline's _trigger() keeps the existing.
         if not has_trigger:
@@ -4167,26 +4468,35 @@ async def _cluster_for_case(
         return cluster
 
     # Preferred: re-fetch the exact member events by id (read-only).
-    if case.member_event_ids:
-        resp = await state.es.search_logs(
-            prefs.data_view_pattern,
-            ids_query(case.member_event_ids, size=len(case.member_event_ids)),
-        )
-        hits = resp.get("hits", {}).get("hits", [])
-        events = [RawEvent.from_hit(h, prefs) for h in hits]
+    if case.member_event_ids and can_query_live:
+        fetch_size = max(len(case.member_event_ids), len(case.member_event_keys or []))
+        if query_source is not None:
+            result = await query_source.fetch_by_ids(
+                prefs, case.member_event_ids, size=fetch_size
+            )
+            events = result.events
+        else:
+            resp = await state.es.search_logs(
+                prefs.data_view_pattern,
+                ids_query(case.member_event_ids, size=fetch_size),
+            )
+            hits = resp.get("hits", {}).get("hits", [])
+            events = [RawEvent.from_hit(h, prefs) for h in hits]
         members = [e for e in events if e.entity_value(entity_type) == value] or events
         if members:
             cluster = cluster_from_events(entity_type, value, members)
             return _finalize(cluster, prefs.investigate_lookback)
 
     # Fallback: re-query the entity over the configured window (with auto-widen).
-    events, window = await _entity_events_widening(
-        state, entity_type, value, prefs.investigate_lookback
-    )
-    if events:
-        members = [e for e in events if e.entity_value(entity_type) == value] or events
-        cluster = cluster_from_events(entity_type, value, members)
-        return _finalize(cluster, window)
+    if can_query_live:
+        events, window = await _entity_events_widening(
+            state, entity_type, value, prefs.investigate_lookback,
+            query_source=query_source,
+        )
+        if events:
+            members = [e for e in events if e.entity_value(entity_type) == value] or events
+            cluster = cluster_from_events(entity_type, value, members)
+            return _finalize(cluster, window)
 
     # Last resort: the live logs aged out of the retained window. For an operator-
     # triggered re-investigation (reinvestigate / run-playbook), optionally rebuild a
@@ -4272,9 +4582,12 @@ def _reconstruct_cluster_from_case(case: Case) -> Cluster | None:
         cluster.rule_values = list(case.rule_ids)
     cluster.source_id = case.source_id
     cluster.source_name = case.source_name
+    cluster.member_event_keys = list(case.member_event_keys or cluster.member_event_keys)
     # The stored member id list may exceed the 200-event synthetic cap — keep the
     # faithful volume for the deterministic risk model (recomputed by the pipeline).
-    cluster.count = max(len(members), len(case.member_event_ids))
+    cluster.count = max(
+        len(members), len(case.member_event_keys or case.member_event_ids)
+    )
     if case.risk_score:
         cluster.risk_score = case.risk_score
         cluster.risk_breakdown = case.risk_breakdown

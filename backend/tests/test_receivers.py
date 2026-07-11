@@ -26,11 +26,14 @@ from app.connectors.base import ConnectorManifest, PushReceiver
 from app.connectors.receivers import (
     BUILTIN_RECEIVERS,
     HECReceiver,
+    S3Receiver,
     SyslogReceiver,
     WebhookReceiver,
     detect_format,
     records_from_payload,
 )
+from app.engine.ingest import dedup_by_id, ensure_push_event_ids
+from app.models import RawEvent
 from app.connectors.receivers.formats import (
     parse_cef,
     parse_gelf,
@@ -313,6 +316,78 @@ def test_webhook_ndjson_body(prefs):
     assert events[0].severity == 90.0       # severity 9 -> Critical -> 90.0
 
 
+def test_idless_ndjson_ids_are_distinct_stable_and_source_scoped(prefs):
+    """ID-less records cannot collapse at dedup; retrying one ordered payload is stable."""
+    body = (
+        json.dumps({"src_ip": "10.0.0.1", "message": "same"})
+        + "\n"
+        + json.dumps({"src_ip": "10.0.0.1", "message": "same"})
+        + "\n"
+        + json.dumps({"src_ip": "10.0.0.2", "message": "other"})
+    ).encode()
+    headers = {"Content-Type": "application/x-ndjson"}
+    source_a = WebhookReceiver(config={"auth_mode": "none"}, connector_id="source-a")
+    first = source_a.handle_request(body, headers, prefs)
+    retry = source_a.handle_request(body, headers, prefs)
+
+    ids = [event.id for event in first]
+    assert all(ids)
+    assert len(ids) == len(set(ids)) == 3
+    assert [event.id for event in retry] == ids
+    assert len(dedup_by_id(first)) == 3
+
+    source_b = WebhookReceiver(config={"auth_mode": "none"}, connector_id="source-b")
+    assert set(ids).isdisjoint(event.id for event in source_b.handle_request(body, headers, prefs))
+
+
+def test_identical_vendor_ids_are_isolated_at_ingest_boundary():
+    """Custom receivers cannot make two source instances collide on a vendor id."""
+    events = [
+        RawEvent(id="vendor-41", source_id="source-a", source={"id": "vendor-41"}),
+        RawEvent(id="vendor-41", source_id="source-b", source={"id": "vendor-41"}),
+    ]
+    ensure_push_event_ids(events)
+    assert events[0].id != events[1].id
+    assert len(dedup_by_id(events)) == 2
+
+
+def test_webhook_applies_saved_source_field_mappings(prefs):
+    wh = WebhookReceiver(
+        config={
+            "auth_mode": "none",
+            "source_ip_field": "wrong.ip",
+            "field_mappings_extra": {
+                "source_ip_field": "vendor.client.address",
+                "user_field": "vendor.identity.account",
+                "host_field": "vendor.asset.hostname",
+                "rule_field": "vendor.detection.code",
+                "rule_name_field": "vendor.detection.title",
+                "severity_field": "vendor.risk.value",
+                "time_field": "vendor.observed_at",
+            },
+        },
+        connector_id="custom-webhook",
+    )
+    body = json.dumps({
+        "vendor": {
+            "client": {"address": "203.0.113.44"},
+            "identity": {"account": "alice"},
+            "asset": {"hostname": "workstation-7"},
+            "detection": {"code": "DET-7", "title": "Impossible travel"},
+            "risk": {"value": 9},
+            "observed_at": "2026-07-11T12:00:00Z",
+        }
+    }).encode()
+    event = wh.handle_request(body, {"Content-Type": "application/json"}, prefs)[0]
+    assert event.ip == "203.0.113.44"
+    assert event.user == "alice"
+    assert event.host == "workstation-7"
+    assert event.rule == "DET-7"
+    assert event.rule_name == "Impossible travel"
+    assert event.severity == 90.0
+    assert event.timestamp_millis > 0
+
+
 def test_webhook_cef_body(prefs):
     wh = WebhookReceiver(config={"auth_mode": "none", "format_hint": "cef"})
     body = b"CEF:0|V|P|1|100|alert|7|src=203.0.113.77 suser=svc"
@@ -384,6 +459,49 @@ def test_syslog_receiver_parse_5424(prefs):
     events = sr.parse(line, prefs)
     assert len(events) == 1
     assert events[0].host == "fw01"
+
+
+def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
+    line = "<34>Oct 11 22:14:15 web01 sshd[1234]: Failed password for root"
+    source_a = SyslogReceiver(connector_id="syslog-a")
+    first = source_a.parse(line, prefs)[0]
+    retry = source_a.parse(line, prefs)[0]
+    source_b = SyslogReceiver(connector_id="syslog-b").parse(line, prefs)[0]
+    assert first.id
+    assert retry.id == first.id
+    assert source_b.id != first.id
+
+
+@pytest.mark.asyncio
+async def test_object_store_emit_applies_saved_source_field_mappings(prefs):
+    receiver = S3Receiver(
+        config={
+            "field_mappings_extra": {
+                "source_ip_field": "custom.remote_ip",
+                "user_field": "custom.principal",
+                "rule_field": "custom.finding_id",
+            }
+        },
+        connector_id="s3-source-a",
+    )
+    emitted: list[RawEvent] = []
+
+    async def emit(events: list[RawEvent]) -> None:
+        emitted.extend(events)
+
+    payload = json.dumps({
+        "custom": {
+            "remote_ip": "198.51.100.8",
+            "principal": "svc-backup",
+            "finding_id": "S3-FINDING-1",
+        }
+    }).encode()
+    count = await receiver._emit_payload_with_hint(payload, "json", prefs, emit)
+    assert count == 1
+    assert emitted[0].ip == "198.51.100.8"
+    assert emitted[0].user == "svc-backup"
+    assert emitted[0].rule == "S3-FINDING-1"
+    assert emitted[0].id
 
 
 # --------------------------------------------------------------------------- #

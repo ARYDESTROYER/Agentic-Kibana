@@ -1,0 +1,110 @@
+site_name: TLSOC Agentic Triage Suite
+site_description: Vendor-neutral, self-hosted security alert triage with deterministic decisions and auditable AI.
+site_url: https://arydestroyer.github.io/Agentic-Kibana/
+repo_url: https://github.com/ARYDESTROYER/Agentic-Kibana
+repo_name: ARYDESTROYER/Agentic-Kibana
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: light-blue
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/ARYDESTROYER/Agentic-Kibana
+      name: TLSOC on GitHub
+  status:
+    new: Recently added
+    deprecated: Deprecated
+
+# The repository contains extensive engineering handoff and research material.
+# It remains versioned in Git, but is intentionally not part of the public site.
+exclude_docs: |
+  AGNOSTIC_ARCHITECTURE.md
+  ENVIRONMENT.md
+  HANDOFF.md
+  INGESTION.md
+  ROADMAP_RESEARCH.md
+  RUNBOOK.md
+  TROUBLESHOOTING.md
+  USAGE.md
+  VIGIL_STUDY.md
+  requirements.txt
+  research/
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Quickstart: getting-started/quickstart.md
+  - Architecture:
+      - Ingestion and investigation: architecture/ingestion.md
+  - Sources:
+      - Support matrix: sources/support-matrix.md
+  - Releases:
+      - Channels and versioning: releases/channels.md
+      - Known limitations: releases/known-limitations.md

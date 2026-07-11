@@ -54,6 +54,12 @@ class AppState:
         self._provider_overrides = provider_overrides
         self._receivers: list = []
         self._receiver_tasks: list = []
+        # Background receiver runtime is started only with the production poller.
+        # Source CRUD may happen in test/demo states created with
+        # ``start_poller=False``; those states must not unexpectedly bind sockets or
+        # start broker clients.  In a normal runtime, CRUD calls reconcile the live
+        # receiver set immediately through this gate.
+        self._receivers_enabled = False
         # Async SQL engine for the SQL state backend (None on the ES backend).
         # Built lazily in _build_state_backend and disposed on shutdown.
         self._sql_engine = None
@@ -442,9 +448,11 @@ class AppState:
                 cluster = await self._automation_cluster_for_case(case)
                 if cluster is None:
                     return
+                query_source = self.poller.source_for_id(case.source_id)
                 await self._real_pipeline.investigate_cluster(
                     cluster, case.source_surface, self.prefs,
                     force=True, force_playbook_id=playbook_id,
+                    query_source=query_source,
                 )
             except Exception:  # noqa: BLE001 — a queued re-investigation never breaks anything
                 logger.debug("automation playbook re-investigation failed for %s", case.case_id)
@@ -457,27 +465,76 @@ class AppState:
         Mirrors the routes' ``_cluster_for_case`` but kept dependency-light here to
         avoid a routes import cycle. Returns None when no events remain."""
         from .engine.correlation import cluster_from_events
-        from .es.querybuilder import ids_query
         from .models import RawEvent
 
         prefs = self.prefs
         if not case.member_event_ids:
             return None
-        try:
-            resp = await self.es.search_logs(
-                prefs.data_view_pattern,
-                ids_query(case.member_event_ids, size=len(case.member_event_ids)),
-            )
-        except Exception:  # noqa: BLE001
-            return None
-        hits = resp.get("hits", {}).get("hits", [])
-        events = [RawEvent.from_hit(h, prefs) for h in hits]
+        query_source = self.poller.source_for_id(case.source_id)
+        events = []
+        fetch_size = max(len(case.member_event_ids), len(case.member_event_keys or []))
+        if query_source is not None:
+            try:
+                result = await query_source.fetch_by_ids(
+                    prefs, case.member_event_ids, size=fetch_size
+                )
+                events = result.events
+            except Exception:  # noqa: BLE001
+                return None
+        elif (
+            case.source_id
+            and not prefs.sources
+            and case.source_id == getattr(self.log_source, "connector_id", None)
+        ):
+            try:
+                result = await self.log_source.fetch_by_ids(
+                    prefs, case.member_event_ids, size=fetch_size
+                )
+                events = result.events
+            except Exception:  # noqa: BLE001
+                return None
+        elif case.source_id:
+            # Push/deleted sources must never fall back to the primary/global log
+            # surface. Rebuild a minimal source-local cluster from stored identity.
+            for event_id in case.member_event_ids[:200]:
+                event = RawEvent(
+                    id=event_id,
+                    timestamp_millis=case.first_seen_millis,
+                    rule=(case.rule_ids[0] if case.rule_ids else None),
+                    source={"reconstructed": True},
+                    source_id=case.source_id,
+                    source_name=case.source_name,
+                )
+                if case.entity.type.value == "ip":
+                    event.ip = case.entity.value
+                elif case.entity.type.value == "user":
+                    event.user = case.entity.value
+                elif case.entity.type.value == "host":
+                    event.host = case.entity.value
+                events.append(event)
+        else:
+            # Legacy no-source case: preserve the implicit connector behavior.
+            try:
+                result = await self.log_source.fetch_by_ids(
+                    prefs, case.member_event_ids, size=fetch_size
+                )
+                events = result.events
+            except Exception:  # noqa: BLE001
+                return None
         members = [e for e in events if e.entity_value(case.entity.type) == case.entity.value] or events
         if not members:
             return None
         cluster = cluster_from_events(case.entity.type, case.entity.value, members)
+        cluster.signature = case.cluster_signature
+        cluster.source_id = case.source_id
+        cluster.source_name = case.source_name
+        cluster.member_event_keys = list(case.member_event_keys or cluster.member_event_keys)
         cluster.trigger_reason = None  # preserve the existing case's trigger reason
         return cluster
+
+    async def cluster_for_case(self, case):
+        """Public PollerHost seam for durable deferred-candidate reconstruction."""
+        return await self._automation_cluster_for_case(case)
 
     def _is_sql_backend(self) -> bool:
         return self.secrets.state_backend in ("sqlite", "postgres")
@@ -894,7 +951,9 @@ class AppState:
                 await self._real_pipeline.register_candidate(
                     cluster, SourceSurface.AUTOMATED_SCAN, prefs)
                 await self._real_pipeline.investigate_cluster(
-                    cluster, SourceSurface.AUTOMATED_SCAN, prefs)
+                    cluster, SourceSurface.AUTOMATED_SCAN, prefs,
+                    query_source=self.poller.source_for_id(getattr(_src, "id", None)),
+                )
                 count += 1
             return count
         except Exception as exc:  # noqa: BLE001 — re-entry must never break a batch tick
@@ -1133,6 +1192,13 @@ class AppState:
                 except (TypeError, ValueError):
                     continue
         await self.observe_source_volume(source_id, total)
+        cluster_volumes = payload.get("cluster_volumes") or {}
+        if isinstance(cluster_volumes, dict):
+            for signature, count in cluster_volumes.items():
+                try:
+                    await self.observe_cluster_volume(signature, int(count))
+                except (TypeError, ValueError):
+                    continue
 
     def _funnel_batch_provider(self, prefs: Preferences) -> str:
         """Pick the batch provider for the funnel: the first configured
@@ -1153,8 +1219,9 @@ class AppState:
         daily campaign-correlation pass, and a batch-jobs poller loop. Each is a
         long-running task that, per tick, re-checks its gate flags (feature enabled +
         polling context + not kill_switch + not demo-active) and NO-OPs when its config is
-        disabled — so with every toggle OFF (the default) all three sleep, byte-identical
-        to a boot with no schedulers. Started once; cancelled in shutdown()."""
+        disabled. Fresh installations enable tuning and campaign correlation through the
+        autopilot defaults, while setup state and the global runtime gates still prevent
+        premature work; batch remains opt-in. Started once; cancelled in shutdown()."""
         if self._scheduler_running:
             return
         self._scheduler_running = True
@@ -1163,7 +1230,7 @@ class AppState:
             asyncio.create_task(self._campaign_scheduler_loop()),
             asyncio.create_task(self._batch_scheduler_loop()),
         ]
-        logger.info("Round-4 Wave-4 schedulers started (all gated OFF by default)")
+        logger.info("Background schedulers started; runtime feature gates apply per tick")
 
     def _schedulers_gated_off(self) -> bool:
         """The shared gate every scheduler tick honours BEFORE doing any real work:
@@ -1524,6 +1591,10 @@ class AppState:
         primary = self.prefs.primary_source()
         if primary is None:
             self._set_owned_log_client(None)
+            if self.prefs.sources:
+                from .connectors.unavailable import UnavailablePullConnector
+
+                return UnavailablePullConnector(connector_id="no-pull-source")
             return ElasticConnector(self.es)
         es_client, owned = self.es_client_for_source(primary)
         self._set_owned_log_client(es_client if owned else None)
@@ -1662,6 +1733,7 @@ class AppState:
                 logger.warning("Demo re-seed on startup failed (%s); continuing", exc)
         if start_poller:
             self.poller.start()
+            self._receivers_enabled = True
             await self._start_receivers()
             # Round-4 Wave-4: start the gated background schedulers alongside the poller.
             # All three loops are NO-OPs until their Preferences block is enabled (default
@@ -1725,12 +1797,75 @@ class AppState:
                     # (hidden during demo, never mixed into the demo store).
                     await _self._real_ingest_service.ingest(events, _self.prefs, source_id=_sid)
 
-                task = asyncio.create_task(receiver.start(_emit, self.prefs))
+                task = asyncio.create_task(
+                    self._run_receiver(receiver, _emit, src.id)
+                )
+                task.add_done_callback(
+                    lambda completed, _sid=src.id: self._receiver_done(_sid, completed)
+                )
                 self._receivers.append(receiver)
                 self._receiver_tasks.append(task)
                 logger.info("Started push receiver %s (%s)", src.id, src.source_type.value)
             except Exception as exc:  # noqa: BLE001 — one bad source must not block startup
                 logger.error("Could not start receiver %s (%s): %s", src.id, src.source_type.value, exc)
+
+    async def _run_receiver(self, receiver, emit, source_id: str) -> None:
+        """Supervise one long-running receiver with bounded exponential backoff.
+
+        Processing failures intentionally propagate out of transport loops so their
+        offsets/messages remain unacknowledged. Without a supervisor that safety
+        behavior permanently stopped the consumer. Restart the same configured
+        receiver until reconciliation/shutdown cancels the task.
+        """
+        delay = 1.0
+        while self._receivers_enabled:
+            try:
+                await receiver.start(emit, self.prefs)
+                if not self._receivers_enabled:
+                    return
+                logger.warning("Push receiver %s stopped; restarting", source_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — supervised transport boundary
+                logger.error(
+                    "Push receiver %s failed; retrying in %.0fs: %s",
+                    source_id,
+                    delay,
+                    exc,
+                )
+            try:
+                await receiver.stop()
+            except Exception:  # noqa: BLE001 — restart must continue after cleanup failure
+                pass
+            await asyncio.sleep(delay)
+            delay = min(60.0, delay * 2.0)
+
+    def _receiver_done(self, source_id: str, task: asyncio.Task) -> None:
+        """Surface a receiver task exit instead of failing silently in the background."""
+        if task.cancelled():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is None:
+            if self._receivers_enabled:
+                logger.warning("Push receiver %s stopped unexpectedly", source_id)
+            return
+        logger.error("Push receiver %s failed: %s", source_id, exc, exc_info=exc)
+
+    async def reconcile_receivers(self) -> None:
+        """Apply the current source/secret configuration to the live receivers.
+
+        Reconciliation is intentionally idempotent and coarse-grained for the alpha:
+        stop the existing set cleanly, then start exactly the enabled configured set.
+        This makes create/edit/delete/secret rotation effective without a process
+        restart and prevents deleted file/syslog/queue consumers from lingering.
+        Runtime states created with ``start_poller=False`` remain side-effect free.
+        """
+        if not self._receivers_enabled:
+            return
+        await self._start_receivers()
 
     async def _stop_receivers(self) -> None:
         for receiver in self._receivers:
@@ -1738,8 +1873,11 @@ class AppState:
                 await receiver.stop()
             except Exception:  # noqa: BLE001
                 pass
-        for task in self._receiver_tasks:
+        tasks = list(self._receiver_tasks)
+        for task in tasks:
             task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._receivers = []
         self._receiver_tasks = []
 
@@ -2162,6 +2300,7 @@ class AppState:
             await self.poller.stop()
         except Exception:  # noqa: BLE001
             pass
+        self._receivers_enabled = False
         await self._stop_receivers()
         await self.gateway.aclose()
         await self.cache.aclose()

@@ -438,10 +438,9 @@ async def test_cross_source_links_across_separate_ingests_via_store_pool(app_sta
                   host="web01", rule="r", rule_name="r", severity=4.0,
                   source_id="srcA", source_name="A")],
         prefs, source_id="srcA")
-    # Source B (later, separate batch): a case keyed on host "db01" whose event ALSO
-    # references host "web01" is not directly possible (one host per event), so source
-    # B reports host "web01" too — same primary host → it ATTACHES to A's case, which
-    # is the correct #4 behaviour. We assert distinctness when hosts differ instead.
+    # Source B (later, separate batch) reports the same host. Source-scoped incident
+    # identity keeps it distinct; the cross-source pass links the two cases instead of
+    # merging provenance/evidence.
     await app_state.ingest_service.ingest(
         [RawEvent(id="b1", index="ix", source={}, timestamp_millis=base + 30_000, ip="2.2.2.2",
                   host="web01", rule="r", rule_name="r", severity=4.0,
@@ -449,9 +448,10 @@ async def test_cross_source_links_across_separate_ingests_via_store_pool(app_sta
         prefs, source_id="srcB")
     cases, _ = await app_state.cases.list(limit=50)
     web01 = [c for c in cases if c.entity.value == "web01"]
-    # Same primary host across sources → ONE case (attach, never duplicate, #4). The
-    # case carries provenance from whichever source first opened it.
-    assert len(web01) == 1
+    assert len(web01) == 2
+    assert {c.source_id for c in web01} == {"srcA", "srcB"}
+    assert web01[0].cluster_signature != web01[1].cluster_signature
+    assert web01[0].cross_source_cluster_id == web01[1].cross_source_cluster_id
 
 
 @asyncio
@@ -481,6 +481,10 @@ async def test_cross_source_disabled_leaves_cases_unlinked(app_state):
                   rule="r", rule_name="r", severity=4.0, source_id="srcB", source_name="B")],
         prefs, source_id="srcB")
     cases, _ = await app_state.cases.list(limit=50)
+    matching = [c for c in cases if c.entity.value == "9.9.9.9"]
+    assert len(matching) == 2
+    assert {c.source_id for c in matching} == {"srcA", "srcB"}
+    assert len({c.cluster_signature for c in matching}) == 2
     for c in cases:
         assert c.cross_source_cluster_id == ""
         assert c.related_case_ids == []

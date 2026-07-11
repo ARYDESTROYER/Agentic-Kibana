@@ -17,6 +17,7 @@ The public surface:
 from __future__ import annotations
 
 from .ecs import ecs_to_ocsf, generic_to_ocsf
+from .identity import native_event_uid, source_scoped_event_uid
 from .model import (
     Device,
     Endpoint,
@@ -39,6 +40,8 @@ __all__ = [
     "Observable",
     "ecs_to_ocsf",
     "generic_to_ocsf",
+    "native_event_uid",
+    "source_scoped_event_uid",
     "severity_id_to_score",
     "score_to_severity_id",
 ]

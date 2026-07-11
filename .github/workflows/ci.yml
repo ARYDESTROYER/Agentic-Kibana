@@ -1,17 +1,19 @@
 name: CI
 
-# Gate merges on the two checks that must always be green (CLAUDE.md §7):
-#   1. the offline backend test suite (fake ES + mock LLM, no network/keys) —
+# Gate merges on the release checks that must always be green (AGENTS.md §7):
+#   1. canonical version metadata + Compose configuration validation;
+#   2. the offline backend test suite (fake ES + mock LLM, no network/keys) —
 #      this INCLUDES the deny-by-default auth route-coverage test, so a new
 #      unauthenticated /api route fails CI.
-#   2. the standalone web UI build (tsc --noEmit && vite build).
+#   3. the standalone web UI lint, design gates, Vitest suite, and production build.
 # Make `ci` a REQUIRED status check in branch protection (see CONTRIBUTING.md) so
 # a PR cannot merge unless both pass.
 
 on:
   pull_request:
   push:
-    branches: [main, Testing]
+    branches: [main, next, Testing, claude/main, "release/**"]
+    tags: ["v*"]
 
 # Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
@@ -35,8 +37,28 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
+      - name: Install API contract generator
+        run: npm ci --prefix ../webui --ignore-scripts
+      - name: Check canonical release version
+        run: python ../scripts/check_version.py
+      - name: Validate standalone Compose configuration
+        env:
+          TLSOC_PG_PASSWORD: ci-compose-password
+        # The legacy docker-compose.tlsoc.yml file is intentionally a service
+        # fragment merged into an existing ELK project, so it cannot be validated
+        # truthfully as a standalone project (its elasticsearch service is external).
+        run: docker compose -f ../deploy/docker-compose.agnostic.yml config --quiet
+      - name: Check generated OpenAPI and TypeScript contracts
+        env:
+          TLSOC_REQUIRE_TYPEGEN: "1"
+        run: npm --prefix ../webui run check:types
       - name: Run pytest (offline; includes auth route-coverage gate)
         run: python -m pytest -q
 
@@ -55,6 +77,12 @@ jobs:
           cache-dependency-path: webui/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Lint (jsx-a11y and hooks are errors)
+        run: npm run lint
+      - name: Run design-system gates
+        run: npm run gates
+      - name: Run Vitest
+        run: npm test
       - name: Type-check + build (tsc --noEmit && vite build)
         run: npm run build
 

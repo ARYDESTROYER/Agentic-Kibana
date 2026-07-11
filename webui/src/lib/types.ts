@@ -1556,6 +1556,7 @@ export interface Case {
   rule_ids?: string[];
   entity?: Entity;
   member_event_ids?: string[];
+  member_event_keys?: string[];
   risk_score?: number;
   verdict?: string;
   confidence?: number;

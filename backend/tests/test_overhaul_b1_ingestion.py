@@ -67,9 +67,7 @@ def _events(ip: str, n: int, *, sev: float = 7.0, rule: str = "r", role: str = "
 
 
 def _high_risk_prefs(ip: str) -> Preferences:
-    """A prefs whose deterministic (reputation-0) risk for ``ip`` hits the 70 ceiling —
-    the only way an events-role cluster clears the STANDARDS default floor 70 (reputation
-    weight 0.3 caps the enrichment-free score at 70 when every other factor maxes)."""
+    """A prefs with explicit critical-asset context for ``ip``."""
     p = _threshold(Preferences(), n=3, window=3600)
     p.enrichment.enabled = False
     p.asset_criticality = {ip: 100.0}
@@ -199,6 +197,31 @@ async def test_default_floor_70_maxed_cluster_investigates_normal_stays_candidat
     sn = await handle_clusters(cn, pn, cases=app_state.cases, pipeline=app_state.pipeline,
                                source_surface=SourceSurface.AUTOMATED_SCAN)
     assert sn["investigated"] == 0 and sn["candidates"] == 1
+
+
+@asyncio
+async def test_default_floor_is_reachable_without_enrichment_or_asset_inventory(app_state):
+    """Fresh-install routing normalizes over known signals, while canonical case risk
+    remains conservative and byte-compatible for deterministic downstream policy."""
+    from app.engine.risk import compute_risk, compute_routing_risk
+
+    p = _threshold(app_state.prefs.model_copy(deep=True), n=3, window=3600)
+    p.enrichment.enabled = False
+    p.asset_criticality = {}
+    p.asset_networks = []
+    assert p.auto_investigate_risk_floor == 70
+
+    cluster = correlate(_high_risk_burst("4.4.4.5"), p)[0]
+    canonical = compute_risk(cluster, p, reputation=0.0)
+    routing = compute_routing_risk(cluster, p, reputation=None)
+    assert canonical.total == 60.0
+    assert routing.total == 100.0
+
+    stats = await handle_clusters(
+        [cluster], p, cases=app_state.cases, pipeline=app_state.pipeline,
+        source_surface=SourceSurface.AUTOMATED_SCAN,
+    )
+    assert stats["investigated"] == 1
 
 
 @asyncio
@@ -351,6 +374,82 @@ async def test_deferred_candidate_drains_on_a_later_tick(app_state):
     # The same signature is never investigated twice: the two tick-1 decisions kept their
     # ids and are still exactly the decided set (they were attached, not re-investigated).
     assert decided_ids == {c.case_id for c in cases2 if c.case_id in decided_ids}
+
+
+@asyncio
+async def test_quiet_poller_tick_drains_durable_deferred_candidate(app_state):
+    """A durable deferred case drains without any later source event."""
+    p = _threshold(app_state.prefs.model_copy(deep=True))
+    p.enrichment.enabled = False
+    p.caps.max_auto_investigations_per_tick = 1
+    clusters = correlate(
+        _events("10.10.0.1", 1, role="alerts")
+        + _events("10.10.0.2", 1, role="alerts"),
+        p,
+    )
+    first = await handle_clusters(
+        clusters,
+        p,
+        cases=app_state.cases,
+        pipeline=app_state.pipeline,
+        source_surface=SourceSurface.AUTOMATED_SCAN,
+    )
+    assert first["investigated"] == 1
+    assert first["deferred"] == 1
+    await app_state.update_prefs(p)
+
+    # No new logs are added. The durable case itself is the pending queue.
+    quiet = await app_state.poller.poll_once(p)
+    assert quiet["new"] == 0
+    assert quiet["drained"] == 1
+    cases, total = await app_state.cases.list()
+    assert total == 2
+    assert all(case.verdict is not None for case in cases)
+
+
+@asyncio
+async def test_busy_poller_tick_does_not_grant_deferred_drain_a_second_cap(
+    app_state, monkeypatch
+):
+    """Normal handling and the quiet-tick drain share one per-source allowance."""
+    p = _threshold(app_state.prefs.model_copy(deep=True))
+    p.enrichment.enabled = False
+    p.caps.max_auto_investigations_per_tick = 1
+    clusters = correlate(
+        _events("10.11.0.1", 1, role="alerts")
+        + _events("10.11.0.2", 1, role="alerts"),
+        p,
+    )
+    first = await handle_clusters(
+        clusters,
+        p,
+        cases=app_state.cases,
+        pipeline=app_state.pipeline,
+        source_surface=SourceSurface.AUTOMATED_SCAN,
+    )
+    assert first["investigated"] == 1
+    assert first["deferred"] == 1
+    await app_state.update_prefs(p)
+
+    async def busy_tick(_prefs):
+        return {
+            "polled": 1,
+            "new": 1,
+            "clusters": 1,
+            "investigated": 1,
+            "candidates": 0,
+            "attached": 0,
+            "window_events": 1,
+        }
+
+    monkeypatch.setattr(app_state.poller._primary, "poll_once", busy_tick)
+    busy = await app_state.poller.poll_once(p)
+
+    assert busy["investigated"] == 1
+    assert busy["drained"] == 0
+    cases, total = await app_state.cases.list()
+    assert total == 2
+    assert len([case for case in cases if case.verdict is None]) == 1
 
 
 # --------------------------------------------------------------------------- #

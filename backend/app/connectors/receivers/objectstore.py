@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import logging
 import os
 from typing import Any
 
@@ -29,6 +30,9 @@ from ..base import AuthField, ConnectorManifest, EmitFn
 from ...constants import CursorKind, IngestMode, SourceType
 from .common import PayloadReceiver
 from .queues import _require
+
+
+logger = logging.getLogger("tlsoc.connectors.receivers.objectstore")
 
 
 def _maybe_gunzip(key: str, data: bytes) -> bytes:
@@ -79,17 +83,9 @@ class _BaseObjectReceiver(PayloadReceiver):
         self, data: bytes, hint: str | None, prefs: Preferences, emit: EmitFn
     ) -> int:
         from .formats import records_from_payload
-        from ...ocsf import generic_to_ocsf
-        from ...models import RawEvent
 
         records = records_from_payload(data, hint=hint or self.default_hint)
-        events: list[RawEvent] = []
-        for record in records:
-            if not isinstance(record, dict):
-                record = {"message": str(record)}
-            ev = generic_to_ocsf(record, prefs, source_type=self.source_type,
-                                 connector_id=self.connector_id)
-            events.append(RawEvent.from_ocsf(ev))
+        events = self._normalise_records(records, prefs)
         if events:
             await emit(events)
         return len(events)
@@ -223,8 +219,9 @@ class S3Receiver(_BaseObjectReceiver):
                             None, lambda b=bucket, k=key: s3.get_object(Bucket=b, Key=k)["Body"].read()
                         )
                         await self._emit_object(key, data, prefs, emit)
-                except Exception:  # noqa: BLE001 - never let one bad notification stop the loop
-                    pass
+                except Exception as exc:  # noqa: BLE001 - leave unacked for SQS retry
+                    logger.warning("S3 notification was not processed; leaving it for retry: %s", exc)
+                    continue
                 await loop.run_in_executor(
                     None,
                     lambda r=message["ReceiptHandle"]: sqs.delete_message(

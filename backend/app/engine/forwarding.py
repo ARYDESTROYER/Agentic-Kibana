@@ -30,9 +30,8 @@ with what actually happened:
   4. ``severity_floor``     — every member is below its feed's ``severity_floor``
                               (``cluster.auto_investigate_eligible`` is False).
   5. ``auto_correlate``     — the per-source and/or per-feed Auto-Correlate toggle is OFF.
-  6. ``allowlist``          — an events-role cluster whose rules are not on the
-                              auto-forward allowlist (and it is not an alerts-role
-                              cluster) → candidate.
+  6. ``risk_floor``         — an events-role cluster that is neither allowlisted nor
+                              above the available-signal routing floor → candidate.
   7. ``forwarded``          — all gates pass → auto-investigated.
 
 ``cost_gate`` / ``budget`` are surfaced ADVISORY-only in the explanation's ``notes`` (they
@@ -51,6 +50,7 @@ from dataclasses import dataclass, field
 
 from ..config import Preferences
 from ..constants import IndexRole
+from ..engine.risk import compute_routing_risk
 from ..models import Cluster
 from ..utils import dotted_get
 
@@ -62,7 +62,7 @@ GATES: tuple[str, ...] = (
     "background_scan",
     "severity_floor",
     "auto_correlate",
-    "allowlist",
+    "risk_floor",
     "forwarded",
 )
 
@@ -255,19 +255,30 @@ def explain_forwarding(cluster: Cluster, prefs: Preferences) -> ForwardingExplan
                      "source or one of its feeds, routing the cluster to manual triage.",
         )
 
-    # 6) Allowlist (events-role clusters only; alerts-role bypass it).
-    if not _on_allowlist(cluster, prefs):
+    # 6) Events clusters forward when explicitly allowlisted OR when their
+    # available-signal routing score reaches the configured floor. Reputation is
+    # unknown before investigation, exactly as in handle_clusters.
+    routing_score = compute_routing_risk(cluster, prefs, reputation=None).total
+    if not _on_allowlist(cluster, prefs) and routing_score < prefs.auto_investigate_risk_floor:
         return _mk(
-            "allowlist", forwarded=False, dropped=False,
-            sentence="Registered as a candidate: this is an events-role cluster whose rules "
-                     "are not on the auto-forward allowlist.",
+            "risk_floor", forwarded=False, dropped=False,
+            sentence=(
+                "Registered as a candidate: its rules are not on the auto-forward "
+                f"allowlist and its available-signal routing score {int(routing_score)} "
+                f"is below the configured floor {prefs.auto_investigate_risk_floor}."
+            ),
         )
 
     # 7) All gates passed → auto-forwarded to the investigator.
-    why = (
-        "an alerts-role SIEM detection (auto-forwarded regardless of the allowlist)"
-        if is_alert else "its rules are on the auto-forward allowlist"
-    )
+    if is_alert:
+        why = "it is an alerts-role SIEM detection"
+    elif _on_allowlist(cluster, prefs):
+        why = "its rules are on the auto-forward allowlist"
+    else:
+        why = (
+            f"its available-signal routing score {int(routing_score)} reaches the "
+            f"configured floor {prefs.auto_investigate_risk_floor}"
+        )
     return _mk(
         "forwarded", forwarded=True, dropped=False,
         sentence=f"Auto-investigated: background scan is on, the cluster is above its "

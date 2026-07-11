@@ -69,6 +69,31 @@ def test_webhook_ingest_creates_case(client):
     assert any(c["entity"]["value"] == "5.5.5.5" for c in cases)
 
 
+def test_webhook_threshold_spans_single_event_deliveries(client):
+    """Five one-record callbacks must trigger the same threshold as one batch."""
+    _add_webhook(client, "wh-stream")
+    now = datetime.now(timezone.utc).isoformat()
+    responses = []
+    for index in range(5):
+        responses.append(client.post(
+            "/api/ingest/wh-stream",
+            json={
+                "id": f"stream-{index}",
+                "src_ip": "198.51.100.77",
+                "severity": "medium",
+                "signature": "successive-delivery",
+                "@timestamp": now,
+            },
+        ))
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(response.json()["clusters"] == 0 for response in responses[:4])
+    assert responses[4].json()["clusters"] >= 1
+    cases = client.get("/api/cases").json()["cases"]
+    case = next(c for c in cases if c["entity"]["value"] == "198.51.100.77")
+    assert len(case["member_event_ids"]) == 5
+
+
 def test_webhook_ingest_unknown_source_404(client):
     assert client.post("/api/ingest/nope", json=_alerts("1.1.1.1", 1)).status_code == 404
 

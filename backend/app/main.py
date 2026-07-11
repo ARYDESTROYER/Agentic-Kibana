@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI
 
+from . import __version__
 from . import api as api_pkg
 from .api.deps import require_auth
 from .api.routes import router
@@ -76,7 +77,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="TLSOC Agentic Triage Suite — Backend",
-    version="1.0.0",
+    version=__version__,
     description="Agentic SOC triage backend (FastAPI + LangGraph). Read-only consumer of the "
                 "ELK log surface; owns its cases/audit/usage indices.",
     lifespan=lifespan,

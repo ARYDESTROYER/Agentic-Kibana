@@ -210,6 +210,25 @@
         "title": "AssignBody",
         "type": "object"
       },
+      "AuditListResponse": {
+        "description": "The audit-viewer envelope. ``records`` are append-only audit rows returned\nverbatim (fenced UNTRUSTED excerpts rendered PLAIN by the UI, #9).",
+        "properties": {
+          "records": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Records",
+            "type": "array"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "AuditListResponse",
+        "type": "object"
+      },
       "AutoClosePolicy": {
         "description": "Operator-configured auto-close policy, one entry per verdict class.\n\nConservative defaults: FALSE_POSITIVE may auto-close above a bar; TRUE_POSITIVE\nauto-close is OFF by default (an explicit, supported opt-in); NEEDS_HUMAN never\nauto-closes (enforced in code regardless of this value).",
         "properties": {
@@ -371,7 +390,7 @@
         "type": "object"
       },
       "BudgetConfig": {
-        "description": "LLM cost-budget ceiling (Round 3 cost governance). Default OFF so today's\nbehaviour is byte-identical. When ``enabled`` a later wave compares the rolling\nspend (from the existing usage/cost ledger) against ``daily_usd``/``monthly_usd``;\nat ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether\ncrossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block\naffects whether an investigation RUNS — it never alters the close/escalate decision\nof a case that DID run (#3).",
+        "description": "LLM cost-budget ceiling (Round 3 cost governance). When ``enabled`` the gate\ncompares rolling\nspend (from the existing usage/cost ledger) against ``daily_usd``/``monthly_usd``;\nat ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether\ncrossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block\naffects whether an investigation RUNS — it never alters the close/escalate decision\nof a case that DID run (#3).\n\nDefaults ON as the Autopilot spend BACKSTOP: ``enabled=True`` + a bounded\n``daily_usd=10`` (industry-grounded balanced default; ~20-40 Opus investigations —\nsee ``STANDARDS.md``) + ``soft_warn_pct=0.8`` + **``on_exceed='block'``**. A block\nhappens before the provider call and routes the case to NEEDS_HUMAN; it never closes\nor discards the case (#3/#4). This is the backstop that keeps \"read everything by\ndefault\" from becoming \"spend everything.\" An operator can raise ``daily_usd``,\ndisable it, or explicitly choose warning-only mode. The ``autopilot_profile`` dial scales\n``daily_usd`` (conservative $5 / balanced $10 / aggressive $50).",
         "properties": {
           "daily_usd": {
             "anyOf": [
@@ -382,10 +401,11 @@
                 "type": "null"
               }
             ],
+            "default": 10.0,
             "title": "Daily Usd"
           },
           "enabled": {
-            "default": false,
+            "default": true,
             "title": "Enabled",
             "type": "boolean"
           },
@@ -401,7 +421,7 @@
             "title": "Monthly Usd"
           },
           "on_exceed": {
-            "default": "warn",
+            "default": "block",
             "enum": [
               "warn",
               "block"
@@ -418,6 +438,49 @@
           }
         },
         "title": "BudgetConfig",
+        "type": "object"
+      },
+      "BuildInfoResponse": {
+        "properties": {
+          "build_time": {
+            "title": "Build Time",
+            "type": "string"
+          },
+          "commit_sha": {
+            "title": "Commit Sha",
+            "type": "string"
+          },
+          "ocsf_version": {
+            "title": "Ocsf Version",
+            "type": "string"
+          },
+          "release_channel": {
+            "title": "Release Channel",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "state_backend": {
+            "title": "State Backend",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version",
+          "release_channel",
+          "commit_sha",
+          "build_time",
+          "state_backend",
+          "ocsf_version"
+        ],
+        "title": "BuildInfoResponse",
         "type": "object"
       },
       "BulkCaseAction": {
@@ -534,6 +597,450 @@
           "action"
         ],
         "title": "BulkCaseAction",
+        "type": "object"
+      },
+      "Case": {
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "agent_persona": {
+            "default": "",
+            "title": "Agent Persona",
+            "type": "string"
+          },
+          "assignee": {
+            "default": "",
+            "title": "Assignee",
+            "type": "string"
+          },
+          "automation_actions": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Automation Actions",
+            "type": "array"
+          },
+          "awaiting_reason": {
+            "default": "",
+            "title": "Awaiting Reason",
+            "type": "string"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "case_id": {
+            "title": "Case Id",
+            "type": "string"
+          },
+          "case_number": {
+            "default": "",
+            "title": "Case Number",
+            "type": "string"
+          },
+          "cluster_signature": {
+            "title": "Cluster Signature",
+            "type": "string"
+          },
+          "comments": {
+            "items": {
+              "$ref": "#/components/schemas/CaseComment"
+            },
+            "title": "Comments",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "cross_source_cluster_id": {
+            "default": "",
+            "title": "Cross Source Cluster Id",
+            "type": "string"
+          },
+          "decision_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionBy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detected_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected At"
+          },
+          "detection_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Source"
+          },
+          "disposition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Disposition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "entity": {
+            "$ref": "#/components/schemas/Entity"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "escalation_level": {
+            "default": 0,
+            "title": "Escalation Level",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceItem"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "feedback": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackEntry"
+            },
+            "title": "Feedback",
+            "type": "array"
+          },
+          "first_response_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Response At"
+          },
+          "first_seen_millis": {
+            "default": 0,
+            "title": "First Seen Millis",
+            "type": "integer"
+          },
+          "history": {
+            "items": {
+              "type": "object"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "impact_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Band"
+          },
+          "knowledge_used": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Knowledge Used",
+            "type": "array"
+          },
+          "member_event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Event Ids",
+            "type": "array"
+          },
+          "member_event_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Event Keys",
+            "type": "array"
+          },
+          "mitre": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mitre",
+            "type": "array"
+          },
+          "notifications_sent": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Notifications Sent",
+            "type": "array"
+          },
+          "objection_window_expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objection Window Expires At"
+          },
+          "origin_surface": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceSurface"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "playbook_id": {
+            "default": "",
+            "title": "Playbook Id",
+            "type": "string"
+          },
+          "priority_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority Level"
+          },
+          "recommended_action": {
+            "default": "",
+            "title": "Recommended Action",
+            "type": "string"
+          },
+          "related_case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Related Case Ids",
+            "type": "array"
+          },
+          "reproduce_query": {
+            "default": "",
+            "title": "Reproduce Query",
+            "type": "string"
+          },
+          "risk_breakdown": {
+            "$ref": "#/components/schemas/RiskBreakdown"
+          },
+          "risk_score": {
+            "default": 0.0,
+            "title": "Risk Score",
+            "type": "number"
+          },
+          "rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rule Ids",
+            "type": "array"
+          },
+          "severity_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Band"
+          },
+          "severity_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Source"
+          },
+          "source_breakdown": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Source Breakdown",
+            "type": "object"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "source_surface": {
+            "$ref": "#/components/schemas/SourceSurface"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CaseStatus"
+              }
+            ],
+            "default": "open"
+          },
+          "status_history": {
+            "items": {
+              "$ref": "#/components/schemas/StatusHistoryEntry"
+            },
+            "title": "Status History",
+            "type": "array"
+          },
+          "status_reason": {
+            "default": "",
+            "title": "Status Reason",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          },
+          "token_cost": {
+            "default": 0.0,
+            "title": "Token Cost",
+            "type": "number"
+          },
+          "trigger_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TriggerReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "urgency_band": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Band"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verdict_history": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Verdict History",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_id",
+          "cluster_signature",
+          "source_surface",
+          "entity"
+        ],
+        "title": "Case",
         "type": "object"
       },
       "CaseAction": {
@@ -672,6 +1179,11 @@
             "title": "Id",
             "type": "string"
           },
+          "name": {
+            "default": "",
+            "title": "Name",
+            "type": "string"
+          },
           "payload": {
             "title": "Payload",
             "type": "object"
@@ -686,6 +1198,27 @@
           "id"
         ],
         "title": "CaseAutomationRule",
+        "type": "object"
+      },
+      "CaseComment": {
+        "description": "An append-only analyst comment on a case (collaboration). ``author``/``body``\nare user input — render-escaped in the UI, never trusted as prompt instructions.",
+        "properties": {
+          "author": {
+            "default": "",
+            "title": "Author",
+            "type": "string"
+          },
+          "body": {
+            "default": "",
+            "title": "Body",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "title": "CaseComment",
         "type": "object"
       },
       "CaseIdPreviewBody": {
@@ -710,6 +1243,43 @@
         ],
         "title": "CaseIdPreviewBody",
         "type": "object"
+      },
+      "CaseListResponse": {
+        "description": "The paged case-list envelope. ``cases`` is the full ``Case`` model list (the\nsame shape ``Case.model_dump(mode='json')`` produced before typing).",
+        "properties": {
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/Case"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cases",
+          "total"
+        ],
+        "title": "CaseListResponse",
+        "type": "object"
+      },
+      "CaseStatus": {
+        "description": "Lifecycle of a case (Section 7.1). DECISION is deterministic code.\n\nTwo-axis model (see docs/research/.../STATUS_TAXONOMY.md): this is the\nLIFECYCLE axis; the investigative outcome is the separate :class:`Disposition`.\nThe three ORIGINAL string values (``open``/``needs_human``/``closed``) are kept\nBYTE-FOR-BYTE so stored cases load unchanged and ``decide()`` (#3) is untouched;\nthe richer states below are ADDED additively and reached via analyst lifecycle\nactions + the existing ``escalate`` flag — never by rewriting the deterministic\ndecision. ``NEEDS_HUMAN`` is a RETAINED, deprecated alias of \"open · awaiting\nanalyst\" (the UI renders it that way).",
+        "enum": [
+          "new",
+          "open",
+          "needs_human",
+          "investigating",
+          "escalated",
+          "on_hold",
+          "resolved",
+          "closed"
+        ],
+        "title": "CaseStatus",
+        "type": "string"
       },
       "ChangePasswordBody": {
         "properties": {
@@ -961,8 +1531,37 @@
         "type": "object"
       },
       "ConnectorTestRequest": {
-        "description": "Test a source's connectivity. With no body, tests the wired primary source.",
+        "description": "Test the exact saved or draft source configuration without persisting it.",
         "properties": {
+          "config": {
+            "title": "Config",
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Secrets",
+            "type": "object"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
           "source_type": {
             "anyOf": [
               {
@@ -1021,6 +1620,52 @@
           }
         },
         "title": "CorrelationRule",
+        "type": "object"
+      },
+      "CustomModelBody": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          },
+          "context_window": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Context Window",
+            "type": "integer"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Label",
+            "type": "string"
+          },
+          "model_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Model Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "base_url"
+        ],
+        "title": "CustomModelBody",
         "type": "object"
       },
       "CustomRoleBody": {
@@ -1231,8 +1876,50 @@
         "title": "DashboardWidget",
         "type": "object"
       },
+      "DecisionBy": {
+        "enum": [
+          "agent",
+          "analyst",
+          "system"
+        ],
+        "title": "DecisionBy",
+        "type": "string"
+      },
       "DemoEnableBody": {
         "properties": {
+          "alert_interval_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Interval Seconds"
+          },
+          "event_rate_per_second": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Rate Per Second"
+          },
+          "force_capabilities": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Force Capabilities"
+          },
           "history_days": {
             "anyOf": [
               {
@@ -1259,6 +1946,39 @@
             "default": "seeded",
             "title": "Mode",
             "type": "string"
+          },
+          "preseed_case_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preseed Case Count"
+          },
+          "preseed_event_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preseed Event Count"
+          },
+          "preseed_recent_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preseed Recent Minutes"
           },
           "seed": {
             "anyOf": [
@@ -1296,6 +2016,19 @@
         },
         "title": "DemoEnableBody",
         "type": "object"
+      },
+      "Disposition": {
+        "description": "Investigative OUTCOME (verdict-class) axis — the analyst-confirmable,\nreportable classification on/after close. Orthogonal to :class:`CaseStatus`\n(lifecycle). Defaulted to ``None`` on the Case so old stored cases load\nunchanged; the LLM ``Verdict`` is unchanged and still feeds ``decide()``.",
+        "enum": [
+          "true_positive",
+          "false_positive",
+          "benign",
+          "suspicious",
+          "duplicate",
+          "undetermined"
+        ],
+        "title": "Disposition",
+        "type": "string"
       },
       "Entity": {
         "properties": {
@@ -1365,6 +2098,37 @@
         "title": "EstimateBody",
         "type": "object"
       },
+      "EvidenceItem": {
+        "properties": {
+          "event_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Event Ids",
+            "type": "array"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "EvidenceItem",
+        "type": "object"
+      },
       "FeedbackBody": {
         "properties": {
           "accuracy": {
@@ -1411,6 +2175,67 @@
         "title": "FeedbackBody",
         "type": "object"
       },
+      "FeedbackEntry": {
+        "description": "An analyst's grade of an AI verdict on a case (the eval / quality loop,\nVigil-inspired). Append-only on the case; aggregated by /api/feedback/stats to\nmeasure agreement rate, grading quality, outcome mix and time saved.",
+        "properties": {
+          "accuracy": {
+            "default": 0.0,
+            "title": "Accuracy",
+            "type": "number"
+          },
+          "action_appropriateness": {
+            "default": 0.0,
+            "title": "Action Appropriateness",
+            "type": "number"
+          },
+          "actual_outcome": {
+            "default": "",
+            "title": "Actual Outcome",
+            "type": "string"
+          },
+          "ai_confidence": {
+            "default": 0.0,
+            "title": "Ai Confidence",
+            "type": "number"
+          },
+          "ai_verdict": {
+            "default": "",
+            "title": "Ai Verdict",
+            "type": "string"
+          },
+          "analyst": {
+            "default": "",
+            "title": "Analyst",
+            "type": "string"
+          },
+          "assessment": {
+            "default": "",
+            "title": "Assessment",
+            "type": "string"
+          },
+          "comment": {
+            "default": "",
+            "title": "Comment",
+            "type": "string"
+          },
+          "reasoning_quality": {
+            "default": 0.0,
+            "title": "Reasoning Quality",
+            "type": "number"
+          },
+          "time_saved_minutes": {
+            "default": 0,
+            "title": "Time Saved Minutes",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "title": "FeedbackEntry",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1422,6 +2247,40 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "The public health envelope (also read by the webui to detect an in-memory\nstore, ``store_type``). Exact shape — keys are stable and the webui depends on\n``status``/``version``/``es_connected``/``store_type``/``setup_complete``.",
+        "properties": {
+          "es_connected": {
+            "title": "Es Connected",
+            "type": "boolean"
+          },
+          "setup_complete": {
+            "title": "Setup Complete",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "store_type": {
+            "title": "Store Type",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "es_connected",
+          "store_type",
+          "setup_complete"
+        ],
+        "title": "HealthResponse",
         "type": "object"
       },
       "InvestigateRequest": {
@@ -1481,6 +2340,17 @@
             "title": "Rule Values",
             "type": "array"
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
           "source_surface": {
             "allOf": [
               {
@@ -1491,6 +2361,29 @@
           }
         },
         "title": "InvestigateRequest",
+        "type": "object"
+      },
+      "LivenessResponse": {
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "title": "LivenessResponse",
         "type": "object"
       },
       "LoginBody": {
@@ -1536,6 +2429,25 @@
           "text"
         ],
         "title": "MemoryCreate",
+        "type": "object"
+      },
+      "MemoryListResponse": {
+        "description": "The operator-memory list envelope. Each entry is a loose typed dict\n(text/category/tags/source/active/…) rendered PLAIN by the UI (#9).",
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "entries": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "title": "MemoryListResponse",
         "type": "object"
       },
       "MemoryUpdate": {
@@ -1817,6 +2729,34 @@
         "title": "NotificationPreviewBody",
         "type": "object"
       },
+      "NotificationProvidersResponse": {
+        "description": "The notification providers catalog envelope (no secrets — names/ids only).",
+        "properties": {
+          "channel_types": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Channel Types",
+            "type": "array"
+          },
+          "email_presets": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Email Presets",
+            "type": "array"
+          },
+          "template_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Template Ids",
+            "type": "array"
+          }
+        },
+        "title": "NotificationProvidersResponse",
+        "type": "object"
+      },
       "NotificationTestBody": {
         "properties": {
           "channel_id": {
@@ -1934,6 +2874,52 @@
         "title": "ProviderSecretsBody",
         "type": "object"
       },
+      "ProviderTestBody": {
+        "properties": {
+          "api_key": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "base_url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Base Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url"
+        ],
+        "title": "ProviderTestBody",
+        "type": "object"
+      },
+      "RagDocumentsResponse": {
+        "description": "The RAG corpus document-list envelope. Each document is a loose typed dict\n(title/source/chunk_count/…) rendered PLAIN by the UI (#9).",
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "documents": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "title": "RagDocumentsResponse",
+        "type": "object"
+      },
       "RagImportRequest": {
         "properties": {
           "source": {
@@ -1981,6 +2967,42 @@
           }
         },
         "title": "ReactionBody",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "checks": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Checks",
+            "type": "object"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "store_type": {
+            "title": "Store Type",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "ready",
+          "version",
+          "store_type",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
         "type": "object"
       },
       "ReauthBody": {
@@ -2057,6 +3079,42 @@
         "title": "RevokeOthersBody",
         "type": "object"
       },
+      "RiskBreakdown": {
+        "properties": {
+          "asset_criticality": {
+            "default": 0.0,
+            "title": "Asset Criticality",
+            "type": "number"
+          },
+          "diversity": {
+            "default": 0.0,
+            "title": "Diversity",
+            "type": "number"
+          },
+          "reputation": {
+            "default": 0.0,
+            "title": "Reputation",
+            "type": "number"
+          },
+          "total": {
+            "default": 0.0,
+            "title": "Total",
+            "type": "number"
+          },
+          "velocity": {
+            "default": 0.0,
+            "title": "Velocity",
+            "type": "number"
+          },
+          "volume": {
+            "default": 0.0,
+            "title": "Volume",
+            "type": "number"
+          }
+        },
+        "title": "RiskBreakdown",
+        "type": "object"
+      },
       "RolePreviewBody": {
         "description": "A DRAFT custom role to resolve (no persistence). Same shape as\n:class:`CustomRoleBody`.",
         "properties": {
@@ -2102,7 +3160,7 @@
         "type": "object"
       },
       "RuleDefinition": {
-        "description": "A config-driven, pre-baked-but-editable detection rule (C3-1).\n\nEach definition classifies a raw event (via ``match``) into a named rule, can\ncarry its own ``correlation`` override and per-role ``model_override`` (C3-6b),\nand is evaluated in ascending ``priority`` (then list order) so ModSec\nsub-rules (lower priority) win over the generic ``modsec_audit_log`` rule.",
+        "description": "A config-driven, pre-baked-but-editable detection rule (C3-1).\n\nEach definition classifies a raw event (via ``match``) into a named rule, can\ncarry its own ``correlation`` override and per-role ``model_override`` (C3-6b),\nand is evaluated in ascending ``priority`` (then list order) so ModSec\nsub-rules (lower priority) win over the generic ``modsec_audit_log`` rule.\n\n``mitre``/``schedule``/``suppression`` are ADDITIVE, defaulted G6-editor metadata\n(advisory only — none feeds ``decide()``, #3): ``mitre`` is a list of ATT&CK\ntechnique ids the rule maps to (drives the coverage heatmap), ``schedule`` persists\nan optional per-rule cadence intent, and ``suppression`` persists alert-storm\ncollapse intent (never a silent DROP — see :class:`RuleSuppression`).",
         "properties": {
           "correlation": {
             "anyOf": [
@@ -2127,6 +3185,13 @@
           "match": {
             "$ref": "#/components/schemas/RuleMatch"
           },
+          "mitre": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mitre",
+            "type": "array"
+          },
           "model_override": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ModelConfig"
@@ -2142,6 +3207,26 @@
             "default": 100,
             "title": "Priority",
             "type": "integer"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleSchedule"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suppression": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RuleSuppression"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2185,6 +3270,81 @@
           "op"
         ],
         "title": "RuleMatch",
+        "type": "object"
+      },
+      "RuleSchedule": {
+        "description": "Optional per-detection-rule schedule metadata (G6 R5 \"Schedule\" tab).\n\nADVISORY ONLY — the poller's durable per-feed cursor (``{source.id}:{feed.id}``)\nowns the actual evaluation cadence today; these values persist the operator's\nintent so the editor round-trips losslessly and a future per-rule scheduler can\nhonour them. It NEVER feeds ``case_manager.decide()`` (#3). Both fields default\nNone (== inherit the feed/global schedule), so an existing stored rule loads\nbyte-identically.",
+        "properties": {
+          "interval_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Seconds"
+          },
+          "lookback_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookback Seconds"
+          }
+        },
+        "title": "RuleSchedule",
+        "type": "object"
+      },
+      "RuleSuppression": {
+        "description": "Optional per-detection-rule alert-storm suppression metadata (G6 R5).\n\nA DISTINCT concept from the ``correlation`` threshold (Elastic keeps them apart;\nconflating them is a known analyst pitfall). ADVISORY/STORAGE ONLY today — this\npersists the operator's intent so the Suppression editor round-trips; the engine\ndoes NOT silently DROP events from this per-rule block. Any actual suppression that\nwould DROP a candidate stays a HITL Proposal via the existing\n``Preferences.suppression_rules`` path (#3/#4-safe: never silently drops). All\nfields are defaulted so a stored rule without it loads unchanged.",
+        "properties": {
+          "by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "By",
+            "type": "array"
+          },
+          "missing_field": {
+            "default": "suppress",
+            "enum": [
+              "suppress",
+              "keep"
+            ],
+            "title": "Missing Field",
+            "type": "string"
+          },
+          "scope": {
+            "default": "per_run",
+            "enum": [
+              "per_run",
+              "per_window"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "window_seconds": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Seconds"
+          }
+        },
+        "title": "RuleSuppression",
         "type": "object"
       },
       "RunPlaybookRequest": {
@@ -2406,6 +3566,41 @@
         "title": "SavedViewPatchBody",
         "type": "object"
       },
+      "SearchResponse": {
+        "description": "The command-palette search envelope. Result rows are loose typed dicts (each\ncarries operator/log DATA rendered PLAIN by the UI, #9).",
+        "properties": {
+          "cases": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Cases",
+            "type": "array"
+          },
+          "nav": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Nav",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "SearchResponse",
+        "type": "object"
+      },
       "SecretsUpdate": {
         "properties": {
           "abuseipdb_api_key": {
@@ -2484,6 +3679,17 @@
               }
             ],
             "title": "Es Url"
+          },
+          "litellm_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Litellm Api Key"
           },
           "openai_api_key": {
             "anyOf": [
@@ -2600,6 +3806,37 @@
           "source_type"
         ],
         "title": "SourceUpsert",
+        "type": "object"
+      },
+      "StatusHistoryEntry": {
+        "description": "One append-only lifecycle transition on a case (status taxonomy / F8).\n\nRecords WHO moved the case FROM which status TO which, WHEN, and WHY. Written\nby analyst lifecycle actions (and by the deterministic decision when it changes\nthe status); rendered as a status timeline in the case overview. ``by``/``reason``\nare operator/agent text — render-escaped in the UI, never trusted as prompt.",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "by": {
+            "default": "",
+            "title": "By",
+            "type": "string"
+          },
+          "from_status": {
+            "default": "",
+            "title": "From Status",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "to_status": {
+            "default": "",
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "title": "StatusHistoryEntry",
         "type": "object"
       },
       "TableStateBody": {
@@ -2838,7 +4075,7 @@
         "type": "object"
       },
       "ThresholdTuningConfig": {
-        "description": "Nightly threshold auto-TUNING policy (Round 4). Default OFF so today's behaviour\nis byte-identical. When ``enabled`` a later wave observes per-rule FP rates and\nPROPOSES bounded threshold adjustments (never applies them silently — the decision\nstays deterministic, #3). ``min_samples`` is the minimum observations before a\nsuggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move\nper cadence; ``fp_rate_target`` is the target false-positive rate; ``wilson_z`` is\nthe z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``\nsmooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and\n``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data\nbefore it can be applied.",
+        "description": "Nightly threshold auto-TUNING policy (Round 4). When enabled it observes per-rule FP rates and\nPROPOSES bounded threshold adjustments (never applies them silently — the decision\nstays deterministic, #3). ``min_samples`` is the minimum observations before a\nsuggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move\nper cadence; ``fp_rate_target`` is the target false-positive rate; ``wilson_z`` is\nthe z-score for the Wilson confidence interval on the observed FP rate; ``ewma_alpha``\nsmooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and\n``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data\nbefore it can be applied.\n\nDefaults ON (Autopilot overhaul) — the flagship \"self-tunes over time\" engine, safe\non because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound\n+ ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory\n``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL\nProposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes\nnothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard\nfloor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``\n(0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).",
         "properties": {
           "cadence": {
             "default": "nightly",
@@ -2852,7 +4089,7 @@
             "type": "string"
           },
           "enabled": {
-            "default": false,
+            "default": true,
             "title": "Enabled",
             "type": "boolean"
           },
@@ -2864,7 +4101,7 @@
             "type": "number"
           },
           "fp_rate_target": {
-            "default": 0.3,
+            "default": 0.1,
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Fp Rate Target",
@@ -2877,7 +4114,7 @@
             "type": "integer"
           },
           "min_samples": {
-            "default": 25,
+            "default": 30,
             "minimum": 1.0,
             "title": "Min Samples",
             "type": "integer"
@@ -2895,6 +4132,92 @@
           }
         },
         "title": "ThresholdTuningConfig",
+        "type": "object"
+      },
+      "TriggerReason": {
+        "description": "Deterministic explanation of WHY a cluster was triggered (Feature 3).\n\nComputed in code by correlation, copied onto the Case, and surfaced in the UI\n(\"Why this fired\"). Records the PRIMARY triggering rule for a multi-rule entity.",
+        "properties": {
+          "entity": {
+            "default": "",
+            "title": "Entity",
+            "type": "string"
+          },
+          "group_by": {
+            "default": "",
+            "title": "Group By",
+            "type": "string"
+          },
+          "mode": {
+            "default": "",
+            "title": "Mode",
+            "type": "string"
+          },
+          "n": {
+            "default": 0,
+            "title": "N",
+            "type": "integer"
+          },
+          "observed_count": {
+            "default": 0,
+            "title": "Observed Count",
+            "type": "integer"
+          },
+          "rule_value": {
+            "default": "",
+            "title": "Rule Value",
+            "type": "string"
+          },
+          "rule_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rule Values",
+            "type": "array"
+          },
+          "sentence": {
+            "default": "",
+            "title": "Sentence",
+            "type": "string"
+          },
+          "severity_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Max"
+          },
+          "severity_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Min"
+          },
+          "window_end": {
+            "default": 0,
+            "title": "Window End",
+            "type": "integer"
+          },
+          "window_seconds": {
+            "default": 0,
+            "title": "Window Seconds",
+            "type": "integer"
+          },
+          "window_start": {
+            "default": 0,
+            "title": "Window Start",
+            "type": "integer"
+          }
+        },
+        "title": "TriggerReason",
         "type": "object"
       },
       "UserCreateBody": {
@@ -3270,7 +4593,7 @@
           },
           "limit": {
             "default": 200,
-            "maximum": 1000.0,
+            "maximum": 200.0,
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
@@ -3313,7 +4636,7 @@
   "info": {
     "description": "Agentic SOC triage backend (FastAPI + LangGraph). Read-only consumer of the ELK log surface; owns its cases/audit/usage indices.",
     "title": "TLSOC Agentic Triage Suite — Backend",
-    "version": "1.0.0"
+    "version": "3.0.0-alpha.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3674,6 +4997,22 @@
           },
           {
             "in": "query",
+            "name": "source_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "from",
             "required": false,
             "schema": {
@@ -3720,8 +5059,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response List Audit Api Audit Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/AuditListResponse"
                 }
               }
             },
@@ -4080,7 +5418,7 @@
     },
     "/api/auth/sso/authorize": {
       "get": {
-        "description": "PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in\nthe KV (ns ``oidc_state``) with a short TTL, then returns ``{auth_url}`` for the\nbrowser to follow.",
+        "description": "PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in\nthe KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``\nstore (P13), then returns ``{auth_url}`` for the browser to follow.",
         "operationId": "sso_authorize_api_auth_sso_authorize_get",
         "parameters": [
           {
@@ -4487,8 +5825,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Branding Get Api Branding Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/BrandingConfig"
                 }
               }
             },
@@ -4869,6 +6206,38 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
           }
         ],
         "responses": {
@@ -4876,8 +6245,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response List Cases Api Cases Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CaseListResponse"
                 }
               }
             },
@@ -4956,8 +6324,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Get Case Api Cases  Case Id  Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/Case"
                 }
               }
             },
@@ -5602,6 +6969,47 @@
           }
         },
         "summary": "Case Run Playbook"
+      }
+    },
+    "/api/cases/{case_id}/stages": {
+      "get": {
+        "description": "The six-stage Timeline narrative for a case (the ``TimelineStage`` shape).\n\nA pure read-time projection over the Case + its audit rows (the SAME facts the\n``/timeline`` span view reads), reframed into ``input → correlate → risk → triage\n→ investigate → decide``. Advisory/observability ONLY — re-derives ``decide()`` to\nDISPLAY the clause, mutates nothing (#3); untrusted source/log text is fenced in\nsteps (#9). NEVER 404s — an unknown case returns the six-stage skeleton.",
+        "operationId": "case_stages_api_cases__case_id__stages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_id",
+            "required": true,
+            "schema": {
+              "title": "Case Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Case Stages Api Cases  Case Id  Stages Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Case Stages"
       }
     },
     "/api/cases/{case_id}/tags": {
@@ -6357,7 +7765,7 @@
     },
     "/api/connectors/test": {
       "post": {
-        "description": "Validate connectivity. Currently tests the live primary log source (the\nagent's read surface) — the wizard's 'Test connection' for the main source.",
+        "description": "Validate the connector instance currently shown in the source editor.\n\nDraft config/secrets are request-scoped and never written to Preferences or the\nsecret tier. With an empty body, preserve the legacy primary-source test.",
         "operationId": "test_connector_api_connectors_test_post",
         "requestBody": {
           "content": {
@@ -6530,6 +7938,26 @@
           }
         },
         "summary": "Create Dashboard"
+      }
+    },
+    "/api/dashboards/widget-types": {
+      "get": {
+        "description": "The server widget-type ALLOWLIST, exposed so the client (and its contract test)\ncan cross-reference the two sets at runtime and catch any drift (H1). Read-only;\nstatic; returns the sorted canonical set.",
+        "operationId": "dashboard_widget_types_api_dashboards_widget_types_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Dashboard Widget Types Api Dashboards Widget Types Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dashboard Widget Types"
       }
     },
     "/api/dashboards/{dashboard_id}": {
@@ -6974,8 +8402,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Health Api Health Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthResponse"
                 }
               }
             },
@@ -6983,6 +8410,73 @@
           }
         },
         "summary": "Health"
+      }
+    },
+    "/api/health/build-info": {
+      "get": {
+        "description": "Non-secret release identity for support, diagnostics, and upgrade checks.",
+        "operationId": "health_build_info_api_health_build_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildInfoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Build Info"
+      }
+    },
+    "/api/health/live": {
+      "get": {
+        "description": "Process liveness only; dependency failures must not trigger restart loops.",
+        "operationId": "health_live_api_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Live"
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "description": "Traffic readiness: fail closed when the suite cannot persist its own state.",
+        "operationId": "health_ready_api_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Health Ready"
       }
     },
     "/api/ingest/{source_id}": {
@@ -7082,6 +8576,85 @@
           }
         },
         "summary": "Llm Models"
+      }
+    },
+    "/api/llm/models/custom": {
+      "post": {
+        "operationId": "add_custom_model_api_llm_models_custom_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomModelBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Add Custom Model Api Llm Models Custom Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Custom Model"
+      }
+    },
+    "/api/llm/models/custom/{model_id}": {
+      "delete": {
+        "operationId": "remove_custom_model_api_llm_models_custom__model_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "model_id",
+            "required": true,
+            "schema": {
+              "title": "Model Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Remove Custom Model Api Llm Models Custom  Model Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Custom Model"
       }
     },
     "/api/llm/models/test": {
@@ -7228,6 +8801,46 @@
           }
         },
         "summary": "Llm Providers"
+      }
+    },
+    "/api/llm/providers/test": {
+      "post": {
+        "description": "A NON-metered reachability + \"fetch models\" probe for an OpenAI-compatible\nendpoint: ``GET {base_url}/models`` (falling back to ``/v1/models``) with a Bearer\nheader. It does NOT touch the gateway / cost ledger (#6). Returns the discovered\nmodel ids so the Add-local-model dialog can populate a picker. Errors are PLAIN,\nbounded (#9).",
+        "operationId": "providers_test_api_llm_providers_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderTestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Providers Test Api Llm Providers Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Providers Test"
       }
     },
     "/api/logs": {
@@ -7391,8 +9004,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response List Memory Api Memory Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/MemoryListResponse"
                 }
               }
             },
@@ -7579,6 +9191,48 @@
           }
         },
         "summary": "Metrics"
+      }
+    },
+    "/api/metrics/noise-reduction": {
+      "get": {
+        "description": "The Noise-Reduction funnel over the last ``window_hours`` (default 24) — \"total\nalerts by severity → what the AI reduced it to\".\n\n``ingested``/``clustered`` come from the DURABLE ``noise_counters`` store (raw-alert-by-\nseverity, so they reflect the TRUE inbound volume even after low-value events are\ndropped at ingest); ``cases`` + the MECE outcomes (needs_human > escalated >\nauto_cleared > true_positive residual) come from a case tally computed over up to the\nmost-recent 5000 cases (the ``cases_meta.truncated`` flag is True when the store held\nmore — the outcome tallies are then a lower bound). When the counters are still warming\nup (``counters.available: false``) the ingested/clustered totals are ``null`` and the\nheadline ``reduction.overall_pct`` is a DASH, so the UI degrades to a case-only funnel.\n\nDETERMINISTIC + advisory: nothing here is read by ``case_manager.decide()`` (#3); every\nband name is plain framework data the UI renders escaped.",
+        "operationId": "metrics_noise_reduction_api_metrics_noise_reduction_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "window_hours",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "title": "Window Hours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Metrics Noise Reduction Api Metrics Noise Reduction Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Metrics Noise Reduction"
       }
     },
     "/api/metrics/posture": {
@@ -8097,8 +9751,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Notification Providers Api Notifications Providers Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/NotificationProvidersResponse"
                 }
               }
             },
@@ -8334,8 +9987,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Prefs Org Get Api Prefs Org Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomizationConfig"
                 }
               }
             },
@@ -8631,8 +10283,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Rag Documents Api Rag Documents Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RagDocumentsResponse"
                 }
               }
             },
@@ -9473,7 +11124,7 @@
     },
     "/api/rules/preview": {
       "post": {
-        "description": "Read-only rule-scoped preview: how many recent events WOULD this predicate match?\n\nReads recent events through the SAME scoped, read-only, hard-capped scatter-gather\nthe ``GET /api/logs`` path uses (#1), evaluates the pure ``RuleMatch.matches()``\npredicate in-process, and returns a total match count + a time-bucketed histogram +\na small sample of matched rows (plain log data, #9).\n\n⛔ Read-only + side-effect-free (#3/#6/#2):\n  * NEVER bills the LLM — no gateway call, so ZERO ``UsageDoc`` writes.\n  * NEVER calls / re-implements ``decide()``; NEVER creates a case; NEVER escalates.\n  * NEVER writes config or any store.\n\nA malformed predicate row is skipped leniently. An empty ``match`` matches nothing\n(returns count 0) rather than everything — a preview must never imply a rule fires on\nall traffic. RBAC: ``rules:read``.",
+        "description": "Read-only rule-scoped preview: how many recent events WOULD this predicate match?\n\nReads recent events through the SAME scoped, read-only, hard-capped scatter-gather\nthe ``GET /api/logs`` path uses (#1), evaluates the pure ``RuleMatch.matches()``\npredicate in-process, and returns a total match count + a time-bucketed histogram +\na small sample of matched rows (plain log data, #9).\n\n⛔ Read-only + side-effect-free (#3/#6/#2):\n  * NEVER bills the LLM — no gateway call, so ZERO ``UsageDoc`` writes.\n  * NEVER calls / re-implements ``decide()``; NEVER creates a case; NEVER escalates.\n  * NEVER writes config or any store.\n\nA malformed predicate row is skipped leniently. An empty ``match`` matches nothing\n(returns count 0) rather than everything — a preview must never imply a rule fires on\nall traffic. RBAC: ``rules:read``.\n\n⚠ MULTI-ROW PARITY (M3). The save adapter (``adapter.ts detectionMatchToWire``) keeps\nONLY the FIRST predicate row — ``RuleDefinition.match`` is a single ``RuleMatch``, and\nnested AND/OR is the gated Phase-3 wave. So the preview MUST evaluate the SAME first\nrow the deployed rule fires on; ANDing every row here would under-count vs. reality\nand mis-calibrate the operator. We therefore evaluate ``predicates[0]`` only, and\nreturn ``predicates`` (the total supplied) + ``predicates_evaluated`` (always ≤ 1) so\nthe UI can label a multi-row preview \"only the first condition is saved / previewed\".",
         "operationId": "preview_rule_api_rules_preview_post",
         "requestBody": {
           "content": {
@@ -9754,8 +11405,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Global Search Api Search Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/SearchResponse"
                 }
               }
             },
@@ -10208,9 +11858,29 @@
         "summary": "Upsert Source"
       }
     },
+    "/api/sources/coverage": {
+      "get": {
+        "description": "Aggregate ingest-coverage rollup — the \"am I seeing everything?\" big-number tile\n(A5.5; Google SecOps Health-Hub model). Read-only, advisory, NO secrets.\n\nReturns ``{sources_total, sources_enabled, sources_silent, events_per_min,\nalerts_triaged_24h, worst_last_event_seconds}`` computed over the REAL configured\nsources (demo overlay excluded so the numbers stay honest). ``alerts_triaged_24h`` is\nthe count of cases opened in the last 24h computed with the SAME window filter the\n``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every\nsub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched).",
+        "operationId": "sources_coverage_api_sources_coverage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Sources Coverage Api Sources Coverage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sources Coverage"
+      }
+    },
     "/api/sources/health": {
       "get": {
-        "description": "Per-source health for the sources dashboard (Round 4 Wave 4).\n\nRead-only, NO secrets. For every configured source it reports: enabled state,\ningest mode, whether it is a PULL/PUSH connector and browse-capable, and — where\navailable — its durable poll position (the newest cursor timestamp across the\nsource's feeds, from the read-only cursor store) and PUSH live-tail buffer depth.\nA missing/legacy cursor reads as ``last_poll_millis: 0`` (never polled yet).\nNever mutates anything (#2 append-only elsewhere; this endpoint only reads).",
+        "description": "Per-source health for the sources dashboard (Round 4 Wave 4 + A5.2 coverage).\n\nRead-only, NO secrets. For every configured source it reports: enabled state, ingest\nmode, whether it is a PULL/PUSH connector and browse-capable, its durable poll position\n(``last_poll_millis``) / PUSH live-tail ``buffer_depth``, PLUS the additive\ncoverage-observability fields (``last_poll_at``, ``last_poll_ok``, ``last_poll_error``,\n``events_per_min``, ``last_event_millis``, ``silent``). A missing/legacy cursor reads as\n``last_poll_millis: 0`` (never polled yet). Never mutates anything (this endpoint only\nreads); advisory only (#3); error strings are plain text (#9).",
         "operationId": "sources_health_api_sources_health_get",
         "responses": {
           "200": {

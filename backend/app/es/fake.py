@@ -72,6 +72,15 @@ class InMemoryESClient(BaseESClient):
     async def search_logs(self, index: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._evaluate(index, body)
 
+    async def open_log_pit(self, index: str, keep_alive: str = "1m") -> str | None:
+        # The in-memory store is deterministic for the duration of a synchronous
+        # test search.  A token exercises the same search_after/PIT connector path;
+        # no independent snapshot object is needed for the offline tests.
+        return f"fake-pit:{index}"
+
+    async def close_log_pit(self, pit_id: str) -> None:
+        return None
+
     async def index_template_exists(self, name: str) -> bool:
         return name in self.templates
 
@@ -154,7 +163,11 @@ class InMemoryESClient(BaseESClient):
     def _evaluate(self, pattern: str, body: dict[str, Any]) -> dict[str, Any]:
         query = body.get("query", {"match_all": {}})
         candidates = self._all_hits(pattern)
-        matched = [(idx, did, src) for (idx, did, src) in candidates if _matches(query, did, src)]
+        matched = [
+            (idx, did, src)
+            for (idx, did, src) in candidates
+            if _matches(query, did, src, idx)
+        ]
 
         # Sorting
         sort = body.get("sort")
@@ -168,6 +181,18 @@ class InMemoryESClient(BaseESClient):
                 )
 
         total = len(matched)
+        normalised_sort = _normalise_sort(sort)
+        search_after = body.get("search_after")
+        if search_after is not None and normalised_sort:
+            matched = [
+                row
+                for row in matched
+                if _is_after(
+                    _sort_values(row[1], row[2], normalised_sort),
+                    list(search_after),
+                    normalised_sort,
+                )
+            ]
         frm = int(body.get("from", 0) or 0)
         size = int(body.get("size", 10))
         window = matched[frm: frm + size] if size > 0 else []
@@ -193,17 +218,19 @@ class InMemoryESClient(BaseESClient):
 # --------------------------------------------------------------------------- #
 # Query matching
 # --------------------------------------------------------------------------- #
-def _matches(query: dict[str, Any], doc_id: str, src: dict[str, Any]) -> bool:
+def _matches(
+    query: dict[str, Any], doc_id: str, src: dict[str, Any], index: str = ""
+) -> bool:
     if not query or "match_all" in query:
         return True
     if "bool" in query:
-        return _matches_bool(query["bool"], doc_id, src)
+        return _matches_bool(query["bool"], doc_id, src, index)
     if "term" in query:
         (field, value), = query["term"].items()
-        return _term_match(src, field, value)
+        return _term_match(src, field, value, index=index)
     if "terms" in query:
         (field, values), = query["terms"].items()
-        actual = dotted_get(src, field)
+        actual = index if field == "_index" else dotted_get(src, field)
         actual_list = actual if isinstance(actual, list) else [actual]
         return any(str(a) in {str(v) for v in values} for a in actual_list)
     if "range" in query:
@@ -237,7 +264,7 @@ def _matches(query: dict[str, Any], doc_id: str, src: dict[str, Any]) -> bool:
         for clause in clauses:
             if ":" in clause:
                 field, _, value = clause.partition(":")
-                if not _term_match(src, field.strip(), value.strip()):
+                if not _term_match(src, field.strip(), value.strip(), index=index):
                     return False
             else:
                 msg = dotted_get(src, "message")
@@ -247,25 +274,29 @@ def _matches(query: dict[str, Any], doc_id: str, src: dict[str, Any]) -> bool:
     return False
 
 
-def _matches_bool(b: dict[str, Any], doc_id: str, src: dict[str, Any]) -> bool:
+def _matches_bool(
+    b: dict[str, Any], doc_id: str, src: dict[str, Any], index: str = ""
+) -> bool:
     for clause in b.get("filter", []) + b.get("must", []):
-        if not _matches(clause, doc_id, src):
+        if not _matches(clause, doc_id, src, index):
             return False
     for clause in b.get("must_not", []):
-        if _matches(clause, doc_id, src):
+        if _matches(clause, doc_id, src, index):
             return False
     should = b.get("should", [])
     if should:
         has_hard = bool(b.get("filter") or b.get("must"))
         min_should = int(b.get("minimum_should_match", 0 if has_hard else 1))
-        hits = sum(1 for c in should if _matches(c, doc_id, src))
+        hits = sum(1 for c in should if _matches(c, doc_id, src, index))
         if hits < min_should:
             return False
     return True
 
 
-def _term_match(src: dict[str, Any], field: str, value: Any) -> bool:
-    actual = dotted_get(src, field)
+def _term_match(
+    src: dict[str, Any], field: str, value: Any, *, index: str = ""
+) -> bool:
+    actual = index if field == "_index" else dotted_get(src, field)
     if actual is None:
         return False
     if isinstance(actual, list):
@@ -309,7 +340,7 @@ def _normalise_sort(sort: Any) -> list[tuple[str, str]]:
 
 
 def _sort_key(doc_id: str, src: dict[str, Any], field: str) -> Any:
-    if field in ("_id", "_doc"):
+    if field in ("_id", "_doc", "_shard_doc"):
         return doc_id
     val = _to_comparable(dotted_get(src, field))
     return val if val is not None else float("-inf")
@@ -317,6 +348,23 @@ def _sort_key(doc_id: str, src: dict[str, Any], field: str) -> Any:
 
 def _sort_values(doc_id: str, src: dict[str, Any], sort: list[tuple[str, str]]) -> list[Any]:
     return [_sort_key(doc_id, src, f) for (f, _o) in sort]
+
+
+def _is_after(
+    values: list[Any], marker: list[Any], sort: list[tuple[str, str]]
+) -> bool:
+    """Lexicographic ``search_after`` comparison for the emitted fake sort values."""
+    if len(values) != len(marker):
+        return False
+    for value, prior, (_field, order) in zip(values, marker, sort):
+        if value == prior:
+            continue
+        try:
+            return value > prior if order == "asc" else value < prior
+        except TypeError:
+            left, right = str(value), str(prior)
+            return left > right if order == "asc" else left < right
+    return False
 
 
 # --------------------------------------------------------------------------- #

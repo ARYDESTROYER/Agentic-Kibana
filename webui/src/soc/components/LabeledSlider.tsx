@@ -23,6 +23,10 @@ import { clampNumber } from './NumberField';
 import { cn } from '@/lib/cn';
 import { focusRing } from '@/lib/ui-recipes';
 
+/* eslint-disable jsx-a11y/role-supports-aria-props -- The custom Slider forwards
+ * aria-valuetext to Radix's role="slider" Thumb; the lint rule sees only the
+ * wrapper component and incorrectly infers a textbox. */
+
 export interface SliderTick {
   value: number;
   label: string;

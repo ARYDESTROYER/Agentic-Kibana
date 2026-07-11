@@ -13,6 +13,8 @@
 # This script is DEPLOY-agnostic: it uses an in-memory / SQLite-friendly state
 # backend and a mock LLM provider unless you export real keys, so it runs on a
 # laptop with nothing but Python 3.11 + Node 22 installed.
+# It also completes the local OOBE and enables the isolated seeded Demo Mode, so
+# the first page is populated without manual setup or provider spend.
 #
 # Usage:
 #   ./scripts/run-demo.sh            # start both, stream logs, Ctrl-C to stop
@@ -94,6 +96,47 @@ echo "[demo] starting backend (uvicorn app.main:app) on :${BACKEND_PORT} …"
 ) &
 PIDS+=("$!")
 
+# Wait for the API, authenticate as the local seeded admin, finish the local OOBE,
+# and enable the isolated deterministic demo. Python stdlib keeps curl/jq optional.
+echo "[demo] waiting for backend and seeding deterministic Demo Mode …"
+python - "${BACKEND_PORT}" "${ADMIN_USER}" "${ADMIN_PASS}" <<'PY'
+import http.cookiejar
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+
+port, username, password = sys.argv[1:]
+base = f"http://127.0.0.1:{port}/api"
+cookies = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
+
+for _ in range(120):
+    try:
+        with opener.open(f"{base}/health/live", timeout=1):
+            break
+    except Exception:
+        time.sleep(0.25)
+else:
+    raise SystemExit("backend did not become live within 30 seconds")
+
+def post(path, payload):
+    request = urllib.request.Request(
+        f"{base}/{path}",
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with opener.open(request, timeout=30) as response:
+        return json.load(response)
+
+post("auth/login", {"username": username, "password": password})
+post("setup/complete", {})
+status = post("demo/enable", {"mode": "seeded", "force_capabilities": True})
+print(f"[demo] seeded run {status.get('run_id', 'ready')}")
+PY
+
 # --- 2) Web UI: ensure node_modules, then launch the Vite dev server --------
 echo "[demo] preparing web UI at ${WEBUI_DIR} …"
 if [[ ! -d "${WEBUI_DIR}/node_modules" ]]; then
@@ -122,7 +165,7 @@ cat <<BANNER
   Login  :   username  ${ADMIN_USER}
              password  ${ADMIN_PASS}     (demo super_admin — change for real use)
 
-  Auth is ENABLED for this demo (login + RBAC + MFA/SSO surfaces are live).
+  Auth is ENABLED and deterministic Demo Mode is SEEDED (no provider spend).
   Press Ctrl-C to stop both services.
 
   Walkthrough script:  see DEMO.md

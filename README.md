@@ -1,6 +1,6 @@
-# Agentic SOC — open-source, self-hosted, vendor-agnostic triage
+# Agentic SOC — self-hosted, vendor-agnostic triage
 
-> An open-source, self-hosted **agentic AI SOC triage** system. It ingests
+> A source-available, self-hosted **agentic AI SOC triage** system. It ingests
 > alerts/logs from **any** SIEM/EDR/XDR, normalises everything to **OCSF**,
 > correlates and risk-gates in deterministic code, runs a two-tier LLM
 > investigation (cheap router → strong investigator), and lets a deterministic
@@ -18,7 +18,13 @@ stores, plain webhooks, and more — and ships its **own standalone web UI** so 
 no longer depends on Kibana at all. The UI is a self-hosted **Vite + React +
 Tailwind + shadcn** SPA (the old `@elastic/eui` UI has been retired).
 
-**Docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
+**Public docs source:** [`docs/index.md`](docs/index.md) · quickstart →
+[`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md) · source
+support → [`docs/sources/support-matrix.md`](docs/sources/support-matrix.md) · release
+limits → [`docs/releases/known-limitations.md`](docs/releases/known-limitations.md).
+The same site deploys free through GitHub Pages after `main` is established.
+
+**Engineering docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
 · ingestion → [`docs/INGESTION.md`](docs/INGESTION.md) · architecture →
 [`docs/AGNOSTIC_ARCHITECTURE.md`](docs/AGNOSTIC_ARCHITECTURE.md) · environments →
 [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) · fix →
@@ -204,19 +210,19 @@ the deterministic close/escalate decision and never alter it. See
   cursor** so a fast alerts feed and a slow events feed never skip each other (#4).
   A severity floor demotes auto-forwarding but **never drops events** (#4). Plus
   per-connector contextual setup help.
-- **Two-tier alert/event ingestion (Round 4, default OFF).** **ALERT** feeds run realtime,
+- **Two-tier alert/event ingestion.** **ALERT** feeds run realtime,
   per-alert; **EVENT** feeds run a cheap-first agent-driven **detection funnel**
   (`engine/event_detection.py`: pre-aggregate → deterministic rules → anomaly →
   batched-LLM detection) whose survivors **re-enter the exact same correlate → decide
   pipeline** — so nothing bypasses the deterministic close/escalate (#3/#4), log values stay
   UNTRUSTED (#9), and the LLM only ever sees fenced aggregates (#7).
-- **Daily campaign correlation + entity baseline (Round 4, default OFF).** A deterministic
+- **Daily campaign correlation + entity baseline (default ON).** A deterministic
   daily **campaign** pass builds a shared-entity graph over recent cases and emits
   `Campaign` objects that only *reference* case ids (never re-clusters or closes, #4). An
   online **entity baseline** (EWMA/EWMV over 168 hour-of-week buckets + a bounded t-digest +
   robust modified-z) turns "improves over time" into a real signal that feeds the
   event-detection anomaly stage — a pure producer that never touches `decide()`.
-- **Adaptive threshold auto-tuning (Round 4, default OFF).** A nightly **deterministic**
+- **Adaptive threshold auto-tuning (default ON).** A nightly **deterministic**
   observer (`engine/threshold_tuner.py`) measures per-rule false-positive noise (Wilson
   lower-bound + min-samples + EWMA), and bounded-bumps a correlation rule's `n` or a feed's
   `severity_floor` with an audit record + one-step rollback + a shadow-eval that blocks any
@@ -320,11 +326,11 @@ the deterministic close/escalate decision and never alter it. See
   priority matrix, realtime SSE, threshold automation (empty ruleset), and entity baselining
   (producer + a silent-source detector) — and scales `(risk_floor, daily_usd, cap)` per
   profile: conservative **90 / $5 / 10** · balanced **70 / $10 / 25** · aggressive
-  **40 / $50 / 100**. Batch, `on_exceed="block"`, default notify/run-playbook rules, and
+  **40 / $50 / 100**. Batch, warning-only budget mode, default notify/run-playbook rules, and
   baseline-driven investigation stay explicit opt-in. A **default budget backstop**
   (`BudgetConfig` now `enabled=True`, `daily_usd=$10` — roughly a coffee budget, ~10× below
-  AI-SOC entry pricing —, `soft_warn_pct=0.80`, `on_exceed="warn"`) keeps "read everything by
-  default" from becoming "spend everything": over-budget routes to `NEEDS_HUMAN`, never a
+  AI-SOC entry pricing —, `soft_warn_pct=0.80`, `on_exceed="block"`) keeps "read everything by
+  default" from becoming "spend everything": the provider call is stopped and the case routes to `NEEDS_HUMAN`, never a
   silent close (#3). A **stored pre-overhaul config auto-adopts** the new defaults exactly
   once (an `autopilot_config_version` marker, preserving any opt-outs set after it), and the
   `AutomationNudge` card is **inverted** into a reassurance banner ("autopilot is on — here's
@@ -460,12 +466,14 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline (2026-07-09): **1796 backend tests green** (fake/in-memory backends +
+Verified offline (2026-07-11): **1843 backend tests green** (fake/in-memory backends +
 mock LLM, no network — an autouse `conftest` network guard keeps the enrichment tests
-offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **281.44 kB**
+offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **281.60 kB**
 — a lazy `motion` chunk of **83.85 kB** sits off the critical path, never modulepreloaded)
-with a dev-only Vitest harness (**1332 tests** / 239 files); eslint clean (0 errors, 3
-benign warnings, incl. 20 `jsx-a11y` rules at error). (Test counts rise each round — see
+with a dev-only Vitest harness (**1332 tests** / 239 files); eslint clean (**0 errors,
+0 warnings**, with 20 `jsx-a11y` rules at error). Generated API contracts, all five
+design gates, the distribution smoke tests, version/Compose contracts, and strict public
+docs build are also green. (Test counts rise each round — see
 `Journal.md` for the exact current totals.)
 
 **Round 10** (2026-07-09, current — "Autopilot & Comprehensive Ingestion + motion.dev": a

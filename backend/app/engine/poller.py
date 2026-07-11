@@ -39,6 +39,10 @@ from ..engine.noise_counters import (
     zero_bands,
 )
 from ..es.base import BaseESClient
+from ..es.querybuilder import (
+    PULL_LATE_ARRIVAL_OVERLAP_MILLIS,
+    PULL_RECENT_EVENT_LIMIT,
+)
 from ..models import Cursor, RawEvent
 from ..stores.cursor_store import CursorStore
 from ..utils import now_utc, to_millis
@@ -47,22 +51,109 @@ from ..agents.pipeline import InvestigationPipeline
 logger = logging.getLogger("tlsoc.engine.poller")
 
 
-def advance_cursor(cursor: Cursor, fetched: list[RawEvent]) -> Cursor:
+def _advance_cursor_state(
+    cursor: Cursor,
+    max_ts: int,
+    boundary_ids: list[str],
+    *,
+    recent_event_millis: dict[str, int] | None = None,
+    overlap_backfill_complete: bool | None = None,
+) -> Cursor:
+    """Advance the frontier and merge bounded late-arrival identity state."""
+    target_ts = cursor.timestamp_millis
+    target_boundary = list(cursor.boundary_ids)
+    if max_ts > target_ts:
+        target_ts = max_ts
+        target_boundary = list(dict.fromkeys(boundary_ids))
+    elif max_ts == target_ts and max_ts > 0:
+        target_boundary = list(dict.fromkeys(boundary_ids + target_boundary))
+
+    recent = dict(cursor.recent_event_millis)
+    if recent_event_millis is not None:
+        recent.update({str(k): int(v) for k, v in recent_event_millis.items() if int(v) > 0})
+    if target_ts > 0:
+        cutoff = max(0, target_ts - PULL_LATE_ARRIVAL_OVERLAP_MILLIS)
+        recent = {key: ts for key, ts in recent.items() if cutoff <= ts <= target_ts}
+
+    saturated = cursor.overlap_saturated
+    if len(recent) > PULL_RECENT_EVENT_LIMIT:
+        # Prefer duplicate safety to an unbounded cursor document.  Keep the newest
+        # exact identities for diagnostics, but disable optional older-than-frontier
+        # acceptance once the overlap cannot be represented completely.
+        ordered = sorted(recent.items(), key=lambda item: (item[1], item[0]), reverse=True)
+        recent = dict(ordered[:PULL_RECENT_EVENT_LIMIT])
+        saturated = True
+
+    initialized = cursor.overlap_initialized
+    if overlap_backfill_complete is not None:
+        initialized = initialized or bool(overlap_backfill_complete)
+
+    values = (
+        target_ts,
+        tuple(target_boundary),
+        recent,
+        initialized,
+        saturated,
+        cursor.late_arrival_overlap_enabled,
+    )
+    current = (
+        cursor.timestamp_millis,
+        tuple(cursor.boundary_ids),
+        cursor.recent_event_millis,
+        cursor.overlap_initialized,
+        cursor.overlap_saturated,
+        cursor.late_arrival_overlap_enabled,
+    )
+    if values == current:
+        return cursor
+    return Cursor(
+        timestamp_millis=target_ts,
+        boundary_ids=target_boundary,
+        recent_event_millis=recent,
+        overlap_initialized=initialized,
+        overlap_saturated=saturated,
+        late_arrival_overlap_enabled=cursor.late_arrival_overlap_enabled,
+    )
+
+
+def advance_cursor(
+    cursor: Cursor,
+    fetched: list[RawEvent],
+    *,
+    recent_event_millis: dict[str, int] | None = None,
+    overlap_backfill_complete: bool | None = None,
+) -> Cursor:
     """Advance the cursor to cover EVERY fetched event without skipping ties."""
     if not fetched:
-        return cursor
+        return _advance_cursor_state(
+            cursor,
+            0,
+            [],
+            recent_event_millis=recent_event_millis,
+            overlap_backfill_complete=overlap_backfill_complete,
+        )
     max_ts = max(e.timestamp_millis for e in fetched)
-    if max_ts < cursor.timestamp_millis:
-        return cursor
-    boundary = [e.id for e in fetched if e.timestamp_millis == max_ts]
-    if cursor.timestamp_millis == max_ts:
-        boundary = list(dict.fromkeys(boundary + cursor.boundary_ids))
-    else:
-        boundary = list(dict.fromkeys(boundary))
-    return Cursor(timestamp_millis=max_ts, boundary_ids=boundary)
+    boundary = [e.cursor_key() for e in fetched if e.timestamp_millis == max_ts]
+    observed = recent_event_millis or {
+        e.cursor_key(): e.timestamp_millis for e in fetched if e.timestamp_millis > 0
+    }
+    return _advance_cursor_state(
+        cursor,
+        max_ts,
+        boundary,
+        recent_event_millis=observed,
+        overlap_backfill_complete=overlap_backfill_complete,
+    )
 
 
-def advance_cursor_to(cursor: Cursor, max_ts: int, boundary_ids: list[str]) -> Cursor:
+def advance_cursor_to(
+    cursor: Cursor,
+    max_ts: int,
+    boundary_ids: list[str],
+    *,
+    recent_event_millis: dict[str, int] | None = None,
+    overlap_backfill_complete: bool | None = None,
+) -> Cursor:
     """Advance ``cursor`` to an explicit watermark ``(max_ts, boundary_ids)``.
 
     The watermark-driven variant of :func:`advance_cursor` (#4). A per-feed poll
@@ -73,14 +164,15 @@ def advance_cursor_to(cursor: Cursor, max_ts: int, boundary_ids: list[str]) -> C
     ``advance_cursor``: same-millisecond ids are unioned with the existing boundary so
     a tie is never re-processed nor skipped. A watermark at/behind the cursor (or an
     empty/zero watermark — the feed read nothing) leaves the cursor unchanged."""
-    if max_ts <= 0 or max_ts < cursor.timestamp_millis:
+    if max_ts <= 0 and recent_event_millis is None and overlap_backfill_complete is None:
         return cursor
-    boundary = list(boundary_ids)
-    if cursor.timestamp_millis == max_ts:
-        boundary = list(dict.fromkeys(boundary + cursor.boundary_ids))
-    else:
-        boundary = list(dict.fromkeys(boundary))
-    return Cursor(timestamp_millis=max_ts, boundary_ids=boundary)
+    return _advance_cursor_state(
+        cursor,
+        max_ts,
+        list(boundary_ids),
+        recent_event_millis=recent_event_millis,
+        overlap_backfill_complete=overlap_backfill_complete,
+    )
 
 
 class Poller:
@@ -243,8 +335,48 @@ class Poller:
             return await scan_fn(prefs, feed, cursor, cold_from)
         events = await self._source.poll_feed(prefs, feed, cursor, cold_from)
         max_ts = max((e.timestamp_millis for e in events), default=0)
-        boundary = [e.id for e in events if e.timestamp_millis == max_ts] if max_ts > 0 else []
-        return FeedScan(events=events, scan_max_ts=max_ts, scan_boundary_ids=boundary)
+        boundary = [
+            e.cursor_key() for e in events if e.timestamp_millis == max_ts
+        ] if max_ts > 0 else []
+        recent = {
+            e.cursor_key(): e.timestamp_millis for e in events if e.timestamp_millis > 0
+        }
+        return FeedScan(
+            events=events,
+            scan_max_ts=max_ts,
+            scan_boundary_ids=boundary,
+            scan_recent_event_millis=recent,
+        )
+
+    async def _poll_source_scan(
+        self, prefs: Preferences, cursor: Cursor, cold_from: int
+    ):
+        """Fetch an un-fed source plus optional cursor bookkeeping metadata."""
+        from ..connectors.elastic import FeedScan
+
+        scan_fn = getattr(self._source, "poll_scan", None)
+        # Preserve the long-standing PullConnector override contract (and failure
+        # instrumentation): an instance-level ``poll`` override must not be silently
+        # bypassed merely because its concrete Elastic connector also offers richer
+        # scan metadata.
+        if "poll" in getattr(self._source, "__dict__", {}):
+            scan_fn = None
+        if scan_fn is not None:
+            return await scan_fn(prefs, cursor, cold_from)
+        events = await self._source.poll(prefs, cursor, cold_from)
+        max_ts = max((e.timestamp_millis for e in events), default=0)
+        boundary = [
+            e.cursor_key() for e in events if max_ts > 0 and e.timestamp_millis == max_ts
+        ]
+        recent = {
+            e.cursor_key(): e.timestamp_millis for e in events if e.timestamp_millis > 0
+        }
+        return FeedScan(
+            events=events,
+            scan_max_ts=max_ts,
+            scan_boundary_ids=boundary,
+            scan_recent_event_millis=recent,
+        )
 
     def record_tick(self, *, ok: bool, error: str | None = None,
                     stats: dict[str, Any] | None = None) -> None:
@@ -337,7 +469,13 @@ class Poller:
                 # This happens for EVERY feed regardless of which path handles its events,
                 # so an EVENT feed routed to the funnel still advances its own cursor and
                 # never re-reads / skips (the never-skip invariant is path-independent).
-                advanced = advance_cursor_to(fcursor, scan.scan_max_ts, scan.scan_boundary_ids)
+                advanced = advance_cursor_to(
+                    fcursor,
+                    scan.scan_max_ts,
+                    scan.scan_boundary_ids,
+                    recent_event_millis=scan.scan_recent_event_millis,
+                    overlap_backfill_complete=scan.overlap_backfill_complete,
+                )
                 feed_state.append((key, fcursor, advanced))
                 fetched.extend(fbatch)
                 feed_new = [e for e in fbatch if not fcursor.should_skip(e)]
@@ -359,9 +497,22 @@ class Poller:
                 if lkey == "primary"
                 else await self._cursor_store.load_keyed(lkey)
             )
-            fetched = await self._source.poll(prefs, cursor, cold_from)
+            scan = await self._poll_source_scan(prefs, cursor, cold_from)
+            fetched = scan.events
             new_events = [e for e in fetched if not cursor.should_skip(e)]
-            feed_state.append((lkey, cursor, advance_cursor(cursor, fetched)))
+            feed_state.append(
+                (
+                    lkey,
+                    cursor,
+                    advance_cursor_to(
+                        cursor,
+                        scan.scan_max_ts,
+                        scan.scan_boundary_ids,
+                        recent_event_millis=scan.scan_recent_event_millis,
+                        overlap_backfill_complete=scan.overlap_backfill_complete,
+                    ),
+                )
+            )
 
         stats = {"polled": len(fetched), "new": len(new_events),
                  "clusters": 0, "investigated": 0, "candidates": 0, "attached": 0,
@@ -392,6 +543,7 @@ class Poller:
         noise_clustered = zero_bands()
         noise_suppressed = 0
         noise_ignored = 0
+        cluster_volumes: dict[str, int] = {}
         if new_events:
             from ..engine.correlation import correlate  # local import avoids cycle at import time
 
@@ -400,7 +552,10 @@ class Poller:
             # Never look back further than a cold start would; the cursor still bounds
             # what is treated as new, so this only widens the correlation input.
             window_from = max(window_from, cold_from)
-            window_cursor = Cursor(timestamp_millis=window_from)
+            window_cursor = Cursor(
+                timestamp_millis=window_from,
+                late_arrival_overlap_enabled=False,
+            )
             window_fetched = await self._source.poll(prefs, window_cursor, window_from)
             window_events = dedup_by_id(window_fetched + new_events)
             # Round-4 Wave-4: the wider window read unions ALL feeds via ``source.poll`` —
@@ -438,6 +593,7 @@ class Poller:
             cluster_stats = await handle_clusters(
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=SourceSurface.AUTOMATED_SCAN,
+                query_source=self._source,
             )
             stats.update(cluster_stats)
             # Round-7: band THIS tick's clusters + record the drops, INSIDE the block where
@@ -455,11 +611,16 @@ class Poller:
                     # ``new_events``) so clustered/suppressed/ignored stay per-tick deltas, and
                     # re-derive suppressed/ignored with the SAME predicates ``handle_clusters``
                     # uses (ignored takes priority, mirroring its loop).
-                    _new_ids = {e.id for e in new_events}
+                    _new_ids = {e.event_key() for e in new_events}
                     _tick_clusters = [
                         cl for cl in clusters
-                        if _new_ids.intersection(cl.member_event_ids)
+                        if _new_ids.intersection(cl.member_event_keys or cl.member_event_ids)
                     ]
+                    cluster_volumes = {
+                        str(cl.signature): int(cl.count)
+                        for cl in _tick_clusters
+                        if getattr(cl, "signature", None)
+                    }
                     noise_clustered = count_clusters_by_band(_tick_clusters, _sink_scale)
                     _tick_ignored = 0
                     _tick_suppressed = 0
@@ -505,6 +666,7 @@ class Poller:
                     "clustered": noise_clustered,
                     "suppressed": noise_suppressed,
                     "ignored": noise_ignored,
+                    "cluster_volumes": cluster_volumes,
                     # Coverage observability (A5.4): thread THIS source's already-resolved
                     # identity onto the delta so the durable counters keep a per-source
                     # ``by_source`` breakdown AND the realtime baseline/silent-source clock
@@ -520,9 +682,11 @@ class Poller:
         # cursor was computed above from the FULL SCANNED watermark (kept + dropped),
         # so a broad feed never skips its own window when it drops a narrower feed's hits.
         for key, fcursor, new_cursor in feed_state:
-            if (new_cursor.timestamp_millis, tuple(new_cursor.boundary_ids)) != (
-                fcursor.timestamp_millis, tuple(fcursor.boundary_ids)
-            ):
+            # Late arrivals can update only the bounded recent-id ledger while the
+            # frontier timestamp/boundary stays unchanged.  Compare the full additive
+            # cursor contract so that dedup state is durable across the next tick and
+            # across restarts.
+            if new_cursor != fcursor:
                 await self._cursor_store.save_keyed(key, new_cursor)
 
         await self._audit.record(

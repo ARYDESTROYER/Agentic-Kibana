@@ -18,7 +18,7 @@
 > **Status update: this is no longer true.** It was accurate when this research
 > was captured (before Round 2). Full auth/RBAC/MFA/SSO/session management shipped
 > in the 7-wave SOC overhaul's W1 "Identity" + W2 "MFA + SSO" and Round 2's W3
-> "Sessions" (see `CLAUDE.md` §10) and remains in the suite today: **6 built-in
+> "Sessions" (see `AGENTS.md` §10) and remains in the suite today: **6 built-in
 > roles + operator-defined custom roles, RFC-6238 TOTP MFA, OIDC SSO
 > (Google/Microsoft/generic), a `require_permission`-gated dependency on every
 > state-changing route, and a CI test (`test_route_auth_coverage`) that fails the
@@ -26,7 +26,7 @@
 > defaults OFF** (`Secrets.auth_enabled=false`), so an unconfigured deployment
 > behaves like the historical no-auth "old version" and the offline test suite
 > keeps working unchanged; set `TLSOC_AUTH_ENABLED=true` to turn it on (seeds
-> `Admin`/`Admin@123`, change immediately). See `SECURITY.md` and `CLAUDE.md` §10
+> `Admin`/`Admin@123`, change immediately). See `SECURITY.md` and `AGENTS.md` §10
 > for the current model — don't re-derive auth status from this file.
 >
 > The rest of this section is preserved as the **original 2026-06 finding**: it

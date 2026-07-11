@@ -30,6 +30,7 @@ from ..constants import (
     SourceType,
 )
 from ..utils import coerce_float, dotted_get, parse_es_timestamp, to_millis
+from .identity import native_event_uid, source_scoped_event_uid
 from .model import Device, Endpoint, Metadata, OCSFEvent, Observable, Product, User, score_to_severity_id
 
 
@@ -172,6 +173,14 @@ def _first(record: dict[str, Any], aliases: tuple[str, ...]) -> Any:
     return None
 
 
+def _mapped_or_first(record: dict[str, Any], field: str, aliases: tuple[str, ...]) -> Any:
+    """Prefer an operator-configured path, then fall back to generic aliases."""
+    value = dotted_get(record, field)
+    if value not in (None, ""):
+        return value
+    return _first(record, aliases)
+
+
 def generic_to_ocsf(
     record: dict[str, Any],
     prefs: Preferences,
@@ -179,6 +188,7 @@ def generic_to_ocsf(
     source_type: SourceType = SourceType.WEBHOOK,
     connector_id: str | None = None,
     uid: str | None = None,
+    record_index: int = 0,
 ) -> OCSFEvent:
     """Map an arbitrary JSON record to OCSF.
 
@@ -189,15 +199,23 @@ def generic_to_ocsf(
     ``uuid``/``event.id``) becomes the stable event uid so a batch of distinct
     alerts is never collapsed by id-dedup.
     """
-    ip = _as_str(_first(record, _IP_ALIASES))
-    user = _as_str(_first(record, _USER_ALIASES))
-    host = _as_str(_first(record, _HOST_ALIASES))
-    rule = _as_str(_first(record, _RULE_ALIASES))
-    rule_name = _as_str(_first(record, _RULENAME_ALIASES))
-    severity_score = coerce_float(_first(record, _SEV_ALIASES), 0.0)
-    message = _as_str(_first(record, _MSG_ALIASES)) or ""
-    ts_raw = _first(record, _TS_ALIASES)
+    ip = _as_str(_mapped_or_first(record, prefs.source_ip_field, _IP_ALIASES))
+    user = _as_str(_mapped_or_first(record, prefs.user_field, _USER_ALIASES))
+    host = _as_str(_mapped_or_first(record, prefs.host_field, _HOST_ALIASES))
+    rule = _as_str(_mapped_or_first(record, prefs.rule_field, _RULE_ALIASES))
+    rule_name = _as_str(_mapped_or_first(record, prefs.rule_name_field, _RULENAME_ALIASES))
+    severity_score = coerce_float(
+        _mapped_or_first(record, prefs.severity_field, _SEV_ALIASES), 0.0
+    )
+    message = _as_str(_mapped_or_first(record, prefs.message_field, _MSG_ALIASES)) or ""
+    ts_raw = _mapped_or_first(record, prefs.time_field, _TS_ALIASES)
     ts = parse_es_timestamp(ts_raw) if ts_raw is not None else None
+    event_uid = source_scoped_event_uid(
+        connector_id or source_type.value,
+        native_uid=uid or native_event_uid(record),
+        record=record,
+        ordinal=record_index,
+    )
 
     return OCSFEvent(
         category_uid=OCSF_CAT_FINDINGS,
@@ -208,7 +226,7 @@ def generic_to_ocsf(
         metadata=Metadata(
             source_type=source_type.value,
             connector=connector_id,
-            uid=uid or _as_str(_first(record, ("id", "_id", "uuid", "event.id"))) or "",
+            uid=event_uid,
             original_time=_as_str(ts_raw),
         ),
         src_endpoint=Endpoint(ip=ip),

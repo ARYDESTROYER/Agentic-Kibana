@@ -1257,8 +1257,8 @@ class PriorityMatrix(BaseModel):
 
 
 class BudgetConfig(BaseModel):
-    """LLM cost-budget ceiling (Round 3 cost governance). Default OFF so today's
-    behaviour is byte-identical. When ``enabled`` a later wave compares the rolling
+    """LLM cost-budget ceiling (Round 3 cost governance). When ``enabled`` the gate
+    compares rolling
     spend (from the existing usage/cost ledger) against ``daily_usd``/``monthly_usd``;
     at ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether
     crossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block
@@ -1267,18 +1267,18 @@ class BudgetConfig(BaseModel):
 
     Defaults ON as the Autopilot spend BACKSTOP: ``enabled=True`` + a bounded
     ``daily_usd=10`` (industry-grounded balanced default; ~20-40 Opus investigations —
-    see ``STANDARDS.md``) + ``soft_warn_pct=0.8`` + **``on_exceed='warn'``** (NEVER a
-    silent ``block`` by default — an over-budget investigation is routed to NEEDS_HUMAN,
-    never closed, #3). This is the single backstop that keeps "read everything by
-    default" from ever becoming "spend everything." An operator can raise ``daily_usd``,
-    disable it, or opt into hard ``block`` mode. The ``autopilot_profile`` dial scales
+    see ``STANDARDS.md``) + ``soft_warn_pct=0.8`` + **``on_exceed='block'``**. A block
+    happens before the provider call and routes the case to NEEDS_HUMAN; it never closes
+    or discards the case (#3/#4). This is the backstop that keeps "read everything by
+    default" from becoming "spend everything." An operator can raise ``daily_usd``,
+    disable it, or explicitly choose warning-only mode. The ``autopilot_profile`` dial scales
     ``daily_usd`` (conservative $5 / balanced $10 / aggressive $50)."""
 
     enabled: bool = True
     daily_usd: float | None = 10.0
     monthly_usd: float | None = None
     soft_warn_pct: float = Field(default=0.8, ge=0.0, le=1.0)
-    on_exceed: Literal["warn", "block"] = "warn"
+    on_exceed: Literal["warn", "block"] = "block"
 
 
 class RealtimeConfig(BaseModel):
@@ -1307,16 +1307,15 @@ class StandupConfig(BaseModel):
 
 # --------------------------------------------------------------------------- #
 # Round 4 — threshold tuning / batch inference / anomaly baseline / campaign
-# clustering config blocks. ALL additive + defaulted OFF/safe so an existing stored
-# config loads unchanged. ⚠ NON-NEGOTIABLE #3: NONE of these feeds
+# clustering config blocks. Current autopilot defaults tuning/baseline/campaign ON;
+# discounted batch inference remains opt-in. ⚠ NON-NEGOTIABLE #3: NONE feeds
 # ``engine/case_manager.decide()`` — a threshold-tuning suggestion, a batch job, an
 # anomaly baseline or a campaign are all ADVISORY / plumbing (they surface candidates,
 # govern cost, or drive presentation); the deterministic close/escalate decision stays
 # a pure fn of verdict/confidence/risk_score/policy. #6 (one UsageDoc per call) holds.
 # --------------------------------------------------------------------------- #
 class ThresholdTuningConfig(BaseModel):
-    """Nightly threshold auto-TUNING policy (Round 4). Default OFF so today's behaviour
-    is byte-identical. When ``enabled`` a later wave observes per-rule FP rates and
+    """Nightly threshold auto-TUNING policy (Round 4). When enabled it observes per-rule FP rates and
     PROPOSES bounded threshold adjustments (never applies them silently — the decision
     stays deterministic, #3). ``min_samples`` is the minimum observations before a
     suggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move
@@ -1362,8 +1361,7 @@ class BatchConfig(BaseModel):
 
 
 class BaselineConfig(BaseModel):
-    """Anomaly-detection BASELINE policy (Round 4). Default OFF so nothing changes out
-    of the box. When ``enabled`` a later wave warms per-series streaming sketches
+    """Anomaly-detection BASELINE policy (Round 4). When enabled it warms per-series streaming sketches
     (:class:`app.models.BaselineState`) and flags modified-z-score deviations as
     ANOMALY candidates for triage (advisory — never feeds #3). ``half_life_days`` sets
     the EWMA decay; ``warmup_multiplier`` × ``min_samples`` guards a cold series;
@@ -1395,8 +1393,7 @@ class BaselineConfig(BaseModel):
 
 
 class CampaignConfig(BaseModel):
-    """Cross-case CAMPAIGN-clustering policy (Round 4). Default OFF so today's behaviour
-    is byte-identical. When ``enabled`` a later wave groups related cases (shared
+    """Cross-case CAMPAIGN-clustering policy (Round 4). When enabled it groups related cases (shared
     entities / overlapping MITRE) into a running :class:`app.models.Campaign` for the UI
     (advisory — it NEVER force-merges cases or feeds #3). ``cadence`` is how often the
     clustering pass runs.
@@ -2159,13 +2156,14 @@ class Preferences(BaseModel):
         _merge_enabled("realtime")
         _merge_enabled("threshold_automation")   # engine on; rules stay whatever was stored ([] OOTB)
         _merge_enabled("baseline")               # producer on (realtime consumer in state.py)
-        # Default budget backstop (warn-only; NEVER force a silent block).
+        # Default budget backstop: provider spend stops at the configured ceiling;
+        # the pipeline still persists a NEEDS_HUMAN case (never a silent drop/close).
         budget = data.get("budget")
         budget = dict(budget) if isinstance(budget, dict) else {}
         budget["enabled"] = True
         if not budget.get("daily_usd"):
             budget["daily_usd"] = 10.0
-        budget.setdefault("on_exceed", "warn")
+        budget.setdefault("on_exceed", "block")
         data["budget"] = budget
         # Per-tick auto-investigation cap (adopt the balanced default when unset).
         caps = data.get("caps")
@@ -2407,7 +2405,7 @@ class Preferences(BaseModel):
     # SEPARATE in-memory demo store (real cases hidden) and writes are $0 / mocked.
     demo: DemoConfig = Field(default_factory=DemoConfig)
 
-    # --- Round 3 (ALL additive, defaulted OFF/sane → today's behaviour byte-identical;
+    # --- Round 3 (additive/safe; budget and realtime are ON in the current autopilot;
     # NONE feeds case_manager.decide(), #3). SLA timers + ITIL priority matrix
     # (presentation/reporting), the LLM cost-budget ceiling (cost governance — gates
     # whether work RUNS, never alters a decision), and live-update transport. ---
@@ -2416,7 +2414,7 @@ class Preferences(BaseModel):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
 
-    # --- Round 4 (ALL additive, defaulted OFF/safe → today's behaviour byte-identical;
+    # --- Round 4 (tuning/baseline/campaign ON; batch inference remains opt-in;
     # NONE feeds case_manager.decide(), #3; #6 preserved). Nightly threshold auto-tuning
     # (proposes, never applies silently), batch-inference routing (cost governance —
     # gates HOW work runs, never alters a decision), streaming anomaly baselines
@@ -2463,13 +2461,41 @@ class Preferences(BaseModel):
     def primary_source(self) -> "SourceInstance | None":
         """The source the poller + es_query read from.
 
-        Prefers the enabled source explicitly flagged ``is_primary``; else the
-        first enabled source; else None (→ caller uses the legacy implicit
-        Elasticsearch source from Secrets, preserving today's behaviour)."""
-        primary = next((s for s in self.sources if s.enabled and s.is_primary), None)
+        Only PULL sources can be primary. Push/queue/object receivers have no query
+        surface and must never be reinterpreted as an Elasticsearch connector.
+        Prefers the enabled pull source explicitly flagged ``is_primary``; else the
+        first enabled pull source; else None. An entirely empty source list retains
+        the legacy implicit Elasticsearch behavior; a non-empty push-only list is
+        handled by a no-query connector in :class:`AppState`.
+        """
+        if not self.sources:
+            return None
+        try:
+            # Registry authority also protects old persisted receiver rows that
+            # predate ``ingest_mode`` and therefore deserialize with its PULL default.
+            from .connectors.registry import get_registry
+
+            registry = get_registry()
+            eligible = [
+                source
+                for source in self.sources
+                if source.enabled
+                and not registry.is_receiver(source.source_type)
+                and (
+                    registry.is_pull(source.source_type)
+                    or source.ingest_mode == IngestMode.PULL
+                )
+            ]
+        except Exception:  # noqa: BLE001 — config loading must remain fail-safe
+            eligible = [
+                source
+                for source in self.sources
+                if source.enabled and source.ingest_mode == IngestMode.PULL
+            ]
+        primary = next((s for s in eligible if s.is_primary), None)
         if primary is not None:
             return primary
-        return next((s for s in self.sources if s.enabled), None)
+        return eligible[0] if eligible else None
 
     def source_by_id(self, source_id: str | None) -> "SourceInstance | None":
         """The configured source whose ``id`` matches ``source_id`` (or None).

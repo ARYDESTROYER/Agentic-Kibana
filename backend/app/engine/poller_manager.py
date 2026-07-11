@@ -44,6 +44,7 @@ from ..config import Preferences
 from ..connectors.base import PullConnector
 from ..constants import IngestMode
 from ..engine.poller import Poller
+from ..utils import iso_now
 
 logger = logging.getLogger("tlsoc.engine.poller_manager")
 
@@ -68,6 +69,7 @@ class PollerHost(Protocol):
     def get_prefs(self) -> Preferences: ...
     def es_client_for_source(self, src: Any) -> tuple[Any, bool]: ...
     def schedule_close(self, client: Any) -> None: ...
+    async def cluster_for_case(self, case: Any) -> Any: ...
 
     @property
     def real_cases(self) -> Any: ...
@@ -79,7 +81,7 @@ class PollerHost(Protocol):
 # Numeric stats keys aggregated (summed) across per-source pollers into one dict.
 _SUM_KEYS = (
     "polled", "new", "clusters", "investigated", "candidates", "attached",
-    "window_events", "cross_source_linked",
+    "window_events", "cross_source_linked", "drained",
 )
 
 
@@ -305,6 +307,27 @@ class PollerManager:
     def _all_pollers(self) -> list[Poller]:
         return [self._primary, *self._children]
 
+    def source_for_id(self, source_id: str | None) -> PullConnector | None:
+        """Return the live PULL connector for ``source_id`` (or ``None``).
+
+        Manual/re-investigation paths use the same connector objects as the pollers,
+        so their evidence reads and the investigator's ``es_query`` tool cannot fall
+        back to a different tenant/source. Push-only sources intentionally return
+        ``None`` because they have no upstream query surface.
+        """
+        if not source_id:
+            return None
+        from ..connectors.registry import get_registry
+
+        configured = self._get_prefs().source_by_id(source_id)
+        if configured is None or get_registry().is_receiver(configured.source_type):
+            return None
+        for poller in self._all_pollers():
+            source = getattr(poller, "_source", None)
+            if getattr(source, "connector_id", None) == source_id:
+                return source
+        return None
+
     @staticmethod
     def _safe_record_fail(p: Poller, exc: Exception) -> None:
         """Record a failed-tick snapshot on a child (A5.1); never raises on the error path."""
@@ -357,6 +380,7 @@ class PollerManager:
             return await self._poll_once_locked(prefs)
 
     async def _poll_once_locked(self, prefs: Preferences) -> dict[str, Any]:
+        tick_started_at = iso_now()
         pollers = self._all_pollers()
         # Single-poll fast path: 0/1 poller behaves BYTE-IDENTICALLY to the old single
         # Poller (no semaphore overhead, same return object). Coverage observability
@@ -365,7 +389,16 @@ class PollerManager:
         # path already records its snapshot inside ``poll_once``.
         if len(pollers) <= 1:
             try:
-                return await self._primary.poll_once(prefs)
+                result = await self._primary.poll_once(prefs)
+                cap = max(
+                    1,
+                    int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)),
+                )
+                remaining = max(0, cap - int(result.get("investigated", 0) or 0))
+                result["drained"] = await self._drain_deferred(
+                    prefs, older_than=tick_started_at, limit=remaining
+                )
+                return result
             except Exception as exc:  # noqa: BLE001 — capture then propagate (loop shields)
                 self._safe_record_fail(self._primary, exc)
                 raise
@@ -397,7 +430,73 @@ class PollerManager:
             for k in _SUM_KEYS:
                 if k in res:
                     agg[k] = agg.get(k, 0) + res[k]
+        cap = max(1, int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)))
+        # Each child owns a per-source cap. The durable drain is intentionally
+        # conservative: it may consume only the smallest remaining headroom implied
+        # by the busiest source. That guarantees no source can receive a second full
+        # allowance after normal handling, while a wholly quiet tick can still drain
+        # one complete cap of older work.
+        busiest = max(
+            (int((res or {}).get("investigated", 0) or 0) for res in results),
+            default=0,
+        )
+        agg["drained"] = await self._drain_deferred(
+            prefs,
+            older_than=tick_started_at,
+            limit=max(0, cap - busiest),
+        )
         return agg
+
+    async def _drain_deferred(
+        self,
+        prefs: Preferences,
+        *,
+        older_than: str,
+        limit: int,
+    ) -> int:
+        """Investigate durable cap-deferred candidates even on a quiet next tick.
+
+        The case document is the queue: no in-memory-only pending list is required,
+        so restart does not strand overflow. Candidates deferred for policy/risk
+        reasons are intentionally excluded. ``limit`` is the unused allowance from
+        normal handling in this manager tick, never a second independent cap.
+        """
+        if not prefs.background_scan_enabled or prefs.caps.kill_switch or limit <= 0:
+            return 0
+        drained = 0
+        offset = 0
+        page_size = max(50, limit * 2)
+        while drained < limit:
+            page, total = await self._state.real_cases.list(
+                limit=page_size,
+                offset=offset,
+                sort_field="created_at",
+                sort_order="asc",
+            )
+            if not page:
+                break
+            for case in page:
+                if drained >= limit:
+                    break
+                if case.verdict is not None or not case.awaiting_reason.startswith("deferred:"):
+                    continue
+                if case.updated_at >= older_than:
+                    continue  # created/deferred in this tick; preserve the cap
+                cluster = await self._state.cluster_for_case(case)
+                if cluster is None:
+                    continue
+                query_source = self.source_for_id(case.source_id)
+                await self._state.real_pipeline.investigate_cluster(
+                    cluster,
+                    case.source_surface,
+                    prefs,
+                    query_source=query_source,
+                )
+                drained += 1
+            offset += len(page)
+            if offset >= total:
+                break
+        return drained
 
     # ------------------------------------------------------------------ #
     # Background loop (gated exactly like Poller._run).

@@ -49,7 +49,11 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    image: tlsoc-agentic-triage-backend:1.0.0
+      args:
+        TLSOC_VERSION: ${TLSOC_VERSION:-3.0.0-alpha.1}
+        TLSOC_BUILD_SHA: ${TLSOC_BUILD_SHA:-unknown}
+        TLSOC_BUILD_DATE: ${TLSOC_BUILD_DATE:-unknown}
+    image: tlsoc-agentic-triage-backend:${TLSOC_VERSION:-3.0.0-alpha.1}
     container_name: tlsoc-backend
     restart: unless-stopped
     depends_on:
@@ -154,11 +158,16 @@ services:
     build:
       context: ../webui
       dockerfile: Dockerfile
-    image: tlsoc-agentic-triage-webui:1.0.0
+      args:
+        TLSOC_VERSION: ${TLSOC_VERSION:-3.0.0-alpha.1}
+        TLSOC_BUILD_SHA: ${TLSOC_BUILD_SHA:-unknown}
+        TLSOC_BUILD_DATE: ${TLSOC_BUILD_DATE:-unknown}
+    image: tlsoc-agentic-triage-webui:${TLSOC_VERSION:-3.0.0-alpha.1}
     container_name: tlsoc-webui
     restart: unless-stopped
     depends_on:
-      - tlsoc-backend
+      tlsoc-backend:
+        condition: service_healthy
     ports:
       - "8080:80"   # open http://localhost:8080
 

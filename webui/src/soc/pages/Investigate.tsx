@@ -317,7 +317,7 @@ const ResultCard: React.FC<{ c: Case; onOpen?: (caseId: string) => void }> = ({
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-muted-foreground">Members</dt>
             <dd className="text-right text-foreground">
-              {String(c.member_event_ids?.length ?? 0)} events
+              {String(c.member_event_keys?.length || c.member_event_ids?.length || 0)} events
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-3">

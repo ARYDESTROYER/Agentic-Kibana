@@ -586,7 +586,7 @@ export const AppShell: React.FC<AppShellProps> = ({
           // Springy ease (the app's `--motion-ease-premium` curve) gives the rail a
           // physical "settle" without pulling the motion.dev runtime onto the eager
           // first-paint graph (NavSidebar/AppShell are eager; motion stays lazy, §budget).
-          'relative shrink-0 min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none',
+          'relative shrink-0 min-w-0 transition-[width] duration-200 ease-premium motion-reduce:transition-none',
           collapsed ? 'z-40 w-16' : 'w-60',
         )}
         onMouseEnter={() => setRailHovered(true)}

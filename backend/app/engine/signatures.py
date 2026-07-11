@@ -1,9 +1,13 @@
 """Cluster signature — the case idempotency key (Section 6.2 / Non-negotiable #4).
 
-The signature is ENTITY-CENTRIC: one open case per (entity_type, entity_value).
+The signature is SOURCE + ENTITY centric when source provenance is available: one
+open case per ``(source_id, entity_type, entity_value)``. Legacy/unconfigured paths
+without a source id retain the historical entity-only key.
 This is what gives the spine its idempotency and "attach, don't duplicate"
 semantics — re-polling a window yields the same signature, and new events for an
-already-open entity attach to the existing case rather than spawning a new one.
+already-open entity on the same source attach instead of spawning a duplicate.
+The source scope prevents two independent systems from merging their incidents;
+cross-source correlation links those cases as related/campaign members instead.
 The rules hit are recorded as a cluster attribute and feed the diversity risk
 factor; they are deliberately NOT part of the signature so a newly-seen rule for
 an open entity enriches the existing case instead of fragmenting it.
@@ -15,8 +19,42 @@ from ..constants import EntityType
 from ..utils import stable_signature
 
 
-def cluster_signature(entity_type: EntityType, entity_value: str) -> str:
+def cluster_signature(
+    entity_type: EntityType,
+    entity_value: str,
+    *,
+    source_id: str | None = None,
+) -> str:
+    if source_id:
+        return stable_signature("cluster", source_id, entity_type.value, entity_value)
     return stable_signature("cluster", entity_type.value, entity_value)
+
+
+async def find_open_case_for_cluster(cases, cluster):
+    """Find the source-scoped case, with a one-way legacy-signature bridge.
+
+    Releases before source isolation keyed cases by entity alone. On upgrade, the
+    first new source-scoped cluster must update that open case in place instead of
+    minting a duplicate. New cases never use the legacy key.
+    """
+    existing = await cases.find_open_by_signature(cluster.signature)
+    if existing is not None or not getattr(cluster, "source_id", None):
+        return existing
+    legacy = getattr(cluster, "legacy_signature", None) or cluster_signature(
+        cluster.entity.type, cluster.entity.value
+    )
+    if legacy == cluster.signature:
+        return None
+    legacy_case = await cases.find_open_by_signature(legacy)
+    if (
+        legacy_case is not None
+        and getattr(legacy_case, "source_id", None)
+        and legacy_case.source_id != cluster.source_id
+    ):
+        # Older releases could persist source provenance while still using the
+        # entity-only signature. Never let a different source claim that case.
+        return None
+    return legacy_case
 
 
 def cross_source_signature(

@@ -1349,6 +1349,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
   const [displayName, setDisplayName] = React.useState(existing?.display_name || '');
   const [enabled, setEnabled] = React.useState(existing?.enabled ?? true);
   const [isPrimary, setIsPrimary] = React.useState(existing?.is_primary ?? defaultPrimary ?? false);
+  const canBePrimary = manifest?.ingest_modes?.includes('pull') ?? false;
   const [showValidation, setShowValidation] = React.useState(false);
 
   const [patterns, setPatterns] = React.useState<FeedRow[]>(() =>
@@ -1469,7 +1470,12 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
     setTestResult(null);
     setError(null);
     try {
-      const res = await api.testConnector(manifest.source_type);
+      const res = await api.testConnector({
+        source_id: existing?.id ?? null,
+        source_type: manifest.source_type,
+        config: buildConfig(),
+        secrets: value.secrets,
+      });
       setTestResult({
         ok: res.ok,
         message: res.message || (res.ok ? 'OK' : 'Failed'),
@@ -1553,7 +1559,7 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
         id,
         displayName: displayName || manifest.display_name,
         enabled,
-        isPrimary,
+        isPrimary: canBePrimary && isPrimary,
         ingestMode: existing?.ingest_mode ?? null,
       });
       onSaved();
@@ -1632,9 +1638,16 @@ export const SourceEditor: React.FC<SourceEditorProps> = ({
           </Label>
         </div>
         <div className="flex items-center gap-2.5">
-          <Switch id="se-primary" checked={isPrimary} onCheckedChange={setIsPrimary} />
+          <Switch
+            id="se-primary"
+            checked={canBePrimary && isPrimary}
+            onCheckedChange={setIsPrimary}
+            disabled={!canBePrimary}
+          />
           <Label htmlFor="se-primary" className="cursor-pointer">
-            Primary (the agent reads from this)
+            {canBePrimary
+              ? 'Primary (the agent reads from this)'
+              : 'Primary query source (pull connectors only)'}
           </Label>
         </div>
         <div className="flex items-center gap-2.5">

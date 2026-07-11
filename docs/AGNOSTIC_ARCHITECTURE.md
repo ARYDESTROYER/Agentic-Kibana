@@ -7,10 +7,10 @@
 > canonical schema + connector SPI (3 pull connectors + 16 push/queue/object-store
 > receivers), a Wazuh connector, and a standalone web UI — later re-skinned from
 > its original EUI-reuse plan onto **Tailwind CSS + shadcn-style primitives on
-> Radix UI** in the Round-5 design-system overhaul (see §8, and `CLAUDE.md` §10).
+> Radix UI** in the Round-5 design-system overhaul (see §8 and `AGENTS.md`).
 > Only **Epoch E (scale-out)** remains open; see `ROADMAP.md` for live status.
 > Read this document for the *why* behind the pivot, not for current state — for
-> current state see `CLAUDE.md` §§1–4 and `docs/HANDOFF.md`.
+> current state see `AGENTS.md` §§1–4 and `docs/HANDOFF.md`.
 > **Owner decisions locked (2026-06-20):** canonical schema = **OCSF**; internal
 > state = **decoupled from Elasticsearch** (Postgres + pgvector shipped as
 > planned; SQLite was later added as a third, lighter-weight option); first new
@@ -21,7 +21,7 @@
 > This document is the master plan that turned the TLSOC Agentic Triage Suite
 > (at the time: an ELK/Kibana-coupled triage backend + Kibana plugin) into an
 > **open-source, self-hosted, vendor-agnostic agentic SOC** that fetches alerts
-> from any SIEM/EDR/XDR. It complements `CLAUDE.md` (process), `README.md`
+> from any SIEM/EDR/XDR. It complements `AGENTS.md` (process), `README.md`
 > (overview) and `ROADMAP.md` (live tracking).
 
 ---
@@ -330,7 +330,7 @@ primitives on Radix UI**. There is no `@elastic/eui` dependency anywhere in the
 webui today. The "add a source" wizard did become the product's front door as
 planned (a 4-step Welcome → Sources → Provider keys → Review flow), and per-source
 query-language rendering is driven by the active connector as described. See
-`webui/README.md` for the current stack and `CLAUDE.md` §8 for the design system.
+`webui/README.md` for the current stack and `AGENTS.md` §8 for the design system.
 
 ---
 
@@ -358,7 +358,7 @@ query-language rendering is driven by the active connector as described. See
   `ROADMAP.md`'s backlog for live tracking.
 
 Every epoch ended with: `pytest -q` green, the webui build verified, docs + Journal
-updated, commit + push. The 12 non-negotiables in `CLAUDE.md` still hold —
+updated, commit + push. The 12 non-negotiables in `AGENTS.md` still hold —
 notably read-only scoped source access (#1), full audit (#2), LLM-verdict /
 deterministic-close (#3), durable no-skip/no-dup cursor (#4), one LLM gateway +
 ledger (#6), aggregate-then-summarise (#7), untrusted-data fencing (#9, now also

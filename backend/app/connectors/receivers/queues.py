@@ -44,8 +44,8 @@ def _require(module: str, pip_name: str) -> Any:
 class KafkaReceiver(PayloadReceiver):
     """Consume a Kafka topic (Kafka / Redpanda / Confluent Cloud).
 
-    Durable offsets via the consumer group (``enable.auto.commit``). Uses
-    ``confluent-kafka`` (librdkafka) which is the most widely deployed client."""
+    Durable offsets via explicit consumer-group commits *after* successful emit.
+    Uses ``confluent-kafka`` (librdkafka), imported lazily."""
 
     source_type = SourceType.KAFKA
 
@@ -71,7 +71,8 @@ class KafkaReceiver(PayloadReceiver):
                 "clusters) and SASL mechanism; set the SASL username/password (the "
                 "password goes in the secret tier).\n"
                 "3. **Topic + consumer group** — the topic to consume and a stable "
-                "group id (durable offsets; restart-safe, no skip/dup).\n"
+                "group id. Offsets commit after successful processing; validate "
+                "rebalance/retry behaviour for your deployment (no exactly-once claim).\n"
                 "4. **Offset reset** — `latest` (only new events) or `earliest` "
                 "(backfill the topic) on first connect.\n"
                 "_Requires the `confluent-kafka` client to be installed on the backend._"
@@ -109,7 +110,10 @@ class KafkaReceiver(PayloadReceiver):
             "bootstrap.servers": self.config.get("bootstrap_servers", ""),
             "group.id": self.config.get("group_id", "tlsoc-agentic-triage"),
             "auto.offset.reset": self.config.get("auto_offset_reset", "latest"),
-            "enable.auto.commit": True,
+            # Never advance the durable cursor before the shared ingest path has
+            # persisted its case/candidate effects. A raised IngestBatchError leaves
+            # this message uncommitted for broker redelivery.
+            "enable.auto.commit": False,
             "security.protocol": self.config.get("security_protocol", "PLAINTEXT"),
         }
         if self.config.get("sasl_mechanism"):
@@ -131,6 +135,10 @@ class KafkaReceiver(PayloadReceiver):
             if value is None:
                 continue
             await self._emit_payload(value, prefs, emit)
+            await loop.run_in_executor(
+                None,
+                lambda m=msg: self._consumer.commit(message=m, asynchronous=False),
+            )
 
     async def stop(self) -> None:
         self._running = False

@@ -15,6 +15,9 @@ from ..state import AppState
 PUBLIC_API_PATHS = frozenset(
     {
         "/api/health",
+        "/api/health/live",
+        "/api/health/ready",
+        "/api/health/build-info",
         "/api/auth/login",
         "/api/auth/logout",
         "/api/auth/me",

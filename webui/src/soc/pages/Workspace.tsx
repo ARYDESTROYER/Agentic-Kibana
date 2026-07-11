@@ -1,7 +1,7 @@
 /**
  * Workspace — the host for the agent's interactive surfaces (Chat, Investigate).
  *
- *   - Chat:        the conversational assistant (ONE chat engine — CLAUDE.md).
+ *   - Chat:        the conversational assistant (ONE chat engine — AGENTS.md).
  *   - Investigate: an ad-hoc, agentic investigation on an IP / user / host.
  *
  * The redundant in-page "Chat | Investigate" segmented strip was removed (task: the

@@ -153,12 +153,14 @@ async def test_concurrent_handle_clusters_same_signature_one_case(app_state: App
 
 
 @asyncio_mark
-async def test_concurrent_fanout_poll_same_signature_one_case(app_state: AppState):
-    """Two enabled PULL sources emitting events for the SAME IP (→ SAME signature) are
-    polled concurrently in ONE fan-out tick; the store must hold exactly ONE case for
-    that signature (#4). This is the end-to-end version of finding #5."""
+async def test_concurrent_fanout_poll_same_entity_one_case_per_source(app_state: AppState):
+    """Two PULL sources emitting the same entity produce one source-local case each.
+
+    Source scope is part of the signature so unrelated native alerts do not collapse;
+    campaign/cross-source correlation links the resulting cases at the higher layer.
+    """
     await _set_threshold(app_state, 3)
-    # Both sources carry the SAME entity IP → identical signature.
+    # Both sources carry the same entity IP but retain distinct source identity.
     _seed(app_state, "srcA-logs", "10.0.0.9")
     _seed(app_state, "srcB-logs", "10.0.0.9")
     await _configure_sources(app_state, [
@@ -170,9 +172,10 @@ async def test_concurrent_fanout_poll_same_signature_one_case(app_state: AppStat
     assert stats["clusters"] >= 2  # both sources correlated a cluster
 
     cases, total = await app_state.cases.list()
-    # ONE signature across two sources → ONE case (attach, not duplicate).
-    assert total == 1
-    assert cases[0].entity.value == "10.0.0.9"
+    assert total == 2
+    assert {case.source_id for case in cases} == {"srcA", "srcB"}
+    assert len({case.cluster_signature for case in cases}) == 2
+    assert {case.entity.value for case in cases} == {"10.0.0.9"}
 
 
 # --------------------------------------------------------------------------- #
@@ -210,10 +213,8 @@ async def test_overlapping_poll_once_does_not_corrupt_investigate_cluster(app_st
 
 
 @asyncio_mark
-async def test_overlapping_poll_once_forced_investigation_no_double_investigate(app_state: AppState):
-    """With auto-forwarding ON and TWO overlapping ticks over the SAME signature (two
-    sources, same IP), the signature is investigated at most once → exactly ONE case,
-    and never two concurrent investigations racing on the case doc."""
+async def test_overlapping_poll_once_forced_investigation_no_duplicate_per_source(app_state: AppState):
+    """Overlapping ticks mint at most one case per source-scoped signature."""
     await _set_threshold(app_state, 3)
     # Enable auto-forward for everything so the alert path investigates.
     prefs = app_state.prefs.model_copy(deep=True)
@@ -233,10 +234,10 @@ async def test_overlapping_poll_once_forced_investigation_no_double_investigate(
         app_state.poller.poll_once(app_state.prefs),
     )
     cases, total = await app_state.cases.list()
-    assert total == 1
-    assert cases[0].cluster_signature is not None
-    # The one case for the signature is a single coherent case (not two racing writes).
-    assert cases[0].entity.value == "10.2.0.1"
+    assert total == 2
+    assert {case.source_id for case in cases} == {"srcA", "srcB"}
+    assert len({case.cluster_signature for case in cases}) == 2
+    assert {case.entity.value for case in cases} == {"10.2.0.1"}
 
 
 @asyncio_mark

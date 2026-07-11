@@ -135,7 +135,6 @@ _AUTHZ_EXEMPT_INGEST = frozenset({"/api/ingest/{source_id}"})
 # listing them keeps the guard honest in the meantime.
 _AUTHZ_EXEMPT_PENDING = frozenset({
     "/api/investigate", "/api/overview", "/api/poll", "/api/chat",
-    "/api/connectors/test",
     "/api/cases/{case_id}/investigate", "/api/cases/{case_id}/reinvestigate",
 })
 _AUTHZ_EXEMPT = (
@@ -352,8 +351,16 @@ def test_fix1_cases_close_role_can_set_status_resolved() -> None:
 
 def test_public_paths_are_minimal_and_known() -> None:
     # A small, deliberate allowlist — guard against accidental growth.
+    assert {
+        "/api/health",
+        "/api/health/live",
+        "/api/health/ready",
+        "/api/health/build-info",
+    } <= PUBLIC_API_PATHS
     assert PUBLIC_API_PATHS <= {
-        "/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me",
+        "/api/health", "/api/health/live", "/api/health/ready",
+        "/api/health/build-info",
+        "/api/auth/login", "/api/auth/logout", "/api/auth/me",
         "/api/setup/status", "/api/setup/account",
         # Wave 2 — each guarded by a single-use token/state, not a session.
         "/api/auth/mfa/verify",

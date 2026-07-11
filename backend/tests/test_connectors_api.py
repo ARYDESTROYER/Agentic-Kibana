@@ -61,6 +61,53 @@ def test_connector_test_uses_live_primary(client):
     assert r.json()["ok"] is True
 
 
+def test_connector_test_uses_exact_draft_without_persisting(client, monkeypatch):
+    state = client.app.state.tlsoc
+    draft_es = InMemoryESClient()
+    draft_es.add_log(
+        "draft-events-2026",
+        {"@timestamp": "2026-07-11T12:00:00Z", "message": "draft sample"},
+        "draft-1",
+    )
+    captured = {}
+
+    def client_for_source(source):
+        captured["source"] = source
+        return draft_es, False
+
+    monkeypatch.setattr(state, "es_client_for_source", client_for_source)
+    before_sources = list(state.prefs.sources)
+    before_secrets = dict(state.secrets.connector_secrets)
+
+    response = client.post(
+        "/api/connectors/test",
+        json={
+            "source_type": "elasticsearch",
+            "config": {"data_view_pattern": "draft-events-*"},
+            "secrets": {"es_api_key": "request-only-key"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["ok"] is True
+    assert response.json()["sample_count"] == 1
+    assert captured["source"].config["data_view_pattern"] == "draft-events-*"
+    assert captured["source"].config["es_api_key"] == "request-only-key"
+    assert state.prefs.sources == before_sources
+    assert state.secrets.connector_secrets == before_secrets
+
+
+def test_connector_test_push_receiver_is_honestly_unsupported(client):
+    response = client.post(
+        "/api/connectors/test",
+        json={"source_type": "webhook", "config": {"auth_mode": "none"}},
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["mode"] == "push"
+    assert response.json()["detail"]["supported"] is False
+
+
 def test_source_crud_roundtrip(client):
     assert client.get("/api/sources").json()["sources"] == []
 
@@ -128,3 +175,33 @@ def test_upsert_preserves_configured_secrets_and_created_at(client):
     assert src["configured_secrets"] == ["es_api_key"]  # secret-name metadata survives (F1)
     assert src["created_at"] == created0  # creation date unchanged (F2)
     assert src["enabled"] is False
+
+
+def test_pull_secret_rotation_rebuilds_live_clients(client, monkeypatch):
+    """A pull key saved after source upsert must affect the live poller immediately."""
+    state = client.app.state.tlsoc
+    created = client.post(
+        "/api/sources",
+        json={
+            "id": "rotating-pull",
+            "source_type": "elasticsearch",
+            "is_primary": True,
+            "config": {"data_view_pattern": "rotating-*"},
+        },
+    )
+    assert created.status_code == 200
+
+    observed: list[dict[str, str]] = []
+
+    def client_for_source(source):
+        observed.append(dict(state.secrets.source_secrets(source.id)))
+        return InMemoryESClient(), False
+
+    monkeypatch.setattr(state, "es_client_for_source", client_for_source)
+    rotated = client.post(
+        "/api/sources/rotating-pull/secrets",
+        json={"es_api_key": "rotated-key"},
+    )
+
+    assert rotated.status_code == 200
+    assert observed and observed[-1]["es_api_key"] == "rotated-key"

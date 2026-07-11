@@ -163,13 +163,13 @@ def test_new_config_blocks_default_safe() -> None:
     """The new Preferences blocks exist, default to safe values, and round-trip.
 
     Autopilot overhaul: the advisory SLA / priority / realtime blocks + the budget
-    backstop default ON (all $0 / #3-safe), with the budget staying warn-only."""
+    backstop default ON (all $0 / #3-safe), with a hard provider-spend ceiling."""
     prefs = Preferences()
     assert isinstance(prefs.sla, SlaPolicy) and prefs.sla.enabled is True
     assert isinstance(prefs.priority_matrix, PriorityMatrix)
     assert prefs.priority_matrix.matrix["high/high"] == "P1"
     assert isinstance(prefs.budget, BudgetConfig) and prefs.budget.enabled is True
-    assert prefs.budget.on_exceed == "warn"          # never a silent block by default
+    assert prefs.budget.on_exceed == "block"         # hard spend ceiling; never drops a case
     assert prefs.budget.daily_usd == 10.0
     assert isinstance(prefs.realtime, RealtimeConfig) and prefs.realtime.enabled is True
     # Full prefs canonical round-trip (no new field breaks the serializer).

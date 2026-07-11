@@ -26,7 +26,7 @@ pain, so they are documented separately.
 > is the one deliberate exception on the *Preferences* (not env) side: comprehensive
 > ingestion + a self-tuning autopilot now ship **ON** out of the box, bounded by a
 > default $10/day budget backstop (see §2.8 — env surface unaffected). For the full
-> round-by-round feature history, see `CLAUDE.md` §10 and `Journal.md` — this doc
+> round-by-round feature history, see `AGENTS.md` and `Journal.md` — this doc
 > only tracks the environment/variable surface.
 
 ---
@@ -336,7 +336,7 @@ the industry-standard citations behind the numbers; this is just the knob refere
 | `auto_investigate_risk_floor` | **`70`** | the deterministic risk-gate floor: an `events`-role cluster auto-forwards to the strong-LLM investigation once `risk_score >= floor`; below-floor clusters stay `$0` OPEN candidates — risk-scored, visible, never dropped (#4) |
 | `autopilot_profile` | `"balanced"` (`conservative` \| `balanced` \| `aggressive`) | one dial that moves the three rows above/below together — see the profile table in `docs/USAGE.md` §33 |
 | `caps.max_auto_investigations_per_tick` | **`25`**, **PER SOURCE** | ceiling on clusters auto-forwarded to the strong LLM in one poll tick per source; cap-deferred candidates drain to investigation on a later tick once headroom frees. The **daily USD budget below is the one GLOBAL spend bound** across every source — the per-tick cap only smooths *when* spend happens |
-| `budget.{enabled,daily_usd,soft_warn_pct,on_exceed}` | `true` / `10.0` / `0.8` / `"warn"` | the default spend backstop (pairs with §2.6's per-model pricing); `on_exceed="warn"` never silently blocks — an over-budget investigation fails safe to `NEEDS_HUMAN`, never a silent drop or a silent close (#3) |
+| `budget.{enabled,daily_usd,soft_warn_pct,on_exceed}` | `true` / `10.0` / `0.8` / `"block"` | the default spend backstop (pairs with §2.6's per-model pricing); the provider call is stopped before spend and the case fails safe to `NEEDS_HUMAN`, never a silent drop or close (#3/#4). Warning-only mode is an explicit operator choice. |
 | `baseline.{enabled,warmup_days,max_series}` | `true` / `14` / `50000` | the entity-baseline producer now runs from day one (silent-source + volume-flood detection); `warmup_days` is the advisory wall-clock warm-up target shown in the UI gauge, `max_series` LRU-bounds cardinality (`0` = unbounded) |
 | `threshold_tuning.enabled` (+ `shadow_eval` forced `true`) · `campaign.enabled` · `cross_source_correlation.enabled` · `sla.enabled` · `priority_matrix.enabled` · `realtime.enabled` · `threshold_automation.enabled` (ships with `rules: []`) | all **`true`** | the default-ON $0/#3-safe smart engines — full behavior + what's still opt-in in `docs/USAGE.md` §33 |
 

@@ -4,7 +4,7 @@ Covers the B2 deliverables (all fully offline — fake ES, no LLM, no network):
 
   * config default SNAPSHOT — the $0/#3-safe smart engines flip ON + the STANDARDS
     numbers (risk floor 70, per-tick cap 25, tuner min_samples 30 / fp 0.10, baseline
-    modified-z 3.5, budget warn $10) + the master switch on;
+    modified-z 3.5, hard budget $10) + the master switch on;
   * MIGRATION — a stored PRE-overhaul config auto-adopts the ON defaults ONCE + is
     flagged with the one-time banner; a fresh install is never flagged; a programmatic
     explicit opt-out is preserved byte-for-byte; a post-marker opt-out is never
@@ -93,11 +93,11 @@ def test_standards_numbers_snapshot():
     assert p.background_scan_enabled is True
     assert p.auto_investigate_risk_floor == 70
     assert p.caps.max_auto_investigations_per_tick == 25
-    # Budget backstop — warn-only, never a silent block.
+    # Budget backstop — hard provider-spend ceiling; case still fails to human.
     assert p.budget.enabled is True
     assert p.budget.daily_usd == 10.0
     assert p.budget.soft_warn_pct == 0.80
-    assert p.budget.on_exceed == "warn"
+    assert p.budget.on_exceed == "block"
     # Tuner sensitivity (STANDARDS.md).
     assert p.threshold_tuning.min_samples == 30
     assert p.threshold_tuning.fp_rate_target == 0.10
@@ -117,7 +117,7 @@ def test_batch_and_block_stay_opt_in():
     """The cost / irreversibility levers must NOT default on."""
     p = Preferences()
     assert p.batch.enabled is False              # external cost lever
-    assert p.budget.on_exceed != "block"         # never a silent block by default
+    assert p.budget.on_exceed == "block"         # hard spend ceiling; case fails human
 
 
 # --------------------------------------------------------------------------- #
@@ -208,7 +208,7 @@ def test_migration_adopts_on_defaults_and_flags_banner():
     assert p.realtime.enabled is True
     assert p.threshold_automation.enabled is True
     assert p.baseline.enabled is True
-    # Budget backstop adopted (warn), NEW default $ filled, explicit on_exceed preserved.
+    # Budget backstop adopted, NEW default $ filled, explicit hard mode preserved.
     assert p.budget.enabled is True and p.budget.daily_usd == 10.0 and p.budget.on_exceed == "block"
     # The one-time banner + the version marker are stamped.
     assert p.show_autopilot_banner is True
@@ -431,6 +431,7 @@ async def test_composite_sink_records_counters_and_feeds_producer():
         "clustered": {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0},
         "suppressed": 0,
         "ignored": 0,
+        "cluster_volumes": {"cluster:src-a:ip": 6},
     }
     await st._noise_and_baseline_sink(payload)
     # Durable noise counters recorded the ingested band (unchanged behaviour): total 6.
@@ -439,7 +440,9 @@ async def test_composite_sink_records_counters_and_feeds_producer():
     assert sum(window["ingested"].values()) == 6
     # The producer stamped the source clock (total ingested 6 > 0) and warmed the series.
     assert "src-a" in st._source_last_event
-    assert source_volume_signature("src-a") in (await st.baseline_store.list_signatures())
+    signatures = await st.baseline_store.list_signatures()
+    assert source_volume_signature("src-a") in signatures
+    assert "cluster:src-a:ip" in signatures
 
 
 @asyncio

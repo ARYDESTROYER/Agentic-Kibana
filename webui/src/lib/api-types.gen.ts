@@ -432,8 +432,8 @@ export interface paths {
         /**
          * Sso Authorize
          * @description PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
-         *     the KV (ns ``oidc_state``) with a short TTL, then returns ``{auth_url}`` for the
-         *     browser to follow.
+         *     the KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``
+         *     store (P13), then returns ``{auth_url}`` for the browser to follow.
          */
         get: operations["sso_authorize_api_auth_sso_authorize_get"];
         put?: never;
@@ -1178,6 +1178,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cases/{case_id}/stages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Case Stages
+         * @description The six-stage Timeline narrative for a case (the ``TimelineStage`` shape).
+         *
+         *     A pure read-time projection over the Case + its audit rows (the SAME facts the
+         *     ``/timeline`` span view reads), reframed into ``input → correlate → risk → triage
+         *     → investigate → decide``. Advisory/observability ONLY — re-derives ``decide()`` to
+         *     DISPLAY the clause, mutates nothing (#3); untrusted source/log text is fenced in
+         *     steps (#9). NEVER 404s — an unknown case returns the six-stage skeleton.
+         */
+        get: operations["case_stages_api_cases__case_id__stages_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cases/{case_id}/tags": {
         parameters: {
             query?: never;
@@ -1506,8 +1532,10 @@ export interface paths {
         put?: never;
         /**
          * Test Connector
-         * @description Validate connectivity. Currently tests the live primary log source (the
-         *     agent's read surface) — the wizard's 'Test connection' for the main source.
+         * @description Validate the connector instance currently shown in the source editor.
+         *
+         *     Draft config/secrets are request-scoped and never written to Preferences or the
+         *     secret tier. With an empty body, preserve the legacy primary-source test.
          */
         post: operations["test_connector_api_connectors_test_post"];
         delete?: never;
@@ -1572,6 +1600,28 @@ export interface paths {
          *     (#9/#10). Returns the stored dashboard.
          */
         post: operations["create_dashboard_api_dashboards_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dashboards/widget-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard Widget Types
+         * @description The server widget-type ALLOWLIST, exposed so the client (and its contract test)
+         *     can cross-reference the two sets at runtime and catch any drift (H1). Read-only;
+         *     static; returns the sorted canonical set.
+         */
+        get: operations["dashboard_widget_types_api_dashboards_widget_types_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1836,6 +1886,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/health/build-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health Build Info
+         * @description Non-secret release identity for support, diagnostics, and upgrade checks.
+         */
+        get: operations["health_build_info_api_health_build_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health Live
+         * @description Process liveness only; dependency failures must not trigger restart loops.
+         */
+        get: operations["health_live_api_health_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Health Ready
+         * @description Traffic readiness: fail closed when the suite cannot persist its own state.
+         */
+        get: operations["health_ready_api_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ingest/{source_id}": {
         parameters: {
             query?: never;
@@ -1895,6 +2005,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/llm/models/custom": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Custom Model */
+        post: operations["add_custom_model_api_llm_models_custom_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/models/custom/{model_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove Custom Model */
+        delete: operations["remove_custom_model_api_llm_models_custom__model_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/llm/models/test": {
         parameters: {
             query?: never;
@@ -1941,6 +2085,30 @@ export interface paths {
         get: operations["llm_providers_api_llm_providers_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/llm/providers/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Providers Test
+         * @description A NON-metered reachability + "fetch models" probe for an OpenAI-compatible
+         *     endpoint: ``GET {base_url}/models`` (falling back to ``/v1/models``) with a Bearer
+         *     header. It does NOT touch the gateway / cost ledger (#6). Returns the discovered
+         *     model ids so the Add-local-model dialog can populate a picker. Errors are PLAIN,
+         *     bounded (#9).
+         */
+        post: operations["providers_test_api_llm_providers_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2057,6 +2225,39 @@ export interface paths {
         };
         /** Metrics */
         get: operations["metrics_api_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metrics/noise-reduction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Metrics Noise Reduction
+         * @description The Noise-Reduction funnel over the last ``window_hours`` (default 24) — "total
+         *     alerts by severity → what the AI reduced it to".
+         *
+         *     ``ingested``/``clustered`` come from the DURABLE ``noise_counters`` store (raw-alert-by-
+         *     severity, so they reflect the TRUE inbound volume even after low-value events are
+         *     dropped at ingest); ``cases`` + the MECE outcomes (needs_human > escalated >
+         *     auto_cleared > true_positive residual) come from a case tally computed over up to the
+         *     most-recent 5000 cases (the ``cases_meta.truncated`` flag is True when the store held
+         *     more — the outcome tallies are then a lower bound). When the counters are still warming
+         *     up (``counters.available: false``) the ingested/clustered totals are ``null`` and the
+         *     headline ``reduction.overall_pct`` is a DASH, so the UI degrades to a case-only funnel.
+         *
+         *     DETERMINISTIC + advisory: nothing here is read by ``case_manager.decide()`` (#3); every
+         *     band name is plain framework data the UI renders escaped.
+         */
+        get: operations["metrics_noise_reduction_api_metrics_noise_reduction_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3037,6 +3238,14 @@ export interface paths {
          *     A malformed predicate row is skipped leniently. An empty ``match`` matches nothing
          *     (returns count 0) rather than everything — a preview must never imply a rule fires on
          *     all traffic. RBAC: ``rules:read``.
+         *
+         *     ⚠ MULTI-ROW PARITY (M3). The save adapter (``adapter.ts detectionMatchToWire``) keeps
+         *     ONLY the FIRST predicate row — ``RuleDefinition.match`` is a single ``RuleMatch``, and
+         *     nested AND/OR is the gated Phase-3 wave. So the preview MUST evaluate the SAME first
+         *     row the deployed rule fires on; ANDing every row here would under-count vs. reality
+         *     and mis-calibrate the operator. We therefore evaluate ``predicates[0]`` only, and
+         *     return ``predicates`` (the total supplied) + ``predicates_evaluated`` (always ≤ 1) so
+         *     the UI can label a multi-row preview "only the first condition is saved / previewed".
          */
         post: operations["preview_rule_api_rules_preview_post"];
         delete?: never;
@@ -3427,6 +3636,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sources Coverage
+         * @description Aggregate ingest-coverage rollup — the "am I seeing everything?" big-number tile
+         *     (A5.5; Google SecOps Health-Hub model). Read-only, advisory, NO secrets.
+         *
+         *     Returns ``{sources_total, sources_enabled, sources_silent, events_per_min,
+         *     alerts_triaged_24h, worst_last_event_seconds}`` computed over the REAL configured
+         *     sources (demo overlay excluded so the numbers stay honest). ``alerts_triaged_24h`` is
+         *     the count of cases opened in the last 24h computed with the SAME window filter the
+         *     ``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every
+         *     sub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched).
+         */
+        get: operations["sources_coverage_api_sources_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/health": {
         parameters: {
             query?: never;
@@ -3436,14 +3673,15 @@ export interface paths {
         };
         /**
          * Sources Health
-         * @description Per-source health for the sources dashboard (Round 4 Wave 4).
+         * @description Per-source health for the sources dashboard (Round 4 Wave 4 + A5.2 coverage).
          *
-         *     Read-only, NO secrets. For every configured source it reports: enabled state,
-         *     ingest mode, whether it is a PULL/PUSH connector and browse-capable, and — where
-         *     available — its durable poll position (the newest cursor timestamp across the
-         *     source's feeds, from the read-only cursor store) and PUSH live-tail buffer depth.
-         *     A missing/legacy cursor reads as ``last_poll_millis: 0`` (never polled yet).
-         *     Never mutates anything (#2 append-only elsewhere; this endpoint only reads).
+         *     Read-only, NO secrets. For every configured source it reports: enabled state, ingest
+         *     mode, whether it is a PULL/PUSH connector and browse-capable, its durable poll position
+         *     (``last_poll_millis``) / PUSH live-tail ``buffer_depth``, PLUS the additive
+         *     coverage-observability fields (``last_poll_at``, ``last_poll_ok``, ``last_poll_error``,
+         *     ``events_per_min``, ``last_event_millis``, ``silent``). A missing/legacy cursor reads as
+         *     ``last_poll_millis: 0`` (never polled yet). Never mutates anything (this endpoint only
+         *     reads); advisory only (#3); error strings are plain text (#9).
          */
         get: operations["sources_health_api_sources_health_get"];
         put?: never;
@@ -4156,6 +4394,20 @@ export interface components {
             assignee: string;
         };
         /**
+         * AuditListResponse
+         * @description The audit-viewer envelope. ``records`` are append-only audit rows returned
+         *     verbatim (fenced UNTRUSTED excerpts rendered PLAIN by the UI, #9).
+         */
+        AuditListResponse: {
+            /** Records */
+            records?: Record<string, never>[];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
          * AutoClosePolicy
          * @description Operator-configured auto-close policy, one entry per verdict class.
          *
@@ -4289,27 +4541,39 @@ export interface components {
         };
         /**
          * BudgetConfig
-         * @description LLM cost-budget ceiling (Round 3 cost governance). Default OFF so today's
-         *     behaviour is byte-identical. When ``enabled`` a later wave compares the rolling
+         * @description LLM cost-budget ceiling (Round 3 cost governance). When ``enabled`` the gate
+         *     compares rolling
          *     spend (from the existing usage/cost ledger) against ``daily_usd``/``monthly_usd``;
          *     at ``soft_warn_pct`` of a ceiling it WARNS, and ``on_exceed`` decides whether
          *     crossing a ceiling merely warns or BLOCKS further LLM spend. NOTE: a budget block
          *     affects whether an investigation RUNS — it never alters the close/escalate decision
          *     of a case that DID run (#3).
+         *
+         *     Defaults ON as the Autopilot spend BACKSTOP: ``enabled=True`` + a bounded
+         *     ``daily_usd=10`` (industry-grounded balanced default; ~20-40 Opus investigations —
+         *     see ``STANDARDS.md``) + ``soft_warn_pct=0.8`` + **``on_exceed='block'``**. A block
+         *     happens before the provider call and routes the case to NEEDS_HUMAN; it never closes
+         *     or discards the case (#3/#4). This is the backstop that keeps "read everything by
+         *     default" from becoming "spend everything." An operator can raise ``daily_usd``,
+         *     disable it, or explicitly choose warning-only mode. The ``autopilot_profile`` dial scales
+         *     ``daily_usd`` (conservative $5 / balanced $10 / aggressive $50).
          */
         BudgetConfig: {
-            /** Daily Usd */
-            daily_usd?: number | null;
+            /**
+             * Daily Usd
+             * @default 10
+             */
+            daily_usd: number | null;
             /**
              * Enabled
-             * @default false
+             * @default true
              */
             enabled: boolean;
             /** Monthly Usd */
             monthly_usd?: number | null;
             /**
              * On Exceed
-             * @default warn
+             * @default block
              * @enum {string}
              */
             on_exceed: "warn" | "block";
@@ -4318,6 +4582,23 @@ export interface components {
              * @default 0.8
              */
             soft_warn_pct: number;
+        };
+        /** BuildInfoResponse */
+        BuildInfoResponse: {
+            /** Build Time */
+            build_time: string;
+            /** Commit Sha */
+            commit_sha: string;
+            /** Ocsf Version */
+            ocsf_version: string;
+            /** Release Channel */
+            release_channel: string;
+            /** Service */
+            service: string;
+            /** State Backend */
+            state_backend: string;
+            /** Version */
+            version: string;
         };
         /**
          * BulkCaseAction
@@ -4359,6 +4640,169 @@ export interface components {
             status?: string | null;
             /** Tags */
             tags?: string[] | null;
+        };
+        /** Case */
+        Case: {
+            /** Acknowledged At */
+            acknowledged_at?: string | null;
+            /**
+             * Agent Persona
+             * @default
+             */
+            agent_persona: string;
+            /**
+             * Assignee
+             * @default
+             */
+            assignee: string;
+            /** Automation Actions */
+            automation_actions?: Record<string, never>[];
+            /**
+             * Awaiting Reason
+             * @default
+             */
+            awaiting_reason: string;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Case Id */
+            case_id: string;
+            /**
+             * Case Number
+             * @default
+             */
+            case_number: string;
+            /** Cluster Signature */
+            cluster_signature: string;
+            /** Comments */
+            comments?: components["schemas"]["CaseComment"][];
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /** Created At */
+            created_at?: string;
+            /**
+             * Cross Source Cluster Id
+             * @default
+             */
+            cross_source_cluster_id: string;
+            decision_by?: components["schemas"]["DecisionBy"] | null;
+            /** Detected At */
+            detected_at?: string | null;
+            /** Detection Source */
+            detection_source?: string | null;
+            disposition?: components["schemas"]["Disposition"] | null;
+            entity: components["schemas"]["Entity"];
+            /** Error */
+            error?: string | null;
+            /**
+             * Escalation Level
+             * @default 0
+             */
+            escalation_level: number;
+            /** Evidence */
+            evidence?: components["schemas"]["EvidenceItem"][];
+            /** Feedback */
+            feedback?: components["schemas"]["FeedbackEntry"][];
+            /** First Response At */
+            first_response_at?: string | null;
+            /**
+             * First Seen Millis
+             * @default 0
+             */
+            first_seen_millis: number;
+            /** History */
+            history?: Record<string, never>[];
+            /** Impact Band */
+            impact_band?: string | null;
+            /** Knowledge Used */
+            knowledge_used?: Record<string, never>[];
+            /** Member Event Ids */
+            member_event_ids?: string[];
+            /** Member Event Keys */
+            member_event_keys?: string[];
+            /** Mitre */
+            mitre?: string[];
+            /** Notifications Sent */
+            notifications_sent?: Record<string, never>[];
+            /** Objection Window Expires At */
+            objection_window_expires_at?: string | null;
+            origin_surface?: components["schemas"]["SourceSurface"] | null;
+            /**
+             * Playbook Id
+             * @default
+             */
+            playbook_id: string;
+            /** Priority Level */
+            priority_level?: string | null;
+            /**
+             * Recommended Action
+             * @default
+             */
+            recommended_action: string;
+            /** Related Case Ids */
+            related_case_ids?: string[];
+            /**
+             * Reproduce Query
+             * @default
+             */
+            reproduce_query: string;
+            risk_breakdown?: components["schemas"]["RiskBreakdown"];
+            /**
+             * Risk Score
+             * @default 0
+             */
+            risk_score: number;
+            /** Rule Ids */
+            rule_ids?: string[];
+            /** Severity Band */
+            severity_band?: string | null;
+            /** Severity Source */
+            severity_source?: string | null;
+            /** Source Breakdown */
+            source_breakdown?: {
+                [key: string]: number;
+            };
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Name */
+            source_name?: string | null;
+            source_surface: components["schemas"]["SourceSurface"];
+            /** @default open */
+            status: components["schemas"]["CaseStatus"];
+            /** Status History */
+            status_history?: components["schemas"]["StatusHistoryEntry"][];
+            /**
+             * Status Reason
+             * @default
+             */
+            status_reason: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /** Tags */
+            tags?: string[];
+            /**
+             * Title
+             * @default
+             */
+            title: string;
+            /**
+             * Token Cost
+             * @default 0
+             */
+            token_cost: number;
+            trigger_reason?: components["schemas"]["TriggerReason"] | null;
+            /** Updated At */
+            updated_at?: string;
+            /** Urgency Band */
+            urgency_band?: string | null;
+            verdict?: components["schemas"]["Verdict"] | null;
+            /** Verdict History */
+            verdict_history?: Record<string, never>[];
         };
         /** CaseAction */
         CaseAction: {
@@ -4431,6 +4875,11 @@ export interface components {
             enabled: boolean;
             /** Id */
             id: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
             /** Payload */
             payload?: Record<string, never>;
             /**
@@ -4438,6 +4887,25 @@ export interface components {
              * @default 100
              */
             priority: number;
+        };
+        /**
+         * CaseComment
+         * @description An append-only analyst comment on a case (collaboration). ``author``/``body``
+         *     are user input — render-escaped in the UI, never trusted as prompt instructions.
+         */
+        CaseComment: {
+            /**
+             * Author
+             * @default
+             */
+            author: string;
+            /**
+             * Body
+             * @default
+             */
+            body: string;
+            /** Ts */
+            ts?: string;
         };
         /** CaseIdPreviewBody */
         CaseIdPreviewBody: {
@@ -4454,6 +4922,32 @@ export interface components {
             /** Template */
             template: string;
         };
+        /**
+         * CaseListResponse
+         * @description The paged case-list envelope. ``cases`` is the full ``Case`` model list (the
+         *     same shape ``Case.model_dump(mode='json')`` produced before typing).
+         */
+        CaseListResponse: {
+            /** Cases */
+            cases: components["schemas"]["Case"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * CaseStatus
+         * @description Lifecycle of a case (Section 7.1). DECISION is deterministic code.
+         *
+         *     Two-axis model (see docs/research/.../STATUS_TAXONOMY.md): this is the
+         *     LIFECYCLE axis; the investigative outcome is the separate :class:`Disposition`.
+         *     The three ORIGINAL string values (``open``/``needs_human``/``closed``) are kept
+         *     BYTE-FOR-BYTE so stored cases load unchanged and ``decide()`` (#3) is untouched;
+         *     the richer states below are ADDED additively and reached via analyst lifecycle
+         *     actions + the existing ``escalate`` flag — never by rewriting the deterministic
+         *     decision. ``NEEDS_HUMAN`` is a RETAINED, deprecated alias of "open · awaiting
+         *     analyst" (the UI renders it that way).
+         * @enum {string}
+         */
+        CaseStatus: "new" | "open" | "needs_human" | "investigating" | "escalated" | "on_hold" | "resolved" | "closed";
         /** ChangePasswordBody */
         ChangePasswordBody: {
             /** Current Password */
@@ -4543,9 +5037,17 @@ export interface components {
         };
         /**
          * ConnectorTestRequest
-         * @description Test a source's connectivity. With no body, tests the wired primary source.
+         * @description Test the exact saved or draft source configuration without persisting it.
          */
         ConnectorTestRequest: {
+            /** Config */
+            config?: Record<string, never>;
+            /** Secrets */
+            secrets?: {
+                [key: string]: string | null;
+            };
+            /** Source Id */
+            source_id?: string | null;
             /** Source Type */
             source_type?: string | null;
         };
@@ -4574,6 +5076,25 @@ export interface components {
              * @default 120
              */
             window_seconds: number;
+        };
+        /** CustomModelBody */
+        CustomModelBody: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url: string;
+            /**
+             * Context Window
+             * @default 0
+             */
+            context_window: number;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Model Id */
+            model_id: string;
         };
         /**
          * CustomRoleBody
@@ -4755,8 +5276,19 @@ export interface components {
              */
             y: number;
         };
+        /**
+         * DecisionBy
+         * @enum {string}
+         */
+        DecisionBy: "agent" | "analyst" | "system";
         /** DemoEnableBody */
         DemoEnableBody: {
+            /** Alert Interval Seconds */
+            alert_interval_seconds?: number | null;
+            /** Event Rate Per Second */
+            event_rate_per_second?: number | null;
+            /** Force Capabilities */
+            force_capabilities?: boolean | null;
             /** History Days */
             history_days?: number | null;
             /** Incident Rate */
@@ -4766,6 +5298,12 @@ export interface components {
              * @default seeded
              */
             mode: string;
+            /** Preseed Case Count */
+            preseed_case_count?: number | null;
+            /** Preseed Event Count */
+            preseed_event_count?: number | null;
+            /** Preseed Recent Minutes */
+            preseed_recent_minutes?: number | null;
             /** Seed */
             seed?: number | null;
             /** Tick Jitter */
@@ -4773,6 +5311,15 @@ export interface components {
             /** Tick Seconds */
             tick_seconds?: number | null;
         };
+        /**
+         * Disposition
+         * @description Investigative OUTCOME (verdict-class) axis — the analyst-confirmable,
+         *     reportable classification on/after close. Orthogonal to :class:`CaseStatus`
+         *     (lifecycle). Defaulted to ``None`` on the Case so old stored cases load
+         *     unchanged; the LLM ``Verdict`` is unchanged and still feeds ``decide()``.
+         * @enum {string}
+         */
+        Disposition: "true_positive" | "false_positive" | "benign" | "suspicious" | "duplicate" | "undetermined";
         /** Entity */
         Entity: {
             type: components["schemas"]["EntityType"];
@@ -4800,6 +5347,15 @@ export interface components {
             prompt: string;
             /** Prompt Chars */
             prompt_chars?: number | null;
+        };
+        /** EvidenceItem */
+        EvidenceItem: {
+            /** Event Ids */
+            event_ids?: string[];
+            /** Query */
+            query?: string | null;
+            /** Summary */
+            summary: string;
         };
         /** FeedbackBody */
         FeedbackBody: {
@@ -4844,10 +5400,88 @@ export interface components {
              */
             time_saved_minutes: number;
         };
+        /**
+         * FeedbackEntry
+         * @description An analyst's grade of an AI verdict on a case (the eval / quality loop,
+         *     Vigil-inspired). Append-only on the case; aggregated by /api/feedback/stats to
+         *     measure agreement rate, grading quality, outcome mix and time saved.
+         */
+        FeedbackEntry: {
+            /**
+             * Accuracy
+             * @default 0
+             */
+            accuracy: number;
+            /**
+             * Action Appropriateness
+             * @default 0
+             */
+            action_appropriateness: number;
+            /**
+             * Actual Outcome
+             * @default
+             */
+            actual_outcome: string;
+            /**
+             * Ai Confidence
+             * @default 0
+             */
+            ai_confidence: number;
+            /**
+             * Ai Verdict
+             * @default
+             */
+            ai_verdict: string;
+            /**
+             * Analyst
+             * @default
+             */
+            analyst: string;
+            /**
+             * Assessment
+             * @default
+             */
+            assessment: string;
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+            /**
+             * Reasoning Quality
+             * @default 0
+             */
+            reasoning_quality: number;
+            /**
+             * Time Saved Minutes
+             * @default 0
+             */
+            time_saved_minutes: number;
+            /** Ts */
+            ts?: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HealthResponse
+         * @description The public health envelope (also read by the webui to detect an in-memory
+         *     store, ``store_type``). Exact shape — keys are stable and the webui depends on
+         *     ``status``/``version``/``es_connected``/``store_type``/``setup_complete``.
+         */
+        HealthResponse: {
+            /** Es Connected */
+            es_connected: boolean;
+            /** Setup Complete */
+            setup_complete: boolean;
+            /** Status */
+            status: string;
+            /** Store Type */
+            store_type: string;
+            /** Version */
+            version: string;
         };
         /**
          * InvestigateRequest
@@ -4866,8 +5500,19 @@ export interface components {
             lookback?: string | null;
             /** Rule Values */
             rule_values?: string[];
+            /** Source Id */
+            source_id?: string | null;
             /** @default investigate */
             source_surface: components["schemas"]["SourceSurface"];
+        };
+        /** LivenessResponse */
+        LivenessResponse: {
+            /** Service */
+            service: string;
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
         };
         /** LoginBody */
         LoginBody: {
@@ -4887,6 +5532,20 @@ export interface components {
             tags?: string[];
             /** Text */
             text: string;
+        };
+        /**
+         * MemoryListResponse
+         * @description The operator-memory list envelope. Each entry is a loose typed dict
+         *     (text/category/tags/source/active/…) rendered PLAIN by the UI (#9).
+         */
+        MemoryListResponse: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Entries */
+            entries?: Record<string, never>[];
         };
         /** MemoryUpdate */
         MemoryUpdate: {
@@ -5000,6 +5659,18 @@ export interface components {
             /** Text */
             text?: string | null;
         };
+        /**
+         * NotificationProvidersResponse
+         * @description The notification providers catalog envelope (no secrets — names/ids only).
+         */
+        NotificationProvidersResponse: {
+            /** Channel Types */
+            channel_types?: Record<string, never>[];
+            /** Email Presets */
+            email_presets?: Record<string, never>[];
+            /** Template Ids */
+            template_ids?: string[];
+        };
         /** NotificationTestBody */
         NotificationTestBody: {
             /** Channel Id */
@@ -5039,6 +5710,27 @@ export interface components {
                 [key: string]: string | null;
             };
         };
+        /** ProviderTestBody */
+        ProviderTestBody: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url: string;
+        };
+        /**
+         * RagDocumentsResponse
+         * @description The RAG corpus document-list envelope. Each document is a loose typed dict
+         *     (title/source/chunk_count/…) rendered PLAIN by the UI (#9).
+         */
+        RagDocumentsResponse: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /** Documents */
+            documents?: Record<string, never>[];
+        };
         /** RagImportRequest */
         RagImportRequest: {
             /**
@@ -5065,6 +5757,21 @@ export interface components {
              * @default false
              */
             remove: boolean;
+        };
+        /** ReadinessResponse */
+        ReadinessResponse: {
+            /** Checks */
+            checks: {
+                [key: string]: boolean;
+            };
+            /** Ready */
+            ready: boolean;
+            /** Status */
+            status: string;
+            /** Store Type */
+            store_type: string;
+            /** Version */
+            version: string;
         };
         /** ReauthBody */
         ReauthBody: {
@@ -5115,6 +5822,39 @@ export interface components {
              */
             notify: boolean;
         };
+        /** RiskBreakdown */
+        RiskBreakdown: {
+            /**
+             * Asset Criticality
+             * @default 0
+             */
+            asset_criticality: number;
+            /**
+             * Diversity
+             * @default 0
+             */
+            diversity: number;
+            /**
+             * Reputation
+             * @default 0
+             */
+            reputation: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Velocity
+             * @default 0
+             */
+            velocity: number;
+            /**
+             * Volume
+             * @default 0
+             */
+            volume: number;
+        };
         /**
          * RolePreviewBody
          * @description A DRAFT custom role to resolve (no persistence). Same shape as
@@ -5150,6 +5890,12 @@ export interface components {
          *     carry its own ``correlation`` override and per-role ``model_override`` (C3-6b),
          *     and is evaluated in ascending ``priority`` (then list order) so ModSec
          *     sub-rules (lower priority) win over the generic ``modsec_audit_log`` rule.
+         *
+         *     ``mitre``/``schedule``/``suppression`` are ADDITIVE, defaulted G6-editor metadata
+         *     (advisory only — none feeds ``decide()``, #3): ``mitre`` is a list of ATT&CK
+         *     technique ids the rule maps to (drives the coverage heatmap), ``schedule`` persists
+         *     an optional per-rule cadence intent, and ``suppression`` persists alert-storm
+         *     collapse intent (never a silent DROP — see :class:`RuleSuppression`).
          */
         RuleDefinition: {
             correlation?: components["schemas"]["CorrelationRule"] | null;
@@ -5164,6 +5910,8 @@ export interface components {
              */
             enabled: boolean;
             match: components["schemas"]["RuleMatch"];
+            /** Mitre */
+            mitre?: string[];
             /** Model Override */
             model_override?: {
                 [key: string]: components["schemas"]["ModelConfig"];
@@ -5175,6 +5923,8 @@ export interface components {
              * @default 100
              */
             priority: number;
+            schedule?: components["schemas"]["RuleSchedule"] | null;
+            suppression?: components["schemas"]["RuleSuppression"] | null;
         };
         /**
          * RuleMatch
@@ -5198,6 +5948,53 @@ export interface components {
             op: "equals" | "prefix" | "tag" | "exists";
             /** Value */
             value?: string | null;
+        };
+        /**
+         * RuleSchedule
+         * @description Optional per-detection-rule schedule metadata (G6 R5 "Schedule" tab).
+         *
+         *     ADVISORY ONLY — the poller's durable per-feed cursor (``{source.id}:{feed.id}``)
+         *     owns the actual evaluation cadence today; these values persist the operator's
+         *     intent so the editor round-trips losslessly and a future per-rule scheduler can
+         *     honour them. It NEVER feeds ``case_manager.decide()`` (#3). Both fields default
+         *     None (== inherit the feed/global schedule), so an existing stored rule loads
+         *     byte-identically.
+         */
+        RuleSchedule: {
+            /** Interval Seconds */
+            interval_seconds?: number | null;
+            /** Lookback Seconds */
+            lookback_seconds?: number | null;
+        };
+        /**
+         * RuleSuppression
+         * @description Optional per-detection-rule alert-storm suppression metadata (G6 R5).
+         *
+         *     A DISTINCT concept from the ``correlation`` threshold (Elastic keeps them apart;
+         *     conflating them is a known analyst pitfall). ADVISORY/STORAGE ONLY today — this
+         *     persists the operator's intent so the Suppression editor round-trips; the engine
+         *     does NOT silently DROP events from this per-rule block. Any actual suppression that
+         *     would DROP a candidate stays a HITL Proposal via the existing
+         *     ``Preferences.suppression_rules`` path (#3/#4-safe: never silently drops). All
+         *     fields are defaulted so a stored rule without it loads unchanged.
+         */
+        RuleSuppression: {
+            /** By */
+            by?: string[];
+            /**
+             * Missing Field
+             * @default suppress
+             * @enum {string}
+             */
+            missing_field: "suppress" | "keep";
+            /**
+             * Scope
+             * @default per_run
+             * @enum {string}
+             */
+            scope: "per_run" | "per_window";
+            /** Window Seconds */
+            window_seconds?: number | null;
         };
         /**
          * RunPlaybookRequest
@@ -5314,6 +6111,21 @@ export interface components {
             /** Sort */
             sort?: string | null;
         };
+        /**
+         * SearchResponse
+         * @description The command-palette search envelope. Result rows are loose typed dicts (each
+         *     carries operator/log DATA rendered PLAIN by the UI, #9).
+         */
+        SearchResponse: {
+            /** Cases */
+            cases?: Record<string, never>[];
+            /** Nav */
+            nav?: Record<string, never>[];
+            /** Query */
+            query: string;
+            /** Sources */
+            sources?: Record<string, never>[];
+        };
         /** SecretsUpdate */
         SecretsUpdate: {
             /** Abuseipdb Api Key */
@@ -5330,6 +6142,8 @@ export interface components {
             es_mgmt_api_key?: string | null;
             /** Es Url */
             es_url?: string | null;
+            /** Litellm Api Key */
+            litellm_api_key?: string | null;
             /** Openai Api Key */
             openai_api_key?: string | null;
             /** Virustotal Api Key */
@@ -5387,6 +6201,39 @@ export interface components {
             is_primary: boolean;
             /** Source Type */
             source_type: string;
+        };
+        /**
+         * StatusHistoryEntry
+         * @description One append-only lifecycle transition on a case (status taxonomy / F8).
+         *
+         *     Records WHO moved the case FROM which status TO which, WHEN, and WHY. Written
+         *     by analyst lifecycle actions (and by the deterministic decision when it changes
+         *     the status); rendered as a status timeline in the case overview. ``by``/``reason``
+         *     are operator/agent text — render-escaped in the UI, never trusted as prompt.
+         */
+        StatusHistoryEntry: {
+            /** At */
+            at?: string;
+            /**
+             * By
+             * @default
+             */
+            by: string;
+            /**
+             * From Status
+             * @default
+             */
+            from_status: string;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /**
+             * To Status
+             * @default
+             */
+            to_status: string;
         };
         /**
          * TableStateBody
@@ -5504,8 +6351,7 @@ export interface components {
         };
         /**
          * ThresholdTuningConfig
-         * @description Nightly threshold auto-TUNING policy (Round 4). Default OFF so today's behaviour
-         *     is byte-identical. When ``enabled`` a later wave observes per-rule FP rates and
+         * @description Nightly threshold auto-TUNING policy (Round 4). When enabled it observes per-rule FP rates and
          *     PROPOSES bounded threshold adjustments (never applies them silently — the decision
          *     stays deterministic, #3). ``min_samples`` is the minimum observations before a
          *     suggestion is considered; ``max_n_step`` caps how far a correlation ``n`` may move
@@ -5514,6 +6360,15 @@ export interface components {
          *     smooths the running FP-rate estimate; ``cadence`` is when the tuner runs; and
          *     ``shadow_eval`` (default ON) means a suggestion is EVALUATED against recent data
          *     before it can be applied.
+         *
+         *     Defaults ON (Autopilot overhaul) — the flagship "self-tunes over time" engine, safe
+         *     on because it is a config-writer only (never imports ``decide()``): Wilson-lower-bound
+         *     + ``min_samples`` gate + a bounded ``±1`` (``max_n_step``) nudge + mandatory
+         *     ``shadow_eval`` (never hides a confirmed TP) + suppression DROPs routed to a HITL
+         *     Proposal. A cold tenant with < ``min_samples`` closed cases per rule simply proposes
+         *     nothing. Defaults follow ``STANDARDS.md``: ``min_samples=30`` (Wilson-stable; hard
+         *     floor 10), ``fp_rate_target=0.10`` (world-class SOC < 10% FP), ``wilson_z=1.96``
+         *     (0.95 confidence, lower bound), ``max_n_step=1`` (bounded nudge).
          */
         ThresholdTuningConfig: {
             /**
@@ -5524,7 +6379,7 @@ export interface components {
             cadence: "hourly" | "nightly" | "weekly" | "manual";
             /**
              * Enabled
-             * @default false
+             * @default true
              */
             enabled: boolean;
             /**
@@ -5534,7 +6389,7 @@ export interface components {
             ewma_alpha: number;
             /**
              * Fp Rate Target
-             * @default 0.3
+             * @default 0.1
              */
             fp_rate_target: number;
             /**
@@ -5544,7 +6399,7 @@ export interface components {
             max_n_step: number;
             /**
              * Min Samples
-             * @default 25
+             * @default 30
              */
             min_samples: number;
             /**
@@ -5557,6 +6412,71 @@ export interface components {
              * @default 1.96
              */
             wilson_z: number;
+        };
+        /**
+         * TriggerReason
+         * @description Deterministic explanation of WHY a cluster was triggered (Feature 3).
+         *
+         *     Computed in code by correlation, copied onto the Case, and surfaced in the UI
+         *     ("Why this fired"). Records the PRIMARY triggering rule for a multi-rule entity.
+         */
+        TriggerReason: {
+            /**
+             * Entity
+             * @default
+             */
+            entity: string;
+            /**
+             * Group By
+             * @default
+             */
+            group_by: string;
+            /**
+             * Mode
+             * @default
+             */
+            mode: string;
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+            /**
+             * Observed Count
+             * @default 0
+             */
+            observed_count: number;
+            /**
+             * Rule Value
+             * @default
+             */
+            rule_value: string;
+            /** Rule Values */
+            rule_values?: string[];
+            /**
+             * Sentence
+             * @default
+             */
+            sentence: string;
+            /** Severity Max */
+            severity_max?: number | null;
+            /** Severity Min */
+            severity_min?: number | null;
+            /**
+             * Window End
+             * @default 0
+             */
+            window_end: number;
+            /**
+             * Window Seconds
+             * @default 0
+             */
+            window_seconds: number;
+            /**
+             * Window Start
+             * @default 0
+             */
+            window_start: number;
         };
         /** UserCreateBody */
         UserCreateBody: {
@@ -5988,6 +6908,7 @@ export interface operations {
                 action?: string | null;
                 surface?: string | null;
                 case_id?: string | null;
+                source_id?: string | null;
                 from?: string | null;
                 to?: string | null;
                 limit?: number;
@@ -6004,7 +6925,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["AuditListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6650,7 +7571,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["BrandingConfig"];
                 };
             };
         };
@@ -6906,6 +7827,8 @@ export interface operations {
                 entity?: string | null;
                 limit?: number;
                 offset?: number;
+                from?: string | null;
+                to?: string | null;
             };
             header?: never;
             path?: never;
@@ -6919,7 +7842,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CaseListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6983,7 +7906,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["Case"];
                 };
             };
             /** @description Validation Error */
@@ -7411,6 +8334,37 @@ export interface operations {
                 "application/json": components["schemas"]["RunPlaybookRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_stages_api_cases__case_id__stages_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -8104,6 +9058,26 @@ export interface operations {
             };
         };
     };
+    dashboard_widget_types_api_dashboards_widget_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     update_dashboard_api_dashboards__dashboard_id__put: {
         parameters: {
             query?: never;
@@ -8450,7 +9424,76 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    health_build_info_api_health_build_info_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuildInfoResponse"];
+                };
+            };
+        };
+    };
+    health_live_api_health_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LivenessResponse"];
+                };
+            };
+        };
+    };
+    health_ready_api_health_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadinessResponse"];
                 };
             };
         };
@@ -8535,6 +9578,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    add_custom_model_api_llm_models_custom_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomModelBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_custom_model_api_llm_models_custom__model_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                model_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -8658,6 +9765,39 @@ export interface operations {
             };
         };
     };
+    providers_test_api_llm_providers_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderTestBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     unified_logs_api_logs_get: {
         parameters: {
             query?: {
@@ -8743,7 +9883,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["MemoryListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -8857,6 +9997,37 @@ export interface operations {
         };
     };
     metrics_api_metrics_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_noise_reduction_api_metrics_noise_reduction_get: {
         parameters: {
             query?: {
                 window_hours?: number;
@@ -9274,7 +10445,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["NotificationProvidersResponse"];
                 };
             };
         };
@@ -9491,7 +10662,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomizationConfig"];
                 };
             };
         };
@@ -9725,7 +10896,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["RagDocumentsResponse"];
                 };
             };
         };
@@ -10549,7 +11720,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10939,6 +12110,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sources_coverage_api_sources_coverage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
                 };
             };
         };

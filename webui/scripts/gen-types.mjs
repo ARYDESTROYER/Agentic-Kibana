@@ -6,7 +6,7 @@
  *   1. Dump the backend OpenAPI schema WITHOUT running the stack — import
  *      `app.main:app` and write `app.openapi()` to `webui/openapi.json`
  *      (sorted keys → stable, reviewable diffs; this sandbox blocks the full
- *      stack and the webui build must work offline, CLAUDE.md §6a).
+ *      stack and the webui build must work offline, AGENTS.md §6a).
  *   2. Run `openapi-typescript` on that committed JSON to (re)generate
  *      `webui/src/lib/api-types.gen.ts`.
  *

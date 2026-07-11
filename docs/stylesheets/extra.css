@@ -1,0 +1,81 @@
+:root {
+  --tlsoc-hero-a: #0f172a;
+  --tlsoc-hero-b: #172554;
+  --tlsoc-hero-accent: #38bdf8;
+}
+
+.tlsoc-hero {
+  margin: 0 0 2rem;
+  padding: clamp(2rem, 5vw, 4.5rem);
+  border: 1px solid color-mix(in srgb, var(--tlsoc-hero-accent) 28%, transparent);
+  border-radius: 1.25rem;
+  background:
+    radial-gradient(circle at 85% 15%, rgb(56 189 248 / 22%), transparent 32%),
+    linear-gradient(135deg, var(--tlsoc-hero-a), var(--tlsoc-hero-b));
+  color: #f8fafc;
+  box-shadow: 0 1.5rem 4rem rgb(15 23 42 / 18%);
+}
+
+.tlsoc-hero h1 {
+  max-width: 18ch;
+  margin: 0.55rem 0 1rem;
+  color: #fff;
+  font-size: clamp(2.1rem, 5vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.tlsoc-hero p {
+  max-width: 64ch;
+  color: #dbeafe;
+  font-size: 1.05rem;
+}
+
+.tlsoc-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border: 1px solid rgb(125 211 252 / 48%);
+  border-radius: 999px;
+  background: rgb(14 116 144 / 24%);
+  color: #bae6fd;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tlsoc-hero .md-button {
+  margin-top: 0.65rem;
+  margin-right: 0.5rem;
+  border-color: #7dd3fc;
+  color: #f0f9ff;
+}
+
+.tlsoc-hero .md-button--primary {
+  border-color: #0284c7;
+  background: #0284c7;
+}
+
+.tlsoc-hero .md-button:hover,
+.tlsoc-hero .md-button:focus-visible {
+  border-color: #bae6fd;
+  background: #0369a1;
+  color: #fff;
+}
+
+.md-typeset .grid.cards > ul > li {
+  border-radius: 0.8rem;
+}
+
+.md-typeset .release-fact {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 600px) {
+  .tlsoc-hero {
+    padding: 1.6rem;
+    border-radius: 0.8rem;
+  }
+}

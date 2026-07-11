@@ -1,15 +1,36 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel>=0.42"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tlsoc-agentic-triage"
-version = "1.0.0"
+version = "3.0.0-alpha.1"
 description = "TLSOC Agentic Triage Suite — backend (FastAPI + LangGraph)"
 requires-python = ">=3.11"
+dynamic = ["dependencies", "optional-dependencies"]
 
 [tool.setuptools]
-packages = ["app"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*", "playbooks"]
+namespaces = false
+
+[tool.setuptools.package-data]
+app = [
+    "llm/model_registry.json",
+    "runbooks/*.md",
+    "threat/*.json",
+    "threat/*.md",
+]
+playbooks = ["*.md"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.dynamic.optional-dependencies]
+connectors = {file = ["requirements-connectors.txt"]}
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

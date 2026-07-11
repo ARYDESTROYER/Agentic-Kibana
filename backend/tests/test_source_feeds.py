@@ -36,7 +36,7 @@ from app.engine.correlation import correlate
 from app.engine.ingest import _is_ignored_cluster, dedup_by_id, handle_clusters
 from app.engine.poller import Poller, advance_cursor_to
 from app.es.fake import InMemoryESClient
-from app.models import Cursor, RawEvent
+from app.models import Cursor, RawEvent, make_cursor_event_key
 from app.ocsf import score_to_severity_id
 from app.stores.cursor_store import CursorStore
 from app.utils import now_utc, to_millis
@@ -530,13 +530,15 @@ async def test_poll_feed_scan_watermark_covers_dropped_hits():
     prefs = Preferences(setup_complete=True, poll_batch_size=3)  # one page = 3 oldest
     broad = next(f for f in conn.feeds() if f.pattern == "logs-*")
 
-    # The broad feed's first page is the 3 OLDEST hits — all alerts-owned → kept empty.
+    # Pagination drains beyond the first all-dropped page, so the broad feed returns
+    # its own newer rows in the same scan and watermarks the complete drained window.
     scan = await conn.poll_feed_scan(prefs, broad, Cursor(), 0)
     assert isinstance(scan, FeedScan)
-    assert scan.events == []                              # all dropped (alerts-owned)
-    # ...but the watermark reflects the scanned window so the cursor can move past it.
-    assert scan.scan_max_ts == base + 2000               # newest of the 3 alerts hits
-    assert set(scan.scan_boundary_ids) == {"al2"}
+    assert {event.id for event in scan.events} == {"ev0", "ev1", "ev2"}
+    assert scan.scan_max_ts == base + 102_000
+    assert set(scan.scan_boundary_ids) == {
+        make_cursor_event_key("logs-app", "ev2")
+    }
 
 
 @asyncio
@@ -653,12 +655,12 @@ async def test_broad_feed_cursor_not_stuck_when_full_page_owned_by_narrower(app_
 
     await poller.poll_once(prefs)
     broad_cursor = await cursor_store.load_keyed("srcX:logs")
-    # Advanced PAST the all-dropped alerts page (would be unset/0 without the fix).
+    # The paginated scan advances through the all-dropped first page and reaches
+    # the broad feed's own newest event in the same tick.
     assert broad_cursor.is_set()
-    assert broad_cursor.timestamp_millis == base + 2000
+    assert broad_cursor.timestamp_millis == base + 102_000
 
-    # Each subsequent tick advances the broad cursor FORWARD into its own newer events
-    # (never stuck, never skipping) until it reaches its newest hit (base + 102_000).
+    # Subsequent ticks remain monotonic and do not replay the drained pages.
     prev = broad_cursor.timestamp_millis
     for _ in range(5):
         await poller.poll_once(prefs)

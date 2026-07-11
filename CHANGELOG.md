@@ -10,6 +10,51 @@ to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additi
 targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
 History is reconstructed from `git log`.
 
+## [3.0.0-alpha.1] — 2026-07-11 — Bleeding Edge hardening candidate
+
+This prerelease foundation is implemented but **not yet tagged or published**.
+It establishes one canonical SemVer identity, truthful runtime/readiness checks,
+source-safe ingest/investigation boundaries, a full connector image, CI release
+gates, and a GitHub Pages documentation site. Remaining publication blockers are
+kept explicit in `docs/releases/known-limitations.md`.
+
+### Added
+
+- Root `VERSION` synchronized across Python, FastAPI/OpenAPI, npm, Compose image
+  tags, OCI labels, and public documentation, enforced by `scripts/check_version.py`.
+- Liveness, persistence-write readiness, and build-info endpoints.
+- MkDocs Material public docs, strict GitHub Pages builds, release-channel policy,
+  connector support matrix, architecture, and known-limitations register.
+- Default `full` backend image with all advertised connector clients, plus an
+  explicit smaller `core` target; non-root runtime and wheel-content smoke tests.
+
+### Fixed
+
+- Push event IDs are deterministic and source-scoped; per-source field mappings now
+  apply consistently to webhook, common, and object-store paths.
+- Failed persistence is no longer acknowledged as successful: HTTP returns 503,
+  Kafka commits only after processing, and S3 notification work is retained.
+- Push threshold correlation spans successive callbacks; receiver tasks restart with
+  bounded backoff after a retryable processing failure.
+- Pull pagination uses PIT + `search_after`, stable tie-breaking, an overlap ledger,
+  and source-index-qualified identities; rollover `_id` collisions remain distinct.
+- Source-scoped case signatures no longer merge independent systems and migrate an
+  open legacy signature in place. Re-investigation is pinned to the stored case and
+  originating query source; push-only sources cannot fall back to global Elastic.
+- Cap-deferred candidates use the durable case store as a quiet-tick drain queue.
+- State readiness now proves write permission instead of reporting connectivity only.
+- The daily budget defaults to a hard preflight block at the configured ceiling;
+  warning-only behavior is an explicit operator opt-in.
+
+### Release status
+
+- Local candidate gates passed on 2026-07-11: **1843 backend tests**, **1332 web
+  tests / 239 files**, lint with 0 errors, all five design gates, generated API
+  contract drift, production build, wheel/package smoke tests, canonical version,
+  agnostic Compose configuration, and strict MkDocs build. No public release should
+  be cut until the license and remaining blockers in the public limitation register
+  are resolved or deliberately reclassified.
+
 ## [Unreleased] — 2026-07-09 — Round 10: Autopilot & Comprehensive Ingestion + motion.dev
 
 A **behavior-changing** round — **the suite now reads and reasons over everything, and
@@ -21,7 +66,7 @@ throughout: `case_manager.decide()` stays the sole close/escalate authority and 
 new comprehensive-ingestion risk gate only *reads* `compute_risk()` to route a
 candidate to investigation, it never changes scoring or the decision itself (#3). No
 `docs/research/` folder this round (efficiency-first) — see `Journal.md`'s Round-10
-entry. Developed directly on `Testing` — **local, uncommitted** at this doc sync.
+entry. Developed directly on `Testing` and subsequently committed.
 
 ### Changed — comprehensive ingestion is now the default
 - `background_scan_enabled` defaults to **TRUE**: every event from every source is now
@@ -44,7 +89,7 @@ entry. Developed directly on `Testing` — **local, uncommitted** at this doc sy
   campaigns, cross-source correlation, SLA policy, priority matrix, realtime SSE, the
   threshold-automation engine (seeded with an empty rule set), and baseline (the
   producer + a new silent-source detector).
-- **Still opt-in:** batch LLM processing, `BudgetConfig.on_exceed="block"`,
+- **Still opt-in:** batch LLM processing, warning-only budget mode,
   `run_playbook`/`notify` default automation rules, and baseline-drives-investigation.
 - New **`Preferences.autopilot_profile`** dial — `conservative` / `balanced` (default)
   / `aggressive` — scales `(risk_floor, daily_usd, cap)` together: conservative
@@ -52,7 +97,7 @@ entry. Developed directly on `Testing` — **local, uncommitted** at this doc sy
 
 ### Added — default budget backstop
 - `BudgetConfig` now defaults **enabled**, `daily_usd=$10`, `soft_warn_pct=0.80`,
-  `on_exceed="warn"`. An over-budget day routes candidates to **NEEDS_HUMAN** — it
+  `on_exceed="block"`. An over-budget day routes candidates to **NEEDS_HUMAN** — it
   **never** auto-closes (#3) — so "read everything by default" cannot become "spend
   everything."
 
@@ -109,7 +154,7 @@ entry. Developed directly on `Testing` — **local, uncommitted** at this doc sy
   Vitest** specs / 239 files green (was 1268 / 229); eslint **0 errors** (3 benign
   warnings); `engine/case_manager.py` `decide()` **byte-identical**; `engine/risk.py` /
   `engine/signatures.py` **untouched**; **zero new deps except the deliberate lazy
-  `motion`**. Developed on `Testing` (**local, uncommitted** at this doc sync).
+  `motion`**. Developed and committed on `Testing`.
 
 ---
 

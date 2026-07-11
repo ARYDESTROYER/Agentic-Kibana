@@ -4,14 +4,17 @@ pytest==8.1.1
 pytest-asyncio==0.23.6
 pytest-cov==5.0.0
 respx==0.21.0
+build==1.2.2.post1
+wheel==0.45.1
+setuptools==80.10.2
 
-# SQL state backend (Epoch A) for tests: SQLite via SQLAlchemy async. asyncpg /
-# pgvector are NOT installed in the test env — the SQL backend's Postgres deps are
-# imported lazily, so the full suite runs on SQLite alone.
-sqlalchemy>=2.0
-aiosqlite>=0.19
+# SQL state backend (Epoch A) for tests: the offline suite exercises SQLite via
+# SQLAlchemy async. PostgreSQL drivers come from requirements.txt but are imported
+# lazily and require no live PostgreSQL service during tests.
+sqlalchemy==2.0.51
+aiosqlite==0.22.1
 # greenlet is SQLAlchemy's async runtime dependency. Pip does not always pull it in
 # transitively (platform/wheel dependent), and without it the SQLite-async state-store
 # tests error out — pin it explicitly so a fresh `pip install -r requirements-dev.txt`
 # yields a green suite.
-greenlet>=3.0
+greenlet==3.5.3

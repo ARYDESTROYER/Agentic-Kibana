@@ -16,11 +16,47 @@ class BaseESClient(ABC):
     @abstractmethod
     async def ping(self) -> bool: ...
 
+    async def ping_state(self) -> bool:
+        """Probe the suite's OWN-state path.
+
+        The default preserves compatibility for test and third-party clients. The
+        real two-key client overrides it so readiness requires the management
+        credential, not merely a reachable read-only log surface.
+        """
+        return await self.ping()
+
+    async def write_state_probe(self) -> bool:
+        """Prove the suite's management path can persist, not merely connect.
+
+        The fixed document is intentionally tiny and overwritten on each readiness
+        probe.  ``refresh=False`` avoids forcing an Elasticsearch refresh cycle.
+        Implementations may override this when their state surface differs.
+        """
+        await self.index_doc(
+            "tlsoc-agent-config",
+            {"kind": "readiness_probe", "schema": 1},
+            doc_id="_readiness",
+            refresh=False,
+        )
+        return True
+
     # --- READ-ONLY log surface (scoped read-only key ONLY) ---
     @abstractmethod
     async def search_logs(self, index: str, body: dict[str, Any]) -> dict[str, Any]:
         """Search the configured log indices. Read-only. This is the agent's only
         path to log data (Section 6.5, es_query tool)."""
+
+    async def open_log_pit(self, index: str, keep_alive: str = "1m") -> str | None:
+        """Open a read-only point-in-time view for stable pull pagination.
+
+        Optional by design: third-party/older compatible clients can return None
+        and the connector uses bounded offset pagination instead.
+        """
+        return None
+
+    async def close_log_pit(self, pit_id: str) -> None:
+        """Close a PIT opened by :meth:`open_log_pit` (optional no-op)."""
+        return None
 
     # --- MANAGEMENT: the suite's OWN indices (scoped management key) ---
     @abstractmethod

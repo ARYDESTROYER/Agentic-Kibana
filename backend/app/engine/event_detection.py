@@ -218,7 +218,11 @@ def pre_aggregate(events: list[RawEvent], prefs: Preferences) -> list[EntityBuck
                 entity_type=entity_type.value,
                 entity_value=value,
                 bucket=bkt,
-                signature=cluster_signature(entity_type, value),
+                signature=cluster_signature(
+                    entity_type,
+                    value,
+                    source_id=next((m.source_id for m in members if m.source_id), None),
+                ),
                 count=len(members),
                 distinct_rules=len(rule_mix),
                 distinct_hosts=len(host_mix),

@@ -38,6 +38,25 @@ from .utils import coerce_float, dotted_get, iso_now, new_id, parse_es_timestamp
 # --------------------------------------------------------------------------- #
 # Entities and events
 # --------------------------------------------------------------------------- #
+_CURSOR_KEY_SEPARATOR = "\x1f"
+
+
+def make_cursor_event_key(index: str, event_id: str) -> str:
+    """Return an opaque cursor identity, qualified by the originating index."""
+    index = str(index or "")
+    event_id = str(event_id or "")
+    return f"{index}{_CURSOR_KEY_SEPARATOR}{event_id}" if index else event_id
+
+
+def split_cursor_event_key(value: str) -> tuple[str | None, str]:
+    """Decode a cursor key; bare ids are legacy cursor entries."""
+    value = str(value or "")
+    if _CURSOR_KEY_SEPARATOR not in value:
+        return None, value
+    index, event_id = value.split(_CURSOR_KEY_SEPARATOR, 1)
+    return index, event_id
+
+
 class Entity(BaseModel):
     type: EntityType
     value: str
@@ -80,6 +99,20 @@ class RawEvent(BaseModel):
     # behaviour byte-for-byte (every event eligible, no feed).
     feed_id: str = ""
     auto_investigate_eligible: bool = True
+
+    def cursor_key(self) -> str:
+        """Stable, source-index-qualified identity for pull bookkeeping.
+
+        Elasticsearch ``_id`` values are unique only within an index.  A data-view
+        can span many rollover indices, so a bare ``_id`` cannot safely drive cursor
+        or in-process deduplication. The source-native ``id`` remains available for
+        display and ``ids`` queries; this opaque identity is persisted separately.
+        """
+        return make_cursor_event_key(self.index, self.id)
+
+    def event_key(self) -> str:
+        """Canonical event identity used for deduplication and case membership."""
+        return self.cursor_key()
 
     @classmethod
     def from_hit(cls, hit: dict[str, Any], prefs: Preferences) -> "RawEvent":
@@ -253,6 +286,9 @@ class Cluster(BaseModel):
     group_by: EntityType
     rule_values: list[str] = Field(default_factory=list)
     member_event_ids: list[str] = Field(default_factory=list)
+    # Source-index-qualified identities. ``member_event_ids`` stays as the native
+    # id list for backwards-compatible queries/UI; keys own dedup/count semantics.
+    member_event_keys: list[str] = Field(default_factory=list)
     member_events: list[RawEvent] = Field(default_factory=list)
     first_seen_millis: int = 0
     last_seen_millis: int = 0
@@ -264,6 +300,9 @@ class Cluster(BaseModel):
     # from the cluster's member events; default None preserves prior behaviour.
     source_id: str | None = None
     source_name: str | None = None
+    # Entity-only signature used by pre-source-scoping releases. It is retained for
+    # one-way, in-place migration of an already-open legacy case.
+    legacy_signature: str | None = None
     # True when ANY member event came from an ``alerts``-role index pattern: such
     # clusters are SIEM-generated detections and are auto-forwarded to investigation
     # regardless of the auto-forward allowlist (see engine/ingest.handle_clusters).
@@ -1119,6 +1158,7 @@ class Case(BaseModel):
     source_id: str | None = None
     source_name: str | None = None
     member_event_ids: list[str] = Field(default_factory=list)
+    member_event_keys: list[str] = Field(default_factory=list)
     risk_score: float = 0.0
     verdict: Verdict | None = None
     confidence: float = 0.0
@@ -1160,6 +1200,9 @@ class Case(BaseModel):
     # Helpful, non-contract-breaking extras for the UI / audit:
     title: str = ""
     summary: str = ""
+    # Explicit machine-readable reason an undecided candidate is waiting. In
+    # particular, ``deferred:`` candidates are durably drained on a later tick.
+    awaiting_reason: str = ""
     risk_breakdown: RiskBreakdown = Field(default_factory=RiskBreakdown)
     token_cost: float = 0.0
     error: str | None = None
@@ -1315,17 +1358,29 @@ class UsageDoc(BaseModel):
 class Cursor(BaseModel):
     """Durable polling cursor (Section 6.1).
 
-    Stores only *stable* document attributes so it survives restarts: the last
-    processed ``@timestamp`` (millis) and the ids of every event already processed
-    AT exactly that timestamp (the "boundary"). The poller filters
-    ``@timestamp >= timestamp_millis`` (never `>`), so no event is ever skipped;
-    the boundary ids dedupe the same-millisecond events that the inclusive bound
-    re-fetches, so nothing is re-processed. Case-signature idempotency
-    (Section 6.2) is the final backstop against duplicate cases.
+    Stores only stable document attributes so it survives restarts: the last
+    processed event timestamp, opaque source-index-qualified identities at that
+    exact boundary, and a bounded exact identity ledger for the late-arrival
+    overlap.  The frontier remains logically inclusive; boundary identities are
+    excluded at query time and checked again here, so a same-millisecond page can
+    be drained without replay.  Case-signature idempotency remains the final
+    backstop; this contract does not claim distributed exactly-once delivery.
     """
 
     timestamp_millis: int = 0
     boundary_ids: list[str] = Field(default_factory=list)
+    # Exact, bounded identity ledger for the late-arrival overlap window.  Values
+    # are event timestamps in epoch millis; keys are ``RawEvent.cursor_key()``.
+    # Additive defaults keep every existing stored cursor readable.  An old cursor
+    # first backfills this ledger without treating historical rows as new, then
+    # enables late-arrival processing on the next complete scan.
+    recent_event_millis: dict[str, int] = Field(default_factory=dict)
+    overlap_initialized: bool = False
+    overlap_saturated: bool = False
+    # Runtime callers that intentionally perform a fixed historical window scan
+    # (for correlation/evidence) disable the extra late-arrival pass explicitly.
+    # Durable poll cursors keep the default enabled value.
+    late_arrival_overlap_enabled: bool = True
 
     def is_set(self) -> bool:
         return self.timestamp_millis > 0
@@ -1338,10 +1393,19 @@ class Cursor(BaseModel):
         malformed timestamp cannot silently drop an alert."""
         if ev.timestamp_millis <= 0:
             return False
+        event_key = ev.cursor_key()
         if ev.timestamp_millis < self.timestamp_millis:
-            return True
-        if ev.timestamp_millis == self.timestamp_millis and ev.id in set(self.boundary_ids):
-            return True
+            # Pre-upgrade cursors have no recent-id ledger.  During their bounded
+            # backfill all older rows remain skipped, preventing a one-time replay.
+            if not self.overlap_initialized or self.overlap_saturated:
+                return True
+            return event_key in self.recent_event_millis
+        if ev.timestamp_millis == self.timestamp_millis:
+            # New cursors persist source-index-qualified keys.  The bare-id check
+            # keeps cursors written by older releases backward-compatible.
+            boundary = set(self.boundary_ids)
+            if event_key in boundary or ev.id in boundary:
+                return True
         return False
 
 
@@ -1430,6 +1494,9 @@ class InvestigateRequest(BaseModel):
     group_by: EntityType = EntityType.IP
     event_ids: list[str] = Field(default_factory=list)
     rule_values: list[str] = Field(default_factory=list)
+    # Explicit originating PULL source. Additive for older clients; when supplied,
+    # both event reconstruction and every investigator query stay on this connector.
+    source_id: str | None = None
     source_surface: SourceSurface = SourceSurface.INVESTIGATE
     # Optional per-request override of the starting lookback window for an entity
     # investigation (additive; the proxy forwards it). Falls back to

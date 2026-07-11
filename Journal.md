@@ -1500,3 +1500,268 @@
 - Adversarial verification found **5 major + 6 minor** (all confirmed, all fixed): cap-deferred clusters never drained; multi-feed silent-vs-broken blind; ES audit `source_id` unmapped; silent-threshold false-positives on quiet alert feeds; RouteMotion lazy-resolve unmount/remount; tuner-migration skipping mandatory shadow-eval; per-tick cap is per-source (redocumented, daily budget is the global bound); motion cross-fade/count-up honesty. Test-integrity audit confirmed the 20+ modified existing tests were LEGIT default-ON updates, not masked regressions.
 - Status: **done — Round 10 complete, LOCAL on `Testing`, committed (no co-author), NOT pushed** (per "commit locally").
 - Next: user's call to push `Testing`; possible fast-follows flagged in ROADMAP (global-per-tick cap threading, opt-in reputation-in-routing-gate, batch default posture, OTEL/scale-out). Pixel QA of the motion + coverage surfaces needs a human (agents can't render).
+### 2026-07-11 10:23Z — Codex orchestrator — Bleeding Edge release-readiness program started
+- Context: Make `AGENTS.md` the cross-agent source of truth, inspect the complete product with multiple agents, research competitive SOC architectures and release practices, identify and fix backend/product gaps, validate all release gates, and produce a locally committed Bleeding Edge candidate without pushing.
+- Did: Read `docs/HANDOFF.md`, `AGENTS.md`, the active branch state, and the deep-security-scan operating contract; confirmed `Testing` is clean at `d8f415a` except for the user-provided untracked `AGENTS.md`; began the required source-of-truth conversion and release audit.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Create the temporary continuity note, inventory the repository and baselines, run parallel architecture/security/product research, implement validated fixes, rerun all gates, remove the temporary note, and commit locally.
+
+### 2026-07-11 — Codex security worker R05b — `routes_setup.py` review started
+- Context: Defensive first-party correctness review of the public OOBE first-admin route for the active deep security scan.
+- Did: Read the scan-specific `security_guidance.md` and `threat_model.md` in full, then read the owned source file in full; beginning direct-control tracing for self-locking, password policy, race safety, public-route conditions, auth/session state, audit, and secret handling.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Inspect only direct supporting controls, write the R05b discovery receipt, and report concrete invariant failures only.
+
+### 2026-07-11 11:49Z — Codex security worker R08a — `config.py` review started
+- Context: Defensive first-party correctness review of `backend/app/config.py` for the active deep security scan.
+- Did: Read the scan-specific `security_guidance.md` and `threat_model.md` in full and resolved the finding-discovery workflow; beginning a full-file review focused on production defaults, secret boundaries, validators/overposting, URL/TLS/auth settings, default credentials, autopilot invariants, migration, and configured-status disclosure.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Read the target file in full, inspect only direct supporting controls as needed, and write the R08a discovery receipt.
+
+### 2026-07-11 11:49Z — Codex security worker R07b — `routes_cases_collab.py` review started
+- Context: Defensive first-party correctness review of the case-collaboration API for the active deep security scan.
+- Did: Read the finding-discovery workflow, scan-specific `security_guidance.md`, `threat_model.md`, and project handoff in full; preparing the assigned one-file review.
+- Tests: Not run (discovery start milestone).
+- Status: in-progress.
+- Next: Read the owned source fully, trace only direct controls for scope/authorship/untrusted text/fan-out/concurrency, and write the R07b receipt.
+
+### 2026-07-11 — Codex security worker R05b — `routes_setup.py` review completed
+- Context: Completed the scoped defensive review of the public OOBE first-admin route.
+- Did: Wrote `artifacts/02_discovery/worker_results/R05b.json` with one completed file receipt, three concrete candidates, three suppressions, and exact supporting evidence; wrote three-row discovery/validation/attack-path ledgers for R05b-C01 through R05b-C03. No target source was edited and no offensive payload was used.
+- Tests: Targeted backend OOBE suites passed: `tests/test_round4_wave4_setup.py` and `tests/test_oobe.py`; JSON and all three JSONL ledgers parsed successfully, with exactly three rows per ledger.
+- Status: done.
+- Next: Parent scan should reconcile and centrally validate the environment-admin self-lock mismatch, default-ES fail-open existence probe, and incomplete strong-password predicate.
+
+### 2026-07-11 12:12Z — Codex security worker R07b — `routes_cases_collab.py` review completed
+- Context: Completed the scoped defensive review of case collaboration reads, authorship, mutations, stored data, fan-out, audit behavior, and idempotency.
+- Did: Wrote `artifacts/02_discovery/worker_results/R07b.json` with one completed receipt, nine concrete candidates, eight exact suppressions, and candidate-local control evidence; wrote three-row discovery/validation/attack-path ledgers for R07b-C01 through R07b-C09. No target source was edited and no offensive payload was used.
+- Tests: `tests/test_round3_wave2_collab.py` + `tests/test_round3_wave5_rbac.py` passed (28 tests); isolated auth/RBAC, ownership, provenance, mention-replay, audit-failure, metadata-bound, and migration-race control checks completed; JSON parsed and all nine ledgers validated at exactly three rows each.
+- Status: done.
+- Next: Parent scan should reconcile and centrally validate the three missing cases:read instances, provenance spoofing, cross-author edit/delete, unbounded metadata, mention replay, and migrate-on-read race.
+
+### 2026-07-11 12:26Z — Codex security worker R08a — `config.py` review completed
+- Context: Completed the scoped defensive review of production defaults, authentication/authorization policy, secret/non-secret separation, loose config boundaries, URL/TLS credential binding, Autopilot safety, migration behavior, and configured-status disclosure.
+- Did: Wrote the scan artifact `artifacts/02_discovery/worker_results/R08a.json` with one completed receipt, 13 concrete candidates, seven suppressions, canonical supporting evidence, and validation guidance; wrote exactly three discovery/validation/attack-path ledger rows for R08a-C01 through R08a-C13. The owned target `backend/app/config.py` was not edited and no offensive payload or external target was used.
+- Tests: 99 targeted backend tests passed across Autopilot, connectors, RBAC, OOBE, and Round-3 foundation suites; isolated defensive harnesses confirmed auth/RBAC/cookie defaults, the public MFA fallback, source and notification config overposting, model/source/SMTP endpoint-to-secret rebinding, warning-only budget behavior, and repeated non-durable Autopilot migration. The receipt and all 13 JSONL ledgers parsed successfully and every ledger has exactly the required three phases.
+- Status: done.
+- Next: Parent scan should deduplicate and centrally validate the 13 candidates, especially the three endpoint/credential binding instances and the two persisted-config overposting families.
+
+### 2026-07-11 12:28Z — Codex orchestrator — Security lane deferred; release-readiness work resumed
+- Context: The supporting Codex Security scan repeatedly hit automated response filters while dispatching repository-wide review shards, and the user explicitly directed the session to leave that review out for now and return to the original Bleeding Edge product task.
+- Did: Preserved the scan-local threat model, 786-file ranked inventory, 140-file deep-review worklist, partial coverage ledger, and completed worker receipts outside the repository; stopped the security goal and scan without applying any scan findings to source. The partial lane reviewed 35 selected files and produced unvalidated candidates for a future dedicated scan. No source file was changed by the security workers.
+- Tests: Security workers ran targeted defensive suites on their owned files; these do not replace the final product gates. Full repository gates remain pending.
+- Status: done (security lane intentionally deferred, not represented as a completed audit).
+- Next: Run parallel backend/architecture, product/release/docs, and ingest/correlation/scaling assessments; validate findings directly against the current tree; implement only confirmed fixes.
+
+### 2026-07-11 12:46Z — Codex ingest/scale research sub-agent — Ingestion and scaling audit completed
+- Context: Read-only backend architecture and industry-research lane for the first Bleeding Edge release.
+- Did: Confirmed ID-less push-event collapse, unstable pull pagination/late-arrival handling, unsafe acknowledgement/checkpoint semantics, receiver lifecycle and capability gaps, detection/case identity conflation, process-local coordination, non-atomic KV mutation, and normalization-profile limitations. Synthesized a low-cost architecture in which every event is handled deterministically while only compact candidates reach an LLM.
+- Tests: Reproduced two distinct RFC5424 records with empty IDs collapsing to one after deduplication. No source files were edited.
+- Status: done.
+- Next: Fix ingestion identity and acceptance semantics first; keep the first alpha explicitly single-replica until durable queues, leases, and atomic state operations exist.
+
+### 2026-07-11 12:51Z — Codex release/docs research sub-agent — BE release and documentation audit completed
+- Context: Read-only audit of product versioning, branches, CI, packaging, health/readiness, upgrades, artifacts, and professional public documentation.
+- Did: Confirmed conflicting product versions, no tags/releases/license, divergent default/testing branches, incomplete CI, misleading readiness, absent SQL migrations, incomplete connector image packaging, volatile source secrets, and documentation/navigation gaps. Recommended protected `main` + `next`, prerelease/RC tags for testing, a conservative `3.0.0-alpha.1`, and MkDocs Material on GitHub Pages.
+- Tests: Agnostic Compose configuration validated with a temporary password; checked branch/version/OpenAPI/package metadata. No source files were edited.
+- Status: done.
+- Next: Implement canonical version/readiness/CI/docs foundations, then publish only after the integrity and golden-path gates pass.
+
+### 2026-07-11 12:53Z — Codex backend release-readiness sub-agent — Backend/runtime audit completed
+- Context: Read-only end-to-end audit of ingest, connectors, normalization, correlation, investigation, persistence, source lifecycle, schedulers, scaling, and release readiness.
+- Did: Confirmed release blockers in push event identity, false-success ingestion acknowledgement, multi-source investigation routing, volatile connector secrets, receiver reconciliation, push mappings, connector packaging, default routing risk, push evidence retention, incident over-merging, multi-replica CAS/locking, spend governance, and readiness reporting. Produced an ordered remediation plan.
+- Tests: Full backend suite passed: 1,798 tests across 127 files. Focused probes reproduced the principal blockers. No source files were edited.
+- Status: done.
+- Next: Implement the durable event/idempotency foundation, source-aware investigation, supervised receiver lifecycle, truthful capabilities/readiness, and release gates in that order.
+
+### 2026-07-11 13:02Z — Codex orchestrator — Release implementation tracks started
+- Context: The audit/research phase converged on a common blocker set and the user directed uninterrupted progress on the original task.
+- Did: Started three non-overlapping implementation tracks for push-ingest identity/mapping, canonical version/readiness/CI, and public GitHub Pages documentation/release architecture. The orchestrator is handling acknowledgement semantics and final integration.
+- Tests: Pending implementation.
+- Status: in-progress.
+- Next: Merge the three tracks, run targeted tests, then complete the full backend and web gate matrix before a local commit.
+
+### 2026-07-11 13:20Z — Codex backend integrity worker — Push identity and mapping repair started
+- Context: Implement the focused Bleeding Edge integrity slice for deterministic push-event identity, source-isolated vendor IDs, and application of saved per-source field mappings across push receiver paths.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; isolated the work to backend connector/ingest normalization code and focused offline tests.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Trace common/webhook/object-store normalization and ingest deduplication, implement the smallest compatible fix, and run targeted receiver/ingest tests.
+
+### 2026-07-11 13:20Z — Codex release-runtime agent — Release/runtime hardening started
+- Context: Implement the bounded first-Bleeding-Edge release slice: one canonical prerelease version, truthful liveness/readiness/build metadata, Docker health semantics, and stronger CI gates.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved release/version, health API, Docker healthcheck, and CI files while avoiding receiver/OCSF code and public documentation content.
+- Tests: Not run yet (start milestone).
+- Status: in-progress.
+- Next: Inventory all active version literals and health/auth contracts, implement backward-compatible changes, then run the focused backend and release gates.
+
+### 2026-07-11 13:21Z — Codex public-docs agent — Public documentation foundation started
+- Context: Build a professional public documentation and release-planning foundation for the first Bleeding Edge release, deployable free through GitHub Pages.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved MkDocs configuration, public documentation pages, the separate Pages workflow, and documentation-only dependencies while avoiding backend/web source, root versioning, CI, and `CLAUDE.md`.
+- Tests: Not run yet (start milestone).
+- Status: in-progress.
+- Next: Verify current connector/deployment truth, implement the public information architecture and release/ingestion guidance, then build the site in strict mode and validate internal links.
+
+### 2026-07-11 13:24Z — Codex orchestrator — Failed-ingest acknowledgement made truthful
+- Context: A persistence failure was previously returned as a successful receive, causing webhook senders and durable brokers to discard unprocessed alerts.
+- Did: Added a retryable `IngestBatchError` boundary; HTTP push now returns 503 with `Retry-After` instead of `ok: true`; Kafka auto-commit is disabled and offsets commit only after successful shared ingestion; S3 notification messages are retained when object processing fails.
+- Tests: Focused backend ingestion suite passed: 8 tests across `test_ingest_acknowledgement.py` and `test_ingest_push.py`, including store failure, HTTP 503, Kafka commit-after-success, and no-commit-on-failure.
+- Status: done (bounded integrity improvement; durable local inbox/outbox remains a documented alpha blocker).
+- Next: Integrate source-scoped identities/mappings, version/readiness/CI, and docs tracks; then reassess receiver lifecycle and source routing within the remaining release budget.
+
+### 2026-07-11 13:31Z — Codex backend integrity worker — Push identity and mappings repaired
+- Context: Close two confirmed ingest-loss/customization gaps before the Bleeding Edge candidate: empty push ids collapsing a batch and `field_mappings_extra` being ignored outside Elastic pull.
+- Did: Added deterministic source-scoped push identities (vendor-id or canonical-record+ordinal), enforced the invariant again before ingest deduplication, taught generic OCSF normalization to prefer configured mapping paths, and routed common/webhook/object-store record normalization through one mapping-aware implementation. Added focused NDJSON, syslog, vendor-id isolation, webhook mapping, and S3 object-path regressions.
+- Tests: 98 passed across `tests/test_receivers.py`, `tests/test_ingest_customization.py`, and `tests/test_source_feeds.py`; 18 passed in `tests/test_overhaul_b1_ingestion.py`; `compileall` clean for the edited backend modules.
+- Status: done (implementation milestone; final shared-tree integration review remains with the orchestrator).
+- Next: Orchestrator should retain the shared acknowledgement changes in `ingest.py`/`objectstore.py`, run the complete backend suite, and include the new `app/ocsf/identity.py` file in the final commit.
+
+### 2026-07-11 13:32Z — Codex backend integrity worker — Push integrity session ended
+- Context: Final handoff of the bounded push identity/mapping implementation to the Bleeding Edge orchestrator.
+- Did: Reviewed the scoped diff for whitespace/errors, confirmed the new identity helper is dependency-free and idempotent at both normalization and ingest boundaries, and preserved concurrent acknowledgement/retry edits in shared files.
+- Tests: Scoped `git diff --check` clean; prior 98-test + 18-test backend runs and module compilation remain green.
+- Status: done.
+- Next: Run the repository-wide backend gate after all parallel patches settle; no commit or push was performed by this worker.
+
+### 2026-07-11 13:33Z — Codex release-runtime agent — Version and runtime gates implemented
+- Context: Establish a truthful, mechanically checked release identity and separate process liveness from persistence readiness for the first public prerelease.
+- Did: Added canonical root `VERSION` (`3.0.0-alpha.1`) and synchronized Python, FastAPI, web package/lock, generated OpenAPI, and Compose default image tags; added the zero-dependency `scripts/check_version.py`; added public `/api/health/live`, `/api/health/ready`, and `/api/health/build-info` while preserving the legacy `/api/health` shape; readiness now probes SQL directly or the ES management client specifically. Docker/Compose now gate on readiness. CI now runs version/Compose validation plus web lint, design gates, Vitest, and build, and covers the current/default plus proposed release branches.
+- Tests: 34 focused backend tests passed (`test_api`, `test_health_runtime`, route-auth coverage, response contracts); generated API-type contract 5/5 passed; version checker passed; agnostic Compose config passed; Python compileall passed. Ruff was unavailable in the existing venv, so no Ruff result is claimed.
+- Status: done (implementation milestone; final shared-tree full gates remain with the orchestrator).
+- Next: Re-run the focused tests after all concurrent edits settle, then include these files in the full backend/web release gate and local commit.
+
+### 2026-07-11 13:35Z — Codex release-runtime agent — Release/runtime session ended
+- Context: Final verification and handoff of the bounded release/runtime hardening slice.
+- Did: Regenerated OpenAPI/TypeScript contracts twice and confirmed byte-identical checksums; reviewed the scoped changes, retained concurrent ingest/source-lifecycle edits, and handed the integration summary to the orchestrator. No commit or push was performed.
+- Tests: Re-run passed 34/34 focused backend tests; canonical version check and agnostic Compose validation passed; repository `git diff --check` passed; generated contract checksums were stable across regeneration.
+- Status: done.
+- Next: Orchestrator owns full-suite backend/web gates, temporary-memory cleanup, final diff review, and the requested local commit.
+
+### 2026-07-11 13:36Z — Codex pull-cursor worker — Pull pagination correctness started
+- Context: Repair pull-source cursor correctness for equal timestamps, multi-page result sets, retry boundaries, and bounded late arrivals without touching push receivers or release surfaces.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved the Elastic/OpenSearch/Wazuh pull connector path, poll cursor flow, and focused offline tests.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Confirm the shared pull query abstraction, implement deterministic pagination plus overlap-safe deduplication, then run focused regression tests.
+
+### 2026-07-11 13:39Z — Codex public-docs agent — Public documentation foundation implemented
+- Context: Turn the internal engineering documentation into a concise, professional public foundation for the first Bleeding Edge build without hiding alpha constraints.
+- Did: Added a pinned MkDocs Material site, polished public landing page, demo/evaluation quickstart, honest 19-connector support matrix, current-vs-target ingestion/correlation/mapping/scaling design, two-permanent-branch release policy, explicit blocker register, GitHub Pages workflow, and ignored generated site output. Kept HANDOFF, Journal, legacy long-form docs, and research scratchpads out of the public build.
+- Tests: `mkdocs build --strict` passed; generated-link validation passed for 368 links across 7 HTML pages; documentation workflow YAML parsed; scoped `git diff --check` passed. Interactive visual QA was unavailable because the workspace exposed no browser surface.
+- Status: in-progress (implementation milestone; final blocker wording will be reconciled with the in-flight source-aware investigation and pull-pagination fixes).
+- Next: Reconcile every limitation against the settled shared tree, rerun strict/link checks, remove generated output, append the closing Journal entry, and hand off without committing.
+
+### 2026-07-11 13:42Z — Codex container/package worker — Bleeding Edge image correctness started
+- Context: Make the backend image and Python distribution truthful and runnable for the first Bleeding Edge build: complete package/data contents, non-root runtime, pinned base, OCI metadata, and honest optional-connector availability.
+- Did: Reserved `backend/Dockerfile`, backend package/dependency metadata, Docker build-context exclusions, and focused offline packaging/image smoke tests; explicitly excluded routes, pipelines, receivers, CI, public docs, and version changes.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Re-read the current handoff/rules, inspect package and image ground truth, implement a core/full image contract, and verify wheels plus Dockerfile semantics offline.
+
+### 2026-07-11 13:43Z — Codex orchestrator — Source lifecycle and investigation isolation repaired
+- Context: Source mutations required a restart, and secondary-source investigations could query the primary source, mixing evidence across connectors.
+- Did: Added live receiver reconciliation after source create/edit/delete and secret rotation, revoked orphaned secrets, awaited receiver shutdown, and surfaced background task exits. Threaded each originating pull connector through automated, manual, re-investigation, playbook, and event-detection paths; source-specific event reconstruction now uses the connector SPI, and push-only sources cannot silently fall back to a different query surface. Also made the pipeline propagate a terminal fallback-case persistence failure so transports can retry rather than acknowledge an unsaved case.
+- Tests: 42 source-aware/poller/reinvestigation tests passed, followed by 22 focused acknowledgement/source/investigation tests; new selected-source regression proved source-B events and rule IDs exclude source A. Receiver lifecycle/ingest focused set passed 10/10.
+- Status: done (receiver auto-restart/backoff and durable push evidence remain explicit alpha limitations).
+- Next: Integrate the pull pagination and packaging tracks, regenerate API contracts for the additive `source_id`, then run every backend/web/docs/release gate.
+
+### 2026-07-11 13:54Z — Codex pull-cursor worker — Pull cursor integrity implemented and verified
+- Context: Eliminate equal-timestamp starvation and single-page loss on the shared Elasticsearch/OpenSearch/Wazuh pull path while admitting bounded late events without replaying prior rows.
+- Did: Added PIT + `search_after` pagination with a stable `_shard_doc` tie-breaker and bounded no-PIT fallback; server-side, source-index-qualified boundary exclusions; a durable five-minute exact late-arrival identity ledger with replay-safe old-cursor backfill and a 100k safety cap; complete cursor-state persistence; and deterministic offline PIT/search-after support. Added regressions for >2× batch size at one timestamp, multi-page fallback, retry boundaries, same-ms inserts, rollover `_id` collisions, and late arrival once-only case handling.
+- Tests: Full backend suite passed: 1832 tests collected/passed; focused pull/connector/poller/state/observability matrix passed 102 tests; `compileall` and `git diff --check` passed.
+- Status: done (implementation milestone; no distributed exactly-once claim — no-PIT concurrent-refresh semantics remain the documented compatibility bound).
+- Next: Hand the shared-tree patch to the orchestrator for final cross-track review and commit.
+
+### 2026-07-11 13:54Z — Codex pull-cursor worker — Pull pagination session ended
+- Context: Final handoff of the bounded pull correctness slice.
+- Did: Reconciled the public-doc limitation wording with the documentation worker, preserved concurrent source-aware investigation/readiness changes in shared files, and reviewed the final scoped behavior and residual bounds.
+- Tests: Full backend 1832/1832 green; focused 102/102 green; source compilation and whitespace checks clean.
+- Status: done.
+- Next: Orchestrator should retain the additive cursor fields and `test_pull_pagination.py`, rerun final repository-wide release gates after the packaging/docs tracks settle, and commit locally without claiming exactly-once delivery.
+
+### 2026-07-11 13:55Z — Codex pull-cursor worker — Cursor contract wording synchronized
+- Context: Final post-verification cleanup after the pull correctness handoff.
+- Did: Updated the in-code Cursor and FeedScan/poll documentation to describe paginated frontier reads, source-index-qualified identities, bounded late-arrival state, and the explicit absence of a distributed exactly-once claim.
+- Tests: `test_pull_pagination.py` 5/5 passed again; `compileall` and `git diff --check` clean.
+- Status: done.
+- Next: No additional pull-cursor work remains before orchestrator integration.
+
+### 2026-07-11 13:59Z — Codex public-docs agent — Public documentation foundation completed
+- Context: Finalize a professional, GitHub Pages-ready documentation and release-policy foundation that matches the settled Bleeding Edge code rather than the pre-audit repository claims.
+- Did: Reconciled the public pages against the implemented push identity/mapping and retry boundary, source-safe investigations, live receiver reconciliation, draft connector tests, PIT pull pagination/late overlap, source-scoped case signatures, available-signal routing risk, persisted aggregate baseline learning, hard budget preflight, and full/core distribution contract. The remaining blocker register now contains only current gaps: project license, durable receipt/replay, non-uniform receiver checkpoints, persistent dynamic secrets, versioned database migrations, and within-source incident-episode identity. Added preview artifacts plus main-only Pages deployment and kept internal handoff/research material excluded.
+- Tests: `mkdocs build --strict` passed; 380 generated links across 7 HTML pages validated including fragments; landing hero/Mermaid/version banner rendered in generated HTML; workflow YAML/main-only deploy condition validated; all four public external links returned HTTP 200; scoped `git diff --check` passed; generated `site/` removed; the shared packaging contract also passed 5/5 (actual wheel content/import smoke included). Interactive browser visual QA remained unavailable because no browser surface was exposed.
+- Status: done (documentation lane complete; no commit or push performed).
+- Next: Orchestrator should include `.gitignore`, `mkdocs.yml`, `.github/workflows/docs.yml`, `docs/requirements.txt`, and the new public page/style directories in final review; decide the license before any public binary/open-source release; then run the final whole-repository gates and commit locally.
+
+### 2026-07-11 14:01Z — Codex final backend reviewer — Release-integrity review started
+- Context: Perform a read-only final review of the uncommitted backend hardening, concentrating on pull cursor/PIT pagination, late-arrival deduplication, ingest acknowledgement, source isolation/signatures, receiver lifecycle, budget/risk routing, and baseline persistence.
+- Did: Read the current handoff and agent rules; reserved a no-code-change review pass over the settled shared tree.
+- Tests: Not run (session-start milestone; full-suite execution explicitly excluded from this review).
+- Status: in-progress.
+- Next: Trace each changed boundary end to end, run only small diagnostic checks if needed, and report concrete release blockers with file/line evidence.
+
+### 2026-07-11 14:01Z — Codex release-engineering reviewer — Final release/docs audit started
+- Context: Independently audit the uncommitted Bleeding Edge release surface: synchronized version metadata, core/full backend packaging, Compose readiness, CI and GitHub Pages workflows, public documentation claims and links, release-channel policy, and known limitations.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` completely; reserved a read-only product/docs review, with `Journal.md` as the only permitted edit.
+- Tests: Not run (session-start milestone; long suites are outside this focused review).
+- Status: in-progress.
+- Next: Compare every release claim to executable configuration and package contents, run only short static checks, then report concrete findings with file/line evidence.
+
+### 2026-07-11 14:11Z — Codex release-engineering reviewer — Static release contracts audited
+- Context: Validate the release metadata, distribution tiers, Compose/readiness wiring, CI/docs workflows, channel policy, and public alpha claims against the live shared tree.
+- Did: Confirmed the 19-manifest/full-dependency and wheel-data design, found and reported generated-contract CI and web OCI-label gaps (both corrected by the orchestrator during the audit), and identified remaining state-readiness, exact-release CI/artifact, MQTT acknowledgement, quickstart-demo, stale master-context/changelog, and reproducibility gaps with file/line evidence.
+- Tests: `scripts/check_version.py` passed for `3.0.0-alpha.1`; agnostic `docker compose config --quiet` passed; OpenAPI JSON and generated TypeScript were independently regenerated to `/tmp` and matched byte-for-byte; `git diff --check` passed. A fresh local MkDocs invocation was unavailable in this shell, while the dedicated docs agent's strict build/link validation is recorded separately.
+- Status: in-progress (evidence collected; final severity/order and handoff remain).
+- Next: Re-read concurrently corrected workflow/packaging files, separate resolved observations from open release blockers, append the session-end journal entry, and return the final audit without editing product/docs files.
+
+### 2026-07-11 14:14Z — Codex release-engineering reviewer — Final release/docs audit completed
+- Context: Close the independent release-engineering review after reconciling fixes made concurrently by the orchestrator.
+- Did: Re-verified the corrected hard generated-contract CI gate, backend+web OCI metadata, truthful write-path readiness sentinel, narrowed transport-ack wording, and Kafka no-exactly-once language. Returned the remaining blockers: dead `CLAUDE.md` section references plus stale HANDOFF/AGENTS status/defaults, incorrect local-demo claim, stale hard-budget changelog, no CI/release/docs artifact run on `release/**` or immutable tags, no image/SBOM/provenance publication lane, non-reproducible open dependency/base-image ranges, unresolved owner license, documented data-plane alpha blockers, and mandatory removal of `memory.md` before commit.
+- Tests: Final `scripts/check_version.py`, agnostic `docker compose config --quiet`, and `git diff --check` all passed. No long suite was run by this read-only reviewer; the dedicated docs agent recorded strict MkDocs/link success and the packaging worker recorded wheel-contract success.
+- Status: done (audit only; no product/docs files edited, no commit or push).
+- Next: Orchestrator should resolve the documentation/release-lane hygiene items before the local commit, preserve the explicit blocker register, run the complete backend/web/docs gates, delete `memory.md`, and avoid tagging `v3.0.0-alpha.1` until the license and stated alpha exit gates are satisfied.
+
+### 2026-07-11 14:30Z — Codex orchestrator (worker handoff) — Backend final review closed after capacity error
+- Context: Preserve the read-only backend reviewer's findings and required end-of-session journal record after its model became unavailable before it could write the closing entry.
+- Did: Triaged every concrete finding the worker returned: fixed push/deleted-source evidence isolation, push-first primary leakage, rollover event identity, legacy signature migration, local receiver restart supervision, successive-callback push correlation, and quiet-tick deferred-candidate draining. Kept durable receipt/checkpoints/distributed ownership as explicit public blockers.
+- Tests: Focused source/push/pull/receiver/cap regressions were rerun during each fix and passed; the final full suite is still pending.
+- Status: done (review lane ended; no security-scan claim is made).
+- Next: Run the full integrated backend/web/docs/release gates and correct any cross-suite regressions before commit.
+
+### 2026-07-11 14:30Z — Codex orchestrator — Alpha integrity and release-contract reconciliation
+- Context: Close high-confidence issues found by the independent final reviewers before the first complete release gate.
+- Did: Added write-path readiness, web OCI metadata, exact contract CI checks, release/tag CI triggers, source-index case membership, a durable deferred queue over case state, receiver restart backoff, push sliding-window correlation, push-only no-query behavior, canonical AGENTS references, current autopilot defaults, a real seeded one-command demo, direct dependency pins, and a consolidated `3.0.0-alpha.1` changelog entry. Updated public limitations rather than overstating production readiness.
+- Tests: Focused matrices for health, push thresholds, source isolation, rollover, legacy migration, reinvestigation, receiver restart, and deferred draining passed; version/Compose/strict docs/contract checks were green before the latest additive model changes.
+- Status: in-progress (implementation complete enough for integrated gates; generated contracts and all final gates must be rerun).
+- Next: Regenerate OpenAPI/types, run the full backend and web matrices plus docs/package/version/Compose checks, then clean temporary state and commit locally only.
+
+### 2026-07-11 14:44Z — Codex pre-commit integrity reviewer — Bounded release-integrity review started
+- Context: Perform one read-only pre-commit review of the changed ingest/source/pagination/deferred-queue and release packaging/version/docs paths, explicitly excluding a security scan and the already-green full test suites.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` completely; reserved a short evidence-driven pass for concrete P0/P1 correctness regressions or release contradictions. Product files will not be edited.
+- Tests: Not run (session-start milestone; only short targeted diagnostics are permitted).
+- Status: in-progress.
+- Next: Inspect the changed boundaries and release contracts, report only actionable P0/P1 findings with file/line evidence, then close the journal entry.
+
+### 2026-07-11 14:52Z — Codex pre-commit integrity reviewer — Bounded release-integrity review completed
+- Context: Close the read-only pre-commit review of the changed ingest/source/pagination/deferred-queue and release packaging/version/docs paths; this was explicitly not a security scan.
+- Did: Found and reported two concrete P1 correctness blockers: per-source pull secrets are written after the live connector rebuild but do not trigger another pull/poller rebuild, and the durable deferred drain unconditionally grants a second full investigation allowance after the current tick can already consume its configured cap. No product files were edited.
+- Tests: `git diff --check` passed; `scripts/check_version.py` passed for `3.0.0-alpha.1`; `pip install --dry-run -r backend/requirements-connectors.txt` resolved every pinned full-image connector dependency. Full backend/web suites were intentionally not repeated (the orchestrator already recorded 1841/1332 green).
+- Status: done (two P1 findings handed to the orchestrator with file/line evidence).
+- Next: Rebuild the pull connector/poller set after per-source secret mutation and make deferred draining consume only remaining per-source tick headroom (or run only on a truly quiet tick), then add focused regressions before the local commit.
+
+### 2026-07-11 14:57Z — Codex orchestrator (worker handoff) — Container/package session closed after capacity error
+- Context: Supply the mandatory closing record for the package worker whose model became unavailable after its shared-tree implementation and verification completed.
+- Did: Retained the full/core backend image contract, non-root runtime, pinned advertised connector clients, complete wheel package-data discovery, OCI metadata, and actual built-wheel import/data smoke tests. Kept missing hash-locked transitives, base-image digests, SBOM/provenance, and the owner license decision explicit in the public release blockers rather than overstating reproducibility.
+- Tests: The distribution contract's 5 tests passed independently and again inside the final full backend suite; canonical version and agnostic Compose checks passed.
+- Status: done (worker lane closed; no image was published and no license was invented).
+- Next: Address the documented reproducible-publication and license gates before creating a public tag or binary release.
+
+### 2026-07-11 14:57Z — Codex orchestrator — Bleeding Edge foundation final gate and session end
+- Context: Finish the requested end-to-end product/backend/release pass after deferring the optional security scan, integrate all multi-agent findings, test the real out-of-box path, remove temporary memory, and prepare one local commit without pushing or tagging.
+- Did: Made `AGENTS.md` canonical with a minimal `CLAUDE.md` forwarder; synchronized `3.0.0-alpha.1`; hardened push identity/mapping/acknowledgement, source-safe investigations, PIT pagination and late-event deduplication, source-scoped case identity migration, receiver reconciliation/restart, baseline observation, conservative routing/budget gates, durable deferred-candidate draining, live pull-secret rotation, and write-path readiness. Added full/core packaging, strict CI/contracts, a seeded one-command demo, GitHub Pages-ready public docs, a two-branch/three-channel release policy, and an honest blocker register. The final independent review's two P1 findings were fixed: pull secrets now rebuild live clients, and the deferred drain shares unused cap headroom. Removed the stale Tailwind build warning and all three eslint warnings. Deleted `memory.md` and generated `site/` before staging.
+- Tests: Full backend **1843/1843** passed (one intentional `verify_certs=False` fixture warning); webui **1332/1332** across 239 files passed; eslint **0 errors / 0 warnings**; all 5 design gates passed; `tsc --noEmit && vite build` passed (entry **281.60 kB**, gzip **83.35 kB**, lazy motion **83.85 kB**); OpenAPI/TypeScript drift check passed (189 paths); package/wheel contract 5/5 passed; `compileall`, canonical version, agnostic Compose, strict MkDocs, demo shell, secret-pattern scan, and `git diff --check` passed. A real `run-demo.sh` smoke completed auth, setup, seeded 45 cases, returned 200 from live/ready/build-info and the Vite root, then shut down cleanly.
+- Status: done for the requested local Bleeding Edge foundation; deliberately **not tag-ready** while the public blocker register remains open. The optional security scan was not completed and is not claimed.
+- Next: Create the local commit only. Before any public alpha tag, choose a license and close or deliberately reclassify the durable receipt/checkpoint/secrets/migrations/episode-identity plus reproducible-artifact gates in `docs/releases/known-limitations.md`.
