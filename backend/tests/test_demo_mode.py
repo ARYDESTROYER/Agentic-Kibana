@@ -21,9 +21,10 @@ import random
 import pytest
 import pytest_asyncio
 
-from app.config import Secrets
+from app.config import ModelConfig, Secrets
 from app.constants import SourceSurface, Verdict
 from app.engine import case_manager, demo_generator as gen
+from app.engine.demo_runtime import DemoStack
 from app.es.fake import InMemoryESClient
 from app.llm.providers import DemoMockProvider, MockProvider
 from app.state import AppState
@@ -92,6 +93,37 @@ def test_seeded_historical_spread_is_identical() -> None:
     assert any(c.comments for c in a)
 
 
+def test_all_seed_fixtures_ignore_random_run_ids_at_a_fixed_clock() -> None:
+    org = gen.build_org(9001)
+    now = 1_783_785_600_000
+    hist_a = gen.generate_historical_cases(
+        9001, org, history_days=14, run_id="demorun-random-a", now_millis=now,
+    )
+    hist_b = gen.generate_historical_cases(
+        9001, org, history_days=14, run_id="demorun-random-b", now_millis=now,
+    )
+    recent_a = gen.generate_recent_preseed(
+        9001, org, run_id="demorun-random-a", now_millis=now,
+    )
+    recent_b = gen.generate_recent_preseed(
+        9001, org, run_id="demorun-random-b", now_millis=now,
+    )
+    cap_a = gen.generate_capability_seed_cases(
+        9001, org, run_id="demorun-random-a", now_millis=now,
+    )
+    cap_b = gen.generate_capability_seed_cases(
+        9001, org, run_id="demorun-random-b", now_millis=now,
+    )
+
+    def dump_cases(items):
+        return [item.model_dump(mode="json") for item in items]
+
+    assert dump_cases(hist_a) == dump_cases(hist_b)
+    assert dump_cases(recent_a[0]) == dump_cases(recent_b[0])
+    assert recent_a[1] == recent_b[1]
+    assert [dump_cases(group) for group in cap_a] == [dump_cases(group) for group in cap_b]
+
+
 @pytest.mark.asyncio
 async def test_enable_is_deterministic_across_states() -> None:
     secrets = Secrets(_env_file=None, es_store_enabled=False, redis_url="",
@@ -113,6 +145,102 @@ async def test_enable_is_deterministic_across_states() -> None:
     a = await _spread()
     b = await _spread()
     assert a == b and len(a) > 0
+
+
+@pytest.mark.asyncio
+async def test_demo_gateway_mocks_every_configured_provider(demo_state: AppState) -> None:
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=0)
+    stack = demo_state._demo
+    provider_names = (
+        "anthropic", "openai", "mock", "azure", "bedrock", "vertex",
+        "openai_compatible",
+    )
+    assert all(stack.gateway._providers[name] is stack._provider for name in provider_names)
+
+    for name in provider_names:
+        cfg = ModelConfig(provider=name, model=f"offline-demo-{name}")
+        completion = await stack.gateway.complete(
+            "chat", [{"role": "user", "content": "synthetic demo"}], cfg,
+            surface="provider-isolation-test",
+        )
+        vectors = await stack.gateway.embed(
+            ["synthetic demo"], cfg, surface="provider-isolation-test",
+        )
+        assert completion.text and vectors and vectors[0]
+
+
+@pytest.mark.asyncio
+async def test_demo_enable_lifecycle_is_serialized_without_ticker_leaks(
+    demo_state: AppState, monkeypatch,
+) -> None:
+    original = demo_state._enable_demo_unlocked
+    active_calls = 0
+    max_active = 0
+    simulators = []
+
+    async def observed(**kwargs):
+        nonlocal active_calls, max_active
+        active_calls += 1
+        max_active = max(max_active, active_calls)
+        try:
+            await asyncio.sleep(0.01)
+            result = await original(**kwargs)
+            simulators.append(demo_state._demo_sim)
+            return result
+        finally:
+            active_calls -= 1
+
+    monkeypatch.setattr(demo_state, "_enable_demo_unlocked", observed)
+    await asyncio.gather(
+        demo_state.enable_demo(
+            mode="live", seed=1, history_days=0, event_rate_per_second=0,
+        ),
+        demo_state.enable_demo(
+            mode="live", seed=2, history_days=0, event_rate_per_second=0,
+        ),
+    )
+    assert max_active == 1
+    assert len(simulators) == 2 and simulators[0] is not simulators[1]
+    assert simulators[0]._task is None
+    assert simulators[1]._task is not None and not simulators[1]._task.done()
+    await demo_state.disable_demo()
+    assert simulators[1]._task is None and demo_state._demo_sim is None
+
+
+@pytest.mark.asyncio
+async def test_demo_enable_is_atomically_published_and_sources_use_requested_seed(
+    demo_state: AppState, monkeypatch,
+) -> None:
+    from app.engine import demo_sources
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    captured: dict[str, int | str] = {}
+    original_build = demo_sources.build_native_demo_sources
+
+    def capture_build(seed, prefs, **kwargs):
+        captured["seed"] = int(seed)
+        captured["prefs_seed"] = int(prefs.demo.seed)
+        captured["mode"] = str(prefs.demo.mode)
+        return original_build(seed, prefs, **kwargs)
+
+    async def pause_before_publish(_stack):
+        entered.set()
+        await release.wait()
+
+    monkeypatch.setattr(demo_sources, "build_native_demo_sources", capture_build)
+    monkeypatch.setattr(DemoStack, "run_capability_pass", pause_before_publish)
+    task = asyncio.create_task(
+        demo_state.enable_demo(mode="seeded", seed=9001, history_days=0)
+    )
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    assert demo_state._demo is None
+    assert demo_state.demo_active is False
+    assert demo_state.prefs.demo.mode == "off"
+    release.set()
+    status = await task
+    assert status["active"] is True
+    assert captured == {"seed": 9001, "prefs_seed": 9001, "mode": "seeded"}
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +267,27 @@ async def test_demo_never_writes_the_real_store(demo_state: AppState) -> None:
     # Real usage ledger is untouched (every LLM call went to the demo gateway).
     real_usage = await demo_state._real_usage_store.summary(window_hours=48)
     assert real_usage["call_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_demo_batch_jobs_are_isolated_from_the_durable_ledger(
+    demo_state: AppState,
+) -> None:
+    from app.models import BatchJob
+
+    await demo_state.real_batch_job_store.save(BatchJob(id="batch-real-hidden"))
+    await demo_state.enable_demo(mode="seeded", seed=1337, history_days=0)
+
+    assert demo_state.batch_job_store is demo_state._demo.batch_job_store
+    assert await demo_state.batch_job_store.list() == []
+    assert [job.id for job in await demo_state.real_batch_job_store.list()] == [
+        "batch-real-hidden"
+    ]
+
+    await demo_state.disable_demo()
+    assert [job.id for job in await demo_state.batch_job_store.list()] == [
+        "batch-real-hidden"
+    ]
 
 
 def test_write_guard_rejects_mismatched_rows() -> None:
@@ -260,6 +409,48 @@ def test_demo_mock_provider_resolves_story_from_uid() -> None:
     msgs = [{"role": "user", "content": f"cluster rules: demo_{story.id} extra noise"}]
     story_resolved = DemoMockProvider._resolve(msgs)
     assert story_resolved is not None and story_resolved.id == story.id
+
+
+def test_demo_story_identity_is_not_overwritten_by_tool_results() -> None:
+    messages = [
+        {"role": "user", "content": "cluster rule=WEB-EXPLOIT"},
+        {"role": "assistant", "content": '{"action":"tool","tool":"es_query"}'},
+        {
+            "role": "user",
+            "content": (
+                "Tool 'es_query' result:\n"
+                "UNTRUSTED related row rule=LP-ES-RISK-1001"
+            ),
+        },
+    ]
+    resolved = DemoMockProvider._resolve(messages)
+    assert resolved is not None and resolved.id == "sqli_webshell"
+
+
+@pytest.mark.asyncio
+async def test_demo_formatter_preserves_scenario_aware_draft() -> None:
+    import json
+
+    provider = DemoMockProvider()
+    draft = {
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.93,
+        "evidence": [{"summary": "Native incident evidence.", "event_ids": []}],
+        "mitre": ["T1078"],
+        "recommended_action": "Contain affected hosts and rotate credentials.",
+        "reproduce_query": "source.ip:192.0.2.10",
+    }
+    result = await provider.complete(
+        "formatter",
+        [
+            {"role": "system", "content": "format"},
+            {"role": "user", "content": json.dumps({"draft_verdict": draft})},
+        ],
+        "demo-model",
+        0.0,
+        1000,
+    )
+    assert json.loads(result.text) == draft
     # The benign baseline resolves to no story (→ a confident FALSE_POSITIVE).
     assert DemoMockProvider._resolve([{"role": "user", "content": "web_auth login success"}]) is None
 
@@ -354,7 +545,7 @@ def _mk_closed_fp_case(cid: str, rule_id: str, now_iso: str):
     return Case(
         case_id=cid, cluster_signature=f"sig-{cid}",
         source_surface=SourceSurface.AUTOMATED_SCAN,
-        entity=Entity(type=EntityType.IP, value=f"45.148.10.{abs(hash(cid)) % 250 + 2}"),
+        entity=Entity(type=EntityType.IP, value=f"203.0.113.{abs(hash(cid)) % 250 + 2}"),
         rule_ids=[rule_id], verdict=Verdict.FALSE_POSITIVE,
         disposition=Disposition.FALSE_POSITIVE, status=CaseStatus.CLOSED,
         created_at=now_iso, updated_at=now_iso,
@@ -367,7 +558,9 @@ def _mk_closed_fp_case(cid: str, rule_id: str, now_iso: str):
 def test_three_segments_use_distinct_source_ids() -> None:
     from app.engine.demo_generator import SEGMENT_SOURCE_IDS
 
-    assert set(SEGMENT_SOURCE_IDS.values()) == {"demo-siem", "demo-xdr", "demo-edr"}
+    assert set(SEGMENT_SOURCE_IDS.values()) == {
+        "demo-splunk", "demo-qradar", "demo-wazuh",
+    }
     assert len(set(SEGMENT_SOURCE_IDS.values())) == 3
 
 
@@ -418,7 +611,7 @@ def test_all_storyline_mitre_ids_are_in_the_bundled_corpus() -> None:
 
 def test_org_is_rethemed_to_lumenpay() -> None:
     org = gen.build_org(1337)
-    assert org.name == "LumenPay Financial" and org.domain == "lumenpay.in"
+    assert org.name == "LumenPay Financial" and org.domain == "lumenpay.example"
     # LumenPay employees + segment-partitioned hosts exist.
     assert "pnair" in {e.user for e in org.employees}
     assert any(h.name.startswith("LP-") for h in org.hosts)
@@ -478,6 +671,25 @@ async def test_pre_seed_events_are_counted_as_ingested_volume(demo_state: AppSta
     # Real state untouched.
     _rc, rt = await demo_state._real_cases.list(limit=5)
     assert rt == 0
+
+
+@pytest.mark.asyncio
+async def test_seeded_noise_funnel_is_monotonic_on_first_paint(
+    demo_state: AppState,
+) -> None:
+    from app.engine.metrics import _window_filter
+
+    await demo_state.enable_demo(
+        mode="seeded", seed=1337, history_days=14,
+        preseed_event_count=100, force_capabilities=True,
+    )
+    cases, _ = await demo_state.cases.list(limit=500)
+    current_cases = _window_filter(cases, window_hours=24)
+    window = await demo_state.noise_counters.read_window(24)
+    ingested = sum(int(v) for v in (window.get("ingested") or {}).values())
+    clustered = sum(int(v) for v in (window.get("clustered") or {}).values())
+
+    assert ingested >= clustered >= len(current_cases) > 0
 
 
 @pytest.mark.asyncio
@@ -560,7 +772,7 @@ async def test_hitl_proposal_created_during_live_demo(demo_state: AppState) -> N
     demo_props = await demo_state._demo.proposals.list()
     assert demo_props, "expected a demo HITL proposal from the NEEDS_HUMAN storyline"
     # The REAL proposal queue is untouched.
-    real_props = await demo_state.proposals.list()
+    real_props = await demo_state.real_proposals.list()
     assert real_props == []
 
 
@@ -580,7 +792,7 @@ async def test_threshold_tuning_writes_demo_store_not_real(demo_state: AppState)
     await demo_state._demo.run_capability_pass()
 
     demo_tuning = await demo_state._demo.tuning_store.list()
-    real_tuning = await demo_state.tuning_store.list()
+    real_tuning = await demo_state.real_tuning_store.list()
     assert demo_tuning, "expected a demo tuning observation from the noisy rule"
     assert real_tuning == [], "the REAL tuning store must be untouched (isolation)"
     # The tuned correlation-n bump is stashed on the demo stack (never real prefs).
@@ -629,7 +841,7 @@ async def test_campaigns_populate_demo_store_not_real(demo_state: AppState) -> N
     await demo_state._demo.run_capability_pass()
 
     demo_campaigns, demo_total = await demo_state._demo.campaign_store.list()
-    _real_page, real_total = await demo_state.campaign_store.list()
+    _real_page, real_total = await demo_state.real_campaign_store.list()
     assert demo_total >= 1 and demo_campaigns, "expected a demo campaign from the two shared-entity cases"
     assert real_total == 0, "the REAL campaign store must be untouched (isolation)"
 
@@ -654,7 +866,8 @@ async def test_baseline_warms_across_ticks(demo_state: AppState) -> None:
     n2 = sum(st.n for buckets in snap2.values() for st in buckets.values())
     assert n2 > n1, "baseline did not keep learning across ticks"
     # Real baseline store untouched.
-    assert await demo_state.baseline_store.snapshot() == {}
+    assert await demo_state.real_baseline_store.snapshot() == {}
+    assert await demo_state.real_batch_job_store.list() == []
 
 
 @pytest.mark.asyncio
@@ -684,11 +897,12 @@ async def test_demo_never_touches_real_stores_capstone(demo_state: AppState) -> 
     # EVERY real store is empty/untouched — the capstone isolation guard.
     _rc, rt = await demo_state._real_cases.list(limit=50)
     assert rt == 0
-    assert await demo_state.tuning_store.list() == []
-    _real_campaigns, real_total = await demo_state.campaign_store.list()
+    assert await demo_state.real_tuning_store.list() == []
+    _real_campaigns, real_total = await demo_state.real_campaign_store.list()
     assert real_total == 0
-    assert await demo_state.baseline_store.snapshot() == {}
-    assert await demo_state.proposals.list() == []
+    assert await demo_state.real_baseline_store.snapshot() == {}
+    assert await demo_state.real_proposals.list() == []
+    assert await demo_state.real_batch_job_store.list() == []
     real_usage = await demo_state._real_usage_store.summary(window_hours=48)
     assert real_usage["call_count"] == 0
 
@@ -730,7 +944,9 @@ async def test_demo_status_reports_capability_signal(demo_state: AppState) -> No
     st = await demo_state.enable_demo(mode="seeded", seed=1337, history_days=2)
     for key in ("proposals_open", "campaigns_found", "tuning_events", "rag_chunks", "sources"):
         assert key in st
-    assert st["sources"] == ["demo-siem", "demo-xdr", "demo-edr"]
+    assert st["sources"] == [
+        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+    ]
     # ALL capabilities must show live signal on a fresh enable — not just RAG. This is the
     # core "everything is on and working" showcase (the guard that was previously too weak,
     # only asserting rag_chunks > 0 while the others silently stayed 0).
@@ -739,9 +955,9 @@ async def test_demo_status_reports_capability_signal(demo_state: AppState) -> No
     assert int(st["campaigns_found"]) > 0, "no demo campaign formed on enable"
     assert int(st["tuning_events"]) > 0, "no demo tuning observation recorded on enable"
     # The signal is DEMO-scoped — the real capability ledgers stay untouched.
-    assert await demo_state.proposals.list() == []
-    assert await demo_state.tuning_store.list() == []
-    _real_campaigns, real_camp_total = await demo_state.campaign_store.list()
+    assert await demo_state.real_proposals.list() == []
+    assert await demo_state.real_tuning_store.list() == []
+    _real_campaigns, real_camp_total = await demo_state.real_campaign_store.list()
     assert real_camp_total == 0
 
 
@@ -761,8 +977,8 @@ async def test_capability_signal_is_purged_on_disable(demo_state: AppState) -> N
 
 @pytest.mark.asyncio
 async def test_source_logs_demo_segment_returns_rows() -> None:
-    # Defect (2): the 3 demo segment sources advertise can_browse=true; browsing one must
-    # serve a bounded read-only page (200), not 404 through the prefs.sources lookup.
+    # The 4 native demo sources advertise can_browse=true; browsing each must serve a
+    # bounded standards-faithful page, not 404 through the real prefs.sources lookup.
     from contextlib import asynccontextmanager
 
     from fastapi import FastAPI
@@ -789,13 +1005,13 @@ async def test_source_logs_demo_segment_returns_rows() -> None:
     api.include_router(rag_router)
     with TestClient(api) as c:
         # Before demo: an unknown source id 404s (the segment id is NOT in prefs.sources).
-        assert c.get("/api/sources/demo-siem/logs").status_code == 404
+        assert c.get("/api/sources/demo-splunk/logs").status_code == 404
         assert c.post("/api/demo/enable", json={"mode": "seeded", "seed": 1337}).status_code == 200
-        for sid in ("demo-siem", "demo-xdr", "demo-edr"):
+        for sid in ("demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog"):
             r = c.get(f"/api/sources/{sid}/logs?limit=25")
             assert r.status_code == 200, (sid, r.text)
             data = r.json()
-            assert data["mode"] == "search"
+            assert data["mode"] in {"search", "buffer"}
             assert data["count"] <= 25
             assert data["logs"] and data["logs"][0]["id"]  # real rows (contract shape)
         # --- Defect (4) via the route: an import during demo lands in the DEMO corpus and
@@ -863,7 +1079,7 @@ async def test_demo_baseline_store_stays_bounded_across_many_ticks(demo_state: A
     total_obs = sum(st.n for buckets in snap.values() for st in buckets.values())
     assert total_obs > 0
     # Real baseline store untouched.
-    assert await demo_state.baseline_store.snapshot() == {}
+    assert await demo_state.real_baseline_store.snapshot() == {}
 
 
 def test_no_new_real_store_writers_in_demo_runtime() -> None:

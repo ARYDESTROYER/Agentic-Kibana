@@ -571,6 +571,12 @@ export interface SourceInstance {
   display_name?: string;
   enabled?: boolean;
   ingest_mode?: string;
+  /** Read-only connector category, including active Demo Mode overlays. */
+  category?: string;
+  /** Source-native transport/format hints returned by compatible backends. */
+  protocol?: string;
+  format?: string;
+  can_browse?: boolean;
   is_primary?: boolean;
   /**
    * Loose connector config. Unknown keys round-trip unharmed; the well-known
@@ -581,6 +587,8 @@ export interface SourceInstance {
   configured_secrets?: string[];
   created_at?: string;
   updated_at?: string;
+  /** Read-only synthetic overlay row surfaced only while Demo Mode is active. */
+  demo?: boolean;
 }
 
 export interface SourcesResponse {
@@ -603,6 +611,9 @@ export interface SourceHealthRow {
   ingest_mode: string;
   kind: 'push' | 'pull' | 'unknown' | string;
   can_browse: boolean;
+  /** Source-native transport and record format (demo/compatible backends only). */
+  protocol?: string;
+  format?: string;
   /** PUSH live-tail buffer depth (# of recently received events). */
   buffer_depth: number;
   /** PULL durable cursor position as epoch millis (0 = never polled / N/A). */
@@ -633,6 +644,14 @@ export interface SourceHealthRow {
   last_event_millis?: number;
   /** Smoothed recent ingest rate (events/min); 0 when idle / unknown. */
   events_per_min?: number;
+  /** Lifetime counters for the bounded synthetic source runtime. */
+  events_total?: number;
+  alerts_total?: number;
+  events_received?: number;
+  alerts_emitted?: number;
+  healthy?: boolean;
+  state?: string;
+  last_error?: string | null;
   /**
    * The server's v0 flat SILENT-source flag: an ENABLED source with no recent events
    * past the flat silence threshold (now − last_event > k × poll_interval). This is the
@@ -651,11 +670,14 @@ export interface SourcesHealthResponse {
 /**
  * GET /api/sources/coverage — the aggregate "am I seeing everything?" rollup (A5.5;
  * the Google SecOps Health-Hub big-number model). Read-only, advisory (#3), NO secrets.
- * Every value is an aggregate count / rate over the REAL configured sources (the Demo-
- * Mode overlay is excluded so the numbers stay honest). `alerts_triaged_24h` uses the
- * SAME 24h window the noise-reduction funnel's `cases` stage uses, so the two agree.
+ * Every value is an aggregate count/rate over the ACTIVE tenant view: real configured
+ * sources off-demo, or the four isolated synthetic overlays in Demo Mode.
+ * `alerts_triaged_24h` uses the SAME 24h window the noise-reduction funnel's `cases`
+ * stage uses, so the two agree.
  */
 export interface SourceCoverage {
+  /** True when the aggregate describes the isolated synthetic source view. */
+  demo?: boolean;
   /** Total configured sources. */
   sources_total: number;
   /** Sources currently enabled (the poller/receivers actually read from). */
@@ -1280,8 +1302,9 @@ export interface NotifyCaseResult {
 // LLM and a SANDBOXED auto-close policy COPY — the real durable cursor, real stores
 // and live policy are NEVER touched. Disabling stops the tick task and hard-deletes
 // all demo data by `run_id`, returning the real state intact. Every demo case is
-// tagged `['demo', …]` with a `case_id` starting `demo-`. All synthetic text is
-// data (plain-rendered). All endpoints are admin-gated (settings:manage).
+// tagged `['demo', …]` plus a run tag; generated case ids use the normal configured
+// case-id allocator. All synthetic text is data (plain-rendered). Mutations are gated
+// by the dedicated demo:manage grant.
 // --------------------------------------------------------------------------- //
 /** The demo tenant mode. 'seeded' = static synthetic history; 'live' = also ticks. */
 export type DemoMode = 'off' | 'seeded' | 'live';
@@ -1301,11 +1324,11 @@ export interface DemoConfig {
   tick_seconds?: number;
   /** Jitter fraction applied to the tick interval (0..1). */
   tick_jitter?: number;
-  /** Per-tick probability of igniting a queued attack storyline (0..1). */
+  /** At each source-alert interval, probability of emitting a storyline instead (0..1). */
   incident_rate?: number;
-  /** SIEM ALERT feed cadence — seconds between synthetic alerts (~120 = 1 / 2 min). */
+  /** Source-native alert cadence across the Splunk, QRadar, and Wazuh demo feeds. */
   alert_interval_seconds?: number;
-  /** XDR+EDR EVENT feeds' logical throughput target (events/sec, pre-aggregated). */
+  /** Four-source logical throughput target (events/sec, pre-aggregated and bounded). */
   event_rate_per_second?: number;
   /** Pre-seed "just happened" window in minutes (recent cases + processed events). */
   preseed_recent_minutes?: number;
@@ -1315,6 +1338,52 @@ export interface DemoConfig {
   preseed_event_count?: number;
   /** Force tuning/baseline/campaign/HITL ON in the isolated demo sandbox (default true). */
   force_capabilities?: boolean;
+}
+
+/** One non-secret runtime counter row for a synthetic native-format source. */
+export interface DemoSourceActivity {
+  key?: string;
+  source_id: string;
+  display_name?: string;
+  source_type?: string;
+  category?: string;
+  ingest_mode?: string;
+  protocol?: string;
+  wire_format?: string;
+  rate_share?: number;
+  enabled?: boolean;
+  healthy?: boolean;
+  state?: string;
+  buffer_depth?: number;
+  events_total?: number;
+  alerts_total?: number;
+  system_detections_total?: number;
+  last_event_millis?: number;
+  events_per_min?: number;
+  can_browse?: boolean;
+  last_error?: string | null;
+  demo?: boolean;
+}
+
+export interface DemoIncidentSourceResult {
+  source_id: string;
+  events: number;
+  native_alerts: number;
+  system_detections: number;
+  investigated?: number;
+}
+
+/** Result of the cooldown-aware POST /api/demo/incident presentation control. */
+export interface DemoIncidentResult {
+  triggered: boolean;
+  reason: string;
+  scenario_id: string;
+  scenario_name?: string;
+  events: number;
+  native_alerts: number;
+  system_detections: number;
+  cooldown_seconds: number;
+  sources: Record<string, DemoIncidentSourceResult>;
 }
 
 /**
@@ -1349,6 +1418,8 @@ export interface DemoStatus {
   preseed_events?: number;
   /** Whether the live-sim tick task is running (live mode). */
   ticking?: boolean;
+  /** Explicit alias for clients that do not use the legacy `ticking` name. */
+  simulator_running?: boolean;
   /** ── Live capability signal (demo overhaul) — "these features are working". ── */
   /** Open HITL approval proposals awaiting review in the demo. */
   proposals_open?: number;
@@ -1358,8 +1429,10 @@ export interface DemoStatus {
   tuning_events?: number;
   /** Seeded/indexed RAG corpus chunks in the demo. */
   rag_chunks?: number;
-  /** The three demo source ids (["demo-siem","demo-xdr","demo-edr"]). */
+  /** The four native demo source ids (Splunk, QRadar, Wazuh, and syslog). */
   sources?: string[];
+  /** Bounded per-source activity counters; never contains secrets or real-source data. */
+  source_activity?: DemoSourceActivity[];
   [key: string]: unknown;
 }
 

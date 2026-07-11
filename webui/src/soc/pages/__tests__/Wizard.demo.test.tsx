@@ -107,6 +107,7 @@ describe('Wizard demo toggle (bug #3)', () => {
     await user.click(toggle);
 
     await waitFor(() => expect(demoEnableMock).toHaveBeenCalledTimes(1));
+    expect(demoEnableMock).toHaveBeenCalledWith({ mode: 'live' });
     // Never the dead pref path.
     expect(putSettingsMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ demo_mode: expect.anything() }),
@@ -126,13 +127,13 @@ describe('Wizard demo toggle (bug #3)', () => {
     await waitFor(() => expect(demoDisableMock).toHaveBeenCalledTimes(1));
   });
 
-  it('hides the demo toggle entirely for a non-admin (auth on, no settings:manage)', async () => {
+  it('hides the demo toggle entirely without demo:manage', async () => {
     authMeMock.mockResolvedValue({
       auth_enabled: true,
       authenticated: true,
       user: { username: 'ana', role: 'analyst_tier1' },
     });
-    // RBAC on, and the analyst role has NO settings:manage grant.
+    // RBAC on, and the analyst role has NO demo:manage grant.
     rolesGetMock.mockResolvedValue({
       roles: [],
       default_role: 'analyst_tier1',

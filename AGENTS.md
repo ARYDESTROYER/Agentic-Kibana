@@ -395,16 +395,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1843 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — currently 1887 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1843 passed (rises each round; see Journal)
+python -m pytest -q                         # -> 1887 passed (rises each round; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~281.60 kB; motion lazy-chunk ~83.85 kB)
-npx vitest run                             # -> 1332 passed / 239 files (see Journal for the current count)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~285.91 kB; motion lazy-chunk ~83.85 kB)
+npx vitest run                             # -> 1349 passed / 240 files (see Journal for the current count)
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -449,8 +449,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1843) + `npm run build` clean
-  + `vitest run` (1332 / 239 files) + `npm run lint` (0 errors, jsx-a11y at error) before
+- **Tests:** add/keep offline tests; `pytest -q` green (1887) + `npm run build` clean
+  + `vitest run` (1349 / 240 files) + `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -479,9 +479,9 @@ Round 9b via PR #26. Round 10 ("Autopilot & Comprehensive Ingestion + motion.dev
 flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
-**Current `3.0.0-alpha.1` candidate baseline (verified 2026-07-11):** backend **1843 pytest** passed; webui
-**1332 Vitest** specs / 239 files, build clean (`tsc --noEmit && vite build`), entry
-chunk **281.60 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
+**Current `3.0.0-alpha.1` candidate baseline (verified 2026-07-11):** backend **1887 pytest** passed; webui
+**1349 Vitest** specs / 240 files, build clean (`tsc --noEmit && vite build`), entry
+chunk **285.91 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
 modulepreloaded); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). The alpha adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised

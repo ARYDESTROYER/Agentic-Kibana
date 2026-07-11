@@ -102,11 +102,12 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
   const [finishError, setFinishError] = React.useState<unknown>(null);
   const [finishing, setFinishing] = React.useState(false);
 
-  // Demo mode is an ADMIN action (POST /api/demo/enable is admin-gated server-side); the
-  // toggle is only offered to a principal who can manage it. Auth off → everyone is admin.
+  // Demo mode is a privileged tenant action (POST /api/demo/enable requires the narrow
+  // demo:manage grant); the toggle is only offered to a principal who can manage it.
+  // Auth off preserves the permissive single-operator profile.
   const { authEnabled, hasPermission } = useAuth();
   const { status: demoStatus, refresh: refreshDemo } = useDemo();
-  const canManageDemo = !authEnabled || hasPermission('settings', 'manage');
+  const canManageDemo = !authEnabled || hasPermission('demo', 'manage');
 
   // Recommended-automation grants (the ReviewStep card + finish()). Tuning needs
   // `automation:manage`; the admin-gated campaigns PUT needs `cases:read` + `users:manage`
@@ -146,7 +147,7 @@ export default function Wizard({ onComplete, onExit }: WizardProps) {
       setDemoError(null);
       setDemoMode(nextOn); // optimistic
       try {
-        const st = nextOn ? await api.demo.enable({}) : await api.demo.disable();
+        const st = nextOn ? await api.demo.enable({ mode: 'live' }) : await api.demo.disable();
         setDemoMode(isDemoActive(st));
       } catch (e) {
         setDemoMode(!nextOn); // rollback

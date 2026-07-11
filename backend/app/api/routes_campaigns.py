@@ -123,7 +123,7 @@ async def list_campaigns(
     return {
         "campaigns": [_campaign_json(c) for c in campaigns],
         "total": total,
-        "enabled": bool(getattr(getattr(state.prefs, "campaign", None), "enabled", False)),
+        "enabled": bool(getattr(getattr(state.execution_prefs, "campaign", None), "enabled", False)),
     }
 
 
@@ -141,7 +141,7 @@ async def get_campaign_config(
 ) -> dict[str, Any]:
     """Read ``Preferences.campaign`` (the cross-case clustering policy). Read-only, no
     secrets — the campaign block carries only cadence/enable knobs (#10)."""
-    cfg = getattr(state.prefs, "campaign", None) or CampaignConfig()
+    cfg = getattr(state.execution_prefs, "campaign", None) or CampaignConfig()
     return {"config": cfg.model_dump(mode="json")}
 
 
@@ -158,14 +158,15 @@ async def put_campaign_config(
     by the Pydantic model; a campaign is ADVISORY — nothing here calls ``decide()`` (#3)
     or touches a ``cluster_signature`` (#4). Admin-gated (a tenant-wide clustering-policy
     change is an operator action, matching the recorrelate route). Audited (#2)."""
-    current = (getattr(state.prefs, "campaign", None) or CampaignConfig()).model_dump(mode="json")
+    active_prefs = state.execution_prefs
+    current = (getattr(active_prefs, "campaign", None) or CampaignConfig()).model_dump(mode="json")
     merged = _deep_update(current, body or {})
     try:
         cfg = CampaignConfig.model_validate(merged)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid campaign config: {exc}") from exc
-    prefs = state.prefs.model_copy(update={"campaign": cfg})
-    await state.update_prefs(prefs)
+    prefs = active_prefs.model_copy(update={"campaign": cfg})
+    await state.update_execution_prefs(prefs)
     await _audit(
         state, request, "campaign_config_update",
         f"enabled={cfg.enabled} cadence={cfg.cadence}",
@@ -238,7 +239,7 @@ async def recorrelate_campaigns(
     untouched. Admin-gated (a tenant-wide manual re-correlate is an operator action);
     audited (#2). NEVER raises — a store glitch degrades to an empty result."""
     try:
-        campaigns = await state.campaign_correlator(None, state.prefs)
+        campaigns = await state.campaign_correlator(None, state.execution_prefs)
     except Exception as exc:  # noqa: BLE001 — best-effort; degrade to empty
         logger.warning("campaign recorrelate failed (%s); returning empty", exc)
         campaigns = []

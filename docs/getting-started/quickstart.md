@@ -18,9 +18,12 @@ read-only source.
 
 ## Local demo
 
-The demo runs the backend on port `8088` and the Vite web console on `5173`. The
-script waits for readiness, completes the local setup, and enables an isolated
-seeded Demo Mode with generated OCSF events and a deterministic mock model.
+The demo preflights ports `8088` and `5173`, binds the backend and Vite web console
+to `127.0.0.1`, waits for readiness, completes local setup, and enables an isolated
+live Demo Mode with a deterministic `$0` mock model. Four protocol-compatible sources
+continuously exercise the real parser → OCSF boundary: Splunk HEC, QRadar
+LEEF/offenses, Wazuh JSON, and RFC syslog. Set `DEMO_MODE=seeded` when a static,
+non-ticking dataset is preferable.
 
 ### Requirements
 
@@ -39,7 +42,7 @@ The tag becomes available only after the release blockers close and the alpha is
 published. Contributors evaluating an unreleased checkout should use their existing
 branch instead of inventing or moving this tag.
 
-Open [http://localhost:5173](http://localhost:5173) and sign in with the demo-only
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and sign in with the demo-only
 account shown by the script. In the current build the seed is:
 
 ```text
@@ -52,9 +55,15 @@ Change or remove this account before using any real data. Stop both processes wi
 
 !!! tip "No provider key required"
 
-    The mock provider is enough for the tour. Export `ANTHROPIC_API_KEY` or
-    `OPENAI_API_KEY` before running the script only when you deliberately want to
-    exercise a paid provider.
+    Demo Mode forces its `$0` mock provider even if `ANTHROPIC_API_KEY`,
+    `OPENAI_API_KEY`, or another valid provider key is present. A configured key is
+    used only after you choose **Exit & clear** and deliberately run non-demo triage.
+
+Use **Generate incident** in Settings → Organization → Experimental & Demo (or
+`POST /api/demo/incident`) for a cooldown-aware four-source attack on demand. Demo
+mutations require `demo:manage`, granted by default to `super_admin` and
+`soc_manager`. Other organization/admin settings remain live during the demo, so
+leave them unchanged unless you intend to configure the deployment.
 
 ## Evaluation stack
 

@@ -324,6 +324,20 @@ class CrossSourceItem(NamedTuple):
     entities: frozenset[tuple[EntityType, str]]
 
 
+class CrossSourceComponentSeed(NamedTuple):
+    """A previously persisted, bounded cross-source component.
+
+    Seeds are advisory continuity edges supplied by the ingest layer.  The pure
+    correlator intersects them with the current candidate ids, re-validates the
+    distinct-source floor, and only emits a seeded component when it also contains
+    a current eligible entity match.  Thus a dangling/stale id cannot enlarge the
+    candidate pool or resurrect an unrelated component.
+    """
+
+    cross_source_cluster_id: str
+    members: frozenset[str]
+
+
 def _entity_keys(prefs: Preferences) -> list[EntityType]:
     """The configured cross-source entity types (lenient: unknown names dropped)."""
     out: list[EntityType] = []
@@ -355,7 +369,10 @@ def cluster_cross_source_entities(
 
 
 def cross_source_correlate(
-    items: list[CrossSourceItem], prefs: Preferences
+    items: list[CrossSourceItem],
+    prefs: Preferences,
+    *,
+    component_seeds: list[CrossSourceComponentSeed] | None = None,
 ) -> list[dict]:
     """Group open cases/clusters that share an entity across >= ``min_sources``
     DISTINCT sources within the configured window. Returns a list of groups
@@ -367,8 +384,11 @@ def cross_source_correlate(
       * Items are grouped by ``(entity_type, value, time-bucket)``; the bucket is the
         SAME source-agnostic floor used by :func:`cross_source_signature`, so the
         group id is stable + idempotent.
-      * A group is emitted ONLY when its members span ``>= min_sources`` distinct
-        ``source_id`` values (so a single source's own clusters never self-link).
+      * An entity group is eligible ONLY when its members span ``>= min_sources``
+        distinct ``source_id`` values (so a single source never self-links).
+      * Eligible groups that overlap by a case id are collapsed into ONE connected
+        component before metadata is applied.  Optional persisted component seeds
+        can extend such a current component, but cannot create one by themselves.
     """
     cfg = prefs.cross_source_correlation
     if not cfg.enabled or not items:
@@ -406,4 +426,143 @@ def cross_source_correlate(
             "entity_value": value,
             "members": sorted(slot["ids"]),  # type: ignore[arg-type]
         })
-    return groups
+    return _collapse_cross_source_components(
+        groups,
+        items,
+        min_sources=min_sources,
+        component_seeds=component_seeds or [],
+    )
+
+
+def _collapse_cross_source_components(
+    groups: list[dict],
+    items: list[CrossSourceItem],
+    *,
+    min_sources: int,
+    component_seeds: list[CrossSourceComponentSeed],
+) -> list[dict]:
+    """Collapse overlapping eligible groups into deterministic components.
+
+    The union-find is bounded by the ids already present in ``items``; seeds are
+    intersected with that set and source-floor checked before they become edges.
+    Output is restricted to components containing at least one freshly eligible
+    entity group.  A single group keeps its historical entity-derived id.  When
+    several brand-new ids overlap, the lexicographically smallest raw id is the
+    canonical component id.  If a persisted component expands, its smallest valid
+    seed id wins so adding a new entity edge does not rename an existing component.
+    """
+    if not groups:
+        return []
+
+    source_by_id = {item.id: item.source_id for item in items}
+    known_ids = set(source_by_id)
+    parent: dict[str, str] = {case_id: case_id for case_id in known_ids}
+
+    def find(case_id: str) -> str:
+        root = case_id
+        while parent[root] != root:
+            root = parent[root]
+        while parent[case_id] != case_id:
+            next_id = parent[case_id]
+            parent[case_id] = root
+            case_id = next_id
+        return root
+
+    def union(members: list[str]) -> None:
+        if len(members) < 2:
+            return
+        # Always choose the lexical root; the partition is therefore deterministic
+        # even before the final explicit sort (and requires no unbounded rank state).
+        root = find(members[0])
+        for member in members[1:]:
+            other = find(member)
+            if root == other:
+                continue
+            low, high = sorted((root, other))
+            parent[high] = low
+            root = low
+
+    for group in groups:
+        union(sorted(set(group["members"]) & known_ids))
+
+    valid_seeds: list[CrossSourceComponentSeed] = []
+    for seed in component_seeds:
+        members = sorted(set(seed.members) & known_ids)
+        if len(members) < 2:
+            continue
+        if len({source_by_id[case_id] for case_id in members}) < min_sources:
+            continue
+        valid_seed = CrossSourceComponentSeed(
+            seed.cross_source_cluster_id if _valid_cross_source_cluster_id(
+                seed.cross_source_cluster_id
+            ) else "",
+            frozenset(members),
+        )
+        valid_seeds.append(valid_seed)
+        union(members)
+
+    # Roots can change while later seed edges are unioned, so index metadata only
+    # after the complete partition exists.
+    raw_by_root: dict[str, list[dict]] = defaultdict(list)
+    seed_ids_by_root: dict[str, set[str]] = defaultdict(set)
+    for group in groups:
+        members = sorted(set(group["members"]) & known_ids)
+        if members:
+            raw_by_root[find(members[0])].append(group)
+    for seed in valid_seeds:
+        members = sorted(seed.members)
+        if members and seed.cross_source_cluster_id:
+            seed_ids_by_root[find(members[0])].add(seed.cross_source_cluster_id)
+
+    members_by_root: dict[str, list[str]] = defaultdict(list)
+    for case_id in known_ids:
+        members_by_root[find(case_id)].append(case_id)
+
+    collapsed: list[dict] = []
+    for root, raw_groups in raw_by_root.items():
+        members = sorted(members_by_root[root])
+        canonical_group = min(
+            raw_groups,
+            key=lambda group: (
+                group["entity_type"],
+                group["entity_value"],
+                group["cross_source_cluster_id"],
+                tuple(group["members"]),
+            ),
+        )
+        raw_ids = {
+            group["cross_source_cluster_id"]
+            for group in raw_groups
+            if _valid_cross_source_cluster_id(group["cross_source_cluster_id"])
+        }
+        persisted_ids = seed_ids_by_root.get(root, set())
+        # Every raw group id is generated locally and valid.  Keep a defensive
+        # fallback so malformed persisted metadata can never remove a component.
+        # Existing canonical ids take precedence over newly observed entity hashes;
+        # when two old components merge, lexical min is deterministic.
+        if persisted_ids:
+            canonical_id = min(persisted_ids)
+        elif raw_ids:
+            canonical_id = min(raw_ids)
+        else:
+            canonical_id = canonical_group["cross_source_cluster_id"]
+        collapsed.append({
+            "cross_source_cluster_id": canonical_id,
+            "entity_type": canonical_group["entity_type"],
+            "entity_value": canonical_group["entity_value"],
+            "members": members,
+        })
+
+    return sorted(
+        collapsed,
+        key=lambda group: (
+            group["cross_source_cluster_id"],
+            tuple(group["members"]),
+        ),
+    )
+
+
+def _valid_cross_source_cluster_id(value: object) -> bool:
+    """Return whether ``value`` has the locally generated 128-bit hex-id shape."""
+    text = str(value or "")
+    return len(text) == 32 and all(char in "0123456789abcdef" for char in text)

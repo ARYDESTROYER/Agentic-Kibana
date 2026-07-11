@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -245,9 +245,7 @@ async def realtime_events(
     bus generator's ``finally`` (it unregisters the subscriber)."""
     from fastapi.responses import StreamingResponse
 
-    from ..realtime import get_event_bus
-
-    realtime = getattr(state.prefs, "realtime", None)
+    realtime = getattr(state.execution_prefs, "realtime", None)
     if not bool(getattr(realtime, "enabled", False)):
         # Realtime is disabled — tell the client to fall back to polling.
         return Response(status_code=204)
@@ -267,7 +265,7 @@ async def realtime_events(
     # EventSource auto-sets Last-Event-ID on reconnect; honor the query param too.
     last_id = request.headers.get("last-event-id") or lastEventId
 
-    bus = get_event_bus()
+    bus = state.event_bus
     stream = bus.subscribe(allowed, username, last_event_id=last_id)
     return StreamingResponse(
         stream,
@@ -490,17 +488,12 @@ async def list_sources(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("sources", "read")),
 ) -> dict[str, Any]:
-    rows = [s.model_dump(mode="json") for s in state.prefs.sources]
-    # Demo Mode: overlay the 3 synthetic sources at READ time only (never persisted to
-    # Preferences.sources). Collision-guarded against a real source id.
+    # Demo Mode uses the same active-store isolation contract as cases/metrics/logs: only
+    # the four throwaway source adapters are visible while active. Real source config is
+    # preserved untouched and returns immediately on disable.
     if state.demo_active:
-        real_ids = {str(r.get("id")) for r in rows}
-        for extra in state.demo_sources_overlay():
-            if str(extra.get("id")) in real_ids:
-                logger.warning("demo source overlay id %s collides with a real source; dropped",
-                               extra.get("id"))
-                continue
-            rows.append(extra)
+        return {"sources": state.demo_sources_overlay()}
+    rows = [s.model_dump(mode="json") for s in state.prefs.sources]
     return {"sources": rows}
 
 
@@ -684,7 +677,12 @@ async def ingest_push(
     from ..engine.ingest import IngestBatchError
 
     try:
-        stats = await state.ingest_service.ingest(events, state.prefs, source_id=source_id)
+        # This is a real source's public delivery path, not a presentation control.
+        # Demo Mode may hide real cases in the UI, but it must never divert accepted
+        # production alerts into the throwaway stack where disable would destroy them.
+        stats = await state.real_ingest_service.ingest(
+            events, state.prefs, source_id=source_id,
+        )
     except IngestBatchError as exc:
         # Do not claim acceptance when correlation/case persistence failed.  A 503
         # makes the retry contract explicit for webhook/HEC senders; broker receivers
@@ -704,7 +702,10 @@ async def ingest_push(
 # --------------------------------------------------------------------------- #
 def _log_message(src: dict[str, Any]) -> str:
     from ..utils import dotted_get
-    for f in ("message", "event.original", "log.message", "event.action", "rule.description"):
+    for f in (
+        "message", "description", "full_log", "event.original", "log.message",
+        "event.action", "rule.description",
+    ):
         v = dotted_get(src, f)
         if v:
             return str(v) if not isinstance(v, list) else str(v[0])
@@ -748,37 +749,42 @@ async def source_logs(
     ingested events from the in-memory live-tail buffer. Hard-capped; secrets are
     never returned (rows are log data only)."""
     limit = max(1, min(int(limit or 100), 200))  # hard cap
-    # Demo Mode (Wave 5): the synthetic 'demo' source isn't in prefs.sources (it never
-    # pollutes the real source list) — serve its bounded synthetic logs directly.
-    if source_id == "demo" and state.demo_active:
-        from ..connectors.demo import DemoPullConnector
-        from ..connectors.base import StructuredQuery
-
-        conn = DemoPullConnector(seed=int(getattr(state.prefs.demo, "seed", 1337)))
-        result = await conn.search(state.prefs, StructuredQuery(size=limit, sort_desc=True))
-        rows = [_log_row(ev) for ev in result.events]
-        return {"source_id": source_id, "mode": "search", "count": len(rows),
-                "total": result.total, "logs": rows, "query": "*"}
-    # The three per-segment demo sources (demo-siem/xdr/edr) advertise can_browse=true
-    # but never enter prefs.sources — serve their bounded, read-only synthetic slice from
-    # the live DemoStack's own per-segment connector (else they 404 through the lookup).
-    if state.demo_active and state._demo is not None:
-        from ..engine.demo_generator import SEGMENT_SOURCE_IDS
-
-        segment = next(
-            (seg for seg, sid in SEGMENT_SOURCE_IDS.items() if sid == source_id), None
-        )
-        conn = state._demo.sources.get(segment) if segment else None
+    # The four protocol-faithful demo adapters never enter prefs.sources. Their bounded
+    # native-derived rings are exposed through the same browse row contract, with source
+    # provenance made explicit on every result. No demo record reaches a tenant connector.
+    if state.demo_active:
+        conn = state.demo_source_connector(source_id)
         if conn is not None:
             from ..connectors.base import StructuredQuery
 
             result = await conn.search(
                 state.prefs,
-                StructuredQuery(contains=(query or None), size=limit, sort_desc=True),
+                StructuredQuery(
+                    contains=(query or None), time_from=from_, time_to=to,
+                    size=limit, sort_desc=True,
+                ),
+            )
+            source_name = next(
+                (str(row.get("display_name") or source_id)
+                 for row in state.demo_sources_overlay()
+                 if row.get("id") == source_id),
+                source_id,
             )
             rows = [_log_row(ev) for ev in result.events]
-            return {"source_id": source_id, "mode": "search", "count": len(rows),
-                    "total": result.total, "logs": rows, "query": "*"}
+            for row in rows:
+                row["source_id"] = source_id
+                row["source_name"] = source_name
+            return {
+                "source_id": source_id,
+                "mode": "buffer",
+                "count": len(rows),
+                "total": result.total,
+                "logs": rows,
+                "query": result.rendering.query if result.rendering else (query or "*"),
+            }
+        # A demo session must never query a real tenant connector, even when a caller
+        # knows its id. Disable Demo Mode before browsing live data.
+        raise HTTPException(status_code=404, detail="Source not found")
     src = next((s for s in state.prefs.sources if s.id == source_id), None)
     if src is None:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -904,19 +910,44 @@ async def unified_logs(
         return [_log_row(ev)
                 for ev in state.ingest_service.recent_events_for_source(src.id, limit)]
 
+    async def _read_demo(src) -> list[dict[str, Any]]:
+        conn = state.demo_source_connector(src.id)
+        if conn is None:
+            return []
+        from ..connectors.base import StructuredQuery
+
+        result = await conn.search(
+            state.prefs,
+            StructuredQuery(
+                contains=(query or None), time_from=from_, time_to=to,
+                size=limit, sort_desc=True,
+            ),
+        )
+        return [_log_row(ev) for ev in result.events]
+
     # Select the enabled + browse-capable sources and pair each read coroutine with its
     # source (for provenance + error attribution). Unsupported sources are skipped.
     targets: list[tuple[Any, Any]] = []
-    for src in state.prefs.sources:
-        if not src.enabled or not _source_can_browse(reg, src):
-            continue
-        cls = reg.get(src.source_type)
-        if cls is None:
-            continue
-        if reg.is_receiver(src.source_type):
-            targets.append((src, _read_push(src)))
-        elif reg.is_pull(src.source_type):
-            targets.append((src, _read_pull(src)))
+    if state.demo_active:
+        from types import SimpleNamespace
+
+        for row in state.demo_sources_overlay():
+            sid = str(row.get("id"))
+            if not sid:
+                continue
+            src = SimpleNamespace(id=sid, display_name=row.get("display_name") or sid)
+            targets.append((src, _read_demo(src)))
+    else:
+        for src in state.prefs.sources:
+            if not src.enabled or not _source_can_browse(reg, src):
+                continue
+            cls = reg.get(src.source_type)
+            if cls is None:
+                continue
+            if reg.is_receiver(src.source_type):
+                targets.append((src, _read_push(src)))
+            elif reg.is_pull(src.source_type):
+                targets.append((src, _read_pull(src)))
 
     async def _guarded(coro):
         return await asyncio.wait_for(coro, timeout=timeout)
@@ -1095,37 +1126,13 @@ async def sources_health(
     ``events_per_min``, ``last_event_millis``, ``silent``). A missing/legacy cursor reads as
     ``last_poll_millis: 0`` (never polled yet). Never mutates anything (this endpoint only
     reads); advisory only (#3); error strings are plain text (#9)."""
-    out = await _sources_health_rows(state)
-    # Demo Mode: overlay the 3 synthetic sources' health at READ time only (never
-    # persisted). They are not driven by the durable poller (the DemoSimulator ticks
-    # them), so ``last_poll_millis`` stays 0 and we report a synthetic ``last_event_millis``
-    # instead of fabricating a cursor row. Collision-guarded against a real source id.
+    # Demo Mode: overlay the four native simulators' real in-memory activity counters at
+    # READ time only (never persisted), hiding real tenant health just like other active
+    # demo stores. They are push-style adapters, not durable pull pollers, so no cursor
+    # or wall-clock activity is fabricated.
     if state.demo_active:
-        real_ids = {str(r.get("source_id")) for r in out}
-        now_ms = to_millis(now_utc())
-        for extra in state.demo_sources_overlay():
-            sid = str(extra.get("id"))
-            if sid in real_ids:
-                continue
-            out.append({
-                "source_id": sid,
-                "source_name": extra.get("display_name") or sid,
-                "source_type": "generic",
-                "enabled": True,
-                "is_primary": False,
-                "ingest_mode": "pull",
-                "kind": "pull",
-                "can_browse": True,
-                "buffer_depth": 0,
-                "last_poll_millis": 0,
-                "last_poll_at": None,
-                "last_poll_ok": None,
-                "last_poll_error": None,
-                "last_event_millis": now_ms,
-                "events_per_min": 0.0,
-                "silent": False,
-                "demo": True,
-            })
+        return {"sources": state.demo_source_health_overlay()}
+    out = await _sources_health_rows(state)
     return {"sources": out}
 
 
@@ -1138,12 +1145,19 @@ async def sources_coverage(
     (A5.5; Google SecOps Health-Hub model). Read-only, advisory, NO secrets.
 
     Returns ``{sources_total, sources_enabled, sources_silent, events_per_min,
-    alerts_triaged_24h, worst_last_event_seconds}`` computed over the REAL configured
-    sources (demo overlay excluded so the numbers stay honest). ``alerts_triaged_24h`` is
+    alerts_triaged_24h, worst_last_event_seconds}`` computed over the configured sources,
+    or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h`` is
     the count of cases opened in the last 24h computed with the SAME window filter the
     ``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every
     sub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched)."""
-    rows = await _sources_health_rows(state)
+    # Demo reads are intentionally scoped to the throwaway demo stack, just like cases,
+    # metrics, usage, and RAG. Including the four real simulator rows avoids the previous
+    # misleading 0/0 coverage tile without leaking tenant-source health into a demo.
+    rows = (
+        state.demo_source_health_overlay()
+        if state.demo_active
+        else await _sources_health_rows(state)
+    )
     now_ms = to_millis(now_utc())
     enabled_rows = [r for r in rows if r.get("enabled")]
     sources_silent = sum(1 for r in enabled_rows if r.get("silent"))
@@ -1167,7 +1181,7 @@ async def sources_coverage(
     except Exception:  # noqa: BLE001 — a store hiccup degrades to 0, never a 500
         alerts_triaged = 0
 
-    return {
+    payload = {
         "sources_total": len(rows),
         "sources_enabled": len(enabled_rows),
         "sources_silent": int(sources_silent),
@@ -1175,6 +1189,9 @@ async def sources_coverage(
         "alerts_triaged_24h": int(alerts_triaged),
         "worst_last_event_seconds": int(max(0, worst)),
     }
+    if state.demo_active:
+        payload["demo"] = True
+    return payload
 
 
 @router.get("/sources/{source_id}/feeds")
@@ -1317,7 +1334,7 @@ async def _record_settings_rule_versions(
             changes.append(f"{kind}:{rule_id}:{action}")
     if changes:
         try:
-            await state.audit.record(
+            await state.control_audit.record(
                 action_type=ActionType.STATUS, surface="rules", actor=actor,
                 result_summary=("rule versions recorded: " + ", ".join(changes))[:500],
             )
@@ -1355,7 +1372,7 @@ async def put_settings(
     # audit glitch must never fail the settings save (mirrors terminology_put).
     changed = sorted(str(k) for k in body.keys()) if isinstance(body, dict) else []
     try:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.STATUS, surface="settings",
             actor=current_username(request) or "",
             result_summary=("updated settings: " + ", ".join(changed))[:500]
@@ -1431,7 +1448,7 @@ async def chat(
         author = ""
     # Per-call model override (additive): run THIS chat turn with the chat-role model
     # swapped to body.model via a prefs copy. Unchanged when body.model is None.
-    prefs_eff = _override_models(state.prefs, body.model, ("chat",))
+    prefs_eff = _override_models(state.execution_prefs, body.model, ("chat",))
     # Per-call SOURCE scoping (multi-source): when body.source_id selects a
     # configured PULL source, build that source's connector (its config+TLS, like
     # the browse endpoint) and run the chat against it. Absent / push / unbuildable
@@ -1461,6 +1478,10 @@ def _chat_source_connector(state: AppState, source_id: str | None):
     per-source ES client the CALLER must close after the turn."""
     if not source_id:
         return None, None
+    if state.demo_active:
+        # Demo push adapters expose the same bounded search contract as a pull
+        # connector, so chat source selection remains truthful for all four rows.
+        return state.demo_source_connector(source_id), None
     src = next((s for s in state.prefs.sources if s.id == source_id and s.enabled), None)
     if src is None:
         return None, None
@@ -1492,9 +1513,7 @@ def _chat_source_connector(state: AppState, source_id: str | None):
 # --------------------------------------------------------------------------- #
 @router.post("/investigate")
 async def investigate(body: InvestigateRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
-    query_source = (
-        state.poller.source_for_id(body.source_id) if body.source_id else state.log_source
-    )
+    query_source = state.active_source_for_id(body.source_id)
     if body.source_id and query_source is None:
         raise HTTPException(
             status_code=400,
@@ -1506,7 +1525,7 @@ async def investigate(body: InvestigateRequest, state: AppState = Depends(get_st
         detail = _no_events_detail(body, widest)
         raise HTTPException(status_code=400, detail=detail)
     case = await state.pipeline.investigate_cluster(
-        cluster, body.source_surface, state.prefs, query_source=query_source
+        cluster, body.source_surface, state.execution_prefs, query_source=query_source
     )
     return case.model_dump(mode="json")
 
@@ -1526,7 +1545,8 @@ async def overview(body: OverviewRequest, state: AppState = Depends(get_state)) 
     if not body.source:
         raise HTTPException(status_code=400, detail="No event source provided")
     return await state.overview_service.overview(
-        body.source, state.prefs, index=body.index, id=body.id, data_view=body.data_view
+        body.source, state.execution_prefs,
+        index=body.index, id=body.id, data_view=body.data_view,
     )
 
 
@@ -1659,10 +1679,11 @@ async def approve_proposal(
             raise HTTPException(status_code=400, detail=f"invalid suppression payload: {exc}") from exc
         # Append to a fresh prefs copy and persist via the settings write path so the
         # cost gate / query builder see the new rule immediately (state.prefs updated).
-        prefs = state.prefs.model_copy(update={
-            "suppression_rules": [*state.prefs.suppression_rules, rule],
+        active_prefs = state.execution_prefs
+        prefs = active_prefs.model_copy(update={
+            "suppression_rules": [*active_prefs.suppression_rules, rule],
         })
-        await state.update_prefs(prefs)
+        await state.update_execution_prefs(prefs)
     elif proposal.kind == "memory":
         payload = dict(proposal.payload or {})
         text = str(payload.get("text", "") or proposal.rationale).strip()
@@ -1789,40 +1810,51 @@ async def feedback_stats_route(state: AppState = Depends(get_state)) -> dict[str
 
 
 # --------------------------------------------------------------------------- #
-# Demo Mode (Wave 5) — reversible, isolated synthetic showcase. All admin-gated.
+# Demo Mode (Wave 5) — reversible, isolated synthetic showcase. Mutations use the
+# dedicated ``demo:manage`` grant (built-in role behavior mirrors settings:manage).
 # Enabling builds a SEPARATE in-memory store + a $0 deterministic mock LLM and
 # seeds a backdated history; while active the READ endpoints serve the DEMO store
 # (real cases hidden) and disable hard-deletes demo data so real state returns.
 # --------------------------------------------------------------------------- #
 class DemoEnableBody(BaseModel):
-    mode: str = "seeded"                    # 'seeded' | 'live'
+    mode: Literal["seeded", "live"] = "seeded"
     seed: int | None = None
-    history_days: int | None = None
-    tick_seconds: float | None = None
-    tick_jitter: float | None = None
-    incident_rate: float | None = None
-    alert_interval_seconds: float | None = None
-    event_rate_per_second: float | None = None
-    preseed_recent_minutes: int | None = None
-    preseed_case_count: int | None = None
-    preseed_event_count: int | None = None
+    history_days: int | None = Field(default=None, ge=0, le=365)
+    tick_seconds: float | None = Field(default=None, gt=0.0, le=60.0)
+    tick_jitter: float | None = Field(default=None, ge=0.0, le=1.0)
+    incident_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    alert_interval_seconds: float | None = Field(default=None, gt=0.0, le=3600.0)
+    event_rate_per_second: float | None = Field(default=None, ge=0.0, le=200.0)
+    preseed_recent_minutes: int | None = Field(default=None, ge=0, le=120)
+    preseed_case_count: int | None = Field(default=None, ge=0, le=20)
+    preseed_event_count: int | None = Field(default=None, ge=0, le=2000)
     force_capabilities: bool | None = None
 
 
+class DemoIncidentBody(BaseModel):
+    scenario_id: str | None = Field(
+        default=None, max_length=80, pattern=r"^[a-z0-9_-]+$",
+    )
+
+
 @router.get("/demo/status")
-async def demo_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def demo_status(
+    state: AppState = Depends(get_state),
+    _read=Depends(require_permission("demo", "read")),
+) -> dict[str, Any]:
     return await state.demo_status()
 
 
 @router.post("/demo/enable")
 async def demo_enable(
+    request: Request,
     body: DemoEnableBody,
     state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),
+    _manage=Depends(require_permission("demo", "manage")),
 ) -> dict[str, Any]:
     if state.prefs.read_only_settings_mode:
         raise HTTPException(status_code=403, detail="settings are read-only")
-    mode = body.mode if body.mode in ("seeded", "live") else "seeded"
+    mode = body.mode
     status = await state.enable_demo(
         mode=mode, seed=body.seed, history_days=body.history_days,
         tick_seconds=body.tick_seconds, tick_jitter=body.tick_jitter,
@@ -1834,28 +1866,77 @@ async def demo_enable(
         preseed_event_count=body.preseed_event_count,
         force_capabilities=body.force_capabilities,
     )
-    # Audit the admin action on the REAL audit log (demo enable is a real action).
+    # Audit the mutation on the REAL audit log (demo data itself remains isolated).
     await state.real_audit.record(
-        action_type=ActionType.DECISION, surface="demo", actor="admin",
+        action_type=ActionType.DECISION,
+        surface="demo",
+        actor=current_username(request) or "operator",
         result_summary=f"demo enabled mode={mode} run_id={status.get('run_id')}",
     )
     return status
 
 
+@router.post("/demo/incident")
+async def demo_incident(
+    request: Request,
+    body: DemoIncidentBody | None = None,
+    state: AppState = Depends(get_state),
+    _manage=Depends(require_permission("demo", "manage")),
+) -> dict[str, Any]:
+    """Trigger one coherent, cooldown-aware attack in the isolated demo stack.
+
+    Splunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw
+    RFC 5424 telemetry that TLSOC detects. The action requires ``demo:manage`` and is
+    recorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.
+    """
+    if not state.demo_active:
+        raise HTTPException(status_code=409, detail="Demo mode is not active")
+    scenario_id = body.scenario_id if body else None
+    result = await state.trigger_demo_incident(scenario_id)
+    await state.real_audit.record(
+        action_type=ActionType.DECISION,
+        surface="demo",
+        actor=current_username(request) or "operator",
+        result_summary=(
+            f"demo incident trigger triggered={bool(result.get('triggered'))} "
+            f"scenario_id={result.get('scenario_id') or scenario_id or ''} "
+            f"reason={result.get('reason') or ''}"
+        ),
+    )
+    return result
+
+
 @router.post("/demo/reset")
 async def demo_reset(
+    request: Request,
     state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),
+    _manage=Depends(require_permission("demo", "manage")),
 ) -> dict[str, Any]:
-    return await state.reset_demo()
+    status = await state.reset_demo()
+    await state.real_audit.record(
+        action_type=ActionType.DECISION,
+        surface="demo",
+        actor=current_username(request) or "operator",
+        result_summary=f"demo reset run_id={status.get('run_id')}",
+    )
+    return status
 
 
 @router.post("/demo/disable")
 async def demo_disable(
+    request: Request,
     state: AppState = Depends(get_state),
-    _admin=Depends(require_admin),
+    _manage=Depends(require_permission("demo", "manage")),
 ) -> dict[str, Any]:
-    return await state.disable_demo()
+    before = await state.demo_status()
+    status = await state.disable_demo()
+    await state.real_audit.record(
+        action_type=ActionType.DECISION,
+        surface="demo",
+        actor=current_username(request) or "operator",
+        result_summary=f"demo disabled run_id={before.get('run_id')}",
+    )
+    return status
 
 
 # --------------------------------------------------------------------------- #
@@ -1969,7 +2050,7 @@ async def auth_login(
         raise HTTPException(status_code=400, detail="authentication is disabled")
     token = auth.authenticate(body.username, body.password)
     if not token:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=body.username or "",
             result_summary="login failed",
         )
@@ -1980,7 +2061,7 @@ async def auth_login(
     # return a SHORT-LIVED pending token the client exchanges at /auth/mfa/verify
     # with a TOTP/recovery code. A user with mfa_enabled=False is UNAFFECTED. ---
     if auth.requires_mfa(user.username):
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
             result_summary="password ok; mfa challenge issued",
         )
@@ -1993,7 +2074,7 @@ async def auth_login(
         await state.users.update(user.username, last_login_at=iso_now())
     except Exception:  # noqa: BLE001
         pass
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=user.username,
         result_summary="login ok",
     )
@@ -2099,7 +2180,7 @@ async def auth_change_password(
         must_change_password=False,
     )
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
         result_summary="password changed",
     )
@@ -2262,7 +2343,7 @@ async def auth_reauth(
     unlocked for the policy window. Audited (#2)."""
     principal = _require_session(state, request)
     if state.auth.authenticate(principal.username, body.password or "") is None:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="session", actor=principal.username,
             result_summary="reauth failed",
         )
@@ -2345,7 +2426,7 @@ def _short(sid: str) -> str:
 async def _records_for_actor(state: AppState, actor: str, limit: int) -> list[dict[str, Any]]:
     """Read the caller's own audit rows (newest first) via the audit repository's
     per-actor reader. Best-effort — returns [] on any error."""
-    audit = getattr(state, "audit", None)
+    audit = getattr(state, "control_audit", None)
     if audit is None:
         return []
     try:
@@ -2493,7 +2574,7 @@ async def update_account_me(
         raise HTTPException(status_code=400, detail="no changes provided")
     updated = await state.users.update(principal.username, **patch)
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="account", actor=principal.username,
         result_summary=f"updated profile ({', '.join(sorted(patch))})",
     )
@@ -2518,7 +2599,7 @@ async def update_my_avatar(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     updated = await state.users.update(principal.username, avatar=avatar)
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="account", actor=principal.username,
         result_summary=("cleared avatar" if not avatar else "updated avatar"),
     )
@@ -2582,7 +2663,7 @@ async def mfa_setup(request: Request, state: AppState = Depends(get_state)) -> d
         "secret": secret,
         "recovery_hashes": [mfa_mod.hash_recovery_code(c) for c in recovery],
     }
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
         result_summary="mfa enrollment started",
     )
@@ -2628,7 +2709,7 @@ async def mfa_confirm(
     await state.users.save(updated)
     await state.refresh_users()
     _MFA_PENDING_ENROLL.pop(principal.username.strip().lower(), None)
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
         result_summary="mfa enabled",
     )
@@ -2684,7 +2765,7 @@ async def mfa_verify(
             del remaining[match_idx]
             await state.users.save(user.model_copy(update={"mfa_recovery_hashes": remaining}))
     if not method:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
             result_summary="mfa verify failed",
         )
@@ -2698,7 +2779,7 @@ async def mfa_verify(
         await state.users.update(username, last_login_at=iso_now())
     except Exception:  # noqa: BLE001
         pass
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
         result_summary=f"mfa login ok ({method})",
     )
@@ -2750,7 +2831,7 @@ async def mfa_disable(
         "mfa_enabled": False, "mfa_secret": "", "mfa_recovery_hashes": [], "mfa_last_step": 0,
     }))
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=principal.username,
         result_summary="mfa disabled",
     )
@@ -2869,7 +2950,7 @@ async def sso_callback(
         return _fail("incomplete_identity")
     denied = prov.check_allowed(identity)
     if denied:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=identity.get("email") or "",
             result_summary=f"sso denied: {denied}",
         )
@@ -2877,7 +2958,7 @@ async def sso_callback(
     role = prov.role_for(identity)
     username = await _provision_sso_user(state, provider_id, identity, role)
     if username is None:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.AUTH_EVENT, surface="auth", actor=identity.get("email") or "",
             result_summary="sso login rejected: user not provisioned",
         )
@@ -2891,7 +2972,7 @@ async def sso_callback(
         await state.users.update(username, last_login_at=iso_now())
     except Exception:  # noqa: BLE001
         pass
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=username,
         result_summary=f"sso login ok ({provider_id})",
     )
@@ -2992,7 +3073,7 @@ async def set_sso_provider_secret(
     to the SECRET tier (in memory), NEVER to Preferences/the config doc; only a
     configured-boolean is returned."""
     state.secrets.set_sso_client_secret(provider_id, body.client_secret)
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.AUTH_EVENT, surface="auth", actor=current_username(request),
         result_summary=f"sso client secret {'set' if body.client_secret else 'cleared'} for '{provider_id}'",
     )
@@ -3092,7 +3173,7 @@ async def create_user(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
         result_summary=f"created user '{user.username}' ({user.role})",
     )
@@ -3155,7 +3236,7 @@ async def update_user(
         )
     updated = await state.users.update(username, **patch)
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
         result_summary=f"updated user '{username}'",
     )
@@ -3176,7 +3257,7 @@ async def delete_user(
         raise HTTPException(status_code=409, detail="cannot delete the last active super_admin")
     await state.users.delete(username)
     await state.refresh_users()
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="users", actor=current_username(request),
         result_summary=f"deleted user '{username}'",
     )
@@ -3266,7 +3347,7 @@ async def list_cases(
         total = len(cases)
     # ADDITIVE (Round-7 W0.7): populate the read-time advisory bands (severity/impact/
     # urgency/priority) for the list surface. Fail-open per case — never 500 (#3).
-    prefs = state.prefs
+    prefs = state.execution_prefs
     cases = [_with_advisory_bands(c, prefs) for c in cases]
     return CaseListResponse(cases=cases, total=total)
 
@@ -3537,7 +3618,7 @@ async def _perform_case_action(
     # Fail-safe: a RAG/embedding failure must NEVER break the analyst's action.
     if body.action in ("close", "confirm_fp"):
         try:
-            await state.rag.index_resolved_case(case, note=body.note)
+            await state.rag_service.index_resolved_case(case, note=body.note)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Resolved-case RAG index failed for %s: %s", case_id, exc)
         # HITL: draft a PENDING suppression proposal from a closed false positive.
@@ -3546,8 +3627,14 @@ async def _perform_case_action(
         try:
             from ..agents.proposer import draft_suppression_proposal
 
+            proposal_source = state.log_source
+            if state.demo_active:
+                proposal_source = (
+                    state.demo_source_connector(case.source_id or "")
+                    or state.demo_source_connector("demo-splunk")
+                )
             proposal = await draft_suppression_proposal(
-                case, source=state.log_source, prefs=state.prefs
+                case, source=proposal_source, prefs=state.execution_prefs
             )
             if proposal is not None:
                 await state.proposals.add(proposal)
@@ -3576,7 +3663,7 @@ async def _perform_case_action(
         elif body.action in ("close", "confirm_fp", "resolve"):
             _trig = TRIGGER_CLOSED
         notifier: NotificationService | None = getattr(state, "notifications", None)
-        if _trig and notifier is not None:
+        if _trig and notifier is not None and not state.demo_active:
             import asyncio
 
             asyncio.create_task(notifier.dispatch(case, _trig))
@@ -3877,7 +3964,7 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    query_source = state.poller.source_for_id(case.source_id)
+    query_source = state.active_source_for_id(case.source_id)
     cluster = await _cluster_for_case(
         state, case, query_source=query_source
     )
@@ -3892,7 +3979,8 @@ async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -
         )
     # force=True so an already-investigated OPEN case is genuinely re-investigated.
     updated = await state.pipeline.investigate_cluster(
-        cluster, case.source_surface, state.prefs, force=True, query_source=query_source
+        cluster, case.source_surface, state.execution_prefs,
+        force=True, query_source=query_source,
     )
     return updated.model_dump(mode="json")
 
@@ -3931,7 +4019,7 @@ async def case_reinvestigate(
     # Rebuild the cluster from live logs; if the events aged out, fall back to a
     # minimal reconstruction from the case's STORED evidence so the re-investigation
     # runs over what we retained rather than dead-ending (#3 untouched).
-    query_source = state.poller.source_for_id(case.source_id)
+    query_source = state.active_source_for_id(case.source_id)
     cluster = await _cluster_for_case(
         state, case, allow_stored_reconstruction=True, query_source=query_source
     )
@@ -3943,7 +4031,7 @@ async def case_reinvestigate(
     # Per-call model override (additive): swap the investigation-role models for this
     # run only. Unchanged when body.model is None.
     prefs_eff = _override_models(
-        state.prefs, body.model, ("router", "investigator", "formatter")
+        state.execution_prefs, body.model, ("router", "investigator", "formatter")
     )
     # Audit the manual reinvestigation BEFORE the run so the trigger is recorded even
     # if the pipeline later fails-to-human (the pipeline never raises).
@@ -3993,7 +4081,7 @@ async def case_run_playbook(
     # Rebuild the cluster from live logs; if the events aged out, fall back to a
     # minimal reconstruction from the case's STORED evidence so the playbook can still
     # be run over what we retained rather than dead-ending (#3 untouched).
-    query_source = state.poller.source_for_id(case.source_id)
+    query_source = state.active_source_for_id(case.source_id)
     cluster = await _cluster_for_case(
         state, case, allow_stored_reconstruction=True, query_source=query_source
     )
@@ -4011,7 +4099,7 @@ async def case_run_playbook(
         ),
     )
     updated = await state.playbooks.run(
-        state.pipeline, cluster, case.source_surface, state.prefs, body.playbook_id,
+        state.pipeline, cluster, case.source_surface, state.execution_prefs, body.playbook_id,
         query_source=query_source,
     )
     return updated.model_dump(mode="json")
@@ -4034,9 +4122,10 @@ async def case_threat_context(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    enrich = EnrichTool(state.secrets, state.prefs, state.cache)
+    prefs = state.execution_prefs
+    enrich = EnrichTool(state.secrets, prefs, state.cache)
     panel = await tc.assemble(
-        case, state.prefs, enrich=enrich, rag=state.rag, cases=state.cases
+        case, prefs, enrich=enrich, rag=state.rag_service, cases=state.cases
     )
     return panel.model_dump(mode="json")
 
@@ -4063,7 +4152,7 @@ async def threat_context_import(
     content = (body.content or "").strip()
     if not title or not content:
         raise HTTPException(status_code=400, detail="title and content are required")
-    result = await state.rag.import_threat_context(title, content, tags=body.tags)
+    result = await state.rag_service.import_threat_context(title, content, tags=body.tags)
     await state.audit.record(
         action_type=ActionType.CONTEXT, surface="rag", actor="analyst",
         result_summary=(
@@ -4132,7 +4221,7 @@ async def case_forwarding(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     cluster = await _cluster_for_case(
-        state, case, query_source=state.poller.source_for_id(case.source_id)
+        state, case, query_source=state.active_source_for_id(case.source_id)
     )
     if cluster is None:
         # No member events retrievable (e.g. purged logs) — return an honest,
@@ -4181,24 +4270,25 @@ async def standup(
     a clear ``{enabled: false}`` shape when disabled, the full happy-path result
     when data is present, or a graceful ``degraded: true`` + ``error`` + a short
     summary note when the aggregation/summary step is unavailable (never a 500)."""
-    if not state.prefs.standup.enabled:
+    prefs = state.execution_prefs
+    if not prefs.standup.enabled:
         return {
             "enabled": False,
             "summary": "Standup is disabled in settings.",
             "aggregate": {},
             "cases": {},
-            "window_hours": state.prefs.standup.window_hours,
+            "window_hours": prefs.standup.window_hours,
             "degraded": False,
         }
     try:
-        result = await state.standup_service.generate(state.prefs, window_hours=window_hours)
+        result = await state.standup_service.generate(prefs, window_hours=window_hours)
     except Exception as exc:  # noqa: BLE001 — belt-and-braces: the page must never 500
         logger.warning("Standup route caught an unexpected error (%s); degrading", exc)
         result = {
             "summary": "Standup is unavailable right now (limited data).",
             "aggregate": {},
             "cases": {},
-            "window_hours": window_hours or state.prefs.standup.window_hours,
+            "window_hours": window_hours or prefs.standup.window_hours,
             "cost": 0.0,
             "degraded": True,
             "error": str(exc),
@@ -4222,12 +4312,20 @@ async def usage_summary(
 # Manual poll trigger (demo / ops)
 # --------------------------------------------------------------------------- #
 @router.post("/poll")
-async def poll_now(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def poll_now(
+    request: Request,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("sources", "manage")),
+) -> dict[str, Any]:
     # While demo is engaged, a manual poll runs a DEMO simulation tick (writing to the
     # demo store) instead of advancing the REAL durable cursor (#4). The demo tick
     # generates a deterministic benign batch + possibly a storyline through the demo
     # pipeline ($0 mock LLM, sandboxed policy). Real cursor stays untouched.
     if state.demo_active:
+        # ``sources:manage`` authorizes a real manual poll. Demo mutation has its own
+        # narrower grant, so a custom role cannot bypass ``demo:manage`` through this
+        # legacy operational endpoint.
+        await require_permission("demo", "manage")(request)
         return await state.demo_tick()
     return await state.poller.poll_once(state.prefs)
 
@@ -4332,7 +4430,7 @@ async def _entity_events_widening(
     Returns (events, widest_window_tried). Stops at the first window that yields
     events; if all are empty the events list is empty and widest_window_tried is
     the broadest window attempted."""
-    prefs = state.prefs
+    prefs = state.execution_prefs
     windows = _widen_windows(start_window)
     widest = windows[-1]
     for window in windows:
@@ -4375,7 +4473,7 @@ async def _cluster_for_request(
 ) -> tuple[Cluster | None, str]:
     """Resolve an InvestigateRequest to a Cluster (with a synthesized manual
     TriggerReason). Returns (cluster_or_None, widest_window_tried)."""
-    prefs = state.prefs
+    prefs = state.execution_prefs
     start_window = req.lookback or prefs.investigate_lookback
 
     if req.event_ids:
@@ -4396,7 +4494,9 @@ async def _cluster_for_request(
         value = events[0].entity_value(entity_type)
         if not value:
             return None, start_window
-        members = [e for e in events if e.entity_value(entity_type) == value] or events
+        members = [e for e in events if e.entity_value(entity_type) == value]
+        if not members:
+            return None, start_window
         window = start_window
     elif req.entity:
         entity_type, value = req.entity.type, req.entity.value
@@ -4405,7 +4505,9 @@ async def _cluster_for_request(
         )
         if not events:
             return None, window
-        members = [e for e in events if e.entity_value(entity_type) == value] or events
+        members = [e for e in events if e.entity_value(entity_type) == value]
+        if not members:
+            return None, window
     else:
         return None, start_window
 
@@ -4439,7 +4541,7 @@ async def _cluster_for_case(
     a re-investigate never overwrites a scan-derived "Why this fired"; only a case
     lacking one gets a synthesized MANUAL trigger reason. Nothing here touches the
     deterministic close/escalate decision (#3)."""
-    prefs = state.prefs
+    prefs = state.execution_prefs
     entity_type, value = case.entity.type, case.entity.value
     has_trigger = case.trigger_reason is not None
     # ``query_source=None`` is intentional for push/deleted sources: they have no

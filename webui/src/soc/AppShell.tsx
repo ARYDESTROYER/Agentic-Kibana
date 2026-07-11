@@ -36,6 +36,7 @@ import {
   ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
+  Menu,
   Search,
 } from 'lucide-react';
 import { Button } from '@/ui/button';
@@ -43,6 +44,12 @@ import { Badge } from '@/ui/badge';
 import { Separator } from '@/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/ui/popover';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '@/ui/sheet';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,7 +77,8 @@ import { CommandPalette } from './components/CommandPalette';
 import { GlassSurface } from './components/GlassSurface';
 import { NavSidebar, useNavPrefs } from './components/NavSidebar';
 import { NotificationBell } from './components/NotificationBell';
-import { navItem, navLabel, type PageId } from './nav';
+import { useIsMobile } from './hooks/useMediaQuery';
+import { navItem, navLabel, navParentOf, type PageId } from './nav';
 import type { Navigate } from './router';
 // TYPE-ONLY import (elided at build → zero runtime import): motion.dev must NEVER ride
 // the eager App/AppShell first-paint graph, so RouteMotion is reached purely through the
@@ -313,8 +321,8 @@ const UserMenu: React.FC<{
           aria-label="Open account menu"
         >
           <UserAvatar src={profile?.avatar} name={display} />
-          <span className="hidden max-w-[140px] truncate font-medium sm:inline">{display}</span>
-          <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:inline" aria-hidden />
+          <span className="hidden max-w-[140px] truncate font-medium lg:inline">{display}</span>
+          <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground lg:inline" aria-hidden />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -412,10 +420,34 @@ export const AppShell: React.FC<AppShellProps> = ({
   const { active: demoActive, refresh: refreshDemo } = useDemo();
   const profile = useAccountProfile(Boolean(username));
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
+  const mobileNavRef = React.useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
   // Nav collapse + open-group state (shell-owned; hydrates synchronously from a
   // localStorage mirror to avoid a first-paint flash, then reconciles with the
   // server-side UserPrefs.misc and persists every change). See useNavPrefs.
   const { collapsed, toggleCollapsed, openGroups, toggleGroup, openGroup } = useNavPrefs();
+  const mobileOpenGroups = React.useMemo(() => {
+    const next = new Set(openGroups);
+    const parent = navParentOf(page);
+    if (parent && (parent.children?.length ?? 0) > 0) next.add(parent.id);
+    return next;
+  }, [openGroups, page]);
+
+  const handleMobileNavOpenChange = React.useCallback(
+    (open: boolean) => {
+      // A direct route to a disclosure child (for example #/users) may restore with
+      // its parent collapsed. Expand that trail before Radix moves focus so the
+      // canonical aria-current leaf is mounted and keyboard users land on the page
+      // they are actually viewing.
+      if (open) {
+        const parent = navParentOf(page);
+        if (parent && (parent.children?.length ?? 0) > 0) openGroup(parent.id);
+      }
+      setMobileNavOpen(open);
+    },
+    [openGroup, page],
+  );
 
   // TASK 6 — HOVER-TO-EXPAND for the collapsed icon rail. When the PERSISTED pref is
   // "collapsed" (a 64px rail), pointing at (or keyboard-focusing) the rail temporarily
@@ -430,6 +462,22 @@ export const AppShell: React.FC<AppShellProps> = ({
   // The width the sidebar actually renders at: the persisted rail expands on hover/focus,
   // a pinned-open drawer is left alone.
   const effectiveCollapsed = collapsed && !transientExpand;
+
+  // A desktop rail permanently consumes 240px when expanded, which left a 390px
+  // viewport with only ~150px of routed content and forced document-wide horizontal
+  // scrolling. Below `md`, navigation is a true modal Sheet instead: zero layout
+  // footprint while closed, full labelled destinations while open.
+  const navigateFromMobile = React.useCallback(
+    (id: PageId) => {
+      setMobileNavOpen(false);
+      onNavigate(id);
+    },
+    [onNavigate],
+  );
+  React.useEffect(() => {
+    if (!isMobile) setMobileNavOpen(false);
+  }, [isMobile]);
+  React.useEffect(() => setMobileNavOpen(false), [page]);
 
   // Refetch the demo status on every route change so the banner/badges stay fresh
   // even between the background poll ticks (cheap GET; inert when demo is off).
@@ -569,6 +617,50 @@ export const AppShell: React.FC<AppShellProps> = ({
         Skip to main content
       </a>
 
+      {/* Mobile navigation is an off-canvas dialog, not a squeezed desktop rail.
+          Only one NavSidebar instance is mounted at a time, so disclosure ids and
+          aria-current markers stay unique. */}
+      {isMobile ? (
+        <Sheet open={mobileNavOpen} onOpenChange={handleMobileNavOpenChange}>
+          <SheetContent
+            ref={mobileNavRef}
+            side="left"
+            size="sm"
+            className="w-[min(18rem,88vw)] max-w-none gap-0 overflow-hidden p-0"
+            onOpenAutoFocus={(event) => {
+              // Radix otherwise focuses the first destination (Overview), which can
+              // make it look active even when the semantic current page is elsewhere.
+              // Start keyboard users on the one canonical current-route marker.
+              const current =
+                mobileNavRef.current?.querySelector<HTMLElement>('[aria-current="page"]') ??
+                mobileNavRef.current?.querySelector<HTMLElement>('[data-active-trail="true"]');
+              if (!current) return;
+              event.preventDefault();
+              current.focus();
+            }}
+          >
+            <SheetTitle className="sr-only">Primary navigation</SheetTitle>
+            <SheetDescription className="sr-only">
+              Navigate between security operations pages.
+            </SheetDescription>
+            <NavSidebar
+              page={page}
+              onNavigate={navigateFromMobile}
+              collapsed={false}
+              openGroups={mobileOpenGroups}
+              onToggleGroup={toggleGroup}
+              onOpenGroup={openGroup}
+              logoUrl={logoUrl}
+              productName={productName}
+              className="h-full w-full border-r-0"
+              // Reserve the top-right Sheet close button's footprint so a long,
+              // operator-provided product name never runs underneath it.
+              toggleSlot={<span className="size-8 shrink-0" aria-hidden />}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
+
       {/* ---- Single expandable navigation sidebar (icon rail ↔ labelled drawer) --
           The wrapper reserves the nav's LAYOUT FOOTPRINT (64px collapsed / 240px
           pinned-open). When the persisted rail is hover/focus-expanded, only the
@@ -577,38 +669,37 @@ export const AppShell: React.FC<AppShellProps> = ({
           shift on hover (no reflow). `min-w-0` defeats flex `min-width:auto` so the
           overflowing drawer can exceed the reserved 64px. onMouseEnter/Leave +
           onFocus/Blur drive the transient expand; the persisted pref is untouched. */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- purely
-          presentational hover/focus affordance (expand-on-hover); the nav inside is
-          fully operable without it, so giving this wrapper an interactive role would be
-          semantically wrong. */}
-      <div
-        className={cn(
-          // Springy ease (the app's `--motion-ease-premium` curve) gives the rail a
-          // physical "settle" without pulling the motion.dev runtime onto the eager
-          // first-paint graph (NavSidebar/AppShell are eager; motion stays lazy, §budget).
-          'relative shrink-0 min-w-0 transition-[width] duration-200 ease-premium motion-reduce:transition-none',
-          collapsed ? 'z-40 w-16' : 'w-60',
-        )}
-        onMouseEnter={() => setRailHovered(true)}
-        onMouseLeave={() => setRailHovered(false)}
-        onFocus={() => setRailFocused(true)}
-        onBlur={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRailFocused(false);
-        }}
-      >
-        <NavSidebar
-          page={page}
-          onNavigate={onNavigate}
-          collapsed={effectiveCollapsed}
-          floating={collapsed}
-          openGroups={openGroups}
-          onToggleGroup={toggleGroup}
-          onOpenGroup={openGroup}
-          logoUrl={logoUrl}
-          productName={productName}
-          toggleSlot={navToggle}
-        />
-      </div>
+      {!isMobile ? (
+        // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- presentational hover/focus affordance; nested nav remains fully operable
+        <div
+          className={cn(
+            // Springy ease (the app's `--motion-ease-premium` curve) gives the rail a
+            // physical "settle" without pulling the motion.dev runtime onto the eager
+            // first-paint graph (NavSidebar/AppShell are eager; motion stays lazy, §budget).
+            'relative shrink-0 min-w-0 transition-[width] duration-200 ease-premium motion-reduce:transition-none',
+            collapsed ? 'z-40 w-16' : 'w-60',
+          )}
+          onMouseEnter={() => setRailHovered(true)}
+          onMouseLeave={() => setRailHovered(false)}
+          onFocus={() => setRailFocused(true)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setRailFocused(false);
+          }}
+        >
+          <NavSidebar
+            page={page}
+            onNavigate={onNavigate}
+            collapsed={effectiveCollapsed}
+            floating={collapsed}
+            openGroups={openGroups}
+            onToggleGroup={toggleGroup}
+            onOpenGroup={openGroup}
+            logoUrl={logoUrl}
+            productName={productName}
+            toggleSlot={navToggle}
+          />
+        </div>
+      ) : null}
 
       {/* ---- Main column --------------------------------------------------- */}
       <div className="flex min-w-0 flex-1 flex-col">
@@ -620,19 +711,32 @@ export const AppShell: React.FC<AppShellProps> = ({
           rim={false}
           className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border px-4"
         >
+          {isMobile ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={mobileNavOpen}
+            >
+              <Menu className="h-4 w-4" aria-hidden />
+            </Button>
+          ) : null}
+
           {/* Breadcrumb: OUR product name / current page (plain text — untrusted). */}
           <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
-            <span className="truncate font-semibold text-foreground">{productName}</span>
-            <span className="text-muted-foreground" aria-hidden>
+            <span className="hidden truncate font-semibold text-foreground sm:inline">{productName}</span>
+            <span className="hidden text-muted-foreground sm:inline" aria-hidden>
               /
             </span>
-            <span className="truncate text-muted-foreground">{pageLabel}</span>
+            <span className="truncate text-muted-foreground" aria-current="page">{pageLabel}</span>
           </nav>
 
           {/* Wide search trigger — an input-styled button that spans the bar and
               opens the command palette (Cmd-K). It grows to fill the space between
               the breadcrumb and the right cluster; on the narrowest widths it is
-              hidden and the `sm:hidden` icon opener in the right cluster takes over.
+              hidden and the `md:hidden` icon opener in the right cluster takes over.
               The visible placeholder is decorative — the accessible name comes from
               `aria-label` so it stays distinct from the mobile "Open search" opener. */}
           <button
@@ -641,7 +745,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             aria-label="Search cases, sources, and actions"
             aria-keyshortcuts="Control+K Meta+K"
             className={cn(
-              'hidden h-9 min-w-0 max-w-md flex-1 items-center gap-2 rounded-md border border-input bg-background/60 px-3 text-sm text-muted-foreground transition-colors sm:flex lg:max-w-lg',
+              'hidden h-9 min-w-0 max-w-md flex-1 items-center gap-2 rounded-md border border-input bg-background/60 px-3 text-sm text-muted-foreground transition-colors md:flex lg:max-w-lg',
               'hover:border-border-strong hover:text-foreground',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             )}
@@ -657,11 +761,11 @@ export const AppShell: React.FC<AppShellProps> = ({
 
           <div className="ml-auto flex items-center gap-2">
             {/* Compact search opener for the narrowest widths, where the wide trigger
-                above is hidden (`sm:hidden`). Opens the same command palette. */}
+                above is hidden (`md:hidden`). Opens the same command palette. */}
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 sm:hidden"
+              className="h-8 w-8 md:hidden"
               onClick={() => setPaletteOpen(true)}
               aria-label="Open search"
               aria-keyshortcuts="Control+K Meta+K"
@@ -695,7 +799,7 @@ export const AppShell: React.FC<AppShellProps> = ({
 
             {/* Version badge */}
             {health?.version ? (
-              <Badge variant="outline" className="hidden font-normal md:inline-flex">
+              <Badge variant="outline" className="hidden font-normal xl:inline-flex">
                 v{health.version}
               </Badge>
             ) : null}
@@ -716,10 +820,13 @@ export const AppShell: React.FC<AppShellProps> = ({
                   aria-label={`Platform health: ${hv.label}`}
                 >
                   <HealthIcon className="h-3.5 w-3.5" aria-hidden />
-                  <span className="hidden sm:inline">{hv.label}</span>
+                  <span className="hidden lg:inline">{hv.label}</span>
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 space-y-1.5 text-xs leading-relaxed">
+              <PopoverContent
+                align="end"
+                className="w-[min(20rem,calc(100vw-2rem))] space-y-1.5 text-xs leading-relaxed"
+              >
                 <p className="flex items-center gap-1.5 font-semibold text-foreground">
                   <HealthIcon className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   {hv.title}
@@ -734,7 +841,7 @@ export const AppShell: React.FC<AppShellProps> = ({
             {/* User chip + menu (only when auth enabled + authenticated) */}
             {username ? (
               <>
-                <Separator orientation="vertical" className="hidden h-6 sm:block" />
+                <Separator orientation="vertical" className="hidden h-6 lg:block" />
                 <UserMenu
                   username={username}
                   profile={profile}

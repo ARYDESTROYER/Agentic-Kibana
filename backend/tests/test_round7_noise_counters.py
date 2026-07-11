@@ -59,7 +59,7 @@ def test_severity_scale_for_source_classifies_by_type_and_mode() -> None:
     wazuh = SimpleNamespace(source_type=SourceType.WAZUH, ingest_mode=IngestMode.PULL)
     push = SimpleNamespace(source_type=SourceType.WEBHOOK, ingest_mode=IngestMode.PUSH_HTTP)
     pull = SimpleNamespace(source_type=SourceType.ELASTICSEARCH, ingest_mode=IngestMode.PULL)
-    assert severity_scale_for_source(wazuh) == "wazuh_0_15"
+    assert severity_scale_for_source(wazuh) == "wazuh_0_16"
     assert severity_scale_for_source(push) == "ocsf_0_100"
     assert severity_scale_for_source(pull) == "0_10"
 

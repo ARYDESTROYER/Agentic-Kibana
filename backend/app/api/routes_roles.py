@@ -136,7 +136,7 @@ async def _audit_rbac(state: AppState, actor: str, summary: str) -> None:
     """Append-only audit of an RBAC change (#2). Best-effort — never blocks the
     request on an audit-store glitch."""
     try:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.USER_MGMT,
             surface="rbac",
             actor=actor or "",

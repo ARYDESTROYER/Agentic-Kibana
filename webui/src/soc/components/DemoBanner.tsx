@@ -21,6 +21,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { Button } from '@/ui/button';
 import { cn } from '@/lib/cn';
 import { useDemo } from '@/soc/demo';
+import { useIsMobile } from '@/soc/hooks/useMediaQuery';
+import { useCan } from './Can';
 
 const COLLAPSE_KEY = 'tlsoc.demoBanner.collapsed';
 
@@ -44,6 +46,8 @@ export const DemoBanner: React.FC = () => {
   const { status, active, refresh } = useDemo();
   const [collapsed, setCollapsed] = React.useState<boolean>(() => readCollapsed());
   const [busy, setBusy] = React.useState<'reset' | 'disable' | null>(null);
+  const isMobile = useIsMobile();
+  const canManage = useCan('demo', 'manage');
 
   const setCollapsedPersisted = React.useCallback((v: boolean) => {
     setCollapsed(v);
@@ -98,6 +102,66 @@ export const DemoBanner: React.FC = () => {
     );
   }
 
+  // On a phone the full explanatory desktop banner consumed roughly four content
+  // rows on every route. Keep the safety state unmistakable, but reduce the persistent
+  // chrome to one compact control row; the complete isolation statement remains in
+  // the accessibility tree and the two reversible actions stay directly available.
+  if (isMobile) {
+    return (
+      <Alert
+        variant="warning"
+        className="flex min-h-12 items-center gap-2 px-3 py-2 pr-2 [&>svg]:static [&>svg]:size-4 [&>svg~*]:pl-0"
+      >
+        <FlaskConical className="h-4 w-4 shrink-0" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <AlertTitle className="mb-0 truncate text-xs">
+            {status.mode === 'live' ? 'Live demo' : 'Seeded demo'} · synthetic data
+          </AlertTitle>
+          <AlertDescription className="sr-only">
+            You are viewing a fully isolated {modeLabel} dataset. Real cases are hidden,
+            no model costs are incurred, and demo activity does not modify real cases or cursors.
+          </AlertDescription>
+        </div>
+        {canManage ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-warning-text hover:bg-warning/10"
+              onClick={() => void onReset()}
+              disabled={busy !== null}
+              aria-label={busy === 'reset' ? 'Resetting demo data' : 'Reset demo data'}
+            >
+              <RotateCcw
+                className={cn('h-3.5 w-3.5', busy === 'reset' && 'animate-spin')}
+                aria-hidden
+              />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 border-warning/50 px-2 text-warning-text hover:bg-warning/10"
+              onClick={() => void onDisable()}
+              disabled={busy !== null}
+              aria-label="Exit Demo Mode and clear synthetic data"
+            >
+              {busy === 'disable' ? 'Exiting…' : 'Exit'}
+            </Button>
+          </>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-warning-text hover:bg-warning/10"
+          onClick={() => setCollapsedPersisted(true)}
+          aria-label="Collapse demo banner"
+        >
+          <ChevronDown className="h-4 w-4 rotate-180" aria-hidden />
+        </Button>
+      </Alert>
+    );
+  }
+
   return (
     <Alert variant="warning" className="flex flex-wrap items-start gap-3 pr-3">
       <FlaskConical className="h-4 w-4" aria-hidden />
@@ -107,30 +171,34 @@ export const DemoBanner: React.FC = () => {
         </AlertTitle>
         <AlertDescription className="mt-0.5">
           You are viewing a fully isolated {modeLabel} dataset. Real cases are hidden and
-          nothing here costs money or touches your live data. Disabling restores your real
-          state intact.
+          nothing here costs money or touches your real cases or cursors. Disabling restores
+          your real state intact.
         </AlertDescription>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
-          onClick={() => void onReset()}
-          disabled={busy !== null}
-        >
-          <RotateCcw className={cn('h-3.5 w-3.5', busy === 'reset' && 'animate-spin')} aria-hidden />
-          Reset
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
-          onClick={() => void onDisable()}
-          disabled={busy !== null}
-        >
-          {busy === 'disable' ? 'Exiting…' : 'Exit & clear'}
-        </Button>
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
+        {canManage ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
+              onClick={() => void onReset()}
+              disabled={busy !== null}
+            >
+              <RotateCcw className={cn('h-3.5 w-3.5', busy === 'reset' && 'animate-spin')} aria-hidden />
+              Reset
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-warning/50 text-warning-text hover:bg-warning/10"
+              onClick={() => void onDisable()}
+              disabled={busy !== null}
+            >
+              {busy === 'disable' ? 'Exiting…' : 'Exit & clear'}
+            </Button>
+          </>
+        ) : null}
         <Button
           variant="ghost"
           size="icon"

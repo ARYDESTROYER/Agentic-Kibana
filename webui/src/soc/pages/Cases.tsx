@@ -78,8 +78,10 @@ import { ColumnsMenu, type ColumnMenuItem } from '@/soc/components/ColumnsMenu';
 import { SavedViewsBar } from '@/soc/components/SavedViewsBar';
 import { usePrefs } from '@/soc/prefs';
 import { EmptyState } from '@/soc/components/EmptyState';
+import { LoadError } from '@/soc/components/LoadError';
 import { InlineCode } from '@/soc/components/CodeBlock';
 import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
+import { StartDemoButton } from '@/soc/components/StartDemoButton';
 import { DemoBadge, isDemoCase } from '@/soc/components/DemoBadge';
 import {
   StatusBadge,
@@ -133,8 +135,24 @@ const CASES_DEFAULT_HIDDEN = [
 
 /** Sentinel for "any" in the single-select filters (Radix Select forbids ""). */
 const ANY = '__any__';
+/** Virtual status facet for every non-terminal lifecycle state. */
+const ACTIVE = '__active__';
+/** Virtual facet for work the agent explicitly handed to an analyst. */
+const NEEDS_HUMAN = '__needs_human__';
 /** Sentinel facet value for cases with no originating source recorded. */
 const UNASSIGNED = '__unassigned__';
+const TERMINAL_STATUSES = new Set(['closed', 'resolved']);
+
+function isActiveCase(c: Case): boolean {
+  return !TERMINAL_STATUSES.has((c.status || '').toLowerCase());
+}
+
+function needsHumanCase(c: Case): boolean {
+  return (
+    (c.status || '').toLowerCase() === 'needs_human' ||
+    (c.verdict || '').toUpperCase() === 'NEEDS_HUMAN'
+  );
+}
 
 type TimeRange = 'all' | '24h' | '7d' | '30d';
 
@@ -259,7 +277,12 @@ function buildFacets(cases: Case[]): Facets {
 /** Drop a single-select facet value no longer present (self-healing). */
 function healFilters(f: CaseFilters, facets: Facets): CaseFilters {
   let next = f;
-  if (f.status !== ANY && !facets.statuses.includes(f.status)) {
+  if (
+    f.status !== ANY &&
+    f.status !== ACTIVE &&
+    f.status !== NEEDS_HUMAN &&
+    !facets.statuses.includes(f.status)
+  ) {
     next = { ...next, status: ANY };
   }
   if (f.disposition !== ANY && !facets.dispositions.includes(f.disposition)) {
@@ -281,7 +304,13 @@ function applyFilters(cases: Case[], f: CaseFilters): Case[] {
   const horizon = f.timeRange === 'all' ? 0 : now - TIME_RANGE_MS[f.timeRange];
 
   return cases.filter((c) => {
-    if (f.status !== ANY && (c.status || '') !== f.status) return false;
+    if (f.status === ACTIVE) {
+      if (!isActiveCase(c)) return false;
+    } else if (f.status === NEEDS_HUMAN) {
+      if (!needsHumanCase(c)) return false;
+    } else if (f.status !== ANY && (c.status || '') !== f.status) {
+      return false;
+    }
     if (f.disposition !== ANY && (c.disposition || '') !== f.disposition) return false;
     if (f.relatedOnly && !isCrossSourceLinked(c)) return false;
 
@@ -673,20 +702,20 @@ export default function Cases({
   // filter is applied, and (b) their basis matches the "N loaded" the Total pill shows
   // when truncated — never read as a fraction of the server total.
   const counts = React.useMemo(() => {
-    let open = 0;
+    let active = 0;
     let needsHuman = 0;
     const bySeverity = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     for (const c of cases) {
-      if (c.status === 'open') open += 1;
-      if (c.status === 'needs_human') needsHuman += 1;
+      if (isActiveCase(c)) active += 1;
+      if (needsHumanCase(c)) needsHuman += 1;
       const band = caseSeverityBand(c);
       if (band && band in bySeverity) bySeverity[band as keyof typeof bySeverity] += 1;
     }
-    return { open, needsHuman, bySeverity };
+    return { active, needsHuman, bySeverity };
   }, [cases]);
 
   const truncated = total > cases.length;
-  // Tooltip clarifying that the Open/Needs-human/TP pills count the LOADED set.
+  // Tooltip clarifying that the Active/Needs-human/severity pills count the LOADED set.
   const loadedScopeTitle = truncated
     ? `Among the ${cases.length.toLocaleString()} loaded cases (of ${total.toLocaleString()})`
     : `Among ${cases.length.toLocaleString()} case${cases.length === 1 ? '' : 's'}`;
@@ -1240,14 +1269,19 @@ export default function Cases({
           non-color redundant channel (§6.1). Counts are a stable snapshot of the loaded
           set (they don't collapse when a filter is applied), matching what clicking each
           tile narrows the list to. */}
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6">
+      <div
+        className={cn(
+          'grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6',
+          (loading || Boolean(error)) && cases.length === 0 && 'hidden',
+        )}
+      >
         <SummaryTile
-          label="Open"
-          count={counts.open}
+          label="Active"
+          count={counts.active}
           icon={Briefcase}
           tone="info"
-          active={filters.status === 'open'}
-          onClick={() => setFilter('status', filters.status === 'open' ? ANY : 'open')}
+          active={filters.status === ACTIVE}
+          onClick={() => setFilter('status', filters.status === ACTIVE ? ANY : ACTIVE)}
           title={loadedScopeTitle}
           testId="cases-summary-open"
         />
@@ -1256,9 +1290,9 @@ export default function Cases({
           count={counts.needsHuman}
           icon={HelpCircle}
           tone="primary"
-          active={filters.status === 'needs_human'}
+          active={filters.status === NEEDS_HUMAN}
           onClick={() =>
-            setFilter('status', filters.status === 'needs_human' ? ANY : 'needs_human')
+            setFilter('status', filters.status === NEEDS_HUMAN ? ANY : NEEDS_HUMAN)
           }
           title={loadedScopeTitle}
           testId="cases-summary-needs-human"
@@ -1312,9 +1346,15 @@ export default function Cases({
       {/* Toolbar — one calm band in two tiers: (1) search + facet filters, then a
           hairline divider, (2) saved views + the result count + column customization.
           Border-first (no resting shadow) via the ONE card grammar. */}
-      <Card elevation="none" className="space-y-2.5 p-3">
+      <Card
+        elevation="none"
+        className={cn(
+          'space-y-2.5 p-3',
+          (loading || Boolean(error)) && cases.length === 0 && 'hidden',
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[15rem] flex-1">
+          <div className="relative min-w-0 basis-full sm:min-w-[15rem] sm:basis-auto sm:flex-1">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden
@@ -1334,7 +1374,9 @@ export default function Cases({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ANY}>All statuses</SelectItem>
-              {facets.statuses.map((s) => (
+              <SelectItem value={ACTIVE}>Active cases</SelectItem>
+              <SelectItem value={NEEDS_HUMAN}>Needs human</SelectItem>
+              {facets.statuses.filter((s) => s !== 'needs_human').map((s) => (
                 <SelectItem key={s} value={s}>
                   {s === 'needs_human' ? 'Open · awaiting analyst' : humanizeToken(s)}
                 </SelectItem>
@@ -1499,17 +1541,11 @@ export default function Cases({
 
       {/* Load error */}
       {error ? (
-        <Alert variant="destructive">
-          <AlertTriangle className="size-4" aria-hidden />
-          <AlertTitle>Could not load cases</AlertTitle>
-          <AlertDescription>
-            {error instanceof Error ? error.message : 'An unexpected error occurred.'}
-          </AlertDescription>
-        </Alert>
+        <LoadError error={error} title="Could not load cases" onRetry={() => void load()} />
       ) : null}
 
       {/* Table */}
-      <DataTable<Case>
+      {error && cases.length === 0 ? null : <DataTable<Case>
         ariaLabel="Cases"
         columns={columns}
         columnState={effectiveColumnState}
@@ -1553,11 +1589,18 @@ export default function Cases({
                   <X className="mr-1.5 size-4" aria-hidden />
                   Clear filters
                 </Button>
-              ) : undefined
+              ) : (
+                <>
+                  <Button size="sm" onClick={() => navigate('sources')}>
+                    Connect a source
+                  </Button>
+                  <StartDemoButton onStarted={load} />
+                </>
+              )
             }
           />
         }
-      />
+      />}
 
       {/* Bulk action bar */}
       <BulkActionBar

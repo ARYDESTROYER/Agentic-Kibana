@@ -27,6 +27,10 @@ kept explicit in `docs/releases/known-limitations.md`.
   connector support matrix, architecture, and known-limitations register.
 - Default `full` backend image with all advertised connector clients, plus an
   explicit smaller `core` target; non-root runtime and wheel-content smoke tests.
+- A bounded four-source live demo (Splunk HEC, QRadar LEEF/offenses, Wazuh JSON,
+  RFC 5424/3164), guaranteed and on-demand correlated incidents via
+  `POST /api/demo/incident`, per-source health/live-tail telemetry, and a forced
+  `$0` mock provider inside the isolated demo stack.
 
 ### Fixed
 
@@ -48,8 +52,8 @@ kept explicit in `docs/releases/known-limitations.md`.
 
 ### Release status
 
-- Local candidate gates passed on 2026-07-11: **1843 backend tests**, **1332 web
-  tests / 239 files**, lint with 0 errors, all five design gates, generated API
+- Local candidate gates passed on 2026-07-11: **1887 backend tests**, **1349 web
+  tests / 240 files**, lint with 0 errors, all five design gates, generated API
   contract drift, production build, wheel/package smoke tests, canonical version,
   agnostic Compose configuration, and strict MkDocs build. No public release should
   be cut until the license and remaining blockers in the public limitation register
@@ -745,13 +749,16 @@ only ever RECOMMEND/relabel and all untrusted text stays fenced (#9). New here? 
 - **Reversible, isolated, $0 Demo Mode** — a first-class tenant `demo.mode`
   (`off` / `seeded` / `live`) on Preferences. A `DemoPullConnector` + `demo_generator`
   (a fixed fictional org, a diurnal-Poisson benign baseline, and seeded MITRE ATT&CK
-  storylines) feed synthetic OCSF events through the REAL pipeline, but all writes land in
-  a SEPARATE in-memory store with a deterministic mock LLM (`pricing_source='zero'`, a
-  plausible synthetic `$`). The real poll path is gated so the durable cursor (#4) is
-  untouched; demo rows are run-id-namespaced + `demo`-tagged. FP runs through the real
-  `decide()` against a *sandboxed* AutoClosePolicy copy; NEEDS_HUMAN stays open. Routes
-  (admin-gated): `POST /api/demo/{enable,reset,disable}`, `GET /api/demo/status`. A demo
-  banner + `(simulated)` labels + a write-guard keep demo and prod distinct.
+  storylines) feed synthetic OCSF events through the REAL pipeline, but generated
+  workload writes land in a SEPARATE in-memory store with a deterministic mock LLM
+  (`pricing_source='zero'`, a plausible synthetic `$`). The real poll path is gated
+  so the durable cursor (#4) is
+  untouched; cases are run-tagged + `demo`-tagged (seeded IDs are also namespaced). FP
+  runs through the real `decide()` against a *sandboxed* AutoClosePolicy copy;
+  NEEDS_HUMAN stays open. Routes:
+  `POST /api/demo/{enable,incident,reset,disable}`, `GET /api/demo/status`
+  (`demo:manage` for mutations). A demo banner + `(simulated)` labels + a write-guard
+  keep demo and prod distinct; lifecycle mutations intentionally remain in the real audit.
 
 ### Added — Wave 6: per-feed source configuration
 - **`IndexPattern` → richer per-feed `Feed`** (same wire key `config['index_patterns']`,

@@ -21,6 +21,8 @@ import { HelpTip } from '../HelpTip';
 import { LabeledSlider } from '../LabeledSlider';
 import { TagInput } from '../TagInput';
 
+vi.mock('../Can', () => ({ useCan: () => true }));
+
 describe('DashboardGroup — heading is not nested inside the button', () => {
   it('exposes the title as a real heading at the requested level', () => {
     render(

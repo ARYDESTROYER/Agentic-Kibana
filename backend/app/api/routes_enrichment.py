@@ -93,7 +93,7 @@ async def list_enrichment_providers(
     Returns booleans only for secrets (``configured`` per field + an overall
     ``key_present``) — never a secret value (#10)."""
     reg = state.enrichment_registry
-    cfg = state.prefs.enrichment
+    cfg = state.execution_prefs.enrichment
     secrets = state.secrets
     out: list[dict[str, Any]] = []
     for cls in sorted(reg.classes(), key=lambda c: getattr(c, "name", "")):
@@ -157,15 +157,21 @@ async def enrichment_lookup(
     if not value:
         raise HTTPException(status_code=400, detail="indicator is required")
     ik = _coerce_kind(kind, value)
-    cfg = state.prefs.enrichment
-    try:
-        results = await _dispatch(
-            value, ik, cfg, state.secrets, cache=state.cache,
-            registry=state.enrichment_registry,
-        )
-    except Exception as exc:  # noqa: BLE001 — fail-open: a lookup never 500s the UI
-        logger.warning("enrichment lookup failed for %s (%s): %s", value, ik.value, exc)
+    cfg = state.execution_prefs.enrichment
+    if state.demo_active or not cfg.enabled:
+        # Demo Mode is an offline synthetic sandbox. Even a keyless enrichment
+        # provider performs real HTTP/DNS traffic, so return the normal neutral
+        # fail-open shape without dispatching anything.
         results = []
+    else:
+        try:
+            results = await _dispatch(
+                value, ik, cfg, state.secrets, cache=state.cache,
+                registry=state.enrichment_registry,
+            )
+        except Exception as exc:  # noqa: BLE001 — fail-open: a lookup never 500s the UI
+            logger.warning("enrichment lookup failed for %s (%s): %s", value, ik.value, exc)
+            results = []
     fused = fuse(results, cfg)
     return {
         "indicator": value,

@@ -36,9 +36,9 @@ through every headline feature in order. Budget ~25-30 minutes for the full tour
 ## 0. Prerequisites
 
 - **Python 3.11** and **Node 22** on PATH (no Docker required for the quick path).
-- *(Optional)* a real LLM key (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) for live
-  triage; without one the suite uses the built-in **mock** provider, which is fine
-  for a UI-driven demo.
+- No LLM key is needed for Demo Mode. It **always** substitutes the deterministic
+  `$0` mock provider, even when real provider keys are present. A real key is useful
+  only if you later exit Demo Mode and deliberately exercise non-demo triage.
 
 ---
 
@@ -54,16 +54,22 @@ From the repo root:
 
 This:
 - creates/uses `backend/.venv`, installs backend deps on first run, and starts
-  **uvicorn `app.main:app` on :8088** with **`TLSOC_AUTH_ENABLED=true`** and a
-  generated dev **`TLSOC_AUTH_JWT_SECRET`**;
+  **uvicorn `app.main:app` on :8088** with direct-run **`AUTH_ENABLED=true`** and a
+  generated dev **`AUTH_JWT_SECRET`**;
 - installs the web UI deps on first run and starts the **Vite dev server on
   :5173** (it proxies `/api/*` to the backend);
+- binds both services to `127.0.0.1`, verifies both ports are free, and refuses to
+  let Vite silently fall forward to a different port;
+- completes local setup and enables the isolated **live four-source demo** by
+  default (Splunk-compatible HEC, QRadar-compatible LEEF/offenses, Wazuh JSON,
+  and RFC syslog); use `DEMO_MODE=seeded ./scripts/run-demo.sh` for a static run;
 - prints the URL and the seeded **`Admin` / `Admin@123`** credentials.
 
-Open **http://localhost:5173**. Press **Ctrl-C** to stop both.
+Open **http://127.0.0.1:5173**. Press **Ctrl-C** to stop both.
 
-For live triage, prefix with a key, e.g.
-`ANTHROPIC_API_KEY=sk-... ./scripts/run-demo.sh`.
+Exporting a provider key before launch does **not** make Demo Mode paid or call that
+provider. The key becomes relevant only after **Exit & clear**, for explicitly
+configured non-demo investigation.
 
 ### Option B — by hand (two terminals)
 
@@ -128,41 +134,56 @@ Sign in. (For a real deployment, change this immediately — see `docs/USAGE.md`
 
 ## 3. The guided tour (hit these in order)
 
-### 3a. ⭐ Demo Mode — the one-click populated showcase — *Settings → Organization → Experimental & Demo* (super_admin)
+### 3a. ⭐ Demo Mode — the one-click populated showcase — *Settings → Organization → Experimental & Demo* (`demo:manage`)
 This is the showpiece. It populates the whole product with realistic, **isolated,
 $0** synthetic data so every page has something to show — no source wiring, no LLM
-spend, no risk to real state. It is **fully reversible in one click**.
+spend, and no demo-generated writes to real cases, events, RAG, usage, or polling
+cursors. It is **fully reversible in one click**.
 
-- Open **Settings → Organization → Experimental & Demo** and **enable Demo Mode**.
+- When started with `run-demo.sh`, Demo Mode is already live. Otherwise open
+  **Settings → Organization → Experimental & Demo** and enable it.
   Two modes:
   - **`seeded`** — instantly back-fills ~2 weeks of synthetic cases (old + recent),
     audit, and cost rows from a fixed seed, so it's deterministic and repeatable.
-  - **`live`** — also starts a background simulator that keeps emitting benign
-    traffic plus the occasional MITRE ATT&CK storyline (phishing → cred-access →
-    lateral → exfil, RDP brute-force, SQLi → webshell, impossible-travel,
-    ransomware beacon, insider staging) on a jittered tick, so new cases appear
-    *while you present*.
+  - **`live`** — also starts a deterministic background simulator that emits
+    standards-faithful Splunk HEC, QRadar LEEF/offense, Wazuh JSON, and RFC
+    5424/3164 traffic. Benign activity continuously updates the live tail while
+    scheduled source-native alerts and TLSOC detections advance a shared MITRE
+    ATT&CK storyline, so visible activity is guaranteed while you present.
 - Notice the amber **Demo banner** pinned in the app shell and the **`SAMPLE`**
-  badge on every demo row; cost tiles read **"(simulated)"**. Real-write actions
-  (real connector runs, real notifications, live policy changes) are disabled while
-  demo is on, so you cannot accidentally touch production state.
+  badge on every demo row; cost tiles read **"(simulated)"**. The Sources UI disables
+  real connector controls and outbound notification tests are refused while the
+  demo is active. Other organization/admin settings remain live: do not edit them
+  during a presentation if you want the underlying deployment unchanged.
 - Synthetic events flow through the **REAL pipeline** (correlation → risk →
   router → investigator → case manager) against a separate in-memory store and a
   deterministic **mock LLM** — so what you're showing is the genuine product, just
   sandboxed. NEEDS_HUMAN cases stay open (the HITL showcase); FALSE_POSITIVE runs
   through the real deterministic `decide()` against a *sandboxed* policy copy
   (proving non-negotiable #3 without touching the live policy).
-- Knobs to mention: `seed`, `history_days`, `tick_seconds` / `tick_jitter`,
-  `incident_rate`.
+- Knobs to mention: `seed`, `history_days`, `tick_seconds` / `tick_jitter`, alert
+  cadence, and logical event rate. `incident_rate` is a probability from 0 to 1
+  evaluated **once per `alert_interval_seconds`**, not per event or per simulator
+  tick. The guaranteed first incident and **Generate incident** are independent of
+  that probability. Native records remain bounded in per-source live-tail buffers;
+  higher logical volume is aggregated.
+- Click **Generate incident** to emit one coherent attack immediately: Splunk,
+  QRadar, and Wazuh each raise a native alert while raw syslog telemetry crosses
+  TLSOC's own correlation threshold. The control has a short cooldown so a double
+  click cannot duplicate the storyline.
 - **Reset** re-seeds from the same seed (clean slate, same data). **Exit & clear**
   stops the simulator and **hard-deletes everything by `run_id`** across
-  cases/audit/usage/events, then flips Demo Mode off — the suite is exactly as it
-  was. *Do this live at the end so the audience sees it's truly reversible.*
-- Endpoints (all admin-gated): `GET /api/demo/status`, `POST /api/demo/enable`,
-  `POST /api/demo/reset`, `POST /api/demo/disable`.
+  demo cases/audit/usage/events, then flips Demo Mode off. Lifecycle actions
+  (enable, incident, reset, disable) intentionally remain in the real append-only
+  audit trail. *Do this live at the end so the audience sees the sandbox disappear.*
+- Endpoints (`demo:read` for status; `demo:manage` for mutations):
+  `GET /api/demo/status`,
+  `POST /api/demo/enable`, `POST /api/demo/incident`, `POST /api/demo/reset`,
+  `POST /api/demo/disable`. By default, `super_admin` and `soc_manager` have
+  `demo:manage`; custom roles can receive it explicitly.
 
-> From here on, **leave Demo Mode ON** so Cases/Overview/Metrics/Audit have data
-> to show. Remember to **Exit & clear** in §4.
+> From here on, **leave Demo Mode ON** so Cases/Overview/Metrics and the simulated
+> audit trail have data to show. Remember to **Exit & clear** in §4.
 
 ### 3b. Cmd-K command palette + global search — *anywhere*
 - Press **⌘K** (macOS) / **Ctrl-K** (Win/Linux) to open the **command palette**.
@@ -405,9 +426,11 @@ spend, no risk to real state. It is **fully reversible in one click**.
 ### 3q. Audit viewer — *Platform → Audit log*
 - Open the **Audit log** — a standalone top-level page now, not tucked under
   Settings. It's an append-only, filterable record of every agent and operator
-  action (#2). Filter by actor / action type / surface and show a few demo
-  entries — including the **Demo-Mode enable** you triggered in §3a, which is
-  recorded on the *real* audit log as a real admin action.
+  action (#2). While Demo Mode is active, this page intentionally shows the
+  **demo-scoped** investigation and case audit records; real tenant surfaces stay
+  hidden. Demo lifecycle actions (enable, manual incident, reset, exit) are also
+  attributed to the operator in the **real** append-only audit, which becomes
+  visible here after **Exit & clear**.
 
 ### 3r. Overview — the Security Command Center
 - Land on the **Overview** (Dashboard). Walk it top to bottom:
@@ -442,7 +465,10 @@ spend, no risk to real state. It is **fully reversible in one click**.
 - **Exit Demo Mode first** (if you enabled it in §3a): *Settings → Organization →
   Experimental & Demo →* **Exit & clear** (or `POST /api/demo/disable`). This stops the live simulator and
   **hard-deletes all synthetic data by `run_id`** — leaving any real state
-  untouched. (Use **Reset** instead to re-seed the same dataset for another run.)
+  untouched except for the intentional real audit record of the lifecycle action.
+  Reopen **Platform → Audit log** now to verify the operator-attributed enable /
+  incident / reset / disable entries. (Use **Reset** instead to re-seed the same
+  dataset for another run.)
 - **`run-demo.sh`:** press **Ctrl-C** — it tears down both processes.
 - **Docker:** `docker compose -f deploy/docker-compose.agnostic.yml down`
   (add `-v` to also drop the Postgres volume for a clean slate).
@@ -455,18 +481,21 @@ spend, no risk to real state. It is **fully reversible in one click**.
 ## 5. Notes & gotchas
 
 - **Auth is DEFAULT OFF** in the committed config for back-compat and tests;
-  `run-demo.sh` (and the env in Option B/C) turn it on. Without
-  `TLSOC_AUTH_ENABLED=true` there is **no login** and every user is treated as
-  `super_admin`.
+  `run-demo.sh` and Option B export direct-run `AUTH_ENABLED=true`; Compose in
+  Option C maps `TLSOC_AUTH_ENABLED=true` to it. With auth disabled there is **no
+  login** and every caller is treated as `super_admin`.
 - Use a **stable** `TLSOC_AUTH_JWT_SECRET` or sessions die on every backend
   restart (the §3d sessions list will look empty after a restart). `run-demo.sh`
   generates one per run (fine for a single sitting).
 - **Demo Mode is $0 and uses the mock LLM regardless of any key** — it never spends
-  real tokens or writes real state. For a *non-demo* live investigation you need a
-  real provider key; otherwise the **mock LLM** is used (perfectly fine for a UI
-  walkthrough).
-- **Demo Mode requires super_admin** and is found under *Settings → Organization →
-  Experimental & Demo*; the same gate (`require_admin`) protects all `/api/demo/*`
-  endpoints.
+  real tokens; demo-generated cases/events/RAG/usage remain in the throwaway store.
+  A provider key supplied to `run-demo.sh` is therefore unused until you exit the
+  demo and deliberately run non-demo investigation.
+- Demo status requires `demo:read`; enable / Generate incident / reset / disable
+  require `demo:manage`. The default `super_admin` and `soc_manager` roles can
+  manage it, and a custom role can be granted the same capability.
+- Demo Mode does not turn the rest of organization administration into a sandbox.
+  Real organization/admin settings remain live; leave them unchanged during a
+  presentation unless you deliberately intend to configure the deployment.
 - Secret values are **never** shown in the UI — you only ever see `configured ✓`.
   That includes the new **Resend API key** and **SES** credentials.

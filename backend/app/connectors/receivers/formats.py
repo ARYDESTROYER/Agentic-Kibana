@@ -426,6 +426,25 @@ def _decode_pri(pri: int) -> tuple[int, int]:
     return pri // 8, pri % 8
 
 
+def _syslog_severity_score(severity: int) -> float:
+    """RFC 5424/3164 severity (0=emergency, 7=debug) → OCSF-style 0..100.
+
+    The generic severity helper also accepts a 0..10 *risk* ladder, whose direction
+    is opposite to syslog. Supplying an explicit score prevents an informational PRI
+    value of 6 from being misread as a high-severity 60/100 finding.
+    """
+    return {
+        0: 95.0,  # Emergency
+        1: 95.0,  # Alert
+        2: 95.0,  # Critical
+        3: 75.0,  # Error
+        4: 50.0,  # Warning
+        5: 25.0,  # Notice
+        6: 11.0,  # Informational (kept >10 to avoid 0..10 risk rescaling)
+        7: 11.0,  # Debug
+    }.get(int(severity), 11.0)
+
+
 # RFC 5424: <PRI>VERSION SP TIMESTAMP SP HOSTNAME SP APP-NAME SP PROCID SP
 #           MSGID SP STRUCTURED-DATA [SP MSG]
 _SYSLOG5424_HEADER_RE = re.compile(
@@ -459,6 +478,7 @@ def _parse_5424_line(line: str) -> dict[str, Any]:
         "pri": pri,
         "facility": facility,
         "severity": severity,
+        "severity_score": _syslog_severity_score(severity),
         "severity_label": _SEVERITY_NAMES[severity] if 0 <= severity < 8 else None,
         "version": m.group("version"),
         "host": _nil(m.group("host")),
@@ -583,6 +603,7 @@ def _parse_3164_line(line: str) -> dict[str, Any]:
             facility, severity = _decode_pri(pri)
             rec.update(
                 pri=pri, facility=facility, severity=severity,
+                severity_score=_syslog_severity_score(severity),
                 severity_label=_SEVERITY_NAMES[severity] if 0 <= severity < 8 else None,
                 message=line[pri_m.end():].strip(),
             )
@@ -595,6 +616,7 @@ def _parse_3164_line(line: str) -> dict[str, Any]:
         "pri": pri,
         "facility": facility,
         "severity": severity,
+        "severity_score": _syslog_severity_score(severity),
         "severity_label": _SEVERITY_NAMES[severity] if 0 <= severity < 8 else None,
         "timestamp": m.group("timestamp"),
         "host": m.group("host"),

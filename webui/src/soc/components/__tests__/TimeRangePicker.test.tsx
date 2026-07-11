@@ -192,7 +192,11 @@ describe('<TimeRangePicker/> render', () => {
         onRefreshChange={() => {}}
       />,
     );
-    expect(screen.getByRole('combobox', { name: /Auto-refresh interval/i })).toBeInTheDocument();
+    const trigger = screen.getByRole('combobox', { name: 'Auto-refresh interval: Off' });
+    expect(trigger).toBeInTheDocument();
+    // Narrow viewports get the compact icon-pair control; the full cadence label
+    // returns at `sm` without changing the accessible name.
+    expect(trigger).toHaveClass('w-14', 'sm:w-36');
     // default option set exists
     expect(REFRESH_OPTIONS.map((o) => o.value)).toContain('off');
   });

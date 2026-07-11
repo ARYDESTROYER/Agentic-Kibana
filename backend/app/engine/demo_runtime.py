@@ -11,16 +11,15 @@ Two pieces, both completely SEPARATE from the real state:
   ledgers. The whole thing is garbage-collected when demo is disabled.
 
 * :class:`DemoSimulator` — an asyncio task (mirrors the receiver tasks) that, while
-  demo is in ``live`` mode, drives the three demo segments: SIEM as a low-volume
-  ALERT feed (~1 alert / ``alert_interval_seconds``) and XDR+EDR as EVENT feeds whose
-  ``event_rate_per_second`` LOGICAL volume is pre-aggregated through the SAME
-  ``event_detection.funnel()`` real EVENT feeds use (bounded memory — never N retained
-  objects/sec). Confirmed candidates are investigated SYNCHRONOUSLY through the REAL
-  pipeline against the MOCK LLM + a SANDBOXED AutoClosePolicy copy (proving the
-  deterministic #3 gate without touching the real policy). Every write lands in the
-  demo store; the real durable cursor is never advanced. On an accelerated cadence the
-  ticker also runs a demo-local capability pass (threshold-tuning + campaigns) so the
-  console visibly shows those features working — all in the demo scope.
+  demo is in ``live`` mode, drives four standards-faithful sources: Splunk HEC,
+  QRadar LEEF/offenses, Wazuh archive/alert JSON, and RFC 5424/3164 syslog. Benign EVENT
+  traffic is pre-aggregated through the SAME ``event_detection.funnel()`` real EVENT
+  feeds use; occasional Splunk/QRadar/Wazuh native alerts enter normal ingest, while a
+  syslog incident is raised by TLSOC's own threshold detection.  A coherent attack is
+  guaranteed on the 20–30 second live-demo boundary, and a cooldown-aware manual trigger
+  is exposed for the API. Confirmed candidates are investigated SYNCHRONOUSLY through
+  the REAL pipeline against the MOCK LLM + a SANDBOXED AutoClosePolicy copy. Every
+  write lands in the demo store; the real durable cursor is never advanced.
 """
 
 from __future__ import annotations
@@ -28,7 +27,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Callable
+import time
+from typing import Any, Callable
 
 from ..audit.audit_log import AuditLogger
 from ..cache import Cache
@@ -48,9 +48,12 @@ logger = logging.getLogger("tlsoc.engine.demo")
 
 DEMO_TAG = "demo"
 
-# The XDR/EDR EVENT feeds share the logical ``event_rate_per_second`` budget; XDR
-# server-fleet telemetry is chattier than a single laptop, so it gets the larger split.
-_XDR_EVENT_SHARE = 0.6
+# The first coherent attack is deterministic and appears during a normal product tour,
+# rather than depending on a lucky RNG roll.  With the default 10s tick it fires on the
+# third tick (at ~20s wall-clock because the first tick runs immediately).
+_FIRST_INCIDENT_MIN_SECONDS = 20.0
+_MANUAL_INCIDENT_COOLDOWN_SECONDS = 5.0
+_MAX_EVENTS_PER_TICK = 2_000
 
 
 class _DemoCaseStore(CaseStore):
@@ -111,14 +114,28 @@ class DemoStack:
         self.kv = EsKVStore(self.es)
         # Demo-scoped capability stores. NONE of these is the real HITL/tuning/campaign/
         # baseline ledger — every write here is fully isolated to the demo ES.
-        from ..stores.proposals import ProposalStore
-        from ..stores.campaigns import CampaignStore
         from ..stores.baseline import BaselineStore
+        from ..stores.batch_jobs import BatchJobStore
+        from ..stores.campaigns import CampaignStore
+        from ..stores.case_activity import CaseActivityStore
+        from ..stores.case_tasks import CaseTaskStore
+        from ..stores.case_thread import CaseThreadStore
+        from ..stores.inbox import InboxStore
+        from ..stores.memory import MemoryStore
+        from ..stores.proposals import ProposalStore
+        from ..stores.shift_handoff import ShiftHandoffStore
         from ..stores.tuning import TuningStore
+        self.memory = MemoryStore(self.kv)
         self.proposals = ProposalStore(self.kv)
         self.campaign_store = CampaignStore(self.kv)
         self.baseline_store = BaselineStore(self.kv)
+        self.batch_job_store = BatchJobStore(self.kv)
         self.tuning_store = TuningStore(self.kv)
+        self.case_threads = CaseThreadStore(self.kv)
+        self.case_activity = CaseActivityStore(self.kv)
+        self.case_tasks = CaseTaskStore(self.kv)
+        self.inbox = InboxStore(self.kv)
+        self.shift_handoff = ShiftHandoffStore(self.kv)
         # Durable raw-alert-by-severity ingest counters backing the demo's
         # noise-reduction surface (over the demo ES — purged on disable).
         from ..stores.noise_counters import NoiseCounterStore
@@ -135,28 +152,36 @@ class DemoStack:
         # every call so a tuned change is visible on the next tick.
         from ..config import CorrelationRule
         self._tuned_correlation_rules: dict[str, CorrelationRule] = {}
+        self._prefs_override: Preferences | None = None
         # The long-lived streaming baseline behind the demo EVENT funnel (warmed/flushed
         # against the demo baseline_store). None → built lazily.
         self._funnel_baseline = None
-        # The deterministic, $0 mock provider keyed by storyline.
+        # The deterministic, $0 mock provider keyed by storyline. Override EVERY
+        # provider accepted by ModelConfig, not merely the two direct SaaS defaults:
+        # Demo Mode must never egress if a tenant selected Azure, Bedrock, Vertex, or
+        # a custom OpenAI-compatible endpoint before entering the sandbox.
         self._provider = DemoMockProvider()
-        overrides = {"anthropic": self._provider, "openai": self._provider, "mock": self._provider}
+        overrides = {
+            name: self._provider
+            for name in (
+                "anthropic", "openai", "mock", "azure", "bedrock", "vertex",
+                "openai_compatible",
+            )
+        }
         # demo=True → every usage row is pricing_source='zero' with a synthetic $.
         self.gateway = LLMGateway(secrets, self.usage_store, overrides, demo=True)
         self._get_prefs = get_prefs
         # An offline cache (no Redis) for the demo enrich tool.
         self._cache = Cache(None)
-        # THREE segment connectors built once + reused by the pipeline / simulator.
-        from ..connectors.demo import DemoPullConnector
+        # FOUR standards-faithful source adapters built once + reused by the
+        # pipeline/simulator.  Construction primes their bounded recent rings so Logs
+        # and source health are populated before the first background tick.
+        from .demo_sources import build_native_demo_sources
+
         seed = int(getattr(getattr(get_prefs(), "demo", None), "seed", 1337) or 1337)
-        self.sources = {
-            "siem": DemoPullConnector(seed=seed, segment="siem",
-                                      connector_id=gen.SEGMENT_SOURCE_IDS["siem"]),
-            "xdr": DemoPullConnector(seed=seed, segment="xdr",
-                                     connector_id=gen.SEGMENT_SOURCE_IDS["xdr"]),
-            "edr": DemoPullConnector(seed=seed, segment="edr",
-                                     connector_id=gen.SEGMENT_SOURCE_IDS["edr"]),
-        }
+        self.sources = build_native_demo_sources(
+            seed, get_prefs(), now_millis=to_millis(now_utc()), prime_count=12,
+        )
         # Lazily built so we avoid importing the (heavy) pipeline at module import.
         self.pipeline = self._build_pipeline(secrets)
         # A handle on the pipeline's RagService so demo /api/rag/* + the shared-store
@@ -175,7 +200,10 @@ class DemoStack:
         # A standup service over the demo ES (case stats reflect the demo store).
         from ..agents.standup import StandupService
 
-        self.standup_service = StandupService(self.es, self.gateway, self.audit)
+        self.standup_service = StandupService(
+            self.es, self.gateway, self.audit,
+            cases=self.cases, shift_handoff=self.shift_handoff,
+        )
         from ..agents.overview import OverviewService
 
         self.overview_service = OverviewService(self.gateway, secrets, self._cache, self.audit)
@@ -185,7 +213,7 @@ class DemoStack:
         from ..engine.threshold_automation import ThresholdAutomation
 
         prefs = self._get_prefs()
-        source = self.sources["siem"]  # the internet-facing system an analyst queries most
+        source = self.sources["splunk"]  # the SIEM an analyst queries most
         from ..tools.rag import RagService
 
         rag = RagService(self.gateway, prefs, store=self.vectorstore, cases=self.cases)
@@ -195,7 +223,7 @@ class DemoStack:
         automation = ThresholdAutomation(self.proposals, self.audit)
         pipeline = InvestigationPipeline(
             self.es, secrets, self._cache, self.gateway, rag, self.cases, self.audit,
-            source=source, automation=automation,
+            source=source, automation=automation, memory=self.memory,
         )
         # Bind the demo's ISOLATED bus so live ``agent.step`` frames never touch the
         # global singleton (isolation boundary). Without this the pipeline's
@@ -212,11 +240,11 @@ class DemoStack:
         from ..tools.rag import RagService
 
         prefs = self._get_prefs()
-        source = self.sources["siem"]
+        source = self.sources["splunk"]
         rag = RagService(self.gateway, prefs, store=self.vectorstore, cases=self.cases)
         return ChatEngine(
             self.es, self.gateway, self.audit, self.cases, rag,
-            source=source, memory=None,
+            source=source, memory=self.memory, threads=self.case_threads,
         )
 
     def _demo_prefs(self) -> Preferences:
@@ -226,19 +254,23 @@ class DemoStack:
         cluster) and background scan ON. When ``force_capabilities`` (the default) is
         set, the threshold-tuning / baseline / campaign / threshold-automation / batch
         blocks are forced ON in the SANDBOX COPY ONLY — the REAL prefs (which these are
-        read from) are never mutated (this is a model_copy). Read live so settings
-        tweaks still apply during the demo."""
+        read from) are never mutated (this is a model_copy). External enrichment is
+        always disabled: even keyless providers perform real HTTP/DNS traffic, which
+        an offline synthetic demo must never emit. Read live so safe presentation
+        settings still apply during the demo."""
         from ..config import (
             CaseAutomationRule, CorrelationRule, ThresholdAutomationConfig,
         )
         from ..constants import CorrelationMode
 
-        prefs = self._get_prefs()
+        prefs = self._prefs_override or self._get_prefs()
         every = CorrelationRule(mode=CorrelationMode.EVERY, n=1)
         updates: dict = {
             "auto_close": sandbox_policy(prefs.auto_close),
             "default_correlation": every,
             "background_scan_enabled": True,
+            "enrichment": prefs.enrichment.model_copy(update={"enabled": False}),
+            "realtime": prefs.realtime.model_copy(update={"enabled": True}),
         }
         demo = getattr(prefs, "demo", None)
         force = bool(getattr(demo, "force_capabilities", True)) if demo is not None else True
@@ -278,8 +310,8 @@ class DemoStack:
     # EVENT-feed routing (XDR/EDR) — pre-aggregate → funnel → sync investigate.
     # ------------------------------------------------------------------ #
     def _demo_event_prefs(self) -> Preferences:
-        """Prefs for the HIGH-VOLUME XDR/EDR EVENT funnel. Identical to ``_demo_prefs``
-        EXCEPT the correlation default is a high threshold instead of the SIEM ALERT
+        """Prefs for the HIGH-VOLUME native EVENT funnel. Identical to ``_demo_prefs``
+        EXCEPT the correlation default is a high threshold instead of the native ALERT
         path's ``EVERY, n=1`` — otherwise ``event_detection._rule_fires`` would treat
         EVERY benign bucket as a rule hit (a case per event → unbounded). With this the
         funnel relies on the ANOMALY path, so only genuine deviations survive (bounded
@@ -294,11 +326,29 @@ class DemoStack:
         still letting every benign bucket warm the base across ticks."""
         from ..config import CorrelationRule
         from ..constants import CorrelationMode, EntityType
+        from .demo_sources import SYSLOG_DETECTION_RULE_IDS
 
         prefs = self._demo_prefs()
+        # Raw syslog never pretends to be a vendor alert.  During a coherent incident
+        # its four same-rule events clear this explicit deterministic threshold and
+        # TLSOC raises its OWN detection through the deterministic event/correlation path.
+        correlation_rules = dict(prefs.correlation_rules)
+        correlation_rules.update({
+            rule_id: CorrelationRule(
+                mode=CorrelationMode.THRESHOLD,
+                n=4,
+                window_seconds=300,
+                group_by=EntityType.IP,
+            )
+            for rule_id in SYSLOG_DETECTION_RULE_IDS
+        })
         return prefs.model_copy(update={
             "default_correlation": CorrelationRule(
                 mode=CorrelationMode.THRESHOLD, n=10_000, group_by=EntityType.HOST,
+            ),
+            "correlation_rules": correlation_rules,
+            "auto_forward_allowlist": sorted(
+                set(prefs.auto_forward_allowlist) | set(SYSLOG_DETECTION_RULE_IDS)
             ),
         })
 
@@ -376,8 +426,14 @@ class DemoStack:
                 # suppressed cluster is the intended drop.
                 if not passes_suppression(cluster, prefs):
                     continue
+                source = self.sources.get(segment)
                 await self.pipeline.register_candidate(cluster, SourceSurface.AUTOMATED_SCAN, prefs)
-                await self.pipeline.investigate_cluster(cluster, SourceSurface.AUTOMATED_SCAN, prefs)
+                await self.pipeline.investigate_cluster(
+                    cluster,
+                    SourceSurface.AUTOMATED_SCAN,
+                    prefs,
+                    query_source=source,
+                )
                 count += 1
             return count
         except Exception as exc:  # noqa: BLE001 — a bad batch must never break the ticker
@@ -427,7 +483,13 @@ class DemoStack:
             self._tuned_correlation_rules.update(dict(new_prefs.correlation_rules or {}))
         except Exception:  # noqa: BLE001
             pass
+        self._prefs_override = new_prefs.model_copy(deep=True)
         return new_prefs
+
+    async def update_execution_prefs(self, new_prefs: Preferences) -> Preferences:
+        """Apply an operator change to this throwaway run without durable writes."""
+        self._prefs_override = new_prefs.model_copy(deep=True)
+        return self._prefs_override
 
     async def run_capability_pass(self) -> None:
         """One demo-local capability pass: threshold-tuning + campaign correlation, both
@@ -473,6 +535,47 @@ class DemoStack:
                 return len(await self.proposals.list())
             except Exception:  # noqa: BLE001
                 return 0
+
+    def source_runtime_snapshot(self, *, running: bool | None = None) -> dict[str, Any]:
+        """Serializable four-source health/log contract for demo API overlays.
+
+        Source adapters own their bounded recent rings and counters; this accessor is
+        intentionally read-only so ``state.py``/routes need no knowledge of receiver
+        internals and can never mutate demo or real state while rendering health.
+        """
+        rows: list[dict[str, Any]] = []
+        demo = getattr(self._get_prefs(), "demo", None)
+        mode = str(getattr(demo, "mode", "seeded") or "seeded")
+        is_running = bool(mode == "live" if running is None else running)
+        tick_seconds = float(getattr(demo, "tick_seconds", 10.0) or 10.0)
+        snapshot_now = to_millis(now_utc())
+        for key in self.sources:
+            source = self.sources[key]
+            try:
+                rows.append(source.activity_snapshot(
+                    now_millis=snapshot_now,
+                    mode=mode,
+                    running=is_running,
+                    tick_seconds=tick_seconds,
+                ))
+            except Exception as exc:  # noqa: BLE001 -- health degrades per source
+                rows.append({
+                    "key": key,
+                    "source_id": getattr(source, "connector_id", f"demo-{key}"),
+                    "display_name": key,
+                    "enabled": True,
+                    "healthy": False,
+                    "state": "degraded",
+                    "buffer_depth": 0,
+                    "events_total": 0,
+                    "alerts_total": 0,
+                    "last_event_millis": 0,
+                    "events_per_min": 0.0,
+                    "can_browse": False,
+                    "last_error": str(exc),
+                    "demo": True,
+                })
+        return {"sources": rows}
 
     async def purge(self) -> None:
         """Hard-delete ALL demo data (cases/audit/usage/events + the demo-scoped
@@ -526,15 +629,12 @@ _CAPABILITY_TARGET_SECONDS = 60.0
 class DemoSimulator:
     """The live demo ticker (only runs in ``mode == 'live'``).
 
-    Mirrors a push-receiver task: a guarded loop that sleeps a jittered tick and, each
-    tick, (1) drives the SIEM ALERT feed at its own ~``alert_interval_seconds`` cadence
-    (one benign SIEM event, or — with probability ``incident_rate`` — one SIEM storyline
-    ignition), and (2) routes the XDR+EDR EVENT feeds' logical ``event_rate_per_second``
-    volume through the pre-aggregating funnel (bounded memory). On an accelerated cadence
-    it also runs a demo-local capability pass. The RNG is seeded from ``demo.seed`` so a
-    run is reproducible; the loop never raises (a bad tick is logged + skipped) and is
-    cleanly cancellable on disable — a capability pass is only ever awaited INSIDE this
-    task so cancelling the ticker tears down any in-flight pass."""
+    Each tick gives every source benign traffic through the cheap EVENT funnel.  On a
+    deterministic cadence Splunk/QRadar/Wazuh emit their native alert contracts; a
+    four-source storyline is guaranteed during the first 20–30 seconds.  Syslog remains
+    raw telemetry and clears a TLSOC correlation threshold instead of claiming a vendor
+    alert.  All calls are synchronous against the isolated $0 stack, bounded, and cleanly
+    cancellable."""
 
     def __init__(
         self,
@@ -542,15 +642,24 @@ class DemoSimulator:
         get_prefs: Callable[[], Preferences],
         *,
         seed: int,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         self._stack = stack
         self._get_prefs = get_prefs
         self._rng = random.Random(seed ^ 0x71C)
         self._task: asyncio.Task | None = None
         self._running = False
-        # Segment storyline queues, cycled deterministically per segment.
-        self._siem_stories = gen.storylines_for_segment("siem") or list(gen.STORYLINES)
-        self._siem_idx = 0
+        self._stories = list(gen.STORYLINES)
+        self._story_idx = 0
+        self._native_alert_idx = 0
+        self._logical_elapsed = 0.0
+        self._alert_elapsed = 0.0
+        self._monotonic = monotonic or time.monotonic
+        self._started_monotonic = self._monotonic()
+        self._cooldown_until_monotonic = 0.0
+        self._first_incident_fired = False
+        self._incident_lock = asyncio.Lock()
+        self._tick_count = 0
         self._capability_tick = 0
 
     def start(self) -> None:
@@ -571,63 +680,310 @@ class DemoSimulator:
     async def tick_once(self) -> dict[str, int]:
         """One simulation tick (also callable directly from tests for determinism).
 
-        Drives the SIEM ALERT feed (low-volume, high-signal) + the XDR/EDR EVENT feeds
-        (high-volume, pre-aggregated). Returns ``{benign, story, events}`` counts."""
+        Returns stable counters while preserving the legacy ``benign/story/events``
+        keys used by callers.  ``alerts`` counts source-native alerts only; the raw
+        syslog contribution is counted under ``system_detections`` when it fires."""
         prefs = self._get_prefs()
         demo = getattr(prefs, "demo", None)
         if demo is None or not demo.active:
-            return {"benign": 0, "story": 0, "events": 0}
+            return {
+                "benign": 0, "story": 0, "events": 0,
+                "alerts": 0, "system_detections": 0,
+            }
         now = to_millis(now_utc())
         dprefs = self._stack._demo_prefs()  # noqa: SLF001 — same module owner
-        benign_n = 0
-        story_n = 0
-        # 1. SIEM ALERT feed — fire ~once per ``alert_interval_seconds`` (a per-tick
-        #    coin-flip so the cadence composes with ``tick_seconds``). Within a SIEM tick
-        #    it is a benign alert OR, with prob ``incident_rate``, a storyline ignition.
         tick_s = float(getattr(demo, "tick_seconds", 10.0) or 10.0)
-        alert_s = float(getattr(demo, "alert_interval_seconds", 120.0) or 120.0)
-        p_siem = min(1.0, tick_s / max(1.0, alert_s))
-        if self._rng.random() < p_siem:
-            siem = self._stack.sources["siem"]
-            if self._rng.random() < float(demo.incident_rate) and self._siem_stories:
-                story = self._siem_stories[self._siem_idx % len(self._siem_stories)]
-                self._siem_idx += 1
-                events = siem.storyline_raw(story, self._rng, now, dprefs)
-                story_n = 1
-            else:
-                events = siem.benign_batch_raw(self._rng, now - now % gen._MS_PER_HOUR, 1, dprefs)
-                benign_n = len(events)
-            await self._stack.ingest_service.ingest(
-                events, dprefs, source_surface=SourceSurface.AUTOMATED_SCAN,
-                source_id=gen.SEGMENT_SOURCE_IDS["siem"],
-            )
-        # 2. XDR + EDR EVENT feeds — the logical ~event_rate_per_second budget, split
-        #    across the two segments, materialised TRANSIENTLY and dropped after the
-        #    funnel (never N retained objects/sec).
+        self._tick_count += 1
+        self._logical_elapsed += tick_s
+        self._alert_elapsed += tick_s
+
+        # Every configured source gets a fair share of the logical event volume.  Raw
+        # values exist only for this bounded tick and are dropped after aggregation;
+        # each adapter retains at most its 500-event browse ring.
         events_n = await self._route_event_feeds(now, dprefs, demo)
-        return {"benign": benign_n, "story": story_n, "events": events_n}
+        story_n = 0
+        alerts_n = 0
+        system_detections = 0
+
+        # The first incident is deterministic, not RNG.  The logical boundary keeps
+        # manual tick tests reproducible; the monotonic boundary + _run delay clamp make
+        # a real live session fire at ~20s even with a heavily customized tick/jitter.
+        first_due = _FIRST_INCIDENT_MIN_SECONDS + tick_s
+        live_elapsed = self._monotonic() - self._started_monotonic
+        incident_result: dict[str, Any] | None = None
+        if (
+            not self._first_incident_fired
+            and (
+                self._logical_elapsed >= first_due
+                or live_elapsed >= _FIRST_INCIDENT_MIN_SECONDS
+            )
+        ):
+            incident_result = await self.trigger_incident(force=True, scheduled_first=True)
+            self._first_incident_fired = (
+                self._first_incident_fired or bool(incident_result.get("triggered"))
+            )
+        else:
+            alert_s = max(1.0, float(
+                getattr(demo, "alert_interval_seconds", 120.0) or 120.0
+            ))
+            if self._alert_elapsed >= alert_s:
+                self._alert_elapsed %= alert_s
+                if self._rng.random() < float(demo.incident_rate):
+                    incident_result = await self.trigger_incident()
+                else:
+                    alerts_n += await self._emit_native_alert(now, dprefs)
+
+        if incident_result and incident_result.get("triggered"):
+            story_n = 1
+            alerts_n += int(incident_result.get("native_alerts", 0) or 0)
+            system_detections += int(incident_result.get("system_detections", 0) or 0)
+
+        return {
+            "benign": events_n,
+            "story": story_n,
+            "events": events_n,
+            "alerts": alerts_n,
+            "system_detections": system_detections,
+        }
+
+    @staticmethod
+    def _allocate_source_counts(total: int) -> dict[str, int]:
+        """Deterministically split ``total`` by source shares; give all four traffic."""
+        from .demo_sources import DEMO_SOURCE_SPECS
+
+        keys = list(DEMO_SOURCE_SPECS)
+        if total <= 0:
+            return {key: 0 for key in keys}
+        total = max(total, len(keys))
+        counts = {
+            key: int(total * DEMO_SOURCE_SPECS[key].rate_share)
+            for key in keys
+        }
+        # Guarantee every source one event, then distribute rounding remainder in the
+        # stable dashboard order.  If this overshoots, take from the largest buckets.
+        for key in keys:
+            counts[key] = max(1, counts[key])
+        while sum(counts.values()) < total:
+            key = keys[(sum(counts.values()) - len(keys)) % len(keys)]
+            counts[key] += 1
+        while sum(counts.values()) > total:
+            key = max(keys, key=lambda item: (counts[item], -keys.index(item)))
+            if counts[key] <= 1:
+                break
+            counts[key] -= 1
+        return counts
 
     async def _route_event_feeds(self, now: int, dprefs: Preferences, demo) -> int:
-        """Materialise the logical XDR+EDR event volume for this tick, feed it straight
-        through the funnel via ``DemoStack.route_event_batch``, and DROP the raw list."""
+        """Materialise each native EVENT feed, funnel it, then drop the raw batch."""
         tick_s = float(getattr(demo, "tick_seconds", 10.0) or 10.0)
         rate = float(getattr(demo, "event_rate_per_second", 40.0) or 0.0)
         weight = gen.diurnal_weight(now)
-        total = int(round(rate * tick_s * weight))
+        total = min(_MAX_EVENTS_PER_TICK, int(round(rate * tick_s * weight)))
         if total <= 0:
             return 0
-        hour_start = now - now % gen._MS_PER_HOUR
-        n_xdr = int(round(total * _XDR_EVENT_SHARE))
-        n_edr = max(0, total - n_xdr)
-        routed = 0
-        for seg, n in (("xdr", n_xdr), ("edr", n_edr)):
+        materialised = 0
+        for source_key, n in self._allocate_source_counts(total).items():
             if n <= 0:
                 continue
-            src = self._stack.sources[seg]
-            # Materialise transiently — this list is DROPPED right after route_event_batch.
-            events = src.benign_batch_raw(self._rng, hour_start, n, dprefs)
-            routed += await self._stack.route_event_batch(events, seg)
-        return routed
+            source = self._stack.sources[source_key]
+            events = source.benign_batch_raw(self._rng, now, n, dprefs)
+            materialised += len(events)
+            await self._stack.route_event_batch(events, source_key)
+        return materialised
+
+    async def _emit_native_alert(self, now: int, dprefs: Preferences) -> int:
+        """Rotate a low-confidence native alert across Splunk, QRadar, and Wazuh."""
+        from .demo_sources import SOURCE_NATIVE_ALERT_KEYS
+
+        if not SOURCE_NATIVE_ALERT_KEYS:
+            return 0
+        key = SOURCE_NATIVE_ALERT_KEYS[self._native_alert_idx % len(SOURCE_NATIVE_ALERT_KEYS)]
+        self._native_alert_idx += 1
+        source = self._stack.sources[key]
+        events = source.native_alert_raw(self._rng, now, dprefs)
+        if events:
+            await self._stack.ingest_service.ingest(
+                events,
+                dprefs,
+                source_surface=SourceSurface.AUTOMATED_SCAN,
+                source_id=source.connector_id,
+                query_source=source,
+            )
+        return len(events)
+
+    async def trigger_incident(
+        self,
+        story_id: str | None = None,
+        *,
+        force: bool = False,
+        scheduled_first: bool = False,
+    ) -> dict[str, Any]:
+        """Emit one coherent four-source attack, respecting a short trigger cooldown.
+
+        This is the presentation-safe seam for ``POST /api/demo/incident``.  It never
+        reaches a network or real store.  Splunk/QRadar/Wazuh emit native detections;
+        four RFC 5424 syslog records remain events and clear TLSOC's explicit threshold.
+        The return value is fully serializable and attributes every count per source.
+        """
+        prefs = self._get_prefs()
+        demo = getattr(prefs, "demo", None)
+        if demo is None or not demo.active:
+            return {
+                "triggered": False,
+                "reason": "demo mode is off",
+                "scenario_id": story_id or "",
+                "events": 0,
+                "native_alerts": 0,
+                "system_detections": 0,
+                "cooldown_seconds": 0.0,
+                "sources": {},
+            }
+        remaining = max(0.0, self._cooldown_until_monotonic - self._monotonic())
+        if remaining > 0.0 and not force:
+            return {
+                "triggered": False,
+                "reason": "incident trigger is cooling down",
+                "scenario_id": story_id or "",
+                "events": 0,
+                "native_alerts": 0,
+                "system_detections": 0,
+                "cooldown_seconds": round(remaining, 3),
+                "sources": {},
+            }
+
+        async with self._incident_lock:
+            # A due background tick may have decided to emit before a concurrent
+            # manual request acquired the lock. If that manual request completed
+            # first, its incident already fulfils the guaranteed-first promise; the
+            # scheduled path must not bypass cooldown with `force=True` and duplicate it.
+            if scheduled_first and self._first_incident_fired:
+                return {
+                    "triggered": False,
+                    "reason": "first demo incident was already emitted",
+                    "scenario_id": story_id or "",
+                    "events": 0,
+                    "native_alerts": 0,
+                    "system_detections": 0,
+                    "cooldown_seconds": round(max(
+                        0.0, self._cooldown_until_monotonic - self._monotonic()
+                    ), 3),
+                    "sources": {},
+                }
+            # Re-check after acquiring: two concurrent API requests can both pass the
+            # optimistic check above, but only the first may emit.  The second observes
+            # the cooldown written before the first releases this lock.
+            remaining = max(0.0, self._cooldown_until_monotonic - self._monotonic())
+            if remaining > 0.0 and not force:
+                return {
+                    "triggered": False,
+                    "reason": "incident trigger is cooling down",
+                    "scenario_id": story_id or "",
+                    "events": 0,
+                    "native_alerts": 0,
+                    "system_detections": 0,
+                    "cooldown_seconds": round(remaining, 3),
+                    "sources": {},
+                }
+            if story_id:
+                story = next((item for item in self._stories if item.id == story_id), None)
+                if story is None:
+                    return {
+                        "triggered": False,
+                        "reason": f"unknown demo scenario: {story_id}",
+                        "scenario_id": story_id,
+                        "events": 0,
+                        "native_alerts": 0,
+                        "system_detections": 0,
+                        "cooldown_seconds": 0.0,
+                        "sources": {},
+                    }
+            else:
+                story = self._stories[self._story_idx % len(self._stories)]
+            self._story_idx += 1
+            now = to_millis(now_utc())
+            dprefs = self._stack._demo_prefs()  # noqa: SLF001 -- same-module owner
+            per_source: dict[str, dict[str, Any]] = {}
+            total_events = 0
+            native_alerts = 0
+            system_detections = 0
+            for key in self._stack.sources:
+                source = self._stack.sources[key]
+                events = source.storyline_raw(story, self._rng, now, dprefs)
+                total_events += len(events)
+                if key == "syslog":
+                    # Direct push ingest performs deterministic N=4 correlation under
+                    # _demo_event_prefs; the raw source never claims alert provenance.
+                    stats = await self._stack.ingest_service.ingest(
+                        events,
+                        self._stack._demo_event_prefs(),  # noqa: SLF001
+                        source_surface=SourceSurface.AUTOMATED_SCAN,
+                        source_id=source.connector_id,
+                        query_source=source,
+                    )
+                    detected = max(
+                        int(stats.get("investigated", 0) or 0),
+                        int(stats.get("candidates", 0) or 0),
+                    )
+                    source.record_system_detections(detected)
+                    system_detections += detected
+                    per_source[key] = {
+                        "source_id": source.connector_id,
+                        "events": len(events),
+                        "native_alerts": 0,
+                        "system_detections": detected,
+                        "investigated": int(stats.get("investigated", 0) or 0),
+                    }
+                else:
+                    stats = await self._stack.ingest_service.ingest(
+                        events,
+                        dprefs,
+                        source_surface=SourceSurface.AUTOMATED_SCAN,
+                        source_id=source.connector_id,
+                        query_source=source,
+                    )
+                    native_alerts += len(events)
+                    per_source[key] = {
+                        "source_id": source.connector_id,
+                        "events": len(events),
+                        "native_alerts": len(events),
+                        "system_detections": 0,
+                        "investigated": int(stats.get("investigated", 0) or 0),
+                    }
+            self._cooldown_until_monotonic = (
+                self._monotonic() + _MANUAL_INCIDENT_COOLDOWN_SECONDS
+            )
+            # A manual incident already fulfils the guaranteed-first-story promise;
+            # do not surprise the presenter with another forced story ~20s later.
+            self._first_incident_fired = True
+            return {
+                "triggered": True,
+                "reason": "coherent synthetic attack emitted",
+                "scenario_id": story.id,
+                "scenario_name": story.name,
+                "events": total_events,
+                "native_alerts": native_alerts,
+                "system_detections": system_detections,
+                "cooldown_seconds": _MANUAL_INCIDENT_COOLDOWN_SECONDS,
+                "sources": per_source,
+            }
+
+    def runtime_snapshot(self) -> dict[str, Any]:
+        """Serializable simulator + source state for status/health endpoints."""
+        snapshot = self._stack.source_runtime_snapshot(running=self._running)
+        snapshot.update({
+            "running": self._running,
+            "tick_count": self._tick_count,
+            "logical_elapsed_seconds": round(self._logical_elapsed, 3),
+            "wall_elapsed_seconds": round(
+                max(0.0, self._monotonic() - self._started_monotonic), 3
+            ),
+            "first_incident_fired": self._first_incident_fired,
+            "next_story_index": self._story_idx,
+            "cooldown_seconds": round(
+                max(0.0, self._cooldown_until_monotonic - self._monotonic()), 3
+            ),
+        })
+        return snapshot
 
     async def _run(self) -> None:
         logger.info("Demo simulator started")
@@ -637,6 +993,14 @@ class DemoSimulator:
             base = float(getattr(demo, "tick_seconds", 10.0) or 10.0) if demo else 10.0
             jitter = float(getattr(demo, "tick_jitter", 0.3) or 0.0) if demo else 0.0
             delay = max(0.5, base * (1.0 + self._rng.uniform(-jitter, jitter)))
+            if not self._first_incident_fired:
+                remaining = max(
+                    0.0,
+                    _FIRST_INCIDENT_MIN_SECONDS
+                    - (self._monotonic() - self._started_monotonic),
+                )
+                if remaining > 0.0:
+                    delay = min(delay, max(0.5, remaining))
             try:
                 if demo is not None and demo.mode == "live":
                     await self.tick_once()

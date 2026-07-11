@@ -94,9 +94,13 @@ def _band_from_magnitude(magnitude: float) -> str:
 # stable + render-safe. ``unknown`` keeps the legacy magnitude heuristic (back-compat
 # for cases whose source scale cannot be resolved at read time).
 _SCALE_OCSF_0_100 = "ocsf_0_100"   # OCSF severity_score (already 0-100; identity-clamp)
-_SCALE_WAZUH_0_15 = "wazuh_0_15"   # Wazuh rule.level 0..15 -> level/15*100
+_SCALE_WAZUH_0_16 = "wazuh_0_16"   # Wazuh rule.level 0..16 -> level/16*100
 _SCALE_0_10 = "0_10"               # the suite's own 0-10 rating (critical_severity=7.0)
 _SCALE_UNKNOWN = "unknown"         # no resolvable scale -> legacy <=10?*10:raw heuristic
+
+_DEMO_SOURCE_IDS = frozenset({
+    "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+})
 
 
 def severity_scale_for_source(inst: Any) -> str:
@@ -107,7 +111,7 @@ def severity_scale_for_source(inst: Any) -> str:
     severity onto 0-100 (see :func:`_normalise_severity`):
 
     * ``None`` → ``unknown`` (the legacy magnitude heuristic — back-compat).
-    * Wazuh (``source_type == WAZUH``) → ``wazuh_0_15`` (``rule.level`` 0..15).
+    * Wazuh (``source_type == WAZUH``) → ``wazuh_0_16`` (``rule.level`` 0..16).
     * PUSH-mode (non-``pull`` ``ingest_mode``) → ``ocsf_0_100`` (OCSF ``severity_score``).
     * PULL Elastic/OpenSearch/generic → ``0_10`` (the suite's own 0-10 rating).
 
@@ -119,7 +123,7 @@ def severity_scale_for_source(inst: Any) -> str:
         return _SCALE_UNKNOWN
     stype = getattr(inst, "source_type", None)
     if stype == SourceType.WAZUH:
-        return _SCALE_WAZUH_0_15
+        return _SCALE_WAZUH_0_16
     # PUSH-mode sources flow through the OCSF normaliser (receivers/*) → 0-100.
     ingest = getattr(inst, "ingest_mode", None)
     mode_val = getattr(ingest, "value", ingest)
@@ -133,14 +137,14 @@ def _scale_for_case(case: Case, prefs: Preferences | None) -> str:
     """Resolve the SEVERITY SCALE the case's source asserts ``severity_max`` on.
 
     The scale is unambiguous only with provenance: a bare magnitude can't tell a
-    Wazuh ``rule.level`` of 12 (CRITICAL on a 0-15 ladder) from an OCSF score of 12
+    Wazuh ``rule.level`` of 12 (CRITICAL on a 0-16 ladder) from an OCSF score of 12
     (low on a 0-100 ladder). We look the case's ``source_id`` up against the operator's
     configured ``Preferences.sources`` to read the connector's declared scale:
 
-    * Wazuh (``source_type == WAZUH``) asserts ``rule.level`` on a **0-15** ladder.
+    * Wazuh (``source_type == WAZUH``) asserts ``rule.level`` on a **0-16** ladder.
     * PUSH connectors (HTTP/syslog/socket/queue/object-store/stream receivers) normalise
       every record to OCSF, so ``severity_max`` is the OCSF ``severity_score`` — **0-100**.
-    * The seeded **demo** source emits a **0-100** severity (diurnal pyramid).
+    * Isolated **demo** sources emit a canonical **0-100 OCSF** severity.
 
     When ``prefs`` is None, or the case has no ``source_id``, or the source isn't
     configured, we return ``unknown`` so the legacy magnitude heuristic applies —
@@ -150,8 +154,14 @@ def _scale_for_case(case: Case, prefs: Preferences | None) -> str:
     source_id = getattr(case, "source_id", None)
     if not source_id:
         return _SCALE_UNKNOWN
-    # The seeded demo source emits a 0-100 severity regardless of its connector type.
-    if source_id == "demo":
+    # Every isolated demo adapter enters through the production OCSF receiver path,
+    # so its persisted RawEvent severity is already the canonical 0-100 score.  The
+    # adapters are intentionally read-time overlays (not Preferences.sources), hence
+    # this namespace check must happen before the configured-source lookup.
+    if (
+        source_id in _DEMO_SOURCE_IDS
+        and "demo" in (getattr(case, "tags", None) or [])
+    ):
         return _SCALE_OCSF_0_100
     inst = None
     for s in (getattr(prefs, "sources", None) or []):
@@ -170,7 +180,7 @@ def _normalise_severity(raw: float, scale: str = _SCALE_UNKNOWN) -> float:
     12 (CRITICAL) was left at 12 (LOW). Each known scale projects deterministically:
 
     * ``ocsf_0_100`` — already 0-100, identity-clamp (10 stays 10 → LOW/INFO).
-    * ``wazuh_0_15`` — ``level/15*100`` (12 → 80 → HIGH).
+    * ``wazuh_0_16`` — ``level/16*100`` (12 → 75 → CRITICAL).
     * ``0_10`` — ``raw*10`` (the suite's own 0-10 rating).
     * ``unknown`` — the legacy heuristic (``raw<=10 ? raw*10 : raw``) for cases whose
       scale can't be resolved (no prefs / unconfigured source) — back-compat only.
@@ -180,8 +190,8 @@ def _normalise_severity(raw: float, scale: str = _SCALE_UNKNOWN) -> float:
         return 0.0
     if scale == _SCALE_OCSF_0_100:
         mag = raw
-    elif scale == _SCALE_WAZUH_0_15:
-        mag = raw / 15.0 * 100.0
+    elif scale == _SCALE_WAZUH_0_16:
+        mag = raw / 16.0 * 100.0
     elif scale == _SCALE_0_10:
         mag = raw * 10.0
     else:  # _SCALE_UNKNOWN — legacy conservative heuristic.

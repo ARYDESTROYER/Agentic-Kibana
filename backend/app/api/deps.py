@@ -209,7 +209,7 @@ def session_metadata(request: Request) -> dict[str, str]:
 
 async def _audit_session(state: AppState, event: str, actor: str, sid: str, detail: str) -> None:
     """Append-only audit of a session lifecycle event (#2). Best-effort."""
-    audit = getattr(state, "audit", None)
+    audit = getattr(state, "control_audit", None)
     if audit is None:
         return
     try:
@@ -377,7 +377,7 @@ async def _enforce(request: Request, resource: str, action: str):
     try:
         from ..constants import ActionType
 
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.ACCESS_DENIED,
             surface="rbac",
             actor=getattr(user, "username", "") or "",

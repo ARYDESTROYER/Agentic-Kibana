@@ -38,7 +38,7 @@ from app.constants import (
     SourceType,
 )
 from app.engine.correlation import correlate
-from app.engine.ingest import _auto_correlate_allowed, handle_clusters
+from app.engine.ingest import _auto_correlate_allowed, handle_clusters, link_cross_source
 from app.es.fake import InMemoryESClient
 from app.models import RawEvent
 from tests.conftest import make_log_event
@@ -452,6 +452,123 @@ async def test_cross_source_links_across_separate_ingests_via_store_pool(app_sta
     assert {c.source_id for c in web01} == {"srcA", "srcB"}
     assert web01[0].cluster_signature != web01[1].cluster_signature
     assert web01[0].cross_source_cluster_id == web01[1].cross_source_cluster_id
+
+
+@asyncio
+async def test_cross_source_component_absorbs_preseeded_overlap_symmetrically(app_state):
+    """A persisted A↔B component plus current B↔C↔D overlaps becomes A↔B↔C↔D.
+
+    Only resolved prior links inside the existing bounded candidate pool may seed the
+    component.  An unrelated open case and a dangling related id must stay isolated.
+    """
+    prefs = app_state.prefs.model_copy(deep=True)
+    prefs.background_scan_enabled = False
+    prefs.default_correlation = CorrelationRule(
+        mode=CorrelationMode.EVERY, window_seconds=600, group_by=EntityType.IP
+    )
+    prefs.cross_source_correlation.enabled = True
+    prefs.cross_source_correlation.time_window_seconds = 600
+    prefs.cross_source_correlation.min_sources = 2
+    await app_state.update_prefs(prefs)
+
+    base = 1_700_000_000_000
+    prior = [
+        RawEvent(
+            id="splunk-prior", index="splunk-main", source={}, user="svc-checkout",
+            timestamp_millis=base, ip="203.0.113.10", rule="splunk-risk", rule_name="splunk-risk",
+            severity=75.0, source_id="demo-splunk", source_name="Splunk",
+        ),
+        RawEvent(
+            id="qradar-prior", index="qradar-offenses", source={}, user="svc-checkout",
+            timestamp_millis=base + 1_000, ip="203.0.113.20", rule="qradar-offense",
+            rule_name="qradar-offense", severity=80.0,
+            source_id="demo-qradar", source_name="QRadar",
+        ),
+        RawEvent(
+            id="unrelated-prior", index="other", source={}, timestamp_millis=base + 2_000,
+            ip="198.51.100.90", rule="unrelated", rule_name="unrelated", severity=20.0,
+            source_id="demo-unrelated", source_name="Unrelated",
+        ),
+    ]
+    await app_state.ingest_service.ingest(prior, prefs)
+
+    cases, _ = await app_state.cases.list(limit=50)
+    by_source = {case.source_id: case for case in cases}
+    splunk = by_source["demo-splunk"]
+    qradar = by_source["demo-qradar"]
+    assert splunk.related_case_ids == [qradar.case_id]
+    assert qradar.related_case_ids == [splunk.case_id]
+    prior_component_id = splunk.cross_source_cluster_id
+    assert prior_component_id and qradar.cross_source_cluster_id == prior_component_id
+    # A dangling persisted id is ignored rather than expanding the candidate pool.
+    splunk.related_case_ids.append("case-does-not-exist")
+    await app_state.cases.save(splunk)
+
+    current = [
+        RawEvent(
+            id="qradar-current", index="qradar-events", source={},
+            timestamp_millis=base + 30_000, ip="203.0.113.20", host="checkout-web-01",
+            rule="qradar-followup", rule_name="qradar-followup", severity=82.0,
+            source_id="demo-qradar", source_name="QRadar",
+        ),
+        RawEvent(
+            id="wazuh-current", index="wazuh-alerts",
+            source={"file": {"hash": {"sha256": "a" * 64}}},
+            timestamp_millis=base + 31_000, ip="203.0.113.30", host="checkout-web-01",
+            rule="wazuh-webshell", rule_name="wazuh-webshell", severity=90.0,
+            source_id="demo-wazuh", source_name="Wazuh",
+        ),
+        RawEvent(
+            id="syslog-current", index="syslog",
+            source={"file": {"hash": {"sha256": "a" * 64}}},
+            timestamp_millis=base + 32_000, ip="203.0.113.40",
+            rule="syslog-egress", rule_name="syslog-egress", severity=85.0,
+            source_id="demo-syslog", source_name="Syslog",
+        ),
+    ]
+    current_clusters = correlate(current, prefs)
+    await app_state.ingest_service.ingest(current, prefs)
+
+    cases, _ = await app_state.cases.list(limit=50)
+    by_source = {case.source_id: case for case in cases}
+    component = [by_source[source_id] for source_id in (
+        "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog"
+    )]
+    component_ids = {case.case_id for case in component}
+    assert {case.cross_source_cluster_id for case in component} == {prior_component_id}
+    for case in component:
+        assert set(case.related_case_ids) == component_ids - {case.case_id}
+        assert set(case.source_breakdown) == {
+            "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog"
+        }
+
+    unrelated = by_source["demo-unrelated"]
+    assert unrelated.cross_source_cluster_id == ""
+    assert unrelated.related_case_ids == []
+    assert "case-does-not-exist" not in by_source["demo-splunk"].related_case_ids
+
+    before = {
+        case.case_id: (
+            case.cross_source_cluster_id,
+            tuple(case.related_case_ids),
+            tuple(sorted(case.source_breakdown.items())),
+        )
+        for case in component
+    }
+    # Same logical batch, in another order, produces no writes or metadata drift.
+    assert await link_cross_source(
+        list(reversed(current_clusters)), prefs, cases=app_state.cases
+    ) == 0
+    cases, _ = await app_state.cases.list(limit=50)
+    after = {
+        case.case_id: (
+            case.cross_source_cluster_id,
+            tuple(case.related_case_ids),
+            tuple(sorted(case.source_breakdown.items())),
+        )
+        for case in cases if case.case_id in component_ids
+    }
+    assert after == before
 
 
 @asyncio

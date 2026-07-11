@@ -92,9 +92,9 @@ describe('severityBand — the ONE band authority (round-6 #2/#3)', () => {
   });
 
   it('honours an explicit small-bucket scaleMax (monotonic within the scale)', () => {
-    // Wazuh rule.level 0-15: top of scale → critical; a mid value → medium.
-    expect(severityBandFromNumber(15, 15)).toBe('critical');
-    expect(severityBandFromNumber(7, 15)).toBe('medium');
+    // Wazuh rule.level 0-16: top of scale → critical; a mid value → medium.
+    expect(severityBandFromNumber(16, 16)).toBe('critical');
+    expect(severityBandFromNumber(7, 16)).toBe('medium');
     // The same raw 7 on the default 0-100 scale is only "info".
     expect(severityBandFromNumber(7)).toBe('info');
   });

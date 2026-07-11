@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import pytest
 
-from app.config import Preferences, PriorityMatrix
-from app.constants import CaseStatus, EntityType, SourceSurface, Verdict
+from app.config import Preferences, PriorityMatrix, SourceInstance
+from app.constants import CaseStatus, EntityType, SourceSurface, SourceType, Verdict
 from app.engine.priority import (
     _band_from_magnitude,
     _severity_band_from_magnitude,
     advisory_bands,
+    severity_band_from_events,
 )
 from app.models import Case, Entity, TriggerReason
 
@@ -35,6 +36,7 @@ def _case(
     risk: float = 72.0,
     severity_max: float | None = 8.0,
     escalation_level: int = 0,
+    source_id: str | None = None,
 ) -> Case:
     return Case(
         case_id=case_id,
@@ -46,6 +48,7 @@ def _case(
         confidence=0.8,
         status=CaseStatus.OPEN,
         escalation_level=escalation_level,
+        source_id=source_id,
         trigger_reason=(
             None
             if severity_max is None
@@ -125,6 +128,47 @@ def test_advisory_bands_severity_source_flip() -> None:
     derived = advisory_bands(_case(severity_max=None, risk=45.0), prefs)
     assert derived["severity_source"] == "derived"
     assert derived["severity_band"] == "medium"   # risk 45 -> medium (5-band)
+
+
+def test_native_demo_source_severity_is_already_ocsf_0_100() -> None:
+    """Read-only demo overlays are absent from Preferences.sources by design.
+
+    Their receiver path has already normalized severity to the OCSF 0-100 scale,
+    so a low score of 10 must stay low instead of the unknown-scale fallback
+    multiplying it to 100 (critical).
+    """
+    case = _case(severity_max=10.0, source_id="demo-wazuh")
+    case.tags = ["demo"]
+    result = severity_band_from_events(case, Preferences())
+    assert result["scale"] == "ocsf_0_100"
+    assert result["value"] == 10.0
+    assert result["band"] == "low"
+
+
+def test_real_source_with_demo_prefix_keeps_its_declared_native_scale() -> None:
+    prefs = Preferences(sources=[SourceInstance(
+        id="demo-wazuh",
+        source_type=SourceType.WAZUH,
+        display_name="Real production Wazuh",
+    )])
+    result = severity_band_from_events(
+        _case(severity_max=10.0, source_id="demo-wazuh"), prefs,
+    )
+    assert result["scale"] == "wazuh_0_16"
+    assert result["value"] == pytest.approx(62.5, abs=0.01)
+
+
+def test_real_source_with_incidental_demo_tag_keeps_declared_scale() -> None:
+    prefs = Preferences(sources=[SourceInstance(
+        id="prod-wazuh",
+        source_type=SourceType.WAZUH,
+        display_name="Production Wazuh",
+    )])
+    case = _case(severity_max=10.0, source_id="prod-wazuh")
+    case.tags = ["demo"]  # an analyst-authored tag alone is not an isolation invariant
+    result = severity_band_from_events(case, prefs)
+    assert result["scale"] == "wazuh_0_16"
+    assert result["value"] == pytest.approx(62.5, abs=0.01)
 
 
 def test_advisory_bands_priority_none_when_matrix_disabled() -> None:

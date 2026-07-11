@@ -74,6 +74,14 @@ class AppState:
         # state returns intact.
         self._demo = None
         self._demo_sim = None
+        # Serialize enable/reset/disable as one lifecycle transaction. Without this,
+        # concurrent enables can each create a live ticker before the later request
+        # overwrites the only reachable handle, leaking an orphan simulator.
+        self._demo_lifecycle_lock = asyncio.Lock()
+        # Seeded/manual demo actions share one non-started simulator so explicit ticks
+        # and incident-trigger cooldowns retain deterministic logical time. Live mode
+        # uses ``_demo_sim`` instead. Both are throwaway and stopped on disable.
+        self._demo_incident_sim = None
         # Round-4 Wave-3: the lazily-built batch service is memoised here; _wire()
         # clears it so a credential/store rebuild re-binds it to the fresh gateway/store.
         self._batch_service = None
@@ -155,6 +163,30 @@ class AppState:
         return self._real_ingest_service
 
     @property
+    def real_memory(self):
+        return self._real_memory
+
+    @property
+    def real_proposals(self):
+        return self._real_proposals
+
+    @property
+    def real_tuning_store(self):
+        return self._real_tuning_store
+
+    @property
+    def real_campaign_store(self):
+        return self._real_campaign_store
+
+    @property
+    def real_baseline_store(self):
+        return self._real_baseline_store
+
+    @property
+    def real_batch_job_store(self):
+        return self._real_batch_job_store
+
+    @property
     def kv(self):
         """The shared KV doc store backing every KV-over-KVStore store (public alias
         for the historically-private ``_kv``)."""
@@ -184,12 +216,83 @@ class AppState:
         return self._demo.audit if self._demo is not None else self._real_audit
 
     @property
+    def execution_audit(self):
+        """Audit trail for active cases/agents (demo-swapped with the workload)."""
+        return self.audit
+
+    @property
+    def control_audit(self):
+        """Durable audit trail for auth, RBAC, secrets, users and real settings."""
+        return self._real_audit
+
+    @property
     def usage_store(self):
         return self._demo.usage_store if self._demo is not None else self._real_usage_store
 
     @property
+    def memory(self):
+        return self._demo.memory if self._demo is not None else self._real_memory
+
+    @property
+    def proposals(self):
+        return self._demo.proposals if self._demo is not None else self._real_proposals
+
+    @property
+    def case_threads(self):
+        return self._demo.case_threads if self._demo is not None else self._real_case_threads
+
+    @property
+    def case_activity(self):
+        return self._demo.case_activity if self._demo is not None else self._real_case_activity
+
+    @property
+    def case_tasks(self):
+        return self._demo.case_tasks if self._demo is not None else self._real_case_tasks
+
+    @property
+    def inbox(self):
+        return self._demo.inbox if self._demo is not None else self._real_inbox
+
+    @property
+    def tuning_store(self):
+        return self._demo.tuning_store if self._demo is not None else self._real_tuning_store
+
+    @property
+    def campaign_store(self):
+        return self._demo.campaign_store if self._demo is not None else self._real_campaign_store
+
+    @property
+    def baseline_store(self):
+        return self._demo.baseline_store if self._demo is not None else self._real_baseline_store
+
+    @property
+    def batch_job_store(self):
+        """Active batch-job ledger; demo reads never expose durable tenant jobs."""
+        return self._demo.batch_job_store if self._demo is not None else self._real_batch_job_store
+
+    @property
+    def shift_handoff(self):
+        return self._demo.shift_handoff if self._demo is not None else self._real_shift_handoff
+
+    @property
     def pipeline(self):
         return self._demo.pipeline if self._demo is not None else self._real_pipeline
+
+    @property
+    def execution_prefs(self) -> Preferences:
+        """Prefs for whichever execution stack is currently active.
+
+        Demo services must receive the sandbox copy, not the persisted tenant prefs:
+        among other isolation controls it disables every network-backed enrichment
+        provider while preserving the real configuration untouched.
+        """
+        return self._demo._demo_prefs() if self._demo is not None else self.prefs
+
+    async def update_execution_prefs(self, prefs: Preferences) -> Preferences:
+        """Persist normally, or keep the change inside the active demo sandbox."""
+        if self._demo is not None:
+            return await self._demo.update_execution_prefs(prefs)
+        return await self.update_prefs(prefs)
 
     @property
     def ingest_service(self):
@@ -298,10 +401,10 @@ class AppState:
         # Operator MEMORY store (durable trusted facts). Backed by the SAME KV the
         # config/cursor stores use for the active backend (SQL: SqlKVStore; ES: a
         # thin EsKVStore over the config index) — no new index/table/migration.
-        self.memory = self._build_memory()
+        self._real_memory = self._build_memory()
         # Agent-DRAFTED proposals awaiting human approval (HITL). Backed by the SAME
         # KV as the MEMORY store — no new index/table/migration.
-        self.proposals = self._build_proposals()
+        self._real_proposals = self._build_proposals()
         # Per-USER personal preferences (Wave 7: pervasive customization — saved
         # views, per-table column state, theme mode). Backed by the SAME KV as the
         # MEMORY store — keyed by user_id, 'default' bucket when auth is off, no new
@@ -329,7 +432,7 @@ class AppState:
         self.log_source = self._build_log_source()
         self._real_pipeline = InvestigationPipeline(
             es, self.secrets, self.cache, self.gateway, self.rag, self._real_cases, self._real_audit,
-            source=self.log_source, playbooks=self.playbooks, memory=self.memory,
+            source=self.log_source, playbooks=self.playbooks, memory=self._real_memory,
             seq_store=self.case_seq,
             # Round 5 (Coupling-F): the realtime EventBus is a module-global singleton
             # already available here, so inject it at construction (an optional ctor
@@ -341,11 +444,11 @@ class AppState:
         )
         self._real_chat_engine = ChatEngine(
             es, self.gateway, self._real_audit, self._real_cases, self.rag,
-            source=self.log_source, memory=self.memory, threads=self.case_threads,
+            source=self.log_source, memory=self._real_memory, threads=self._real_case_threads,
         )
         self._real_standup_service = StandupService(
             es, self.gateway, self._real_audit,
-            cases=self._real_cases, shift_handoff=self.shift_handoff,
+            cases=self._real_cases, shift_handoff=self._real_shift_handoff,
         )
         self._real_overview_service = OverviewService(self.gateway, self.secrets, self.cache, self._real_audit)
         # Round 4: fan the poller out across EVERY enabled PULL source (not just the
@@ -368,7 +471,8 @@ class AppState:
 
         self.notifications = NotificationService(
             get_prefs=self.get_prefs, secrets=self.secrets, cache=self.cache, audit=self._real_audit,
-            inbox=self.inbox, notif_prefs=self.notif_prefs, users=self.users, event_bus=self.event_bus,
+            inbox=self._real_inbox, notif_prefs=self.notif_prefs,
+            users=self.users, event_bus=self.event_bus,
         )
         # Let the pipeline reach the dispatcher (post-save, fire-and-forget hook).
         self._real_pipeline.notifier = self.notifications
@@ -379,7 +483,7 @@ class AppState:
         from .engine.threshold_automation import ThresholdAutomation
 
         self.automation = ThresholdAutomation(
-            self.proposals, self._real_audit,
+            self._real_proposals, self._real_audit,
             notify=self._automation_notify,
             queue_playbook_run=self._automation_queue_playbook,
         )
@@ -652,11 +756,11 @@ class AppState:
 
         kv = self._kv
         # Collaboration (#4 collaboration surface beside the authoritative audit trail).
-        self.case_threads = CaseThreadStore(kv)
-        self.case_activity = CaseActivityStore(kv)
-        self.case_tasks = CaseTaskStore(kv)
+        self._real_case_threads = CaseThreadStore(kv)
+        self._real_case_activity = CaseActivityStore(kv)
+        self._real_case_tasks = CaseTaskStore(kv)
         # In-app notification fan-out + per-user delivery prefs (#8).
-        self.inbox = InboxStore(kv)
+        self._real_inbox = InboxStore(kv)
         self.notif_prefs = NotificationPrefsStore(kv)
         # Operator-defined RBAC roles (org-scoped); folded into effective_matrix().
         self.custom_roles = CustomRoleStore(kv)
@@ -668,7 +772,7 @@ class AppState:
         # Plain config data only; never feeds decide() (#3).
         self.custom_models = CustomModelStore(kv)
         # Shift-handoff action items + acknowledgements (org-scoped).
-        self.shift_handoff = ShiftHandoffStore(kv)
+        self._real_shift_handoff = ShiftHandoffStore(kv)
 
     def _build_round4_stores(self) -> None:
         """Construct the 4 Round-4 Wave-3 KV-backed stores over the active backend's KV
@@ -691,10 +795,10 @@ class AppState:
         from .stores.tuning import TuningStore
 
         kv = self._kv
-        self.tuning_store = TuningStore(kv)
-        self.campaign_store = CampaignStore(kv)
-        self.baseline_store = BaselineStore(kv)
-        self.batch_job_store = BatchJobStore(kv)
+        self._real_tuning_store = TuningStore(kv)
+        self._real_campaign_store = CampaignStore(kv)
+        self._real_baseline_store = BaselineStore(kv)
+        self._real_batch_job_store = BatchJobStore(kv)
 
     def _build_round5_stores(self) -> None:
         """Construct the Round-5 KV-backed stores over the active backend's KV (the SAME
@@ -745,13 +849,23 @@ class AppState:
 
     @property
     def event_bus(self):
-        """The process-wide :class:`app.realtime.EventBus` singleton (in-process SSE
-        transport). Survives ``_wire()`` rebuilds (module-global). Safe to publish to
-        even when ``Preferences.realtime.enabled`` is False / there are no subscribers
-        — the route gates serving with 204. Pure transport: #3 untouched, #6 N/A."""
+        """The active in-process SSE transport.
+
+        Real activity uses the process singleton. Demo activity uses its throwaway,
+        history-free bus so live steps reach the presentation without leaving demo
+        case ids in the real replay buffer.
+        """
+        if self._demo is not None:
+            return self._demo.event_bus
         from .realtime import get_event_bus
 
         return get_event_bus()
+
+    def active_source_for_id(self, source_id: str | None):
+        """Resolve a query source from the active real or demo tenant view."""
+        if self._demo is not None:
+            return self.demo_source_connector(source_id or "demo-splunk")
+        return self.poller.source_for_id(source_id) if source_id else self.log_source
 
     # ------------------------------------------------------------------ #
     # Round-4 Wave-3 services — LAZY, default-OFF, wired for Wave-4 to drive.
@@ -782,9 +896,9 @@ class AppState:
         return partial(
             _run_once,
             proposals=self.proposals,
-            audit=self._real_audit,
+            audit=self.audit,
             tuning_store=self.tuning_store,
-            write_prefs=self.update_prefs,
+            write_prefs=self.update_execution_prefs,
         )
 
     @property
@@ -833,7 +947,7 @@ class AppState:
     @property
     def batch_service(self):
         """The durable BATCH-inference service (submit / poll / process), lazily built
-        over the ``batch_job_store`` + the batch-provider factory + the ONE LLM gateway
+        over the REAL ``batch_job_store`` + the batch-provider factory + the ONE LLM gateway
         ledger (#6 — exactly one UsageDoc per result, deduped by ``custom_id``). Default
         OFF via ``Preferences.batch``; the Wave-4 caller gates + drives it. Nothing runs
         at boot; the service holds no open connections until ``submit``/``poll`` is
@@ -842,7 +956,11 @@ class AppState:
         svc = getattr(self, "_batch_service", None)
         if svc is None:
             svc = _BatchJobService(
-                store=self.batch_job_store,
+                # Batch submission/polling is an out-of-band production scheduler and
+                # remains disabled while Demo Mode is active.  Keep the service pinned
+                # to the durable store; demo read routes use the active property above
+                # and therefore expose an isolated, empty job list.
+                store=self.real_batch_job_store,
                 gateway=self.gateway,
                 make_provider=self.build_batch_provider,
                 get_prefs=self.get_prefs,
@@ -1957,6 +2075,33 @@ class AppState:
         preseed_event_count: int | None = None,
         force_capabilities: bool | None = None,
     ) -> dict:
+        async with self._demo_lifecycle_lock:
+            return await self._enable_demo_unlocked(
+                mode=mode,
+                seed=seed,
+                history_days=history_days,
+                tick_seconds=tick_seconds,
+                tick_jitter=tick_jitter,
+                incident_rate=incident_rate,
+                alert_interval_seconds=alert_interval_seconds,
+                event_rate_per_second=event_rate_per_second,
+                preseed_recent_minutes=preseed_recent_minutes,
+                preseed_case_count=preseed_case_count,
+                preseed_event_count=preseed_event_count,
+                force_capabilities=force_capabilities,
+            )
+
+    async def _enable_demo_unlocked(
+        self, *, mode: str = "seeded", seed: int | None = None,
+        history_days: int | None = None, tick_seconds: float | None = None,
+        tick_jitter: float | None = None, incident_rate: float | None = None,
+        alert_interval_seconds: float | None = None,
+        event_rate_per_second: float | None = None,
+        preseed_recent_minutes: int | None = None,
+        preseed_case_count: int | None = None,
+        preseed_event_count: int | None = None,
+        force_capabilities: bool | None = None,
+    ) -> dict:
         """Engage demo mode: stamp a run_id, build the isolated stack, pre-generate a
         backdated historical case spread + a tight "just happened" pre-seed (recent
         cases + already-processed events), eagerly seed the shared RAG corpus, run one
@@ -1970,7 +2115,7 @@ class AppState:
         from .utils import new_id, now_utc, to_millis
 
         if self._demo is not None:
-            await self.disable_demo()
+            await self._disable_demo_unlocked()
 
         cur = getattr(self.prefs, "demo", None) or DemoConfig()
         new_demo = DemoConfig(
@@ -2000,25 +2145,30 @@ class AppState:
                 force_capabilities if force_capabilities is not None
                 else cur.force_capabilities),
         )
-        # Persist the demo block FIRST so get_prefs() (read by the demo stack/sim)
-        # already reflects the active run.
-        prefs = self.prefs.model_copy(deep=True)
-        prefs.demo = new_demo
-        await self.update_prefs(prefs)
+        # Build and seed OFF to the side. Until the final synchronous swap, every
+        # public read continues to see the complete real tenant; no caller can observe
+        # a half-seeded demo (for example the 42 historical rows before capability
+        # seeds finish). The closure serves pending prefs during construction and the
+        # live prefs after this exact stack becomes active.
+        pending_prefs = self.prefs.model_copy(deep=True)
+        pending_prefs.demo = new_demo
+        demo_stack = None
 
-        # Build the throwaway demo stack + register the demo connector's manifest.
-        self._demo = DemoStack(self.secrets, self.get_prefs, run_id=new_demo.run_id)
-        try:
-            from .connectors.registry import set_demo_registered
+        def pending_or_live_prefs() -> Preferences:
+            return (
+                self.prefs
+                if demo_stack is not None and self._demo is demo_stack
+                else pending_prefs
+            )
 
-            set_demo_registered(True)
-        except Exception:  # noqa: BLE001
-            pass
+        demo_stack = DemoStack(
+            self.secrets, pending_or_live_prefs, run_id=new_demo.run_id,
+        )
 
         # Eagerly seed the SHARED demo RAG corpus so the Knowledge page shows a populated
         # corpus immediately (idempotent; picks up any CLOSED demo cases too).
         try:
-            await self._demo.rag_service.ensure_seeded()
+            await demo_stack.rag_service.ensure_seeded()
         except Exception as exc:  # noqa: BLE001 — a cold RAG never breaks enable
             logger.debug("demo RAG eager-seed failed: %s", exc)
 
@@ -2029,9 +2179,10 @@ class AppState:
             new_demo.seed, org, history_days=new_demo.history_days,
             run_id=new_demo.run_id, now_millis=now_ms,
         )
+        seeded_counter_cases = list(cases)
         for case in cases:
             self._write_guard(case, demo=True)
-            await self._demo.cases.save(case)
+            await demo_stack.cases.save(case)
 
         # Pre-seed a tight "just happened" window: a varied trio of recent cases (1
         # TP-escalate, 1 NEEDS_HUMAN, 1 FP — not all terminal) + ~100 events already
@@ -2045,26 +2196,18 @@ class AppState:
         )
         for case in recent_cases:
             self._write_guard(case, demo=True)
-            await self._demo.cases.save(case)
-        # Count the ~100 pre-seed events as ALREADY-processed ingested volume in the
-        # DEMO noise-reduction counters (benign noise the AI already cleared → ingested,
-        # not clustered). We record a DETERMINISTIC counter delta instead of running the
-        # case-creating pipeline over them: the realtime EVERY,n=1 path would mint a
-        # VARIABLE number of ``case-<uuid>`` cases (non-deterministic ids + count),
-        # breaking the demo's determinism guarantees. This keeps the "already
-        # batch-processed" volume visible without polluting the case list.
+            await demo_stack.cases.save(case)
+        seeded_counter_cases.extend(recent_cases)
+        # Materialise the ~100 already-processed benign events now; the coherent
+        # ingested/clustered counter delta is recorded after every seeded case is known
+        # (including capability cases) so the visible funnel can never claim fewer
+        # clusters than cases.
+        preseed_raws = []
         if recent_hits:
             try:
-                from .engine import noise_counters as nc
-
-                dprefs = self._demo._demo_prefs()  # noqa: SLF001 — same module owner
-                raws = hits_to_raw(recent_hits, dprefs)
-                ingested = nc.count_events_by_band(raws, "ocsf_0_100")
-                await self._demo.noise_counters.record({
-                    "ingested": ingested, "clustered": nc.zero_bands(),
-                    "suppressed": 0, "ignored": 0,
-                })
-                self._demo.preseed_events = len(raws)
+                dprefs = demo_stack._demo_prefs()  # noqa: SLF001 — same module owner
+                preseed_raws = hits_to_raw(recent_hits, dprefs)
+                demo_stack.preseed_events = len(preseed_raws)
             except Exception as exc:  # noqa: BLE001 — a bad pre-seed count never breaks enable
                 logger.warning("demo pre-seed event counting failed: %s", exc)
 
@@ -2085,29 +2228,73 @@ class AppState:
                 )
                 for case in (*hitl_cases, *tuner_cases):
                     self._write_guard(case, demo=True)
-                    await self._demo.cases.save(case)
+                    await demo_stack.cases.save(case)
+                seeded_counter_cases.extend((*hitl_cases, *tuner_cases))
                 # Fire threshold-automation on the NEEDS_HUMAN pair → >= 1 demo HITL proposal
                 # (deterministic, $0 — runs on the already-saved demo cases; no LLM).
-                await self._demo.seed_hitl_proposals(hitl_cases)
+                await demo_stack.seed_hitl_proposals(hitl_cases)
             except Exception as exc:  # noqa: BLE001 — capability seeding never blocks enable
                 logger.warning("demo capability seeding failed: %s", exc)
+
+        # Seed one coherent, deterministic 24h funnel delta. The transient benign batch
+        # contributes inbound volume only. Every seeded case in the current dashboard
+        # window contributes one correlated cluster plus at least one source event (or
+        # its actual member count), which mirrors how a real cluster becomes a case.
+        # Recording the aggregate instead of replaying fixtures through the live spine
+        # preserves deterministic case ids while guaranteeing the presenter sees the
+        # truthful invariant ``events >= clusters >= cases`` from the first paint.
+        try:
+            from .constants import SEVERITY_BANDS
+            from .engine import noise_counters as nc
+            from .utils import parse_es_timestamp
+
+            ingested = nc.count_events_by_band(preseed_raws, "ocsf_0_100")
+            clustered = nc.zero_bands()
+            case_events = nc.zero_bands()
+            cutoff_ms = now_ms - 24 * 60 * 60 * 1000
+            for case in seeded_counter_cases:
+                created = parse_es_timestamp(case.created_at)
+                if created is None or to_millis(created) < cutoff_ms:
+                    continue
+                band = case.severity_band if case.severity_band in SEVERITY_BANDS else "info"
+                clustered[band] += 1
+                members = case.member_event_keys or case.member_event_ids
+                case_events[band] += max(1, len(members))
+            ingested = nc.merge_bands(ingested, case_events)
+            await demo_stack.noise_counters.record({
+                "ingested": ingested,
+                "clustered": clustered,
+                "suppressed": 0,
+                "ignored": 0,
+            })
+        except Exception as exc:  # noqa: BLE001 — metrics never block demo enable
+            logger.warning("demo coherent funnel seed failed: %s", exc)
 
         # Run ONE synchronous capability pass so even a 'seeded' demo (no ticker) shows a
         # campaign + a tuning observation immediately.
         try:
-            await self._demo.run_capability_pass()
+            await demo_stack.run_capability_pass()
         except Exception as exc:  # noqa: BLE001 — never break enable on a capability pass
             logger.debug("demo initial capability pass failed: %s", exc)
 
-        # Start the live simulator (only ticks in 'live' mode).
+        # Commit the fully-built stack. update_prefs() does not yield after assigning
+        # self.prefs; the following synchronous assignment therefore presents one
+        # atomic off→ready transition to other asyncio tasks.
+        await self.update_prefs(pending_prefs)
+        self._demo = demo_stack
+        # Start the live simulator only after the complete stack is publicly visible.
         if new_demo.mode == "live":
-            self._demo_sim = DemoSimulator(self._demo, self.get_prefs, seed=new_demo.seed)
+            self._demo_sim = DemoSimulator(demo_stack, self.get_prefs, seed=new_demo.seed)
             self._demo_sim.start()
         logger.info("Demo mode ENABLED (mode=%s run_id=%s seeded %d + %d recent cases)",
                     new_demo.mode, new_demo.run_id, len(cases), len(recent_cases))
         return await self.demo_status()
 
     async def reset_demo(self) -> dict:
+        async with self._demo_lifecycle_lock:
+            return await self._reset_demo_unlocked()
+
+    async def _reset_demo_unlocked(self) -> dict:
         """Delete the current demo data + re-seed from the SAME seed/run knobs (a
         fresh run_id). A no-op error-path when demo is not active."""
         cur = getattr(self.prefs, "demo", None)
@@ -2120,8 +2307,8 @@ class AppState:
         ais, erps = cur.alert_interval_seconds, cur.event_rate_per_second
         prm, pcc, pec = cur.preseed_recent_minutes, cur.preseed_case_count, cur.preseed_event_count
         fc = cur.force_capabilities
-        await self.disable_demo()
-        return await self.enable_demo(
+        await self._disable_demo_unlocked()
+        return await self._enable_demo_unlocked(
             mode=mode, seed=seed, history_days=hd, tick_seconds=ts,
             tick_jitter=tj, incident_rate=ir,
             alert_interval_seconds=ais, event_rate_per_second=erps,
@@ -2130,6 +2317,10 @@ class AppState:
         )
 
     async def disable_demo(self) -> dict:
+        async with self._demo_lifecycle_lock:
+            return await self._disable_demo_unlocked()
+
+    async def _disable_demo_unlocked(self) -> dict:
         """Stop the ticker, hard-delete ALL demo data (cases/audit/usage/events) by
         tearing down the throwaway stack, and flip demo OFF. The real state is
         untouched throughout, so it returns intact."""
@@ -2141,6 +2332,12 @@ class AppState:
             except Exception:  # noqa: BLE001
                 pass
             self._demo_sim = None
+        if self._demo_incident_sim is not None:
+            try:
+                await self._demo_incident_sim.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._demo_incident_sim = None
         if self._demo is not None:
             try:
                 await self._demo.purge()
@@ -2148,12 +2345,6 @@ class AppState:
             except Exception:  # noqa: BLE001
                 pass
             self._demo = None
-        try:
-            from .connectors.registry import set_demo_registered
-
-            set_demo_registered(False)
-        except Exception:  # noqa: BLE001
-            pass
         prefs = self.prefs.model_copy(deep=True)
         prefs.demo = DemoConfig()  # mode='off', run_id=''
         await self.update_prefs(prefs)
@@ -2167,15 +2358,36 @@ class AppState:
         stats. A no-op when demo is off."""
         if self._demo is None:
             return {"benign": 0, "story": 0, "demo": False}
-        sim = self._demo_sim
-        if sim is None:
-            from .engine.demo_runtime import DemoSimulator
-
-            seed = int(getattr(getattr(self.prefs, "demo", None), "seed", 1337) or 1337)
-            sim = DemoSimulator(self._demo, self.get_prefs, seed=seed)
+        sim = self._demo_control_simulator()
         stats = await sim.tick_once()
         stats["demo"] = True
         return stats
+
+    def _demo_control_simulator(self):
+        """Return the persistent simulator used by live or seeded/manual controls."""
+        if self._demo_sim is not None:
+            return self._demo_sim
+        if self._demo_incident_sim is None:
+            from .engine.demo_runtime import DemoSimulator
+
+            seed = int(getattr(getattr(self.prefs, "demo", None), "seed", 1337) or 1337)
+            self._demo_incident_sim = DemoSimulator(self._demo, self.get_prefs, seed=seed)
+        return self._demo_incident_sim
+
+    async def trigger_demo_incident(self, story_id: str | None = None) -> dict:
+        """Trigger one cooldown-aware coherent attack inside the throwaway demo only."""
+        if self._demo is None:
+            return {
+                "triggered": False,
+                "reason": "demo mode is off",
+                "scenario_id": story_id or "",
+                "events": 0,
+                "native_alerts": 0,
+                "system_detections": 0,
+                "cooldown_seconds": 0.0,
+                "sources": {},
+            }
+        return await self._demo_control_simulator().trigger_incident(story_id)
 
     async def demo_status(self) -> dict:
         """A small status payload for GET /api/demo/status."""
@@ -2188,6 +2400,7 @@ class AppState:
         tuning_events = 0
         rag_chunks = 0
         sources: list[str] = []
+        source_activity: list[dict] = []
         if self._demo is not None:
             try:
                 _cases, case_count = await self._demo.cases.list(limit=1)
@@ -2213,11 +2426,16 @@ class AppState:
             except Exception:  # noqa: BLE001
                 rag_chunks = 0
             try:
-                sources = list(self._demo.sources.keys())
-                from .engine.demo_generator import SEGMENT_SOURCE_IDS
-                sources = [SEGMENT_SOURCE_IDS.get(s, s) for s in sources]
+                sources = [str(row["id"]) for row in self.demo_sources_overlay()]
             except Exception:  # noqa: BLE001
                 sources = []
+            try:
+                snapshot = self._demo.source_runtime_snapshot(
+                    running=self._demo_sim is not None,
+                )
+                source_activity = list(snapshot.get("sources", []))
+            except Exception:  # noqa: BLE001
+                source_activity = []
         return {
             "mode": mode,
             "active": bool(demo and demo.active),
@@ -2233,6 +2451,7 @@ class AppState:
             "preseed_event_count": getattr(demo, "preseed_event_count", 0) if demo else 0,
             "force_capabilities": bool(getattr(demo, "force_capabilities", True)) if demo else True,
             "simulator_running": self._demo_sim is not None,
+            "ticking": self._demo_sim is not None,
             "case_count": case_count,
             "preseed_events": int(getattr(self._demo, "preseed_events", 0)) if self._demo else 0,
             "proposals_open": proposals_open,
@@ -2240,35 +2459,140 @@ class AppState:
             "tuning_events": tuning_events,
             "rag_chunks": rag_chunks,
             "sources": sources,
+            "source_activity": source_activity,
         }
 
     def demo_sources_overlay(self) -> list[dict]:
-        """The three demo sources shaped like a ``SourceInstance.model_dump`` for the
-        read-time-only overlay on GET /api/sources + /sources/health. Built PURELY from
+        """The four native demo sources shaped like a ``SourceInstance.model_dump`` for the
+        read-time-only active source view on GET /api/sources + /sources/health. Built from
         the live ``DemoStack`` — NEVER written into ``Preferences.sources`` (so the real
         PollerManager / PUT /api/settings / the wizard never see them). Returns ``[]``
-        when demo is off. Collision-guarding against a real source id is the caller's
-        job (see routes.list_sources / sources_health)."""
+        when demo is off; real source configuration remains preserved and hidden until
+        Demo Mode is disabled."""
         if self._demo is None:
             return []
-        from .engine.demo_generator import (
-            DEMO_INDEX, SEGMENT_CATEGORIES, SEGMENT_SOURCE_IDS, SEGMENT_SOURCE_NAMES,
-        )
+        from .engine.demo_sources import DEMO_SOURCE_SPECS
 
         rows: list[dict] = []
-        for seg in self._demo.sources:
-            sid = SEGMENT_SOURCE_IDS.get(seg, f"demo-{seg}")
+        for spec in DEMO_SOURCE_SPECS.values():
+            source_type = (
+                spec.source_type.value
+                if hasattr(spec.source_type, "value") else str(spec.source_type)
+            )
+            ingest_mode = (
+                spec.ingest_mode.value
+                if hasattr(spec.ingest_mode, "value") else str(spec.ingest_mode)
+            )
             rows.append({
-                "id": sid,
-                "display_name": SEGMENT_SOURCE_NAMES.get(seg, sid),
-                "source_type": "generic",
-                "category": SEGMENT_CATEGORIES.get(seg, "siem"),
+                "id": spec.source_id,
+                "display_name": spec.display_name,
+                "source_type": source_type,
+                "category": spec.category,
                 "enabled": True,
                 "is_primary": False,
-                "ingest_mode": "pull",
+                "ingest_mode": ingest_mode,
+                "protocol": spec.protocol,
+                "format": spec.wire_format,
+                "can_browse": True,
                 "demo": True,
-                "config": {"data_view_pattern": DEMO_INDEX},
+                "config": {
+                    "protocol": spec.protocol,
+                    "format": spec.wire_format,
+                },
                 "configured_secrets": [],
+            })
+        return rows
+
+    def demo_source_connector(self, source_id: str):
+        """Return one isolated native demo adapter by public source id.
+
+        This is a read-only route seam: the adapters and their bounded rings live on
+        the throwaway ``DemoStack`` and are never registered as tenant connectors or
+        persisted in ``Preferences.sources``. ``None`` is returned off-demo/unknown.
+        """
+        if self._demo is None:
+            return None
+        try:
+            from .engine.demo_sources import DEMO_SOURCE_SPECS
+
+            key = next(
+                (key for key, spec in DEMO_SOURCE_SPECS.items()
+                 if spec.source_id == source_id),
+                None,
+            )
+            return self._demo.sources.get(key) if key else None
+        except Exception:  # noqa: BLE001 — browse degrades to a normal not-found
+            return None
+
+    def demo_source_health_overlay(self) -> list[dict]:
+        """Truthful, non-secret runtime health rows for the four demo adapters.
+
+        Runtime counters come from the adapters' bounded activity rings. Static vendor
+        identity comes from ``DEMO_SOURCE_SPECS``. No durable poll cursor is fabricated:
+        these are push-style simulators, so ``last_poll_*`` remains ``None``/``0``.
+        """
+        if self._demo is None:
+            return []
+        runtime: dict[str, dict] = {}
+        try:
+            snapshot = self._demo.source_runtime_snapshot(
+                running=self._demo_sim is not None,
+            )
+            runtime = {
+                str(row.get("source_id") or row.get("id")): dict(row)
+                for row in snapshot.get("sources", [])
+                if isinstance(row, dict) and (row.get("source_id") or row.get("id"))
+            }
+        except Exception:  # noqa: BLE001 — health is advisory and fail-soft
+            runtime = {}
+
+        rows: list[dict] = []
+        for source in self.demo_sources_overlay():
+            sid = str(source["id"])
+            activity = runtime.get(sid, {})
+            last_event = int(activity.get("last_event_millis") or 0)
+            events_total = int(
+                activity.get("events_received", activity.get("events_total", 0)) or 0
+            )
+            alerts_total = int(
+                activity.get("alerts_emitted", activity.get("alerts_total", 0)) or 0
+            )
+            system_detections_total = int(
+                activity.get("system_detections_total", 0) or 0
+            )
+            try:
+                events_per_min = float(activity.get("events_per_min") or 0.0)
+            except (TypeError, ValueError):
+                events_per_min = 0.0
+            rows.append({
+                "source_id": sid,
+                "source_name": source.get("display_name") or sid,
+                "source_type": source.get("source_type"),
+                "enabled": True,
+                "is_primary": False,
+                "ingest_mode": source.get("ingest_mode"),
+                "kind": "push",
+                "protocol": source.get("protocol"),
+                "format": source.get("format"),
+                "can_browse": True,
+                "buffer_depth": int(activity.get("buffer_depth") or 0),
+                "events_total": events_total,
+                "alerts_total": alerts_total,
+                "system_detections_total": system_detections_total,
+                # Human-readable API aliases retained for UI consumers.
+                "events_received": events_total,
+                "alerts_emitted": alerts_total,
+                "last_poll_millis": 0,
+                "last_poll_at": None,
+                "last_poll_ok": None,
+                "last_poll_error": None,
+                "last_event_millis": last_event,
+                "events_per_min": events_per_min,
+                "silent": bool(activity.get("silent", False)),
+                "healthy": bool(activity.get("healthy", True)),
+                "state": activity.get("state") or "ready",
+                "last_error": activity.get("last_error"),
+                "demo": True,
             })
         return rows
 

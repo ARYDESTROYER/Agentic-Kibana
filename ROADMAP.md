@@ -22,8 +22,8 @@ provider; PR #25) and **Round 9b** (dashboard reimagine + case redesign; PR #26)
 three developed on `claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) —
 and **Round 8** (UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center
 overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
-findings fixed) before them. Verified green (2026-07-11 candidate): backend **1843
-pytest**, webui **1332 Vitest** (239 files), build clean (entry chunk **281.60 kB**, a
+findings fixed) before them. Verified green (2026-07-11 candidate): backend **1887
+pytest**, webui **1349 Vitest** (240 files), build clean (entry chunk **285.91 kB**, a
 lazy `motion` chunk **83.85 kB**), eslint **0 errors, 0 warnings**, `engine/
 case_manager.py` `decide()` **byte-identical**, and the generated-contract, distribution,
 version, Compose, and strict-docs gates pass. See `CHANGELOG.md` for the full Round 6–10
@@ -123,8 +123,8 @@ where possible, docs + Journal updated, commit + push.
 
 ## Progress (this cycle, newest first)
 - ☑ **Round 10 — "Autopilot & Comprehensive Ingestion + motion.dev"** (committed on
-  `Testing`; the later alpha hardening candidate verifies **1843 backend tests**
-  green + webui **1332 Vitest** green / 239 files + build clean (entry **281.60 kB**,
+  `Testing`; the later alpha hardening candidate verifies **1887 backend tests**
+  green + webui **1349 Vitest** green / 240 files + build clean (entry **285.91 kB**,
   a lazy `motion` chunk **83.85 kB**, never modulepreloaded) + eslint **0 errors**
   (0 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
   `risk.py`/`signatures.py` **untouched**; **zero new runtime deps except the
@@ -512,8 +512,9 @@ where possible, docs + Journal updated, commit + push.
     to a SEPARATE in-memory store + a deterministic mock LLM (`engine/demo_runtime.py`)
     — **$0, isolated, one-flip reversible**; FP runs the REAL `decide()` against a
     SANDBOXED policy copy, NEEDS_HUMAN stays open. Endpoints `POST /api/demo/{enable,
-    reset,disable}`, `GET /api/demo/status` (admin); DemoBanner + `SAMPLE` badges +
-    "(simulated)" cost.
+    incident,reset,disable}`, `GET /api/demo/status` (`demo:manage` for mutations);
+    DemoBanner + `SAMPLE` badges + "(simulated)" cost. The alpha live-demo upgrade
+    adds bounded Splunk/QRadar/Wazuh/syslog adapters and a guaranteed first incident.
   - ☑ **W6 Source multi-feed** — `IndexPattern`→richer per-feed model (wire key kept) +
     new `ignore` role + per-feed query/field-mapping/`message_field`/`severity_floor`/
     schedule; overloaded `auto_correlate` split into `correlate`+`auto_investigate`

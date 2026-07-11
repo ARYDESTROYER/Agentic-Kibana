@@ -496,7 +496,9 @@ async def link_cross_source(
     (contributing their primary entity), so a cluster from one source links to an
     already-open case from another source."""
     from .correlation import (
+        CrossSourceComponentSeed,
         CrossSourceItem,
+        _valid_cross_source_cluster_id,
         _entity_keys,
         cluster_cross_source_entities,
         cross_source_correlate,
@@ -559,7 +561,51 @@ async def link_cross_source(
             ts=ts, entities=frozenset({(et, oc.entity.value)}),
         ))
 
-    groups = cross_source_correlate(items, prefs)
+    # Persisted, resolved component metadata is a continuity edge for a NEW
+    # overlapping match.  Keep this strictly inside the already-bounded candidate
+    # pool: dangling ids are ignored, related-id edges must be reciprocal, and a
+    # shared component id must have the locally generated hex shape.
+    known_ids = set(case_by_id)
+    component_seeds: list[CrossSourceComponentSeed] = []
+    by_component_id: dict[str, set[str]] = collections.defaultdict(set)
+    for cid, case in case_by_id.items():
+        prior_id = str(getattr(case, "cross_source_cluster_id", "") or "")
+        if _valid_cross_source_cluster_id(prior_id):
+            by_component_id[prior_id].add(cid)
+    for prior_id, member_ids in by_component_id.items():
+        if len(member_ids) >= 2:
+            component_seeds.append(CrossSourceComponentSeed(
+                prior_id, frozenset(member_ids)
+            ))
+
+    seen_prior_edges: set[tuple[str, str]] = set()
+    for cid, case in case_by_id.items():
+        related = set(getattr(case, "related_case_ids", []) or []) & known_ids
+        for other_id in related:
+            edge = tuple(sorted((cid, other_id)))
+            if cid == other_id or edge in seen_prior_edges:
+                continue
+            other = case_by_id[other_id]
+            reciprocal = set(getattr(other, "related_case_ids", []) or [])
+            if cid not in reciprocal:
+                continue
+            seen_prior_edges.add(edge)
+            prior_ids = [
+                str(getattr(member, "cross_source_cluster_id", "") or "")
+                for member in (case, other)
+            ]
+            valid_prior_ids = [
+                prior_id for prior_id in prior_ids
+                if _valid_cross_source_cluster_id(prior_id)
+            ]
+            component_seeds.append(CrossSourceComponentSeed(
+                min(valid_prior_ids) if valid_prior_ids else "",
+                frozenset(edge),
+            ))
+
+    groups = cross_source_correlate(
+        items, prefs, component_seeds=component_seeds
+    )
     if not groups:
         return 0
 
@@ -703,7 +749,17 @@ class IngestService:
         prefs: Preferences | None = None,
         source_surface: SourceSurface = SourceSurface.AUTOMATED_SCAN,
         source_id: str | None = None,
+        *,
+        query_source: "PullConnector | None" = None,
     ) -> dict[str, int]:
+        """Ingest one delivery through the shared correlation/investigation spine.
+
+        ``query_source`` is the optional, read-only browse adapter for the source that
+        produced the delivery.  Real push transports leave it ``None``; bounded demo
+        adapters pass themselves so the investigator can exercise the exact same
+        structured-query tool path as a pull connector without inheriting an unrelated
+        primary source.
+        """
         prefs = prefs or self._get_prefs()
         base = {"received": 0, "clusters": 0, "investigated": 0,
                 "candidates": 0, "attached": 0, "suppressed": 0, "ignored": 0}
@@ -800,6 +856,7 @@ class IngestService:
             stats = await handle_clusters(
                 clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=source_surface,
+                query_source=query_source,
             )
             # Opt-in cross-source correlation (Wave 5 / F6): AFTER per-source handling,
             # link open cases sharing an entity across sources as RELATED (never merged).

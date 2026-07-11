@@ -78,7 +78,7 @@ type SeverityBand = 'critical' | 'high' | 'medium' | 'low' | 'info';
  *  0-100 ladder). Magnitude-based scale INFERENCE was removed — it was non-monotonic
  *  (a raw 15 scaled to 100 → Critical while 16 stayed 16 → Low, so a smaller number
  *  could read as a HIGHER band). A caller with a known small-bucket scale (e.g. Wazuh
- *  rule.level on 0-15, or a 1-5 bucket) passes `scaleMax` so the mapping stays
+ *  rule.level on 0-16, or a 1-5 bucket) passes `scaleMax` so the mapping stays
  *  monotonic without guessing from the value's magnitude. */
 export function severityBandFromNumber(n: number, scaleMax = 100): SeverityBand {
   const max = scaleMax > 0 ? scaleMax : 100;

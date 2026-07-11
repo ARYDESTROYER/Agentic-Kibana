@@ -179,6 +179,7 @@ def test_parse_syslog_rfc5424_full():
     assert rec["pri"] == 165
     assert rec["facility"] == 20
     assert rec["severity"] == 5
+    assert rec["severity_score"] == 25.0
     assert rec["severity_label"] == "notice"
     assert rec["version"] == "1"
     assert rec["host"] == "mymachine.example.com"

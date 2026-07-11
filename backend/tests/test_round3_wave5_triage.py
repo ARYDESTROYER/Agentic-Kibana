@@ -74,7 +74,7 @@ def _case(
 
 
 def _wazuh_prefs() -> Preferences:
-    """Preferences with a configured Wazuh source whose severity ladder is 0-15."""
+    """Preferences with a configured Wazuh source whose severity ladder is 0-16."""
     return Preferences(
         sources=[
             SourceInstance(
@@ -132,31 +132,31 @@ def test_ocsf_benign_zero_one_not_high() -> None:
 
 
 def test_wazuh_high_levels_render_high() -> None:
-    """Wazuh ``rule.level`` 11/12/15 (the upper end of the 0-15 ladder) must render at or
+    """Wazuh ``rule.level`` 11/12/15 (the upper end of the 0-16 ladder) must render at or
     above HIGH — the old heuristic left 11-15 unscaled (LOW). On the 5-band severity ladder
-    (74/48/22/8) the linear ``level/15*100`` projection lands level 11 (73.3) on HIGH and
-    levels 12 (80) / 15 (100) on CRITICAL — never the LOW inversion the audit found. Level 7
-    sits mid-ladder (46.67 -> MEDIUM), see the dedicated test below."""
+    (74/48/22/8) the linear ``level/16*100`` projection lands level 11 (68.75) on HIGH and
+    levels 12 (75) / 15 (93.75) on CRITICAL — never the LOW inversion the audit found.
+    Level 7 sits mid-ladder (43.75 -> MEDIUM), see the dedicated test below."""
     prefs = _wazuh_prefs()
     for lvl in (11, 12, 15):
         sev = severity_band_from_events(_wazuh_case(rule_level=lvl), prefs)
-        assert sev["scale"] == "wazuh_0_15"
+        assert sev["scale"] == "wazuh_0_16"
         assert sev["band"] in ("high", "critical"), (
             f"wazuh level {lvl} should be >= HIGH, got {sev}"
         )
-    # level 12 -> 12/15*100 = 80.0 exactly -> CRITICAL (>= 74); the LOW inversion is gone.
+    # level 12 -> 12/16*100 = 75.0 exactly -> CRITICAL (>= 74).
     sev12 = severity_band_from_events(_wazuh_case(rule_level=12), prefs)
-    assert sev12["value"] == 80.0
+    assert sev12["value"] == 75.0
     assert sev12["band"] == "critical"
 
 
 def test_wazuh_mid_ladder_is_medium_not_low() -> None:
-    """Level 7 sits mid-ladder: 7/15*100 = 46.67 -> MEDIUM. The point of the fix is that
+    """Level 7 sits mid-ladder: 7/16*100 = 43.75 -> MEDIUM. The point of the fix is that
     it is NEVER inverted to LOW (the pre-fix 7 -> 7 magnitude) and never spuriously HIGH —
-    it lands on the honest MEDIUM band for a linear 0-15 projection."""
+    it lands on the honest MEDIUM band for a linear 0-16 projection."""
     prefs = _wazuh_prefs()
     sev = severity_band_from_events(_wazuh_case(rule_level=7), prefs)
-    assert sev["value"] == pytest.approx(46.67, abs=0.01)
+    assert sev["value"] == pytest.approx(43.75, abs=0.01)
     assert sev["band"] == "medium"
 
 
@@ -173,16 +173,16 @@ def test_wazuh_low_levels_render_low() -> None:
 
 
 def test_severity_value_monotonic_across_wazuh_ladder() -> None:
-    """The derived 0-100 value is non-decreasing across the full Wazuh ladder 0..15 —
+    """The derived 0-100 value is non-decreasing across the full Wazuh ladder 0..16 —
     no future heuristic can re-introduce the 10→100 / 11→11 inversion."""
     prefs = _wazuh_prefs()
     vals = [
         severity_band_from_events(_wazuh_case(rule_level=lvl), prefs)["value"]
-        for lvl in range(0, 16)
+        for lvl in range(0, 17)
     ]
     assert vals == sorted(vals), f"Wazuh severity not monotonic: {vals}"
-    # 15 maps to the ceiling, 0 to the floor.
-    assert vals[0] == 0.0 and vals[15] == 100.0
+    # 16 maps to the ceiling, 0 to the floor.
+    assert vals[0] == 0.0 and vals[16] == 100.0
 
 
 def test_severity_value_monotonic_across_ocsf_scores() -> None:
@@ -227,9 +227,9 @@ def test_severity_is_distinct_from_risk() -> None:
 def test_demo_source_uses_0_100_scale() -> None:
     """The seeded demo source emits a 0-100 severity regardless of connector type."""
     prefs = Preferences()  # demo resolves by id, no SourceInstance needed
-    sev = severity_band_from_events(
-        _case(severity_max=10.0, source_id="demo"), prefs
-    )
+    case = _case(severity_max=10.0, source_id="demo-splunk")
+    case.tags = ["demo"]
+    sev = severity_band_from_events(case, prefs)
     assert sev["scale"] == "ocsf_0_100"
     assert sev["value"] == 10.0 and sev["band"] == "low"
 

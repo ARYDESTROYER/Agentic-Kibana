@@ -53,22 +53,32 @@ from ..models import (
 )
 from ..ocsf import OCSFEvent, ecs_to_ocsf
 
-DEMO_SOURCE_ID = "demo"
-DEMO_SOURCE_NAME = "LumenPay Demo Telemetry"
+DEMO_SOURCE_IDS: tuple[str, ...] = (
+    "demo-splunk", "demo-qradar", "demo-wazuh", "demo-syslog",
+)
+DEMO_SOURCE_NAMES: dict[str, str] = {
+    "demo-splunk": "Splunk Enterprise Security — HEC",
+    "demo-qradar": "IBM QRadar SIEM",
+    "demo-wazuh": "Wazuh Manager — endpoint telemetry",
+    "demo-syslog": "Network & Linux — RFC 5424 Syslog",
+}
+DEMO_SOURCE_ID = DEMO_SOURCE_IDS[0]
+DEMO_SOURCE_NAME = DEMO_SOURCE_NAMES[DEMO_SOURCE_ID]
 DEMO_INDEX = "tlsoc-demo-logs"
 
-# The three demo segments → their (read-time-only) source ids / display names. These
-# ids never enter ``Preferences.sources`` (see AppState.demo_sources_overlay).
+# Legacy narrative segments used to build seeded history. At runtime they resolve
+# through ``NATIVE_RULE_TO_STORY``/the native source aliases; they never enter
+# ``Preferences.sources`` and are not the four rows shown by demo_sources_overlay().
 SEGMENTS: tuple[str, ...] = ("siem", "xdr", "edr")
 SEGMENT_SOURCE_IDS: dict[str, str] = {
-    "siem": "demo-siem",
-    "xdr": "demo-xdr",
-    "edr": "demo-edr",
+    "siem": "demo-splunk",
+    "xdr": "demo-qradar",
+    "edr": "demo-wazuh",
 }
 SEGMENT_SOURCE_NAMES: dict[str, str] = {
-    "siem": "Aegis WAF/SIEM — financial web app",
-    "xdr": "XDR — cross-domain correlation",
-    "edr": "EDR — employee laptops & phones",
+    "siem": DEMO_SOURCE_NAMES["demo-splunk"],
+    "xdr": DEMO_SOURCE_NAMES["demo-qradar"],
+    "edr": DEMO_SOURCE_NAMES["demo-wazuh"],
 }
 SEGMENT_CATEGORIES: dict[str, str] = {"siem": "siem", "xdr": "xdr", "edr": "edr"}
 
@@ -150,10 +160,10 @@ def build_org(seed: int = 1337) -> Org:
     hosts: list[Host] = []
     # SIEM segment — internet-facing financial web-app tier (app-tier /16 10.80.x).
     web_tier = [
-        ("web-portal", "10.80.0.10", 85.0),      # portal.lumenpay.in (borrower loans)
-        ("web-apps", "10.80.0.11", 80.0),        # apps.lumenpay.in
-        ("web-api", "10.80.0.12", 88.0),         # api.lumenpay.in (bureau/KYC/eNACH)
-        ("web-adminops", "10.80.0.13", 92.0),    # admin-ops.lumenpay.in (bank-ops)
+        ("web-portal", "10.80.0.10", 85.0),      # portal.lumenpay.example (borrowers)
+        ("web-apps", "10.80.0.11", 80.0),        # apps.lumenpay.example
+        ("web-api", "10.80.0.12", 88.0),         # api.lumenpay.example (bureau/KYC)
+        ("web-adminops", "10.80.0.13", 92.0),    # admin-ops.lumenpay.example
     ]
     for name, ip, crit in web_tier:
         hosts.append(Host(name, ip, "server", crit, segment="siem"))
@@ -185,7 +195,7 @@ def build_org(seed: int = 1337) -> Org:
 
     return Org(
         name="LumenPay Financial",
-        domain="lumenpay.in",
+        domain="lumenpay.example",
         cidr="10.20.0.0/16",
         employees=employees,
         hosts=hosts,
@@ -400,13 +410,14 @@ class Storyline:
     segment: str = "siem"
 
 
-# Bad infrastructure (LumenPay threat model).
-_C2_IP = "45.148.10.77"          # NL bulletproof / C2
-_TOR_IP = "185.220.101.34"       # Tor exit
-_SQLI_IP = "193.42.33.9"         # RU / SQLi
+# Reserved RFC 5737 documentation infrastructure (LumenPay threat model).  Demo
+# fixtures must never point an investigation or enrichment call at a real party.
+_C2_IP = "203.0.113.77"          # simulated C2
+_TOR_IP = "198.51.100.77"        # simulated anonymizer exit
+_SQLI_IP = "192.0.2.90"          # simulated exploit scanner
 _TRAVEL_IP_A = "203.0.113.190"   # in-country egress
-_TRAVEL_IP_B = "102.129.10.20"   # foreign ASN (impossible travel)
-_C2_DOMAIN = "updates-win-sync.com"
+_TRAVEL_IP_B = "198.51.100.190"  # simulated foreign ASN (impossible travel)
+_C2_DOMAIN = "updates-win-sync.example"
 
 
 def _phishing_chain(rng: random.Random, org: Org, start: int) -> list[dict[str, Any]]:
@@ -572,11 +583,57 @@ def storylines_for_segment(segment: str | None) -> list[Storyline]:
 # --------------------------------------------------------------------------- #
 # Verdict resolution for the deterministic mock LLM (scenario-keyed)
 # --------------------------------------------------------------------------- #
+# Standards-faithful live-demo rule identities.  They live beside the provider's
+# static lookup so import order can never change native storyline verdicts.
+NATIVE_STORY_RULE_IDS: dict[str, dict[str, str]] = {
+    "splunk": {
+        "phishing_chain": "LP-ES-RISK-1001",
+        "rdp_bruteforce": "LP-ES-RISK-1002",
+        "sqli_webshell": "LP-ES-RISK-1003",
+        "impossible_travel": "LP-ES-RISK-1004",
+        "ransomware_beacon": "LP-ES-RISK-1005",
+        "insider_staging": "LP-ES-RISK-1006",
+    },
+    "qradar": {
+        "phishing_chain": "LP QRadar: account takeover and data access",
+        "rdp_bruteforce": "LP QRadar: remote access brute force",
+        "sqli_webshell": "LP QRadar: web exploit followed by web shell",
+        "impossible_travel": "LP QRadar: impossible travel authentication",
+        "ransomware_beacon": "LP QRadar: beaconing followed by encryption",
+        "insider_staging": "LP QRadar: anomalous bulk data staging",
+    },
+    "wazuh": {
+        # Wazuh reserves 100000-120000 for locally-authored rules. Keeping the
+        # synthetic detections in that documented range avoids impersonating a
+        # built-in Wazuh ruleset id.
+        "phishing_chain": "100121",
+        "rdp_bruteforce": "100122",
+        "sqli_webshell": "100123",
+        "impossible_travel": "100124",
+        "ransomware_beacon": "100125",
+        "insider_staging": "100126",
+    },
+    "syslog": {
+        "phishing_chain": "AUTH-ANOMALY",
+        "rdp_bruteforce": "RDP-BRUTEFORCE",
+        "sqli_webshell": "WEB-EXPLOIT",
+        "impossible_travel": "IMPOSSIBLE-TRAVEL",
+        "ransomware_beacon": "RANSOMWARE-BURST",
+        "insider_staging": "DATA-STAGING",
+    },
+}
+NATIVE_RULE_TO_STORY: dict[str, str] = {
+    native_rule: story_id
+    for source_rules in NATIVE_STORY_RULE_IDS.values()
+    for story_id, native_rule in source_rules.items()
+}
+
 # Each storyline stamps a DISTINCTIVE ``event.module`` UID (``demo_<story>``) on its
 # events; that UID is reliably present in every prompt the pipeline builds (router /
 # investigator carry the cluster's rule values), so the mock LLM resolves the story
 # from the UID — no RNG, no clock. The descriptive rule names are kept as a fallback.
 _RULE_TO_STORY: dict[str, str] = {f"demo_{s.id}": s.id for s in STORYLINES}
+_RULE_TO_STORY.update(NATIVE_RULE_TO_STORY)
 _STORY_RULE_NAMES: dict[str, tuple[str, ...]] = {
     "phishing_chain": (
         "Phishing email with credential-harvest link",
@@ -704,7 +761,7 @@ _HIST_TEMPLATES: tuple[dict[str, Any], ...] = (
 )
 
 _ANALYSTS = ("pnair", "sgupta", "dsingh", "auto-triage")
-_BAD_IP_PREFIXES = ("45.148.10", "185.220.101", "193.42.33", "203.0.113")
+_BAD_IP_PREFIXES = ("203.0.113", "198.51.100", "192.0.2")
 
 
 def _hist_case(
@@ -768,8 +825,8 @@ def _hist_case(
         origin_surface=SourceSurface.AUTOMATED_SCAN if idx % 2 == 0 else SourceSurface.INVESTIGATE,
         rule_ids=[tmpl["rule"]],
         entity=Entity(type=et, value=entity_val),
-        source_id=DEMO_SOURCE_ID,
-        source_name=DEMO_SOURCE_NAME,
+        source_id=DEMO_SOURCE_IDS[idx % len(DEMO_SOURCE_IDS)],
+        source_name=DEMO_SOURCE_NAMES[DEMO_SOURCE_IDS[idx % len(DEMO_SOURCE_IDS)]],
         member_event_ids=[f"demo-hist-{idx}-{j}" for j in range(rng.randint(2, 9))],
         first_seen_millis=first_seen_ms,
         risk_score=risk,
@@ -814,7 +871,9 @@ def generate_historical_cases(
     knowledge_used so every feature surface has data. Deterministic for a given
     seed; every case is tagged ``demo`` + ``case_id='demo-...'`` and carries the
     ``run_id`` (in a tag) so disable can purge by run_id."""
-    rng = random.Random(seed ^ 0x5EED ^ (hash(run_id) & 0xFFFF))
+    del run_id  # run identity is carried by _DemoCaseStore's run tag, not fixture facts
+    rng = random.Random(seed ^ 0x5EED)
+    seed_tag = f"{seed & 0xFFFFFFFF:08x}"
     cases: list[Case] = []
     # Roughly 3-4 cases/day, spread across the trailing window. Cap so the demo is
     # snappy but every surface is populated.
@@ -829,7 +888,7 @@ def generate_historical_cases(
         # Realistic detection latency: the first cluster event fired 0.75-30 min before
         # the case was opened, so the demo shows a believable MTTD (advisory only, #3).
         first_seen_ms = created_ms - rng.randint(45, 1800) * 1000
-        cid = f"demo-{run_id[:8] or 'seed'}-{i:04d}"
+        cid = f"demo-{seed_tag}-{i:04d}"
         cases.append(_hist_case(
             rng, org, tmpl, cid=cid, sig_suffix=str(i),
             created_ms=created_ms, first_seen_ms=first_seen_ms, idx=i,
@@ -873,7 +932,9 @@ def generate_recent_preseed(
 
     The trio is varied on purpose (TP-escalate + NEEDS_HUMAN + FP) with realistic
     still-open statuses so at least one case is non-terminal ("just arrived")."""
-    rng = random.Random(seed ^ 0x2ECE47 ^ (hash(run_id) & 0xFFFF))
+    del run_id
+    rng = random.Random(seed ^ 0x2ECE47)
+    seed_tag = f"{seed & 0xFFFFFFFF:08x}"
     window_ms = max(1, recent_minutes) * 60_000
     cases: list[Case] = []
     for i in range(max(0, case_count)):
@@ -882,7 +943,7 @@ def generate_recent_preseed(
         # than the window.
         created_ms = now_millis - rng.randint(30_000, window_ms - 1)
         first_seen_ms = created_ms - rng.randint(30, 300) * 1000
-        cid = f"demo-recent-{run_id[:8] or 'seed'}-{i:04d}"
+        cid = f"demo-recent-{seed_tag}-{i:04d}"
         cases.append(_hist_case(
             rng, org, tmpl, cid=cid, sig_suffix=f"recent-{i}",
             created_ms=created_ms, first_seen_ms=first_seen_ms, idx=i, status=status,
@@ -934,10 +995,11 @@ def generate_capability_seed_cases(
 
     Every case is demo-tagged with a ``demo-…`` case_id (write-guard clean) and dated
     ~now (inside the campaign's daily window AND the tuner's trailing window). The id
-    stem uses ``run_id[:8]`` (always the fixed ``"demorun-"`` prefix) so the ids are
-    byte-identical across two enables of the same seed (determinism guard)."""
-    rng = random.Random(seed ^ 0xCAB1E ^ (hash(run_id) & 0xFFFF))
-    tag8 = run_id[:8] or "seed"
+    stem is derived from ``seed`` so resets and separate Python processes reproduce
+    identical facts; ``run_id`` remains only an isolation tag on the throwaway store."""
+    del run_id
+    rng = random.Random(seed ^ 0xCAB1E)
+    tag8 = f"{seed & 0xFFFFFFFF:08x}"
 
     # --- HITL / campaign pair: two NEEDS_HUMAN cases on the SAME entity + instant.
     hitl_ms = now_millis - 120_000
@@ -952,7 +1014,8 @@ def generate_capability_seed_cases(
             origin_surface=SourceSurface.AUTOMATED_SCAN,
             rule_ids=["demo_impossible_travel"],
             entity=Entity(type=EntityType.USER, value="pnair"),
-            source_id=DEMO_SOURCE_ID, source_name=DEMO_SOURCE_NAME,
+            source_id=DEMO_SOURCE_IDS[i % len(DEMO_SOURCE_IDS)],
+            source_name=DEMO_SOURCE_NAMES[DEMO_SOURCE_IDS[i % len(DEMO_SOURCE_IDS)]],
             member_event_ids=[f"demo-hitl-{i}-{j}" for j in range(3)],
             first_seen_millis=hitl_ms - 60_000,
             risk_score=62.0,
@@ -986,7 +1049,8 @@ def generate_capability_seed_cases(
             origin_surface=SourceSurface.AUTOMATED_SCAN,
             rule_ids=[DEMO_TUNER_RULE],
             entity=Entity(type=EntityType.IP, value=f"10.66.{i // 250}.{i % 250}"),
-            source_id=DEMO_SOURCE_ID, source_name=DEMO_SOURCE_NAME,
+            source_id=DEMO_SOURCE_IDS[i % len(DEMO_SOURCE_IDS)],
+            source_name=DEMO_SOURCE_NAMES[DEMO_SOURCE_IDS[i % len(DEMO_SOURCE_IDS)]],
             member_event_ids=[f"demo-tune-{i}-0"],
             risk_score=16.0,
             risk_breakdown=RiskBreakdown(reputation=8.0, total=16.0),

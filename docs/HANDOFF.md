@@ -10,8 +10,8 @@
 - **Status:** Round 10 is committed. The current work prepares `3.0.0-alpha.1` as an
   honest Bleeding Edge candidate; it is not tagged or pushed. `main` + `next` are the
   recommended permanent release branches; see `docs/releases/channels.md`.
-- **Verification:** the integrated candidate is green at **1843 backend tests** and
-  **1332 web tests across 239 files**, with generated API contracts, production build,
+- **Verification:** the integrated candidate is green at **1887 backend tests** and
+  **1349 web tests across 240 files**, with generated API contracts, production build,
   lint/design gates, packaging, version, Compose, and strict docs checks passing. Read
   the latest `Journal.md` entry for command-level evidence. The deterministic `decide()`
   authority and the 12 non-negotiables remain mandatory.
@@ -42,30 +42,33 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1843 passed (rises each round; see Journal.md)
+python -m pytest -q                         # -> 1887 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build -> clean (entry 281.60 kB, gzip 83.35 kB)
-npx vitest run     # -> 1332 passed / 239 files
+npm run build      # tsc --noEmit && vite build -> clean (entry 285.91 kB, gzip 84.44 kB)
+npx vitest run     # -> 1349 passed / 240 files
 npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enforced at error
 ```
 
 ### Run the demo locally (the fastest way to SEE everything)
 ```bash
 ./scripts/run-demo.sh
-# Starts the backend (app.main:app on :8088, AUTH ENABLED) + the webui dev server (:5173).
-# Open http://localhost:5173  ·  log in with  Admin / Admin@123  (seeded super_admin)
-# The script completes local setup and enables the deterministic, isolated, $0 seeded
-# demo automatically. "Exit & clear" in Demo Mode reverts it.
+# Preflights both ports, then starts the backend (:8088) + webui (:5173) on 127.0.0.1.
+# AUTH is enabled. Open http://127.0.0.1:5173 and log in as Admin / Admin@123.
+# The script completes local setup and enables the deterministic, isolated, $0 live
+# four-source demo with a forced mock LLM. Keys are unused until demo exit.
+# Set DEMO_MODE=seeded for a static run.
+# "Exit & clear" in Demo Mode reverts it.
 ```
 - **Auth is default-OFF** for the library/tests (the no-auth profile stays the out-of-the-box
-  default). It is enabled by `TLSOC_AUTH_ENABLED=true` (which `run-demo.sh` sets). When enabled and
-  the user store is empty, the backend seeds **`Admin` / `Admin@123`** (super_admin). Change this for
-  any real deployment (`backend/app/config.py` `auth_seed_admin_*`; see `SECURITY.md`).
+  default). Direct runs use `AUTH_ENABLED=true` (`run-demo.sh` exports it); Compose maps
+  `TLSOC_AUTH_ENABLED=true` to that backend variable. When enabled and the user store is empty, the
+  backend seeds **`Admin` / `Admin@123`** (super_admin). Change this for any real deployment
+  (`backend/app/config.py` `auth_seed_admin_*`; see `SECURITY.md`).
 - Full deploy (Docker) in `DEPLOY.md`; the guided product tour in `DEMO.md`.
 
 ---

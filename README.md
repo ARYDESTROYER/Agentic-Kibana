@@ -157,13 +157,21 @@ the deterministic close/escalate decision and never alter it. See
   routes can demand a fresh step-up (`POST /api/auth/reauth`); the token policy
   (TTL / idle / absolute / sudo window) is UI-editable.
 - **Demo Mode (reversible, isolated, $0).** A first-class tenant state
-  (`off` / `seeded` / `live`): synthetic OCSF events from a `DemoPullConnector` flow
-  through the REAL pipeline, but all writes land in a SEPARATE in-memory store with a
-  deterministic mock LLM, so the demo is free, isolated, and one-flip reversible.
-  Seeded scenarios backfill "old" cases plus a live simulator; FP still runs through
-  the real (but sandboxed-policy) `decide()`, NEEDS_HUMAN still stays open.
-  `POST /api/demo/{enable,reset,disable}`, `GET /api/demo/status` (admin-gated); demo
-  rows are namespaced + tagged so disable hard-deletes by run id.
+  (`off` / `seeded` / `live`): project-owned synthetic facts are serialized as
+  Splunk-compatible HEC, QRadar-compatible LEEF/offenses, Wazuh JSON, and RFC
+  syslog, then enter the REAL parser → OCSF → correlation/investigation pipeline.
+  Demo-generated workload writes land in a SEPARATE in-memory store with a
+  deterministic mock LLM, so the demo is free, isolated, bounded, and one-flip
+  reversible—even when real provider keys are configured. Seeded scenarios
+  backfill history; live mode guarantees an early cross-source incident and keeps
+  source health/live-tail activity moving. FP still runs through the real (but
+  sandboxed-policy) `decide()`, NEEDS_HUMAN still stays open.
+  `POST /api/demo/{enable,incident,reset,disable}`, `GET /api/demo/status`
+  (`demo:read` for status; `demo:manage` for mutations—default `super_admin` and
+  `soc_manager`); every demo case is tagged and run-scoped, while seeded and live
+  case IDs may use different formats. Lifecycle mutations persist to the real audit
+  trail and are visible in the Audit page after exit. Other organization/admin
+  settings remain live during a demo.
 - **Notifications.** A pluggable `NotificationChannel` abstraction with **email**
   (stdlib SMTP, 13 provider presets, plus an **Amazon SES** preset that can derive
   SMTP creds from a raw IAM key pair, and a **Resend** HTTPS-API channel), plus
@@ -466,11 +474,11 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline (2026-07-11): **1843 backend tests green** (fake/in-memory backends +
+Verified offline (2026-07-11): **1887 backend tests green** (fake/in-memory backends +
 mock LLM, no network — an autouse `conftest` network guard keeps the enrichment tests
-offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **281.60 kB**
+offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **285.91 kB**
 — a lazy `motion` chunk of **83.85 kB** sits off the critical path, never modulepreloaded)
-with a dev-only Vitest harness (**1332 tests** / 239 files); eslint clean (**0 errors,
+with a dev-only Vitest harness (**1349 tests** / 240 files); eslint clean (**0 errors,
 0 warnings**, with 20 `jsx-a11y` rules at error). Generated API contracts, all five
 design gates, the distribution smoke tests, version/Compose contracts, and strict public
 docs build are also green. (Test counts rise each round — see

@@ -15,7 +15,7 @@
  * are supplied with mocked load-time calls so the test is fully offline.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 vi.mock('@/lib/api', () => {
   const ok = (value: unknown) => vi.fn().mockResolvedValue(value);
@@ -70,20 +70,38 @@ import { DemoProvider } from '../demo';
 import { RouterProvider } from '../router';
 import { TooltipProvider } from '@/ui/tooltip';
 import { AppShell } from '../AppShell';
+import type { PageId } from '../nav';
 
 const WIDE_TRIGGER = 'Search cases, sources, and actions';
 const MOBILE_OPENER = 'Open search';
 const PALETTE_INPUT = /jump to a page, search cases\/sources/i;
 
-function renderShell() {
-  return render(
+function setMobileViewport(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: query.includes('max-width') ? matches : false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    })),
+  });
+}
+
+function renderShell(onNavigate = vi.fn(), page: PageId = 'overview') {
+  const result = render(
     <ThemeProvider>
       <TooltipProvider>
         <AuthProvider>
           <PrefsProvider>
             <DemoProvider>
               <RouterProvider>
-                <AppShell page="overview" onNavigate={vi.fn()}>
+                <AppShell page={page} onNavigate={onNavigate}>
                   <div>routed content</div>
                 </AppShell>
               </RouterProvider>
@@ -93,11 +111,13 @@ function renderShell() {
       </TooltipProvider>
     </ThemeProvider>,
   );
+  return { ...result, onNavigate };
 }
 
 describe('AppShell top-nav search (W0.10)', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    setMobileViewport(false);
   });
 
   it('renders both openers with DISTINCT accessible names', async () => {
@@ -136,5 +156,50 @@ describe('AppShell top-nav search (W0.10)', () => {
     renderShell();
     await screen.findByRole('button', { name: WIDE_TRIGGER });
     expect(screen.queryByRole('button', { name: 'Open command palette' })).toBeNull();
+  });
+
+  it('uses a zero-footprint off-canvas navigation on mobile and closes it after navigation', async () => {
+    setMobileViewport(true);
+    const { onNavigate } = renderShell();
+
+    // The in-flow desktop rail is not mounted at this breakpoint; navigation starts
+    // behind one compact top-bar control instead of consuming 240px of page width.
+    const opener = await screen.findByRole('button', { name: 'Open navigation' });
+    expect(screen.queryByLabelText('Primary navigation')).toBeNull();
+
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole('dialog', { name: 'Primary navigation' });
+    expect(within(dialog).getByLabelText('Primary navigation')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByTestId('nav-cases'));
+    expect(onNavigate).toHaveBeenCalledWith('cases');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Primary navigation' })).toBeNull());
+  });
+
+  it('opens mobile navigation on the semantic current route instead of Overview', async () => {
+    setMobileViewport(true);
+    renderShell(vi.fn(), 'logs');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Primary navigation' });
+    const logs = within(dialog).getByTestId('nav-logs');
+    const overview = within(dialog).getByTestId('nav-overview');
+
+    expect(logs).toHaveAttribute('aria-current', 'page');
+    expect(overview).not.toHaveAttribute('aria-current');
+    await waitFor(() => expect(logs).toHaveFocus());
+  });
+
+  it('expands and focuses the active trail for a directly-loaded nested mobile route', async () => {
+    setMobileViewport(true);
+    window.localStorage.setItem('soc.nav.openGroups', '[]');
+    renderShell(vi.fn(), 'users');
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Primary navigation' });
+    const users = await within(dialog).findByTestId('nav-users');
+
+    expect(users).toHaveAttribute('aria-current', 'page');
+    await waitFor(() => expect(users).toHaveFocus());
   });
 });

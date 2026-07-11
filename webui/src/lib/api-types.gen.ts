@@ -602,10 +602,11 @@ export interface paths {
         /**
          * Put Batch Config
          * @description Update the ``batch`` policy, DEEP-MERGING only the keys the caller sent onto the
-         *     live config (mirrors the ``PUT /api/settings`` contract). Additive + validated by
+         *     active execution config (mirrors the ``PUT /api/settings`` contract). Additive + validated by
          *     the Pydantic model; #6 is untouched (this only toggles routing — the batch service
          *     still writes exactly one UsageDoc per resolved call). Never touches ``decide()`` (#3).
-         *     Audited (#2).
+         *     During Demo Mode the edit remains in the throwaway sandbox; off demo it persists
+         *     normally. Audited (#2).
          */
         put: operations["put_batch_config_api_batch_config_put"];
         post?: never;
@@ -1710,6 +1711,30 @@ export interface paths {
         put?: never;
         /** Demo Enable */
         post: operations["demo_enable_api_demo_enable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/demo/incident": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Demo Incident
+         * @description Trigger one coherent, cooldown-aware attack in the isolated demo stack.
+         *
+         *     Splunk/QRadar/Wazuh contribute source-native alerts and syslog contributes raw
+         *     RFC 5424 telemetry that TLSOC detects. The action requires ``demo:manage`` and is
+         *     recorded in the REAL append-only audit trail; generated data/cases/cost stay demo-only.
+         */
+        post: operations["demo_incident_api_demo_incident_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3649,8 +3674,8 @@ export interface paths {
          *     (A5.5; Google SecOps Health-Hub model). Read-only, advisory, NO secrets.
          *
          *     Returns ``{sources_total, sources_enabled, sources_silent, events_per_min,
-         *     alerts_triaged_24h, worst_last_event_seconds}`` computed over the REAL configured
-         *     sources (demo overlay excluded so the numbers stay honest). ``alerts_triaged_24h`` is
+         *     alerts_triaged_24h, worst_last_event_seconds}`` computed over the configured sources,
+         *     or over the isolated native demo sources while Demo Mode is active. ``alerts_triaged_24h`` is
          *     the count of cases opened in the last 24h computed with the SAME window filter the
          *     ``/metrics/noise-reduction`` endpoint uses, so the two agree. Never raises — every
          *     sub-lookup degrades to a safe zero (#3/#4/#6/#9 untouched).
@@ -5296,8 +5321,9 @@ export interface components {
             /**
              * Mode
              * @default seeded
+             * @enum {string}
              */
-            mode: string;
+            mode: "seeded" | "live";
             /** Preseed Case Count */
             preseed_case_count?: number | null;
             /** Preseed Event Count */
@@ -5310,6 +5336,11 @@ export interface components {
             tick_jitter?: number | null;
             /** Tick Seconds */
             tick_seconds?: number | null;
+        };
+        /** DemoIncidentBody */
+        DemoIncidentBody: {
+            /** Scenario Id */
+            scenario_id?: string | null;
         };
         /**
          * Disposition
@@ -9205,6 +9236,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DemoEnableBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    demo_incident_api_demo_incident_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DemoIncidentBody"] | null;
             };
         };
         responses: {

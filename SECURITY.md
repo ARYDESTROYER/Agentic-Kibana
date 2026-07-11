@@ -20,7 +20,8 @@ New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md).
 > (`Preferences.session_policy`); refresh-token rotation with reuse (theft)
 > detection; step-up re-auth; a fully **isolated** Demo Mode (synthetic data in a
 > separate in-memory store with a `$0` deterministic mock LLM, never touching the
-> real stores or the durable poll cursor); auto-escaping/CRLF-safe email
+> real workload stores or durable poll cursor; lifecycle actions intentionally leave
+> a real append-only audit record); auto-escaping/CRLF-safe email
 > templates (`notifications/templates.py`); and a **CI-verified** RBAC gate
 > (`tests/test_route_auth_coverage.py` fails if any non-GET `/api` route lacks an
 > authZ dependency). **Round 3**: the RAG **TRUSTED-knowledge allowlist** was
@@ -480,18 +481,22 @@ are nuked.
 
 ### Demo Mode isolation guarantees
 
-Demo Mode (`DEPLOY.md` §11.1) is **admin-gated** and engineered so synthetic data
-can **never** contaminate, cost, or alter a real deployment:
+Demo Mode (`DEPLOY.md` §11.1) is capability-gated: status requires `demo:read`,
+while enable / manual incident / reset / disable require `demo:manage`. The default
+`super_admin` and `soc_manager` roles have `demo:manage`; custom roles can be
+granted it explicitly. It is engineered so demo-generated data cannot contaminate
+real cases/events/RAG/usage, advance real cursors, or incur provider cost:
 
 - **Separate store.** Demo events flow through the *real* pipeline for fidelity, but
-  every demo write lands in a **throwaway in-memory store** built per-enable and
-  GC'd on disable, tagged with a unique `run_id`. A **write-guard** (`state.py`
-  `_write_guard`) asserts that a demo-tagged row only ever reaches the demo store and
-  a real row only ever reaches the real store — a mismatch raises, so the two can
-  never cross.
+  every demo-generated workload write lands in a **throwaway in-memory store** built
+  per-enable and GC'd on disable, tagged with a unique `run_id`. A **write-guard**
+  (`state.py` `_write_guard`) asserts that a demo-tagged row only ever reaches the
+  demo store and a real row only ever reaches the real store — a mismatch raises,
+  so the two can never cross.
 - **Zero cost, deterministic.** While demo is active the LLM gateway uses a
   deterministic **mock provider**; usage rows are `pricing_source='zero'` (the cost
-  page shows "(simulated)"), so a demo never spends a real token or hits a provider.
+  page shows "(simulated)"), so a demo never spends a real token or hits a provider,
+  even when valid provider keys are configured.
 - **The deterministic gate still rules (#3).** FP cases still run through the real
   `engine/case_manager.decide()` against a **sandboxed `AutoClosePolicy` copy** — the
   live policy is untouched and #3 is byte-identical; NEEDS_HUMAN stays open as an
@@ -501,6 +506,16 @@ can **never** contaminate, cost, or alter a real deployment:
   corrupted. `POST /api/demo/disable` **hard-deletes** all demo data by `run_id`
   (cases/audit/usage/events) and flips the tenant back to `off` in one reversible
   step.
+- **Deliberate persistent audit.** `POST /api/demo/{enable,incident,reset,disable}`
+  appends the authenticated operator and outcome to the **real** append-only audit
+  trail. While Demo Mode is active, `/api/audit` serves the isolated demo trail like
+  the other swapped surfaces; the persistent lifecycle records become visible there
+  after exit.
+- **Scoped UI protections, not an administration freeze.** The Sources UI disables
+  real connector controls and outbound notification tests are refused during a demo.
+  Other organization/admin settings remain live and are not part of the demo
+  sandbox; presenters should leave them unchanged unless they intend a real
+  configuration change.
 
 ### Email-notification rendering: escaping & header-safety
 

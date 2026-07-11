@@ -11,17 +11,20 @@
 # demo super_admin:  Admin / Admin@123  (see app/config.py auth_seed_admin*).
 #
 # This script is DEPLOY-agnostic: it uses an in-memory / SQLite-friendly state
-# backend and a mock LLM provider unless you export real keys, so it runs on a
-# laptop with nothing but Python 3.11 + Node 22 installed.
-# It also completes the local OOBE and enables the isolated seeded Demo Mode, so
+# backend and Demo Mode always substitutes its deterministic $0 mock LLM, even if
+# real provider keys are present. It runs on a laptop with Python 3.11 + Node 22.
+# It also completes the local OOBE and enables the isolated live Demo Mode, so
 # the first page is populated without manual setup or provider spend.
 #
 # Usage:
 #   ./scripts/run-demo.sh            # start both, stream logs, Ctrl-C to stop
-#   ANTHROPIC_API_KEY=sk-... ./scripts/run-demo.sh   # real triage
+#   DEMO_MODE=seeded ./scripts/run-demo.sh           # static, non-ticking demo
+# A provider key supplied at startup is used only AFTER you exit Demo Mode and
+# deliberately run non-demo triage; it never changes the $0 demo investigation.
 #
-# Override ports/secret via env:
-#   BACKEND_PORT (8088)  WEBUI_PORT (5173)  TLSOC_AUTH_JWT_SECRET (auto-dev)
+# Override ports/mode/secret via env:
+#   BACKEND_PORT (8088)  WEBUI_PORT (5173)  DEMO_MODE (live|seeded)
+#   TLSOC_AUTH_JWT_SECRET (auto-dev)
 # =============================================================================
 set -euo pipefail
 
@@ -33,6 +36,49 @@ WEBUI_DIR="${REPO_ROOT}/webui"
 
 BACKEND_PORT="${BACKEND_PORT:-8088}"
 WEBUI_PORT="${WEBUI_PORT:-5173}"
+DEMO_MODE="${DEMO_MODE:-live}"
+if [[ "${DEMO_MODE}" != "live" && "${DEMO_MODE}" != "seeded" ]]; then
+  echo "[demo] DEMO_MODE must be 'live' or 'seeded' (got '${DEMO_MODE}')." >&2
+  exit 2
+fi
+
+# This is intentionally a LOCAL launcher: neither service is exposed on the LAN.
+# Use the documented Compose/reverse-proxy deployment when remote access is needed.
+DEMO_BIND_HOST="127.0.0.1"
+
+# Fail before installing dependencies or starting either child if a port is invalid,
+# duplicated, or already occupied. Vite also gets --strictPort below to close the
+# small check-to-bind race instead of silently selecting a different port.
+python3 - "${DEMO_BIND_HOST}" "${BACKEND_PORT}" "${WEBUI_PORT}" <<'PY'
+import socket
+import sys
+
+host, *raw_ports = sys.argv[1:]
+names = ("BACKEND_PORT", "WEBUI_PORT")
+ports: list[int] = []
+for name, raw in zip(names, raw_ports, strict=True):
+    try:
+        port = int(raw)
+    except ValueError:
+        raise SystemExit(f"[demo] {name} must be an integer (got {raw!r}).") from None
+    if not 1 <= port <= 65535:
+        raise SystemExit(f"[demo] {name} must be between 1 and 65535 (got {port}).")
+    ports.append(port)
+if ports[0] == ports[1]:
+    raise SystemExit("[demo] BACKEND_PORT and WEBUI_PORT must be different.")
+
+for name, port in zip(names, ports, strict=True):
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind((host, port))
+    except OSError as exc:
+        raise SystemExit(
+            f"[demo] {name} {port} is unavailable on {host}: {exc}. "
+            "Stop the existing service or choose another port."
+        ) from None
+    finally:
+        probe.close()
+PY
 
 # --- Demo auth posture -------------------------------------------------------
 # Enabling auth turns on the login screen + RBAC + MFA/SSO surfaces and seeds
@@ -69,7 +115,9 @@ cleanup() {
   wait 2>/dev/null || true
   echo "[demo] stopped."
 }
-trap cleanup INT TERM EXIT
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # --- 1) Backend: ensure venv + deps, then launch uvicorn --------------------
 echo "[demo] preparing backend venv at ${BACKEND_DIR}/.venv …"
@@ -89,17 +137,17 @@ if ! python -c "import fastapi, uvicorn" >/dev/null 2>&1; then
   fi
 fi
 
-echo "[demo] starting backend (uvicorn app.main:app) on :${BACKEND_PORT} …"
+echo "[demo] starting backend (uvicorn app.main:app) on ${DEMO_BIND_HOST}:${BACKEND_PORT} …"
 (
   cd "${BACKEND_DIR}"
-  exec python -m uvicorn app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}"
+  exec python -m uvicorn app.main:app --host "${DEMO_BIND_HOST}" --port "${BACKEND_PORT}"
 ) &
 PIDS+=("$!")
 
 # Wait for the API, authenticate as the local seeded admin, finish the local OOBE,
 # and enable the isolated deterministic demo. Python stdlib keeps curl/jq optional.
 echo "[demo] waiting for backend and seeding deterministic Demo Mode …"
-python - "${BACKEND_PORT}" "${ADMIN_USER}" "${ADMIN_PASS}" <<'PY'
+python - "${BACKEND_PORT}" "${ADMIN_USER}" "${ADMIN_PASS}" "${DEMO_MODE}" <<'PY'
 import http.cookiejar
 import json
 import sys
@@ -107,7 +155,7 @@ import time
 import urllib.error
 import urllib.request
 
-port, username, password = sys.argv[1:]
+port, username, password, demo_mode = sys.argv[1:]
 base = f"http://127.0.0.1:{port}/api"
 cookies = http.cookiejar.CookieJar()
 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
@@ -133,8 +181,8 @@ def post(path, payload):
 
 post("auth/login", {"username": username, "password": password})
 post("setup/complete", {})
-status = post("demo/enable", {"mode": "seeded", "force_capabilities": True})
-print(f"[demo] seeded run {status.get('run_id', 'ready')}")
+status = post("demo/enable", {"mode": demo_mode, "force_capabilities": True})
+print(f"[demo] {demo_mode} run {status.get('run_id', 'ready')}")
 PY
 
 # --- 2) Web UI: ensure node_modules, then launch the Vite dev server --------
@@ -144,12 +192,12 @@ if [[ ! -d "${WEBUI_DIR}/node_modules" ]]; then
   ( cd "${WEBUI_DIR}" && npm install )
 fi
 
-echo "[demo] starting web UI (vite dev) on :${WEBUI_PORT} …"
+echo "[demo] starting web UI (vite dev) on ${DEMO_BIND_HOST}:${WEBUI_PORT} …"
 (
   cd "${WEBUI_DIR}"
   # Vite proxies /api/* to the backend; point it at our chosen backend port.
-  export BACKEND_URL="http://localhost:${BACKEND_PORT}"
-  exec npm run dev -- --port "${WEBUI_PORT}" --host
+  export BACKEND_URL="http://${DEMO_BIND_HOST}:${BACKEND_PORT}"
+  exec npm run dev -- --host "${DEMO_BIND_HOST}" --port "${WEBUI_PORT}" --strictPort
 ) &
 PIDS+=("$!")
 
@@ -159,13 +207,14 @@ cat <<BANNER
 ==============================================================================
   Agentic SOC Triage Suite — DEMO is starting up
 ------------------------------------------------------------------------------
-  Web UI :   http://localhost:${WEBUI_PORT}
-  Backend:   http://localhost:${BACKEND_PORT}/api/health
+  Web UI :   http://${DEMO_BIND_HOST}:${WEBUI_PORT}
+  Backend:   http://${DEMO_BIND_HOST}:${BACKEND_PORT}/api/health
 
   Login  :   username  ${ADMIN_USER}
              password  ${ADMIN_PASS}     (demo super_admin — change for real use)
 
-  Auth is ENABLED and deterministic Demo Mode is SEEDED (no provider spend).
+  Auth is ENABLED and deterministic Demo Mode is ${DEMO_MODE} (forced $0 mock LLM).
+  Both services are bound to loopback only; they are not exposed on your LAN.
   Press Ctrl-C to stop both services.
 
   Walkthrough script:  see DEMO.md
@@ -173,5 +222,19 @@ cat <<BANNER
 
 BANNER
 
-# Wait on the children; the EXIT trap cleans up on Ctrl-C or any exit.
-wait
+# Bash 3.2 (still shipped by macOS) has no `wait -n`, so supervise portably. If
+# either service exits—especially Vite rejecting a raced port under --strictPort—
+# stop its sibling instead of leaving a half-running demo behind.
+while true; do
+  for pid in "${PIDS[@]}"; do
+    if ! kill -0 "${pid}" 2>/dev/null; then
+      child_status=0
+      wait "${pid}" || child_status=$?
+      if (( child_status != 0 )); then
+        echo "[demo] a service exited with status ${child_status}; stopping the demo." >&2
+      fi
+      exit "${child_status}"
+    fi
+  done
+  sleep 1
+done

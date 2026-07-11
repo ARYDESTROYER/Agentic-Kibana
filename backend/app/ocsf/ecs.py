@@ -160,7 +160,10 @@ _USER_ALIASES = ("user.name", "actor.user.name", "user", "username", "user_name"
 _HOST_ALIASES = ("host.name", "device.hostname", "host", "hostname", "computer", "agent.name")
 _RULE_ALIASES = ("rule.id", "rule.name", "signature_id", "rule", "signature", "alert.signature", "event.action")
 _RULENAME_ALIASES = ("rule.name", "rule.description", "alert.signature", "title", "name")
-_SEV_ALIASES = ("event.severity", "severity", "risk_score", "score", "priority", "alert.severity")
+_SEV_ALIASES = (
+    "event.severity", "severity_score", "severity", "risk_score", "score",
+    "priority", "alert.severity",
+)
 _MSG_ALIASES = ("message", "msg", "event.original", "description", "summary", "alert.signature")
 _TS_ALIASES = ("@timestamp", "timestamp", "time", "event.created", "eventTime", "_time")
 

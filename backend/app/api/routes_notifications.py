@@ -170,7 +170,7 @@ async def set_notification_channel_secret(
                     break
     except Exception as exc:  # noqa: BLE001
         logger.warning("notification configured_secrets stamp failed for %s: %s", channel_id, exc)
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.NOTIFICATION, surface="notification",
         actor=current_username(request),
         result_summary=(
@@ -198,6 +198,13 @@ async def notify_case(
     case = await state.cases.get(case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    if state.demo_active:
+        return {
+            "ok": False,
+            "sent": [],
+            "simulated": True,
+            "detail": "Demo mode is active — outbound case notifications are disabled.",
+        }
     from ..notifications.dispatch import TRIGGER_MANUAL
 
     channel_ids = [body.channel_id] if body.channel_id else None

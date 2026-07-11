@@ -4,8 +4,8 @@
  * column (respecting alignment), plus the leading checkbox cell when selectable. Keeping
  * the loading shape aligned to the real row prevents a content-in layout shift.
  */
-import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { DataTable, type DataTableColumn } from '../DataTable';
 
@@ -64,5 +64,52 @@ describe('DataTable — SkeletonRow loading state', () => {
     // checkbox cell + one cell per column.
     const cells = container.querySelectorAll('tbody tr[aria-hidden="true"] td');
     expect(cells).toHaveLength(3);
+  });
+
+  it('lets pager controls wrap within a narrow table card instead of being clipped', () => {
+    render(
+      <DataTable<Row>
+        columns={columns}
+        rows={[{ id: '1', a: 'Alpha', b: 'Bravo' }]}
+        getRowId={(r) => r.id}
+        page={1}
+        pageSize={10}
+        total={25}
+        onPageChange={() => {}}
+        onPageSizeChange={() => {}}
+        ariaLabel="Paged table"
+      />,
+    );
+
+    const pageLabel = screen.getByText('Page 1 of 3');
+    expect(pageLabel.parentElement).toHaveClass('flex-wrap', 'w-full');
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Last page' })).toBeInTheDocument();
+  });
+
+  it('excludes read-only rows from row and select-all mutations with an exposed reason', () => {
+    const onSelectedChange = vi.fn();
+    render(
+      <DataTable<Row>
+        columns={columns}
+        rows={[
+          { id: 'live', a: 'Live', b: 'row' },
+          { id: 'demo', a: 'Demo', b: 'row' },
+        ]}
+        getRowId={(r) => r.id}
+        selectable
+        selected={[]}
+        onSelectedChange={onSelectedChange}
+        isRowSelectable={(row) => row.id !== 'demo'}
+        getRowSelectionDisabledReason={(row) =>
+          row.id === 'demo' ? 'Managed by Demo Mode' : undefined
+        }
+        ariaLabel="Mixed table"
+      />,
+    );
+
+    expect(screen.getByLabelText('Managed by Demo Mode: demo')).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Select all available rows'));
+    expect(onSelectedChange).toHaveBeenCalledWith(['live']);
   });
 });

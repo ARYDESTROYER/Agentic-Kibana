@@ -594,7 +594,7 @@ async def _audit(state: AppState, request: Request, event: str, detail: str) -> 
     Uses ``USER_MGMT`` with ``surface="models"`` — the established action type for an
     operator settings-scope mutation (constants.py is frozen this wave, so no new
     ActionType is introduced). The actor is the authenticated username when present."""
-    audit = getattr(state, "audit", None)
+    audit = getattr(state, "control_audit", None)
     if audit is None:
         return
     try:

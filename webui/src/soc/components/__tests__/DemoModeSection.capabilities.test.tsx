@@ -18,11 +18,17 @@ const FULL: DemoStatus = {
   seed: 1337,
   history_days: 14,
   case_count: 42,
-  sources: ['demo-siem', 'demo-xdr', 'demo-edr'],
+  sources: ['demo-splunk', 'demo-qradar', 'demo-wazuh', 'demo-syslog'],
   proposals_open: 2,
   campaigns_found: 1,
   tuning_events: 3,
   rag_chunks: 128,
+  source_activity: [
+    {
+      source_id: 'demo-splunk', display_name: 'Splunk Enterprise',
+      protocol: 'HEC / HTTPS', healthy: true, events_total: 120, alerts_total: 2,
+    },
+  ],
 };
 
 // A mutable holder so a test can swap the status the mocked useDemo() returns.
@@ -62,9 +68,17 @@ describe('DemoModeSection capabilities (demo overhaul)', () => {
     expect(tileValue('RAG corpus')).toBe('128 chunks');
   });
 
-  it('reports the three demo sources in the active summary', () => {
+  it('reports the four native demo sources in the active summary', () => {
     renderDemo();
-    expect(tileValue('Sources')).toBe('3');
+    expect(tileValue('Sources')).toBe('4');
+  });
+
+  it('shows truthful native source activity counters', () => {
+    renderDemo();
+    expect(screen.getByText('Native source activity')).toBeInTheDocument();
+    expect(screen.getByText('Splunk Enterprise')).toBeInTheDocument();
+    expect(screen.getByText('HEC / HTTPS')).toBeInTheDocument();
+    expect(screen.getByText('120 events · 2 native alerts')).toBeInTheDocument();
   });
 
   it('falls back to a dash for an absent capability count', () => {

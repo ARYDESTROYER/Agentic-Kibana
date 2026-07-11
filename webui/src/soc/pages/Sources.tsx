@@ -70,6 +70,7 @@ import {
 } from '@/soc/components/DataTable';
 import { ColumnsMenu, type ColumnMenuItem } from '@/soc/components/ColumnsMenu';
 import { usePrefs } from '@/soc/prefs';
+import { useDemo } from '@/soc/demo';
 
 import { Button } from '@/ui/button';
 import { Badge } from '@/ui/badge';
@@ -114,6 +115,7 @@ const SOURCES_DEFAULT_HIDDEN = [
 
 /** Sentinel "any" value for the single-value facets. */
 const ANY = '__any__';
+const DEMO_MANAGED_REASON = 'Managed by Demo Mode';
 
 type SourceSortId = 'name' | 'type' | 'status' | 'last_event' | 'protocol' | 'created_at';
 
@@ -140,6 +142,11 @@ function sourceLabel(s: SourceInstance, meta?: ConnectorManifest): string {
 function looseString(cfg: SourceInstance['config'], key: string): string {
   const v = cfg?.[key];
   return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Source-native wire format when declared; otherwise the generic ingest direction. */
+function sourceProtocol(s: SourceInstance): string {
+  return looseString(s.config, 'protocol') || humanizeToken(s.ingest_mode);
 }
 
 /** A loose-config boolean (Coalescing / Internal), or undefined when absent. */
@@ -171,7 +178,9 @@ function sourceStatus(s: SourceInstance, h?: SourceHealthRow): { kind: StatusKin
     // Server truth first — a failed poll is a BROKEN connector, and `silent` is the
     // backend's own flat silence flag. Both beat any cursor-age guess.
     if (h.last_poll_ok === false) return { kind: 'error', label: 'Error' };
+    if (h.healthy === false) return { kind: 'error', label: 'Error' };
     if (h.silent === true) return { kind: 'silent', label: 'Silent' };
+    if (h.state === 'static') return { kind: 'idle', label: 'Ready' };
     if (h.last_poll_ok === true) return { kind: 'ok', label: 'Active' };
     if ((h.events_per_min ?? 0) > 0) return { kind: 'ok', label: 'Active' };
     if (h.buffer_depth > 0) return { kind: 'ok', label: 'Active' };
@@ -207,6 +216,7 @@ export interface SourcesProps {
 export default function Sources(_props: SourcesProps) {
   const canManage = useCan('sources', 'manage');
   const { tableColumns, updateTableColumns } = usePrefs();
+  const { active: demoActive } = useDemo();
 
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<unknown>(null);
@@ -228,6 +238,14 @@ export default function Sources(_props: SourcesProps) {
   const [pageSize, setPageSize] = React.useState(25);
   const [page, setPage] = React.useState(1);
   const [bulkBusy, setBulkBusy] = React.useState(false);
+  // The source overlay is authoritative too: it can resolve one request before the
+  // independently-polled DemoContext. Treat either signal as managed-demo state so a
+  // real source editor is never briefly writable during hydration.
+  const demoManaged = demoActive || sources.some((source) => source.demo === true);
+
+  React.useEffect(() => {
+    if (demoManaged) setEditor(null);
+  }, [demoManaged]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -271,6 +289,11 @@ export default function Sources(_props: SourcesProps) {
   };
 
   const setPrimary = async (s: SourceInstance) => {
+    if (s.demo) {
+      toast.warning(DEMO_MANAGED_REASON);
+      setPendingPrimary(null);
+      return;
+    }
     setBusyId(s.id);
     try {
       await api.upsertSource({
@@ -295,6 +318,11 @@ export default function Sources(_props: SourcesProps) {
   };
 
   const remove = async (s: SourceInstance) => {
+    if (s.demo) {
+      toast.warning(DEMO_MANAGED_REASON);
+      setPendingDelete(null);
+      return;
+    }
     setBusyId(s.id);
     try {
       await api.deleteSource(s.id);
@@ -313,6 +341,10 @@ export default function Sources(_props: SourcesProps) {
   // source (mirrors the setPrimary upsert shape so no config is dropped). NO backend
   // change — this rides the existing POST /api/sources upsert.
   const toggleEnabled = async (s: SourceInstance, next: boolean) => {
+    if (s.demo) {
+      toast.warning(DEMO_MANAGED_REASON);
+      return;
+    }
     setBusyId(s.id);
     setSources((prev) => prev.map((x) => (x.id === s.id ? { ...x, enabled: next } : x)));
     try {
@@ -350,7 +382,9 @@ export default function Sources(_props: SourcesProps) {
 
   const canBrowse = React.useCallback(
     (s: SourceInstance) =>
-      !!connectorFor(s)?.capabilities?.includes('browse') || !!health[s.id]?.can_browse,
+      !!connectorFor(s)?.capabilities?.includes('browse') ||
+      !!s.can_browse ||
+      !!health[s.id]?.can_browse,
     [connectorFor, health],
   );
 
@@ -370,7 +404,10 @@ export default function Sources(_props: SourcesProps) {
       if (filters.enabled === 'disabled' && s.enabled !== false) return false;
       if (filters.type !== ANY && s.source_type !== filters.type) return false;
       if (filters.kind !== 'any') {
-        const kind = health[s.id]?.kind;
+        // Runtime health is best-effort. Fall back to the saved ingest mode so a
+        // transient/older health endpoint cannot make the Pull/Push facet falsely
+        // return zero configured sources.
+        const kind = health[s.id]?.kind ?? (s.ingest_mode === 'pull' ? 'pull' : 'push');
         if (kind !== filters.kind) return false;
       }
       if (q) {
@@ -405,7 +442,7 @@ export default function Sources(_props: SourcesProps) {
           return rank(a) - rank(b);
         }
         case 'protocol':
-          return humanizeToken(a.ingest_mode).localeCompare(humanizeToken(b.ingest_mode));
+          return sourceProtocol(a).localeCompare(sourceProtocol(b));
         case 'created_at':
           return (a.created_at || '').localeCompare(b.created_at || '');
         case 'last_event':
@@ -435,15 +472,17 @@ export default function Sources(_props: SourcesProps) {
   React.useEffect(() => {
     setSelected((sel) => {
       if (!sel.length) return sel;
-      const visible = new Set(filteredSorted.map((s) => s.id));
+      const visible = new Set(
+        filteredSorted.filter((s) => canManage && !s.demo).map((s) => s.id),
+      );
       const next = sel.filter((id) => visible.has(id));
       return next.length === sel.length ? sel : next;
     });
-  }, [filteredSorted]);
+  }, [canManage, filteredSorted]);
 
   const selectedSources = React.useMemo(() => {
     const set = new Set(selected);
-    return filteredSorted.filter((s) => set.has(s.id));
+    return filteredSorted.filter((s) => !s.demo && set.has(s.id));
   }, [selected, filteredSorted]);
 
   // ----- Coverage rollup (the "am I seeing everything?" banner) ------------ //
@@ -575,7 +614,7 @@ export default function Sources(_props: SourcesProps) {
         return (
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              {canManage ? (
+              {canManage && !s.demo ? (
                 <button
                   type="button"
                   onClick={() => setEditor({ mode: 'edit', source: s })}
@@ -590,6 +629,11 @@ export default function Sources(_props: SourcesProps) {
                 </span>
               )}
               {s.is_primary ? <Badge variant="default">Primary</Badge> : null}
+              {s.demo ? (
+                <Badge variant="warning" title={DEMO_MANAGED_REASON}>
+                  Demo
+                </Badge>
+              ) : null}
             </div>
             <p className="truncate text-xs text-muted-foreground">
               {subline}
@@ -606,7 +650,7 @@ export default function Sources(_props: SourcesProps) {
       width: '13rem',
       cell: (s) => {
         const meta = connectorFor(s);
-        const cat = categoryMeta(meta?.category);
+        const cat = categoryMeta(meta?.category || s.category);
         const CatIcon = cat.icon;
         return (
           <span className="inline-flex items-center gap-2">
@@ -679,12 +723,18 @@ export default function Sources(_props: SourcesProps) {
       header: 'Enabled',
       width: '6.5rem',
       cell: (s) => (
-        <Switch
-          checked={s.enabled !== false}
-          disabled={!canManage || busyId === s.id}
-          onCheckedChange={(next) => void toggleEnabled(s, next)}
-          aria-label={`Enable ${sourceLabel(s, connectorFor(s))}`}
-        />
+        <span className="inline-flex" title={s.demo ? DEMO_MANAGED_REASON : undefined}>
+          <Switch
+            checked={s.enabled !== false}
+            disabled={!canManage || busyId === s.id || s.demo}
+            onCheckedChange={(next) => void toggleEnabled(s, next)}
+            aria-label={
+              s.demo
+                ? `${DEMO_MANAGED_REASON}: ${sourceLabel(s, connectorFor(s))}`
+                : `Enable ${sourceLabel(s, connectorFor(s))}`
+            }
+          />
+        </span>
       ),
     },
     {
@@ -731,7 +781,7 @@ export default function Sources(_props: SourcesProps) {
       header: 'Protocol',
       sortable: true,
       width: '8rem',
-      cell: (s) => <span className="text-sm text-foreground">{humanizeToken(s.ingest_mode)}</span>,
+      cell: (s) => <span className="text-sm text-foreground">{sourceProtocol(s)}</span>,
     },
     {
       id: 'groups',
@@ -801,11 +851,18 @@ export default function Sources(_props: SourcesProps) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               {canBrowse(s) ? (
-                <DropdownMenuItem onSelect={() => setLogsSource(s)}>
-                  <Telescope className="size-4" aria-hidden /> Browse logs
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onSelect={() => setLogsSource(s)}>
+                    <Telescope className="size-4" aria-hidden /> Browse logs
+                  </DropdownMenuItem>
+                  {(canManage || s.demo) ? <DropdownMenuSeparator /> : null}
+                </>
               ) : null}
-              {canManage ? (
+              {s.demo ? (
+                <DropdownMenuItem disabled title={DEMO_MANAGED_REASON}>
+                  <ShieldCheck className="size-4" aria-hidden /> {DEMO_MANAGED_REASON}
+                </DropdownMenuItem>
+              ) : canManage ? (
                 <>
                   {!s.is_primary ? (
                     <DropdownMenuItem onSelect={() => setPendingPrimary(s)}>
@@ -871,7 +928,7 @@ export default function Sources(_props: SourcesProps) {
         />
       ) : null}
 
-      {firstRun ? (
+      {error ? null : firstRun ? (
         <EmptyState
           icon={Plug}
           title="Connect your first log source"
@@ -888,7 +945,11 @@ export default function Sources(_props: SourcesProps) {
               }
             >
               <span className="inline-flex items-center gap-1.5">
-                <Button onClick={() => setEditor({ mode: 'add' })}>
+                <Button
+                  onClick={() => setEditor({ mode: 'add' })}
+                  disabled={demoManaged}
+                  title={demoManaged ? DEMO_MANAGED_REASON : undefined}
+                >
                   <Plus className="h-4 w-4" aria-hidden /> New Log Source
                 </Button>
                 <HelpTip
@@ -962,7 +1023,7 @@ export default function Sources(_props: SourcesProps) {
               </PopoverContent>
             </Popover>
 
-            <div className="relative min-w-[16rem] flex-1">
+            <div className="relative min-w-0 basis-full sm:min-w-[16rem] sm:basis-auto sm:flex-1">
               <Search
                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 aria-hidden
@@ -987,7 +1048,11 @@ export default function Sources(_props: SourcesProps) {
             </div>
 
             <Can resource="sources" action="manage">
-              <Button onClick={() => setEditor({ mode: 'add' })}>
+              <Button
+                onClick={() => setEditor({ mode: 'add' })}
+                disabled={demoManaged}
+                title={demoManaged ? DEMO_MANAGED_REASON : undefined}
+              >
                 <Plus className="mr-1.5 size-4" aria-hidden /> New Log Source
               </Button>
             </Can>
@@ -1079,9 +1144,13 @@ export default function Sources(_props: SourcesProps) {
             onPageChange={setPage}
             onPageSizeChange={setPageSize}
             pageSizeOptions={[10, 25, 50, 100]}
-            selectable
+            selectable={canManage}
             selected={selected}
             onSelectedChange={setSelected}
+            isRowSelectable={(s) => !s.demo}
+            getRowSelectionDisabledReason={(s) =>
+              s.demo ? DEMO_MANAGED_REASON : undefined
+            }
             loading={loading}
             loadingRows={6}
             density="compact"

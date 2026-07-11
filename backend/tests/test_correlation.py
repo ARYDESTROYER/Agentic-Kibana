@@ -9,6 +9,7 @@ from app.config import (
 )
 from app.constants import CorrelationMode, EntityType
 from app.engine.correlation import (
+    CrossSourceComponentSeed,
     CrossSourceItem,
     cluster_cross_source_entities,
     correlate,
@@ -134,6 +135,92 @@ def test_cross_source_links_shared_ip_across_two_sources():
     assert g["entity_type"] == "ip"
     assert g["entity_value"] == "9.9.9.9"
     assert g["cross_source_cluster_id"]
+
+
+def test_cross_source_overlaps_collapse_into_one_deterministic_component():
+    """Overlapping eligible entity groups are one transitive component.
+
+    These four source identities mirror the live-demo topology.  A↔B share an IP,
+    B↔C share a host, and C↔D share a hash.  Applying those three groups one at a
+    time used to leave B/C with whichever singular group happened to be last.
+    """
+    prefs = _xsrc_prefs(enabled=True, time_window_seconds=300, min_sources=2)
+    base = 1_700_000_000_000
+    items = [
+        CrossSourceItem(
+            "case-splunk", "demo-splunk", base,
+            frozenset({(EntityType.IP, "203.0.113.44")}),
+        ),
+        CrossSourceItem(
+            "case-qradar", "demo-qradar", base + 1_000,
+            frozenset({
+                (EntityType.IP, "203.0.113.44"),
+                (EntityType.HOST, "checkout-web-01"),
+            }),
+        ),
+        CrossSourceItem(
+            "case-wazuh", "demo-wazuh", base + 2_000,
+            frozenset({
+                (EntityType.HOST, "checkout-web-01"),
+                (EntityType.FILE_HASH, "a" * 64),
+            }),
+        ),
+        CrossSourceItem(
+            "case-syslog", "demo-syslog", base + 3_000,
+            frozenset({(EntityType.FILE_HASH, "a" * 64)}),
+        ),
+        CrossSourceItem(
+            "case-unrelated", "demo-unrelated", base + 4_000,
+            frozenset({(EntityType.IP, "198.51.100.90")}),
+        ),
+    ]
+
+    expected_members = ["case-qradar", "case-splunk", "case-syslog", "case-wazuh"]
+    forward = cross_source_correlate(items, prefs)
+    reverse = cross_source_correlate(list(reversed(items)), prefs)
+
+    assert forward == reverse
+    assert len(forward) == 1
+    assert forward[0]["members"] == expected_members
+    assert "case-unrelated" not in forward[0]["members"]
+    # Repeating the pure pass is byte-for-byte idempotent, including its canonical id.
+    assert cross_source_correlate(items, prefs) == forward
+
+
+def test_cross_source_expansion_preserves_persisted_component_id():
+    """A new lower-sorting raw hash must not rename an existing component."""
+    prefs = _xsrc_prefs(enabled=True, time_window_seconds=300, min_sources=2)
+    base = 1_700_000_000_000
+    persisted_id = "f" * 32
+    bridge_host = "checkout-web-02"
+    raw_id = cross_source_signature(EntityType.HOST, bridge_host, base, 300)
+    assert raw_id < persisted_id  # lock the exact rename condition this regresses
+    items = [
+        CrossSourceItem(
+            "case-seeded", "demo-splunk", base,
+            frozenset({(EntityType.IP, "203.0.113.50")}),
+        ),
+        CrossSourceItem(
+            "case-bridge", "demo-qradar", base + 1_000,
+            frozenset({(EntityType.HOST, bridge_host)}),
+        ),
+        CrossSourceItem(
+            "case-new", "demo-wazuh", base + 2_000,
+            frozenset({(EntityType.HOST, bridge_host)}),
+        ),
+    ]
+    seed = CrossSourceComponentSeed(
+        persisted_id, frozenset({"case-seeded", "case-bridge"})
+    )
+
+    groups = cross_source_correlate(items, prefs, component_seeds=[seed])
+
+    assert len(groups) == 1
+    assert groups[0]["members"] == ["case-bridge", "case-new", "case-seeded"]
+    assert groups[0]["cross_source_cluster_id"] == persisted_id
+    assert cross_source_correlate(
+        list(reversed(items)), prefs, component_seeds=[seed]
+    ) == groups
 
 
 def test_cross_source_ignores_different_entities():

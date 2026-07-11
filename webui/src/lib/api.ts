@@ -36,6 +36,7 @@ import type {
   ConnectorsResponse,
   DashboardLayout,
   DemoConfig,
+  DemoIncidentResult,
   DemoStatus,
   EffectivePrefs,
   FeedbackStats,
@@ -1143,16 +1144,20 @@ export const api = {
   caseRationale: (id: string) =>
     request<CaseRationale>('GET', `cases/${encodeURIComponent(id)}/rationale`),
 
-  // ---- Demo mode (Round-2 Wave 5; admin-gated) ------------------------- //
+  // ---- Demo mode (Round-2 Wave 5; demo:manage mutations) --------------- //
   // First-class, REVERSIBLE tenant state. `enable` seeds the isolated in-memory
   // demo store (and starts the live-sim tick when mode==='live'); `reset` re-seeds
   // from the same seed; `disable` stops the tick + hard-deletes all demo data by
   // run_id and flips back to 'off' (the real state returns intact). Synthetic data
-  // is $0 (deterministic mock LLM). All four are settings:manage server-side.
+  // is $0 (deterministic mock LLM). Mutations require demo:manage server-side.
   demo: {
     status: () => request<DemoStatus>('GET', 'demo/status'),
     enable: (config?: DemoConfig) =>
       request<DemoStatus>('POST', 'demo/enable', { body: config ?? {} }),
+    incident: (scenarioId?: string) =>
+      request<DemoIncidentResult>('POST', 'demo/incident', {
+        body: scenarioId ? { scenario_id: scenarioId } : {},
+      }),
     reset: () => request<DemoStatus>('POST', 'demo/reset'),
     disable: () => request<DemoStatus>('POST', 'demo/disable'),
   },

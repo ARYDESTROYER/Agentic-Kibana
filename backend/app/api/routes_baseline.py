@@ -67,7 +67,7 @@ def _warmup_target(state: AppState) -> int:
     """``warmup_multiplier × seasonal_period`` — the observations a bucket needs to be
     WARM, derived from the live ``Preferences.baseline`` config (default weekly = 168 →
     3 × 168 = 504). Guarded so a malformed config can never divide-by-zero the gauge."""
-    cfg = getattr(state.prefs, "baseline", None)
+    cfg = getattr(state.execution_prefs, "baseline", None)
     seasonality = str(getattr(cfg, "seasonality", "hour_of_week"))
     period = SEASONAL_PERIODS.get(seasonality, 168)
     mult = int(getattr(cfg, "warmup_multiplier", 3) or 3)
@@ -98,7 +98,7 @@ async def baseline_stats(
     vs still warming, and the config knobs that drive the gauge (``warmup_target``,
     ``seasonality``). NEVER raises — a store glitch degrades to an empty overview.
     Read-only advisory (#3/#4)."""
-    cfg = getattr(state.prefs, "baseline", None)
+    cfg = getattr(state.execution_prefs, "baseline", None)
     target = _warmup_target(state)
     try:
         series = await state.baseline_store.snapshot()
@@ -152,7 +152,7 @@ async def get_baseline_config(
 ) -> dict[str, Any]:
     """Read ``Preferences.baseline`` (the anomaly-baseline policy). Read-only, no
     secrets — the baseline block carries only tuning knobs (#10)."""
-    cfg = getattr(state.prefs, "baseline", None) or BaselineConfig()
+    cfg = getattr(state.execution_prefs, "baseline", None) or BaselineConfig()
     return {"config": cfg.model_dump(mode="json")}
 
 
@@ -167,14 +167,15 @@ async def put_baseline_config(
     the live config (mirrors the ``PUT /api/settings`` contract). Additive + validated
     by the Pydantic model; never touches ``decide()`` (#3) — the baseline is a pure
     advisory producer. Audited (#2)."""
-    current = (getattr(state.prefs, "baseline", None) or BaselineConfig()).model_dump(mode="json")
+    active_prefs = state.execution_prefs
+    current = (getattr(active_prefs, "baseline", None) or BaselineConfig()).model_dump(mode="json")
     merged = _deep_update(current, body or {})
     try:
         cfg = BaselineConfig.model_validate(merged)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid baseline config: {exc}") from exc
-    prefs = state.prefs.model_copy(update={"baseline": cfg})
-    await state.update_prefs(prefs)
+    prefs = active_prefs.model_copy(update={"baseline": cfg})
+    await state.update_execution_prefs(prefs)
     await _audit(
         state, request, "baseline_config_update",
         f"enabled={cfg.enabled} seasonality={cfg.seasonality} "
@@ -200,7 +201,7 @@ async def baseline_for_signature(
     and its live percentiles read from the persisted t-digest. NEVER 404s — an unseen
     signature returns an empty-but-renderable shell. Read-only advisory (#3/#4)."""
     sig = (signature or "").strip()
-    cfg = getattr(state.prefs, "baseline", None)
+    cfg = getattr(state.execution_prefs, "baseline", None)
     target = _warmup_target(state)
     compression = float(getattr(cfg, "tdigest_compression", 100) or 100)
     try:

@@ -89,6 +89,7 @@ import { BarList, type BarListItem } from '@/soc/components/BarList';
 import { EmptyState } from '@/soc/components/EmptyState';
 import { LoadError } from '@/soc/components/LoadError';
 import { AutomationNudge } from './AutomationNudge';
+import { StartDemoButton } from '@/soc/components/StartDemoButton';
 import { usePosture } from '@/soc/hooks/usePosture';
 import { Card, CardContent } from '@/ui/card';
 import { Button } from '@/ui/button';
@@ -1147,9 +1148,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
               title="No triage activity yet"
               description="Once sources are connected and cases start flowing, your posture, risk index, and timing metrics will appear here."
               action={
-                navigate ? (
-                  <Button onClick={() => navigate('sources')}>Connect a source</Button>
-                ) : undefined
+                <>
+                  {navigate ? (
+                    <Button onClick={() => navigate('sources')}>Connect a source</Button>
+                  ) : null}
+                  <StartDemoButton onStarted={refreshAll} />
+                </>
               }
             />
           </CardContent>

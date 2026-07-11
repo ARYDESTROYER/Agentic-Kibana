@@ -1779,3 +1779,248 @@
 - Tests: Byte assertion passed: `CLAUDE.md == b'@AGENTS.md\n'`; `git diff --check` is the final staging gate.
 - Status: done.
 - Next: Commit this documentation-only follow-up locally without pushing.
+
+### 2026-07-11 17:34Z — Codex orchestrator — Multi-source live demo and UI quality pass started
+- Context: Build a high-fidelity, fully live synthetic demo spanning Splunk, QRadar, Wazuh, and RFC syslog inputs with occasional native/system alerts, while cleaning backend demo architecture and auditing the primary web UI for visual and interaction defects.
+- Did: Re-read the canonical handoff/rules, selected parallel backend/demo-research/UI-audit lanes, and reserved real browser verification plus complete backend/web regression gates. Demo data will be synthetic and labelled but wire-format-faithful; external projects may inform formats and scenario design without copying incompatible datasets or licenses.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Map the current demo/runtime and UI surfaces, research authoritative vendor formats plus permissively licensed generators/datasets, then implement in isolated backend/web tracks and iterate through live browser QA.
+
+### 2026-07-11 17:36Z — Codex UI quality worker — Primary web console audit started
+- Context: Audit and fix concrete visual, interaction, responsive, accessibility, and state defects in the standalone web UI for the multi-source live-demo release, without subjective redesign churn or new dependencies.
+- Did: Reserved AppShell/NavSidebar, Overview, Sources, Cases, demo surfaces, tables/sheets, narrow layouts, overflow, and loading/empty/error states for a standards-driven static and test pass; backend files are out of scope for this lane.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Read the complete handoff, canonical agent rules, and Round-5 design standard; inventory affected components/tests; then implement high-confidence fixes with focused regressions and the full web quality gates.
+
+### 2026-07-11 17:52Z — Codex UI quality worker — Responsive and state defects reproduced
+- Context: Complete the standards-driven audit before changing shared UI primitives and the primary operational routes.
+- Did: Read the full handoff, canonical rules, and 837-line design standard; traced AppShell/NavSidebar, Overview, Sources, Cases, DemoBanner, DataTable, dialog/sheet primitives, and their regression suites. Confirmed with the orchestrator's live 390×844 browser baseline that the desktop 240px sidebar remained in-flow on mobile, forcing a 733px document and ~150px dashboard; also isolated narrow pager/header/banner pressure, Sources' misleading table on an initial load failure, and a source-kind filter that dropped all results when optional health data was absent.
+- Tests: Static source/test inspection only at this milestone; implementation and focused Vitest are next.
+- Status: in-progress.
+- Next: Ship a real off-canvas mobile navigation, compact responsive command-bar controls, wrap-safe demo/table controls, honest Sources error/fallback behavior, and focused accessibility/regression coverage before the full web gates.
+
+### 2026-07-11 17:36Z — Codex demo research worker — Vendor-format and dataset research started
+- Context: Research authoritative current event contracts for Splunk HEC, IBM QRadar LEEF/syslog, Wazuh JSON alerts/archives, and RFC 5424/3164 syslog, plus permissively licensed SOC demo generators/datasets, without modifying product code.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved an evidence-backed design note under `docs/research/2026-07-live-demo/RESEARCH.md` and a licensing-safe synthetic-data recommendation.
+- Tests: Not run (research session start).
+- Status: in-progress.
+- Next: Verify vendor/RFC wire formats from primary documentation, assess upstream generator and dataset licenses, document representative contracts and concrete integration guidance, then close the journal entry.
+
+### 2026-07-11 17:36Z — Codex backend live-demo worker — Multi-source simulation implementation started
+- Context: Audit and extend the isolated, deterministic, $0 Demo Mode so it emits standards-faithful Splunk, QRadar LEEF, Wazuh JSON, and RFC syslog traffic with coherent cross-source incidents and occasional alerts.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved only backend demo modules/new demo helpers and focused backend tests, leaving shared API/config/state integration seams for the orchestrator.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Trace current demo generation/runtime/connector normalization, verify vendor wire contracts, implement the native-record simulator through production parsers, then run focused regressions.
+
+### 2026-07-11 17:47Z — Codex orchestrator — Real-browser baseline and demo integration gaps mapped
+- Context: Validate the current seeded demo as an operator actually sees it before integrating the four native source streams and responsive UI fixes.
+- Did: Started the authenticated one-command demo on isolated local ports and inspected Overview, Sources, and Logs through the in-app browser at 1280×720 and 390×844. Confirmed concrete defects: the mobile sidebar permanently consumes 240px and forces 733px document overflow; the banner/header collapse into an unusable sliver; the three demo source rows report generic/pull/idle while ingest coverage says 0 of 0; and unified Logs reports no browse-capable sources despite the demo source overlay. Routed the responsive fixes to the UI lane and the authoritative source/status/log seams to the backend lane.
+- Tests: Local backend/web startup, seeded demo enable, authenticated browser sign-in, desktop DOM/visual inspection, mobile viewport measurement, and Sources/Logs interaction all completed successfully; these are discovery checks, not final gates.
+- Status: in-progress (defects reproduced with measurements; fixes are underway).
+- Next: Integrate native runtime metadata/recent-event buffers into source overlay, health, coverage, and unified log browsing; then repeat the same desktop/mobile browser checks against live mode.
+
+### 2026-07-11 17:51Z — Codex orchestrator — Native-format research and live-first product contract integrated
+- Context: Turn the external research into an implementable, licensing-safe demo contract and make the supported one-command/OOBE path select the requested live experience by default.
+- Did: Accepted the authoritative Splunk HEC, QRadar LEEF/offense, Wazuh archive/alert JSON, and RFC syslog design note; documented the OSS alternatives and why no dependency or copied corpus is needed. Updated the demo script to default to `live` with an explicit `DEMO_MODE=seeded` escape hatch and validation, synchronized README/deploy/usage/quickstart/handoff/demo documentation, made the Settings demo picker live-first, made the first-run wizard request live mode explicitly, and changed the active summary/type comments to the four vendor identities.
+- Tests: `bash -n scripts/run-demo.sh`, the invalid-mode exit-2 contract, documentation `git diff --check`, and 10 focused DemoModeSection/Wizard Vitest assertions passed. The focused knob test still prints its pre-existing React `act()` warnings while passing; full web gates remain pending.
+- Status: in-progress (contract and entry points are live-first; simulator/API/UI integration is still underway).
+- Next: Land and review the four native adapters, expose source telemetry/log browsing/manual incident trigger through API/UI, then run the real live session and full matrices.
+
+### 2026-07-11 17:46Z — Codex demo research worker — Vendor-format and licensing research completed
+- Context: Close the research-only lane for a protocol-faithful live demo spanning Splunk-compatible HEC, IBM QRadar, Wazuh, and RFC syslog without copying vendor datasets or adding dependencies.
+- Did: Added `docs/research/2026-07-live-demo/RESEARCH.md` with primary-source citations, independently authored representative payloads, exact HEC/LEEF/offense/Wazuh/RFC contracts, OCSF projection guidance, a coherent cross-source scenario clock, stable-ID/dedup guidance, a bounded-volume design, and a nine-part test matrix. Assessed Eventgen (Apache-2.0), Flog (MIT), soc-faker (MIT), Splunk attack_data/Attack Range (Apache-2.0), OTRF Security-Datasets (MIT at repository level), Atomic Red Team (MIT), Caldera (Apache-2.0), OCSF (Apache-2.0), and Wazuh (GPL-2.0 covering its rules/decoders/data). Recommended project-owned synthetic fixtures and no new runtime dependency/corpus.
+- Tests: All 32 cited URLs resolved successfully; focused existing receiver/Wazuh contract selection passed **16/16** (`tests/test_receivers.py -k 'hec or leef or syslog' tests/test_connector_wazuh.py`); `git diff --check` passed before the journal close.
+- Status: done (research/docs only; no backend or webui product files changed, no corpus copied).
+- Next: Orchestrator/backend lane should implement native serializers through the existing HEC/`formats.py`/OCSF path, expose four honest source/feed identities, and guarantee a seeded cross-source incident within the first 20–30 seconds while retaining cooldown, isolation, stable IDs, and bounded memory.
+
+### 2026-07-11 17:47Z — Codex demo API integration worker — Four-source API truthfulness pass started
+- Context: Integrate the isolated live demo with the existing Sources, health, coverage, per-source browse, and unified-log API contracts while keeping all real-tenant/off-demo behavior byte-compatible.
+- Did: Read the complete handoff and canonical rules; reserved only `backend/app/state.py`, `backend/app/api/routes.py`, and focused API tests, with native generation/runtime owned by the parallel backend lane.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Align against the runtime's exact source-spec/stat/recent-event seams, trace the production endpoint behavior, implement a demo-only adapter with bounded provenance-safe records, then run focused regressions.
+
+### 2026-07-11 18:00Z — Codex demo API integration worker — Native source surfaces wired
+- Context: Close the reproduced Sources/coverage/Logs truthfulness gaps against the backend lane's new `DEMO_SOURCE_SPECS` and bounded adapter rings.
+- Did: Added demo-only state adapters for four vendor identities and runtime health; exposed non-secret protocol/format metadata; made coverage demo-scoped while active; and routed per-source plus unified log browsing through each native adapter with mandatory provenance. Added an isolated public-route regression suite covering off-demo compatibility, all four source contracts, bounded browsing, coverage, secret non-disclosure, and teardown persistence.
+- Tests: New API tests are 3/4 green; the remaining assertion correctly exposed a backend adapter defect where parsed events increment counters but retain `timestamp_millis=0`. Eight existing unified-log/health/coverage regressions passed, plus `py_compile` and `git diff --check`.
+- Status: in-progress (API behavior is implemented; waiting on the native lane's timestamp and manual-trigger seams before the final focused gate).
+- Next: Re-run after native parsing carries event time, then add the admin/audit/isolation route for `trigger_incident()` if that promised runtime seam lands.
+
+### 2026-07-11 18:02Z — Codex UI quality worker — Responsive and demo-console quality pass completed
+- Context: Close the primary web-console audit for the four-source live demo with concrete responsive, interaction, accessibility, and honest-state fixes; no subjective redesign or new dependencies.
+- Did: Replaced the mobile in-flow rail with a zero-footprint off-canvas navigation that focuses the semantic current route; compacted the persistent demo notice into a one-row mobile control without hiding Reset/Exit or the isolation statement; made headers, search/toolbars, time controls, dialogs, and table pagination narrow-safe; added retry-only initial error states and useful Demo CTAs to Overview/Cases; corrected source-kind fallback and native protocol display; and made synthetic Sources rows explicitly demo-managed/read-only while preserving Browse Logs. Added per-row DataTable selection gating and focused regressions for every changed contract.
+- Tests: Full web suite **1342/1342** across **240 files** passed; eslint **0 errors / 0 warnings**; `tsc --noEmit` passed; production Vite build passed (entry **284.76 kB**, gzip **83.98 kB**); focused responsive/demo/source tests **49/49** passed; `git diff --check` passed. The full suite still prints known non-failing Recharts zero-size/jsdom and legacy React `act()` stderr noted outside this scoped pass.
+- Status: done (UI lane complete; product files left in the shared worktree for orchestrator integration, with no commit from this worker).
+- Next: Orchestrator should repeat the 390×844 and desktop live-browser smoke against the integrated native runtime, especially Demo Sources → Browse Logs, banner height, current-route focus, and the no-horizontal-overflow measurement.
+
+### 2026-07-11 18:03Z — Codex UI final reviewer — Independent UI regression review started
+- Context: Independently review the completed web UI diff for correctness and UX regressions, with emphasis on responsive shell/navigation, demo-mode guards and labels, auth-aware demo entry, error/empty states, shared controls, and tests/types.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` in full; reserved a read-only review scope with no product-file edits and no security scan.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Inspect the exact webui diff and focused contracts, reproduce any plausible issues with targeted tests or static tracing, and report only evidence-backed P0/P1/P2 findings.
+
+### 2026-07-11 18:07Z — Codex backend live-demo worker — Native four-source engine milestone
+- Context: Replace the pre-normalized three-segment live ticker with a deterministic, isolated, $0 four-source simulator that proves the production parse/OCSF/ingest path and supports truthful health/log browsing.
+- Did: Added `engine/demo_sources.py` with Splunk HEC access+risk, QRadar LEEF 2.0+offense, Wazuh archives+alerts JSON, and RFC 5424/3164 renderers parsed by the existing receivers; exact untrusted wire evidence, stable IDs, bounded 500/source rings, static source metadata, health snapshots, reserved TEST-NET/.example fixtures, and native/provider storyline mappings. Reworked `DemoSimulator` for all-source benign flow, a guaranteed ~20–30s coherent incident, three native alerts plus a correlated syslog detection, deterministic cadence, and cooldown-aware manual `trigger_incident()`. Added idempotent retry coverage and updated legacy demo expectations to four sources.
+- Tests: Focused native/API/demo/isolation suite passed **68/68** after fixing two stale three-source assertions; direct end-to-end trigger produced 7 events across 4 sources, 3 native investigations, 1 TLSOC syslog detection, cross-source links, and no network/real-store access. `py_compile` passed.
+- Status: in-progress pending the full backend regression gate and final handoff review.
+- Next: Run the complete backend suite, fix any integration regression, journal exact totals, and hand the exported source/snapshot/trigger contracts to the orchestrator.
+
+### 2026-07-11 18:09Z — Codex UI final reviewer — Focused changed-surface checks green
+- Context: Validate the integrated UI changes without repeating the already-green full web gate.
+- Did: Reviewed the shell/navigation, demo controls, source management, table selection/pager, dashboard/case empty states, time picker, dialogs, types, and focused regression coverage; retained a read-only product scope.
+- Tests: Targeted Vitest run passed **52/52** across **7 files** (`AppShell`, DemoBanner, StartDemoButton, DataTable, TimeRangePicker, Sources, Wizard demo).
+- Status: in-progress; targeted checks are green, with a small set of edge cases still under evidence review.
+- Next: Calibrate the remaining findings to P0/P1/P2, capture exact file/line evidence, and hand fixes to the orchestrator.
+
+### 2026-07-11 18:11Z — Codex UI final reviewer — Independent UI review completed
+- Context: Complete the bounded, read-only regression review of the live-demo/UI quality diff and hand only evidence-backed issues to the orchestrator.
+- Did: Reported six P2 gaps with exact code paths and fixes: nested-route current focus in the mobile drawer; real ingest-mode normalization in the Pull/Push fallback; demo-overlay-derived guarding of Add Source during status hydration/failure; dynamic accessible state for the compact auto-refresh control; `demo:manage` gating for banner mutations; and active-demo suppression of the cold-start CTA. Confirmed the orchestrator will integrate all six. No product files were edited by this reviewer.
+- Tests: Focused Vitest remained green at **52/52** across **7 files**; no full-suite duplication and no security scan.
+- Status: done.
+- Next: Orchestrator implements the six fixes, adds the missing edge-case regressions, and includes them in the final web gates/live-browser smoke.
+
+### 2026-07-11 18:12Z — Codex demo API integration worker — Four-source API integration completed
+- Context: Finish the public API/state contract for the protocol-faithful live demo without allowing a demo session to read, mutate, or disclose real tenant source data.
+- Did: Updated `state.py` and `routes.py` so active Demo Mode exposes exactly Splunk, QRadar, Wazuh, and syslog identities with protocol/format metadata, truthful bounded activity counters, demo-scoped coverage, and per-source/unified logs with mandatory provenance. Real source configuration/health/logs are hidden while demo is active and restored unchanged on disable; direct real-source browse is blocked. Added persistent seeded/manual simulator control, additive `ticking` + `source_activity` status, and cooldown-aware `POST /api/demo/incident` under the dedicated `demo:manage` grant with actual-actor recording in the REAL append-only audit. Added `test_demo_api_integration.py` for off-demo parity, all four identities, health/coverage, bounded browsing, tenant-read prevention, secret non-disclosure, RBAC, trigger cooldown/audit, and teardown isolation.
+- Tests: Full backend suite passed **1864/1864** (one intentional `verify_certs=False` fixture warning). The final focused integration matrix passed **88/88**; `py_compile` and `git diff --check` passed.
+- Status: done.
+- Next: Orchestrator aligns all demo UI mutation gates to `demo:manage`, exercises the incident control/source telemetry in the live browser, then runs the combined web and release gates before committing.
+
+### 2026-07-11 18:13Z — Codex backend live-demo worker — Native four-source engine completed
+- Context: Close the backend implementation lane for a polished, standards-faithful, deterministic live demo spanning Splunk, QRadar, Wazuh, and syslog.
+- Did: Delivered the new native adapter/ring/search layer, four-source runtime, static scenario identities, exact raw wire evidence, reserved safety fixtures, guaranteed coherent incident, native-vs-system alert provenance, manual trigger/cooldown/single-flight behavior, and no-duplicate retry semantics. Addressed final review edge cases: Wazuh native severity/time, RFC 3164 coverage, import-order purity, concurrent trigger deduplication, seeded-mode monotonic cooldown expiry, manual-trigger schedule suppression, and a wall-clock first-incident clamp. `case_manager.decide()` and every real-store boundary remain untouched.
+- Tests: Full backend suite passed **1864/1864** with one intentional insecure-TLS fixture warning. Focused native/API/demo/isolation tests passed, `py_compile` passed, `git diff --check` passed, and a direct incident smoke produced exactly 7 events across 4 sources (3 source-native alerts + 1 correlated TLSOC syslog detection) with $0 isolated processing and cross-source relationships.
+- Status: done.
+- Next: Orchestrator owns the integrated browser smoke, final docs/count synchronization, complete web/release gates, and commit.
+
+### 2026-07-11 18:17Z — Codex demo product reviewer — Independent product-contract review started
+- Context: Independently review the integrated four-source live demo end to end: truthful native formats, backend/API/web typing and consumption, operator UX, and script/documentation agreement.
+- Did: Began a read-only product-file review with exact contract tracing; only this mandatory Journal entry is being written.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Read the canonical handoff/rules in full, trace source generation through API and UI, compare every user-facing document/script, and return prioritized evidence-backed findings without editing product files.
+
+### 2026-07-11 18:17Z — Codex backend final reviewer — Live-demo security and correctness review started
+- Context: Independently review the completed backend live-demo working-tree diff for isolation, concurrency/idempotency, standards fidelity, API/RBAC contracts, security invariants, and code quality.
+- Did: Read `docs/HANDOFF.md`, `AGENTS.md`, and the security diff-scan workflow; began a read-only product review. This mandatory Journal entry is the only file modification owned by this reviewer.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Resolve the exact backend diff, threat boundaries, and changed routes; exercise focused negative/concurrency tests and report only concrete findings.
+
+### 2026-07-11 18:19Z — Codex security preflight worker — Security diff-scan config preflight started
+- Context: Run only the Codex Security `security_diff_scan` configuration preflight for the repository; do not inspect product source.
+- Did: Read the active security diff-scan skill and its config-preflight procedure; reserved a read-only preflight scope apart from mandatory Journal entries.
+- Tests: Preflight not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Execute the prescribed helper once with verified runtime/tool-surface facts and report its compact result.
+
+### 2026-07-11 18:20Z — Codex security preflight worker — Security diff-scan config preflight completed
+- Context: Complete the bounded `security_diff_scan` capability check without inspecting product source or beginning scan phases.
+- Did: Ran the prescribed read-only `config_preflight.py` helper with the active native V2 four-slot runtime facts, delegation/goal-tool checks, and available Codex Security skills.
+- Tests: Helper exited **0** with overall status **ready**; all three evaluated capabilities passed, with no failed or unknown requirements.
+- Status: done.
+- Next: Parent reviewer may proceed; no required remediation exists. The helper exposed optional `features.goals = true` guidance, while the effective goals requirement already passes via the documented default.
+
+### 2026-07-11 18:21Z — Codex orchestrator — Four-source demo and UI review findings integrated
+- Context: Converge the native runtime, API isolation, presentation controls, and independent UI review before full release gates.
+- Did: Integrated all six UI review findings (nested mobile-route focus, real push-mode facets, source-overlay hydration guard, dynamic refresh accessibility name, demo-control RBAC, and active-run reseed prevention); added typed per-source activity plus a cooldown-aware Generate Incident UI; made every demo mutation use `demo:manage` and real-operator audit attribution; synchronized the supported docs/script; retained exact `@AGENTS.md` in `CLAUDE.md`.
+- Tests: Focused backend demo/native/API/priority matrix passed; production web build passed at **285.79 kB** entry (**84.39 kB gzip**); the corrected AppShell mobile regression passed **8/8**; shell/doc diff checks and `run-demo.sh` syntax passed. Full web/backend gates and live-browser QA remain pending.
+- Status: in-progress, with focused functional paths green.
+- Next: Receive the two independent final reviews, resolve concrete findings, run complete backend/web matrices, then exercise the actual live app at desktop/mobile widths before the final local commit.
+
+### 2026-07-11 18:38Z — Codex backend final reviewer — Adversarial demo findings validated
+- Context: Validate isolation, concurrency/idempotency, standards fidelity, and truthful API behavior in the live-demo backend diff.
+- Did: Reproduced real-provider egress for non-Anthropic model configs, concurrent lifecycle ticker leakage, the scheduled/manual incident race, partial demo initialization behind the 42→81 case-count jump, and real-source severity misclassification from the broad demo-id heuristic; confirmed QRadar `offense_type` violates IBM's numeric API contract and identified stale health reporting/RBAC/rate-cap gaps. Supplied exact regression-test shapes to the orchestrator; reviewed fixes as they landed and found the pending-prefs closure's custom-seed mismatch.
+- Tests: Before fixes, focused demo/API/native/priority suites were green; after the truthful-health change, the current focused matrix reached **48 passed / 1 expected stale-test failure** (`seeded` now correctly reports `static`, while the old test still expects `streaming`). Direct concurrency and provider-resolution reproductions are recorded in the review handoff.
+- Status: in-progress while the orchestrator closes the findings and updates regressions.
+- Next: Re-run focused isolation/concurrency/standard-contract tests on the stabilized tree, inspect the final fixes, and report any remaining blocker with exact file/line evidence.
+
+### 2026-07-11 18:40Z — Codex demo product reviewer — End-to-end demo product-contract review completed
+- Context: Independently assess the four-source demo as an operator-facing product: native-record truthfulness, coherent API/web contracts, UX consumption, safe local launch, and documentation agreement.
+- Did: Traced Splunk HEC, QRadar LEEF/offense, Wazuh archive/alert, and RFC 5424/3164 generation through production parsing, OCSF, correlation, API overlays, and UI. Confirmed a manual incident coherently produces 7 records, 3 native alerts, 1 TLSOC syslog detection, four related cases, and no duplicate case per source. Checked IBM's official offense schema (numeric `offense_type`) and Wazuh's official custom-rule guidance (IDs 100000–12000), then reported provider-isolation, severity, health, OpenAPI, native-schema, RBAC/docs, script-safety, response-consumption, and misleading-claim gaps as evidence emerged; reconciled concurrent fixes and left all product files untouched.
+- Tests: Controlled in-memory incident/tick smokes confirmed the four-source outcome and stable benign case count. Final focused command `pytest -q tests/test_demo_native_sources.py tests/test_demo_api_integration.py` produced **19 passed / 1 stale assertion failure**: seeded health now truthfully reports `state=static`, while the test still expects `streaming`. `git diff --check` passed. `webui/openapi.json` still lacks `/api/demo/incident` at handoff.
+- Status: done (read-only product review complete; required Journal entries are the only owned edits).
+- Next: Orchestrator should close the remaining source-schema/type/docs/script/OpenAPI gaps, update the stale health test, add all-provider no-egress coverage, and run the full backend/web plus desktop/mobile live-browser release gates.
+
+### 2026-07-11 18:40Z — Codex demo docs/safety worker — Documentation and launcher review started
+- Context: Align the four-source live-demo documentation and local launcher with the implemented RBAC, API, audit, cost-isolation, and incident-cadence contracts.
+- Did: Began a bounded review limited to demo-facing documentation, `scripts/run-demo.sh`, and this mandatory journal; product backend/webui code and generated contracts are out of scope.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Correct stale privilege/case-id/audit/rate/model claims, harden local bind/port behavior, then run a Bash syntax check and targeted documentation consistency scans.
+
+### 2026-07-11 18:53Z — Codex demo docs/safety worker — Demo contracts and local launcher hardened
+- Context: Complete the bounded documentation/script lane for the four-source live demo without touching backend, webui, or generated OpenAPI code.
+- Did: Synchronized the README, deployment/security/usage/handoff/quickstart/demo/research/changelog/roadmap text with the implemented `demo:read` + `demo:manage` grants, `/api/demo/incident`, mixed seeded/live case-ID formats, persistent lifecycle-audit visibility after exit, per-alert-interval `incident_rate`, and forced `$0` provider behavior. Narrowed isolation claims to generated workload data/RAG/usage/cursors/providers, documented that source controls and notification tests are guarded while other admin settings stay live. Hardened `run-demo.sh` with loopback-only binds, port validation/preflight, Vite `--strictPort`, accurate key guidance, and portable child supervision.
+- Tests: `bash -n scripts/run-demo.sh` passed; Vite help confirmed `--strictPort`; duplicate-port and occupied-port negative smokes passed; targeted `git diff --check` and stale-claim consistency scans passed.
+- Status: done.
+- Next: Orchestrator should retain these docs during generated-contract refresh, run the repository's strict MkDocs/full release gates, and include the launcher in the final live-browser smoke.
+
+### 2026-07-11 18:54Z — Codex correlation component worker — Cross-source symmetry fix started
+- Context: Repair the reproduced cross-source link overwrite where overlapping entity groups are applied sequentially and leave asymmetric related-case metadata.
+- Did: Read the canonical handoff/rules and traced the pure grouping plus ingest application path; scoped work to deterministic bounded connected-component collapse and focused regressions only.
+- Tests: Not run yet (session-start milestone).
+- Status: in-progress.
+- Next: Implement a canonical component merge, add transitive/reciprocal/isolation/idempotence coverage, and run the focused correlation/ingest tests.
+
+### 2026-07-11 19:02Z — Codex correlation component worker — Connected-component regression green
+- Context: Validate the reproduced A↔B, B↔C, C↔D overwrite and persisted-component bridge before broader ingest regression testing.
+- Did: Added deterministic union-find collapse for overlapping eligible groups plus bounded continuity seeds from resolved same-component IDs and reciprocal prior links; dangling/unresolved IDs are ignored and seed-only components are never resurrected.
+- Tests: The two new red-first regressions passed **2/2**; the complete correlation + ingest-customization files passed **38/38**; `py_compile` and focused `git diff --check` passed.
+- Status: in-progress pending adjacent poller/ingest verification.
+- Next: Run the broader non-demo ingest/poller matrix and hand the isolated diff to the orchestrator.
+
+### 2026-07-11 19:03Z — Codex correlation component worker — Cross-source symmetry fix completed
+- Context: Complete the bounded correlation repair with reciprocity, transitivity, isolation, deterministic ordering, and repeat-pass idempotence proven.
+- Did: Finalized changes in `engine/correlation.py` and `engine/ingest.py`; four demo-like cases now share one canonical component and exact reciprocal related sets, a preseeded A↔B component safely expands through B↔C↔D, unrelated/dangling cases stay out, and repeated reversed-order application performs zero writes.
+- Tests: Broader non-demo correlation/ingest/poller matrix passed **71/71** (one intentional insecure-TLS fixture warning). A larger matrix reached **96/98**; its two failures are concurrent demo-health/router work outside this scope (`streaming` vs `silent`, `/api/campaigns` 404), while every correlation/ingest/poller test passed. `py_compile` and `git diff --check` passed.
+- Status: done.
+- Next: Orchestrator integrates the shared working tree, resolves the two independent demo failures, and runs the final full backend gate.
+
+### 2026-07-11 19:06Z — Codex backend final reviewer — Isolation and active-surface review milestone
+- Context: Re-audit the stabilized demo backend after the initial provider/lifecycle/vendor fixes, including APIs not covered by the original focused matrix.
+- Did: Reproduced and reported live enrichment egress, disconnected demo capability/collaboration stores, unsafe real notification/RAG paths, HTTP-push data loss into the throwaway store, asymmetric overlapping cross-source links, and native demo query filters that ignored structured entity constraints. Reviewed the resulting active-store/prefs/source/EventBus fixes as they landed; independently confirmed the QRadar numeric offense contract, Wazuh local-rule range, four-source incident result, and the remaining standards discrepancy in real Wazuh priority scaling.
+- Tests: Focused demo/native/API/priority/receiver/capability/collaboration matrix reached **214/216**; the two failures precisely identified the now-fixed prime timestamp cadence and a test fixture that had not mounted auto-discovered feature routers. Correlation worker's repaired component path is separately green **71/71**; `compileall`, `git diff --check -- backend`, and the immutable `case_manager.py` diff check passed.
+- Status: in-progress while the orchestrator closes the structured-query filter and feature-router fixture gaps, then reruns final gates.
+- Next: Re-run the stabilized focused matrix, exercise real-ingest survival and demo-store teardown directly, inspect the connected-component integration, and report only any remaining backend blocker.
+
+### 2026-07-11 19:07Z — Codex correlation component worker — Persisted component-ID stability follow-up started
+- Context: Address final-review feedback that a newly overlapping raw entity hash could sort below, and therefore rename, an already persisted canonical component.
+- Did: Reopened the completed correlation lane and scoped a seed-first canonical-ID rule plus a forced lower-raw-ID expansion regression.
+- Tests: Not run yet (follow-up start).
+- Status: in-progress.
+- Next: Prefer the minimum valid persisted seed ID during expansion, retain deterministic raw-ID selection for new components, and rerun focused correlation/ingest tests.
+
+### 2026-07-11 19:07Z — Codex correlation component worker — Persisted component-ID stability completed
+- Context: Close the final canonical-ID stability edge case found during independent review.
+- Did: Changed component canonicalization so the minimum valid persisted seed ID wins whenever an old component expands or two old components merge; only a brand-new component chooses the minimum raw entity-group ID. Updated the integration story to use seeded same-user Splunk/QRadar cases and asserted the ID survives expansion through Wazuh/syslog; added a forced lower-raw-hash unit regression.
+- Tests: New stability/reciprocity regressions passed **3/3**; full correlation + ingest-customization files passed **39/39**; broader non-demo correlation/ingest/poller matrix passed **72/72** (one intentional insecure-TLS fixture warning). `py_compile` and focused `git diff --check` passed.
+- Status: done.
+- Next: Backend final reviewer reruns the combined demo/correlation matrix; orchestrator owns the final full-suite gate and commit.
+
+### 2026-07-11 19:19Z — Codex backend final reviewer — Backend blocker review completed
+- Context: Close the independent final pass after the demo-isolation, source-aware investigation, batch-ledger, vendor-fidelity, and connected-component fixes landed.
+- Did: Reviewed the final active-store/prefs/audit/EventBus boundaries, verified every native automated investigation receives its producing source adapter, checked demo batch config and job visibility remain sandboxed, and rechecked lifecycle, ingest, correlation, RBAC, receiver, and collaboration boundaries. No remaining P0/P1 backend release blocker was found in this bounded review; product files remained read-only.
+- Tests: Final combined backend matrix passed **314/314** across demo mode/native sources/API, priority, receivers, correlation, ingest customization/push/acknowledgement, source-aware investigation, batch/tuning/config routes, auth/RBAC, and collaboration. `python -m compileall -q app`, `git diff --check -- backend`, and the immutable `case_manager.py` diff check all passed.
+- Status: done.
+- Next: Orchestrator owns the repository-wide backend/web release gates, live-browser QA, final documentation/generated-contract checks, and local commit.
+
+### 2026-07-11 19:40Z — Codex orchestrator — Fresh four-source live-browser release QA completed
+- Context: Exercise the final candidate through the actual loopback launcher after all backend review fixes, including the last formatter/storyline and Cases-facet changes.
+- Did: Started `run-demo.sh` on fresh ports, signed in through the real UI, confirmed four healthy streaming source overlays, generated the SQL-injection-to-webshell incident, and inspected the resulting syslog case end to end. Verified the demo produced seven native records across Splunk, QRadar, Wazuh, and syslog, three vendor alerts plus one TLSOC detection, a consistent true-positive containment brief, a source-scoped `es_query`, the retained `SQL injection → webshell (loan API)` reasoning, monotonic noise-funnel counts, and truthful nonzero `Active` / `Needs human` facets. Browser console diagnostics contained only Vite/React development informational messages and no warning/error entries; all browser tabs and demo processes were closed cleanly.
+- Tests: Live desktop/dark route and modal checks passed on the final fresh server; prior responsive QA also covered 390×844 mobile navigation/banner/cards and the light theme.
+- Status: done.
+- Next: Run the complete offline backend/web release matrices and repository integrity checks.
+
+### 2026-07-11 19:47Z — Codex orchestrator — Final release gates green; work session complete
+- Context: Close the multi-agent backend cleanup, native live-demo, and UI quality pass only after complete automated and manual verification.
+- Did: Regenerated and verified the 190-path OpenAPI/TypeScript contract with zero drift; synchronized the canonical handoff/readme/roadmap/changelog/agent verification figures; confirmed `CLAUDE.md` is exactly one line (`@AGENTS.md`), no temporary `memory.md` exists, and `engine/case_manager.py` remains byte-identical in the working diff. Independent backend review found no remaining P0/P1 blocker.
+- Tests: Full backend suite passed with **1887/1887 tests**; full web suite passed with **1349/1349 tests across 240 files**; `npm run build` passed (entry **285.91 kB**, gzip **84.44 kB**, lazy motion **83.85 kB**), `npm run lint` passed with zero errors/warnings, `npm run gates` passed all five design gates, `npm run check:types` passed, `python -m compileall -q app` passed, canonical version validation passed at `3.0.0-alpha.1`, agnostic Compose validation passed, `mkdocs build --strict` passed, `git diff --check` passed, and launcher/browser QA passed.
+- Status: done; candidate is ready for the requested local commit. No push or release action was performed.
+- Next: User can run the demo/test candidate locally, then promote it through the chosen release channel after acceptance.

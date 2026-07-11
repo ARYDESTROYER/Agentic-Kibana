@@ -129,7 +129,7 @@ async def get_batch_config(
 ) -> dict[str, Any]:
     """Read ``Preferences.batch`` (the batch-inference cost policy). Read-only, no
     secrets — the batch block carries only routing knobs, never a credential (#10)."""
-    cfg = getattr(state.prefs, "batch", None) or BatchConfig()
+    cfg = getattr(state.execution_prefs, "batch", None) or BatchConfig()
     return {"config": cfg.model_dump(mode="json")}
 
 
@@ -141,18 +141,20 @@ async def put_batch_config(
     _=Depends(require_permission("models", "manage")),
 ) -> dict[str, Any]:
     """Update the ``batch`` policy, DEEP-MERGING only the keys the caller sent onto the
-    live config (mirrors the ``PUT /api/settings`` contract). Additive + validated by
+    active execution config (mirrors the ``PUT /api/settings`` contract). Additive + validated by
     the Pydantic model; #6 is untouched (this only toggles routing — the batch service
     still writes exactly one UsageDoc per resolved call). Never touches ``decide()`` (#3).
-    Audited (#2)."""
-    current = (getattr(state.prefs, "batch", None) or BatchConfig()).model_dump(mode="json")
+    During Demo Mode the edit remains in the throwaway sandbox; off demo it persists
+    normally. Audited (#2)."""
+    active_prefs = state.execution_prefs
+    current = (getattr(active_prefs, "batch", None) or BatchConfig()).model_dump(mode="json")
     merged = _deep_update(current, body or {})
     try:
         cfg = BatchConfig.model_validate(merged)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=422, detail=f"Invalid batch config: {exc}") from exc
-    prefs = state.prefs.model_copy(update={"batch": cfg})
-    await state.update_prefs(prefs)
+    prefs = active_prefs.model_copy(update={"batch": cfg})
+    await state.update_execution_prefs(prefs)
     await _audit(
         state, request, "batch_config_update",
         f"enabled={cfg.enabled} severity_floor={cfg.severity_floor} "
@@ -170,7 +172,10 @@ async def _audit(state: AppState, request: Request, event: str, detail: str) -> 
     Uses ``USER_MGMT`` with ``surface="batch"`` — constants are frozen this wave so no
     new ActionType is introduced (mirrors ``routes_campaigns._audit``). The actor is the
     authenticated username when present. NEVER raises."""
-    audit = getattr(state, "audit", None)
+    # The batch config follows the active execution sandbox.  Keep its audit beside
+    # that config: demo-only changes disappear with the demo stack; off demo this is
+    # the same durable append-only logger as before.
+    audit = getattr(state, "execution_audit", None)
     if audit is None:
         return
     try:

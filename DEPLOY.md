@@ -717,25 +717,44 @@ For a presenter-ready, copy-pasteable walkthrough that brings the suite up
 **[`DEMO.md`](DEMO.md)**. The fast path, from the repo root:
 
 ```bash
-./scripts/run-demo.sh        # backend :8088 (auth on) + web UI :5173
-# then open http://localhost:5173 and log in as  Admin / Admin@123
+./scripts/run-demo.sh        # loopback-only backend :8088 + web UI :5173 (auth on)
+# then open http://127.0.0.1:5173 and log in as  Admin / Admin@123
 ```
 
 ### 11.1 In-app Demo Mode (synthetic data, reversible, isolated)
 
 Separate from the local demo *script* above, any running deployment has an in-app
 **Demo Mode** — a reversible tenant state (`off` | `seeded` | `live`) that fills the
-console with realistic synthetic cases (a benign baseline + MITRE ATT&CK
-storylines) so you can show every surface without touching a real source. It is
-**admin-gated** and **fully isolated**: synthetic events flow through the real
-pipeline but all writes land in a **separate throwaway in-memory store** under a
-`run_id`, the LLM is a deterministic `$0` mock (cost tiles show "(simulated)"), and
-a write-guard prevents demo data from ever reaching the real state store. Enable /
-reset / disable it from **Settings → Experimental** or via `POST /api/demo/enable`,
+console with realistic synthetic cases, four protocol-compatible sources
+(Splunk HEC, QRadar LEEF/offenses, Wazuh JSON, and RFC syslog), a benign baseline,
+and cross-source MITRE ATT&CK storylines so you can show every surface without
+touching a real source. It is
+gated by dedicated permissions (`demo:read` for status; **`demo:manage`** for
+enable / incident / reset / disable). The default `super_admin` and `soc_manager`
+roles can manage it, and custom roles may be granted the capability. Demo-generated
+work is isolated: synthetic events flow through the real pipeline, but all generated
+workload writes land in a **separate throwaway in-memory store** under a `run_id`.
+The LLM is a deterministic `$0` mock (cost tiles show "(simulated)"), and
+a write-guard prevents demo data from ever reaching the real workload stores. A
+configured provider key is never called while Demo Mode is active. Enable /
+generate incident / reset / disable it from **Settings → Organization → Experimental
+& Demo** or via `POST /api/demo/enable`,
+`POST /api/demo/incident` (one cooldown-aware four-source storyline),
 `POST /api/demo/reset`, `POST /api/demo/disable` (hard-deletes all demo data by
 `run_id`), `GET /api/demo/status`. The real durable polling cursor (#4) is untouched
-throughout, and disabling Demo Mode is a single reversible flip. See `SECURITY.md`
+throughout, and disabling Demo Mode is a single reversible flip. The local
+`./scripts/run-demo.sh` command enables `live` mode by default; set
+`DEMO_MODE=seeded` for a static walkthrough. See `SECURITY.md`
 for the isolation guarantees.
+
+In live mode, `incident_rate` is a probability from 0 to 1 evaluated **once per
+`alert_interval_seconds`**; it is not a per-event or per-tick rate. The guaranteed
+first storyline and manual incident endpoint are independent of that roll. Demo
+lifecycle actions intentionally persist in the real append-only audit trail (visible
+through the Audit page after exit). The Sources UI disables real connector controls
+and outbound notification tests are refused, but other organization/admin settings
+remain live and should not be edited during a presentation unless the change is
+intentional.
 
 ---
 

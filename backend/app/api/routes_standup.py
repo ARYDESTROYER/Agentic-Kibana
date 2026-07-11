@@ -112,7 +112,7 @@ async def standup_report(
     ALWAYS HTTP 200 with a renderable payload (mirrors ``/api/standup``): a clear
     ``{enabled: false}`` shape when standup is disabled, else the deterministic shift
     snapshot. Never 500s — a degraded case/handoff store yields empty sections."""
-    prefs = state.prefs
+    prefs = state.execution_prefs
     window = window_hours or prefs.standup.window_hours
     if not prefs.standup.enabled:
         return {

@@ -1494,13 +1494,16 @@ class DemoConfig(BaseModel):
     * ``off``     — disabled (the default). Real cases/metrics/cost are served.
     * ``seeded``  — a static synthetic spread (a backdated history of finished cases
                     + a benign baseline) is pre-generated at enable; no live ticking.
-    * ``live``    — ``seeded`` PLUS a background ``DemoSimulator`` that emits a benign
-                    Poisson batch (diurnal-scaled) each jittered tick and low-prob
-                    ignites a MITRE ATT&CK storyline through the demo pipeline.
+    * ``live``    — ``seeded`` PLUS a background ``DemoSimulator`` that emits a bounded,
+                    diurnal-scaled batch each jittered tick. At each source-alert
+                    interval, ``incident_rate`` is the chance of a coherent ATT&CK
+                    storyline; otherwise one low-confidence native alert is emitted.
 
-    ``run_id`` is stamped at enable and tags EVERY demo row (case_id ``demo-…`` /
-    ``demo=True``), so disable can hard-delete demo data by ``run_id`` and the real
-    state returns intact. The knobs are sane-defaulted; all are operator-tunable.
+    ``run_id`` is stamped at enable and every case is tagged ``demo`` plus a run tag
+    inside the physically separate store, so disable can drop the whole stack and the
+    real state returns intact. Public API inputs and runtime work are bounded. The
+    persisted timing/rate fields intentionally retain their legacy open upper range
+    so an older saved Preferences document remains loadable after upgrade.
     """
 
     mode: Literal["off", "seeded", "live"] = "off"
@@ -1511,16 +1514,15 @@ class DemoConfig(BaseModel):
     tick_jitter: float = Field(default=0.3, ge=0.0, le=1.0)
     incident_rate: float = Field(default=0.05, ge=0.0, le=1.0)
 
-    # --- Demo overhaul: 3-source rates + pre-seed + forced capabilities (additive,
+    # --- Demo overhaul: four-source rates + pre-seed + forced capabilities (additive,
     # defaulted, NO migration — an absent block deserialises byte-identically). ---
     # The SIEM segment is a low-volume ALERT feed: one benign alert (or, with
     # probability ``incident_rate``, one storyline ignition) every ~2 min. The two
-    # knobs COMPOSE: ``alert_interval_seconds`` is the SIEM tick cadence and
-    # ``incident_rate`` is the per-tick chance of an attack story vs. a benign alert.
+    # knobs COMPOSE: ``alert_interval_seconds`` is the source-alert cadence and
+    # ``incident_rate`` is the chance at each alert interval of a storyline instead.
     alert_interval_seconds: float = Field(default=120.0, gt=0.0)
-    # A LOGICAL benign-event throughput target (events/sec) for the XDR+EDR EVENT
-    # segments COMBINED. It is NOT emitted as N individual RawEvent objects/sec — the
-    # DemoSimulator materialises them transiently, feeds them straight into the
+    # A logical benign-event throughput target (events/sec) across all four sources.
+    # DemoSimulator materialises a bounded batch transiently, feeds it straight into the
     # cheap-first ``event_detection.funnel()`` (which pre-aggregates into bounded
     # per-(signature, bucket) sketches) and drops the raw list, so memory is bounded
     # by the sketch size, never by retained events.

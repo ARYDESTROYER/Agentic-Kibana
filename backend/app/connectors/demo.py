@@ -77,8 +77,8 @@ class DemoPullConnector(PullConnector):
     def segment_manifest(cls, segment: str | None) -> ConnectorManifest:
         """The manifest for a given segment (or the generic demo manifest when None).
 
-        Used by the connector registry (generic) and by the read-time demo sources
-        overlay to describe each of the three demo sources on the Sources page."""
+        Used by the connector registry for the legacy seeded-history connector. The
+        live Demo Mode source overlay is defined by ``engine.demo_sources`` instead."""
         from ..constants import IngestMode
 
         display = (

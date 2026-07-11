@@ -8,17 +8,17 @@
  * the live durable cursor / stores / policy are untouched. Exiting hard-deletes the
  * synthetic data by run_id and restores the real state intact.
  *
- * This is a clearly-labelled EXPERIMENTAL control, gated by settings:manage. All
+ * This is a clearly-labelled EXPERIMENTAL control, gated by demo:manage. All
  * mutations refresh the shared <DemoProvider> so the shell banner / SAMPLE badges /
  * "(simulated)" cost suffix / muted health chip flip with it. Hooks live above any
  * early return (React #310). No secrets; synthetic data is a backend concern.
  */
 import * as React from 'react';
-import { FlaskConical, Play, RotateCcw } from 'lucide-react';
+import { FlaskConical, Play, RotateCcw, Siren } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api } from '@/lib/api';
-import type { DemoConfig, DemoMode } from '@/lib/types';
+import type { DemoConfig, DemoIncidentResult, DemoMode } from '@/lib/types';
 import { cn } from '@/lib/cn';
 import { useDemo } from '@/soc/demo';
 
@@ -38,7 +38,7 @@ const MODES: Array<{ value: Exclude<DemoMode, 'off'>; label: string; help: strin
   {
     value: 'live',
     label: 'Live',
-    help: 'Seed the history AND simulate new incidents on a tick, so the console feels alive.',
+    help: 'Recommended: seed history and continuously stream four native-format sources.',
   },
 ];
 
@@ -47,14 +47,15 @@ export function DemoModeSection() {
 
   // Draft knobs for ARMING demo (only consumed by enable()). Seed defaults to the
   // current run's seed when active so a Reset/re-enable is reproducible.
-  const [mode, setMode] = React.useState<Exclude<DemoMode, 'off'>>('seeded');
+  const [mode, setMode] = React.useState<Exclude<DemoMode, 'off'>>('live');
   const [seed, setSeed] = React.useState<number>(1337);
   const [historyDays, setHistoryDays] = React.useState<number>(14);
   const [tickSeconds, setTickSeconds] = React.useState<number>(10);
   const [incidentRatePct, setIncidentRatePct] = React.useState<number>(5);
   const [alertIntervalSeconds, setAlertIntervalSeconds] = React.useState<number>(120);
   const [eventRatePerSecond, setEventRatePerSecond] = React.useState<number>(40);
-  const [busy, setBusy] = React.useState<'enable' | 'reset' | 'disable' | null>(null);
+  const [busy, setBusy] = React.useState<'enable' | 'incident' | 'reset' | 'disable' | null>(null);
+  const [lastIncident, setLastIncident] = React.useState<DemoIncidentResult | null>(null);
 
   // When the live status changes (e.g. another tab armed it), reflect the seed so
   // the form mirrors the active run. Effect is unconditional (above any return).
@@ -89,6 +90,7 @@ export function DemoModeSection() {
     setBusy('enable');
     try {
       await api.demo.enable(config);
+      setLastIncident(null);
       await refresh();
       toast.success(`Demo mode enabled (${mode}).`);
     } catch (e) {
@@ -105,6 +107,7 @@ export function DemoModeSection() {
     setBusy('reset');
     try {
       await api.demo.reset();
+      setLastIncident(null);
       await refresh();
       toast.success('Demo data re-seeded from the same seed.');
     } catch (e) {
@@ -114,10 +117,36 @@ export function DemoModeSection() {
     }
   }, [refresh]);
 
+  const onIncident = React.useCallback(async () => {
+    setBusy('incident');
+    try {
+      const result = await api.demo.incident();
+      setLastIncident(result);
+      await refresh();
+      if (result.triggered) {
+        toast.success(
+          `${result.scenario_name || 'Synthetic incident'}: ${result.native_alerts} native alert${result.native_alerts === 1 ? '' : 's'} + ${result.system_detections} TLSOC detection${result.system_detections === 1 ? '' : 's'}.`,
+        );
+      } else {
+        const wait = Math.max(1, Math.ceil(result.cooldown_seconds || 0));
+        toast.warning(
+          result.cooldown_seconds > 0
+            ? `Incident generator is cooling down — retry in ${wait}s.`
+            : result.reason || 'No incident was generated.',
+        );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not generate a demo incident.');
+    } finally {
+      setBusy(null);
+    }
+  }, [refresh]);
+
   const onDisable = React.useCallback(async () => {
     setBusy('disable');
     try {
       await api.demo.disable();
+      setLastIncident(null);
       await refresh();
       toast.success('Demo mode exited — synthetic data cleared, real state restored.');
     } catch (e) {
@@ -138,7 +167,9 @@ export function DemoModeSection() {
           </Badge>
           {active ? (
             <Badge variant="warning" className="gap-1">
-              {status.mode === 'live' ? 'Live' : 'Seeded'} · active
+              {status.mode === 'live'
+                ? `Live · ${status.simulator_running ? 'streaming' : 'stopped'}`
+                : 'Seeded · ready'}
             </Badge>
           ) : null}
         </div>
@@ -158,12 +189,13 @@ export function DemoModeSection() {
           <strong className="font-semibold text-foreground">costs nothing</strong> and the
           deterministic close/escalate logic runs against a{' '}
           <strong className="font-semibold text-foreground">sandboxed policy copy</strong> —
-          your live policy is never changed. While demo is on, your real cases are{' '}
-          <strong className="font-semibold text-foreground">hidden</strong> and real-write
-          actions are disabled. Exiting{' '}
+          your live policy is never changed by demo processing. While demo is on, your real
+          cases are <strong className="font-semibold text-foreground">hidden</strong>, source
+          controls are read-only, and outbound notification tests are refused. Other
+          organization settings remain live, so leave them unchanged while presenting. Exiting{' '}
           <strong className="font-semibold text-foreground">hard-deletes</strong> the synthetic
-          data and restores your real state exactly as it was. The durable poll cursor and your
-          real stores are never touched.
+          data and restores your real state exactly as it was. Demo-generated workload never
+          touches the durable poll cursor or your real case stores.
         </AlertDescription>
       </Alert>
 
@@ -193,6 +225,7 @@ export function DemoModeSection() {
                   >
                     <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                       <span
+                        role="img"
                         className={cn(
                           'inline-block h-2 w-2 rounded-full',
                           selected ? 'bg-primary' : 'bg-muted-foreground/40',
@@ -227,6 +260,7 @@ export function DemoModeSection() {
               unit="s"
               value={tickSeconds}
               min={1}
+              max={60}
               onChange={setTickSeconds}
               description="Live mode only — how often a new synthetic batch arrives."
             />
@@ -235,16 +269,18 @@ export function DemoModeSection() {
               unit="s"
               value={alertIntervalSeconds}
               min={1}
+              max={3600}
               onChange={setAlertIntervalSeconds}
-              description="SIEM ALERT feed cadence — seconds between alerts (~120 = 1 / 2 min)."
+              description="Source-native alert cadence across Splunk, QRadar, and Wazuh."
             />
             <NumberField
               label="Event rate"
               unit="/s"
               value={eventRatePerSecond}
               min={0}
+              max={200}
               onChange={setEventRatePerSecond}
-              description="XDR+EDR EVENT feeds — logical events/sec (pre-aggregated, bounded)."
+              description="Logical four-source throughput; recent raw buffers stay bounded."
             />
             <NumberField
               label="Seed"
@@ -261,7 +297,7 @@ export function DemoModeSection() {
               max={50}
               step={1}
               formatValue={(v) => `${v}%`}
-              description="Per-tick chance of igniting an attack storyline (live mode)."
+              description="Chance at each alert interval of emitting a storyline instead."
             />
           </div>
 
@@ -281,7 +317,7 @@ export function DemoModeSection() {
               value={
                 Array.isArray(status.sources) && status.sources.length > 0
                   ? String(status.sources.length)
-                  : '3'
+                  : '4'
               }
             />
             <SummaryTile
@@ -319,7 +355,69 @@ export function DemoModeSection() {
             </div>
           </div>
 
+          {Array.isArray(status.source_activity) && status.source_activity.length > 0 ? (
+            <div>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Native source activity
+              </Label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {status.source_activity.map((source) => (
+                  <div
+                    key={source.source_id}
+                    className="min-w-0 rounded-md border border-border bg-surface px-4 py-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-semibold text-foreground">
+                        {source.display_name || source.source_id}
+                      </p>
+                      <span
+                        className={cn(
+                          'h-2 w-2 shrink-0 rounded-full',
+                          source.healthy === false ? 'bg-critical' : 'bg-success',
+                        )}
+                        title={source.healthy === false ? 'Degraded' : 'Healthy'}
+                        aria-label={source.healthy === false ? 'Degraded' : 'Healthy'}
+                      />
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {source.protocol || source.wire_format || source.source_type || 'Native feed'}
+                    </p>
+                    <p className="mt-2 text-xs tabular-nums text-muted-foreground">
+                      {source.events_total ?? 0} events · {source.alerts_total ?? 0} native alert{source.alerts_total === 1 ? '' : 's'}
+                      {(source.system_detections_total ?? 0) > 0
+                        ? ` · ${source.system_detections_total} TLSOC detection${source.system_detections_total === 1 ? '' : 's'}`
+                        : ''}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {lastIncident ? (
+            <Alert variant={lastIncident.triggered ? 'default' : 'warning'}>
+              <Siren className="h-4 w-4" aria-hidden />
+              <AlertTitle>
+                {lastIncident.triggered
+                  ? lastIncident.scenario_name || 'Synthetic incident generated'
+                  : 'Incident not generated'}
+              </AlertTitle>
+              <AlertDescription>
+                {lastIncident.triggered
+                  ? `${lastIncident.events} native records across four sources produced ${lastIncident.native_alerts} vendor alert${lastIncident.native_alerts === 1 ? '' : 's'} and ${lastIncident.system_detections} TLSOC detection${lastIncident.system_detections === 1 ? '' : 's'}.`
+                  : lastIncident.reason}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={() => void onIncident()} disabled={busy !== null}>
+              <Siren
+                className={cn('h-4 w-4', busy === 'incident' && 'animate-pulse')}
+                aria-hidden
+              />
+              {busy === 'incident' ? 'Generating…' : 'Generate incident'}
+            </Button>
             <Button variant="outline" onClick={() => void onReset()} disabled={busy !== null}>
               <RotateCcw
                 className={cn('h-4 w-4', busy === 'reset' && 'animate-spin')}

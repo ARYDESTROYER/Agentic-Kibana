@@ -18,6 +18,7 @@ vi.mock('@/lib/api', () => ({
   api: {
     demo: {
       enable: (...a: unknown[]) => demoEnableMock(...a),
+      incident: vi.fn().mockResolvedValue({ triggered: true }),
       status: vi.fn().mockResolvedValue({ mode: 'off', active: false }),
       reset: vi.fn().mockResolvedValue({}),
       disable: vi.fn().mockResolvedValue({}),
@@ -81,6 +82,7 @@ describe('DemoModeSection knobs (Round-6 #31/#32)', () => {
     // The enable body carries the two new rate fields.
     await vi.waitFor(() => expect(demoEnableMock).toHaveBeenCalledTimes(1));
     const body = demoEnableMock.mock.calls[0][0];
+    expect(body.mode).toBe('live');
     expect(body.alert_interval_seconds).toBe(90);
     expect(body.event_rate_per_second).toBe(25);
   });

@@ -1457,18 +1457,24 @@ curl -s -b cookies.txt -X POST localhost:8088/api/auth/refresh \
 
 Demo Mode is a first-class, **reversible, fully isolated** tenant state (not a
 fork). Synthetic OCSF events flow through the **real** correlate → risk → decide
-pipeline, but every write lands in a **separate in-memory store** with a
-**deterministic mock LLM**, so the demo is **$0**, leaves your real data untouched,
-and is removed with one flip. Enable it from **Settings → Organization →
-Experimental & Demo** (admin-only). All demo cases are tagged `demo` and
-id-prefixed `demo-…`.
+pipeline, but every demo-generated workload write lands in a **separate in-memory
+store** with a **deterministic mock LLM**, so the demo is **$0** and leaves your real
+data untouched,
+and is removed with one flip. (Lifecycle audit records are intentionally persistent;
+other admin settings remain live.) Enable it from **Settings → Organization →
+Experimental & Demo**. Status requires `demo:read`; mutations require
+`demo:manage`, granted by default to `super_admin` and `soc_manager` (and available
+to explicitly configured custom roles). Every demo case is tagged `demo` plus a
+run tag. Seeded cases use `demo-…` IDs; live pipeline cases may instead use the
+configured case-number format, so an ID prefix is not the isolation boundary.
 
 | Action | Endpoint | What it does |
 |---|---|---|
-| Status | `GET /api/demo/status` | `{mode, run_id, history_days, tick_seconds, …}` |
-| Enable | `POST /api/demo/enable` | seed synthetic data; start the simulator (admin) |
-| Reset | `POST /api/demo/reset` | delete this run + re-seed from the same seed (admin) |
-| Disable / clear | `POST /api/demo/disable` | stop the tick + **hard-delete** by `run_id` (admin) |
+| Status | `GET /api/demo/status` | `{mode, run_id, history_days, tick_seconds, …}` (`demo:read`) |
+| Enable | `POST /api/demo/enable` | seed synthetic data; start the simulator (`demo:manage`) |
+| Generate incident | `POST /api/demo/incident` | emit one cooldown-aware four-source storyline (`demo:manage`) |
+| Reset | `POST /api/demo/reset` | delete this run + re-seed from the same seed (`demo:manage`) |
+| Disable / clear | `POST /api/demo/disable` | stop the tick + **hard-delete** demo data by `run_id` (`demo:manage`) |
 
 `mode` is `off` | `seeded` | `live`:
 
@@ -1478,26 +1484,50 @@ id-prefixed `demo-…`.
   (phishing → cred-access → lateral → exfil, RDP brute force, SQLi → webshell,
   impossible-travel, ransomware beacon, insider staging).
 - **`live`** additionally runs a jittered background **simulator** (`tick_seconds` ≈
-  10, `tick_jitter`, `incident_rate`) that streams new benign batches and
-  occasionally ignites a storyline, so cases appear in real time.
+  10, `tick_jitter`, `incident_rate`) with four independently visible,
+  protocol-compatible sources. It guarantees an initial cross-source storyline,
+  then emits bounded benign traffic and scheduled detections so the live tail,
+  source health, correlation, and investigations keep moving during a demo.
+  `incident_rate` is a 0–1 probability evaluated once whenever
+  `alert_interval_seconds` elapses; it is **not** a per-event or per-tick rate. The
+  guaranteed first incident and a manual incident request do not consume that roll.
+
+| Synthetic source | Native records exercised | Alert behavior |
+|---|---|---|
+| Splunk-compatible | HEC event envelopes (`access_combined`) | HEC Enterprise Security-style risk finding |
+| QRadar-compatible | RFC-syslog-carried LEEF 2.0 | `/api/siem/offenses`-shaped finding |
+| Wazuh-compatible | `archives.json`-shaped records | `alerts.json`-shaped record with a synthetic rule |
+| Syslog | RFC 5424 plus occasional RFC 3164 | TLSOC raises a correlated detection; no vendor alert is invented |
+
+These records are independently authored synthetic data, labelled protocol-compatible,
+and passed through the same receiver/parser → OCSF boundary as production input. The
+full native record remains untrusted evidence. Per-source recent-event buffers are
+bounded; the higher event-rate number is logical volume handled by aggregate sketches.
 
 ```bash
-curl -s localhost:8088/api/demo/status
+curl -s -b cookies.txt localhost:8088/api/demo/status
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/enable \
   -H 'content-type: application/json' \
-  -d '{"mode":"live","seed":1337,"history_days":14,"tick_seconds":10,"incident_rate":0.05}'
+  -d '{"mode":"live","seed":1337,"history_days":14,"tick_seconds":10,"alert_interval_seconds":120,"incident_rate":0.05}'
+curl -s -b cookies.txt -X POST localhost:8088/api/demo/incident  # coherent 4-source attack
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/reset      # re-seed, same seed
 curl -s -b cookies.txt -X POST localhost:8088/api/demo/disable    # exit + hard-delete
 ```
 
 **While demo is engaged** the app shell shows an amber **Demo banner** with *Reset*
 and *Exit & clear*; demo rows carry a `SAMPLE` badge; cost tiles read "(simulated)";
-and a guard disables real-write actions (real connector runs, **real notifications**,
-live-policy changes). The deterministic Case Manager is never touched — FALSE_POSITIVE
-still runs through the **real** `decide()` (against a sandboxed policy copy, proving
-the gate) and `NEEDS_HUMAN` stays open as the HITL showcase. The real polling cursor
-is left untouched, and `POST /api/demo/disable` flips the state back to `off` and
-hard-deletes every demo case / audit / usage / event by `run_id`.
+the Sources UI disables real connector controls; and outbound notification tests are
+refused. Other organization/admin settings remain live and should be left unchanged
+during a presentation. FALSE_POSITIVE still runs through the **real** `decide()`
+against a sandboxed policy copy, and `NEEDS_HUMAN` stays open as the HITL showcase.
+The real polling cursor is left untouched, and `POST /api/demo/disable` flips the
+state back to `off` and hard-deletes every demo case / audit / usage / event by
+`run_id`.
+
+Demo lifecycle mutations are the deliberate exception to throwaway writes: enable,
+manual incident, reset, and disable append operator-attributed records to the **real**
+audit log. `/api/audit` shows the demo-scoped trail while Demo Mode is active; exit
+the demo before using the Audit page to view those persistent lifecycle records.
 
 **Tiered reset.** Beyond Demo Mode, **Settings → Organization → Danger zone** offers
 an admin-gated, type-to-confirm **tiered reset** (cases / sources / factory) via

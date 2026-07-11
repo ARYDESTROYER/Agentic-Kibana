@@ -14,6 +14,7 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 const {
   listConnectorsMock,
@@ -21,12 +22,14 @@ const {
   sourcesHealthMock,
   sourcesCoverageMock,
   upsertSourceMock,
+  demoStatusMock,
 } = vi.hoisted(() => ({
   listConnectorsMock: vi.fn(),
   listSourcesMock: vi.fn(),
   sourcesHealthMock: vi.fn(),
   sourcesCoverageMock: vi.fn(),
   upsertSourceMock: vi.fn(),
+  demoStatusMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api', () => {
@@ -34,6 +37,7 @@ vi.mock('@/lib/api', () => {
   return {
     setUnauthorizedHandler: vi.fn(),
     setReauthHandler: vi.fn(),
+    ApiError: class ApiError extends Error {},
     api: {
       auth: { me: ok({ authenticated: false, auth_enabled: false, user: null }) },
       roles: { get: ok({ roles: [], default_role: '', rbac_enabled: false, matrix: {} }) },
@@ -51,7 +55,7 @@ vi.mock('@/lib/api', () => {
         tables: { put: ok({}) },
       },
       views: { list: ok({ views: [], count: 0 }) },
-      demo: { status: ok({ mode: 'off', active: false, run_id: null }) },
+      demo: { status: demoStatusMock },
       listConnectors: listConnectorsMock,
       listSources: listSourcesMock,
       sourcesHealth: sourcesHealthMock,
@@ -123,7 +127,7 @@ const SOURCES: SourceInstance[] = [
     display_name: 'Webhook Ingest',
     enabled: false,
     is_primary: false,
-    ingest_mode: 'push',
+    ingest_mode: 'push_http',
     config: {},
     configured_secrets: [],
   },
@@ -148,13 +152,39 @@ const HEALTH: SourceHealthRow[] = [
     source_type: 'webhook',
     enabled: false,
     is_primary: false,
-    ingest_mode: 'push',
+    ingest_mode: 'push_http',
     kind: 'push',
     can_browse: true,
     buffer_depth: 3,
     last_poll_millis: 0,
   },
 ];
+
+const DEMO_SPLUNK: SourceInstance = {
+  id: 'demo-splunk',
+  source_type: 'splunk',
+  display_name: 'Splunk Enterprise (Demo)',
+  enabled: true,
+  is_primary: false,
+  ingest_mode: 'push_http',
+  config: { protocol: 'HEC' },
+  configured_secrets: [],
+  demo: true,
+};
+
+const DEMO_SPLUNK_HEALTH: SourceHealthRow = {
+  source_id: 'demo-splunk',
+  source_name: 'Splunk Enterprise (Demo)',
+  source_type: 'splunk',
+  enabled: true,
+  is_primary: false,
+  ingest_mode: 'push_http',
+  kind: 'push',
+  can_browse: true,
+  buffer_depth: 6,
+  last_poll_millis: Date.now() - 10_000,
+  demo: true,
+};
 
 /** The aggregate coverage rollup (GET /api/sources/coverage) — 1 enabled of 2 configured. */
 const COVERAGE: SourceCoverage = {
@@ -230,6 +260,7 @@ describe('Log Sources page (WS-C)', () => {
     sourcesHealthMock.mockReset().mockResolvedValue({ sources: HEALTH });
     sourcesCoverageMock.mockReset().mockResolvedValue(COVERAGE);
     upsertSourceMock.mockReset().mockResolvedValue({ ok: true, sources: SOURCES });
+    demoStatusMock.mockReset().mockResolvedValue({ mode: 'off', active: false, run_id: null });
     window.localStorage.clear();
   });
 
@@ -347,5 +378,91 @@ describe('Log Sources page (WS-C)', () => {
     expect(within(banner).getByTestId('coverage-silent')).toHaveTextContent('1');
     // Alerts-triaged is server-only → an em-dash, never a fabricated number.
     expect(within(banner).getByTestId('coverage-alerts')).toHaveTextContent('—');
+  });
+
+  it('shows one retryable error state instead of a misleading empty table when the initial list fails', async () => {
+    listSourcesMock.mockRejectedValue(new Error('source inventory unavailable'));
+
+    renderSources();
+    expect(await screen.findByText('Something went wrong')).toBeInTheDocument();
+    expect(screen.getByText('source inventory unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Log Sources' })).toBeNull();
+    expect(screen.queryByTestId('sources-count')).toBeNull();
+  });
+
+  it('keeps Pull/Push filtering useful when best-effort runtime health is unavailable', async () => {
+    sourcesHealthMock.mockResolvedValue({ sources: [] });
+    renderSources();
+    await waitFor(() => expect(screen.getByText('Prod ES')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter log sources' }));
+    const kind = screen.getByRole('group', { name: 'Kind' });
+    fireEvent.click(within(kind).getByRole('button', { name: 'Pull' }));
+    expect(screen.getByText('Prod ES')).toBeInTheDocument();
+    expect(screen.queryByText('Webhook Ingest')).toBeNull();
+
+    fireEvent.click(within(kind).getByRole('button', { name: 'Push' }));
+    expect(screen.getByText('Webhook Ingest')).toBeInTheDocument();
+    expect(screen.queryByText('Prod ES')).toBeNull();
+  });
+
+  it('blocks add-source during demo-status hydration when the source overlay arrives first', async () => {
+    // The independent status poll can lag one request behind /sources. The synthetic
+    // overlay itself must close that race and prevent a real tenant write.
+    demoStatusMock.mockResolvedValue({ mode: 'off', active: false, run_id: null });
+    listSourcesMock.mockResolvedValue({ sources: [DEMO_SPLUNK] });
+    sourcesHealthMock.mockResolvedValue({ sources: [DEMO_SPLUNK_HEALTH] });
+    sourcesCoverageMock.mockResolvedValue({ ...COVERAGE, sources_total: 1, sources_enabled: 1 });
+
+    renderSources();
+    await screen.findByText('Splunk Enterprise (Demo)');
+    expect(screen.getByRole('button', { name: /new log source/i })).toBeDisabled();
+    expect(screen.queryByTestId('source-editor')).toBeNull();
+  });
+
+  it('keeps synthetic source overlays read-only while preserving native protocol and log browsing', async () => {
+    demoStatusMock.mockResolvedValue({ mode: 'live', active: true, run_id: 'demo-ui' });
+    listSourcesMock.mockResolvedValue({ sources: [DEMO_SPLUNK, SOURCES[0]] });
+    sourcesHealthMock.mockResolvedValue({ sources: [DEMO_SPLUNK_HEALTH, HEALTH[0]] });
+    sourcesCoverageMock.mockResolvedValue({
+      ...COVERAGE,
+      sources_total: 2,
+      sources_enabled: 2,
+    });
+
+    renderSources();
+    const sourceName = await screen.findByText('Splunk Enterprise (Demo)');
+
+    // Demo rows explain their ownership and render the source-native wire format,
+    // rather than the generic push/pull transport direction.
+    expect(sourceName.tagName).toBe('SPAN');
+    expect(screen.getByText('Demo')).toHaveAttribute('title', 'Managed by Demo Mode');
+    expect(screen.getByText('HEC')).toBeInTheDocument();
+
+    const enabled = screen.getByRole('switch', {
+      name: 'Managed by Demo Mode: Splunk Enterprise (Demo)',
+    });
+    const selected = screen.getByRole('checkbox', {
+      name: 'Managed by Demo Mode: demo-splunk',
+    });
+    expect(enabled).toBeDisabled();
+    expect(selected).toBeDisabled();
+    expect(screen.getByRole('button', { name: /new log source/i })).toBeDisabled();
+
+    // Tenant mutations are absent/disabled, but read-only exploration remains useful.
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole('button', { name: 'Actions for Splunk Enterprise (Demo)' }),
+    );
+    expect(await screen.findByRole('menuitem', { name: 'Browse logs' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Managed by Demo Mode' })).toHaveAttribute(
+      'data-disabled',
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Make primary' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
+
+    expect(upsertSourceMock).not.toHaveBeenCalled();
   });
 });

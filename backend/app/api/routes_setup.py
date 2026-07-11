@@ -190,7 +190,7 @@ async def setup_account(
 
     # #2 — append-only audit of the bootstrap (password NEVER logged).
     try:
-        await state.audit.record(
+        await state.control_audit.record(
             action_type=ActionType.USER_MGMT,
             surface="setup",
             actor=created.username,

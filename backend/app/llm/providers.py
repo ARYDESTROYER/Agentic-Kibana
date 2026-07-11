@@ -387,16 +387,39 @@ class DemoMockProvider(MockProvider):
     @staticmethod
     def _resolve(messages: list[dict[str, str]]):
         """Resolve the storyline a prompt belongs to by scanning for the distinctive
-        synthetic rule UID/name. Returns the Storyline or None (benign baseline)."""
+        synthetic rule UID/name in the ORIGINAL investigation context. Tool results
+        may legitimately contain unrelated alerts from the same source; they enrich
+        the case but must never replace the cluster's incident identity on a later
+        ReAct turn. Returns the Storyline or None (benign baseline)."""
         from ..engine.demo_generator import _RULE_TO_STORY, _STORYLINE_BY_ID
 
-        blob = "\n".join(str(m.get("content", "")) for m in messages)
+        original_context: list[str] = []
+        for message in messages:
+            content = str(message.get("content", ""))
+            if content.startswith("Tool '") and " result:" in content:
+                continue
+            original_context.append(content)
+        blob = "\n".join(original_context)
         for marker, sid in _RULE_TO_STORY.items():
             if marker in blob:
                 return _STORYLINE_BY_ID[sid]
         return None
 
     def _demo_default(self, role: str, messages: list[dict[str, str]]) -> str:
+        if role == "formatter":
+            # Formatter is presentation-only: it must never replace a scenario-aware
+            # investigator draft with the benign fallback merely because its compact
+            # prompt no longer carries the original native rule marker. Re-emit the
+            # internal draft verdict exactly; Formatter.format() still validates and
+            # merges it through the normal schema/authority boundary.
+            for message in reversed(messages):
+                try:
+                    payload = json.loads(str(message.get("content", "")))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                draft = payload.get("draft_verdict") if isinstance(payload, dict) else None
+                if isinstance(draft, dict):
+                    return json.dumps(draft)
         story = self._resolve(messages)
         if role == "router":
             # Route every demo cluster to the strong investigator so the showcase
@@ -426,8 +449,25 @@ class DemoMockProvider(MockProvider):
             "reproduce_query": "",
         }
         if role == "investigator":
+            # A polished demo should prove the agent can read the originating native
+            # source, not merely reason over the alert envelope already in the cluster.
+            # When the pipeline supplied a source-specific ``es_query`` adapter, make
+            # exactly one bounded, source-neutral query before returning the verdict.
+            # The following turn contains the fenced tool result and falls through to
+            # ``final``.  Pipelines without that tool retain the old one-turn behavior.
+            blob = "\n".join(str(m.get("content", "")) for m in messages)
+            if "\n- es_query:" in blob and "Tool 'es_query' result:" not in blob:
+                return json.dumps({
+                    "action": "tool",
+                    "tool": "es_query",
+                    "input": {
+                        "time_from": "now-24h",
+                        "time_to": "now",
+                        "size": 20,
+                    },
+                })
             return json.dumps({"action": "final", "reasoning": summary, "verdict": payload})
-        if role in ("formatter", "overview"):
+        if role == "overview":
             return json.dumps(payload)
         if role == "standup":
             return "Demo standup: synthetic activity summarised (no live model)."

@@ -130,6 +130,10 @@ export interface DataTableProps<T> {
   selectable?: boolean;
   selected?: string[];
   onSelectedChange?: (selected: string[]) => void;
+  /** Optional per-row selection gate (e.g. read-only Demo Mode overlay rows). */
+  isRowSelectable?: (row: T, index: number) => boolean;
+  /** Plain-text explanation exposed on a disabled row-selection control. */
+  getRowSelectionDisabledReason?: (row: T, index: number) => string | undefined;
 
   onRowClick?: (row: T, index: number) => void;
 
@@ -285,6 +289,8 @@ export function DataTable<T>({
   selectable = false,
   selected,
   onSelectedChange,
+  isRowSelectable,
+  getRowSelectionDisabledReason,
   onRowClick,
   loading = false,
   loadingRows = 8,
@@ -315,10 +321,21 @@ export function DataTable<T>({
     [rows, getRowId],
   );
 
+  const selectableRowIds = React.useMemo(
+    () =>
+      rows
+        .map((row, index) => ({ id: rowIds[index], row, index }))
+        .filter(({ row, index }) => isRowSelectable?.(row, index) ?? true)
+        .map(({ id }) => id),
+    [rows, rowIds, isRowSelectable],
+  );
+
   const allSelected =
-    selectable && rowIds.length > 0 && rowIds.every((id) => selectedSet.has(id));
+    selectable &&
+    selectableRowIds.length > 0 &&
+    selectableRowIds.every((id) => selectedSet.has(id));
   const someSelected =
-    selectable && rowIds.some((id) => selectedSet.has(id)) && !allSelected;
+    selectable && selectableRowIds.some((id) => selectedSet.has(id)) && !allSelected;
 
   // OpenSearch-style comfortable rows: roomy horizontal padding, breathable
   // vertical rhythm in normal density, tighter (but still legible) when compact.
@@ -345,18 +362,21 @@ export function DataTable<T>({
   const toggleAll = () => {
     if (!onSelectedChange) return;
     if (allSelected) {
-      onSelectedChange((selected ?? []).filter((id) => !rowIds.includes(id)));
+      onSelectedChange((selected ?? []).filter((id) => !selectableRowIds.includes(id)));
       announce('All rows deselected');
     } else {
       const merged = new Set(selected ?? []);
-      rowIds.forEach((id) => merged.add(id));
+      selectableRowIds.forEach((id) => merged.add(id));
       onSelectedChange(Array.from(merged));
-      announce(`${rowIds.length} row${rowIds.length === 1 ? '' : 's'} selected`);
+      announce(
+        `${selectableRowIds.length} row${selectableRowIds.length === 1 ? '' : 's'} selected`,
+      );
     }
   };
 
-  const toggleRow = (id: string) => {
+  const toggleRow = (id: string, row: T, index: number) => {
     if (!onSelectedChange) return;
+    if (isRowSelectable && !isRowSelectable(row, index)) return;
     const next = new Set(selected ?? []);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -394,8 +414,8 @@ export function DataTable<T>({
                     allSelected ? true : someSelected ? 'indeterminate' : false
                   }
                   onCheckedChange={toggleAll}
-                  aria-label="Select all rows"
-                  disabled={loading || rowIds.length === 0}
+                  aria-label={isRowSelectable ? 'Select all available rows' : 'Select all rows'}
+                  disabled={loading || selectableRowIds.length === 0}
                 />
               </TableHead>
             )}
@@ -487,6 +507,11 @@ export function DataTable<T>({
             rows.map((row, rowIndex) => {
               const id = rowIds[rowIndex];
               const isSelected = selectedSet.has(id);
+              const rowSelectable = isRowSelectable?.(row, rowIndex) ?? true;
+              const selectionDisabledReason = rowSelectable
+                ? undefined
+                : getRowSelectionDisabledReason?.(row, rowIndex) ??
+                  `Selection unavailable for row ${id}`;
               const clickable = !!onRowClick;
               // Left-edge severity band (§6.1) — opt-in via `rowAccent`. Drawn as an
               // inset box-shadow so it needs no extra column and never shifts layout.
@@ -533,11 +558,18 @@ export function DataTable<T>({
                       className={cellPad}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleRow(id)}
-                        aria-label={`Select row ${id}`}
-                      />
+                      <span className="inline-flex" title={selectionDisabledReason}>
+                        <Checkbox
+                          checked={isSelected}
+                          disabled={!rowSelectable}
+                          onCheckedChange={() => toggleRow(id, row, rowIndex)}
+                          aria-label={
+                            selectionDisabledReason
+                              ? `${selectionDisabledReason}: ${id}`
+                              : `Select row ${id}`
+                          }
+                        />
+                      </span>
                     </TableCell>
                   )}
                   {displayColumns.map((col) => (
@@ -569,7 +601,7 @@ export function DataTable<T>({
             )}
           </div>
 
-          <div className="flex items-center gap-5">
+          <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 sm:w-auto sm:flex-nowrap sm:justify-start sm:gap-5">
             {onPageSizeChange && pageSize != null && (
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline">Rows per page</span>
@@ -595,7 +627,7 @@ export function DataTable<T>({
               Page {curPage} of {pageCount}
             </span>
 
-            <div className="flex items-center gap-1">
+            <div className="flex shrink-0 items-center gap-1">
               <Button
                 variant="outline"
                 size="icon"

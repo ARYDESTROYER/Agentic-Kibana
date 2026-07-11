@@ -336,6 +336,7 @@ const ExpandedItem: React.FC<{
           type="button"
           onClick={() => onNavigate(item.id)}
           aria-current={selfActive && !(idIsAlsoChild && open) ? 'page' : undefined}
+          data-active-trail={trailActive || undefined}
           data-testid={`nav-${item.id}`}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
@@ -588,6 +589,8 @@ export interface NavSidebarProps {
   productName?: string;
   /** A header slot for the hamburger toggle (the shell renders the button). */
   toggleSlot?: React.ReactNode;
+  /** Layout override for hosts such as the mobile off-canvas Sheet. */
+  className?: string;
 }
 
 /**
@@ -606,6 +609,7 @@ export function NavSidebar({
   logoUrl,
   productName,
   toggleSlot,
+  className,
 }: NavSidebarProps) {
   const { hasPermission } = useAuth();
   const groups = React.useMemo(
@@ -642,6 +646,7 @@ export function NavSidebar({
         // is actually wider than the reserved rail (floating && expanded); the resting
         // 64px rail stays flush. The shell wrapper owns the z-index layering.
         floating && !collapsed ? 'shadow-elev2' : '',
+        className,
       )}
       aria-label="Primary navigation"
     >

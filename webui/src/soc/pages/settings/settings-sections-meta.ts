@@ -444,7 +444,7 @@ export const SETTINGS_SECTIONS_META: SectionMeta[] = [
     title: 'Experimental & Demo',
     blurb: 'Populate the console with isolated, $0, reversible synthetic data (experimental).',
     icon: FlaskConical,
-    perm: { resource: 'settings', action: 'manage' },
+    perm: { resource: 'demo', action: 'manage' },
     keywords: ['demo', 'experimental', 'sample', 'synthetic', 'sandbox', 'simulated', 'seed', 'try it', 'preview'],
   },
   {

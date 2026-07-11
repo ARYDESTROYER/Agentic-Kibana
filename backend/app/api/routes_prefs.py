@@ -181,7 +181,7 @@ async def prefs_org_put(
     prefs = state.prefs.model_copy(deep=True)
     prefs.customization = body
     await state.update_prefs(prefs)
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="settings",
         actor=current_username(request) or "admin",
         result_summary="updated org customization defaults",
@@ -213,7 +213,7 @@ async def terminology_put(
     prefs = state.prefs.model_copy(deep=True)
     prefs.customization = custom
     await state.update_prefs(prefs)
-    await state.audit.record(
+    await state.control_audit.record(
         action_type=ActionType.USER_MGMT, surface="settings",
         actor=current_username(request) or "admin",
         result_summary="updated terminology",

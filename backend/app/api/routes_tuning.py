@@ -137,7 +137,7 @@ async def tuning_recommendations(
     applied/rolled-back ledger so the UI can show before/after + offer a rollback.
     Enabled/disabled is advisory here — the dry-run always computes so an operator can
     preview before switching the tuner on."""
-    prefs = state.prefs
+    prefs = state.execution_prefs
     cfg = getattr(prefs, "threshold_tuning", None) or ThresholdTuningConfig()
 
     cases = await _window_cases(state)
@@ -195,7 +195,7 @@ async def get_tuning_config(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("automation", "read")),
 ) -> dict[str, Any]:
-    cfg = getattr(state.prefs, "threshold_tuning", None) or ThresholdTuningConfig()
+    cfg = getattr(state.execution_prefs, "threshold_tuning", None) or ThresholdTuningConfig()
     return {"config": cfg.model_dump(mode="json")}
 
 
@@ -208,8 +208,8 @@ async def put_tuning_config(
 ) -> dict[str, Any]:
     """Update the ``threshold_tuning`` policy. Additive + validated by the Pydantic
     model; never touches ``decide()`` (#3). Audited (#2)."""
-    prefs = state.prefs.model_copy(update={"threshold_tuning": body})
-    await state.update_prefs(prefs)
+    prefs = state.execution_prefs.model_copy(update={"threshold_tuning": body})
+    await state.update_execution_prefs(prefs)
     await _audit(
         state, request, "tuning_config_update",
         f"enabled={body.enabled} cadence={body.cadence} "
@@ -243,7 +243,7 @@ async def apply_tuning(
     if not rid:
         raise HTTPException(status_code=400, detail="rule_id is required")
 
-    prefs = state.prefs
+    prefs = state.execution_prefs
     cfg = getattr(prefs, "threshold_tuning", None) or ThresholdTuningConfig()
     cases = await _window_cases(state)
     stats = tuner._accumulate_rule_stats(cases, ewma_alpha=cfg.ewma_alpha, z=cfg.wilson_z)
@@ -264,7 +264,7 @@ async def apply_tuning(
         for prop in proposals:
             current_prefs = await tuner._handle_proposal(
                 prop, current_prefs, cases, cfg,
-                proposals=state.proposals, audit=state._real_audit,
+                proposals=state.proposals, audit=state.audit,
                 tuning_store=state.tuning_store, writers=writers, outcome=outcome,
             )
     except Exception as exc:  # noqa: BLE001 — the tuner must never break the caller
@@ -273,7 +273,7 @@ async def apply_tuning(
 
     # Persist the composed prefs change ONCE (only when something auto-applied).
     if current_prefs is not prefs:
-        await state.update_prefs(current_prefs)
+        await state.update_execution_prefs(current_prefs)
 
     applied = [r.to_json() for r in outcome.auto_applied]
     queued = [
@@ -328,9 +328,9 @@ async def rollback_tuning(
     # list() is newest-first — roll back the most recent active record for the rule.
     record = active[0]
     ok = await tuner.rollback(
-        record.id, state.prefs,
-        tuning_store=state.tuning_store, write_prefs=state.update_prefs,
-        audit=state._real_audit,
+        record.id, state.execution_prefs,
+        tuning_store=state.tuning_store, write_prefs=state.update_execution_prefs,
+        audit=state.audit,
     )
     if not ok:
         raise HTTPException(status_code=409, detail="rollback could not be applied")

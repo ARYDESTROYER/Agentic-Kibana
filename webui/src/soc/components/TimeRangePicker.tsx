@@ -327,9 +327,10 @@ export function TimeRangePicker({
   );
 
   const triggerH = size === 'sm' ? 'h-8' : 'h-9';
+  const refreshLabel = REFRESH_OPTIONS.find((option) => option.value === refresh)?.label ?? refresh;
 
   return (
-    <div className={cn('inline-flex items-center gap-2', className)}>
+    <div className={cn('inline-flex min-w-0 max-w-full items-center gap-2', className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -377,11 +378,15 @@ export function TimeRangePicker({
       {onRefreshChange ? (
         <Select value={refresh} onValueChange={(v) => onRefreshChange(v as RefreshValue)}>
           <SelectTrigger
-            aria-label="Auto-refresh interval"
-            // w-36 (144px) fits the longest cadence label ('30 seconds') alongside the
-            // leading icon + chevron; a narrower fixed width truncated every non-'Off'
-            // value via SelectTrigger's `[&>span]:line-clamp-1`.
-            className={cn('w-36 gap-1.5', triggerH)}
+            aria-label={`Auto-refresh interval: ${refreshLabel}`}
+            // On narrow screens the accessible trigger becomes an icon pair (refresh +
+            // chevron); its aria-label still announces the purpose/current value. At
+            // `sm` the cadence text returns in the full 144px control. This keeps the
+            // Overview header inside a 320–390px viewport without a document scrollbar.
+            className={cn(
+              'w-14 gap-1 px-2 [&>span]:hidden sm:w-36 sm:gap-1.5 sm:px-3 sm:[&>span]:block',
+              triggerH,
+            )}
           >
             <RefreshCw
               className={cn('h-3.5 w-3.5 shrink-0 opacity-70', refresh !== 'off' && 'text-primary')}
@@ -400,7 +405,7 @@ export function TimeRangePicker({
       ) : null}
 
       {lastRefreshedMs != null ? (
-        <span className="whitespace-nowrap text-xs text-muted-foreground tabular-nums">
+        <span className="hidden whitespace-nowrap text-xs text-muted-foreground tabular-nums sm:inline">
           · {formatStamp(lastRefreshedMs)}
         </span>
       ) : null}
