@@ -146,6 +146,13 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
     // truth reused for the Pie's `innerRadius` AND the center overlay bound below, so
     // oversized center content is clipped to the actual hole and never bleeds onto the ring.
     const innerPct = Math.round((1 - thickness) * 70);
+    // The donut hole is a CIRCLE whose diameter is `innerPct% * min(width, height)`. These
+    // charts are height-constrained (the card fixes `height`; width is ≥ height), so the hole
+    // ≈ `innerPct%` of the height IN PIXELS. The old overlay sized itself off the CONTAINER
+    // WIDTH (`width: innerPct%`), which is far wider than the hole in a wide/stacked layout —
+    // so a long center caption (e.g. "RESOLVED") bled onto the ring. A px square pinned to the
+    // height keeps the overlay matched to the actual hole at any container aspect ratio.
+    const holePx = Math.max(0, Math.round((innerPct / 100) * height));
 
     return (
       <div
@@ -181,11 +188,11 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
         {center != null ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div
-              className="flex max-w-full flex-col items-center justify-center gap-0.5 overflow-hidden text-center"
-              // Bound the overlay to the ACTUAL hole (same formula as the Pie's
-              // `innerRadius` above) so oversized/long center content is clipped
-              // instead of bleeding onto the colored ring.
-              style={{ width: `${innerPct}%`, height: `${innerPct}%` }}
+              className="flex max-h-full max-w-full flex-col items-center justify-center gap-0.5 overflow-hidden text-center"
+              // Bound the overlay to the ACTUAL circular hole (a px square pinned to the
+              // height — see `holePx`), so oversized/long center content is clipped instead of
+              // bleeding onto the coloured ring, at any container aspect ratio.
+              style={{ width: holePx, height: holePx }}
             >
               {center}
             </div>

@@ -685,7 +685,12 @@ export function NoiseFunnel({
     const inner = (
       <>
         <PhaseMarker deterministic={row.deterministic} />
-        <span className="max-w-full truncate text-2xs font-medium text-foreground">{row.label}</span>
+        <span
+          className="max-w-full text-2xs font-medium leading-tight text-foreground"
+          title={row.label}
+        >
+          {row.label}
+        </span>
         <span className="flex items-baseline gap-1">
           <CountUp
             value={row.total}
@@ -751,7 +756,10 @@ export function NoiseFunnel({
               </p>
               <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                 {fmtNumber(derived.topTotal)}{' '}
-                {derived.mode === 'full' ? 'events ingested' : 'cases opened'} →{' '}
+                {derived.mode === 'full' ? 'events ingested' : 'cases opened'}
+                <span className="mx-1.5 text-muted-foreground/70" aria-hidden>
+                  →
+                </span>
                 {fmtNumber(closedByHuman)} case{closedByHuman === 1 ? '' : 's'} closed by a human
               </p>
             </div>
@@ -860,7 +868,7 @@ export function NoiseFunnel({
           )}
 
           {dropTotal > 0 ? (
-            <p className="border-t border-border pt-2 text-2xs text-muted-foreground">
+            <p className="mt-1 border-t border-border pt-2 text-xs text-muted-foreground">
               {dropSuppressed} suppressed · {dropIgnored} ignored removed before clustering
             </p>
           ) : null}

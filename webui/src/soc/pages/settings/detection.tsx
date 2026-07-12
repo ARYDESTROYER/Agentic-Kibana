@@ -19,21 +19,154 @@
  * controls. TRUE_POSITIVE auto-close is an explicit opt-in (OFF by default) and
  * NEEDS_HUMAN NEVER auto-closes (code-enforced; shown here as a locked, read-only row).
  */
-import { Info, Lock, Network, Server, ShieldAlert, ShieldCheck, SlidersHorizontal, Workflow } from 'lucide-react';
+import {
+  Activity,
+  Gauge,
+  Info,
+  Lock,
+  Network,
+  RotateCcw,
+  Server,
+  ShieldAlert,
+  ShieldCheck,
+  SlidersHorizontal,
+  Workflow,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { humanizeToken } from '@/lib/format';
-import type { AutoClosePolicy, VerdictAutoClose as VerdictAutoCloseConfig } from '@/lib/types';
+import type { AutoClosePolicy, RiskWeights, VerdictAutoClose as VerdictAutoCloseConfig } from '@/lib/types';
 import { cn } from '@/lib/cn';
 
 import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
+import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { SettingsGrid, SettingsCard, type SettingsTOCItem } from '@/soc/components/SettingsGrid';
 import { NumberField } from '@/soc/components/NumberField';
 import { LabeledSlider } from '@/soc/components/LabeledSlider';
 import { Field } from '@/soc/components/Field';
+import { SCORE_BANDS, type ScoreBand } from '@/soc/components/palette';
 import { AssetCriticalityEditor } from '@/soc/components/rules';
 
 import { SectionShell, NumPref, SwitchPref, type SecProps } from './primitives';
+
+/* --------------------------------------------------------------------------- */
+/* Risk-weight mixer — a slider-per-factor view of the deterministic risk model. */
+/* Binds to the REAL `prefs.risk_weights` fields; the per-factor "% of score" is  */
+/* the honest normalised share (compute_risk() normalises by the weight sum), and */
+/* the score-band scale uses the ONE canonical ladder from palette (22/48/74).    */
+/* --------------------------------------------------------------------------- */
+
+const RISK_WEIGHT_KEYS = ['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const;
+type RiskWeightKey = (typeof RISK_WEIGHT_KEYS)[number];
+
+/** Defaults mirror `config.py` `RiskWeights` — used to fill an unset field for display
+ *  and to power "Reset to defaults". Kept in sync with the backend (additive-safe). */
+const RISK_WEIGHT_DEFAULTS: Record<RiskWeightKey, number> = {
+  volume: 0.25,
+  velocity: 0.2,
+  reputation: 0.3,
+  diversity: 0.15,
+  asset_criticality: 0.1,
+};
+
+const RISK_WEIGHT_META: Record<RiskWeightKey, { icon: LucideIcon; help: string }> = {
+  volume: { icon: Activity, help: 'How many alerts clustered into the case.' },
+  velocity: { icon: Gauge, help: 'How fast those alerts arrived (burst rate).' },
+  reputation: { icon: ShieldAlert, help: 'Threat-intel reputation of the involved indicators.' },
+  diversity: { icon: Network, help: 'How many distinct entities/signals the cluster spans.' },
+  asset_criticality: { icon: Server, help: 'Criticality of the assets involved (from Asset criticality).' },
+};
+
+const BAND_ORDER: ScoreBand[] = ['low', 'medium', 'high', 'critical'];
+const BAND_CLS: Record<ScoreBand, string> = {
+  low: 'bg-low',
+  medium: 'bg-medium',
+  high: 'bg-high',
+  critical: 'bg-critical',
+};
+
+/** A read-only reference of the ONE canonical 0–100 score-band ladder (palette.SCORE_BANDS). */
+function ScoreScaleBar() {
+  const total = 100;
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-foreground">Score bands (0–100)</p>
+      <div className="flex h-2 overflow-hidden rounded-full" aria-hidden>
+        {BAND_ORDER.map((b) => {
+          const [from, to] = SCORE_BANDS[b];
+          return (
+            <span
+              key={b}
+              className={cn('h-full', BAND_CLS[b])}
+              style={{ width: `${((to - from + 1) / total) * 100}%` }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-2xs text-muted-foreground">
+        {BAND_ORDER.map((b) => {
+          const [from, to] = SCORE_BANDS[b];
+          return (
+            <span key={b} className="capitalize">
+              {b} <span className="tabular-nums">{from}–{to}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RiskWeightMixer({
+  weights,
+  onChange,
+}: {
+  weights: RiskWeights;
+  onChange: (key: RiskWeightKey, value: number) => void;
+}) {
+  const values = RISK_WEIGHT_KEYS.map((k) => Number(weights[k] ?? RISK_WEIGHT_DEFAULTS[k]));
+  const sum = values.reduce((a, b) => a + Math.max(0, b), 0);
+  return (
+    <div className="space-y-5">
+      {RISK_WEIGHT_KEYS.map((k, i) => {
+        const v = values[i];
+        const Icon = RISK_WEIGHT_META[k].icon;
+        const share = sum > 0 ? Math.round((Math.max(0, v) / sum) * 100) : 0;
+        return (
+          <LabeledSlider
+            key={k}
+            label={
+              <span className="flex items-center gap-2">
+                <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+                {humanizeToken(k)}
+              </span>
+            }
+            description={RISK_WEIGHT_META[k].help}
+            value={v}
+            min={0}
+            max={1}
+            step={0.05}
+            formatValue={(x) => x.toFixed(2)}
+            labelAction={
+              <span className="rounded-full bg-muted px-2 py-0.5 text-2xs font-medium tabular-nums text-muted-foreground">
+                {share}% of score
+              </span>
+            }
+            onChange={(x) => onChange(k, x)}
+          />
+        );
+      })}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+        <span>Weights are normalised to a 0–100 score (they need not sum to 1).</span>
+        <span className="tabular-nums">
+          Total weight <span className="font-semibold text-foreground">{sum.toFixed(2)}</span>
+        </span>
+      </div>
+      <ScoreScaleBar />
+    </div>
+  );
+}
 
 const DETECTION_TOC: SettingsTOCItem[] = [
   { anchor: 'detection-correlation', label: 'Correlation', icon: Workflow },
@@ -47,15 +180,19 @@ const DETECTION_TOC: SettingsTOCItem[] = [
 export function DetectionSection({ prefs, update }: SecProps) {
   const corr = prefs.default_correlation || {};
   const weights = prefs.risk_weights || {};
+  const resetWeights = () => update({ risk_weights: { ...RISK_WEIGHT_DEFAULTS } });
   return (
     <SectionShell
       // Match the Round-5 rail label (SETTINGS_SECTIONS_META title = 'Detection') so the
       // nav item and the body heading agree; the longer phrasing lives in `sub`.
       title="Detection"
-      sub="How alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
+      sub="Tune how detections are scored and triaged: how alerts cluster into cases, how risk is scored, when a case escalates, and when (if ever) the agent may auto-close a confident false positive."
       toc={DETECTION_TOC}
+      rail
     >
-      <SettingsGrid>
+      {/* Single-column stack: the rail already consumes horizontal room, so the
+          viewport-based 2/3-col grid would crush non-wide cards — force one column. */}
+      <SettingsGrid className="lg:grid-cols-1 xl:grid-cols-1">
         <SettingsCard
           anchor="detection-correlation"
           title="Correlation"
@@ -72,19 +209,19 @@ export function DetectionSection({ prefs, update }: SecProps) {
           anchor="detection-risk"
           title="Risk weights"
           icon={SlidersHorizontal}
-          description="The deterministic risk model's weights. Values are auto-normalised to a 0–100 score; the model never sees raw logs."
+          description="How the deterministic risk score is built. Each weight's share of the score is shown live; values are auto-normalised to 0–100 and the model never sees raw logs."
+          wide="full"
+          actions={
+            <Button variant="outline" size="sm" onClick={resetWeights}>
+              <RotateCcw aria-hidden />
+              Reset to defaults
+            </Button>
+          }
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {(['volume', 'velocity', 'reputation', 'diversity', 'asset_criticality'] as const).map((k) => (
-              <NumPref
-                key={k}
-                label={humanizeToken(k)}
-                value={weights[k]}
-                step={0.05}
-                onChange={(v) => update({ risk_weights: { ...weights, [k]: v } })}
-              />
-            ))}
-          </div>
+          <RiskWeightMixer
+            weights={weights}
+            onChange={(k, v) => update({ risk_weights: { ...weights, [k]: v } })}
+          />
         </SettingsCard>
 
         <SettingsCard
@@ -134,6 +271,10 @@ export function DetectionSection({ prefs, update }: SecProps) {
           <CrossSourceSubsection prefs={prefs} update={update} />
         </SettingsCard>
       </SettingsGrid>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        New detections are scored with these settings after you Save. Existing alerts keep the
+        score they were given at ingest.
+      </p>
     </SectionShell>
   );
 }
