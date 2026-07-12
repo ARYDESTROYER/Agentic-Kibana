@@ -58,6 +58,7 @@ import {
   asLoginLayout,
   BrandHero,
   OtpInput,
+  PasswordInput,
   PasswordStrengthMeter,
   SsoBrandIcon,
 } from '@/soc/components/auth/loginParts';
@@ -142,12 +143,22 @@ export default function Login({ onAuthenticated }: LoginProps) {
   const [confirm, setConfirm] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  // A secondary, quieter line under the main error (e.g. the honest client-side
+  // failed-attempt count). Kept separate from `error` so the primary line stays the
+  // backend/validation message and the count is visually subordinate.
+  const [errorDetail, setErrorDetail] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // How many times sign-in has failed IN THIS BROWSER SESSION. This is an honest
+  // client-side tally (the backend rate-limiter is per-IP and returns no count), used
+  // only to surface "You've tried N times." — never trusted for any security decision.
+  const signinAttemptsRef = React.useRef(0);
 
   // MFA phase 2 (Wave 2): the half-auth pending token + the entered code.
   const [pendingToken, setPendingToken] = React.useState('');
   const [mfaCode, setMfaCode] = React.useState('');
   const [useRecovery, setUseRecovery] = React.useState(false);
+  // Disclosure toggle for the "Where can I find my recovery codes?" help text.
+  const [showRecoveryHelp, setShowRecoveryHelp] = React.useState(false);
 
   // SSO providers (Wave 2): the enabled "Sign in with …" buttons.
   const [ssoProviders, setSsoProviders] = React.useState<SsoProviderPublic[]>([]);
@@ -238,6 +249,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
     if (ssoBusy) return;
     setSsoBusy(providerId);
     setError(null);
+    setErrorDetail(null);
     try {
       const res = await api.auth.sso.authorize(providerId);
       window.location.assign(res.auth_url);
@@ -292,6 +304,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
     if (busy) return;
     setBusy(true);
     setError(null);
+    setErrorDetail(null);
     try {
       const res: LoginResult = await api.auth.login(username.trim(), password);
       // Wave 2 (MFA): the password is correct but a second factor is required. The
@@ -314,11 +327,24 @@ export default function Login({ onAuthenticated }: LoginProps) {
       }
       onAuthenticated();
     } catch (err) {
+      signinAttemptsRef.current += 1;
       if (err instanceof ApiError) {
-        setError(err.message || `Sign in failed (${err.status}).`);
+        // A 429 is the per-IP rate limiter; surface the "slow down" message rather
+        // than the raw backend detail so the copy matches the throttle behaviour.
+        setError(
+          err.status === 429
+            ? 'Too many attempts. Please try again in a minute.'
+            : err.message || `Sign in failed (${err.status}).`,
+        );
       } else {
         setError('Could not reach the backend. Please try again.');
       }
+      // Honest client-side count of failed attempts this session (see the ref note).
+      setErrorDetail(
+        signinAttemptsRef.current >= 2
+          ? `You've tried ${signinAttemptsRef.current} times.`
+          : null,
+      );
       setPassword('');
       setBusy(false);
     }
@@ -466,7 +492,12 @@ export default function Login({ onAuthenticated }: LoginProps) {
               {error ? (
                 <Alert variant="destructive" className="mb-4">
                   <AlertCircle aria-hidden />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>
+                    <span className="font-medium">{error}</span>
+                    {errorDetail ? (
+                      <span className="mt-0.5 block text-xs opacity-80">{errorDetail}</span>
+                    ) : null}
+                  </AlertDescription>
                 </Alert>
               ) : null}
 
@@ -518,19 +549,14 @@ export default function Login({ onAuthenticated }: LoginProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="setup-password">Password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="setup-password"
-                        type="password"
-                        className="pl-9"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete="new-password"
-                        aria-describedby="setup-password-help"
-                        disabled={busy}
-                      />
-                    </div>
+                    <PasswordInput
+                      id="setup-password"
+                      value={password}
+                      onChange={setPassword}
+                      autoComplete="new-password"
+                      ariaDescribedBy="setup-password-help"
+                      disabled={busy}
+                    />
                     {/* Reserve a fixed-height slot for the strength meter so the FIRST
                         keystroke (meter appears) never shoves the fields/button below
                         it downward (reserve-space; the meter is null until typing). */}
@@ -552,18 +578,13 @@ export default function Login({ onAuthenticated }: LoginProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="setup-confirm">Confirm password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="setup-confirm"
-                        type="password"
-                        className="pl-9"
-                        value={confirm}
-                        onChange={(e) => setConfirm(e.target.value)}
-                        autoComplete="new-password"
-                        disabled={busy}
-                      />
-                    </div>
+                    <PasswordInput
+                      id="setup-confirm"
+                      value={confirm}
+                      onChange={setConfirm}
+                      autoComplete="new-password"
+                      disabled={busy}
+                    />
                     {/* Reserved slot: the mismatch line inserts on a typing mismatch —
                         keep its height always so it never shoves the submit button. */}
                     <div className="min-h-[1rem]" aria-live="polite">
@@ -622,19 +643,14 @@ export default function Login({ onAuthenticated }: LoginProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="login-password">Password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="login-password"
-                        type="password"
-                        className="pl-9"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        autoComplete="current-password"
-                        name="password"
-                        disabled={busy}
-                      />
-                    </div>
+                    <PasswordInput
+                      id="login-password"
+                      value={password}
+                      onChange={setPassword}
+                      autoComplete="current-password"
+                      name="password"
+                      disabled={busy}
+                    />
                   </div>
                   <Button
                     type="submit"
@@ -691,21 +707,40 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       {useRecovery ? 'Recovery code' : 'Authentication code'}
                     </Label>
                     {useRecovery ? (
-                      <div className="relative">
-                        <ShieldCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                        <Input
-                          id="mfa-code"
-                          className="pl-9 font-mono tracking-wider"
-                          inputMode="text"
-                          autoComplete="one-time-code"
-                          placeholder="XXXX-XXXX"
-                          value={mfaCode}
-                          onChange={(e) => setMfaCode(e.target.value)}
-                          disabled={busy}
-                          /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
-                          autoFocus
-                        />
-                      </div>
+                      <>
+                        <div className="relative">
+                          <ShieldCheck className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                          <Input
+                            id="mfa-code"
+                            className="pl-9 font-mono tracking-wider"
+                            inputMode="text"
+                            autoComplete="one-time-code"
+                            placeholder="XXXX-XXXX"
+                            value={mfaCode}
+                            onChange={(e) => setMfaCode(e.target.value)}
+                            disabled={busy}
+                            /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
+                            autoFocus
+                          />
+                        </div>
+                        <div className="text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setShowRecoveryHelp((v) => !v)}
+                            aria-expanded={showRecoveryHelp}
+                            className="rounded-sm font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            Where can I find my recovery codes?
+                          </button>
+                          {showRecoveryHelp ? (
+                            <p className="mt-1.5 rounded-md bg-muted/50 p-2 leading-relaxed text-muted-foreground">
+                              Recovery codes were shown when you enabled two-factor authentication.
+                              Each code works once. If you&apos;ve used or lost them all, ask an
+                              administrator to reset your two-factor setup.
+                            </p>
+                          ) : null}
+                        </div>
+                      </>
                     ) : (
                       <OtpInput
                         value={mfaCode}
@@ -726,7 +761,13 @@ export default function Login({ onAuthenticated }: LoginProps) {
                       type="button"
                       variant="link"
                       className="h-auto p-0 text-xs font-normal text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                      onClick={() => { setUseRecovery((v) => !v); setMfaCode(''); setError(null); }}
+                      onClick={() => {
+                        setUseRecovery((v) => !v);
+                        setMfaCode('');
+                        setError(null);
+                        setErrorDetail(null);
+                        setShowRecoveryHelp(false);
+                      }}
                       disabled={busy}
                     >
                       {useRecovery ? 'Use an authenticator code' : 'Use a recovery code'}
@@ -741,6 +782,8 @@ export default function Login({ onAuthenticated }: LoginProps) {
                         setPendingToken('');
                         setPassword('');
                         setError(null);
+                        setErrorDetail(null);
+                        setShowRecoveryHelp(false);
                       }}
                       disabled={busy}
                     >
@@ -755,20 +798,15 @@ export default function Login({ onAuthenticated }: LoginProps) {
                 <form onSubmit={submitChange} className="space-y-4" noValidate>
                   <div className="space-y-1.5">
                     <Label htmlFor="change-new">New password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="change-new"
-                        type="password"
-                        className="pl-9"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        autoComplete="new-password"
-                        disabled={busy}
-                        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
-                        autoFocus
-                      />
-                    </div>
+                    <PasswordInput
+                      id="change-new"
+                      value={newPassword}
+                      onChange={setNewPassword}
+                      autoComplete="new-password"
+                      disabled={busy}
+                      /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of the forced password-change step; behavior-preserving */
+                      autoFocus
+                    />
                     {/* Reserved slot — same reserve-space treatment as the setup form. */}
                     <div className="min-h-[1.75rem] pt-0.5">
                       <PasswordStrengthMeter password={newPassword} />
@@ -776,18 +814,13 @@ export default function Login({ onAuthenticated }: LoginProps) {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="change-confirm">Confirm new password</Label>
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-                      <Input
-                        id="change-confirm"
-                        type="password"
-                        className="pl-9"
-                        value={confirm}
-                        onChange={(e) => setConfirm(e.target.value)}
-                        autoComplete="new-password"
-                        disabled={busy}
-                      />
-                    </div>
+                    <PasswordInput
+                      id="change-confirm"
+                      value={confirm}
+                      onChange={setConfirm}
+                      autoComplete="new-password"
+                      disabled={busy}
+                    />
                   </div>
                   <Button
                     type="submit"

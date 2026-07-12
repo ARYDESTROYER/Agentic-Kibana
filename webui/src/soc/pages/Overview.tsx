@@ -317,19 +317,26 @@ function SnapshotCard({
           <DonutChart
             segments={segments}
             height={136}
+            // A slightly thinner ring → a larger hole, so an 8-char center caption
+            // ("RESOLVED") sits comfortably inside the CIRCULAR hole instead of crowding it.
+            thickness={0.24}
             className="w-full shrink-0 sm:w-36"
             ariaLabel={ariaLabel}
             center={
-              <>
+              // A tight number-over-caption stack. The caption is small + `leading-none`
+              // and sits close to the number so its corners clear the CIRCULAR hole (a wider
+              // 8-char caption below the number otherwise grazes the ring — see the donut
+              // hole geometry). `truncate` is a final backstop against an overlong caption.
+              <div className="flex flex-col items-center leading-none">
                 <CountUp
                   value={total}
                   format={fmtSnapshotCenter}
                   className="font-mono text-2xl font-semibold tabular-nums text-foreground"
                 />
-                <span className="text-2xs uppercase tracking-wide text-muted-foreground">
+                <span className="mt-0.5 max-w-full truncate text-2xs uppercase tracking-tight text-muted-foreground">
                   {centerLabel}
                 </span>
-              </>
+              </div>
             }
           />
         ) : (

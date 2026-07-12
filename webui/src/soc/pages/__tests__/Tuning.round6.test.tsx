@@ -106,7 +106,7 @@ describe('Tuning — rollback targets the newest active row only (bug #13)', () 
       </TooltipProvider>,
     );
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
-    await screen.findByText('Applied changes');
+    await screen.findByText('Audit history');
     // Both rows are active.
     expect(screen.getAllByText('Active')).toHaveLength(2);
     // But only the newest active row for the rule offers a rollback.

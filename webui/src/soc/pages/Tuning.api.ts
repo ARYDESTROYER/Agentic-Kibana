@@ -34,10 +34,12 @@ import { api } from '@/lib/api';
 export type TuningCadence = 'hourly' | 'nightly' | 'weekly' | 'manual';
 
 /**
- * The tuning policy (mirrors backend `config.ThresholdTuningConfig`). Default OFF, so
- * out-of-the-box behaviour is byte-identical. Fields beyond the four the UI edits
- * (`enabled`/`min_samples`/`fp_rate_target`/`cadence`) are carried verbatim on
- * round-trip so a PUT never drops the advanced knobs.
+ * The tuning policy (mirrors backend `config.ThresholdTuningConfig`). Default ON since
+ * the Round-10 Autopilot overhaul — the tuner is a config-writer only (it never imports
+ * `decide()`, #3): it observes per-rule FP rates and PROPOSES bounded, shadow-checked
+ * changes, and a suppression DROP is always routed to Approvals, never auto-applied.
+ * Fields beyond the four the UI edits (`enabled`/`min_samples`/`fp_rate_target`/
+ * `cadence`) are carried verbatim on round-trip so a PUT never drops the advanced knobs.
  */
 export interface TuningConfig {
   enabled: boolean;
@@ -50,12 +52,18 @@ export interface TuningConfig {
   shadow_eval: boolean;
 }
 
-/** A safe default matching the backend's defaults (used before the config loads). */
+/**
+ * A safe default matching the backend's Round-10 Autopilot defaults
+ * (`config.ThresholdTuningConfig`): `enabled=True`, `min_samples=30` (Wilson-stable),
+ * `fp_rate_target=0.10` (world-class SOC < 10% FP), `wilson_z=1.96` (0.95 lower bound),
+ * `max_n_step=1` (bounded +1 nudge), mandatory `shadow_eval`. Used before the live
+ * config loads and as the merge base on round-trip.
+ */
 export const DEFAULT_TUNING_CONFIG: TuningConfig = {
-  enabled: false,
-  min_samples: 25,
+  enabled: true,
+  min_samples: 30,
   max_n_step: 1,
-  fp_rate_target: 0.3,
+  fp_rate_target: 0.1,
   wilson_z: 1.96,
   ewma_alpha: 0.2,
   cadence: 'nightly',
@@ -204,4 +212,31 @@ export function tuneValue(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+/**
+ * The OBSERVED false-positive rate for a rule = fp / total (a raw ratio, 0..1). This is
+ * distinct from `RuleNoise.fp_rate`, which is the Wilson LOWER BOUND on that ratio (a
+ * more conservative estimate). Returns 0 when there are no samples.
+ */
+export function observedFpRate(total: number, fp: number): number {
+  return total > 0 ? fp / total : 0;
+}
+
+/**
+ * The integer knob delta as a signed string ("+1" / "-1" / "0"), or null when either
+ * side is not a finite number. The tuner only ever moves INTEGER knobs (a correlation
+ * `n` or a 1..6 severity floor), so this is always an integer — never a decimal.
+ */
+export function tuneDelta(before: unknown, after: unknown): string | null {
+  if (
+    typeof before === 'number' &&
+    typeof after === 'number' &&
+    Number.isFinite(before) &&
+    Number.isFinite(after)
+  ) {
+    const d = after - before;
+    return d > 0 ? `+${d}` : String(d);
+  }
+  return null;
 }

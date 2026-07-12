@@ -14,8 +14,9 @@
  * `@media (prefers-reduced-motion: reduce)` rule in styles/theme.css.
  */
 import * as React from 'react';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, LockKeyhole, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Input } from '@/ui/input';
 
 // --------------------------------------------------------------------------- //
 // Password strength — a tiny, dependency-free zxcvbn-style heuristic.
@@ -121,6 +122,78 @@ export const PasswordStrengthMeter: React.FC<{ password: string; className?: str
         <span className={cn('font-medium', STRENGTH_TEXT[score])}>{label}</span>
         {hint ? <span className="text-muted-foreground">{hint}</span> : null}
       </div>
+    </div>
+  );
+};
+
+// --------------------------------------------------------------------------- //
+// PasswordInput — a masked credential field with a left lock glyph + a reveal
+// (eye) toggle. The toggle only ever reveals what the user is CURRENTLY typing;
+// there is no persisted secret to echo. Used by every password field on the login
+// surface (sign-in / create-admin / change-password). The reveal state is local so
+// each field toggles independently. `autoComplete` is caller-set (never defaulted)
+// so a manager fills the right credential (`current-password`/`new-password`).
+// --------------------------------------------------------------------------- //
+export interface PasswordInputProps {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  /** REQUIRED — never defaulted (current-password vs new-password matters for autofill). */
+  autoComplete: string;
+  name?: string;
+  placeholder?: string;
+  disabled?: boolean;
+  autoFocus?: boolean;
+  /** Forwarded to the input for a11y wiring (e.g. a policy-hint paragraph). */
+  ariaDescribedBy?: string;
+}
+
+export const PasswordInput: React.FC<PasswordInputProps> = ({
+  id,
+  value,
+  onChange,
+  autoComplete,
+  name,
+  placeholder,
+  disabled,
+  autoFocus,
+  ariaDescribedBy,
+}) => {
+  const [reveal, setReveal] = React.useState(false);
+  return (
+    <div className="relative">
+      <LockKeyhole
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden
+      />
+      <Input
+        id={id}
+        type={reveal ? 'text' : 'password'}
+        className="pl-9 pr-10"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
+        name={name}
+        placeholder={placeholder}
+        aria-describedby={ariaDescribedBy}
+        disabled={disabled}
+        /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused login flow; behavior-preserving */
+        autoFocus={autoFocus}
+      />
+      <button
+        type="button"
+        onClick={() => setReveal((r) => !r)}
+        disabled={disabled}
+        aria-label={reveal ? 'Hide password' : 'Show password'}
+        aria-pressed={reveal}
+        className={cn(
+          'absolute right-1 top-1/2 flex h-7 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground',
+          'transition-colors hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'disabled:pointer-events-none disabled:opacity-50',
+        )}
+      >
+        {reveal ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+      </button>
     </div>
   );
 };

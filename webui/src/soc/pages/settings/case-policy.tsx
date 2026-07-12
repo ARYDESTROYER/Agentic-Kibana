@@ -16,10 +16,11 @@
  * `ConfirmDialog`. Every operator-authored value renders as plain text (#9).
  */
 import * as React from 'react';
-import { Ban, Gauge, Timer } from 'lucide-react';
+import { AlertTriangle, Ban, Gauge, Timer } from 'lucide-react';
 
 import type { SuppressionRuleConfig } from '@/lib/types';
 
+import { Alert, AlertDescription, AlertTitle } from '@/ui/alert';
 import { SettingsGrid, SettingsCard, type SettingsTOCItem } from '@/soc/components/SettingsGrid';
 import { ConfirmDialog } from '@/soc/components/ConfirmDialog';
 import {
@@ -48,10 +49,21 @@ export function CasePolicySection({ prefs, update }: SecProps) {
   return (
     <SectionShell
       title="SLA, priority & suppression"
-      sub="Advisory SLA targets and the impact × urgency priority matrix (they drive sorting, badges, and MTTR reporting only — never the deterministic decision), plus operator suppression rules that drop known-benign events before triage."
+      sub="Configure response and resolution targets, priority scoring, and suppression rules. SLA and priority are advisory (they drive sorting, badges, and MTTR reporting only — never the deterministic decision); suppression rules drop known-benign events before triage."
       toc={CASE_POLICY_TOC}
+      rail
     >
-      <SettingsGrid>
+      <Alert variant="warning">
+        <AlertTriangle className="h-4 w-4" aria-hidden />
+        <AlertTitle>Broad or destructive changes can impact many cases and alerts</AlertTitle>
+        <AlertDescription>
+          Suppression rules drop matching events before triage — the one policy family that can
+          hide events. You&apos;ll be asked to confirm before deleting a live rule. Changes take
+          effect after Save.
+        </AlertDescription>
+      </Alert>
+
+      <SettingsGrid className="lg:grid-cols-1 xl:grid-cols-1">
         <SettingsCard
           anchor="case-policy-sla"
           title="SLA targets"

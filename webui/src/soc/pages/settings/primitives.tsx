@@ -115,18 +115,56 @@ export function SectionShell({
   sub,
   toc,
   children,
+  actions,
+  rail,
 }: {
   title: string;
   sub?: string;
   toc?: SettingsTOCItem[];
   children: React.ReactNode;
+  /** Optional header actions rendered on the section title's right (e.g. Reset). */
+  actions?: React.ReactNode;
+  /**
+   * Render the in-section anchor TOC as a LEFT vertical rail beside the cards (matching
+   * the focused-section mockups) instead of the default horizontal sticky strip. Opt-in
+   * per section so other sections keep the horizontal bar. Falls back to no rail when the
+   * section has < 2 anchors.
+   */
+  rail?: boolean;
 }) {
   const anchors = React.useMemo(() => (toc ?? []).map((t) => t.anchor), [toc]);
   const active = useActiveAnchor(anchors);
   const showToc = (toc?.length ?? 0) >= 2;
+
+  const heading =
+    actions != null ? (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <SectionTitle title={title} sub={sub} />
+        <div className="flex shrink-0 items-center gap-2 pt-1">{actions}</div>
+      </div>
+    ) : (
+      <SectionTitle title={title} sub={sub} />
+    );
+
+  // Vertical left-rail layout (opt-in): the anchor TOC sticks on the left, cards flow on
+  // the right. Card anchors + scroll-spy are unchanged, so deep-links/tests still work.
+  if (rail && showToc) {
+    return (
+      <div className="space-y-6">
+        {heading}
+        <div className="grid gap-6 md:grid-cols-[13rem_minmax(0,1fr)]">
+          <div className="md:sticky md:top-[calc(var(--header-h)+1rem)] md:self-start">
+            <SettingsTOC items={toc!} active={active} orientation="vertical" className="gap-0.5" />
+          </div>
+          <div className="min-w-0">{children}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <SectionTitle title={title} sub={sub} />
+      {heading}
       {showToc ? (
         <div className="sticky top-[calc(var(--header-h)+0.5rem)] z-10 -mx-1 overflow-x-auto rounded-lg border border-border bg-card/90 px-1.5 py-1.5 backdrop-blur supports-[backdrop-filter]:bg-card/75">
           <SettingsTOC items={toc!} active={active} orientation="horizontal" className="min-w-max flex-row gap-1" />

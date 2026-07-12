@@ -47,15 +47,15 @@ describe('ReauthDialog — Escape guard while busy', () => {
     await act(async () => {
       void capturedGate!();
     });
-    expect(await screen.findByText(/confirm it's you/i)).toBeInTheDocument();
+    expect(await screen.findByText(/fresh authentication required/i)).toBeInTheDocument();
 
     // Enter a password + submit → the request is in flight (busy).
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'hunter2' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Confirm$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Authenticate$/i }));
     await waitFor(() => expect(reauthMock).toHaveBeenCalledWith('hunter2', undefined));
 
     // Escape must be swallowed while busy — the dialog remains open.
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape', code: 'Escape' });
-    expect(screen.getByText(/confirm it's you/i)).toBeInTheDocument();
+    expect(screen.getByText(/fresh authentication required/i)).toBeInTheDocument();
   });
 });

@@ -146,19 +146,20 @@ describe('Tuning page', () => {
     renderTuning();
     await waitFor(() => expect(recsMock).toHaveBeenCalled());
 
-    expect(await screen.findByText('Adaptive tuning')).toBeInTheDocument();
-    // Rule id renders as plain text / InlineCode.
-    expect(screen.getByText('auth-brute')).toBeInTheDocument();
+    expect(await screen.findByText('Auto-tuning')).toBeInTheDocument();
+    // Rule id renders as plain text / InlineCode (now in both the Rules health table and
+    // the Proposed-changes list, so it legitimately appears more than once).
+    expect(screen.getAllByText('auth-brute').length).toBeGreaterThan(0);
     // FP rate formatted as a percent.
     expect(screen.getAllByText('62%').length).toBeGreaterThan(0);
     // Proposed change before→after values render as plain text.
-    expect(screen.getByText('3')).toBeInTheDocument();
-    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getAllByText('3').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('4').length).toBeGreaterThan(0);
   });
 
   it('shows the honest-framing banner (tuning never closes a case)', async () => {
     renderTuning();
-    await screen.findByText('auth-brute');
+    await screen.findAllByText('auth-brute');
     expect(
       screen.getByText(/only changes what gets investigated/i),
     ).toBeInTheDocument();
@@ -179,7 +180,7 @@ describe('Tuning page', () => {
 
   it('applies a safe recommendation via tuningApi.apply', async () => {
     renderTuning();
-    await screen.findByText('auth-brute');
+    await screen.findAllByText('auth-brute');
 
     const applyBtn = screen.getByRole('button', { name: /^apply$/i });
     fireEvent.click(applyBtn);
@@ -188,7 +189,7 @@ describe('Tuning page', () => {
 
   it('reflects the loaded policy in the config panel', async () => {
     renderTuning();
-    await screen.findByText('auth-brute');
+    await screen.findAllByText('auth-brute');
     // The min-samples input carries the loaded value.
     const minSamples = screen.getByLabelText(/minimum samples/i) as HTMLInputElement;
     expect(minSamples.value).toBe('25');

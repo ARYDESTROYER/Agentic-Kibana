@@ -12,12 +12,13 @@
  * path is untouched. A queue dedupes concurrent gated requests onto ONE prompt.
  */
 import * as React from 'react';
-import { ShieldQuestion, Loader2 } from 'lucide-react';
+import { Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { api, ApiError, setReauthHandler } from '@/lib/api';
 import { Button } from '@/ui/button';
 import { Input } from '@/ui/input';
 import { Label } from '@/ui/label';
 import { Alert, AlertDescription } from '@/ui/alert';
+import { IconButton } from './IconButton';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +39,7 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
   const [open, setOpen] = React.useState(false);
   const [password, setPassword] = React.useState('');
   const [code, setCode] = React.useState('');
+  const [reveal, setReveal] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   // Every concurrently-gated request parks its resolver here; the first one opens
@@ -50,6 +52,7 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
     setOpen(false);
     setPassword('');
     setCode('');
+    setReveal(false);
     setError(null);
     setBusy(false);
     for (const resolve of waiters) resolve(ok);
@@ -105,12 +108,16 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ShieldQuestion className="h-5 w-5 text-primary" aria-hidden />
-            Confirm it&apos;s you
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning-text"
+              aria-hidden
+            >
+              <Lock className="h-4 w-4" />
+            </span>
+            Fresh authentication required
           </DialogTitle>
           <DialogDescription>
-            This action is sensitive. Re-enter your password to continue. Your session
-            stays signed in.
+            For your security, please re-authenticate to confirm this sensitive change.
           </DialogDescription>
         </DialogHeader>
 
@@ -123,16 +130,29 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
         >
           <div className="space-y-1.5">
             <Label htmlFor="reauth-pass">Password</Label>
-            <Input
-              id="reauth-pass"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              disabled={busy}
-              /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
-              autoFocus
-            />
+            <div className="relative">
+              <Input
+                id="reauth-pass"
+                type={reveal ? 'text' : 'password'}
+                className="pr-10"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                disabled={busy}
+                /* eslint-disable-next-line jsx-a11y/no-autofocus -- deliberate focus placement on the primary field of a focused dialog/login flow; behavior-preserving */
+                autoFocus
+              />
+              <div className="absolute inset-y-0 right-1 flex items-center">
+                <IconButton
+                  label={reveal ? 'Hide password' : 'Show password'}
+                  tooltip={false}
+                  onClick={() => setReveal((r) => !r)}
+                  disabled={busy}
+                >
+                  {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </IconButton>
+              </div>
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="reauth-code">
@@ -157,9 +177,13 @@ export function ReauthDialog({ active }: ReauthDialogProps) {
             <Button type="button" variant="outline" onClick={() => settle(false)} disabled={busy}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || !password}>
+            <Button
+              type="submit"
+              className="bg-warning text-warning-foreground shadow-sm hover:bg-warning/90 active:bg-warning/85"
+              disabled={busy || !password}
+            >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              Confirm
+              Authenticate
             </Button>
           </DialogFooter>
         </form>
