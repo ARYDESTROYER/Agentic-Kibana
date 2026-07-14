@@ -46,6 +46,10 @@ _DEFAULT_SIZE = 50
 _POLL_PIT_KEEP_ALIVE = "1m"
 _MAX_FRONTIER_PAGES = 64
 _MAX_LATE_PAGES = 32
+# ES/OpenSearch default index.max_result_window — offset (from+size) pagination cannot
+# cross it without the engine rejecting the search. The non-PIT fallback caps the drain
+# here and defers the remainder to the next tick (audit #6).
+_MAX_RESULT_WINDOW = 10_000
 
 logger = logging.getLogger("tlsoc.connectors.elastic")
 
@@ -564,13 +568,35 @@ class ElasticConnector(PullConnector):
         # Compatibility fallback: a bounded, oldest-first offset drain.  This path
         # is used only when PIT is unavailable; it still fixes single-page loss and
         # equal-timestamp starvation for a quiescent search view.
+        #
+        # ``from + size`` must stay <= the engine's ``max_result_window`` (default
+        # 10_000) or ES/OpenSearch REJECTS the search — which, un-handled, would raise
+        # out of the poll and permanently STALL a busy Wazuh/OpenSearch feed (audit #6).
+        # So we cap the offset before crossing the window, and wrap each page so a
+        # result-window / transient error TRUNCATES gracefully: we return what we read
+        # (``truncated=True``) and the caller advances the durable inclusive cursor over
+        # those hits, backfilling the remainder on the next tick — progress, never a stall.
         hits = []
         for page in range(max_pages):
+            frm = page * size
+            if frm + size > _MAX_RESULT_WINDOW:
+                logger.debug(
+                    "offset paging for %s stops at from=%d (max_result_window=%d); "
+                    "remainder backfills next tick", index, frm, _MAX_RESULT_WINDOW,
+                )
+                return self._stable_hits(hits, time_field), True
             body = copy.deepcopy(base_body)
             body.pop("pit", None)
             body.pop("search_after", None)
-            body["from"] = page * size
-            resp = await self._es.search_logs(index, body)
+            body["from"] = frm
+            try:
+                resp = await self._es.search_logs(index, body)
+            except Exception as exc:  # noqa: BLE001 — window/transient error → truncate, don't stall
+                logger.warning(
+                    "offset paging for %s stopped at from=%d (%s); truncating this tick",
+                    index, frm, exc,
+                )
+                return self._stable_hits(hits, time_field), True
             page_hits = list(resp.get("hits", {}).get("hits", []) or [])
             hits.extend(page_hits)
             if len(page_hits) < size:

@@ -230,3 +230,55 @@ async def test_opensearch_is_distinct_source_type_and_polls():
     res = await conn.fetch_by_ids(_prefs(), ["d4"], size=1)
     ev = conn.to_ocsf(res.raw["hits"]["hits"][0], _prefs())
     assert ev.metadata.source_type == SourceType.OPENSEARCH.value
+
+
+# --------------------------------------------------------------------------- #
+# audit #6 — non-PIT offset drain must not stall a busy feed.
+# --------------------------------------------------------------------------- #
+class _NoPitES:
+    """A minimal ES with no PIT support (forces the offset fallback). ``search_logs``
+    rejects a from+size past the 10k result window (as ES/OpenSearch really do)."""
+
+    def __init__(self, *, raise_at_page: int | None = None) -> None:
+        self.froms: list[int] = []
+        self._raise_at_page = raise_at_page
+
+    async def search_logs(self, index, body):  # noqa: ANN001
+        frm = int(body.get("from", 0))
+        size = int(body.get("size", 1))
+        self.froms.append(frm)
+        if self._raise_at_page is not None and len(self.froms) > self._raise_at_page:
+            raise RuntimeError("transient shard failure")
+        if frm + size > 10_000:
+            raise RuntimeError("Result window is too large, from + size must be <= [10000]")
+        return {"hits": {"hits": [
+            {"_index": index, "_id": f"{frm}-{j}",
+             "_source": {"@timestamp": "2026-06-16T00:00:00Z"}}
+            for j in range(size)
+        ]}}
+
+
+async def test_offset_fallback_caps_at_result_window_without_stalling():
+    conn = ElasticConnector(_NoPitES())
+    es = conn._es
+    base_body = {"size": 1500, "query": {"match_all": {}}}
+    hits, truncated = await conn._drain_pages(
+        "idx", base_body, time_field="@timestamp", max_pages=64,
+    )
+    # Truncated (more remains) but NO exception escaped — the feed makes progress.
+    assert truncated is True
+    # It never issued a search that would cross the result window.
+    assert es.froms and all(frm + 1500 <= 10_000 for frm in es.froms)
+    assert len(hits) > 0  # partial page set returned for the caller to advance the cursor
+
+
+async def test_offset_fallback_truncates_on_page_error():
+    conn = ElasticConnector(_NoPitES(raise_at_page=2))
+    es = conn._es
+    base_body = {"size": 100, "query": {"match_all": {}}}
+    hits, truncated = await conn._drain_pages(
+        "idx", base_body, time_field="@timestamp", max_pages=64,
+    )
+    assert truncated is True
+    assert len(es.froms) == 3  # two good pages + the one that raised → stop
+    assert len(hits) == 200  # the two good pages were kept, not lost
