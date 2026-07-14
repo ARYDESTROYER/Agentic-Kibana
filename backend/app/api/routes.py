@@ -3991,7 +3991,11 @@ def _case_markdown(case) -> str:
 
 
 @router.post("/cases/{case_id}/investigate")
-async def case_investigate(case_id: str, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def case_investigate(
+    case_id: str,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "reinvestigate")),
+) -> dict[str, Any]:
     """Human-triggered (re-)investigation of a stored case (C3-4).
 
     Rebuilds the cluster from the case — preferring an exact id-based re-query,
@@ -4040,6 +4044,7 @@ async def case_reinvestigate(
     case_id: str,
     body: ReinvestigateRequest | None = None,
     state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "reinvestigate")),
 ) -> dict[str, Any]:
     """Manually re-run the SHARED investigation pipeline on a stored case (force).
 

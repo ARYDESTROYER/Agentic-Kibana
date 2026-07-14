@@ -136,8 +136,10 @@ _AUTHZ_EXEMPT_INGEST = frozenset({"/api/ingest/{source_id}"})
 # ungated state-changer. Tightening these to a grant is tracked as follow-up work;
 # listing them keeps the guard honest in the meantime.
 _AUTHZ_EXEMPT_PENDING = frozenset({
+    # audit #45 (low): these four LLM-billing endpoints remain gated only by the daily
+    # BudgetGate; tightening to a coarse grant is tracked follow-up. /cases/{id}/
+    # investigate + /reinvestigate were removed (audit #11 — now require cases:reinvestigate).
     "/api/investigate", "/api/overview", "/api/poll", "/api/chat",
-    "/api/cases/{case_id}/investigate", "/api/cases/{case_id}/reinvestigate",
 })
 _AUTHZ_EXEMPT = (
     _AUTHZ_EXEMPT_AUTH_FLOW
@@ -370,6 +372,22 @@ def test_setup_secrets_requires_settings_manage() -> None:
         _login(c, "Admin", "Admin@123")
         r = c.post("/api/setup/secrets", json={"anthropic_api_key": "sk-test"})
         assert r.status_code == 200, r.text
+
+
+def test_investigate_routes_require_cases_reinvestigate() -> None:
+    # audit #11: a read-only / tier1 analyst (no cases:reinvestigate) must NOT be able
+    # to trigger a costly LLM (re)investigation.
+    with _rbac_client() as c:
+        _login(c, "Admin", "Admin@123")
+        cid = _make_case(c)
+        r = c.post("/api/users", json={
+            "username": "tier1", "password": "tier1-pass-1",
+            "role": UserRole.ANALYST_TIER1.value,
+        })
+        assert r.status_code == 200, r.text
+        _login(c, "tier1", "tier1-pass-1")
+        assert c.post(f"/api/cases/{cid}/investigate").status_code == 403
+        assert c.post(f"/api/cases/{cid}/reinvestigate", json={}).status_code == 403
 
 
 def test_public_paths_are_minimal_and_known() -> None:
