@@ -74,6 +74,20 @@ def test_jwt_tampered_token_raises() -> None:
         decode(tampered, "topsecret")
 
 
+def test_jwt_non_ascii_segments_raise_tokenerror_not_500() -> None:
+    # audit #13: a token carrying non-ASCII in a segment must raise TokenError (→ 401),
+    # never an uncaught UnicodeEncodeError / TypeError (→ 500 on any auth-gated route).
+    token = encode({"sub": "alice"}, "topsecret", expires_in_s=3600)
+    head, payload, sig = token.split(".")
+    for bad in (
+        f"héader.{payload}.{sig}",     # non-ASCII header segment (encode('ascii') path)
+        f"{head}.{payload}.sïg",       # non-ASCII signature segment (compare_digest path)
+        "ünïcøde.pÅyload.sïgnature",
+    ):
+        with pytest.raises(TokenError):
+            decode(bad, "topsecret")
+
+
 def test_jwt_wrong_secret_raises() -> None:
     token = encode({"sub": "alice"}, "topsecret", expires_in_s=3600)
     with pytest.raises(TokenError):

@@ -86,9 +86,17 @@ def decode(token: str, secret: str) -> dict[str, Any]:
     if not isinstance(header, dict) or header.get("alg") != "HS256":
         raise TokenError("unsupported or missing algorithm")
 
-    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
-    expected_sig = _sign(signing_input, secret)
-    if not hmac.compare_digest(expected_sig, signature_b64):
+    # A crafted token can carry NON-ASCII in a segment: ``.encode("ascii")`` then raises
+    # UnicodeEncodeError, and ``compare_digest`` raises TypeError on non-ASCII strings.
+    # Both must surface as a TokenError (→ 401), never an uncaught 500 on an auth-gated
+    # route (audit #13).
+    try:
+        signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
+        expected_sig = _sign(signing_input, secret)
+        sig_ok = hmac.compare_digest(expected_sig, signature_b64)
+    except (UnicodeError, TypeError, ValueError) as exc:
+        raise TokenError("malformed token segment") from exc
+    if not sig_ok:
         raise TokenError("signature mismatch")
 
     try:
