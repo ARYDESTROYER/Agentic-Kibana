@@ -35,6 +35,23 @@ def test_distinct_epoch_strings_do_not_collapse() -> None:
     assert to_millis(b) - to_millis(a) == 60_000
 
 
+def test_relative_to_millis_uppercase_z_iso_resolves_to_that_instant() -> None:
+    # audit #17: an absolute ISO ending in uppercase "Z" must resolve to THAT instant,
+    # not silently collapse to now() (which corrupts an absolute time-range window).
+    want = to_millis(datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc))
+    assert relative_to_millis("2026-01-02T03:04:05Z") == want
+    assert relative_to_millis("2026-01-02T03:04:05+00:00") == want
+    # A relative expression is unaffected.
+    now = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+    assert relative_to_millis("now-1h", now=now) == to_millis(now) - 3_600_000
+
+
+def test_parse_es_timestamp_lowercase_z() -> None:
+    assert parse_es_timestamp("2026-01-02T03:04:05z") == datetime(
+        2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc
+    )
+
+
 def test_parse_garbage_and_empty_still_none() -> None:
     assert parse_es_timestamp("not-a-time") is None
     assert parse_es_timestamp("") is None

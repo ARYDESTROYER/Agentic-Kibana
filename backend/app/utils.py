@@ -47,8 +47,9 @@ def parse_es_timestamp(value: Any) -> datetime | None:
                 return parse_es_timestamp(float(s))
             except (ValueError, OverflowError, OSError):
                 return None
-        # Elasticsearch commonly emits "...Z"; fromisoformat handles "+00:00".
-        s = s.replace("Z", "+00:00")
+        # Elasticsearch commonly emits "...Z"; fromisoformat handles "+00:00". Handle a
+        # lower-cased "z" too (a caller may have lower-cased the string) (audit #17).
+        s = re.sub(r"[zZ]$", "+00:00", s)
         try:
             dt = datetime.fromisoformat(s)
             return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
@@ -216,7 +217,8 @@ def relative_to_millis(expr: Any, now: datetime | None = None) -> int:
     if isinstance(expr, (int, float)):
         v = float(expr)
         return int(v if v > 1e12 else v * 1000)
-    s = str(expr).strip().lower()
+    raw = str(expr).strip()
+    s = raw.lower()  # lower-cased ONLY for the "now[±Nunit]" keyword matching
     if s in ("now", ""):
         return to_millis(now)
     if s.startswith("now"):
@@ -230,5 +232,8 @@ def relative_to_millis(expr: Any, now: datetime | None = None) -> int:
             amount = int(m.group(1)) * _REL_UNITS[m.group(2)]
             return to_millis(now) + sign * amount * 1000
         return to_millis(now)
-    dt = parse_es_timestamp(s)
+    # Parse the ORIGINAL-case string: lower-casing an absolute ISO turns "...Z" into
+    # "...z", which parse_es_timestamp used to miss -> None -> silently collapse to
+    # now(), corrupting an absolute time-range window (audit #17).
+    dt = parse_es_timestamp(raw)
     return to_millis(dt) if dt else to_millis(now)
