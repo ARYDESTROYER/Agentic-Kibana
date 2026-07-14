@@ -262,7 +262,7 @@ def test_idle_expiry_rejects() -> None:
         for row in rows:
             if row.get("sid") == sid:
                 row["last_active_at"] = "2000-01-01T00:00:00+00:00"
-        pytest_run(state.sessions._save(rows))
+        _raw_put_sessions(state.sessions, rows)
         out = c.get("/api/cases", headers={"Authorization": f"Bearer {token}"})
         assert out.status_code == 401
         assert out.json()["detail"]["code"] == "session_expired"
@@ -281,7 +281,7 @@ def test_absolute_expiry_rejects() -> None:
         for row in rows:
             if row.get("sid") == sid:
                 row["created_at"] = "2000-01-01T00:00:00+00:00"
-        pytest_run(state.sessions._save(rows))
+        _raw_put_sessions(state.sessions, rows)
         out = c.get("/api/cases", headers={"Authorization": f"Bearer {token}"})
         assert out.status_code == 401
         assert out.json()["detail"]["code"] == "session_expired"
@@ -343,7 +343,7 @@ def test_step_up_fresh_auth_on_admin_revoke() -> None:
         for row in rows:
             if row.get("sid") == sid:
                 row["last_authn_at"] = "2000-01-01T00:00:00+00:00"
-        pytest_run(state.sessions._save(rows))
+        _raw_put_sessions(state.sessions, rows)
         # A sudo-gated admin route now demands a re-auth.
         blocked = c.post("/api/admin/users/Admin/revoke-all")
         assert blocked.status_code == 401
@@ -423,6 +423,41 @@ def test_account_activity_feed() -> None:
         assert any((a.get("actor") == "Admin") for a in act)
 
 
+def test_concurrent_revoke_is_not_clobbered_by_a_parallel_write() -> None:
+    # audit #4: a revoke concurrent with other session writes must NOT be lost. Every
+    # mutation now routes through kv_mutate (per-store lock + _rev CAS), so interleaved
+    # RMWs serialise instead of the last-writer clobbering the revoke.
+    import asyncio
+
+    from app.stores.memory import EsKVStore
+    from app.stores.sessions import SessionStore
+
+    async def scenario() -> None:
+        store = SessionStore(EsKVStore(InMemoryESClient()))
+        # 20 live sessions for one user.
+        for i in range(20):
+            await store.create(sid=f"s{i}", username="alice", token_version=0)
+        # Concurrently revoke s0 while touching every other session (the writes that,
+        # under an unguarded load→modify→save, would reload the pre-revoke snapshot and
+        # overwrite the revoke).
+        await asyncio.gather(
+            store.revoke("s0", by="admin", reason="test"),
+            *[store.stamp_authn(f"s{i}") for i in range(1, 20)],
+        )
+        row = await store.get("s0")
+        assert row is not None and row.get("revoked") is True, "revoke was clobbered"
+        # A global sign-out (revoke_all) concurrent with touches keeps every revoke.
+        await asyncio.gather(
+            store.revoke_all("alice", by="admin", reason="global"),
+            *[store.stamp_authn(f"s{i}") for i in range(1, 20)],
+        )
+        live = [r for r in await store.list_for("alice") if not r.get("revoked")]
+        assert live == [], f"revoke_all lost some revocations: {[r['sid'] for r in live]}"
+        assert await store.token_version_for("alice") >= 1
+
+    asyncio.new_event_loop().run_until_complete(scenario())
+
+
 # --------------------------------------------------------------------------- #
 # Tiny synchronous-coroutine runner for poking the async store from a sync test.
 # --------------------------------------------------------------------------- #
@@ -430,3 +465,12 @@ def pytest_run(coro):
     import asyncio
 
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def _raw_put_sessions(store, rows) -> None:
+    """Test-only: overwrite the session doc directly via the KV (there is no plain
+    ``_save`` — production writes go through the CAS-guarded ``_mutate``). Used to
+    inject a stale timestamp for expiry/step-up scenarios."""
+    from app.constants import SESSIONS_KEY, SESSIONS_NS
+
+    pytest_run(store._kv.put(SESSIONS_NS, SESSIONS_KEY, {"entries": rows}))

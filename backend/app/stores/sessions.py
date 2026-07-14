@@ -29,15 +29,16 @@ NON-NEGOTIABLES upheld:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import secrets
 from datetime import timedelta
-from typing import Any
+from typing import Any, Callable
 
 from ..constants import SESSIONS_KEY, SESSIONS_NS
 from ..utils import iso_now, now_utc, parse_es_timestamp
-from .base import KVStore
+from .base import KVStore, kv_mutate
 
 logger = logging.getLogger("tlsoc.stores.sessions")
 
@@ -108,6 +109,35 @@ class SessionStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        # Per-store lock so kv_mutate serialises concurrent read-modify-write over the
+        # single session doc IN THIS process (the single-uvicorn deployment) and the
+        # _rev CAS covers the multi-process race — so a concurrent revoke and refresh
+        # can no longer silently clobber each other (audit #4).
+        self._lock = asyncio.Lock()
+
+    # ----- lost-update-safe mutation ---------------------------------------- #
+    def _bound(self, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Prune long-dead rows + cap the doc — the same bounding ``_save`` applied."""
+        pruned = self._prune_rows(entries)
+        if len(pruned) > _MAX_ROWS:
+            pruned = sorted(pruned, key=lambda r: r.get("created_at", ""))[-_MAX_ROWS:]
+        return pruned
+
+    async def _mutate(self, apply: Callable[[list[dict[str, Any]]], Any]) -> Any:
+        """Run ``apply(entries)`` under kv_mutate (per-store lock + _rev CAS), so a
+        write can never clobber a concurrent one. ``apply`` mutates the fresh list in
+        place and returns an auxiliary result (create's row, revoke's bool, count…);
+        the persisted attempt's result is returned. Never raises."""
+        box: dict[str, Any] = {}
+
+        def mutator(current: dict[str, Any] | None) -> dict[str, Any]:
+            raw = current.get("entries", []) if isinstance(current, dict) else []
+            entries = [dict(r) for r in (raw or []) if isinstance(r, dict) and r.get("sid")]
+            box["result"] = apply(entries)
+            return {"entries": self._bound(entries)}
+
+        await kv_mutate(self._kv, SESSIONS_NS, SESSIONS_KEY, mutator, lock=self._lock)
+        return box.get("result")
 
     # ----- persistence ------------------------------------------------------- #
     async def _load(self) -> list[dict[str, Any]]:
@@ -125,15 +155,9 @@ class SessionStore:
                 out.append(item)
         return out
 
-    async def _save(self, entries: list[dict[str, Any]]) -> None:
-        # Bound the doc: prune long-dead rows first, then cap to the newest N.
-        pruned = self._prune_rows(entries)
-        if len(pruned) > _MAX_ROWS:
-            pruned = sorted(pruned, key=lambda r: r.get("created_at", ""))[-_MAX_ROWS:]
-        try:
-            await self._kv.put(SESSIONS_NS, SESSIONS_KEY, {"entries": pruned})
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting sessions failed (%s); continuing", exc)
+    # NOTE: there is intentionally NO plain ``_save`` — every mutation goes through
+    # ``_mutate`` (kv_mutate: per-store lock + _rev CAS) so a write can never silently
+    # clobber a concurrent one (audit #4). The doc bounding lives in ``_bound``.
 
     # ----- row schema -------------------------------------------------------- #
     @staticmethod
@@ -208,7 +232,6 @@ class SessionStore:
     ) -> dict[str, Any]:
         """Register a new session row (idempotent on ``sid`` — re-creating an existing
         sid refreshes its metadata instead of duplicating). Returns the stored row."""
-        entries = await self._load()
         row = self._blank_row(sid, username)
         now = now_utc()
         if absolute_lifetime > 0:
@@ -222,15 +245,16 @@ class SessionStore:
             ua_raw=ua_raw or "", ua_browser=ua_browser or "", ua_os=ua_os or "",
             client_type=client_type or "", mfa_method=mfa_method or "",
         )
-        replaced = False
-        for idx, existing in enumerate(entries):
-            if existing.get("sid") == sid:
-                entries[idx] = row
-                replaced = True
-                break
-        if not replaced:
+
+        def apply(entries: list[dict[str, Any]]) -> dict[str, Any]:
+            for idx, existing in enumerate(entries):
+                if existing.get("sid") == sid:
+                    entries[idx] = row
+                    return row
             entries.append(row)
-        await self._save(entries)
+            return row
+
+        await self._mutate(apply)
         return row
 
     async def get(self, sid: str) -> dict[str, Any] | None:
@@ -263,55 +287,57 @@ class SessionStore:
         """Bump ``last_active_at`` (and slide the idle-expiry window) for ``sid`` —
         but ONLY when the stored value is >60s stale, to avoid a write per request.
         Returns True if a write happened. Never raises."""
-        entries = await self._load()
-        now = now_utc()
-        changed = False
-        for row in entries:
-            if row.get("sid") != sid:
-                continue
-            last = _to_epoch(row.get("last_active_at"))
-            if last is not None and (now.timestamp() - last) < 60:
-                return False  # fresh enough; skip the write
-            row["last_active_at"] = now.isoformat()
-            if idle_timeout > 0:
-                row["idle_expiry_at"] = (now + timedelta(seconds=int(idle_timeout))).isoformat()
-            changed = True
-            break
-        if changed:
-            await self._save(entries)
-        return changed
+        # Fast path: skip the RMW entirely when last_active is fresh (<60s) — avoids a
+        # write (and a _rev bump) on every request.
+        cur = await self.get(sid)
+        if cur is not None:
+            last = _to_epoch(cur.get("last_active_at"))
+            if last is not None and (now_utc().timestamp() - last) < 60:
+                return False
+
+        def apply(entries: list[dict[str, Any]]) -> bool:
+            now = now_utc()
+            for row in entries:
+                if row.get("sid") != sid:
+                    continue
+                last = _to_epoch(row.get("last_active_at"))
+                if last is not None and (now.timestamp() - last) < 60:
+                    return False  # another writer just refreshed it
+                row["last_active_at"] = now.isoformat()
+                if idle_timeout > 0:
+                    row["idle_expiry_at"] = (now + timedelta(seconds=int(idle_timeout))).isoformat()
+                return True
+            return False
+
+        return bool(await self._mutate(apply))
 
     async def stamp_authn(self, sid: str) -> bool:
         """Mark a fresh re-authentication on ``sid`` (step-up) — sets ``last_authn_at``
         (and ``last_active_at``) to now. Returns True if the sid was found."""
-        entries = await self._load()
-        now = iso_now()
-        found = False
-        for row in entries:
-            if row.get("sid") == sid:
-                row["last_authn_at"] = now
-                row["last_active_at"] = now
-                found = True
-                break
-        if found:
-            await self._save(entries)
-        return found
+        def apply(entries: list[dict[str, Any]]) -> bool:
+            now = iso_now()
+            for row in entries:
+                if row.get("sid") == sid:
+                    row["last_authn_at"] = now
+                    row["last_active_at"] = now
+                    return True
+            return False
+
+        return bool(await self._mutate(apply))
 
     async def rotate_refresh(self, sid: str, new_hash: str) -> dict[str, Any] | None:
         """Rotate the refresh hash for ``sid``: the current hash slides to
         ``refresh_prev_hash`` (so a replay of the OLD token is detectable as theft)
         and ``new_hash`` becomes current. Returns the updated row, or None."""
-        entries = await self._load()
-        updated: dict[str, Any] | None = None
-        for row in entries:
-            if row.get("sid") == sid:
-                row["refresh_prev_hash"] = row.get("refresh_hash", "") or ""
-                row["refresh_hash"] = new_hash or ""
-                updated = row
-                break
-        if updated is not None:
-            await self._save(entries)
-        return updated
+        def apply(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+            for row in entries:
+                if row.get("sid") == sid:
+                    row["refresh_prev_hash"] = row.get("refresh_hash", "") or ""
+                    row["refresh_hash"] = new_hash or ""
+                    return row
+            return None
+
+        return await self._mutate(apply)
 
     async def rekey_and_rotate(self, old_sid: str, new_sid: str, new_hash: str,
                                *, idle_timeout: int = 0) -> dict[str, Any] | None:
@@ -324,23 +350,21 @@ class SessionStore:
         the idle window slid). Returns the updated row, or None if ``old_sid`` is
         unknown. The absolute-lifetime anchor (``created_at``) is intentionally
         UNCHANGED so a rotating session still ages out at the absolute bound (#)."""
-        entries = await self._load()
-        updated: dict[str, Any] | None = None
-        now = now_utc()
-        for row in entries:
-            if row.get("sid") != old_sid:
-                continue
-            row["refresh_prev_hash"] = row.get("refresh_hash", "") or ""
-            row["refresh_hash"] = new_hash or ""
-            row["sid"] = new_sid
-            row["last_active_at"] = now.isoformat()
-            if idle_timeout > 0:
-                row["idle_expiry_at"] = (now + timedelta(seconds=int(idle_timeout))).isoformat()
-            updated = row
-            break
-        if updated is not None:
-            await self._save(entries)
-        return updated
+        def apply(entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+            now = now_utc()
+            for row in entries:
+                if row.get("sid") != old_sid:
+                    continue
+                row["refresh_prev_hash"] = row.get("refresh_hash", "") or ""
+                row["refresh_hash"] = new_hash or ""
+                row["sid"] = new_sid
+                row["last_active_at"] = now.isoformat()
+                if idle_timeout > 0:
+                    row["idle_expiry_at"] = (now + timedelta(seconds=int(idle_timeout))).isoformat()
+                return row
+            return None
+
+        return await self._mutate(apply)
 
     async def find_by_refresh(self, token: str) -> tuple[dict[str, Any] | None, str]:
         """Locate the session a refresh ``token`` belongs to.
@@ -368,20 +392,18 @@ class SessionStore:
     async def revoke(self, sid: str, *, by: str = "", reason: str = "") -> bool:
         """Mark ``sid`` revoked (append-only intent — the row stays for the audit/UI
         and is pruned later). Returns True if it was found + newly revoked."""
-        entries = await self._load()
-        changed = False
-        for row in entries:
-            if row.get("sid") != sid or row.get("revoked"):
-                continue
-            row["revoked"] = True
-            row["revoked_at"] = iso_now()
-            row["revoked_by"] = by or ""
-            row["revoke_reason"] = reason or ""
-            changed = True
-            break
-        if changed:
-            await self._save(entries)
-        return changed
+        def apply(entries: list[dict[str, Any]]) -> bool:
+            for row in entries:
+                if row.get("sid") != sid or row.get("revoked"):
+                    continue
+                row["revoked"] = True
+                row["revoked_at"] = iso_now()
+                row["revoked_by"] = by or ""
+                row["revoke_reason"] = reason or ""
+                return True
+            return False
+
+        return bool(await self._mutate(apply))
 
     async def revoke_all(self, username: str, *, by: str = "", reason: str = "",
                          except_sid: str = "") -> int:
@@ -389,37 +411,39 @@ class SessionStore:
         ``token_version`` (so any still-valid JWT carrying the old tv is rejected on
         its next request — instant global sign-out). Optionally keep ``except_sid``
         live (e.g. revoke-others). Returns the count of sessions revoked."""
-        entries = await self._load()
         needle = _norm(username)
-        count = 0
-        now = iso_now()
-        for row in entries:
-            if str(row.get("sid", "")).startswith("__tv__:"):
-                continue
-            if _norm(row.get("username", "")) != needle or row.get("revoked"):
-                continue
-            if except_sid and row.get("sid") == except_sid:
-                continue
-            row["revoked"] = True
-            row["revoked_at"] = now
-            row["revoked_by"] = by or ""
-            row["revoke_reason"] = reason or "revoke_all"
-            count += 1
-        # Bump token_version (a sentinel row keyed __tv__:<user>).
         tv_key = self._tv_key(username)
-        bumped = False
-        for row in entries:
-            if row.get("sid") == tv_key:
-                try:
-                    row["token_version"] = int(row.get("token_version", 0) or 0) + 1
-                except (TypeError, ValueError):
-                    row["token_version"] = 1
-                bumped = True
-                break
-        if not bumped:
-            entries.append({"sid": tv_key, "username": username, "token_version": 1})
-        await self._save(entries)
-        return count
+
+        def apply(entries: list[dict[str, Any]]) -> int:
+            count = 0
+            now = iso_now()
+            for row in entries:
+                if str(row.get("sid", "")).startswith("__tv__:"):
+                    continue
+                if _norm(row.get("username", "")) != needle or row.get("revoked"):
+                    continue
+                if except_sid and row.get("sid") == except_sid:
+                    continue
+                row["revoked"] = True
+                row["revoked_at"] = now
+                row["revoked_by"] = by or ""
+                row["revoke_reason"] = reason or "revoke_all"
+                count += 1
+            # Bump token_version (a sentinel row keyed __tv__:<user>).
+            bumped = False
+            for row in entries:
+                if row.get("sid") == tv_key:
+                    try:
+                        row["token_version"] = int(row.get("token_version", 0) or 0) + 1
+                    except (TypeError, ValueError):
+                        row["token_version"] = 1
+                    bumped = True
+                    break
+            if not bumped:
+                entries.append({"sid": tv_key, "username": username, "token_version": 1})
+            return count
+
+        return int(await self._mutate(apply) or 0)
 
     async def revoke_others(self, username: str, keep_sid: str, *, by: str = "",
                             reason: str = "revoke_others") -> int:
@@ -431,25 +455,26 @@ class SessionStore:
         (Note: a still-UNREGISTERED other token for the user would be lazily
         re-registered on its next request — the registry only revokes KNOWN sessions
         here; use :meth:`revoke_all` for the hard tv-bump global sign-out.)"""
-        entries = await self._load()
         needle = _norm(username)
-        count = 0
-        now = iso_now()
-        for row in entries:
-            if str(row.get("sid", "")).startswith("__tv__:"):
-                continue
-            if _norm(row.get("username", "")) != needle or row.get("revoked"):
-                continue
-            if row.get("sid") == keep_sid:
-                continue
-            row["revoked"] = True
-            row["revoked_at"] = now
-            row["revoked_by"] = by or ""
-            row["revoke_reason"] = reason
-            count += 1
-        if count:
-            await self._save(entries)
-        return count
+
+        def apply(entries: list[dict[str, Any]]) -> int:
+            count = 0
+            now = iso_now()
+            for row in entries:
+                if str(row.get("sid", "")).startswith("__tv__:"):
+                    continue
+                if _norm(row.get("username", "")) != needle or row.get("revoked"):
+                    continue
+                if row.get("sid") == keep_sid:
+                    continue
+                row["revoked"] = True
+                row["revoked_at"] = now
+                row["revoked_by"] = by or ""
+                row["revoke_reason"] = reason
+                count += 1
+            return count
+
+        return int(await self._mutate(apply) or 0)
 
     # ----- activity / expiry checks ----------------------------------------- #
     @staticmethod
@@ -525,12 +550,12 @@ class SessionStore:
 
     async def prune(self) -> int:
         """Explicitly prune long-dead rows. Returns the number removed."""
-        entries = await self._load()
-        kept = self._prune_rows(entries)
-        removed = len(entries) - len(kept)
-        if removed:
-            await self._save(kept)
-        return removed
+        def apply(entries: list[dict[str, Any]]) -> int:
+            # _mutate already re-bounds (prune + cap) on save; report how many rows the
+            # prune drops so callers still see the removed count.
+            return len(entries) - len(self._prune_rows(entries))
+
+        return int(await self._mutate(apply) or 0)
 
     # ----- safe public projection ------------------------------------------- #
     @staticmethod
