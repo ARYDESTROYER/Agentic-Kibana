@@ -11,16 +11,23 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import OrderedDict
 from typing import Any
 
 logger = logging.getLogger("tlsoc.cache")
+
+# Hard LRU cap on the in-memory fallback (audit #37): with Redis down the fallback dict
+# would otherwise grow without bound (one entry per enrichment key, ~forever). Past this,
+# the least-recently-used entry is evicted.
+_MEM_MAX_ENTRIES = 10_000
 
 
 class Cache:
     def __init__(self, redis_url: str | None = None) -> None:
         self._url = redis_url
         self._redis: Any = None
-        self._mem: dict[str, tuple[float, str]] = {}  # key -> (expiry_epoch, value)
+        # LRU-ordered: key -> (expiry_epoch, value). Bounded by _MEM_MAX_ENTRIES.
+        self._mem: OrderedDict[str, tuple[float, str]] = OrderedDict()
         self._warned = False
 
     async def connect(self) -> None:
@@ -52,7 +59,15 @@ class Cache:
                 return
             except Exception as exc:  # noqa: BLE001
                 self._fallback_warn(exc)
-        self._mem[key] = (time.time() + ttl_seconds, value)
+        now = time.time()
+        self._mem[key] = (now + ttl_seconds, value)
+        self._mem.move_to_end(key)  # most-recently-used
+        # Opportunistic bounded expiry sweep (cheap, front of the LRU where the oldest,
+        # most-likely-expired entries live), then the hard LRU cap.
+        for k in [k for k, (exp, _) in list(self._mem.items())[:32] if exp < now]:
+            self._mem.pop(k, None)
+        while len(self._mem) > _MEM_MAX_ENTRIES:
+            self._mem.popitem(last=False)  # evict least-recently-used
 
     async def get_json(self, key: str) -> Any | None:
         raw = await self.get(key)
@@ -74,6 +89,7 @@ class Cache:
         if expiry < time.time():
             self._mem.pop(key, None)
             return None
+        self._mem.move_to_end(key)  # LRU: a hit refreshes recency
         return value
 
     def _fallback_warn(self, exc: Exception) -> None:
