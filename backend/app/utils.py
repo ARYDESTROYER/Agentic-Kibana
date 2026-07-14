@@ -36,6 +36,17 @@ def parse_es_timestamp(value: Any) -> datetime | None:
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if isinstance(value, str):
         s = value.strip()
+        if not s:
+            return None
+        # A stringified epoch (e.g. a source that JSON-encodes "@timestamp" as
+        # "1719763200000") must go through the numeric epoch path — otherwise
+        # fromisoformat rejects it -> None -> time 0 (1970), mis-dating the event and
+        # collapsing distinct same-rule bursts into ONE case (audit #15).
+        if re.fullmatch(r"-?\d+(\.\d+)?", s):
+            try:
+                return parse_es_timestamp(float(s))
+            except (ValueError, OverflowError, OSError):
+                return None
         # Elasticsearch commonly emits "...Z"; fromisoformat handles "+00:00".
         s = s.replace("Z", "+00:00")
         try:
