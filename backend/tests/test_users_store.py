@@ -136,3 +136,23 @@ async def test_user_store_sqlite_round_trip(sql_kv) -> None:
     assert {u.username for u in await fresh.list()} == {"Eve", "frank"}
     assert await fresh.delete("eve") is True
     assert await UserStore(sql_kv).count() == 1
+
+
+async def test_concurrent_user_updates_are_not_clobbered(app_state: AppState) -> None:
+    # audit #25: concurrent account changes must not silently clobber each other. With
+    # every mutation routed through kv_mutate (per-store lock + _rev CAS), a disable and
+    # several parallel role changes all survive instead of last-writer-wins.
+    import asyncio
+
+    store: UserStore = app_state.users
+    for i in range(10):
+        await store.create(username=f"u{i}", password_hash=_h())
+    # Concurrently: disable u0 while patching u1..u9's role.
+    await asyncio.gather(
+        store.update("u0", active=False),
+        *[store.update(f"u{i}", role=UserRole.ANALYST_TIER2.value) for i in range(1, 10)],
+    )
+    u0 = await store.get("u0")
+    assert u0 is not None and u0.active is False, "the disable was clobbered"
+    for i in range(1, 10):
+        assert (await store.get(f"u{i}")).role == UserRole.ANALYST_TIER2

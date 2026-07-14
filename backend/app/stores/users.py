@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any, Callable
 
 from ..constants import USERS_KEY, USERS_NS, UserRole
 from ..models import User
 from ..utils import iso_now
-from .base import KVStore
+from .base import KVStore, kv_mutate
 
 logger = logging.getLogger("tlsoc.stores.users")
 
@@ -51,9 +52,32 @@ class UserStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
-        # Serializes the read-check-write bootstrap so concurrent first-run setup
-        # calls create exactly one admin (FINDING #13). Only the seed path takes it.
-        self._bootstrap_lock = asyncio.Lock()
+        # One per-store lock shared by every mutation (via kv_mutate) AND the bootstrap
+        # seed, so concurrent account changes serialise in-process and the _rev CAS covers
+        # the multi-process race — no lost update (audit #25). (Also the FINDING-#13
+        # single-admin bootstrap guard.)
+        self._lock = asyncio.Lock()
+
+    async def _mutate(self, apply: Callable[[list[User]], Any]) -> Any:
+        """Run ``apply(users)`` under kv_mutate (per-store lock + _rev CAS). ``apply``
+        mutates the fresh user list in place and returns an auxiliary result (the updated
+        User, a bool, …); the persisted attempt's result is returned. ``apply`` may raise
+        (e.g. ``create`` on a duplicate) — the exception propagates and no write lands."""
+        box: dict[str, Any] = {}
+
+        def mutator(current: dict[str, Any] | None) -> dict[str, Any]:
+            raw = current.get("entries", []) if isinstance(current, dict) else []
+            users: list[User] = []
+            for item in (raw or []):
+                try:
+                    users.append(User.model_validate(item))
+                except Exception:  # noqa: BLE001 — skip a corrupt entry, keep the rest
+                    continue
+            box["result"] = apply(users)
+            return {"entries": [u.model_dump(mode="json") for u in users]}
+
+        await kv_mutate(self._kv, USERS_NS, USERS_KEY, mutator, lock=self._lock)
+        return box.get("result")
 
     async def _load(self) -> list[User]:
         try:
@@ -87,17 +111,18 @@ class UserStore:
         in place if it already exists. ``updated_at`` is refreshed on replace; the
         stored ``created_at`` is preserved so it remains the true creation time."""
         needle = _norm(user.username)
-        entries = await self._load()
-        for idx, existing in enumerate(entries):
-            if _norm(existing.username) == needle:
-                entries[idx] = user.model_copy(update={
-                    "created_at": existing.created_at,
-                    "updated_at": iso_now(),
-                })
-                await self._save(entries)
-                return
-        entries.append(user)
-        await self._save(entries)
+
+        def apply(entries: list[User]) -> None:
+            for idx, existing in enumerate(entries):
+                if _norm(existing.username) == needle:
+                    entries[idx] = user.model_copy(update={
+                        "created_at": existing.created_at,
+                        "updated_at": iso_now(),
+                    })
+                    return
+            entries.append(user)
+
+        await self._mutate(apply)
 
     async def count(self) -> int:
         return len(await self._load())
@@ -144,9 +169,6 @@ class UserStore:
         uname = (username or "").strip()
         if not uname:
             raise ValueError("username is required")
-        entries = await self._load()
-        if any(_norm(u.username) == _norm(uname) for u in entries):
-            raise ValueError(f"user '{uname}' already exists")
         user = User(
             username=uname,
             password_hash=password_hash,
@@ -154,9 +176,14 @@ class UserStore:
             active=active,
             must_change_password=must_change_password,
         )
-        entries.append(user)
-        await self._save(entries)
-        return user
+
+        def apply(entries: list[User]) -> User:
+            if any(_norm(u.username) == _norm(uname) for u in entries):
+                raise ValueError(f"user '{uname}' already exists")
+            entries.append(user)
+            return user
+
+        return await self._mutate(apply)
 
     async def create_if_absent(
         self,
@@ -171,12 +198,12 @@ class UserStore:
         username is absent. Returns the created user, or ``None`` if it already
         existed / the store was non-empty (so seeding never clobbers real users).
 
-        The read-check-write runs under ``self._bootstrap_lock`` so two concurrent
-        first-run setup requests cannot both observe an empty store and each save an
-        admin (last-writer-wins) — exactly ONE admin is created under concurrency
-        (H4 / FINDING #13). At single-process scale the lock is the whole guard; the
-        emptiness check inside it is the linearization point."""
-        async with self._bootstrap_lock:
+        The read-check-write runs under ``self._lock`` (shared with every other
+        mutation) so two concurrent first-run setup requests cannot both observe an empty
+        store and each save an admin (last-writer-wins) — exactly ONE admin is created
+        under concurrency (H4 / FINDING #13). At single-process scale the lock is the
+        whole guard; the emptiness check inside it is the linearization point."""
+        async with self._lock:
             entries = await self._load()
             if entries:
                 return None
@@ -194,8 +221,6 @@ class UserStore:
         """Patch a user (role / active / password_hash / must_change_password).
         Returns the updated user, or ``None`` if the username is unknown."""
         needle = _norm(username)
-        entries = await self._load()
-        updated: User | None = None
         allowed = {
             "role", "active", "password_hash", "must_change_password", "last_login_at",
             # Wave 2 (MFA / SSO) — additive, set via the auth routes (never the UI).
@@ -204,26 +229,29 @@ class UserStore:
             # Wave 2 (W2) self-service profile — patched via /api/account/me.
             "display_name", "alias", "avatar", "alt_email", "timezone", "locale", "prefs",
         }
-        for idx, u in enumerate(entries):
-            if _norm(u.username) != needle:
-                continue
-            patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
-            patch["updated_at"] = iso_now()
-            updated = u.model_copy(update=patch)
-            entries[idx] = updated
-            break
-        if updated is not None:
-            await self._save(entries)
-        return updated
+
+        def apply(entries: list[User]) -> User | None:
+            for idx, u in enumerate(entries):
+                if _norm(u.username) != needle:
+                    continue
+                patch = {k: v for k, v in fields.items() if k in allowed and v is not None}
+                patch["updated_at"] = iso_now()
+                updated = u.model_copy(update=patch)
+                entries[idx] = updated
+                return updated
+            return None
+
+        return await self._mutate(apply)
 
     async def delete(self, username: str) -> bool:
         needle = _norm(username)
-        entries = await self._load()
-        remaining = [u for u in entries if _norm(u.username) != needle]
-        if len(remaining) == len(entries):
-            return False
-        await self._save(remaining)
-        return True
+
+        def apply(entries: list[User]) -> bool:
+            before = len(entries)
+            entries[:] = [u for u in entries if _norm(u.username) != needle]
+            return len(entries) != before
+
+        return bool(await self._mutate(apply))
 
     async def count_active_super_admins(self, *, super_admin_role: str) -> int:
         """How many ACTIVE users hold the super-admin role — used to forbid
