@@ -14,12 +14,15 @@ is fully unit-testable with a raw line and no socket.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from ...config import Preferences
 from ..base import AuthField, ConnectorManifest, EmitFn
 from ...constants import IngestMode, SourceType
 from .common import PayloadReceiver
+
+logger = logging.getLogger("tlsoc.connectors.receivers.syslog")
 
 
 class SyslogReceiver(PayloadReceiver):
@@ -164,12 +167,27 @@ class _SyslogUDPProtocol(asyncio.DatagramProtocol):
         self._receiver = receiver
         self._emit = emit
         self._prefs = prefs
+        # Retain in-flight ingest tasks so they are NOT garbage-collected mid-flight, and
+        # attach a done-callback that surfaces ingest failures instead of swallowing them
+        # (audit #35). Completed tasks are discarded, so the set stays bounded by the
+        # in-flight rate.
+        self._tasks: set[asyncio.Future[Any]] = set()
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         # Schedule async normalisation; the protocol callback itself is sync.
-        asyncio.ensure_future(
+        task = asyncio.ensure_future(
             self._receiver._emit_payload(data, self._prefs, self._emit)
         )
+        self._tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+
+    def _on_task_done(self, task: asyncio.Future[Any]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("syslog UDP datagram ingest failed: %s", exc)
 
 
 async def _read_framed(reader: asyncio.StreamReader, framing: str):

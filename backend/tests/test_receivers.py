@@ -474,6 +474,33 @@ def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
 
 
 @pytest.mark.asyncio
+async def test_syslog_udp_datagram_ingest_error_is_surfaced(prefs, caplog):
+    # audit #35: a UDP datagram whose ingest FAILS must surface the error (and the task
+    # must be retained until done), not be a swallowed fire-and-forget.
+    import asyncio
+    import logging
+
+    from app.connectors.receivers.syslog import SyslogReceiver, _SyslogUDPProtocol
+
+    async def failing_emit(events):
+        raise RuntimeError("ingest down")
+
+    # Make _emit_payload actually reach emit: a parseable line yields >=1 event.
+    recv = SyslogReceiver(config={"format_hint": "syslog3164"}, connector_id="sl")
+    proto = _SyslogUDPProtocol(recv, failing_emit, prefs)
+    with caplog.at_level(logging.WARNING, logger="tlsoc.connectors.receivers.syslog"):
+        proto.datagram_received(b"<34>Oct 11 22:14:15 host su: failure", ("127.0.0.1", 514))
+        assert proto._tasks, "the ingest task must be retained (not GC-able)"
+        # Let the scheduled task run + its done-callback fire.
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if not proto._tasks:
+                break
+    assert not proto._tasks, "completed task should be discarded from the retained set"
+    assert any("ingest failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_mqtt_acks_only_after_successful_ingest(prefs, monkeypatch):
     # audit #18: MQTT must ack a message ONLY after a confirmed ingest; a failed ingest
     # is left UNACKED so the broker redelivers (at-least-once), never dropped.
