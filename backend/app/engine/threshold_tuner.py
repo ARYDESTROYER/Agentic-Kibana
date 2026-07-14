@@ -382,6 +382,7 @@ def derive_proposals(
     stats: dict[str, RuleStat],
     *,
     already_tuned: dict[str, int] | None = None,
+    already_tuned_floors: set[str] | None = None,
 ) -> list[TuningProposal]:
     """For each genuinely-noisy rule (Wilson-LB FP-rate > target AND samples >= min),
     derive ONE bounded proposal. Pure — no side effects, no store/prefs writes.
@@ -402,6 +403,7 @@ def derive_proposals(
     min_samples = int(cfg.min_samples)
     step = int(cfg.max_n_step)
     already_tuned = already_tuned or {}
+    already_tuned_floors = already_tuned_floors or set()
     out: list[TuningProposal] = []
 
     for rid, st in sorted(stats.items()):
@@ -427,13 +429,19 @@ def derive_proposals(
         feed = _find_feed_for_rule(prefs, rid)
         if feed is not None:
             source_id, feed_id, cur_floor = feed
+            feed_key = f"{source_id}:{feed_id}"
+            # Already raised THIS feed's floor this cadence window → do NOT re-raise it
+            # for the SAME unchanging noise, else it climbs +1 every run to the max
+            # (audit #23). Keyed by feed_key, mirroring the correlation_n guard.
+            if feed_key in already_tuned_floors:
+                continue
             new_floor = min(_SEVERITY_FLOOR_MAX, (cur_floor or _SEVERITY_FLOOR_MIN) + 1)
             if new_floor > (cur_floor or _SEVERITY_FLOOR_MIN):
                 out.append(TuningProposal(
                     rule_id=rid, kind="severity_floor",
                     before=cur_floor or _SEVERITY_FLOOR_MIN, after=new_floor, stat=st,
                     source_id=source_id, feed_id=feed_id,
-                    feed_key=f"{source_id}:{feed_id}",
+                    feed_key=feed_key,
                 ))
     return out
 
@@ -535,6 +543,31 @@ async def _recently_tuned_ns(tuning_store: TuningStore, window_start: datetime) 
     return out
 
 
+async def _recently_tuned_floors(tuning_store: TuningStore, window_start: datetime) -> set[str]:
+    """The set of ``feed_key``s whose ``severity_floor`` was auto-raised WITHIN the current
+    cadence window and is still active. A feed in this set was already relieved this window,
+    so ``derive_proposals`` skips re-raising it — otherwise the floor climbs +1 every run to
+    the max on the SAME (unchanging) trailing-window noise (audit #23). The ledger stores a
+    severity_floor record's ``feed_key`` as its ``rule_id`` (see ``_record_ledger``). Never
+    raises — a store glitch yields an empty set."""
+    out: set[str] = set()
+    try:
+        records = await tuning_store.list(active_only=True)
+    except Exception as exc:  # noqa: BLE001 — best-effort; degrade to "nothing tuned yet"
+        logger.debug("recently-tuned-floors read failed (%s); assuming none", exc)
+        return out
+    for rec in records:
+        if getattr(rec, "target", None) != "severity_floor":
+            continue
+        applied = _parse_iso(getattr(rec, "applied_at", None))
+        if applied is None or applied < window_start:
+            continue
+        fk = str(getattr(rec, "rule_id", "") or "")  # feed_key is stored as rule_id
+        if fk:
+            out.add(fk)
+    return out
+
+
 async def run_once(
     prefs: Preferences,
     cases: "list[Case] | CaseReader",
@@ -590,8 +623,12 @@ async def run_once(
         # (FINDING #14 — unbounded knob growth). Best-effort: a store glitch degrades to an
         # empty set (the derive/shadow rails still bound each single bump).
         already_tuned = await _recently_tuned_ns(tuning_store, window_start)
+        already_tuned_floors = await _recently_tuned_floors(tuning_store, window_start)
 
-        proposals_to_make = derive_proposals(prefs, stats, already_tuned=already_tuned)
+        proposals_to_make = derive_proposals(
+            prefs, stats, already_tuned=already_tuned,
+            already_tuned_floors=already_tuned_floors,
+        )
         if not proposals_to_make:
             outcome.reason = "no noisy rule cleared the bar"
             return outcome

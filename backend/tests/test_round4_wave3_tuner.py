@@ -415,6 +415,35 @@ async def test_severity_floor_raise_when_n_tuning_disabled(app_state: AppState) 
     assert box["prefs"].sources[0].feeds()[0].severity_floor == 2
 
 
+async def test_severity_floor_not_re_raised_within_cadence_window(app_state: AppState) -> None:
+    # audit #23: a second pass over the SAME unchanging noise must NOT re-raise the feed's
+    # severity_floor (it would climb +1 every run to the max). Mirrors the correlation_n
+    # per-window guard.
+    source = SourceInstance(
+        id="src1", source_type=SourceType.ELASTICSEARCH, ingest_mode=IngestMode.PULL,
+        config={"index_patterns": [
+            {"pattern": "alerts-*", "id": "feedA", "role": "events",
+             "severity_floor": 2, "query": "floor_rule"},
+        ]},
+    )
+    prefs = _tuning_prefs(min_samples=25, max_n_step=0, sources=[source])
+    cases = [_closed_case(case_id=f"s{i}", rule="floor_rule") for i in range(30)]
+    store = TuningStore(app_state._kv)
+    audit = FakeAudit()
+    write, box = _writer_capture()
+
+    out1 = await run_once(prefs, cases, app_state.proposals, audit,
+                          tuning_store=store, write_prefs=write)
+    assert len(out1.auto_applied) == 1
+    after_prefs = box["prefs"]
+    assert after_prefs.sources[0].feeds()[0].severity_floor == 3
+
+    # Second pass over the SAME closed cases + the now-raised prefs: no re-raise.
+    out2 = await run_once(after_prefs, cases, app_state.proposals, audit,
+                          tuning_store=store, write_prefs=write)
+    assert out2.auto_applied == [], "severity_floor must not climb again within the window"
+
+
 # --------------------------------------------------------------------------- #
 # TuningStore CRUD + durability
 # --------------------------------------------------------------------------- #
