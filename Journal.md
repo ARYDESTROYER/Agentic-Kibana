@@ -2024,3 +2024,10 @@
 - Tests: Full backend suite passed with **1887/1887 tests**; full web suite passed with **1349/1349 tests across 240 files**; `npm run build` passed (entry **285.91 kB**, gzip **84.44 kB**, lazy motion **83.85 kB**), `npm run lint` passed with zero errors/warnings, `npm run gates` passed all five design gates, `npm run check:types` passed, `python -m compileall -q app` passed, canonical version validation passed at `3.0.0-alpha.1`, agnostic Compose validation passed, `mkdocs build --strict` passed, `git diff --check` passed, and launcher/browser QA passed.
 - Status: done; candidate is ready for the requested local commit. No push or release action was performed.
 - Next: User can run the demo/test candidate locally, then promote it through the chosen release channel after acceptance.
+
+### 2026-07-14 10:16Z — OpenCode — Local browser deployment started
+- Context: Deploy the suite locally and make it available in the user's browser.
+- Did: Read the canonical handoff and launcher; found the backend and web UI already listening on the documented loopback ports `8088` and `5173`, so preserved the existing session pending health verification.
+- Tests: Runtime and HTTP verification in progress.
+- Status: in-progress.
+- Next: Verify backend health, UI delivery, and process identity, then open the local UI in the default browser.

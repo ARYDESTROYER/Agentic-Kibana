@@ -20,6 +20,7 @@ ack/delete), which is the broker-native equivalent of the suite's durable cursor
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from ...config import Preferences
@@ -27,6 +28,12 @@ from ...models import Cursor
 from ..base import AuthField, ConnectorManifest, EmitFn
 from ...constants import CursorKind, IngestMode, SourceType
 from .common import PayloadReceiver
+
+logger = logging.getLogger("tlsoc.connectors.receivers.queues")
+
+# How long the paho network thread waits for the async ingest of one MQTT message
+# before treating it as failed (so it is NOT acked and the broker redelivers).
+_MQTT_INGEST_TIMEOUT = 30.0
 
 
 def _require(module: str, pip_name: str) -> Any:
@@ -689,6 +696,16 @@ class MqttReceiver(PayloadReceiver):
         loop = asyncio.get_running_loop()
         client = mqtt.Client(client_id=self.config.get("client_id", "tlsoc-agentic-triage"),
                              clean_session=False)
+        # Withhold the PUBACK until we confirm the message was ingested, so a failed
+        # ingest is REDELIVERED by the broker rather than silently dropped — the
+        # documented at-least-once guarantee (audit #18). Older paho lacking manual ack
+        # degrades to auto-ack (we still surface the ingest error in logs).
+        manual_ack = False
+        try:
+            client.manual_ack_set(True)
+            manual_ack = True
+        except Exception as exc:  # noqa: BLE001 — older paho without manual ack
+            logger.warning("MQTT manual-ack unavailable (%s); at-most-once fallback", exc)
         if self.config.get("username"):
             client.username_pw_set(self.config["username"], self.config.get("password", ""))
         if self.config.get("tls"):
@@ -698,9 +715,21 @@ class MqttReceiver(PayloadReceiver):
             c.subscribe(self.config.get("topic", ""), qos=int(self.config.get("qos", 1) or 1))
 
         def on_message(c: Any, userdata: Any, msg: Any) -> None:
-            asyncio.run_coroutine_threadsafe(
+            fut = asyncio.run_coroutine_threadsafe(
                 self._emit_payload(msg.payload, prefs, emit), loop
             )
+            try:
+                fut.result(timeout=_MQTT_INGEST_TIMEOUT)
+            except Exception as exc:  # noqa: BLE001 — do NOT ack → broker redelivers
+                logger.warning(
+                    "MQTT ingest failed; leaving message unacked for redelivery: %s", exc
+                )
+                return
+            if manual_ack:
+                try:
+                    c.ack(msg.mid, msg.qos)
+                except Exception as exc:  # noqa: BLE001 — ack best-effort
+                    logger.debug("MQTT ack failed for mid=%s: %s", getattr(msg, "mid", "?"), exc)
 
         client.on_connect = on_connect
         client.on_message = on_message

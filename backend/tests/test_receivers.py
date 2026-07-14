@@ -474,6 +474,96 @@ def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
 
 
 @pytest.mark.asyncio
+async def test_mqtt_acks_only_after_successful_ingest(prefs, monkeypatch):
+    # audit #18: MQTT must ack a message ONLY after a confirmed ingest; a failed ingest
+    # is left UNACKED so the broker redelivers (at-least-once), never dropped.
+    import asyncio
+    import types
+
+    from app.connectors.receivers import queues
+
+    acked: list = []
+    captured: dict = {}
+    made: list = []
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            self.on_message = None
+            self.on_connect = None
+            made.append(self)
+
+        def manual_ack_set(self, v):  # noqa: ANN001
+            self._manual = v
+
+        def username_pw_set(self, *a):  # noqa: ANN001
+            pass
+
+        def tls_set(self, *a):  # noqa: ANN001
+            pass
+
+        def connect(self, *a):  # noqa: ANN001
+            pass
+
+        def subscribe(self, *a, **k):  # noqa: ANN001
+            pass
+
+        def loop_start(self):
+            pass
+
+        def loop_stop(self):
+            pass
+
+        def disconnect(self):
+            pass
+
+        def ack(self, mid, qos):  # noqa: ANN001
+            acked.append((mid, qos))
+
+    fake_mod = types.SimpleNamespace(Client=lambda *a, **k: _FakeClient())
+    monkeypatch.setattr(queues, "_require", lambda *a, **k: fake_mod)
+
+    r = queues.MqttReceiver(config={"topic": "t", "format_hint": "json"}, connector_id="mq")
+    fail = {"flag": False}
+
+    async def emit(events):
+        if fail["flag"]:
+            raise RuntimeError("ingest down")
+
+    task = asyncio.create_task(r.start(emit, prefs))
+    try:
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if made and made[0].on_message:
+                break
+        client = made[0]
+        on_msg = client.on_message
+        loop = asyncio.get_running_loop()
+
+        class _Msg:
+            def __init__(self, payload, mid, qos=1):
+                self.payload = payload
+                self.mid = mid
+                self.qos = qos
+
+        # Success → acked. Drive on_message from a WORKER THREAD (as paho's network
+        # thread would), so fut.result() blocks that thread, not the event loop.
+        await loop.run_in_executor(None, on_msg, client, None, _Msg(b'{"message":"ok"}', 1))
+        assert acked == [(1, 1)]
+
+        # Failure → NOT acked (broker will redeliver).
+        fail["flag"] = True
+        await loop.run_in_executor(None, on_msg, client, None, _Msg(b'{"message":"bad"}', 2))
+        assert acked == [(1, 1)], "a failed ingest must not be acked"
+    finally:
+        r._running = False
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_object_store_marker_is_durable_across_restart(prefs):
     # audit #7: the last-processed object key must survive a restart via the injected
     # CursorStore IO — otherwise a restart re-lists from the configured start (a
