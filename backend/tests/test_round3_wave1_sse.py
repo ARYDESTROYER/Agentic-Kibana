@@ -301,6 +301,23 @@ async def test_max_subscribers_evicts_oldest():
     await g3.aclose()
 
 
+async def test_evicted_subscriber_generator_stops_not_zombie():
+    # audit #34: an evicted subscriber's stream must STOP (so the socket closes and the
+    # client reconnects), not linger as a zombie holding a slot and getting no events.
+    bus = EventBus(heartbeat_seconds=60)
+    bus._max_subscribers = 1  # noqa: SLF001 — test-only knob
+    g1 = bus.subscribe(["t"], user="a").__aiter__()
+    await g1.__anext__()  # connected; registered
+    assert bus.subscriber_count == 1
+    g2 = bus.subscribe(["t"], user="b").__aiter__()
+    await g2.__anext__()  # evicts g1
+    assert bus.subscriber_count == 1  # g1 gone from the registry
+    # g1's generator now returns instead of streaming forever.
+    with pytest.raises(StopAsyncIteration):
+        await asyncio.wait_for(g1.__anext__(), timeout=2.0)
+    await g2.aclose()
+
+
 # --------------------------------------------------------------------------- #
 # Heartbeat on idle.
 # --------------------------------------------------------------------------- #

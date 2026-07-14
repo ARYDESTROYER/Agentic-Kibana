@@ -366,9 +366,20 @@ class EventBus:
                 try:
                     batch = await asyncio.wait_for(sub.drain(), timeout=self._heartbeat_seconds)
                 except asyncio.TimeoutError:
+                    # Evicted (bounded-subscriber cap) while idle → stop so the socket
+                    # closes and the client reconnects (audit #34).
+                    if sub.id not in self._subscribers:
+                        break
                     # Idle — keep the connection warm.
                     yield heartbeat_frame().encode("utf-8")
                     continue
+                # Evicted mid-stream: the cap dropped us from the registry (and woke the
+                # drain). Stop streaming so the StreamingResponse unwinds and the socket
+                # closes — otherwise the connection lingers as a ZOMBIE that gets no
+                # events yet holds a slot, defeating the flood bound and silently muting
+                # the client (audit #34).
+                if sub.id not in self._subscribers:
+                    break
                 dropped = sub.pop_dropped()
                 if dropped:
                     # Tell the client it missed events (it can refetch authoritative
