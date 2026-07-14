@@ -143,6 +143,9 @@ class NotificationService:
         # In-memory fallbacks (single-node) when no cache is wired.
         self._dedup_mem: dict[str, float] = {}
         self._rate_mem: dict[str, list[float]] = {}
+        # One-time flag so we warn ONCE if an operator enabled the (unimplemented)
+        # channel-level digest, instead of silently doing nothing (audit #44).
+        self._warned_channel_digest = False
         # In-app inbox fan-in (Feature 8). All OPTIONAL + defaulted None so existing
         # callers / the offline test suite construct the service unchanged. When
         # ``inbox`` is wired the dispatcher ALSO fans an in-app copy out per recipient
@@ -527,6 +530,18 @@ class NotificationService:
             cfg = getattr(prefs, "notifications", None) if prefs else None
             if cfg is None or not cfg.enabled:
                 return sent
+            # Channel-level digest is a RESERVED, not-yet-wired field (audit #44): warn
+            # ONCE so an operator who enabled it isn't misled into thinking email/webhook
+            # volume is being batched (the implemented digest is per-user + in-app).
+            if not self._warned_channel_digest and getattr(
+                getattr(cfg, "digest", None), "enabled", False
+            ):
+                self._warned_channel_digest = True
+                logger.warning(
+                    "notifications.digest.enabled is set but channel-level digest batching "
+                    "is not implemented; email/webhook events are sent immediately. Use a "
+                    "per-user in-app digest (NotifPref.digest) to batch inbox items."
+                )
             ensure_registered()
             channels = cfg.enabled_channels() if hasattr(cfg, "enabled_channels") else [
                 c for c in cfg.channels if c.enabled

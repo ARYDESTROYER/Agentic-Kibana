@@ -1977,9 +1977,14 @@ class NotificationTriggers(BaseModel):
 
 
 class NotificationDigest(BaseModel):
-    """Optional digest batching (F5). When enabled the dispatcher BATCHES matching
-    events per channel and flushes them together every ``interval_minutes`` instead
-    of sending each immediately."""
+    """RESERVED — channel-level (email/webhook) digest batching is NOT yet implemented
+    (audit #44). Setting ``enabled`` here does NOT batch network-channel sends; each
+    matching event is still delivered immediately. The digest cadence that IS
+    implemented is PER-USER + IN-APP: set a user's ``NotifPref.digest`` so their inbox
+    items are held in a pending-digest buffer instead of arriving per-event (see
+    ``NotificationService._fan_in_app`` / ``_defer_inapp``). This model is kept for
+    backward/forward config compatibility; do not rely on it to throttle email/webhook
+    volume until a background flush is wired."""
 
     enabled: bool = False
     interval_minutes: int = Field(default=60, ge=1)
