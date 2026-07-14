@@ -398,6 +398,21 @@ def require_permission(resource: str, action: str):
     return _dep
 
 
+async def has_permission(request: Request, resource: str, action: str) -> bool:
+    """Non-raising boolean form of :func:`require_permission` — for INLINE, in-body
+    authorization decisions (e.g. "author OR a moderator grant"). Returns True when the
+    caller holds ``resource:action`` (always True when auth is off / rbac off /
+    super_admin), False on a denial. Never raises for a denial (a 401 for an
+    unauthenticated caller still propagates when auth is on)."""
+    try:
+        await _enforce(request, resource, action)
+        return True
+    except HTTPException as exc:
+        if exc.status_code == 403:
+            return False
+        raise
+
+
 def require_role(*roles: str):
     """FastAPI dependency factory: gate a route on the caller holding one of
     ``roles`` (by value). ``super_admin`` always passes. A strict no-op when auth is

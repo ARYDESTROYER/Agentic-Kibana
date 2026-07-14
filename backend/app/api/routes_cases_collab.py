@@ -64,7 +64,7 @@ from ..constants import ActionType, AuthorType, NotificationCategory
 from ..models import CaseActivity, CaseMessage, InAppNotification
 from ..state import AppState
 from ..utils import truncate
-from .deps import current_username, get_state, require_permission
+from .deps import current_username, get_state, has_permission, require_permission
 
 logger = logging.getLogger("tlsoc.api.cases_collab")
 
@@ -534,6 +534,29 @@ async def post_case_thread(
     return _msg_public(msg)
 
 
+async def _require_author_or_moderator(
+    state: AppState, request: Request, case_id: str, msg_id: str, actor: str
+) -> None:
+    """Author-scope a thread edit/delete (audit #12): only the message's own author OR a
+    case moderator (``cases:close`` — senior analyst / super_admin) may mutate it. A
+    plain ``cases:comment`` holder must NOT be able to rewrite or tombstone someone
+    else's message. A no-op when auth is off (has_permission allows everything)."""
+    threads = getattr(state, "case_threads", None)
+    if threads is None:
+        raise HTTPException(status_code=503, detail="thread store unavailable")
+    msg = await threads.get(case_id, msg_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="message not found or already deleted")
+    if (msg.author or "") == actor:
+        return
+    if await has_permission(request, "cases", "close"):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="only the message author or a case moderator can modify this message",
+    )
+
+
 @router.patch("/cases/{case_id}/thread/{msg_id}")
 async def edit_case_message(
     case_id: str,
@@ -554,6 +577,7 @@ async def edit_case_message(
     if not text:
         raise HTTPException(status_code=400, detail="message body is required")
     actor = current_username(request) or ""
+    await _require_author_or_moderator(state, request, case_id, msg_id, actor)
     updated = await threads.edit(case_id, msg_id, text, editor=actor)
     if updated is None:
         raise HTTPException(status_code=404, detail="message not found or already deleted")
@@ -586,6 +610,7 @@ async def delete_case_message(
     if threads is None:
         raise HTTPException(status_code=503, detail="thread store unavailable")
     actor = current_username(request) or ""
+    await _require_author_or_moderator(state, request, case_id, msg_id, actor)
     updated = await threads.delete(case_id, msg_id)
     if updated is None:
         raise HTTPException(status_code=404, detail="message not found or already deleted")

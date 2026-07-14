@@ -221,6 +221,78 @@ async def test_edit_message(collab_client):
     assert r.json()["edited_at"]
 
 
+@pytest.fixture
+def authz_collab_client(mock_provider):
+    """An AUTH+RBAC-ON collab client (seeds Admin/Admin@123) for author-scoping tests."""
+    from contextlib import asynccontextmanager
+
+    from fastapi import Depends, FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import require_auth
+    from app.api.routes import router as monolith_router
+    from app.api.routes_cases_collab import router as collab_router
+
+    secrets = Secrets(
+        _env_file=None, es_store_enabled=False, redis_url="",
+        anthropic_api_key=None, openai_api_key=None,
+        auth_enabled=True, auth_jwt_secret="collab-authz", auth_seed_admin=True,
+    )
+    overrides = {"anthropic": mock_provider, "openai": mock_provider, "mock": mock_provider}
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        state = AppState.create(secrets=secrets, es=InMemoryESClient(), provider_overrides=overrides)
+        await state.startup(start_poller=False)
+        prefs = state.prefs.model_copy(deep=True)
+        prefs.setup_complete = True
+        prefs.rbac.enabled = True
+        await state.update_prefs(prefs)
+        app.state.tlsoc = state
+        yield
+        await state.shutdown()
+
+    api = FastAPI(lifespan=lifespan)
+    api.include_router(monolith_router, dependencies=[Depends(require_auth)])
+    api.include_router(collab_router, dependencies=[Depends(require_auth)])
+    with TestClient(api) as c:
+        yield c
+
+
+def _login_collab(c, username, password):
+    c.cookies.clear()
+    r = c.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.status_code == 200, r.text
+
+
+async def test_thread_edit_delete_is_author_scoped(authz_collab_client):
+    # audit #12: a plain cases:comment holder must NOT edit/delete ANOTHER analyst's
+    # message; only the author or a moderator (cases:close) may.
+    c = authz_collab_client
+    _login_collab(c, "Admin", "Admin@123")
+    await _seed_case(c)
+    # Two tier-2 analysts (have cases:comment AND cases:close = moderators) would both
+    # pass; use tier1 (comment, NOT close) as the non-author to prove the deny.
+    for u, role in (("alice", "analyst_tier2"), ("mallory", "analyst_tier1")):
+        assert c.post("/api/users", json={"username": u, "password": f"{u}-pass-12", "role": role}).status_code == 200
+
+    _login_collab(c, "alice", "alice-pass-12")
+    m = c.post("/api/cases/c-collab-1/thread", json={"body": "alice's note"}).json()
+
+    # mallory (cases:comment, NOT the author, NOT a moderator) is DENIED.
+    _login_collab(c, "mallory", "mallory-pass-12")
+    assert c.patch(f"/api/cases/c-collab-1/thread/{m['id']}", json={"body": "hijack"}).status_code == 403
+    assert c.delete(f"/api/cases/c-collab-1/thread/{m['id']}").status_code == 403
+
+    # The author can edit her own message.
+    _login_collab(c, "alice", "alice-pass-12")
+    assert c.patch(f"/api/cases/c-collab-1/thread/{m['id']}", json={"body": "fixed by alice"}).status_code == 200
+
+    # A moderator (Admin / super_admin → passes cases:close) can moderate it.
+    _login_collab(c, "Admin", "Admin@123")
+    assert c.delete(f"/api/cases/c-collab-1/thread/{m['id']}").status_code == 200
+
+
 async def test_soft_delete_is_tombstone(collab_client):
     await _seed_case(collab_client)
     m = collab_client.post("/api/cases/c-collab-1/thread", json={"body": "oops"}).json()
