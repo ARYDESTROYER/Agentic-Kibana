@@ -636,25 +636,45 @@ async def run_once(
         # Apply / queue each proposal against a RUNNING prefs so multiple auto-applies
         # in one pass compose (each writer returns a fresh Preferences). ``current_prefs``
         # is the single source of truth threaded through — no smuggling via the outcome.
+        # The ledger + audit for each auto-apply are DEFERRED (collected in ``pending``)
+        # and only recorded AFTER ``write_prefs`` is confirmed, so a swallowed write
+        # failure never leaves a false 'applied/reversible' ledger+audit and never blocks
+        # re-tuning the still-noisy rule (audit #24).
         current_prefs = prefs
+        pending: list[tuple[TuningProposal, TuningRecord]] = []
         for prop in proposals_to_make:
             try:
-                current_prefs = await _handle_proposal(
+                current_prefs, rec = await _handle_proposal(
                     prop, current_prefs, window_cases, cfg,
                     proposals=proposals, audit=audit, tuning_store=tuning_store,
                     writers=writers, outcome=outcome,
                 )
+                if rec is not None:
+                    pending.append((prop, rec))
             except Exception as exc:  # noqa: BLE001 — one bad rule never breaks the pass
                 logger.warning("tuning proposal for %s failed: %s", prop.rule_id, exc)
 
-        # Persist the accumulated prefs change ONCE (all auto-applies composed).
+        # Persist the accumulated prefs change ONCE (all auto-applies composed), THEN —
+        # only on a confirmed write — record the ledger + audit for each auto-apply.
         if current_prefs is not prefs:
             try:
                 result = write_prefs(current_prefs)
                 if hasattr(result, "__await__"):
                     await result  # type: ignore[misc]
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("tuning write_prefs failed: %s", exc)
+            except Exception as exc:  # noqa: BLE001 — write failed → do NOT record any apply
+                logger.warning(
+                    "tuning write_prefs failed; NOT recording %d auto-apply(ies): %s",
+                    len(pending), exc,
+                )
+                outcome.reason = "config write failed; auto-applies not recorded"
+                return outcome
+            for prop, rec in pending:
+                try:
+                    await tuning_store.add(rec)
+                    outcome.auto_applied.append(rec)
+                    await _audit_tuning(audit, prop, rec)
+                except Exception as exc:  # noqa: BLE001 — best-effort per record
+                    logger.warning("recording tuning apply for %s failed: %s", prop.rule_id, exc)
         return outcome
     except Exception as exc:  # noqa: BLE001 — the observer must NEVER break a caller
         logger.warning("threshold_tuner.run_once failed: %s", exc)
@@ -673,23 +693,25 @@ async def _handle_proposal(
     tuning_store: TuningStore,
     writers: dict[str, ConfigWriter],
     outcome: TuningOutcome,
-) -> Preferences:
+) -> tuple[Preferences, TuningRecord | None]:
     """Route ONE proposal: auto-apply a bounded n/floor raise (after shadow-eval), OR
     open a HITL Proposal for a suppression drop / a shadow-blocked change.
 
-    Returns the (possibly advanced) running Preferences — the caller threads it into the
-    next proposal so multiple auto-applies in one pass compose. A queued/blocked proposal
-    returns ``prefs`` unchanged (no live write)."""
+    Returns ``(running_prefs, pending_record)``. The caller threads the prefs into the
+    next proposal so multiple auto-applies in one pass compose; ``pending_record`` is the
+    ledger record for an auto-apply that must be persisted ONLY AFTER ``write_prefs``
+    succeeds (audit #24) — it is ``None`` for a queued/blocked proposal (which does its own
+    HITL Proposal write and makes no 'applied' claim)."""
     # A suppression DROP is NEVER auto-applied — always HITL.
     if prop.kind == "suppression":
         await _open_proposal(prop, proposals, audit, outcome, reason="suppression_drop")
-        return prefs
+        return prefs, None
 
     # SHADOW-EVAL: would the raise have hidden a confirmed TP? If so, force review.
     if cfg.shadow_eval and shadow_eval_hides_true_positive(prop, window_cases):
         outcome.shadow_blocked.append(prop.rule_id)
         await _open_proposal(prop, proposals, audit, outcome, reason="shadow_eval_would_hide_tp")
-        return prefs
+        return prefs, None
 
     # Auto-apply the bounded change via the config-writer (working off the running prefs).
     writer = writers.get(prop.kind)
@@ -697,7 +719,7 @@ async def _handle_proposal(
     if new_prefs is None:
         # The writer refused (couldn't locate the target) → HITL fallback (never silent).
         await _open_proposal(prop, proposals, audit, outcome, reason="writer_could_not_apply")
-        return prefs
+        return prefs, None
 
     record = TuningRecord(
         rule_id=prop.feed_key or prop.rule_id,
@@ -712,10 +734,9 @@ async def _handle_proposal(
             f"{prop.kind} {prop.before}->{prop.after} (auto-applied, reversible)"
         ),
     )
-    await tuning_store.add(record)
-    outcome.auto_applied.append(record)
-    await _audit_tuning(audit, prop, record)
-    return new_prefs
+    # NB: the ledger add + outcome append + audit are deferred to run_once, AFTER the
+    # prefs write is confirmed — so they never claim an apply that didn't land.
+    return new_prefs, record
 
 
 async def _open_proposal(

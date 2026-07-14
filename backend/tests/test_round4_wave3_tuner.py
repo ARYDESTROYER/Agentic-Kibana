@@ -199,6 +199,28 @@ async def test_noisy_rule_auto_applies_n_raise_audited_and_reversible(app_state:
     assert await rollback(rec.id, box["prefs"], tuning_store=store, write_prefs=write) is False
 
 
+async def test_failed_write_prefs_records_no_ledger_or_audit(app_state: AppState) -> None:
+    # audit #24: if the config write fails, the ledger + audit must NOT claim an apply
+    # (which would emit a false 'applied/reversible' record AND block re-tuning the
+    # still-noisy rule next window).
+    prefs = _tuning_prefs(min_samples=25)
+    cases = [_closed_case(case_id=f"c{i}", rule="noisy_rule") for i in range(30)]
+    store = TuningStore(app_state._kv)
+    audit = FakeAudit()
+
+    async def _failing_write(p):  # noqa: ANN001
+        raise RuntimeError("prefs store down")
+
+    outcome = await run_once(
+        prefs, cases, app_state.proposals, audit,
+        tuning_store=store, write_prefs=_failing_write,
+    )
+    assert outcome.auto_applied == [], "no apply may be recorded when the write failed"
+    assert await store.list(active_only=True) == [], "ledger must not claim the apply"
+    assert audit.by_type(ActionType.TUNING) == [], "no false 'applied' audit"
+    # The rule is NOT marked tuned this window → it can be re-tuned once the store recovers.
+
+
 # --------------------------------------------------------------------------- #
 # FINDING #14 — a rule is bumped ONCE per cadence window, never re-raised every tick.
 # --------------------------------------------------------------------------- #
@@ -338,12 +360,13 @@ async def test_suppression_drop_always_routes_to_proposal(app_state: AppState) -
         stat=RuleStat(rule_id="drop_rule", total=40, fp=35, fp_lower_bound=0.7),
     )
     outcome = TuningOutcome()
-    returned = await _handle_proposal(
+    returned, rec = await _handle_proposal(
         prop, prefs, [], prefs.threshold_tuning,
         proposals=app_state.proposals, audit=audit, tuning_store=store,
         writers={"correlation_n": apply_correlation_n}, outcome=outcome,
     )
     assert returned is prefs  # no prefs advance → no live write
+    assert rec is None  # a suppression drop is HITL, never an auto-apply record
     assert outcome.auto_applied == []
     pending = await app_state.proposals.list(status="pending")
     assert len(pending) == 1
