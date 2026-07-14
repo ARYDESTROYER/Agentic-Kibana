@@ -47,7 +47,9 @@ def test_match_rule_modsec_xss_beats_generic_by_priority():
     # A ModSec event carrying an OWASP CRS rule.id of 941100 (XSS) must classify
     # as the sub-rule, NOT the generic modsec_audit_log, because the sub-rule has
     # a lower priority and is evaluated first.
-    src = {"event": {"module": "modsec_audit_log"}, "rule": {"id": {"keyword": "941100"}}}
+    # Real _source carries a SCALAR rule.id (audit #16): the seeded rule matches the
+    # ``rule.id`` path, NOT the ``rule.id.keyword`` ES index sub-field (never in _source).
+    src = {"event": {"module": "modsec_audit_log"}, "rule": {"id": "941100"}}
     rd = p.match_rule(src)
     assert rd is not None
     assert rd.name == "modsec_xss"
@@ -57,7 +59,7 @@ def test_match_rule_modsec_xss_beats_generic_by_priority():
                 "932100": "modsec_rce", "913100": "modsec_scanner"}
     for rid, name in families.items():
         rd = p.match_rule({"event": {"module": "modsec_audit_log"},
-                           "rule": {"id": {"keyword": rid}}})
+                           "rule": {"id": rid}})
         assert rd is not None and rd.name == name
 
 
@@ -114,7 +116,7 @@ def test_from_hit_nonempty_catalog_classifies_modsec_subrule():
     src = {
         "@timestamp": "2026-06-16T00:00:00+00:00",
         "event": {"module": "modsec_audit_log"},
-        "rule": {"id": {"keyword": "941100"}},
+        "rule": {"id": "941100"},
         "source": {"ip": "1.2.3.4"},
     }
     ev = RawEvent.from_hit({"_id": "m1", "_index": "all-logs-1", "_source": src}, p)
@@ -138,7 +140,7 @@ def test_correlate_uses_rule_definition_correlation_and_trigger_sentence():
     p.rule_catalog = [
         RuleDefinition(
             name="modsec_xss",
-            match=RuleMatch(field="rule.id.keyword", op="prefix", value="941"),
+            match=RuleMatch(field="rule.id", op="prefix", value="941"),
             correlation=CorrelationRule(mode=CorrelationMode.EVERY, group_by=EntityType.IP),
             priority=50,
         )
@@ -254,6 +256,40 @@ def test_seed_is_noop_when_current():
     n = len(p.rule_catalog)
     assert p.maybe_seed_rule_catalog() is False
     assert len(p.rule_catalog) == n
+
+
+def test_seeded_modsec_rules_use_real_rule_id_field():
+    # audit #16: the seeded ModSec sub-rules must match the real _source ``rule.id``,
+    # never the ES index sub-field ``rule.id.keyword`` (absent from _source).
+    cat = default_rule_catalog()
+    modsec = [r for r in cat if r.name.startswith("modsec_") and r.match.op == "prefix"]
+    assert modsec, "expected seeded ModSec sub-rules"
+    assert all(r.match.field == "rule.id" for r in modsec)
+    # And a real event (scalar rule.id) actually classifies now (buggy shape would not).
+    p = _seeded()
+    assert p.match_rule({"event": {"module": "modsec_audit_log"},
+                         "rule": {"id": "941100"}}).name == "modsec_xss"
+
+
+def test_reseed_heals_broken_modsec_field_without_clobbering_edits():
+    # audit #16: a store previously seeded with the buggy field gets healed on the
+    # version bump, but an operator's OWN rule is preserved.
+    p = Preferences()
+    p.rule_catalog = [
+        RuleDefinition(name="modsec_xss",
+                       match=RuleMatch(field="rule.id.keyword", op="prefix", value="941"),
+                       priority=50),
+        RuleDefinition(name="my_rule",
+                       match=RuleMatch(field="event.module", op="equals", value="mine")),
+    ]
+    p.rule_catalog_seed_version = 1  # older than current
+    healed = p.maybe_seed_rule_catalog()
+    assert healed is True
+    by_name = {r.name: r for r in p.rule_catalog}
+    assert by_name["modsec_xss"].match.field == "rule.id"   # healed
+    assert by_name["my_rule"].match.field == "event.module"  # untouched
+    assert [r.name for r in p.rule_catalog] == ["modsec_xss", "my_rule"]  # not clobbered
+    assert p.rule_catalog_seed_version == RULE_CATALOG_SEED_VERSION
 
 
 def test_seed_never_clobbers_operator_edits():

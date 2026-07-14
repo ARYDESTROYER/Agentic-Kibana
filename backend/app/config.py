@@ -39,7 +39,7 @@ Provider = Literal[
 # fires when the stored catalog is EMPTY or its ``rule_catalog_seed_version`` is
 # missing/older than this value — operator-edited (non-empty) catalogs are NEVER
 # overwritten (see ``maybe_seed_rule_catalog`` in ``app.stores.config_store``).
-RULE_CATALOG_SEED_VERSION = 1
+RULE_CATALOG_SEED_VERSION = 2  # v2: fix ModSec match field rule.id.keyword -> rule.id (#16)
 
 
 # --------------------------------------------------------------------------- #
@@ -2564,9 +2564,18 @@ class Preferences(BaseModel):
             return False
         if self.rule_catalog:
             # Catalog already has operator content — bump the version marker so we
-            # don't re-evaluate every boot, but DO NOT clobber their edits.
+            # don't re-evaluate every boot, but DO NOT clobber their edits. We DO heal
+            # the known-broken ModSec match field: ``rule.id.keyword`` is an ES index
+            # sub-field that never exists in ``_source``, so it never matched (audit #16).
+            # That is unambiguously a bug, not an operator choice, so rewriting it to the
+            # real ``rule.id`` path is safe and preserves every other edit.
+            healed = False
+            for _r in self.rule_catalog:
+                if getattr(getattr(_r, "match", None), "field", "") == "rule.id.keyword":
+                    _r.match.field = "rule.id"
+                    healed = True
             self.rule_catalog_seed_version = RULE_CATALOG_SEED_VERSION
-            return False
+            return healed
         self.rule_catalog = default_rule_catalog()
         self.rule_catalog_seed_version = RULE_CATALOG_SEED_VERSION
         return True
@@ -2642,7 +2651,7 @@ def default_rule_catalog() -> list[RuleDefinition]:
         RuleDefinition(
             name=name,
             description=desc,
-            match=RuleMatch(field="rule.id.keyword", op="prefix", value=prefix),
+            match=RuleMatch(field="rule.id", op="prefix", value=prefix),
             priority=50,
         )
         for name, prefix, desc in _MODSEC_SUBRULES
