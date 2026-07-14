@@ -88,6 +88,19 @@ def _shorthash(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:8]
 
 
+def _sanitise_source_label(source: str | None) -> str:
+    """Sanitise an imported document's ``source`` at write time (#9 defense-in-depth).
+
+    The source is rendered as a fenced ``source=`` provenance label; drop newlines and
+    any character that could help forge a fence/PLAYBOOK/MEMORY delimiter (``<``/``>``),
+    collapse whitespace, and length-bound it. ``fence()`` neutralises this again at
+    render time, but a stored value should never carry an escape attempt in the first
+    place."""
+    s = (source or "").replace("<", "").replace(">", "")
+    s = " ".join(s.split())  # collapse newlines/runs of whitespace
+    return s[:64].strip() or "imported"
+
+
 # --------------------------------------------------------------------------- #
 # Seed corpus — each item is {text, source, metadata}.
 # --------------------------------------------------------------------------- #
@@ -434,6 +447,10 @@ class RagService:
         (document_id/title/source/tags/added_at/chunk_index/n_chunks). FAIL-SAFE:
         on any failure logs and returns ``chunk_count: 0`` (never raises)."""
         title = (title or "").strip() or "Untitled"
+        # Defense-in-depth (#9): the ``source`` becomes a fenced ``source=`` provenance
+        # label at render time. Strip newlines/marker characters here too so a stored
+        # imported-document source can never help break out of the UNTRUSTED fence.
+        source = _sanitise_source_label(source)
         tags = list(tags or [])
         try:
             await self.ensure_seeded()

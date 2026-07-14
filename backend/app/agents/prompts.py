@@ -38,16 +38,11 @@ _INJECTION_NOTE = (
 )
 
 
-def fence(value: Any, *, source: str = "log", tool: str | None = None) -> str:
-    """Wrap an attacker-influenceable value as labelled UNTRUSTED data (#9).
-
-    Hardened (Vigil ``wrap_tool_result``-inspired): the inner text has any forged
-    fence markers neutralised so attacker-controlled content cannot close the fence
-    early and smuggle instructions back into the TRUSTED context. A ``source`` (and
-    optional ``tool``) provenance tag tells the model where the data came from.
-    The OPEN/CLOSE marker constants are unchanged, so all existing detection holds.
-    """
-    text = (
+def _neutralise_markers(value: Any) -> str:
+    """Strip/neutralise any forged fence/PLAYBOOK/MEMORY delimiters from an
+    attacker-influenceable value so it can never close a block early and smuggle
+    instructions back into the TRUSTED context (#9)."""
+    return (
         str(value)
         .replace(UNTRUSTED_OPEN, "<fence>")
         .replace(UNTRUSTED_CLOSE, "</fence>")
@@ -60,7 +55,32 @@ def fence(value: Any, *, source: str = "log", tool: str | None = None) -> str:
         .replace(MEMORY_OPEN, "<mem>")
         .replace(MEMORY_CLOSE, "</mem>")
     )
-    label = f" source={source}" + (f" tool={tool}" if tool else "")
+
+
+def _safe_label(value: Any, *, limit: int = 64) -> str:
+    """Neutralise + de-newline + length-bound a provenance label component
+    (``source=`` / ``tool=``). These are attacker/operator-settable (e.g. a RAG
+    document's ``source``), so — like the fenced value itself — they must not be
+    able to carry a forged CLOSE marker or a newline that ends the fence early and
+    smuggles text into TRUSTED context (#9)."""
+    s = _neutralise_markers(value).replace("\r", " ").replace("\n", " ").strip()
+    return truncate(s, limit)
+
+
+def fence(value: Any, *, source: str = "log", tool: str | None = None) -> str:
+    """Wrap an attacker-influenceable value as labelled UNTRUSTED data (#9).
+
+    Hardened (Vigil ``wrap_tool_result``-inspired): the inner text AND the
+    ``source``/``tool`` provenance label both have any forged fence markers
+    neutralised (and the label is stripped of newlines + length-bounded) so neither
+    attacker-controlled content nor an attacker-set provenance tag can close the
+    fence early and smuggle instructions back into the TRUSTED context. The
+    OPEN/CLOSE marker constants are unchanged, so all existing detection holds.
+    """
+    text = _neutralise_markers(value)
+    label = f" source={_safe_label(source)}" + (
+        f" tool={_safe_label(tool)}" if tool else ""
+    )
     return f"{UNTRUSTED_OPEN}{label}\n{truncate(text, 600)}\n{UNTRUSTED_CLOSE}"
 
 
