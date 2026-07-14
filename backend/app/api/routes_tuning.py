@@ -260,20 +260,38 @@ async def apply_tuning(
     }
     outcome = tuner.TuningOutcome(ran=True, rule_stats=stats)
     current_prefs = prefs
+    pending: list = []
     try:
         for prop in proposals:
-            current_prefs = await tuner._handle_proposal(
+            # _handle_proposal now returns (running_prefs, pending_record); the record is
+            # persisted ONLY after the prefs write is confirmed (audit #24).
+            current_prefs, rec = await tuner._handle_proposal(
                 prop, current_prefs, cases, cfg,
                 proposals=state.proposals, audit=state.audit,
                 tuning_store=state.tuning_store, writers=writers, outcome=outcome,
             )
+            if rec is not None:
+                pending.append((prop, rec))
     except Exception as exc:  # noqa: BLE001 — the tuner must never break the caller
         logger.warning("tuning apply for %s failed: %s", rid, exc)
         raise HTTPException(status_code=500, detail=_safe(exc)) from exc
 
-    # Persist the composed prefs change ONCE (only when something auto-applied).
+    # Persist the composed prefs change ONCE (only when something auto-applied), THEN —
+    # only on a confirmed write — record the ledger + audit for each auto-apply, so a
+    # failed write never leaves a false 'applied/reversible' ledger+audit (audit #24).
     if current_prefs is not prefs:
-        await state.update_execution_prefs(current_prefs)
+        try:
+            await state.update_execution_prefs(current_prefs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("tuning apply write for %s failed: %s", rid, exc)
+            raise HTTPException(status_code=500, detail=_safe(exc)) from exc
+        for prop, rec in pending:
+            try:
+                await state.tuning_store.add(rec)
+                outcome.auto_applied.append(rec)
+                await tuner._audit_tuning(state.audit, prop, rec)
+            except Exception as exc:  # noqa: BLE001 — best-effort per record
+                logger.warning("recording tuning apply for %s failed: %s", rid, exc)
 
     applied = [r.to_json() for r in outcome.auto_applied]
     queued = [
