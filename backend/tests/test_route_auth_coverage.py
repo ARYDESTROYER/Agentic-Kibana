@@ -109,7 +109,9 @@ _AUTHZ_EXEMPT_AUTH_FLOW = frozenset({
     "/api/auth/refresh", "/api/auth/reauth",
     "/api/auth/mfa/setup", "/api/auth/mfa/confirm", "/api/auth/mfa/verify",
     "/api/auth/mfa/disable",
-    "/api/setup/complete", "/api/setup/secrets",
+    # /api/setup/complete + /api/setup/secrets now carry require_permission("settings",
+    # "manage") (audit #2): a no-op when auth is off (OOBE default), a real grant when
+    # auth is on — so they are gated, not exempt.
     # Round-4 Wave-4 — OOBE "create admin account" writer (routes_setup.py). Pre-auth
     # + self-locking (403 once setup complete / 409 once an admin exists), NOT an RBAC
     # grant. Also in PUBLIC_API_PATHS (reachable before a session exists).
@@ -347,6 +349,27 @@ def test_fix1_cases_close_role_can_set_status_resolved() -> None:
                    json={"action": "set_status", "status": "resolved"})
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "resolved"
+
+
+def test_setup_secrets_requires_settings_manage() -> None:
+    # audit #2: a non-admin (read-only auditor) must NOT be able to rewrite global
+    # secrets / repoint the ES log source. tier1 lacks settings:manage → 403.
+    with _rbac_client() as c:
+        _login(c, "Admin", "Admin@123")
+        r = c.post("/api/users", json={
+            "username": "tier1", "password": "tier1-pass-1",
+            "role": UserRole.ANALYST_TIER1.value,
+        })
+        assert r.status_code == 200, r.text
+        _login(c, "tier1", "tier1-pass-1")
+        r = c.post("/api/setup/secrets", json={"es_url": "https://evil:9200"})
+        assert r.status_code == 403, r.text
+        r = c.post("/api/setup/complete", json={})
+        assert r.status_code == 403, r.text
+        # Admin (super_admin) still can.
+        _login(c, "Admin", "Admin@123")
+        r = c.post("/api/setup/secrets", json={"anthropic_api_key": "sk-test"})
+        assert r.status_code == 200, r.text
 
 
 def test_public_paths_are_minimal_and_known() -> None:

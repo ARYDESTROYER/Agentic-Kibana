@@ -339,7 +339,16 @@ async def setup_status(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 
 @router.post("/setup/secrets")
-async def setup_secrets(body: SecretsUpdate, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def setup_secrets(
+    body: SecretsUpdate,
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
+    # AuthZ: writing runtime secrets can repoint the read-only ES log source or clear
+    # every key, so it requires settings:manage. When auth is DISABLED (the OOBE
+    # default) the gate is a no-op; when auth is ENABLED, require_auth already forces a
+    # session — which requires an admin to have been bootstrapped first — so there is no
+    # pre-session window this could bypass.
     # exclude_unset (not exclude_none) so an explicit null can CLEAR/revoke a key.
     updates = body.model_dump(exclude_unset=True)
     if not updates:
@@ -349,7 +358,10 @@ async def setup_secrets(body: SecretsUpdate, state: AppState = Depends(get_state
 
 
 @router.post("/setup/complete")
-async def setup_complete(state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def setup_complete(
+    state: AppState = Depends(get_state),
+    _=Depends(require_permission("settings", "manage")),
+) -> dict[str, Any]:
     prefs = state.prefs.model_copy(update={"setup_complete": True})
     await state.update_prefs(prefs)
     if prefs.polling_enabled:
