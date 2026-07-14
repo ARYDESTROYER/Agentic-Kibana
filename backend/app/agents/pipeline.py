@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import weakref
 from typing import TYPE_CHECKING, Any
 
 from ..audit.audit_log import AuditLogger
@@ -122,7 +123,13 @@ class InvestigationPipeline:
         # granularity is per-signature so unrelated signatures still run in parallel.
         # This is a SHARED instance so every caller of this ONE pipeline (poller fan-out,
         # push-ingest, manual investigate) contends on the same lock for a signature.
-        self._sig_locks: dict[str, asyncio.Lock] = {}
+        # A WeakValueDictionary bounds the registry (audit #42): the lock only needs to
+        # exist while a create-or-attach for that signature is IN FLIGHT (a caller holds a
+        # strong ref through its ``async with``); once no caller holds it, it is GC'd, so a
+        # long-running process no longer accumulates a lock per distinct signature forever.
+        self._sig_locks: "weakref.WeakValueDictionary[str, asyncio.Lock]" = (
+            weakref.WeakValueDictionary()
+        )
 
     def signature_lock(self, signature: str) -> asyncio.Lock:
         """Return the shared :class:`asyncio.Lock` for ``signature`` (created lazily).

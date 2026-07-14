@@ -208,3 +208,16 @@ def test_case_investigate_400_when_events_aged_out(client, mock_provider):
     r2 = client.post(f"/api/cases/{case_id}/investigate")
     assert r2.status_code == 400
     assert "No events remain" in r2.json()["detail"]
+
+
+async def test_signature_lock_registry_is_weakly_bounded(app_state):
+    # audit #42: the per-signature lock registry must not accumulate a lock per distinct
+    # signature forever — an unused lock is dropped once no caller holds it.
+    import gc
+
+    pipeline = app_state.pipeline
+    lock = pipeline.signature_lock("sig-weak-1")
+    assert "sig-weak-1" in pipeline._sig_locks  # held → present
+    del lock
+    gc.collect()
+    assert "sig-weak-1" not in pipeline._sig_locks  # no strong ref → evicted
