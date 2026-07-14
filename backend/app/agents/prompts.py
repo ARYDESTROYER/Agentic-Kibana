@@ -9,6 +9,7 @@ the seam a later hardening pass strengthens WITHOUT restructuring.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from ..constants import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
@@ -20,8 +21,14 @@ from ..utils import truncate
 # agents remember). Mirrors the PLAYBOOK block: separate from fenced UNTRUSTED
 # evidence so the model — and a human auditor — can tell operator facts from
 # attacker-controllable data. ``fence()`` neutralises any forged copies.
+logger = logging.getLogger("tlsoc.agents.prompts")
+
 MEMORY_OPEN = "<<<MEMORY>>>"
 MEMORY_CLOSE = "<<<END_MEMORY>>>"
+
+# Generous safety-net cap for ``fence_block`` — a whole structured payload (a tool
+# observation, an event JSON, the standup aggregate) rather than a single leaf value.
+_FENCE_BLOCK_MAX_CHARS = 16000
 
 # Bound how much memory text reaches a prompt (operator facts are small, but keep
 # it cheap + injection-surface tight).
@@ -82,6 +89,53 @@ def fence(value: Any, *, source: str = "log", tool: str | None = None) -> str:
         f" tool={_safe_label(tool)}" if tool else ""
     )
     return f"{UNTRUSTED_OPEN}{label}\n{truncate(text, 600)}\n{UNTRUSTED_CLOSE}"
+
+
+def _fence_leaves(value: Any) -> Any:
+    """Recursively neutralise forged fence/PLAYBOOK/MEMORY markers in every STRING leaf
+    of a system-built structure, leaving numbers/bools/None + the structure itself
+    intact (#9)."""
+    if isinstance(value, str):
+        return _neutralise_markers(value)
+    if isinstance(value, dict):
+        return {k: _fence_leaves(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_fence_leaves(v) for v in value]
+    return value
+
+
+def fence_block(
+    value: Any, *, source: str = "log", tool: str | None = None,
+    max_chars: int = _FENCE_BLOCK_MAX_CHARS,
+) -> str:
+    """Fence a WHOLE structured payload as untrusted DATA WITHOUT the per-leaf 600-char
+    truncation that :func:`fence` applies.
+
+    Unlike ``fence`` (which bounds a SINGLE leaf value at 600 chars — right for one
+    field, but it silently EATS 80-95% of a multi-KB tool observation / event JSON /
+    aggregate), this scrubs forged markers in every string LEAF so the OPEN/CLOSE stay
+    balanced (#9), then sends the structure WHOLE, bounded only by a generous
+    ``max_chars`` safety net — so the model actually receives the evidence it fetched
+    (audit #20/#21). Still only the compact payload the caller assembled (never raw
+    logs / full case bodies, #7). ``value`` may be a python structure or a pre-serialised
+    JSON string; either way the leaves are scrubbed."""
+    if isinstance(value, str):
+        body = _neutralise_markers(value)
+    else:
+        body = json.dumps(_fence_leaves(value), default=str)
+        # Defence in depth: scrub once more over the serialised form in case a marker
+        # straddled a key/value boundary after serialisation.
+        body = _neutralise_markers(body)
+    if len(body) > max_chars:
+        logger.warning(
+            "fence_block payload %d chars exceeds the %d-char safety net; truncating",
+            len(body), max_chars,
+        )
+        body = body[: max_chars - 1] + "…"
+    label = f" source={_safe_label(source)}" + (
+        f" tool={_safe_label(tool)}" if tool else ""
+    )
+    return f"{UNTRUSTED_OPEN}{label}\n{body}\n{UNTRUSTED_CLOSE}"
 
 
 def render_memory(entries: list[MemoryEntry] | None) -> str:

@@ -27,6 +27,7 @@ from .personas import AgentPersona
 from .prompts import (
     build_investigator_system,
     fence,
+    fence_block,
     render_cluster,
     tool_defs_text,
 )
@@ -277,7 +278,11 @@ class Investigator:
                         "role": "user",
                         "content": (
                             f"Tool '{name}' result:\n"
-                            f"{fence(json.dumps(observation, default=str), source='tool', tool=name)}"
+                            # fence_block, NOT the per-value fence(): the observation is a
+                            # multi-KB structured tool result, and fence()'s 600-char cap
+                            # silently starved the strong model of the evidence it just
+                            # fetched (audit #20). Per-leaf marker-scrubbed + a generous cap.
+                            f"{fence_block(observation, source='tool', tool=name)}"
                         ),
                     })
                     continue

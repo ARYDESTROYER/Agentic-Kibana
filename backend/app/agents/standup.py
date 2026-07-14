@@ -24,8 +24,6 @@ from ..config import Preferences
 from ..constants import (
     CASES_READ_PATTERN,
     OPEN_CASE_STATUSES,
-    UNTRUSTED_CLOSE,
-    UNTRUSTED_OPEN,
     ActionType,
     Role,
 )
@@ -36,6 +34,9 @@ from ..llm.gateway import GatewayError, LLMGateway
 from ..stores.base import CaseRepository
 from ..stores.shift_handoff import ShiftHandoffStore
 from ..utils import iso_now, now_utc, parse_es_timestamp, to_millis
+# fence_block now lives in the shared prompt seam (used by standup, investigator, and
+# overview). Re-exported here so ``app.agents.standup.fence_block`` keeps resolving.
+from .prompts import fence_block  # noqa: F401 (re-export)
 
 logger = logging.getLogger("tlsoc.agents.standup")
 
@@ -47,14 +48,6 @@ logger = logging.getLogger("tlsoc.agents.standup")
 # than this many open cases. In tenants with >LIMIT high-risk open cases in a single
 # status, lower-risk cases beyond the cap are omitted from the brief.
 _OPEN_FETCH_LIMIT = 500
-
-# When fencing the COMPACT aggregate for the model we wrap the WHOLE structured payload
-# in the untrusted markers (so the model treats it as DATA) but we must NOT shove the
-# multi-KB JSON through the per-VALUE ``fence()`` whose 600-char cap is meant to bound a
-# single leaf — that silently dropped 80-95% of the shift handoff. Instead each untrusted
-# LEAF string is neutralised + fenced individually (each is short), and the assembled
-# JSON is bounded only by a generous final safety net.
-_FENCE_BLOCK_MAX_CHARS = 16000
 
 # What-needs-attention-first standup prompt (Feature 11). A LOCAL specialisation of the
 # base standup writer so we do NOT touch the shared agents/prompts.py this wave; it adds
@@ -329,73 +322,9 @@ def _buckets(agg: dict[str, Any] | None) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- #
 # Whole-aggregate untrusted fencing (#9 without #7-breaking truncation)
 # --------------------------------------------------------------------------- #
-# Forged-marker neutralisation, identical to the replacements ``prompts.fence`` applies
-# to a single value, so an attacker-controlled LEAF (an IP / username / rule id / case
-# title) can never close the fence early or impersonate the TRUSTED PLAYBOOK / MEMORY
-# blocks. Applied per-leaf AND once more over the assembled JSON (defence in depth).
-_FORGED_MARKERS: tuple[tuple[str, str], ...] = (
-    (UNTRUSTED_OPEN, "<fence>"),
-    (UNTRUSTED_CLOSE, "</fence>"),
-    ("<<<PLAYBOOK>>>", "<pb>"),
-    ("<<<END_PLAYBOOK>>>", "</pb>"),
-    ("<<<MEMORY>>>", "<mem>"),
-    ("<<<END_MEMORY>>>", "</mem>"),
-)
-
-
-def _neutralise_markers(text: str) -> str:
-    for marker, repl in _FORGED_MARKERS:
-        text = text.replace(marker, repl)
-    return text
-
-
-def _fence_leaves(value: Any) -> Any:
-    """Recursively neutralise forged fence/PLAYBOOK/MEMORY markers in every STRING leaf
-    of a system-built aggregate, leaving numeric/bool/None control values + the dict
-    structure itself intact.
-
-    The aggregate is a deterministic, code-built structure (top-N lists, a bounded
-    attention queue, headline counts). Its ONLY attacker-influenceable parts are the
-    leaf strings (entity values, usernames, IPs, rule ids, case titles). We scrub THOSE
-    in place — short, per-leaf — so the whole structure can travel to the model WHOLE,
-    fenced as untrusted DATA, without the 600-char per-value cap eating the handoff."""
-    if isinstance(value, str):
-        return _neutralise_markers(value)
-    if isinstance(value, dict):
-        return {k: _fence_leaves(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_fence_leaves(v) for v in value]
-    return value
-
-
-def fence_block(value: Any, *, source: str = "log", max_chars: int = _FENCE_BLOCK_MAX_CHARS) -> str:
-    """Fence a WHOLE system-built aggregate as untrusted DATA WITHOUT per-value truncation.
-
-    Unlike ``prompts.fence`` (which bounds a SINGLE leaf value at 600 chars), this wraps a
-    structured, code-assembled payload (a dict/list of bounded top-N facets) in the same
-    OPEN/CLOSE markers + ``source=`` provenance, scrubbing forged markers in every string
-    LEAF first so the markers stay balanced (#9) — but it sends the structure WHOLE
-    (bounded only by a generous ``max_chars`` safety net) so the standup / chat aggregate
-    is no longer 80-95% truncated before it reaches the model. The aggregate is still ONLY
-    the compact aggregate — never raw logs / full case bodies (#7).
-
-    ``value`` may be a pre-serialised JSON string or a python structure; either way the
-    leaves are scrubbed (a string input is scrubbed wholesale)."""
-    if isinstance(value, str):
-        body = _neutralise_markers(value)
-    else:
-        body = json.dumps(_fence_leaves(value), default=str)
-        # Defence in depth: scrub once more over the serialised form in case a marker
-        # straddled a key/value boundary after serialisation.
-        body = _neutralise_markers(body)
-    if len(body) > max_chars:
-        logger.warning(
-            "fence_block payload %d chars exceeds the %d-char safety net; truncating "
-            "(consider tightening the aggregate top-N upstream)", len(body), max_chars
-        )
-        body = body[: max_chars - 1] + "…"
-    label = f" source={source}"
-    return f"{UNTRUSTED_OPEN}{label}\n{body}\n{UNTRUSTED_CLOSE}"
+# fence_block (whole-aggregate untrusted fencing, #9 without #7-breaking truncation)
+# now lives in ``app.agents.prompts`` and is imported at the top of this module so it is
+# shared by standup, the investigator tool-observation path, and the per-event overview.
 
 
 def _prior_window_cases(cases: list[Any], *, ref: Any, window_hours: int) -> list[Any]:

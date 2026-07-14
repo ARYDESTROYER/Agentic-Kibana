@@ -232,7 +232,8 @@ def test_fence_block_safety_net_only_trips_far_beyond_600():
     # arrive un-truncated (this is the whole point of the fix).
     big = {"rows": [{"k": f"entity-{i}", "n": i} for i in range(400)]}
     raw = json.dumps(big)
-    assert 600 < len(raw) < standup_mod._FENCE_BLOCK_MAX_CHARS
+    from app.agents import prompts as prompts_mod
+    assert 600 < len(raw) < prompts_mod._FENCE_BLOCK_MAX_CHARS
     inner = _strip_fence(fence_block(big))
     assert json.loads(inner)["rows"][-1]["k"] == "entity-399"
     assert not inner.endswith("…")
