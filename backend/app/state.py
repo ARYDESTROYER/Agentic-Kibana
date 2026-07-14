@@ -1909,6 +1909,15 @@ class AppState:
                 effective = {**src.config, **self.secrets.source_secrets(src.id)}
                 receiver = cls(config=effective, connector_id=src.id)
 
+                # Durable cursor for object-store / stream receivers (audit #7): persist
+                # the last-processed marker keyed by this source id so a restart resumes.
+                if hasattr(receiver, "attach_cursor_io"):
+                    _cs = self.cursor_store
+                    receiver.attach_cursor_io(
+                        load=lambda _k=src.id: _cs.load_keyed(_k),
+                        save=lambda cur, _k=src.id: _cs.save_keyed(_k, cur),
+                    )
+
                 async def _emit(events, _self=self, _sid=src.id):
                     # Real push receivers ALWAYS feed the REAL ingest path (even while
                     # demo is engaged) so live telemetry lands in the real store

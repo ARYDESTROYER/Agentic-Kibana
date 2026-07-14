@@ -474,6 +474,50 @@ def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
 
 
 @pytest.mark.asyncio
+async def test_object_store_marker_is_durable_across_restart(prefs):
+    # audit #7: the last-processed object key must survive a restart via the injected
+    # CursorStore IO — otherwise a restart re-lists from the configured start (a
+    # re-processing storm) or (Kinesis) loses data.
+    from app.models import Cursor
+
+    saved: dict[str, dict] = {}
+
+    async def _load() -> Cursor:
+        return Cursor(**saved["v"]) if "v" in saved else Cursor()
+
+    async def _save(cur: Cursor) -> None:
+        saved["v"] = cur.model_dump()
+
+    r = S3Receiver(config={"format_hint": "ndjson"}, connector_id="s3-dur")
+    r.attach_cursor_io(load=_load, save=_save)
+    emitted: list[RawEvent] = []
+
+    async def emit(events: list[RawEvent]) -> None:
+        emitted.extend(events)
+
+    await r._emit_object("logs/2026/06/16/a.ndjson", b'{"message":"x"}\n', prefs, emit)
+    assert emitted, "object should have emitted at least one event"
+    assert saved["v"]["object_marker"] == "logs/2026/06/16/a.ndjson"
+
+    # A fresh receiver (a restart) resumes from the persisted marker, not the config.
+    r2 = S3Receiver(config={"format_hint": "ndjson"}, connector_id="s3-dur")
+    r2.attach_cursor_io(load=_load, save=_save)
+    await r2._restore_marker()
+    assert r2._marker == "logs/2026/06/16/a.ndjson"
+
+
+@pytest.mark.asyncio
+async def test_push_receiver_without_cursor_io_is_noop(prefs):
+    # No IO attached (unit tests / route-driven receivers) → load returns None, save is
+    # a no-op; the receiver must not crash.
+    r = S3Receiver(config={"format_hint": "ndjson"}, connector_id="s3-noio")
+    assert await r.load_cursor() is None
+    from app.models import Cursor
+
+    await r.save_cursor(Cursor(object_marker="x"))  # no-op, must not raise
+
+
+@pytest.mark.asyncio
 async def test_object_store_emit_applies_saved_source_field_mappings(prefs):
     receiver = S3Receiver(
         config={

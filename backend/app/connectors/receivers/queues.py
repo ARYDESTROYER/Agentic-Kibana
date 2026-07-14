@@ -23,6 +23,7 @@ import asyncio
 from typing import Any
 
 from ...config import Preferences
+from ...models import Cursor
 from ..base import AuthField, ConnectorManifest, EmitFn
 from ...constants import CursorKind, IngestMode, SourceType
 from .common import PayloadReceiver
@@ -289,17 +290,35 @@ class AwsKinesisReceiver(PayloadReceiver):
         self._running = True
         loop = asyncio.get_running_loop()
 
+        # Resume from the durable per-shard sequence (audit #7): a restart continues
+        # AFTER the last processed record instead of losing data (LATEST) or replaying
+        # everything (TRIM_HORIZON).
+        persisted = await self.load_cursor()
+        shard_seq: dict[str, str] = dict(persisted.shard_markers) if persisted else {}
+
         desc = await loop.run_in_executor(None, lambda: client.describe_stream(StreamName=stream))
         shards = desc["StreamDescription"]["Shards"]
         iterators: dict[str, str] = {}
         for shard in shards:
-            it = await loop.run_in_executor(
-                None,
-                lambda s=shard: client.get_shard_iterator(
-                    StreamName=stream, ShardId=s["ShardId"], ShardIteratorType=iterator_type
-                ),
-            )
-            iterators[shard["ShardId"]] = it["ShardIterator"]
+            sid = shard["ShardId"]
+            seq = shard_seq.get(sid)
+            if seq:
+                it = await loop.run_in_executor(
+                    None,
+                    lambda s=sid, q=seq: client.get_shard_iterator(
+                        StreamName=stream, ShardId=s,
+                        ShardIteratorType="AFTER_SEQUENCE_NUMBER",
+                        StartingSequenceNumber=q,
+                    ),
+                )
+            else:
+                it = await loop.run_in_executor(
+                    None,
+                    lambda s=sid: client.get_shard_iterator(
+                        StreamName=stream, ShardId=s, ShardIteratorType=iterator_type
+                    ),
+                )
+            iterators[sid] = it["ShardIterator"]
 
         while self._running:
             for shard_id, shard_it in list(iterators.items()):
@@ -308,8 +327,15 @@ class AwsKinesisReceiver(PayloadReceiver):
                 resp = await loop.run_in_executor(
                     None, lambda it=shard_it: client.get_records(ShardIterator=it, Limit=100)
                 )
-                for record in resp.get("Records", []):
+                records = resp.get("Records", [])
+                for record in records:
                     await self._emit_payload(record.get("Data", b""), prefs, emit)
+                # Persist the last processed sequence AFTER emit (at-least-once).
+                if records:
+                    last_seq = str(records[-1].get("SequenceNumber", "") or "")
+                    if last_seq:
+                        shard_seq[shard_id] = last_seq
+                        await self.save_cursor(Cursor(shard_markers=dict(shard_seq)))
                 iterators[shard_id] = resp.get("NextShardIterator", "")
             await asyncio.sleep(poll)
 

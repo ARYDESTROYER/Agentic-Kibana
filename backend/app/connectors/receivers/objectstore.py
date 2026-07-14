@@ -71,6 +71,13 @@ class _BaseObjectReceiver(PayloadReceiver):
     def _poll_seconds(self) -> float:
         return float(self.config.get("poll_seconds", 30) or 30)
 
+    async def _restore_marker(self) -> None:
+        """Resume from the durable last-processed object key (audit #7). Falls back to
+        the configured ``start_after`` when there is no persisted marker."""
+        cur = await self.load_cursor()
+        if cur is not None and cur.object_marker:
+            self._marker = cur.object_marker
+
     async def _emit_object(self, key: str, data: bytes, prefs: Preferences, emit: EmitFn) -> None:
         data = _maybe_gunzip(key, data)
         hint = _object_hint(key, self.config.get("format_hint"))
@@ -78,6 +85,11 @@ class _BaseObjectReceiver(PayloadReceiver):
         # a follow-up; today we parse JSON/NDJSON/CEF/LEEF/gz objects natively.
         await self._emit_payload_with_hint(data, hint, prefs, emit)
         self._marker = key
+        # Persist AFTER a successful emit so a crash mid-object re-processes it
+        # (at-least-once) rather than skipping it (audit #7).
+        from ...models import Cursor
+
+        await self.save_cursor(Cursor(object_marker=self._marker))
 
     async def _emit_payload_with_hint(
         self, data: bytes, hint: str | None, prefs: Preferences, emit: EmitFn
@@ -167,6 +179,7 @@ class S3Receiver(_BaseObjectReceiver):
     async def start(self, emit: EmitFn, prefs: Preferences) -> None:
         mode = str(self.config.get("mode", "list")).lower()
         self._running = True
+        await self._restore_marker()
         if mode == "sqs-notification":
             await self._run_sqs_notifications(emit, prefs)
         else:
@@ -281,6 +294,7 @@ class GcsReceiver(_BaseObjectReceiver):
         prefix = self.config.get("prefix", "")
         loop = asyncio.get_running_loop()
         self._running = True
+        await self._restore_marker()
         bucket = await loop.run_in_executor(None, lambda: client.bucket(bucket_name))
         while self._running:
             blobs = await loop.run_in_executor(
@@ -341,6 +355,7 @@ class AzureBlobReceiver(_BaseObjectReceiver):
         container = service.get_container_client(self.config.get("container", ""))
         prefix = self.config.get("prefix", "")
         self._running = True
+        await self._restore_marker()
         async with service:
             while self._running:
                 async for blob in container.list_blobs(name_starts_with=prefix):

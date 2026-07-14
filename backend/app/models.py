@@ -1381,6 +1381,13 @@ class Cursor(BaseModel):
     # (for correlation/evidence) disable the extra late-arrival pass explicitly.
     # Durable poll cursors keep the default enabled value.
     late_arrival_overlap_enabled: bool = True
+    # Durable markers for PUSH object-store / stream receivers (audit #7). Additive —
+    # every existing stored cursor reads these as empty. ``object_marker`` is the last
+    # processed object key (S3/GCS/Azure-Blob list mode); ``shard_markers`` is the
+    # per-shard last-processed SequenceNumber (Kinesis), so a restart resumes AFTER it
+    # instead of losing data (LATEST) or re-processing from the configured start.
+    object_marker: str = ""
+    shard_markers: dict[str, str] = Field(default_factory=dict)
 
     def is_set(self) -> bool:
         return self.timestamp_millis > 0

@@ -21,6 +21,7 @@ The agents/engine NEVER see source-native records — only OCSF/RawEvent.
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Awaitable, Callable
 
@@ -30,6 +31,8 @@ from ..config import Preferences
 from ..constants import IngestMode, SourceType
 from ..models import Cursor, RawEvent
 from ..ocsf import OCSFEvent, generic_to_ocsf
+
+logger = logging.getLogger("tlsoc.connectors.base")
 
 
 # --------------------------------------------------------------------------- #
@@ -206,6 +209,43 @@ class PushReceiver(Connector):
     an object-store poller. ``start`` runs until ``stop``; each normalised batch is
     delivered via the ``emit`` callback (which feeds the same correlate→risk→LLM
     pipeline the poller feeds)."""
+
+    #: Optional durable-cursor IO, injected by AppState from the CursorStore keyed by
+    #: this receiver's connector_id. Object-store / stream receivers use it to persist
+    #: their last-processed marker so a restart resumes instead of losing data or
+    #: re-processing from the configured start (audit #7). None → no persistence
+    #: (unit tests, route-driven receivers).
+    _cursor_load: Callable[[], Awaitable[Cursor]] | None = None
+    _cursor_save: Callable[[Cursor], Awaitable[None]] | None = None
+
+    def attach_cursor_io(
+        self,
+        *,
+        load: Callable[[], Awaitable[Cursor]],
+        save: Callable[[Cursor], Awaitable[None]],
+    ) -> None:
+        """Wire durable cursor persistence for this receiver instance."""
+        self._cursor_load = load
+        self._cursor_save = save
+
+    async def load_cursor(self) -> Cursor | None:
+        """Load this receiver's durable cursor (None if no IO is attached). Never raises."""
+        if self._cursor_load is None:
+            return None
+        try:
+            return await self._cursor_load()
+        except Exception as exc:  # noqa: BLE001 — degrade to cold start, never crash
+            logger.warning("cursor load failed for %s: %s", self.connector_id, exc)
+            return None
+
+    async def save_cursor(self, cursor: Cursor) -> None:
+        """Persist this receiver's durable cursor (no-op if no IO is attached). Never raises."""
+        if self._cursor_save is None:
+            return
+        try:
+            await self._cursor_save(cursor)
+        except Exception as exc:  # noqa: BLE001 — best-effort; a persist glitch must not stall
+            logger.warning("cursor save failed for %s: %s", self.connector_id, exc)
 
     @abstractmethod
     async def start(self, emit: EmitFn, prefs: Preferences) -> None: ...
