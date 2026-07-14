@@ -311,6 +311,21 @@ async def test_usage_summary_empty(engine) -> None:
 # --------------------------------------------------------------------------- #
 # KV / config / cursor
 # --------------------------------------------------------------------------- #
+async def test_kv_put_if_is_a_real_compare_and_set(engine) -> None:
+    # audit #27: put_if writes ONLY when the stored _rev matches, so concurrent writers
+    # can't both "succeed" and lose one. (SqlKVStore overrides with a row-locked CAS.)
+    kv = SqlKVStore(engine)
+    # First write into an absent key: expected_rev 0 succeeds and stamps rev 1.
+    assert await kv.put_if("ns", "k", {"v": 1, "_rev": 1}, expected_rev=0) is True
+    assert (await kv.get("ns", "k"))["v"] == 1
+    # A stale writer (still thinks rev is 0) is REJECTED — no clobber.
+    assert await kv.put_if("ns", "k", {"v": 999, "_rev": 1}, expected_rev=0) is False
+    assert (await kv.get("ns", "k"))["v"] == 1  # unchanged
+    # The up-to-date writer (expected_rev 1) succeeds.
+    assert await kv.put_if("ns", "k", {"v": 2, "_rev": 2}, expected_rev=1) is True
+    assert (await kv.get("ns", "k"))["v"] == 2
+
+
 async def test_kv_round_trip_and_upsert(engine) -> None:
     kv = SqlKVStore(engine)
     assert await kv.get("ns", "k") is None

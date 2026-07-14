@@ -28,6 +28,7 @@ from ..base import (
     CursorRepository,
     KVStore,
     UsageRepository,
+    _rev_of,
 )
 from ..usage import _empty_summary, _top  # reuse the ES summary aggregation helpers
 from .models import AuditRow, CaseRow, KVRow, UsageRow
@@ -439,6 +440,37 @@ class SqlKVStore(KVStore):
             else:
                 row.value = value
             await session.commit()
+
+    async def put_if(
+        self, namespace: str, key: str, value: dict[str, Any], expected_rev: int
+    ) -> bool:
+        """Atomic compare-and-set (audit #27): write ``value`` ONLY if the stored row's
+        ``_rev`` still equals ``expected_rev``, under a row lock so concurrent processes
+        serialise (Postgres ``SELECT … FOR UPDATE``; SQLite serialises writes anyway).
+        Returns False on a rev mismatch or a lost INSERT race so ``kv_mutate`` retries."""
+        from sqlalchemy.exc import IntegrityError
+
+        try:
+            async with self._sm() as session:
+                async with session.begin():
+                    stmt = (
+                        select(KVRow)
+                        .where(KVRow.namespace == namespace, KVRow.key == key)
+                        .with_for_update()
+                    )
+                    row = (await session.execute(stmt)).scalar_one_or_none()
+                    cur_rev = _rev_of(row.value) if (row is not None and row.value) else 0
+                    if cur_rev != int(expected_rev):
+                        return False
+                    if row is None:
+                        session.add(KVRow(namespace=namespace, key=key, value=value))
+                    else:
+                        row.value = value
+                # commit happens on exiting the begin() block
+            return True
+        except IntegrityError:
+            # Lost the INSERT race (a concurrent writer created the row first) → conflict.
+            return False
 
 
 class SqlConfigStore(ConfigRepository):

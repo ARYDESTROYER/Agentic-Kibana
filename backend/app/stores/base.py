@@ -95,6 +95,26 @@ async def kv_mutate(
             new_value = dict(result or {})
             new_value[KV_REV_FIELD] = base_rev + 1
             last = new_value
+            # Prefer an ATOMIC conditional write when the backend provides one
+            # (``put_if`` writes ONLY if the stored ``_rev`` still equals ``base_rev``),
+            # which genuinely serialises multi-process writers — a verify-after-write can
+            # NOT (two writers at the same base both see the new rev and both "succeed",
+            # silently losing one) (audit #27). Backends without ``put_if`` (or a raw
+            # duck-typed fake) fall back to the best-effort put + verify — correct under
+            # the per-key in-process lock (the single-uvicorn deployment).
+            put_if = getattr(kv, "put_if", None)
+            if put_if is not None:
+                try:
+                    ok = await put_if(namespace, key, new_value, base_rev)
+                except Exception as exc:  # noqa: BLE001 — degrade, never raise
+                    logger.warning("KV mutate put_if(%s/%s) failed: %s", namespace, key, exc)
+                    return new_value
+                if ok:
+                    return new_value
+                logger.debug(
+                    "KV mutate(%s/%s) put_if conflict; retry %d", namespace, key, attempt + 1
+                )
+                continue
             try:
                 await kv.put(namespace, key, new_value)
             except Exception as exc:  # noqa: BLE001 — degrade, never raise
@@ -254,6 +274,24 @@ class KVStore(ABC):
 
     @abstractmethod
     async def put(self, namespace: str, key: str, value: dict[str, Any]) -> None: ...
+
+    async def put_if(
+        self, namespace: str, key: str, value: dict[str, Any], expected_rev: int
+    ) -> bool:
+        """Conditional write for :func:`kv_mutate`: persist ``value`` ONLY if the stored
+        document's ``_rev`` still equals ``expected_rev``; return ``False`` on a mismatch
+        (a concurrent writer moved it) so the caller retries on a fresh snapshot.
+
+        The DEFAULT is non-atomic (get→check→put) — correct under the per-key in-process
+        lock ``kv_mutate`` holds (the single-uvicorn deployment), but a genuine
+        multi-process race can still slip through the read→write gap. A backend with
+        native optimistic concurrency (e.g. :class:`SqlKVStore`) OVERRIDES this with a
+        row-locked compare-and-set that is safe across processes (audit #27)."""
+        current = await self.get(namespace, key)
+        if _rev_of(current) != int(expected_rev):
+            return False
+        await self.put(namespace, key, value)
+        return True
 
     # -- optimistic-concurrency read-modify-write -------------------------- #
     # The shared single-document KV stores route their load→mutate→save through
