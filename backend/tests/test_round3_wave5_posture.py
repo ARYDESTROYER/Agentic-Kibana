@@ -53,8 +53,12 @@ def _case(
     escalation_level: int = 0,
 ) -> Case:
     sh = [
-        StatusHistoryEntry(from_status=f, to_status=t, by="alice", at=at)
-        for (f, t, at) in (history or [])
+        # history tuples are (from, to, at) or (from, to, at, by) — default author human.
+        StatusHistoryEntry(
+            from_status=h[0], to_status=h[1], at=h[2],
+            by=(h[3] if len(h) > 3 else "alice"),
+        )
+        for h in (history or [])
     ]
     return Case(
         case_id=cid,
@@ -73,6 +77,31 @@ def _case(
         confidence=0.9,
         risk_score=50.0,
     )
+
+
+def test_mtta_ignores_system_auto_escalation_at_creation() -> None:
+    # audit #9: an autopilot risk-gate auto-escalation (by="system") at case creation
+    # must NOT be counted as a human acknowledgment (a fabricated ~0-minute MTTA).
+    created = "2026-06-30T06:00:00+00:00"
+    # Case A: system auto-escalates immediately, then a HUMAN acks 30 min later.
+    sysA = _case(
+        "sys", created=created, status=CaseStatus.ESCALATED,
+        history=[
+            ("open", "escalated", created, "system"),                       # NOT a human ack
+            ("escalated", "investigating", "2026-06-30T06:30:00+00:00", "alice"),  # human ack
+        ],
+    )
+    block = M.lifecycle_intervals([sysA])
+    # MTTA is measured from the HUMAN transition (30 min), not the system one (0 min).
+    assert block["mtta_minutes"]["p50"] == pytest.approx(30.0, abs=0.1)
+
+    # A case acknowledged ONLY by system/agent contributes NO human-ack sample.
+    only_sys = _case(
+        "onlysys", created=created, status=CaseStatus.ESCALATED,
+        history=[("open", "escalated", created, "system")],
+    )
+    block2 = M.lifecycle_intervals([only_sys])
+    assert block2["mtta_minutes"]["count"] == 0
 
 
 # --------------------------------------------------------------------------- #

@@ -216,15 +216,31 @@ _RESPONSE_STATUSES = frozenset(
 _TERMINAL = frozenset(TERMINAL_CASE_STATUSES)
 
 
-def _first_transition_at(case: Case, to_statuses: frozenset[str]) -> datetime | None:
+# Non-human transition authors (DecisionBy). A transition whose ``by`` is one of these
+# is a deterministic/agent action, NOT a human acknowledgment/response — the autopilot
+# risk gate auto-escalates at case creation with by="system"/"agent" (audit #9).
+_NONHUMAN_ACTORS = frozenset({"system", "agent"})
+
+
+def _first_transition_at(
+    case: Case, to_statuses: frozenset[str], *, by_human: bool = False
+) -> datetime | None:
     """The earliest timestamp at which this case transitioned INTO any of
-    ``to_statuses`` (from its append-only ``status_history``). None if it never did."""
+    ``to_statuses`` (from its append-only ``status_history``). None if it never did.
+
+    ``by_human`` skips transitions authored by ``system``/``agent`` (the deterministic
+    routing / AI auto-actions) so an autopilot auto-escalation at creation is NOT counted
+    as a human acknowledgment/response — which would fabricate a ~0-minute MTTA and false
+    SLA attainment (audit #9). A genuine human ESCALATED transition still counts."""
     best: datetime | None = None
     for entry in case.status_history or []:
-        if (entry.to_status or "") in to_statuses:
-            dt = _parse_iso(entry.at)
-            if dt and (best is None or dt < best):
-                best = dt
+        if (entry.to_status or "") not in to_statuses:
+            continue
+        if by_human and (entry.by or "").strip().lower() in _NONHUMAN_ACTORS:
+            continue
+        dt = _parse_iso(entry.at)
+        if dt and (best is None or dt < best):
+            best = dt
     return best
 
 
@@ -293,11 +309,11 @@ def lifecycle_intervals(cases: list[Case]) -> dict[str, Any]:
         if start is None:
             continue
 
-        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES)
+        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES, by_human=True)
         if ack and ack >= start:
             mtta.append((ack - start).total_seconds() / 60.0)
 
-        resp = _as_dt(case.first_response_at) or _first_transition_at(case, _RESPONSE_STATUSES)
+        resp = _as_dt(case.first_response_at) or _first_transition_at(case, _RESPONSE_STATUSES, by_human=True)
         if resp and resp >= start:
             dwell.append((resp - start).total_seconds() / 60.0)
 
@@ -349,7 +365,7 @@ def timing_trend(cases: list[Case], *, trend_days: int = 14) -> list[dict[str, A
         # `respond` = the first HUMAN response, so use the ACK clock (human-only). Using
         # dwell/_RESPONSE_STATUSES here would count an AI auto-close as a "response" and
         # fabricate a human-response time — the dashboard's "Mean time to respond" must be honest.
-        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES)
+        ack = _as_dt(case.acknowledged_at) or _first_transition_at(case, _ACK_STATUSES, by_human=True)
         if ack and ack >= start:
             _push(resp_by_day, ack.date().isoformat(), (ack - start).total_seconds() / 60.0)
 
@@ -510,7 +526,7 @@ def sla_metrics(cases: list[Case], sla_policy: Any, *, now: datetime | None = No
         evaluated += 1
 
         # Response clock: created → first response (status_history / anchor), else now.
-        resp_at = _as_dt(c.first_response_at) or _first_transition_at(c, _RESPONSE_STATUSES)
+        resp_at = _as_dt(c.first_response_at) or _first_transition_at(c, _RESPONSE_STATUSES, by_human=True)
         resp_target = float(getattr(target, "response_minutes", 0) or 0)
         if resp_target > 0:
             elapsed = ((resp_at or now) - start).total_seconds() / 60.0
