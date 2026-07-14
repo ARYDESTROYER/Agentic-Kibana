@@ -562,12 +562,16 @@ class NotificationService:
             logger.warning("notification dispatch failed: %s", exc)
         return sent
 
-    async def notify(self, case: Any, *, save=None) -> list[dict[str, Any]]:
+    async def notify(self, case: Any, *, save=None, fetch=None) -> list[dict[str, Any]]:
         """Evaluate triggers for a freshly-saved case and dispatch all matches.
 
         Fire-and-forget: catches everything. When ``save`` is provided (a coroutine
         callable taking the case), the updated ``notifications_sent`` is persisted
-        best-effort AFTER sending (so a failed save never blocks delivery)."""
+        best-effort AFTER sending (so a failed save never blocks delivery). ``notify`` is
+        scheduled as a DETACHED task, so the ``case`` snapshot it holds may be stale by
+        the time it saves; when ``fetch`` (a coroutine ``case_id -> case``) is provided we
+        RE-FETCH the case and append ``notifications_sent`` onto the FRESH doc, so a
+        concurrent analyst edit (comment/status/assign) is not clobbered (audit #28)."""
         all_sent: list[dict[str, Any]] = []
         try:
             prefs = self._safe_prefs()
@@ -581,13 +585,20 @@ class NotificationService:
                 all_sent.extend(await self.dispatch(case, trig))
             if all_sent:
                 try:
-                    existing = list(_val(case, "notifications_sent", []) or [])
-                    if isinstance(case, dict):
-                        case["notifications_sent"] = existing + all_sent
+                    target = case
+                    if fetch is not None:
+                        cid = _val(case, "case_id", None) or _val(case, "id", None)
+                        if cid:
+                            fresh = await fetch(cid)
+                            if fresh is not None:
+                                target = fresh  # merge onto the latest, not our stale snapshot
+                    existing = list(_val(target, "notifications_sent", []) or [])
+                    if isinstance(target, dict):
+                        target["notifications_sent"] = existing + all_sent
                     else:
-                        case.notifications_sent = existing + all_sent
+                        target.notifications_sent = existing + all_sent
                     if save is not None:
-                        await save(case)
+                        await save(target)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("persist notifications_sent failed: %s", exc)
         except Exception as exc:  # noqa: BLE001

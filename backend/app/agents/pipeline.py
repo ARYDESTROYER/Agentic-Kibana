@@ -205,7 +205,11 @@ class InvestigationPipeline:
         try:
             import asyncio
 
-            asyncio.create_task(notifier.notify(case, save=self._cases.save))
+            # Pass fetch=get so the detached task merges notifications_sent onto the
+            # FRESH case, never clobbering a concurrent analyst edit (audit #28).
+            asyncio.create_task(
+                notifier.notify(case, save=self._cases.save, fetch=self._cases.get)
+            )
         except Exception as exc:  # noqa: BLE001 — must never affect the case flow
             logger.debug("notification scheduling skipped: %s", exc)
 

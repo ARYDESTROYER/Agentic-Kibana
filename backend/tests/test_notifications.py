@@ -244,6 +244,37 @@ async def test_dispatch_true_positive_trigger_fires():
 
 
 @pytest.mark.asyncio
+async def test_notify_merges_notifications_onto_fresh_case(monkeypatch):
+    # audit #28: notify() runs detached, so its case snapshot can be stale. When a fetch
+    # callback is provided it must merge notifications_sent onto the FRESH case, not
+    # clobber a concurrent edit with the stale snapshot.
+    async def poster(url, *, json=None, content=None, headers=None):
+        return 200, "ok"
+
+    import app.notifications.webhook as wh
+    monkeypatch.setattr(wh, "_httpx_post", poster)
+    ch = NotificationChannelConfig(id="w1", type="webhook", config={"url": "https://x/y"})
+    p = _prefs_with([ch])
+    svc = _service(p, _RecordingSecrets({}))
+
+    stale = _case(verdict=Verdict.TRUE_POSITIVE, risk_score=80.0)
+    # A concurrent analyst edit landed AFTER our stale snapshot was taken.
+    store = {stale.case_id: stale.model_copy(update={"assignee": "alice"})}
+
+    async def fetch(cid):
+        return store.get(cid)
+
+    async def save(c):
+        store[c.case_id] = c
+
+    sent = await svc.notify(stale, save=save, fetch=fetch)
+    assert any(r["ok"] for r in sent)
+    saved = store[stale.case_id]
+    assert saved.assignee == "alice", "the concurrent edit was clobbered by the stale snapshot"
+    assert saved.notifications_sent, "notifications_sent was not persisted"
+
+
+@pytest.mark.asyncio
 async def test_dispatch_respects_min_risk_floor():
     ch = NotificationChannelConfig(id="w1", type="webhook", config={"url": "https://x/y"})
     p = _prefs_with([ch], triggers={"min_risk": 90.0})
