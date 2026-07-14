@@ -283,32 +283,50 @@ class SqlAuditRepository(AuditRepository):
         recent ts window and filter those in Python (cross-dialect, correct on SQLite +
         Postgres). The ``ts`` range is applied in SQL on the column. Read-only; never
         raises."""
-        scan = max(limit * 20, 500)
-        stmt = select(AuditRow)
+        base = select(AuditRow)
         if action_type:
-            stmt = stmt.where(AuditRow.action_type == action_type)
+            base = base.where(AuditRow.action_type == action_type)
         if case_id:
-            stmt = stmt.where(AuditRow.case_id == case_id)
+            base = base.where(AuditRow.case_id == case_id)
         if ts_from:
-            stmt = stmt.where(AuditRow.ts >= ts_from)
+            base = base.where(AuditRow.ts >= ts_from)
         if ts_to:
-            stmt = stmt.where(AuditRow.ts <= ts_to)
-        stmt = stmt.order_by(AuditRow.ts.desc(), AuditRow.id.desc()).limit(scan)
+            base = base.where(AuditRow.ts <= ts_to)
+        base = base.order_by(AuditRow.ts.desc(), AuditRow.id.desc())
+
+        # actor/surface/source_id live inside the JSON doc → filtered in Python. A single
+        # fixed scan window could return FEWER than ``limit`` matches even when more exist
+        # further back (a sparse actor's rows fall outside the window), silently
+        # under-returning (audit #40). PAGE the ts-descending scan until ``limit`` matches
+        # are collected or the (ts-bounded) table is exhausted; a page-count backstop
+        # bounds a pathological scan.
+        json_filtered = bool(actor or surface or source_id)
+        page_size = max(limit * 20, 500) if json_filtered else limit
+        max_pages = 200
+        out: list[dict[str, Any]] = []
+        offset = 0
         try:
             async with self._sm() as session:
-                rows = (await session.execute(stmt)).scalars().all()
-            out: list[dict[str, Any]] = []
-            for r in rows:
-                doc = r.doc or {}
-                if actor and str(doc.get("actor", "")) != actor:
-                    continue
-                if surface and str(doc.get("surface", "")) != surface:
-                    continue
-                if source_id and str(doc.get("source_id", "")) != source_id:
-                    continue
-                out.append(doc)
-                if len(out) >= limit:
-                    break
+                for _ in range(max_pages):
+                    rows = (await session.execute(
+                        base.limit(page_size).offset(offset)
+                    )).scalars().all()
+                    if not rows:
+                        break
+                    for r in rows:
+                        doc = r.doc or {}
+                        if actor and str(doc.get("actor", "")) != actor:
+                            continue
+                        if surface and str(doc.get("surface", "")) != surface:
+                            continue
+                        if source_id and str(doc.get("source_id", "")) != source_id:
+                            continue
+                        out.append(doc)
+                        if len(out) >= limit:
+                            return out
+                    if len(rows) < page_size:
+                        break  # table exhausted within the ts window
+                    offset += len(rows)
             return out
         except Exception as exc:  # noqa: BLE001
             logger.warning("Audit records read failed: %s", exc)

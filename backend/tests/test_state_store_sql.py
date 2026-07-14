@@ -209,6 +209,21 @@ async def test_audit_append_and_ordered_search(engine) -> None:
     assert await audit.records_for_case("ghost") == []
 
 
+async def test_audit_records_json_filter_pages_beyond_scan_window(engine) -> None:
+    # audit #40: a JSON-only filter (actor) whose matches fall OUTSIDE a single scan
+    # window must still be returned — records() pages until limit matches or exhaustion.
+    audit = SqlAuditRepository(engine)
+    # 5 OLDEST rows for 'alice' (written first → lowest ids / earliest ts), then 510
+    # NEWER 'bob' rows that fill and exceed the 500-row first-scan window.
+    for i in range(5):
+        await audit.record(action_type=ActionType.POLL, actor="alice", result_summary=f"a{i}")
+    for i in range(510):
+        await audit.record(action_type=ActionType.POLL, actor="bob", result_summary=f"b{i}")
+    got = await audit.records(actor="alice", limit=5)
+    assert len(got) == 5, "sparse actor rows beyond the scan window must not be dropped"
+    assert all(d.get("actor") == "alice" for d in got)
+
+
 async def test_audit_is_append_only(engine) -> None:
     """Non-negotiable #2: the audit repository exposes NO mutation path, and a new
     record never rewrites a prior row."""
