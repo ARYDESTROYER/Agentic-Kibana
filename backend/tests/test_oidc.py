@@ -18,6 +18,14 @@ from app.es.fake import InMemoryESClient
 from app.llm.providers import MockProvider
 from app.state import AppState
 
+
+def _Resp():
+    """A real Response for the authorize route to set the browser-binding cookie on
+    (audit #38). The tests set the matching cookie on the TestClient manually."""
+    from fastapi import Response
+
+    return Response()
+
 # --------------------------------------------------------------------------- #
 # Fake IdP wiring
 # --------------------------------------------------------------------------- #
@@ -203,7 +211,7 @@ async def test_authorize_stashes_single_use_state(monkeypatch, sso_state):
     class _Req:
         base_url = "https://app.example.com/"
 
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     assert out["auth_url"].startswith("https://idp.example.com/authorize?")
     # The stored state token is in the auth_url; extract + consume it twice.
     from urllib.parse import parse_qs, urlparse
@@ -227,12 +235,13 @@ async def test_callback_provisions_and_is_idempotent(monkeypatch, sso_state):
         base_url = "https://app.example.com/"
 
     # First login: authorize → consume state → callback provisions the user.
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
 
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", st)  # audit #38: browser-bound state
     resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
     assert resp.status_code == 302 and resp.headers["location"] == "/"
     assert "tlsoc_token" in resp.cookies or "set-cookie" in {k.lower() for k in resp.headers}
@@ -245,8 +254,9 @@ async def test_callback_provisions_and_is_idempotent(monkeypatch, sso_state):
     assert u.role == "super_admin"  # from the group map
 
     # Second login (new state): must NOT create a duplicate account.
-    out2 = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out2 = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     st2 = parse_qs(urlparse(out2["auth_url"]).query)["state"][0]
+    client.cookies.set("tlsoc_oidc_state", st2)
     resp2 = client.get(f"/api/auth/sso/callback?code=abc&state={st2}", follow_redirects=False)
     assert resp2.status_code == 302
     users2 = await sso_state.users.list()
@@ -271,11 +281,12 @@ async def test_sso_cannot_take_over_local_account_by_email(monkeypatch, sso_stat
     class _Req:
         base_url = "https://app.example.com/"
 
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", st)  # audit #38: browser-bound state
     resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
     assert resp.status_code == 302
     assert "sso_error=user_not_provisioned" in resp.headers["location"]
@@ -295,11 +306,12 @@ async def test_sso_unverified_email_is_not_used_as_account_key(monkeypatch, sso_
     class _Req:
         base_url = "https://app.example.com/"
 
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", st)  # audit #38: browser-bound state
     resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
     assert resp.status_code == 302 and resp.headers["location"] == "/"
     # Created, but keyed on provider:sub — NOT on the unverified email.
@@ -326,11 +338,12 @@ async def test_callback_domain_denied(monkeypatch, sso_state):
     class _Req:
         base_url = "https://app.example.com/"
 
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", st)  # audit #38: browser-bound state
     resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"].startswith("/login?sso_error=")
@@ -350,11 +363,12 @@ async def test_callback_no_auto_create_rejects(monkeypatch, sso_state):
     class _Req:
         base_url = "https://app.example.com/"
 
-    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
     from urllib.parse import parse_qs, urlparse
 
     st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", st)  # audit #38: browser-bound state
     resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
     assert resp.status_code == 302
     assert "sso_error=user_not_provisioned" in resp.headers["location"]
@@ -365,9 +379,34 @@ async def test_callback_no_auto_create_rejects(monkeypatch, sso_state):
 async def test_callback_invalid_state(monkeypatch, sso_state):
     _patch_http(monkeypatch, claims={"sub": "s", "email": "a@corp.com"})
     client = _client_for(sso_state)
+    client.cookies.set("tlsoc_oidc_state", "bogus")
     resp = client.get("/api/auth/sso/callback?code=abc&state=bogus", follow_redirects=False)
     assert resp.status_code == 302
     assert "sso_error=invalid_state" in resp.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_callback_without_matching_state_cookie_is_rejected(monkeypatch, sso_state):
+    # audit #38: a callback whose state does not match the browser-bound cookie (or has
+    # no cookie) must be rejected — login CSRF / session fixation.
+    claims = {"sub": "s", "email": "alice@corp.com", "email_verified": True}
+    _patch_http(monkeypatch, claims=claims)
+    from app.api import routes as routes_mod
+
+    class _Req:
+        base_url = "https://app.example.com/"
+
+    out = await routes_mod.sso_authorize(_Req(), _Resp(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    from urllib.parse import parse_qs, urlparse
+
+    st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
+    client = _client_for(sso_state)
+    # NO cookie set (or a mismatched one): the binding check fails BEFORE any provisioning.
+    client.cookies.set("tlsoc_oidc_state", "attacker-different-state")
+    resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "sso_error=state_not_bound" in resp.headers["location"]
+    assert (await sso_state.users.count()) == 0  # never provisioned
 
 
 def test_sso_providers_public_lists_enabled(sso_state):

@@ -2910,6 +2910,10 @@ def _build_oidc_provider(state: AppState, provider_id: str):
     )
 
 
+# Short-lived HttpOnly cookie binding the OIDC ``state`` to the initiating browser (#38).
+_OIDC_STATE_COOKIE = "tlsoc_oidc_state"
+
+
 @router.get("/auth/sso/providers")
 async def sso_providers(state: AppState = Depends(get_state)) -> dict[str, Any]:
     """PUBLIC: the ENABLED SSO providers (id/type/display_name only — no secrets)."""
@@ -2922,11 +2926,19 @@ async def sso_providers(state: AppState = Depends(get_state)) -> dict[str, Any]:
 
 @router.get("/auth/sso/authorize")
 async def sso_authorize(
-    request: Request, provider: str = Query(...), state: AppState = Depends(get_state)
+    request: Request,
+    response: Response,
+    provider: str = Query(...),
+    state: AppState = Depends(get_state),
 ) -> dict[str, Any]:
     """PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
     the KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``
-    store (P13), then returns ``{auth_url}`` for the browser to follow."""
+    store (P13), then returns ``{auth_url}`` for the browser to follow.
+
+    The ``state`` token is ALSO bound to the initiating browser via a short-lived
+    HttpOnly SameSite cookie (audit #38): the callback requires the cookie to match the
+    returned ``state``, so a stolen/forged authorization response cannot be replayed in a
+    victim's browser (login CSRF / session fixation)."""
     from ..auth import oidc as oidc_mod
 
     prov = _build_oidc_provider(state, provider)
@@ -2945,6 +2957,10 @@ async def sso_authorize(
         "redirect_uri": redirect_uri,
         "expires_at": iso_now(),
     })
+    response.set_cookie(
+        _OIDC_STATE_COOKIE, state_tok, max_age=600, httponly=True, samesite="lax",
+        secure=state.secrets.auth_cookie_secure, path="/",
+    )
     return {"auth_url": auth_url}
 
 
@@ -2969,6 +2985,16 @@ async def sso_callback(
 
     if not code or not state_param:
         return _fail("missing_code_or_state")
+    # Browser binding (audit #38): the state returned by the IdP MUST match the
+    # HttpOnly cookie this browser was given at /authorize, so a forged/replayed
+    # authorization response can't complete in a victim's session (login CSRF).
+    import hmac as _hmac
+
+    cookie_state = request.cookies.get(_OIDC_STATE_COOKIE) or ""
+    if not cookie_state or not _hmac.compare_digest(cookie_state, state_param):
+        resp = _fail("state_not_bound")
+        resp.delete_cookie(_OIDC_STATE_COOKIE, path="/")
+        return resp
     rec = await state.oidc_state.consume(state_param)
     if rec is None:
         return _fail("invalid_state")
@@ -3024,6 +3050,7 @@ async def sso_callback(
         secure=state.secrets.auth_cookie_secure,
         max_age=state.secrets.auth_token_hours * 3600,
     )
+    redirect.delete_cookie(_OIDC_STATE_COOKIE, path="/")  # one-time binding consumed (#38)
     return redirect
 
 
