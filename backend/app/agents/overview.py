@@ -9,7 +9,6 @@ tab / in-app button always renders something.
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -20,7 +19,7 @@ from ..constants import ActionType, Role
 from ..llm.gateway import GatewayError, LLMGateway
 from ..tools.enrich import EnrichTool
 from ..utils import dotted_get, extract_json, truncate
-from .prompts import fence
+from .prompts import fence_block
 
 logger = logging.getLogger("tlsoc.agents.overview")
 
@@ -74,7 +73,10 @@ class OverviewService:
             payload["ip_reputation"] = enrichment_summary
         messages = [
             {"role": "system", "content": OVERVIEW_SYSTEM},
-            {"role": "user", "content": f"Event (UNTRUSTED data):\n{fence(json.dumps(payload, default=str))}"},
+            # fence_block, NOT the per-value fence(): the whole event JSON is the analysis
+            # subject, and fence()'s 600-char cap dropped most of the fields the model is
+            # asked to reason over (audit #21). Per-leaf marker-scrubbed + a generous cap.
+            {"role": "user", "content": f"Event (UNTRUSTED data):\n{fence_block(payload, source='event')}"},
         ]
         await self._audit.record(
             action_type=ActionType.PROMPT, surface=Role.OVERVIEW.value, actor=Role.OVERVIEW.value,
