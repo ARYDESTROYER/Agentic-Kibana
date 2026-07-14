@@ -462,11 +462,18 @@ class PollerManager:
         """
         if not prefs.background_scan_enabled or prefs.caps.kill_switch or limit <= 0:
             return 0
+        from ..constants import CaseStatus
+
         drained = 0
         offset = 0
         page_size = max(50, limit * 2)
         while drained < limit:
+            # Deferred candidates are always OPEN (verdict None). Filtering to OPEN skips
+            # the CLOSED/RESOLVED bulk, so a busy tenant's drain no longer pages
+            # oldest-first through tens of thousands of terminal cases (deep-pagination
+            # risk) to reach the handful of open candidates (audit #31).
             page, total = await self._state.real_cases.list(
+                status=CaseStatus.OPEN.value,
                 limit=page_size,
                 offset=offset,
                 sort_field="created_at",

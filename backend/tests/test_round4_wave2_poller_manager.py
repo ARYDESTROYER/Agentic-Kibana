@@ -374,3 +374,22 @@ async def test_drain_headroom_sums_unused_source_allowances(app_state: AppState,
     await mgr._poll_once_locked(p)
     # busy(0 unused) + idle(cap unused) = cap > 0; the old max-based code would give 0.
     assert captured["limit"] == cap
+
+
+@asyncio
+async def test_drain_scan_filters_to_open_cases(app_state: AppState, monkeypatch):
+    # audit #31: the deferred-candidate drain must query only OPEN cases, so it never
+    # deep-paginates oldest-first through the CLOSED/RESOLVED bulk.
+    mgr = app_state.poller
+    seen_status: list = []
+
+    async def fake_list(*, status=None, limit=50, offset=0, sort_field="created_at", sort_order="desc"):
+        seen_status.append(status)
+        return [], 0  # empty page → drain returns immediately
+
+    monkeypatch.setattr(mgr._state.real_cases, "list", fake_list)
+    p = app_state.prefs.model_copy(deep=True)
+    p.background_scan_enabled = True
+    p.caps.kill_switch = False
+    await mgr._drain_deferred(p, older_than="2000-01-01T00:00:00Z", limit=5)
+    assert seen_status and all(s == "open" for s in seen_status)
