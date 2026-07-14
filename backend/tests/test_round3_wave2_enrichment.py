@@ -366,6 +366,52 @@ def _patch_httpx(monkeypatch, module, payload, captured):
     monkeypatch.setattr(module + ".httpx.AsyncClient", lambda *a, **k: _FakeClient(payload, captured))
 
 
+async def test_http_json_error_redacts_key_bearing_query(monkeypatch) -> None:
+    # audit #5: an HTTP error from a provider that passes its key as a query param
+    # (Shodan/Pulsedive ?key=…) must NOT leak the key into the raised error (→ recorded
+    # ProviderResult.error / logs / UI).
+    import httpx
+
+    from app.enrichment.providers import _common
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        _common.httpx, "AsyncClient",
+        lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 == "timeout"}),
+    )
+    secret = "SHODAN-SECRET-123"
+    with pytest.raises(httpx.HTTPStatusError) as ei:
+        await _common.http_json("https://api.shodan.io/shodan/host/1.2.3.4", params={"key": secret})
+    assert secret not in str(ei.value)
+    assert "1.2.3.4" in str(ei.value)  # still useful (host/path preserved)
+
+
+async def test_shodan_provider_error_does_not_leak_key(monkeypatch) -> None:
+    # End-to-end through ShodanProvider.lookup: a 401 fails open to ok=False with the
+    # key scrubbed from the recorded error.
+    import httpx
+
+    from app.enrichment.providers import _common, shodan
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": "access denied"})
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        _common.httpx, "AsyncClient",
+        lambda *a, **k: real_client(transport=transport, **{k2: v for k2, v in k.items() if k2 == "timeout"}),
+    )
+    prov = shodan.ShodanProvider(EnrichmentConfig(), _secrets(shodan_api_key="SHODAN-SECRET-123"))
+    r = await prov.lookup("8.8.8.8", IndicatorKind.IP)
+    assert r.ok is False
+    assert "SHODAN-SECRET-123" not in (r.error or "")
+
+
 async def test_virustotal_ip_path_byte_identical(monkeypatch) -> None:
     from app.enrichment.providers import virustotal
 

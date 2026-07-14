@@ -39,6 +39,21 @@ logger = logging.getLogger("tlsoc.enrichment.providers")
 DEFAULT_HTTP_TIMEOUT = 8.0
 
 
+def _redact_url(url: Any) -> str:
+    """Strip the query string + any userinfo from a URL for error messages.
+
+    Several providers pass their API key as a query param (Shodan/Pulsedive
+    ``?key=…``). httpx's ``HTTPStatusError`` message embeds ``request.url`` VERBATIM,
+    which the fail-open wrapper then records into the ProviderResult error (→ case doc,
+    logs, threat-context UI), LEAKING the key. Rendering only scheme+host+path keeps the
+    error useful without disclosing the secret (audit #5)."""
+    try:
+        u = httpx.URL(str(url))
+        return str(u.copy_with(query=None, userinfo=b""))
+    except Exception:  # noqa: BLE001
+        return "<redacted-url>"
+
+
 async def http_json(
     url: str,
     *,
@@ -64,7 +79,16 @@ async def http_json(
         )
         if treat_404_as_empty and resp.status_code == 404:
             return None
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # Re-raise with the key-bearing query string scrubbed from the message so a
+            # provider key can never reach the recorded error / logs / UI (audit #5).
+            raise httpx.HTTPStatusError(
+                f"HTTP {resp.status_code} for {_redact_url(exc.request.url)}",
+                request=exc.request,
+                response=exc.response,
+            ) from None
         if not resp.content:
             return None
         try:
