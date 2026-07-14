@@ -3,8 +3,13 @@
 ``DemoPullConnector`` plugs into the connector SPI like any other PULL source, but
 owns NO ES client and reaches NO external system: for a cursor window it returns
 DETERMINISTICALLY GENERATED OCSF/RawEvents from :mod:`app.engine.demo_generator`.
-It is registered in the connector registry ONLY when ``prefs.demo.mode != 'off'``
-(see ``connectors/registry.py``), so a production deployment never sees it.
+
+NOTE (audit #46): this class is TEST-ONLY — it is directly instantiated by the tests
+but is NOT auto-registered in the connector registry. Demo Mode at runtime is driven by
+the seeded demo sources + the deterministic demo runtime
+(:mod:`app.engine.demo_sources` / :mod:`app.engine.demo_runtime`), not by this connector.
+(The former ``registry.set_demo_registered`` toggle was orphaned dead code and was
+removed.)
 
 Demo overhaul: the connector is parametrised by an optional ``segment``
 (``siem`` | ``xdr`` | ``edr``) so the DemoStack can build THREE isolated demo

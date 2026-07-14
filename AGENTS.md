@@ -130,7 +130,8 @@ backend/app/
   connectors/        base (Connector/PullConnector/PushReceiver SPI) · registry
                      (built-ins + tlsoc.connectors entry points) · elastic ·
                      opensearch · wazuh · demo (DemoPullConnector — seeded OCSF;
-                     registered only when demo.mode != off) · receivers/ (webhook ·
+                     TEST-ONLY, directly instantiated by tests, NOT auto-registered —
+                     runtime Demo Mode uses demo_sources/demo_runtime) · receivers/ (webhook ·
                      syslog · queues · objectstore · formats · common) — 16 push receivers
   es/                base (ABC) · client (real, two-key) · fake (in-memory) ·
                      querybuilder · indices (templates + bootstrap)
