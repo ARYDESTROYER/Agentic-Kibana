@@ -80,6 +80,19 @@ def _classify(src: dict[str, Any]) -> tuple[int, int]:
     return OCSF_CAT_FINDINGS, OCSF_CLASS_DETECTION_FINDING
 
 
+def _severity_scale(prefs: Any, connector_id: str | None) -> str:
+    """Resolve the source's declared severity scale so score_to_severity_id does not
+    magnitude-inflate a genuine LOW 0..100 severity (audit #36). Falls back to the legacy
+    heuristic ('unknown') when the source can't be resolved. Lazy import keeps ocsf/ from
+    depending on engine/ at import time; never raises."""
+    try:
+        from ..engine.priority import severity_scale_for_source
+
+        return severity_scale_for_source(prefs.source_by_id(connector_id) if connector_id else None)
+    except Exception:  # noqa: BLE001 — normalisation must never break on a scale lookup
+        return "auto"
+
+
 def _observables(ip: str | None, user: str | None, host: str | None) -> list[Observable]:
     obs: list[Observable] = []
     if ip:
@@ -129,7 +142,7 @@ def ecs_to_ocsf(
     return OCSFEvent(
         category_uid=category_uid,
         class_uid=class_uid,
-        severity_id=score_to_severity_id(severity_score),
+        severity_id=score_to_severity_id(severity_score, _severity_scale(prefs, connector_id)),
         time=to_millis(ts) if ts else 0,
         message=message,
         metadata=Metadata(
@@ -223,7 +236,7 @@ def generic_to_ocsf(
     return OCSFEvent(
         category_uid=OCSF_CAT_FINDINGS,
         class_uid=OCSF_CLASS_DETECTION_FINDING,
-        severity_id=score_to_severity_id(severity_score),
+        severity_id=score_to_severity_id(severity_score, _severity_scale(prefs, connector_id)),
         time=to_millis(ts) if ts else 0,
         message=message,
         metadata=Metadata(

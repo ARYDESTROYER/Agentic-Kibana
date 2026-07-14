@@ -473,6 +473,18 @@ def test_syslog_idless_identity_is_stable_and_source_isolated(prefs):
     assert source_b.id != first.id
 
 
+def test_score_to_severity_id_is_scale_aware():
+    # audit #36: a genuine LOW 0..100 severity must NOT be magnitude-inflated. Only the
+    # 0..10 / wazuh scales rescale; the 0..100 scale is identity.
+    from app.ocsf.model import score_to_severity_id
+
+    assert score_to_severity_id(8, "ocsf_0_100") == 1   # 8/100 → Informational (not High)
+    assert score_to_severity_id(8, "0_10") == 4         # 8/10 → 80 → High
+    assert score_to_severity_id(12, "wazuh_0_16") == 4  # 12/16*100 = 75 → High
+    assert score_to_severity_id(8, "auto") == 4         # legacy heuristic unchanged (back-compat)
+    assert score_to_severity_id(95, "ocsf_0_100") == 5  # Critical either way
+
+
 @pytest.mark.asyncio
 async def test_syslog_udp_datagram_ingest_error_is_surfaced(prefs, caplog):
     # audit #35: a UDP datagram whose ingest FAILS must surface the error (and the task

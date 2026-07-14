@@ -96,19 +96,32 @@ def severity_id_to_score(severity_id: int | None) -> float:
     return OCSF_SEVERITY_TO_SCORE.get(int(severity_id), 0.0)
 
 
-def score_to_severity_id(score: float | None) -> int:
-    """A 0..100 (or 0..10) severity score → the nearest OCSF severity_id (0..6).
+def score_to_severity_id(score: float | None, scale: str = "auto") -> int:
+    """A severity score → the nearest OCSF severity_id (0..6), scale-aware.
 
-    Accepts both 0..100 and the common 0..10 SIEM scale (values <= 10 are treated
-    as the 0..10 scale and rescaled), so connectors can pass native severities.
+    ``scale`` disambiguates the source's native range so a genuine LOW 0..100 severity
+    is not inflated (audit #36 — the old magnitude guess x10'd any value <= 10, so an
+    OCSF severity of 8 became 80 → High):
+
+    * ``"ocsf_0_100"`` / ``"0-100"`` — already 0..100; NO rescale (8 stays 8 → Info/Low).
+    * ``"0_10"`` / ``"0-10"`` — the 0..10 SIEM scale; x10.
+    * ``"wazuh_0_16"`` — Wazuh rule.level 0..16; level/16*100.
+    * ``"auto"`` (default) — the legacy magnitude heuristic (``<=10 ? x10 : as-is``),
+      kept for callers that cannot resolve the source scale (back-compat, byte-identical).
     """
     if score is None:
         return 0
     s = float(score)
     if s <= 0:
         return 1                        # Informational
-    if s <= 10:
-        s = s * 10.0                    # rescale a 0..10 severity to 0..100
+    if scale in ("ocsf_0_100", "0-100", "0_100"):
+        pass                            # already 0..100 — never rescale
+    elif scale in ("0_10", "0-10"):
+        s = s * 10.0
+    elif scale == "wazuh_0_16":
+        s = s / 16.0 * 100.0
+    elif s <= 10:                       # "auto"/unknown — legacy magnitude heuristic
+        s = s * 10.0
     if s >= 90:
         return 5                        # Critical
     if s >= 70:
