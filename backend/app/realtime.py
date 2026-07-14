@@ -349,12 +349,19 @@ class EventBus:
         topic_set = frozenset(str(t) for t in topics if str(t))
         sub = _Subscriber(user, topic_set, self._subscriber_queue)
         self._register(sub)
+        # Snapshot the seq at registration: events published AFTER this are delivered LIVE
+        # via the subscriber queue, so replay must NOT also re-send them (audit #33). Any
+        # event with seq > reg_seq was offered to our queue when it published; capping the
+        # replay at reg_seq makes replay and live cover disjoint ranges — no duplicate frame.
+        reg_seq = self._seq
         try:
             # Flush headers right away so the browser's EventSource fires ``onopen``.
             yield b": connected\n\n"
-            # Replay anything the client missed since its Last-Event-ID.
+            # Replay anything the client missed since its Last-Event-ID, up to the seq at
+            # registration (later events arrive live).
             for ev in self.replay(topic_set, sub.user, last_event_id):
-                yield ev.frame().encode("utf-8")
+                if ev.seq <= reg_seq:
+                    yield ev.frame().encode("utf-8")
             while True:
                 try:
                     batch = await asyncio.wait_for(sub.drain(), timeout=self._heartbeat_seconds)

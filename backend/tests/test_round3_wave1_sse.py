@@ -233,6 +233,27 @@ async def test_subscribe_replays_last_event_id_on_connect():
     await gen.aclose()
 
 
+async def test_no_duplicate_frame_when_event_published_during_connect():
+    # audit #33: an event published AFTER register but before the replay read must be
+    # delivered exactly ONCE (live), not replayed AND live.
+    bus = EventBus(heartbeat_seconds=60)
+    bus.publish("cases", "a", {"n": 1})  # id 1 (before connect)
+    gen = bus.subscribe(["cases"], user="x", last_event_id="0").__aiter__()
+    first = await gen.__anext__()
+    assert first == b": connected\n\n"  # registered + reg_seq snapshotted, replay not yet read
+    bus.publish("cases", "a", {"n": 2})  # id 2 — arrives live, must NOT also be replayed
+    frames: list[bytes] = []
+    for _ in range(4):
+        try:
+            frames.append(await asyncio.wait_for(gen.__anext__(), timeout=0.5))
+        except asyncio.TimeoutError:
+            break
+    text = "".join(f.decode() for f in frames)
+    assert text.count("id: 2\n") == 1, f"event id 2 was duplicated: {text!r}"
+    assert text.count("id: 1\n") == 1
+    await gen.aclose()
+
+
 # --------------------------------------------------------------------------- #
 # Bounded ring / drop-oldest overflow.
 # --------------------------------------------------------------------------- #
