@@ -58,6 +58,15 @@ _DEFAULT_SCOPES = "openid email profile"
 _DISCOVERY_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def _claim_truthy(value: Any) -> bool:
+    """Whether an IdP claim asserts truth. OIDC email_verified is a JSON boolean, but
+    some providers stringify it ("true"/"1"). Anything else (including absent/None) is
+    treated as NOT asserted — fail closed (#3)."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "1", "yes"}
+
+
 def new_state() -> str:
     """A fresh URL-safe random ``state`` (also reused as the storage key)."""
     return secrets.token_urlsafe(24)
@@ -240,8 +249,17 @@ class OidcProvider:
 
         ``sub`` prefers the IdP's stable subject; for Microsoft the immutable ``oid``
         is preferred. ``domain`` is the ``hd`` claim (Google) or the email domain.
-        ``groups`` is read from the configured ``group_claim`` (list or scalar)."""
-        email = str(claims.get("email") or claims.get("preferred_username") or "").strip()
+        ``groups`` is read from the configured ``group_claim`` (list or scalar).
+
+        SECURITY (#3): ``email`` is read ONLY from the ``email`` claim — never from the
+        mutable ``preferred_username``, which is not a verified identifier and could be
+        set to a victim's address. ``email_verified`` carries whether the IdP asserts
+        the address is verified (Google's ``email_verified`` / Microsoft's ``xms_edov``);
+        the caller MUST NOT trust the email for account matching unless this is true."""
+        email = str(claims.get("email") or "").strip()
+        email_verified = _claim_truthy(claims.get("email_verified")) or _claim_truthy(
+            claims.get("xms_edov")  # Microsoft "email domain owner verified"
+        )
         domain = str(claims.get("hd") or "").strip().lower()
         if not domain and "@" in email:
             domain = email.rsplit("@", 1)[-1].strip().lower()
@@ -259,6 +277,7 @@ class OidcProvider:
         return {
             "sub": sub,
             "email": email,
+            "email_verified": email_verified,
             "name": str(claims.get("name") or claims.get("preferred_username") or email or "").strip(),
             "domain": domain,
             "tenant": str(claims.get("tid") or "").strip().lower(),

@@ -3007,26 +3007,55 @@ async def _provision_sso_user(
     matching user exists and auto-provisioning is off.
 
     Matching precedence: an EXISTING user already linked to this (provider, sub) →
-    an existing user by email/username → else (if allowed) create one. The username
-    is the email (stable + unique). Idempotent: a returning user is NOT duplicated;
-    its role is refreshed from the group map."""
+    (only when the IdP asserts a VERIFIED email) an existing SSO-managed user by that
+    email → else (if allowed) create one. The account key is the verified email when
+    available, else the non-spoofable ``provider:sub``. Idempotent: a returning user is
+    NOT duplicated; its role is refreshed from the group map.
+
+    SECURITY (#3, SSO account takeover): we NEVER link an SSO login to a pre-existing
+    LOCAL-credential account by email, and we NEVER trust an UNVERIFIED email as an
+    account key. Either would let an attacker whose IdP account carries a victim's
+    address log in AS the victim."""
     from ..auth.passwords import hash_password
 
     sso = getattr(state.prefs, "sso", None)
     cfg = sso.get(provider_id) if sso else None
     auto_create = bool(getattr(cfg, "auto_create_users", False))
     email = str(identity.get("email") or "").strip()
+    email_verified = bool(identity.get("email_verified"))
     sub = str(identity.get("sub") or "").strip()
-    username = email or f"{provider_id}:{sub}"
+    if not sub:
+        return None  # no stable subject → cannot key an account safely
+    # Only trust the email as an account key when the IdP asserts it is verified;
+    # otherwise key on the immutable provider+sub (an attacker cannot forge that).
+    trusted_email = email if (email and email_verified) else ""
+    username = trusted_email or f"{provider_id}:{sub}"
 
-    # Find an existing linked account (by oauth_sub) or by username/email.
+    # 1) An account already LINKED to this (provider, sub) — always safe to reuse.
     existing = None
     for u in await state.users.list():
         if u.oauth_provider == provider_id and u.oauth_sub and u.oauth_sub == sub:
             existing = u
             break
-    if existing is None:
-        existing = await state.users.get(username)
+
+    # 2) Otherwise match by the VERIFIED email — but refuse to auto-link onto a
+    #    pre-existing LOCAL-credential account (real password, not already linked to
+    #    THIS provider). That refusal is the account-takeover guard.
+    if existing is None and trusted_email:
+        candidate = await state.users.get(trusted_email)
+        if candidate is not None:
+            already_linked_here = candidate.oauth_provider == provider_id
+            is_local_account = bool(candidate.password_hash) and not candidate.oauth_provider
+            if is_local_account and not already_linked_here:
+                await state.control_audit.record(
+                    action_type=ActionType.AUTH_EVENT, surface="auth",
+                    actor=email or username,
+                    result_summary=(
+                        f"sso link refused: {provider_id} email matches a local account"
+                    ),
+                )
+                return None
+            existing = candidate
 
     if existing is not None:
         # Idempotent re-login: refresh role + provider linkage, never duplicate.

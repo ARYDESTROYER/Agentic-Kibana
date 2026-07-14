@@ -218,7 +218,8 @@ async def test_authorize_stashes_single_use_state(monkeypatch, sso_state):
 
 @pytest.mark.asyncio
 async def test_callback_provisions_and_is_idempotent(monkeypatch, sso_state):
-    claims = {"sub": "google-sub-1", "email": "alice@corp.com", "name": "Alice", "groups": ["soc-admins"]}
+    claims = {"sub": "google-sub-1", "email": "alice@corp.com", "email_verified": True,
+              "name": "Alice", "groups": ["soc-admins"]}
     _patch_http(monkeypatch, claims=claims)
     from app.api import routes as routes_mod
 
@@ -250,6 +251,70 @@ async def test_callback_provisions_and_is_idempotent(monkeypatch, sso_state):
     assert resp2.status_code == 302
     users2 = await sso_state.users.list()
     assert len(users2) == 1  # idempotent — no dupes
+
+
+@pytest.mark.asyncio
+async def test_sso_cannot_take_over_local_account_by_email(monkeypatch, sso_state):
+    # audit #3: an attacker whose IdP account carries a VICTIM's verified email must NOT
+    # be logged in AS the victim's pre-existing LOCAL-credential account.
+    from app.auth.passwords import hash_password
+
+    await sso_state.users.create(
+        username="alice@corp.com", password_hash=hash_password("victim-local-pass-1"),
+        role="super_admin", active=True, must_change_password=False,
+    )
+    await sso_state.refresh_users()
+    claims = {"sub": "attacker-sub", "email": "alice@corp.com", "email_verified": True, "name": "A"}
+    _patch_http(monkeypatch, claims=claims)
+    from app.api import routes as routes_mod
+
+    class _Req:
+        base_url = "https://app.example.com/"
+
+    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    from urllib.parse import parse_qs, urlparse
+
+    st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
+    client = _client_for(sso_state)
+    resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
+    assert resp.status_code == 302
+    assert "sso_error=user_not_provisioned" in resp.headers["location"]
+    # The local account is untouched — NOT linked to the attacker's sub.
+    victim = await sso_state.users.get("alice@corp.com")
+    assert victim is not None and victim.oauth_provider == "" and victim.oauth_sub == ""
+
+
+@pytest.mark.asyncio
+async def test_sso_unverified_email_is_not_used_as_account_key(monkeypatch, sso_state):
+    # audit #3: an UNVERIFIED email must not become the username / matching key; the
+    # account is keyed on the non-spoofable provider:sub instead.
+    claims = {"sub": "sub-unv", "email": "victim@corp.com", "name": "U"}  # no email_verified
+    _patch_http(monkeypatch, claims=claims)
+    from app.api import routes as routes_mod
+
+    class _Req:
+        base_url = "https://app.example.com/"
+
+    out = await routes_mod.sso_authorize(_Req(), provider="corp", state=sso_state)  # type: ignore[arg-type]
+    from urllib.parse import parse_qs, urlparse
+
+    st = parse_qs(urlparse(out["auth_url"]).query)["state"][0]
+    client = _client_for(sso_state)
+    resp = client.get(f"/api/auth/sso/callback?code=abc&state={st}", follow_redirects=False)
+    assert resp.status_code == 302 and resp.headers["location"] == "/"
+    # Created, but keyed on provider:sub — NOT on the unverified email.
+    assert await sso_state.users.get("victim@corp.com") is None
+    keyed = await sso_state.users.get("corp:sub-unv")
+    assert keyed is not None and keyed.oauth_sub == "sub-unv"
+
+
+def test_identity_from_reads_email_verified_and_ignores_preferred_username():
+    prov = oidc.OidcProvider(_generic_provider())
+    idv = prov.identity_from({"sub": "s", "email": "e@corp.com", "email_verified": True})
+    assert idv["email"] == "e@corp.com" and idv["email_verified"] is True
+    # A mutable preferred_username must NOT become the identity email.
+    idn = prov.identity_from({"sub": "s", "preferred_username": "spoof@corp.com"})
+    assert idn["email"] == "" and idn["email_verified"] is False
 
 
 @pytest.mark.asyncio
