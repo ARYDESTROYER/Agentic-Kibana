@@ -229,8 +229,15 @@ class RealESClient(BaseESClient):
         try:
             resp = await client.count(index=index, query=body.get("query"))
             return int(resp["count"])
-        except Exception:  # noqa: BLE001
-            return 0
+        except Exception as exc:  # noqa: BLE001
+            # Mirror search(): a missing index is legitimately zero, but any OTHER fault
+            # (auth, connection, cluster red) must NOT be masked as "0 documents" — that
+            # silently hides a live ES failure that tests (fake ES) can't reproduce
+            # (audit #41). Log + re-raise so callers can tell "no docs" from "lookup failed".
+            if es_exceptions and isinstance(exc, es_exceptions.NotFoundError):
+                return 0
+            logger.warning("ES count(%s) failed: %s", index, exc)
+            raise
 
     async def close(self) -> None:
         for client in (self._ro, self._mgmt):

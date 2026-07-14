@@ -87,3 +87,18 @@ async def test_readiness_fails_when_sql_connects_but_kv_write_is_denied() -> Non
         assert ready is False
     finally:
         await state.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_real_es_count_reraises_non_notfound_errors() -> None:
+    # audit #41: count() must NOT mask a live ES fault as "0 documents" — a genuine error
+    # (auth/connection/cluster-red) re-raises so callers can tell "no docs" from "failed".
+    client = object.__new__(RealESClient)
+
+    class _BoomMgmt:
+        async def count(self, *, index, query):  # noqa: ANN001
+            raise RuntimeError("cluster red")
+
+    client._mgmt = _BoomMgmt()
+    with pytest.raises(RuntimeError):
+        await client.count("all-logs-*", {"query": {"match_all": {}}})
