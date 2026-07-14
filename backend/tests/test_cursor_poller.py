@@ -56,6 +56,37 @@ async def test_no_event_skipped_after_first_poll(app_state: AppState):
     assert total == 2
 
 
+async def test_closed_cluster_in_lookback_window_is_not_reinvestigated(app_state: AppState):
+    """audit #8: a NEW event elsewhere triggers the wider look-back re-correlation,
+    which re-forms an ALREADY-CLOSED cluster still inside the window. That closed
+    cluster must NOT be re-handled into a DUPLICATE case — only clusters containing an
+    event that ARRIVED THIS TICK are handled."""
+    from app.constants import CaseStatus
+
+    await _set_threshold(app_state, 3)
+    base = to_millis(now_utc()) - 120_000
+    # Cluster A: 4 events for 8.8.4.4 → one case; then CLOSE it.
+    seed_logs(app_state.es, [make_log_event(ip="8.8.4.4", ts_millis=base + i * 1000) for i in range(4)])
+    await app_state.poller.poll_once(app_state.prefs)
+    cases, total = await app_state.cases.list()
+    assert total == 1
+    closed = cases[0].model_copy(update={"status": CaseStatus.CLOSED})
+    await app_state.cases.save(closed)
+
+    # A single NEW event for a DIFFERENT entity (below threshold → no case of its own)
+    # arrives now. It makes new_events non-empty, so the wider look-back re-correlation
+    # runs and re-forms closed cluster A (its events are still within the look-back).
+    seed_logs(
+        app_state.es,
+        [make_log_event(ip="1.2.3.9", ts_millis=to_millis(now_utc()))],
+        index="all-logs-2026.06.17",
+    )
+    s = await app_state.poller.poll_once(app_state.prefs)
+    assert s["new"] == 1  # the wider window WAS triggered
+    _c2, total2 = await app_state.cases.list()
+    assert total2 == 1, "a re-formed CLOSED cluster must not spawn a duplicate case"
+
+
 async def _set_burst_rule(state: AppState, *, n: int, window_seconds: int, poll_interval: int) -> None:
     """Threshold rule whose window spans MANY poll intervals (the BUG-5 setup)."""
     p = state.prefs.model_copy(deep=True)

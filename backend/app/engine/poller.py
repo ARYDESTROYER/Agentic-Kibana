@@ -588,10 +588,24 @@ class Poller:
             # roles; correlate reads the per-event role. Same-signature bursts still coalesce
             # onto ONE open case downstream (#4).
             clusters = correlate(window_events, prefs, entity_strategy=strategy)
+            # Only ACT ON clusters that contain at least one event that ARRIVED THIS
+            # TICK. The wider look-back window supplies threshold CONTEXT (so a burst
+            # spanning the window is still counted), but ``correlate`` also re-forms
+            # clusters made ENTIRELY of old events whose case was already closed —
+            # re-handling those creates a DUPLICATE case and re-spends the LLM on every
+            # tick (audit #8). Mirror IngestService: filter to clusters intersecting this
+            # tick's new-event keys. A cluster with a NEW event on a previously-closed
+            # signature is kept (legitimately new activity). No-op when the window is
+            # exactly this tick's new_events (byte-identical to before).
+            _new_ids = {e.event_key() for e in new_events}
+            tick_clusters = [
+                cl for cl in clusters
+                if _new_ids.intersection(cl.member_event_keys or cl.member_event_ids)
+            ]
             # Attach/investigate/register is the SHARED ingest path (identical for
             # push receivers): see app/engine/ingest.handle_clusters.
             cluster_stats = await handle_clusters(
-                clusters, prefs, cases=self._cases, pipeline=self._pipeline,
+                tick_clusters, prefs, cases=self._cases, pipeline=self._pipeline,
                 source_surface=SourceSurface.AUTOMATED_SCAN,
                 query_source=self._source,
             )
@@ -602,29 +616,21 @@ class Poller:
             if self._noise_sink is not None:
                 try:
                     _sink_scale = severity_scale_for_source(own_source)
-                    # Round-7 over-count fix: ``clusters``/``cluster_stats`` reflect the FULL
-                    # re-scanned look-back window (``correlate`` ran over ``window_events``),
-                    # so counting them re-tallies a straggler burst on EVERY subsequent tick
-                    # while ``ingested`` is only this tick's cursor delta — inverting the
-                    # funnel under sustained PULL load. Scope the cluster-derived bands to the
-                    # clusters that contain at least one JUST-ARRIVED event id (this tick's
-                    # ``new_events``) so clustered/suppressed/ignored stay per-tick deltas, and
-                    # re-derive suppressed/ignored with the SAME predicates ``handle_clusters``
-                    # uses (ignored takes priority, mirroring its loop).
-                    _new_ids = {e.event_key() for e in new_events}
-                    _tick_clusters = [
-                        cl for cl in clusters
-                        if _new_ids.intersection(cl.member_event_keys or cl.member_event_ids)
-                    ]
+                    # Round-7 over-count fix (now also the audit-#8 handle filter): the noise
+                    # bands are scoped to ``tick_clusters`` — the clusters containing at least
+                    # one JUST-ARRIVED event (this tick's ``new_events``) — the SAME set handed
+                    # to ``handle_clusters`` above, so clustered/suppressed/ignored stay per-tick
+                    # deltas and never re-tally a straggler burst on later ticks. suppressed/
+                    # ignored use the SAME predicates ``handle_clusters`` uses (ignored first).
                     cluster_volumes = {
                         str(cl.signature): int(cl.count)
-                        for cl in _tick_clusters
+                        for cl in tick_clusters
                         if getattr(cl, "signature", None)
                     }
-                    noise_clustered = count_clusters_by_band(_tick_clusters, _sink_scale)
+                    noise_clustered = count_clusters_by_band(tick_clusters, _sink_scale)
                     _tick_ignored = 0
                     _tick_suppressed = 0
-                    for _cl in _tick_clusters:
+                    for _cl in tick_clusters:
                         if _is_ignored_cluster(_cl, prefs):
                             _tick_ignored += 1
                         elif not passes_suppression(_cl, prefs):
