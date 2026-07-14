@@ -431,19 +431,18 @@ class PollerManager:
                 if k in res:
                     agg[k] = agg.get(k, 0) + res[k]
         cap = max(1, int(getattr(prefs.caps, "max_auto_investigations_per_tick", 25)))
-        # Each child owns a per-source cap. The durable drain is intentionally
-        # conservative: it may consume only the smallest remaining headroom implied
-        # by the busiest source. That guarantees no source can receive a second full
-        # allowance after normal handling, while a wholly quiet tick can still drain
-        # one complete cap of older work.
-        busiest = max(
-            (int((res or {}).get("investigated", 0) or 0) for res in results),
-            default=0,
+        # Drain headroom is the SUM of every source's UNUSED per-tick allowance. The old
+        # ``cap - busiest`` zeroed the drain whenever ANY single source hit its cap, so a
+        # persistently-busy source indefinitely STARVED the quiet-tick drain of every
+        # OTHER source's cap-deferred candidates (audit #30). Summing the per-source unused
+        # allowances keeps the drain running as long as at least one source has headroom.
+        total_headroom = sum(
+            max(0, cap - int((res or {}).get("investigated", 0) or 0)) for res in results
         )
         agg["drained"] = await self._drain_deferred(
             prefs,
             older_than=tick_started_at,
-            limit=max(0, cap - busiest),
+            limit=total_headroom,
         )
         return agg
 

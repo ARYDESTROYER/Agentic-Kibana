@@ -341,3 +341,36 @@ async def test_pull_enumeration_skips_receivers_and_disabled(app_state: AppState
     # Receiver (webhook) + the disabled source are excluded; only the PULL source.
     assert pulls == {"srcA"}
     await mgr.stop()
+
+
+@asyncio
+async def test_drain_headroom_sums_unused_source_allowances(app_state: AppState, monkeypatch):
+    # audit #30: a source at cap must NOT zero the drain headroom for OTHER idle sources
+    # (the old `cap - busiest` did). Headroom is now the SUM of per-source unused allowances.
+    mgr = app_state.poller
+    captured: dict = {}
+
+    async def fake_drain(prefs, *, older_than, limit):
+        captured["limit"] = limit
+        return 0
+
+    monkeypatch.setattr(mgr, "_drain_deferred", fake_drain)
+
+    class _FakeSource:
+        connector_id = "s"
+
+    class _FakePoller:
+        def __init__(self, inv: int) -> None:
+            self._inv = inv
+            self._source = _FakeSource()
+
+        async def poll_once(self, prefs):
+            return {"investigated": self._inv}
+
+    cap = 25
+    p = app_state.prefs.model_copy(deep=True)
+    p.caps.max_auto_investigations_per_tick = cap
+    monkeypatch.setattr(mgr, "_all_pollers", lambda: [_FakePoller(cap), _FakePoller(0)])
+    await mgr._poll_once_locked(p)
+    # busy(0 unused) + idle(cap unused) = cap > 0; the old max-based code would give 0.
+    assert captured["limit"] == cap
