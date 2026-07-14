@@ -187,6 +187,22 @@ def test_replay_returns_only_events_after_id_in_order():
     assert [e.id for e in evs] == ["2", "3"]
 
 
+def test_history_topics_are_lru_bounded():
+    # audit #32: distinct per-case topics must not grow _history without bound — the
+    # least-recently-published topic is evicted past the cap.
+    bus = EventBus()
+    bus._max_history_topics = 3  # noqa: SLF001 — test-only knob
+    for i in range(10):
+        bus.publish(f"cases:{i}", "a", {"n": i})
+    assert len(bus._history) == 3  # noqa: SLF001
+    # The most-recent 3 topics are retained; the oldest were evicted.
+    assert set(bus._history.keys()) == {"cases:7", "cases:8", "cases:9"}  # noqa: SLF001
+    # Re-publishing to an existing topic keeps it (marks it most-recent), evicting another.
+    bus.publish("cases:7", "a", {"n": 70})
+    bus.publish("cases:99", "a", {"n": 99})
+    assert "cases:7" in bus._history and len(bus._history) == 3  # noqa: SLF001
+
+
 def test_replay_empty_for_none_or_bad_id():
     bus = EventBus()
     bus.publish("cases", "a", {"n": 1})

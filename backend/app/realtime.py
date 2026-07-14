@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any, AsyncIterator, Iterable
 
 from .utils import iso_now, new_id
@@ -64,6 +64,11 @@ DEFAULT_SUBSCRIBER_QUEUE = 256
 DEFAULT_HISTORY_PER_TOPIC = 256
 # Hard cap on concurrent subscribers; the OLDEST subscriber is evicted when exceeded.
 DEFAULT_MAX_SUBSCRIBERS = 1024
+# Hard cap on the number of DISTINCT history topics kept for Last-Event-ID replay. Each
+# per-case topic (cases:{id}) would otherwise create a ring that is never freed, so the
+# history dict grew without bound (audit #32). LRU-evict the least-recently-published
+# topic past this many.
+DEFAULT_MAX_HISTORY_TOPICS = 2048
 # Default heartbeat cadence when no config is supplied (mirrors RealtimeConfig).
 DEFAULT_HEARTBEAT_SECONDS = 15
 
@@ -219,15 +224,19 @@ class EventBus:
         subscriber_queue: int = DEFAULT_SUBSCRIBER_QUEUE,
         history_per_topic: int = DEFAULT_HISTORY_PER_TOPIC,
         max_subscribers: int = DEFAULT_MAX_SUBSCRIBERS,
+        max_history_topics: int = DEFAULT_MAX_HISTORY_TOPICS,
     ) -> None:
         self._heartbeat_seconds = max(1, int(heartbeat_seconds))
         self._subscriber_queue = max(1, int(subscriber_queue))
         self._history_per_topic = max(0, int(history_per_topic))
         self._max_subscribers = max(1, int(max_subscribers))
+        self._max_history_topics = max(1, int(max_history_topics))
         self._seq = 0
         self._subscribers: dict[str, _Subscriber] = {}
-        # Per-topic replay ring (bounded) keyed by topic name.
-        self._history: dict[str, deque[_Event]] = {}
+        # Per-topic replay ring (bounded), LRU-capped by topic COUNT (audit #32): an
+        # OrderedDict whose least-recently-published topic is evicted past the cap, so a
+        # flood of distinct cases:{id} topics can't grow history without bound.
+        self._history: OrderedDict[str, deque[_Event]] = OrderedDict()
 
     # --- configuration (re-applied from Preferences.realtime on prefs reload) ---
     def configure(self, *, heartbeat_seconds: int | None = None) -> None:
@@ -283,6 +292,11 @@ class EventBus:
             if ring is None:
                 ring = deque(maxlen=self._history_per_topic)
                 self._history[topic] = ring
+                # LRU-evict the least-recently-published topic past the cap (audit #32).
+                while len(self._history) > self._max_history_topics:
+                    self._history.popitem(last=False)
+            else:
+                self._history.move_to_end(topic)  # mark most-recently-published
             ring.append(event)
         # Fan out (non-blocking offer to each matching subscriber).
         for sub in self._subscribers.values():
