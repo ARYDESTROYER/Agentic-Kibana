@@ -160,6 +160,17 @@ class NotificationService:
         verdict = _enum_value(_val(case, "verdict"))
         status = _enum_value(_val(case, "status"))
         out: list[str] = []
+        # on_case_created — was documented but never wired (audit #29). Fire for a
+        # genuinely-new OPEN case: non-terminal status AND no prior case_created
+        # notification already recorded (so a later reinvestigate/notify doesn't re-fire).
+        if getattr(t, "on_case_created", False) and status not in ("closed", "resolved"):
+            already_created = any(
+                (n.get("trigger") if isinstance(n, dict) else getattr(n, "trigger", None))
+                == TRIGGER_CREATED
+                for n in (_val(case, "notifications_sent", []) or [])
+            )
+            if not already_created:
+                out.append(TRIGGER_CREATED)
         if t.on_escalated and status in ("escalated", "needs_human"):
             out.append(TRIGGER_ESCALATED)
         if t.on_true_positive and verdict == "TRUE_POSITIVE":

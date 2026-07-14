@@ -24,6 +24,7 @@ from app.models import Case, Entity
 from app.notifications import templates
 from app.notifications.channel import NotificationEvent, build_channel, ensure_registered
 from app.notifications.dispatch import (
+    TRIGGER_CREATED,
     TRIGGER_ESCALATED,
     TRIGGER_MANUAL,
     NotificationService,
@@ -272,6 +273,34 @@ async def test_notify_merges_notifications_onto_fresh_case(monkeypatch):
     saved = store[stale.case_id]
     assert saved.assignee == "alice", "the concurrent edit was clobbered by the stale snapshot"
     assert saved.notifications_sent, "notifications_sent was not persisted"
+
+
+@pytest.mark.asyncio
+async def test_on_case_created_trigger_fires_once(monkeypatch):
+    # audit #29: enabling on_case_created must actually send (it was dead), and only once
+    # per case (a later notify doesn't re-fire it).
+    async def poster(url, *, json=None, content=None, headers=None):
+        return 200, "ok"
+
+    import app.notifications.webhook as wh
+    monkeypatch.setattr(wh, "_httpx_post", poster)
+    ch = NotificationChannelConfig(id="w1", type="webhook", config={"url": "https://x/y"})
+    # Turn OFF the other triggers so only case_created can fire.
+    p = _prefs_with([ch], triggers={
+        "on_case_created": True, "on_true_positive": False, "on_escalated": False,
+        "on_needs_human": False, "on_closed": False,
+    })
+    svc = _service(p, _RecordingSecrets({}))
+    case = _case()  # open, no prior notifications
+    sent = svc._triggers_for_case(case, p.notifications)
+    assert TRIGGER_CREATED in sent
+
+    out = await svc.dispatch(case, TRIGGER_CREATED)
+    assert any(r["ok"] for r in out)
+
+    # Once a case_created notification is recorded, it must NOT re-fire.
+    case.notifications_sent = [{"trigger": TRIGGER_CREATED, "channel_id": "w1", "ok": True}]
+    assert TRIGGER_CREATED not in svc._triggers_for_case(case, p.notifications)
 
 
 @pytest.mark.asyncio
