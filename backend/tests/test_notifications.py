@@ -313,19 +313,43 @@ async def test_dispatch_respects_min_risk_floor():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_dedup_within_window():
+async def test_dispatch_dedup_within_window(monkeypatch):
     async def poster(url, *, json=None, content=None, headers=None):
         return 200, "ok"
 
+    import app.notifications.webhook as wh
+    monkeypatch.setattr(wh, "_httpx_post", poster)  # first send must SUCCEED to mark dedup
     ch = NotificationChannelConfig(id="w1", type="webhook", config={"url": "https://x/y"})
     p = _prefs_with([ch], dedup_window_seconds=300)
     svc = _service(p, _RecordingSecrets({}))
     case = _case()
     s1 = await svc.dispatch(case, TRIGGER_ESCALATED, channel_ids=None, check_triggers=True)
     s2 = await svc.dispatch(case, TRIGGER_ESCALATED, channel_ids=None, check_triggers=True)
-    # first emits, second deduped (no record)
-    assert len(s1) == 1
+    # first emits (and records dedup on success), second deduped (no record)
+    assert len(s1) == 1 and s1[0]["ok"] is True
     assert len(s2) == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_send_does_not_burn_dedup_window(monkeypatch):
+    # audit #43: a failed send must NOT consume the dedup window — the retry must get
+    # through (the dedup key is recorded only on a successful send).
+    calls = {"n": 0}
+
+    async def poster(url, *, json=None, content=None, headers=None):
+        calls["n"] += 1
+        return (500, "err") if calls["n"] == 1 else (200, "ok")
+
+    import app.notifications.webhook as wh
+    monkeypatch.setattr(wh, "_httpx_post", poster)
+    ch = NotificationChannelConfig(id="w1", type="webhook", config={"url": "https://x/y"})
+    p = _prefs_with([ch], dedup_window_seconds=300)
+    svc = _service(p, _RecordingSecrets({}))
+    case = _case()
+    s1 = await svc.dispatch(case, TRIGGER_ESCALATED)
+    assert s1 and s1[0]["ok"] is False  # first attempt failed
+    s2 = await svc.dispatch(case, TRIGGER_ESCALATED)
+    assert s2 and s2[0]["ok"] is True, "retry was wrongly deduped after a failed send"
 
 
 @pytest.mark.asyncio

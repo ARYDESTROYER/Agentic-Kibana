@@ -198,25 +198,34 @@ class NotificationService:
         return "tlsoc:notif:dedup:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
     async def _is_duplicate(self, channel_id: str, case: Any, trigger: str, window: int) -> bool:
+        """PURE check — is this (channel, case, trigger, window) already sent? Does NOT
+        record the key; that is done by ``_mark_dedup`` ONLY after a successful send, so a
+        failed / rate-limited attempt never burns the dedup window and drops the retry
+        (audit #43)."""
         if window <= 0:
             return False
         key = self._dedup_key(channel_id, case, trigger, window)
         if self._cache is not None:
             try:
-                seen = await self._cache.get(key)
-                if seen:
-                    return True
-                await self._cache.set(key, "1", window)
-                return False
+                return bool(await self._cache.get(key))
             except Exception:  # noqa: BLE001 — never let cache errors block a send decision
                 pass
         # in-memory fallback
-        now = time.time()
         exp = self._dedup_mem.get(key)
-        if exp and exp > now:
-            return True
-        self._dedup_mem[key] = now + window
-        return False
+        return bool(exp and exp > time.time())
+
+    async def _mark_dedup(self, channel_id: str, case: Any, trigger: str, window: int) -> None:
+        """Record the dedup key AFTER a successful send (audit #43). Best-effort."""
+        if window <= 0:
+            return
+        key = self._dedup_key(channel_id, case, trigger, window)
+        if self._cache is not None:
+            try:
+                await self._cache.set(key, "1", window)
+                return
+            except Exception:  # noqa: BLE001
+                pass
+        self._dedup_mem[key] = time.time() + window
 
     async def _rate_limited(self, channel_id: str, per_hour: int) -> bool:
         if per_hour <= 0:
@@ -553,6 +562,10 @@ class NotificationService:
                                          "detail": "rate limit exceeded"})
                             continue
                     rec = await self._send_one(ch, event)
+                    # Consume the dedup window ONLY on a confirmed send, so a failed /
+                    # rate-limited attempt leaves the window open for a retry (audit #43).
+                    if check_triggers and rec.get("ok"):
+                        await self._mark_dedup(ch.id, case, trigger, cfg.dedup_window_seconds)
                 except Exception as exc:  # noqa: BLE001 — one channel can't break the rest
                     rec = {"channel_id": ch.id, "type": ch.type, "ok": False,
                            "detail": f"dispatch error: {type(exc).__name__}"}
