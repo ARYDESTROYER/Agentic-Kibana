@@ -364,11 +364,17 @@ def _parse_openai_result(row: dict[str, Any], model: str) -> BatchResult:
     usage = body.get("usage", {}) or {}
     details = usage.get("prompt_tokens_details") or {}
     cached = int(details.get("cached_tokens", 0) or 0) if isinstance(details, dict) else 0
+    # OpenAI's usage.prompt_tokens INCLUDES the cached slice; cost_for bills
+    # cache_read_tokens as an ADDITIVE 0.1x term. So — exactly like the SYNC provider
+    # path — pass the UNCACHED remainder as full-rate input and cached separately, or the
+    # cached tokens are billed twice (1x in prompt_tokens + 0.1x) (audit #19).
+    prompt_tokens = int(usage.get("prompt_tokens", _estimate_tokens(text)) or 0)
+    uncached = max(prompt_tokens - cached, 0)
     return BatchResult(
         custom_id=cid,
         result_type="succeeded",
         text=text,
-        prompt_tokens=int(usage.get("prompt_tokens", _estimate_tokens(text)) or 0),
+        prompt_tokens=uncached,
         completion_tokens=int(usage.get("completion_tokens", _estimate_tokens(text)) or 0),
         cache_read_tokens=cached,
         model=str(body.get("model") or model),

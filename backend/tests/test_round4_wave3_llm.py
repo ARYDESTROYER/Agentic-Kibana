@@ -458,6 +458,22 @@ class _OpenAIBatchClient:
         return None
 
 
+def test_openai_batch_result_subtracts_cached_from_prompt_tokens():
+    # audit #19: OpenAI's usage.prompt_tokens INCLUDES the cached slice; cost_for bills
+    # cache_read_tokens additively, so the batch parser must pass the UNCACHED remainder
+    # (mirroring the sync path) or the cached tokens are billed twice.
+    from app.llm.batch import _parse_openai_result
+
+    row = {"custom_id": "c1", "response": {"status_code": 200, "body": {
+        "model": "gpt-4o", "choices": [{"message": {"content": "hi"}}],
+        "usage": {"prompt_tokens": 1000, "completion_tokens": 10,
+                  "prompt_tokens_details": {"cached_tokens": 800}}}}}
+    res = _parse_openai_result(row, "gpt-4o")
+    assert res.prompt_tokens == 200  # 1000 - 800 cached
+    assert res.cache_read_tokens == 800
+    assert res.completion_tokens == 10
+
+
 async def test_openai_batch_submit_poll_results():
     provider = OpenAIBatchProvider(api_key="sk-oai", client=_OpenAIBatchClient())
     requests = [

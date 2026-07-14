@@ -2031,3 +2031,10 @@
 - Tests: Runtime and HTTP verification in progress.
 - Status: in-progress.
 - Next: Verify backend health, UI delivery, and process identity, then open the local UI in the default browser.
+
+### 2026-07-14 10:18Z — OpenCode — Current checkout deployed locally
+- Context: Complete the requested local browser deployment without disrupting another checkout already using the default ports.
+- Did: Launched this workspace with `scripts/run-demo.sh` on backend `127.0.0.1:8089` and web UI `127.0.0.1:5174`; completed OOBE, enabled the isolated live four-source `$0` Demo Mode, authenticated as the seeded local admin, and opened the UI in the default browser. Runtime logs are at `/var/folders/tv/24gycdyn7430fbwhz1dmj4mm0000gn/T/opencode/agentic-kibana-demo.log`.
+- Tests: `bash -n scripts/run-demo.sh` passed; `/api/health` and `/api/health/live` returned HTTP 200 with version `3.0.0-alpha.1`; the Vite root returned HTTP 200; authenticated `/api/demo/status` confirmed `active=true`, `mode=live`, simulator ticking, and all four demo sources healthy/streaming.
+- Status: done.
+- Next: Use `http://127.0.0.1:5174` with `Admin` / `Admin@123`; this in-memory demo is non-persistent and loopback-only.
