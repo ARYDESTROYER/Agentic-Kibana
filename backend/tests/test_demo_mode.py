@@ -1090,3 +1090,20 @@ def test_no_new_real_store_writers_in_demo_runtime() -> None:
     src = inspect.getsource(demo_runtime)
     for marker in ("_real_pipeline", "_real_cases", "_real_audit"):
         assert marker not in src, f"demo_runtime must not reference {marker} ($0/isolation break)"
+
+
+def test_demo_mock_provider_calls_ring_is_bounded():
+    # audit #47: the long-lived demo provider must not retain every LLM call forever.
+    import asyncio
+
+    from app.llm.providers import DemoMockProvider
+
+    prov = DemoMockProvider()
+    assert prov.calls.maxlen == 200
+
+    async def drive():
+        for i in range(1000):
+            await prov.complete("chat", [{"role": "user", "content": f"m{i}"}], "demo", 0.0, 100)
+
+    asyncio.new_event_loop().run_until_complete(drive())
+    assert len(prov.calls) == 200, "demo provider call ring must be bounded"

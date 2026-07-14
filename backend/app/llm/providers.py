@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import random
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -368,6 +369,14 @@ class DemoMockProvider(MockProvider):
     It inspects the role + the prompt text (which carries the fenced synthetic event
     summaries) to resolve the scenario by the distinctive synthetic rule names —
     no RNG, no clock — so a run is byte-reproducible."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        # The demo runtime is LONG-LIVED, so recording every call's full messages in an
+        # unbounded list would leak memory for the life of the demo session (audit #47).
+        # Bound the ring to the most-recent N (still enough for any demo introspection).
+        # The base MockProvider keeps a plain list for short-lived unit tests.
+        self.calls = deque(maxlen=200)  # type: ignore[assignment]
 
     async def complete(self, role, messages, model, temperature, max_tokens) -> CompletionResult:
         self.calls.append({"role": role, "messages": messages, "model": model})
