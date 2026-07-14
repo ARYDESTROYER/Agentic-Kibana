@@ -20,12 +20,14 @@ proposal glitch can never drop an alert or break the analyst's close action.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from typing import Any, Callable
 
 from ..constants import PROPOSALS_KEY, PROPOSALS_NS
 from ..models import Proposal
 from ..utils import iso_now
-from .base import KVStore
+from .base import KVStore, kv_mutate
 
 logger = logging.getLogger("tlsoc.stores.proposals")
 
@@ -38,6 +40,31 @@ class ProposalStore:
 
     def __init__(self, kv: KVStore) -> None:
         self._kv = kv
+        # Per-store lock so kv_mutate serialises concurrent read-modify-write over the
+        # single proposal doc + a _rev CAS covers the multi-process race — so a concurrent
+        # add and set_status can't drop an in-flight proposal or revert an approved one to
+        # pending (audit #26).
+        self._lock = asyncio.Lock()
+
+    async def _mutate(self, apply: Callable[[list[Proposal]], Any]) -> Any:
+        """Run ``apply(entries)`` under kv_mutate (per-store lock + _rev CAS). ``apply``
+        mutates the fresh list in place and returns an auxiliary result; the persisted
+        attempt's result is returned. Never raises."""
+        box: dict[str, Any] = {}
+
+        def mutator(current: dict[str, Any] | None) -> dict[str, Any]:
+            raw = current.get("entries", []) if isinstance(current, dict) else []
+            entries: list[Proposal] = []
+            for item in (raw or []):
+                try:
+                    entries.append(Proposal.model_validate(item))
+                except Exception:  # noqa: BLE001 — skip a corrupt entry, keep the rest
+                    continue
+            box["result"] = apply(entries)
+            return {"entries": [p.model_dump(mode="json") for p in entries]}
+
+        await kv_mutate(self._kv, PROPOSALS_NS, PROPOSALS_KEY, mutator, lock=self._lock)
+        return box.get("result")
 
     async def _load(self) -> list[Proposal]:
         try:
@@ -56,14 +83,8 @@ class ProposalStore:
                 continue
         return out
 
-    async def _save(self, entries: list[Proposal]) -> None:
-        try:
-            await self._kv.put(
-                PROPOSALS_NS, PROPOSALS_KEY,
-                {"entries": [p.model_dump(mode="json") for p in entries]},
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Persisting proposals failed (%s); continuing", exc)
+    # No plain _save — every mutation goes through _mutate (kv_mutate: lock + _rev CAS)
+    # so a write can't clobber a concurrent one (audit #26).
 
     async def list(self, status: str | None = None) -> list[Proposal]:
         entries = await self._load()
@@ -79,27 +100,28 @@ class ProposalStore:
         return None
 
     async def add(self, proposal: Proposal) -> Proposal:
-        entries = await self._load()
-        entries.append(proposal)
-        await self._save(entries)
+        def apply(entries: list[Proposal]) -> Proposal:
+            entries.append(proposal)
+            return proposal
+
+        await self._mutate(apply)
         return proposal
 
     async def set_status(self, proposal_id: str, status: str, by: str) -> Proposal | None:
         """Transition a proposal's status (approve/reject) + record who decided it.
 
         Returns the updated proposal, or ``None`` if the id is unknown."""
-        entries = await self._load()
-        updated: Proposal | None = None
-        for idx, p in enumerate(entries):
-            if p.id != proposal_id:
-                continue
-            updated = p.model_copy(update={
-                "status": status,
-                "decided_by": (by or "").strip() or None,
-                "decided_at": iso_now(),
-            })
-            entries[idx] = updated
-            break
-        if updated is not None:
-            await self._save(entries)
-        return updated
+        def apply(entries: list[Proposal]) -> Proposal | None:
+            for idx, p in enumerate(entries):
+                if p.id != proposal_id:
+                    continue
+                updated = p.model_copy(update={
+                    "status": status,
+                    "decided_by": (by or "").strip() or None,
+                    "decided_at": iso_now(),
+                })
+                entries[idx] = updated
+                return updated
+            return None
+
+        return await self._mutate(apply)

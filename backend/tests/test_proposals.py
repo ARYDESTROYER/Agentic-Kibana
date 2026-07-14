@@ -104,6 +104,27 @@ async def test_proposal_store_durable_across_instances(app_state: AppState) -> N
     assert p.id in ids
 
 
+async def test_concurrent_add_and_set_status_are_not_lost(app_state: AppState) -> None:
+    # audit #26: a concurrent add + set_status must not drop the in-flight proposal nor
+    # revert an approved one. Every mutation now routes through kv_mutate (lock + _rev).
+    import asyncio
+
+    store: ProposalStore = app_state.proposals
+    seeded = [Proposal(kind="memory", payload={"i": i}, created_by="agent") for i in range(8)]
+    for p in seeded:
+        await store.add(p)
+    late = Proposal(kind="memory", payload={"late": True}, created_by="agent")
+    # Concurrently: add a new proposal while approving the 8 existing ones.
+    await asyncio.gather(
+        store.add(late),
+        *[store.set_status(p.id, "approved", by="admin") for p in seeded],
+    )
+    everything = {p.id: p for p in await store.list()}
+    assert late.id in everything, "the concurrent add was dropped"
+    for p in seeded:
+        assert everything[p.id].status == "approved", "an approval was clobbered"
+
+
 # --------------------------------------------------------------------------- #
 # draft_suppression_proposal — sound proposals + anti-poisoning denials
 # --------------------------------------------------------------------------- #
