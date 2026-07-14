@@ -118,6 +118,25 @@ def test_single_unrelated_case_is_not_a_campaign():
     assert build_campaigns(cases, _prefs()) == []
 
 
+def test_shared_mitre_does_not_merge_two_distinct_entity_campaigns():
+    # audit #22: two SEPARATE entity groups (each sharing its own IP) that happen to
+    # share a common MITRE technique must NOT collapse into one giant campaign. MITRE is
+    # an advisory rollup, never a graph edge.
+    common = ["T1078"]  # a technique present across both groups
+    cases = [
+        _mk_case("a1", ip="203.0.113.1", mitre=common),
+        _mk_case("a2", ip="203.0.113.1", mitre=common),
+        _mk_case("b1", ip="198.51.100.2", mitre=common),
+        _mk_case("b2", ip="198.51.100.2", mitre=common),
+    ]
+    result = build_campaigns(cases, _prefs())
+    assert len(result) == 2, "shared MITRE must not merge distinct entity campaigns"
+    members = sorted(sorted(c.case_ids) for c in result)
+    assert members == [["a1", "a2"], ["b1", "b2"]]
+    # The technique is still rolled up onto each campaign (advisory overlay).
+    assert all("T1078" in c.mitre for c in result)
+
+
 def test_mitre_only_component_without_shared_entity_is_not_a_campaign():
     # Two cases with DISTINCT IPs (different time bucket-safe) but a shared MITRE
     # technique: connected by MITRE, but no shared ENTITY → NOT a campaign.

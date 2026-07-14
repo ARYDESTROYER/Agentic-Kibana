@@ -84,6 +84,9 @@ _PAGE_SIZE = 500
 # Hard ceiling on cases scanned per pass, so a pathological tenant can't unbound the
 # in-memory graph. Bounded + deterministic (newest-first read).
 _MAX_CASES = 20_000
+# Hard ceiling on the size of a promoted campaign component (audit #22). A larger
+# component is almost certainly a hub-entity artifact, not one real campaign.
+_MAX_CAMPAIGN_CASES = 200
 
 
 def _entity_window_seconds(prefs: Preferences) -> int:
@@ -304,22 +307,26 @@ def build_campaigns(cases: list[Case], prefs: Preferences) -> list[Campaign]:
         for other in ids[1:]:
             dsu.union(anchor, other)
 
-    # MITRE edges: cases sharing a technique.
-    mitre_to_cases: dict[str, list[str]] = defaultdict(list)
-    for cid, case in by_id.items():
-        for tech in _case_mitre(case):
-            mitre_to_cases[tech].append(cid)
-    for ids in mitre_to_cases.values():
-        if len(ids) < 2:
-            continue
-        anchor = ids[0]
-        for other in ids[1:]:
-            dsu.union(anchor, other)
+    # MITRE is an ADVISORY OVERLAY only — NOT a graph edge (audit #22). A single common
+    # technique (e.g. T1078 Valid Accounts, present in a large fraction of cases) would
+    # otherwise union hundreds of unrelated cases into one giant "campaign". The spec
+    # defines a campaign by SHARED ENTITY (see the >= 1-shared-entity guard below), and
+    # a component tied together only by MITRE has no shared entity, so MITRE edges could
+    # only ever over-cluster. Techniques are still rolled up onto the campaign below.
 
     campaigns: list[Campaign] = []
     for _root, member_ids in dsu.groups().items():
         if len(member_ids) < 2:
             continue  # a single-case component is NOT a campaign
+        if len(member_ids) > _MAX_CAMPAIGN_CASES:
+            # A component this large is almost certainly a hub-entity artifact (a shared
+            # gateway IP / service account in thousands of cases), not one real campaign.
+            # Skip promoting it rather than emit a misleading mega-campaign.
+            logger.warning(
+                "campaign component of %d cases exceeds cap %d; skipping (hub-entity "
+                "artifact) — root=%s", len(member_ids), _MAX_CAMPAIGN_CASES, _root,
+            )
+            continue
         members = [by_id[m] for m in member_ids if m in by_id]
         shared_entities = _rollup_entities(members, window_seconds)
         if not shared_entities:
