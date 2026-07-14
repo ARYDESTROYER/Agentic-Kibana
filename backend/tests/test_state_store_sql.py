@@ -282,6 +282,23 @@ async def test_usage_summary_window_excludes_old(engine) -> None:
     assert round(s["total_cost"], 2) == 1.0
 
 
+async def test_usage_summary_window_boundary_precision(engine) -> None:
+    # audit #10: the window bound is now pushed into SQL (ts >= iso_from) instead of
+    # loading the whole ledger. Verify the boundary is still exact: a row just INSIDE
+    # the 24h window is counted, one just OUTSIDE is not.
+    from datetime import timedelta
+
+    usage = SqlUsageRepository(engine)
+    now = now_utc()
+    inside = (now - timedelta(hours=23)).isoformat()
+    outside = (now - timedelta(hours=25)).isoformat()
+    await usage.write(UsageDoc(ts=inside, role="router", model="m", cost=2.0, total_tokens=2))
+    await usage.write(UsageDoc(ts=outside, role="router", model="m", cost=7.0, total_tokens=7))
+    s = await usage.summary(window_hours=24)
+    assert s["call_count"] == 1
+    assert round(s["total_cost"], 2) == 2.0
+
+
 async def test_usage_summary_empty(engine) -> None:
     usage = SqlUsageRepository(engine)
     s = await usage.summary(window_hours=12)

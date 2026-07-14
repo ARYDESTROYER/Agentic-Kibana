@@ -348,7 +348,16 @@ class SqlUsageRepository(UsageRepository):
         from_millis = to_millis(now) - window_hours * 3600 * 1000
         today_start_millis = to_millis(now.replace(hour=0, minute=0, second=0, microsecond=0))
 
-        stmt = select(UsageRow).order_by(UsageRow.ts.asc())
+        # Push the window lower bound into SQL on the indexed ISO ``ts`` column (mirrors
+        # AuditRow above), so the budget-gate hot path scans ~the window instead of the
+        # ENTIRE usage ledger (audit #10). Use a small buffer BEFORE from_millis so an ISO
+        # format edge case can never exclude a boundary row; the exact millis filter in the
+        # Python loop below still trims to [from_millis, now], keeping totals byte-identical.
+        from datetime import timezone as _tz
+        from datetime import datetime as _dt
+
+        iso_from = _dt.fromtimestamp(max(0, from_millis - 1000) / 1000.0, tz=_tz.utc).isoformat()
+        stmt = select(UsageRow).where(UsageRow.ts >= iso_from).order_by(UsageRow.ts.asc())
         if case_id:
             stmt = stmt.where(UsageRow.case_id == case_id)
         try:
