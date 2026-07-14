@@ -1473,7 +1473,8 @@ async def get_settings_section(
 # --------------------------------------------------------------------------- #
 @router.post("/chat")
 async def chat(
-    body: ChatRequest, request: Request, state: AppState = Depends(get_state)
+    body: ChatRequest, request: Request, state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
 ) -> dict[str, Any]:
     # Attribute any chat-driven memory add to the authenticated user when auth is on
     # (best-effort; "" when auth is disabled — the default no-auth profile).
@@ -1552,7 +1553,10 @@ def _chat_source_connector(state: AppState, source_id: str | None):
 # Investigate (Surface 2)
 # --------------------------------------------------------------------------- #
 @router.post("/investigate")
-async def investigate(body: InvestigateRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def investigate(
+    body: InvestigateRequest, state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "reinvestigate")),
+) -> dict[str, Any]:
     query_source = state.active_source_for_id(body.source_id)
     if body.source_id and query_source is None:
         raise HTTPException(
@@ -1581,7 +1585,10 @@ class OverviewRequest(BaseModel):
 
 
 @router.post("/overview")
-async def overview(body: OverviewRequest, state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def overview(
+    body: OverviewRequest, state: AppState = Depends(get_state),
+    _=Depends(require_permission("cases", "read")),
+) -> dict[str, Any]:
     if not body.source:
         raise HTTPException(status_code=400, detail="No event source provided")
     return await state.overview_service.overview(

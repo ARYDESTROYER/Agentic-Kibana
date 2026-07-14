@@ -135,12 +135,11 @@ _AUTHZ_EXEMPT_INGEST = frozenset({"/api/ingest/{source_id}"})
 # the meta-test stays green for the current tree while still failing on any NEW
 # ungated state-changer. Tightening these to a grant is tracked as follow-up work;
 # listing them keeps the guard honest in the meantime.
-_AUTHZ_EXEMPT_PENDING = frozenset({
-    # audit #45 (low): these four LLM-billing endpoints remain gated only by the daily
-    # BudgetGate; tightening to a coarse grant is tracked follow-up. /cases/{id}/
-    # investigate + /reinvestigate were removed (audit #11 — now require cases:reinvestigate).
-    "/api/investigate", "/api/overview", "/api/poll", "/api/chat",
-})
+_AUTHZ_EXEMPT_PENDING = frozenset()
+# audit #45: /api/investigate now requires cases:reinvestigate; /api/overview + /api/chat
+# require cases:read; /api/poll was already gated on sources:manage. /cases/{id}/
+# investigate + /reinvestigate require cases:reinvestigate (audit #11). So the
+# pending-exempt bucket is now empty — these are all gated, not merely allowlisted.
 _AUTHZ_EXEMPT = (
     _AUTHZ_EXEMPT_AUTH_FLOW
     | _AUTHZ_EXEMPT_SELF_SERVICE
