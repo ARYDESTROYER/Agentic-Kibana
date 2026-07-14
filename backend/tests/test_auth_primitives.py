@@ -231,6 +231,15 @@ def test_rate_limit_refills_over_time() -> None:
     assert client.get("/").status_code == 200
 
 
+def test_rate_limit_bucket_map_is_lru_bounded() -> None:
+    # audit #39: the per-IP bucket map must not grow without bound.
+    mw = RateLimitMiddleware(app=None, capacity=5, refill_per_second=0.0)
+    mw._max_buckets = 100  # noqa: SLF001 — test-only knob
+    for i in range(1000):
+        mw._allow(f"10.0.{i // 256}.{i % 256}")  # 1000 distinct client keys
+    assert len(mw._buckets) <= 100, "rate-limit bucket map must be LRU-bounded"
+
+
 # --------------------------------------------------------------------------- #
 # 6. CSRFMiddleware
 # --------------------------------------------------------------------------- #

@@ -15,10 +15,17 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+# Hard LRU cap on the per-IP bucket map (audit #39): without it the dict grew one entry
+# per distinct client IP forever (a memory leak, worst-case a spoofed-source DoS). Past
+# this, the least-recently-seen bucket is evicted — dropping an idle bucket just resets
+# that client to a full allowance, which is harmless.
+_MAX_BUCKETS = 50_000
 
 
 class _TokenBucket:
@@ -49,7 +56,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # untrusted client can otherwise spoof it to rotate buckets and bypass the
         # limit (or, with no XFF, collapse all clients onto one proxy IP).
         self._trust_xff = bool(trust_forwarded_for)
-        self._buckets: dict[str, _TokenBucket] = {}
+        self._buckets: OrderedDict[str, _TokenBucket] = OrderedDict()
+        self._max_buckets = _MAX_BUCKETS
         self._lock = threading.Lock()
 
     def _client_ip(self, request: Request) -> str:
@@ -67,6 +75,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if bucket is None:
                 bucket = _TokenBucket(tokens=self._capacity, last=now)
                 self._buckets[key] = bucket
+                # Bound the map: evict the least-recently-seen bucket past the cap.
+                while len(self._buckets) > self._max_buckets:
+                    self._buckets.popitem(last=False)
+            else:
+                self._buckets.move_to_end(key)  # LRU: seeing a key refreshes recency
             elapsed = max(0.0, now - bucket.last)
             bucket.tokens = min(self._capacity, bucket.tokens + elapsed * self._refill)
             bucket.last = now
