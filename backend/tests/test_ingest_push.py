@@ -98,6 +98,22 @@ def test_webhook_ingest_unknown_source_404(client):
     assert client.post("/api/ingest/nope", json=_alerts("1.1.1.1", 1)).status_code == 404
 
 
+def test_ingest_body_size_is_capped(client, monkeypatch):
+    # audit #14: a body over the cap is rejected with 413 BEFORE it is fully buffered
+    # (memory-exhaustion DoS). Shrink the cap so the test stays cheap.
+    from app.api import routes as routes_mod
+
+    _add_webhook(client, "wh-big")
+    monkeypatch.setattr(routes_mod, "_MAX_INGEST_BODY_BYTES", 512)
+    oversize = b"x" * 2000
+    r = client.post("/api/ingest/wh-big", content=oversize,
+                    headers={"Content-Type": "application/json"})
+    assert r.status_code == 413, r.text
+    # A within-cap body still flows normally (unknown-format → best-effort, not 413).
+    small = client.post("/api/ingest/wh-big", json=_alerts("9.9.9.9", 1))
+    assert small.status_code in (200, 503)
+
+
 def test_webhook_bearer_auth_enforced(client):
     _add_webhook(client, "wh2", config={"auth_mode": "bearer"})
     # secret token goes to the secret tier (not persisted config)

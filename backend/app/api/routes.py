@@ -660,6 +660,34 @@ async def analyze_source_sample(
     return analyze_sample(body.sample)
 
 
+# Hard cap on a single pushed ingest body. Generous for a batched SIEM/EDR delivery,
+# but bounded so an (unauthenticated — the receiver auths AFTER parsing) caller cannot
+# exhaust memory with one giant/chunked POST (audit #14).
+_MAX_INGEST_BODY_BYTES = 25 * 1024 * 1024  # 25 MiB
+
+
+async def _read_capped_body(request: Request) -> bytes:
+    """Buffer the request body with a hard byte cap, rejecting oversize with 413.
+
+    Checks a declared Content-Length first (fast reject), then streams with a running
+    cap so a lying/absent length (chunked transfer) cannot bypass the bound."""
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_INGEST_BODY_BYTES:
+                raise HTTPException(status_code=413, detail="request body too large")
+        except ValueError:
+            pass  # malformed header → rely on the streamed cap below
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > _MAX_INGEST_BODY_BYTES:
+            raise HTTPException(status_code=413, detail="request body too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 @router.post("/ingest/{source_id}")
 async def ingest_push(
     source_id: str, request: Request, state: AppState = Depends(get_state)
@@ -680,7 +708,7 @@ async def ingest_push(
     receiver = cls(config={**src.config, **state.secrets.source_secrets(source_id)}, connector_id=src.id)
     if not hasattr(receiver, "handle_request"):
         raise HTTPException(status_code=400, detail="Source is not an HTTP push receiver")
-    body = await request.body()
+    body = await _read_capped_body(request)
     headers = {k: v for k, v in request.headers.items()}
     try:
         events = receiver.handle_request(body, headers, state.prefs)
