@@ -474,15 +474,18 @@ advisory only and never feeds the deterministic close/escalate decision.
 
 ## Status & verification
 
-Verified offline (2026-07-11): **1887 backend tests green** (fake/in-memory backends +
-mock LLM, no network — an autouse `conftest` network guard keeps the enrichment tests
-offline); the standalone **web UI builds clean** (`tsc` + Vite, entry chunk **285.91 kB**
-— a lazy `motion` chunk of **83.85 kB** sits off the critical path, never modulepreloaded)
-with a dev-only Vitest harness (**1349 tests** / 240 files); eslint clean (**0 errors,
-0 warnings**, with 20 `jsx-a11y` rules at error). Generated API contracts, all five
-design gates, the distribution smoke tests, version/Compose contracts, and strict public
-docs build are also green. (Test counts rise each round — see
-`Journal.md` for the exact current totals.)
+Verified offline (backend re-verified 2026-07-15 after a backend deep-audit hardening
+pass — **47 findings fixed**, one atomic commit each): **1942 backend tests green** (0
+failures; fake/in-memory backends + mock LLM, no network — an autouse `conftest` network
+guard keeps the enrichment tests offline); the standalone **web UI builds clean** (`tsc` +
+Vite, entry chunk **285.91 kB** — a lazy `motion` chunk of **83.85 kB** sits off the
+critical path, never modulepreloaded) with a dev-only Vitest harness (**1349 tests** / 240
+files, unchanged — the audit pass touched no webui code); eslint clean (**0 errors, 0
+warnings**, with 20 `jsx-a11y` rules at error). Generated API contracts, all five design
+gates, the distribution smoke tests, version/Compose contracts, and strict public docs
+build are also green. The deterministic close/escalate authority (`decide()`) was verified
+clean by the audit and is untouched. (Test counts rise each round — see `Journal.md` and
+`CHANGELOG.md` for the exact current totals and the audit-fix list.)
 
 **Round 10** (2026-07-09, current — "Autopilot & Comprehensive Ingestion + motion.dev": a
 **behavior change** that flips the suite from "reads what you tell it to" to "reads +

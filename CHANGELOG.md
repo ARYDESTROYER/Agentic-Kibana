@@ -10,6 +10,66 @@ to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additi
 targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
 History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-15 — Backend deep-audit hardening
+
+A multi-agent deep audit of the backend (24 subsystem auditors over ~200 files /
+63k LOC, every finding adversarially re-verified against the source) produced **47
+verified findings** (0 critical, 10 high, 24 medium, 13 low). All 47 were fixed, each
+as its own focused commit with a regression test, on `Testing` (local, not tagged or
+pushed). Non-negotiable **#3** was verified clean — `engine/case_manager.py::decide()`
+is untouched and no LLM/playbook path can drive close/escalate.
+
+### Security
+
+- The `#9` untrusted-fence seam no longer lets an attacker-set `source=`/`tool=`
+  provenance label (e.g. a RAG document's `source`) escape the fence — prompt-injection
+  (OWASP LLM01) closed; RAG import sanitises the source at write time.
+- Authorization added to state-changing / LLM-billing routes that were authN-only:
+  `POST /setup/secrets` + `/setup/complete` (settings:manage), `/cases/{id}/investigate`
+  + `/reinvestigate` and `/api/investigate` (cases:reinvestigate), `/api/overview` +
+  `/api/chat` (cases:read); case-thread edit/delete is now author-or-moderator scoped.
+- OIDC/SSO: the `state` token is bound to the initiating browser (HttpOnly cookie),
+  account linking requires a **verified** email and never links onto a local-credential
+  account by email alone (SSO takeover / login-CSRF fixed).
+- Enrichment providers no longer leak an API key (Shodan/Pulsedive `?key=`) into error
+  messages / logs / the UI. JWT decode raises `TokenError` (not a 500) on non-ASCII
+  segments. `POST /api/ingest/{source}` caps the request body (413) before buffering.
+
+### Fixed
+
+- **Concurrency:** SessionStore / UserStore / ProposalStore route every mutation through
+  the CAS `kv_mutate` (per-store lock + `_rev`), and `KVStore.put_if` gains a real atomic
+  compare-and-set in the SQL backend (`SELECT … FOR UPDATE`) — lost updates (incl. a
+  silently-dropped session revocation) closed. `notify()` merges `notifications_sent`
+  onto the fresh case; the notification dedup key is recorded only after a successful send.
+- **Ingestion durability:** object-store & Kinesis receiver cursors persist via
+  `CursorStore`; the non-PIT offset drain caps at `max_result_window` (no more permanent
+  stall); the poller only handles clusters with a new event this tick (no duplicate
+  cases); the cross-source drain sums per-source unused headroom (no starvation) and
+  scans only OPEN cases; MQTT acks only after a confirmed ingest; syslog-UDP ingest
+  errors are surfaced.
+- **Correctness / cost:** MTTA/SLA count only human acknowledgments (not autopilot
+  system escalations); stringified-epoch and uppercase-`Z` timestamps parse to the right
+  instant; ModSec sub-rules match the real `rule.id`; the OpenAI batch parser subtracts
+  cached tokens (no double-billing); `score_to_severity_id` is scale-aware; campaigns
+  treat MITRE as an advisory overlay (no over-clustering); the tuner guards
+  `severity_floor` per window and records the ledger/audit only after a confirmed write;
+  the investigator and per-event overview receive full evidence (`fence_block`, no
+  600-char truncation).
+- **Resource bounds / observability:** the SSE history topics, in-memory cache fallback,
+  rate-limit bucket map, per-signature lock registry, and demo mock-provider call ring
+  are all bounded; SSE no longer duplicates frames on reconnect or leaves zombie
+  connections after eviction; `SqlUsageRepository.summary` window-bounds in SQL (off the
+  budget-gate hot path); the SQL audit scan pages so JSON-only filters don't under-return;
+  `ES count()` surfaces live faults instead of masking them as `0`.
+
+### Release status
+
+- Local gates green (2026-07-14/15): **1942 backend `pytest`** passed (0 failures; +55
+  regression tests over the 1887 baseline), **1349 web `vitest` / 240 files**, `npm run
+  build` clean, `npm run lint` 0 errors. Working tree clean; **no co-author trailer** on
+  any of the 48 commits; **not pushed**.
+
 ## [3.0.0-alpha.1] — 2026-07-11 — Bleeding Edge hardening candidate
 
 This prerelease foundation is implemented but **not yet tagged or published**.

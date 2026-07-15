@@ -396,9 +396,9 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1887 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — currently 1942 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1887 passed (rises each round; see Journal)
+python -m pytest -q                         # -> 1942 passed (rises each round; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
@@ -450,7 +450,7 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1887) + `npm run build` clean
+- **Tests:** add/keep offline tests; `pytest -q` green (1942) + `npm run build` clean
   + `vitest run` (1349 / 240 files) + `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
@@ -469,10 +469,14 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
 
 ## 10. Current status & roadmap
 
-**Round 10 is the newest completed round — a behavior change, not just a UI/UX
-pass.** It is committed on `Testing` (including `9010443`). The current work prepares
-the separately versioned `3.0.0-alpha.1` hardening candidate on top; it is not tagged
-or pushed. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+**Round 10 is the newest feature round — a behavior change, not just a UI/UX
+pass.** It is committed on `Testing` (including `9010443`). On top of it, a **backend
+deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10
+high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
+commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
+See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
+entry. The separately versioned `3.0.0-alpha.1` candidate is prepared on top; it is not
+tagged or pushed. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -480,8 +484,10 @@ Round 9b via PR #26. Round 10 ("Autopilot & Comprehensive Ingestion + motion.dev
 flips the suite from "opt-in automation" to **comprehensive ingestion + smart-
 autopilot defaults ON out of the box** — see the Round-10 bullet below.
 
-**Current `3.0.0-alpha.1` candidate baseline (verified 2026-07-11):** backend **1887 pytest** passed; webui
-**1349 Vitest** specs / 240 files, build clean (`tsc --noEmit && vite build`), entry
+**Current baseline (backend re-verified 2026-07-15 after the deep-audit hardening pass):**
+backend **1942 pytest** passed (0 failures; +55 regression tests over the prior 1887
+baseline); webui **1349 Vitest** specs / 240 files (unchanged — the audit pass touched no
+webui code), build clean (`tsc --noEmit && vite build`), entry
 chunk **285.91 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
 modulepreloaded); eslint **0 errors, 0 warnings**; **zero new webui runtime
 deps except the deliberate lazy `motion`** (12.42.2). The alpha adds only the
@@ -613,6 +619,17 @@ a retelling — do not re-derive round detail from here.
   Built research(vendor+standards) → code (5 batches) → adversarial verify (5 major +
   6 minor found) → fix (all) → re-verify. No research folder (efficiency-first) — see
   `Journal.md`'s Round-10 entry.
+- **Deep-audit hardening** (`c5516e5`→`abd0385`, 2026-07-14/15, on `Testing`, local/not
+  pushed) — a 24-subsystem-auditor Workflow over the whole backend (~200 files) with
+  every finding adversarially re-verified → **47 fixes, one atomic commit each** (no
+  co-author). Clusters: `#9` fence provenance-label injection; authZ on setup-secrets /
+  investigate / overview / chat / case-thread edit-delete; OIDC browser-bound state +
+  verified-email linking; KV lost-update CAS (`kv_mutate` + real `put_if`); durable
+  object-store/Kinesis cursors; non-PIT pagination cap; poller no-duplicate-closed-cluster
+  + drain fairness; MTTA human-ack-only; timestamp/ModSec/severity-scale/batch-cache
+  correctness; SSE + cache + rate-limit + lock-registry bounds. **#3 verified clean —
+  `decide()` untouched.** Green: 1942 pytest / webui 1349 Vitest unchanged. See the
+  2026-07-15 `Journal.md` entry + the `CHANGELOG.md` `[Unreleased]` section.
 
 **Auth is DEFAULT OFF** (`Secrets.auth_enabled`) so the no-auth profile and the
 offline test suite keep working unchanged; `TLSOC_AUTH_ENABLED=true` turns on the

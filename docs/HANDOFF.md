@@ -6,15 +6,20 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-11
-- **Status:** Round 10 is committed. The current work prepares `3.0.0-alpha.1` as an
-  honest Bleeding Edge candidate; it is not tagged or pushed. `main` + `next` are the
-  recommended permanent release branches; see `docs/releases/channels.md`.
-- **Verification:** the integrated candidate is green at **1887 backend tests** and
-  **1349 web tests across 240 files**, with generated API contracts, production build,
-  lint/design gates, packaging, version, Compose, and strict docs checks passing. Read
-  the latest `Journal.md` entry for command-level evidence. The deterministic `decide()`
-  authority and the 12 non-negotiables remain mandatory.
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-15
+- **Status:** Round 10 is committed. On top of it, a **backend deep-audit hardening pass
+  (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
+  from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
+  co-author**, on `Testing` (`c5516e5`→`abd0385`), **local only (not tagged or pushed)**.
+  The current work prepares `3.0.0-alpha.1` as an honest Bleeding Edge candidate; `main` +
+  `next` are the recommended permanent release branches; see `docs/releases/channels.md`.
+- **Verification:** green at **1942 backend tests** (0 failures; +55 regression tests over
+  the prior 1887 baseline) and **1349 web tests across 240 files** (unchanged — the audit
+  pass touched no webui code), with production build, lint/design gates, packaging, version,
+  Compose, and strict docs checks passing. Read the latest `Journal.md` entry (2026-07-15)
+  and `CHANGELOG.md` `[Unreleased]` for command-level evidence + the finding list. The
+  deterministic `decide()` authority was verified clean by the audit and remains untouched;
+  the 12 non-negotiables remain mandatory.
 
 ---
 
@@ -42,7 +47,7 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1887 passed (rises each round; see Journal.md)
+python -m pytest -q                         # -> 1942 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint

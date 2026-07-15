@@ -22,13 +22,17 @@ provider; PR #25) and **Round 9b** (dashboard reimagine + case redesign; PR #26)
 three developed on `claude/ui-ux-improvements-7nq5be` (created off `Testing` `1ab98f2`) —
 and **Round 8** (UI cleanup + glitch fixes; PR #24), **Round 7** (Security Command Center
 overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch-hunt, 464
-findings fixed) before them. Verified green (2026-07-11 candidate): backend **1887
-pytest**, webui **1349 Vitest** (240 files), build clean (entry chunk **285.91 kB**, a
-lazy `motion` chunk **83.85 kB**), eslint **0 errors, 0 warnings**, `engine/
-case_manager.py` `decide()` **byte-identical**, and the generated-contract, distribution,
-version, Compose, and strict-docs gates pass. See `CHANGELOG.md` for the full Round 6–10
-narrative and the "Progress" log
-below for the per-round summary (Round 10 first).
+findings fixed) before them. On top of all of them, a **backend deep-audit hardening
+pass** (`c5516e5`→`abd0385`, 2026-07-14/15, local/not pushed) fixed **47 verified findings**
+(0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
+one atomic commit per finding, no co-author, each with a regression test. Verified green
+(backend re-verified 2026-07-15): backend **1942 pytest** (0 failures; +55 regression tests
+over 1887), webui **1349 Vitest** (240 files, unchanged — no webui code touched), build
+clean (entry chunk **285.91 kB**, a lazy `motion` chunk **83.85 kB**), eslint **0 errors,
+0 warnings**, `engine/case_manager.py` `decide()` **byte-identical** (verified clean by the
+audit), and the generated-contract, distribution, version, Compose, and strict-docs gates
+pass. See `CHANGELOG.md` `[Unreleased]` for the audit fixes + the full Round 6–10 narrative,
+and the "Progress" log below for the per-round summary (Round 10 first).
 
 ## Remaining / backlog
 
@@ -122,9 +126,21 @@ where possible, docs + Journal updated, commit + push.
 - ☑ AGENTS.md (with CLAUDE.md forwarder), Journal.md, docs/ENVIRONMENT.md, this ROADMAP.
 
 ## Progress (this cycle, newest first)
+- ☑ **Backend deep-audit hardening — 47 findings fixed** (`c5516e5`→`abd0385`,
+  2026-07-14/15, on `Testing`, **local / not pushed**). A 24-subsystem-auditor Workflow
+  over the whole backend, every finding adversarially re-verified against the source →
+  47 verified (0 crit / 10 high / 24 med / 13 low). All fixed **one atomic commit per
+  finding, no co-author**, each with a regression test. Security (fence `#9` injection,
+  route authZ, OIDC hardening, key-leak), concurrency (KV CAS + real `put_if`), ingestion
+  durability (durable receiver cursors, pagination cap, no duplicate closed clusters,
+  drain fairness), correctness (MTTA human-ack, timestamps, ModSec, batch cache, severity
+  scale, campaigns, tuner), and resource bounds (SSE/cache/rate-limit/lock/demo). **#3
+  verified clean — `decide()` untouched.** Green: **1942 pytest** (0 fail; +55 tests),
+  webui **1349 Vitest / 240 files** unchanged, build + lint clean. See `CHANGELOG.md`
+  `[Unreleased]` + the 2026-07-15 `Journal.md` entry.
 - ☑ **Round 10 — "Autopilot & Comprehensive Ingestion + motion.dev"** (committed on
-  `Testing`; the later alpha hardening candidate verifies **1887 backend tests**
-  green + webui **1349 Vitest** green / 240 files + build clean (entry **285.91 kB**,
+  `Testing`; after the deep-audit hardening pass the candidate verifies **1942 backend
+  tests** green + webui **1349 Vitest** green / 240 files + build clean (entry **285.91 kB**,
   a lazy `motion` chunk **83.85 kB**, never modulepreloaded) + eslint **0 errors**
   (0 warnings); `engine/case_manager.py` `decide()` **byte-identical**;
   `risk.py`/`signatures.py` **untouched**; **zero new runtime deps except the
