@@ -5459,7 +5459,7 @@
     },
     "/api/auth/sso/authorize": {
       "get": {
-        "description": "PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in\nthe KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``\nstore (P13), then returns ``{auth_url}`` for the browser to follow.",
+        "description": "PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in\nthe KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``\nstore (P13), then returns ``{auth_url}`` for the browser to follow.\n\nThe ``state`` token is ALSO bound to the initiating browser via a short-lived\nHttpOnly SameSite cookie (audit #38): the callback requires the cookie to match the\nreturned ``state``, so a stolen/forged authorization response cannot be replayed in a\nvictim's browser (login CSRF / session fixation).",
         "operationId": "sso_authorize_api_auth_sso_authorize_get",
         "parameters": [
           {
