@@ -15,9 +15,11 @@ import { NoiseFunnel, deriveFunnel, ribbonPath } from '../NoiseFunnel';
 import type { NoiseReduction } from '@/lib/types';
 
 /**
- * A well-formed §D payload. The three terminal outcomes partition cases.total (40):
- * auto_cleared(25) + escalated(8) + closed(7). `needs_human` remains in the payload for
- * back-compat but is no longer a rendered spine chip.
+ * A well-formed §D payload. The backend folds needs_human + the true_positive residual
+ * into the terminal `escalated` node, so `escalated`(15) == cases.total(40) −
+ * auto_cleared(25) — i.e. auto_cleared + escalated cover every case (`closed`(7) is an
+ * OVERLAPPING view, not a partition slice). `needs_human`(5) remains in the payload for
+ * back-compat / other consumers but is no longer a rendered spine chip.
  */
 function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
   return {
@@ -55,15 +57,16 @@ function fixture(overrides: Partial<NoiseReduction> = {}): NoiseReduction {
         source: 'cases',
         deterministic: true,
         total: 25,
-        by_severity: { medium: 10, low: 10, info: 5 },
+        by_severity: { high: 7, medium: 12, low: 4, info: 2 },
       },
       {
+        // Folds in needs_human + the true_positive residual → cases(40) − auto_cleared(25).
         key: 'escalated',
         label: 'Escalated',
         source: 'cases',
         deterministic: true,
-        total: 8,
-        by_severity: { critical: 5, high: 3 },
+        total: 15,
+        by_severity: { critical: 8, high: 5, low: 2 },
       },
       {
         key: 'needs_human',
@@ -140,12 +143,34 @@ describe('NoiseFunnel', () => {
     // Its per-severity split is carried through for the hover breakdown.
     expect(derived.rows.find((r) => r.key === 'closed')!.by_severity.high).toBe(4);
 
-    // outcomeSum = auto(25) + escalated(8) + closed(7).
-    expect(derived.outcomeSum).toBe(40);
+    // outcomeSum = auto(25) + escalated(15) + closed(7) — the outcomes OVERLAP (closed is
+    // a subset of the folded escalated), so this sum can exceed cases.total; the fan
+    // normalizes it (see DerivedFunnel.outcomeSum docs).
+    expect(derived.outcomeSum).toBe(47);
 
     // The legacy `needs_human` / `true_positive` keys are no longer rendered spine rows.
     expect(derived.rows.find((r) => r.key === 'needs_human')).toBeUndefined();
     expect(derived.rows.find((r) => r.key === 'true_positive')).toBeUndefined();
+  });
+
+  it('folds needs_human + the residual into escalated so the outcomes account for every case', () => {
+    const data = fixture();
+    const derived = deriveFunnel(data);
+    const total = (key: string) => derived.rows.find((r) => r.key === key)?.total ?? 0;
+    const cases = total('cases');
+    const autoCleared = total('auto_cleared');
+    const escalated = total('escalated');
+
+    // The escalated node carries every non-auto-cleared case (= cases − auto_cleared),
+    // dwarfing the standalone needs_human count still present in the raw payload — i.e.
+    // needs_human + the true_positive residual were folded in.
+    const needsHuman = data.stages.find((s) => s.key === 'needs_human')!.total as number;
+    expect(escalated).toBe(cases - autoCleared);
+    expect(escalated).toBeGreaterThan(needsHuman);
+
+    // Terminal outcomes account for EVERY windowed case: the two disjoint covering nodes
+    // (auto_cleared + escalated) sum to the case total, so no case renders in no node.
+    expect(autoCleared + escalated).toBe(cases);
   });
 
   it('fires onStageClick with the stage key (incl. the new `closed` stage)', () => {
