@@ -434,6 +434,11 @@ export interface paths {
          * @description PUBLIC: build the IdP authorization URL. Stashes a single-use state+nonce in
          *     the KV (ns ``oidc_state``) with a short TTL via the public ``state.oidc_state``
          *     store (P13), then returns ``{auth_url}`` for the browser to follow.
+         *
+         *     The ``state`` token is ALSO bound to the initiating browser via a short-lived
+         *     HttpOnly SameSite cookie (audit #38): the callback requires the cookie to match the
+         *     returned ``state``, so a stolen/forged authorization response cannot be replayed in a
+         *     victim's browser (login CSRF / session fixation).
          */
         get: operations["sso_authorize_api_auth_sso_authorize_get"];
         put?: never;
