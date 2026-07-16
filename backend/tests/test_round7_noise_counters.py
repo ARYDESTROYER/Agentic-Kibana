@@ -254,24 +254,55 @@ def test_build_noise_reduction_contract_shape() -> None:
     assert rep["drops"] == {"suppressed": 12, "ignored": 4}
 
 
-def test_build_noise_reduction_mece_sums_to_cases_total() -> None:
+def test_build_noise_reduction_outcomes_account_for_every_case() -> None:
+    # The funnel's terminal "Escalated" node folds in the needs_human bucket (2) + the
+    # escalated bucket (1) + the true_positive residual (1) → 4 == cases(5) −
+    # auto_cleared(1). Otherwise the needs_human + residual cases would render in NO
+    # terminal node the UI draws (auto_cleared / escalated / closed) and the visible
+    # outcomes would fail to account for every windowed case.
     rep = EN.build_noise_reduction(
         _mece_cases(), _COUNTERS_AVAILABLE, window_hours=0, store_total=5,
         fetched_count=5, generated_at="g", now=NOW,
     )
     stage = {s["key"]: s["total"] for s in rep["stages"]}
     assert stage["cases"] == 5
+    # The STANDALONE needs_human / auto_cleared stages are intact (kept for other consumers).
     assert stage["needs_human"] == 2
-    assert stage["escalated"] == 1
     assert stage["auto_cleared"] == 1
-    residual_tp = stage["cases"] - stage["needs_human"] - stage["escalated"] - stage["auto_cleared"]
-    assert residual_tp == 1  # the client-derived true_positive bar
+    # The escalated stage now carries every non-auto-cleared case (= cases − auto_cleared),
+    # i.e. it folds the needs_human count + the true_positive residual in.
+    assert stage["escalated"] == 4
+    assert stage["escalated"] == stage["cases"] - stage["auto_cleared"]
+    # Terminal outcomes account for EVERY windowed case: each case is either auto-cleared
+    # by the AI or escalated for a human (the two disjoint covering terminal nodes).
+    assert stage["auto_cleared"] + stage["escalated"] == stage["cases"]
     # ingested/clustered from the durable counters.
     assert stage["ingested"] == 210 and stage["clustered"] == 11
-    # headline (0-100 percent): overall = (1 - needs_human/ingested)*100;
-    # human = (1 - needs_human/cases)*100.
+    # headline (0-100 percent) is unchanged — it uses needs_human, NOT the folded stage:
+    # overall = (1 - needs_human/ingested)*100; human = (1 - needs_human/cases)*100.
     assert rep["reduction"]["overall_pct"] == round((1 - 2 / 210) * 100, 1)
     assert rep["reduction"]["human_reduction_pct"] == round((1 - 2 / 5) * 100, 1)
+
+
+def test_build_noise_reduction_escalated_includes_a_needs_human_case() -> None:
+    # A lone OPEN case with no verdict is a needs_human (non-terminal, not escalated). It
+    # must appear in the funnel's terminal "Escalated" node — otherwise it renders in NO
+    # terminal outcome (the regression this fix guards). The standalone needs_human stage
+    # still reports it for any other consumer.
+    cases = [_case("nh-open", status=CaseStatus.OPEN, severity_band="critical")]
+    rep = EN.build_noise_reduction(
+        cases, _COUNTERS_AVAILABLE, window_hours=0, store_total=1,
+        fetched_count=1, generated_at="g", now=NOW,
+    )
+    stage = {s["key"]: s for s in rep["stages"]}
+    assert stage["needs_human"]["total"] == 1
+    assert stage["needs_human"]["by_severity"]["critical"] == 1
+    # ...folded into the terminal escalated node the frontend renders (total + band).
+    assert stage["escalated"]["total"] == 1
+    assert stage["escalated"]["by_severity"]["critical"] == 1
+    # No case is auto-cleared → every case is escalated: outcomes account for all cases.
+    assert stage["auto_cleared"]["total"] == 0
+    assert stage["auto_cleared"]["total"] + stage["escalated"]["total"] == stage["cases"]["total"]
 
 
 def test_build_noise_reduction_by_severity_bands() -> None:
@@ -283,6 +314,8 @@ def test_build_noise_reduction_by_severity_bands() -> None:
     # every _case defaults severity_band='high' → the 5 cases all land in the high band.
     assert by["cases"]["high"] == 5
     assert by["needs_human"]["high"] == 2
+    # The escalated bands fold in needs_human + the residual: 4 == cases(5) − auto_cleared(1).
+    assert by["escalated"]["high"] == 4
     assert by["ingested"] == _COUNTERS_AVAILABLE["ingested"]
 
 

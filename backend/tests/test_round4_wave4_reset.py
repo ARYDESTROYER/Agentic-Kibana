@@ -178,6 +178,36 @@ async def test_cases_tier_clears_only_cases_scope():
 
 
 @asyncio
+async def test_cases_reset_clears_noise_reduction_counters_and_baseline():
+    """A cases-scope reset drops the durable Noise-Reduction ingest counters (+ the
+    anomaly baseline) so the funnel stops over-reporting inbound volume from a purged
+    period. Both are advisory (#3-safe) and cleared at the cases tier."""
+    state = await _build_state()
+    try:
+        # Seed the durable per-hour ingest counters + an anomaly-baseline sketch.
+        await state.noise_counters.record(
+            {"ingested": {"critical": 3, "high": 2}, "clustered": {"critical": 1},
+             "suppressed": 1, "ignored": 0}
+        )
+        seeded = await state.noise_counters.read_window(0)
+        assert seeded["available"] is True
+        assert sum(seeded["ingested"].values()) == 5
+        await state.baseline_store._kv.put("baseline", "baseline", {"x": 1})
+
+        await reset_service(state, ResetScope.CASES)
+
+        # The funnel counters are EMPTY after a cases-scope reset — no stale inbound volume.
+        cleared = await state.noise_counters.read_window(0)
+        assert cleared["available"] is False
+        assert sum(cleared["ingested"].values()) == 0
+        assert not await _kv_nonempty(state._kv, "noise_counters", "noise_counters")
+        # ...and the anomaly baseline is cleared too (case-tier KV clear).
+        assert not await _kv_nonempty(state._kv, "baseline", "baseline")
+    finally:
+        await state.shutdown()
+
+
+@asyncio
 async def test_sources_tier_clears_cases_plus_sources_and_cursors():
     state = await _build_state()
     try:

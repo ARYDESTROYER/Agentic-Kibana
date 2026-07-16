@@ -5,9 +5,10 @@ each a strict SUPERSET of the previous (see the tier table in
 ``docs/research/2026-07-round4/PROPOSAL.md`` §6.6):
 
 * ``cases``    — clear the case store + the case-adjacent collaboration/observability
-                 KV stores (campaigns, baseline sketches, inbox, case
-                 thread/activity/tasks, batch jobs) + the in-memory live-tail rings.
-                 KEEP sources, settings, users, RAG, secrets, cost ledger, audit.
+                 KV stores (campaigns, baseline sketches, noise-reduction counters,
+                 inbox, case thread/activity/tasks, batch jobs) + the in-memory
+                 live-tail rings. KEEP sources, settings, users, RAG, secrets, cost
+                 ledger, audit.
 * ``sources``  — the cases tier PLUS ``Preferences.sources[]`` (configured feeds) +
                  the polling cursors. KEEP secrets, users, settings, the ``setup``
                  flag.
@@ -68,6 +69,8 @@ from ..constants import (
     INBOX_NS,
     MEMORY_KEY,
     MEMORY_NS,
+    NOISE_KEY,
+    NOISE_NS,
     PROPOSALS_KEY,
     PROPOSALS_NS,
     ResetScope,
@@ -120,6 +123,7 @@ class ResetHost(Protocol):
 _CASES_KV: tuple[tuple[str, str], ...] = (
     (CAMPAIGNS_NS, CAMPAIGNS_KEY),      # cross-case campaign clustering (references case ids)
     (BASELINE_NS, BASELINE_KEY),        # anomaly-baseline sketches (pure math state)
+    (NOISE_NS, NOISE_KEY),              # durable Noise-Reduction ingest counters (advisory, #3-safe)
     (INBOX_NS, INBOX_KEY),              # per-user in-app notification fan-out
     (CASE_THREAD_NS, CASE_THREAD_KEY),  # per-case threaded discussion
     (CASE_ACTIVITY_NS, CASE_ACTIVITY_KEY),  # per-case activity feed

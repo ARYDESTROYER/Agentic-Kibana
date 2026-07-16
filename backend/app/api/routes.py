@@ -588,6 +588,16 @@ async def delete_source(
     # receiver before returning success.
     state.secrets.connector_secrets.pop(source_id, None)
     await state.reconcile_receivers()
+    # A deleted source's ingest history no longer maps to any live source: drop the
+    # durable Noise-Reduction ingest counters + anomaly-baseline sketches so the funnel
+    # stops over-reporting inbound volume from a source that is gone. Advisory only —
+    # neither feeds case_manager.decide() (#3) nor recomputes a cluster_signature (#4) —
+    # and best-effort, so a counter glitch never fails a delete that already succeeded.
+    try:
+        await state.noise_counters.clear()
+        await state.baseline_store.clear()
+    except Exception:  # noqa: BLE001 — advisory counters; never fail the source delete
+        logger.warning("noise/baseline clear after source delete failed; continuing", exc_info=True)
     return {"ok": True, "sources": [s.model_dump(mode="json") for s in remaining]}
 
 

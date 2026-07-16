@@ -315,6 +315,28 @@ def build_noise_reduction(
             ac_bands[band] = ac_bands.get(band, 0) + 1
         # else → the true_positive residual (cases_total − nh − esc − ac; #D §client-derived)
 
+    # The funnel's terminal "Escalated" node must carry EVERY case the AI did not
+    # auto-clear (i.e. raised for a human): the escalated MECE bucket PLUS the
+    # needs_human bucket PLUS the true_positive residual. The UI (NoiseFunnel.tsx) fans
+    # ``cases`` out into only auto_cleared / escalated / closed, so without this fold the
+    # needs_human + residual cases would render in NO terminal node and the visible
+    # outcomes would fail to account for every windowed case. Equivalently this is
+    # ``cases_total − auto_cleared`` (per band). The STANDALONE ``needs_human`` stage +
+    # the nh-based reduction headline below are left unchanged (kept for other
+    # consumers); only THIS stage folds the otherwise-invisible buckets in. Advisory
+    # only (#3) — nothing here is read by ``decide()``.
+    esc_stage_total = esc + nh + max(0, cases_total - nh - esc - ac)  # == cases_total − ac
+    esc_stage_bands = zero_bands()
+    for band in SEVERITY_BANDS:
+        band_residual = max(
+            0,
+            cases_bands.get(band, 0)
+            - nh_bands.get(band, 0)
+            - esc_bands.get(band, 0)
+            - ac_bands.get(band, 0),
+        )
+        esc_stage_bands[band] = nh_bands.get(band, 0) + esc_bands.get(band, 0) + band_residual
+
     # Counter-derived ingested/clustered bands (null when warming up).
     if available:
         ing_bands = merge_bands(counters.get("ingested"), None)
@@ -338,8 +360,10 @@ def build_noise_reduction(
                total=cases_total, by_severity=cases_bands),
         _stage("auto_cleared", "Auto-cleared by AI", source="cases", deterministic=True,
                total=ac, by_severity=ac_bands),
+        # Folds needs_human + the true_positive residual in (see the esc_stage_* comment
+        # above) so the terminal outcomes account for every windowed case.
         _stage("escalated", "Escalated", source="cases", deterministic=True,
-               total=esc, by_severity=esc_bands),
+               total=esc_stage_total, by_severity=esc_stage_bands),
         _stage("needs_human", "Needs a human", source="cases", deterministic=True,
                total=nh, by_severity=nh_bands),
         # The linear §D flow ends on "closed" (handled by a human) — a case that reached

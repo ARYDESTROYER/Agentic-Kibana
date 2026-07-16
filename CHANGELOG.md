@@ -63,6 +63,21 @@ is untouched and no LLM/playbook path can drive close/escalate.
   budget-gate hot path); the SQL audit scan pages so JSON-only filters don't under-return;
   `ES count()` surfaces live faults instead of masking them as `0`.
 
+### Fixed — Noise-Reduction funnel (2026-07-16, backend-only)
+
+- The durable `NoiseCounterStore` (and the anomaly `BaselineStore`) are now cleared on a
+  **source delete** (`DELETE /api/sources/{id}`) and on a **cases / factory reset**
+  (`engine/reset.py`), so `GET /api/metrics/noise-reduction` no longer over-reports
+  inbound volume from a removed source or a purged period. Both are advisory counters —
+  never read by `decide()` (#3) and no `cluster_signature` recompute (#4); the clears are
+  fail-open and can never fail the delete/reset.
+- The funnel's terminal **Escalated** node now carries every case the agent did not
+  auto-clear: `build_noise_reduction` folds the previously-invisible `needs_human` bucket
+  and the `true_positive` residual into the `escalated` stage (total + per-severity bands,
+  `== cases − auto_cleared`), so the visible outcomes account for every windowed case. The
+  standalone `needs_human` stage and the reduction headline are unchanged, and the funnel
+  diagram, node set, and API shape are byte-identical (no new node, no query params).
+
 ### Release status
 
 - Local gates green (2026-07-14/15): **1942 backend `pytest`** passed (0 failures; +55
