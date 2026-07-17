@@ -15,7 +15,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .agents.chat import ChatEngine
 from .agents.overview import OverviewService
@@ -112,6 +112,15 @@ class AppState:
         # source keeps the conservative cold-start flat window. Advisory only — never feeds
         # decide() (#3).
         self._source_event_ticks: dict[str, int] = {}
+        # Serialize preference writes. ``config_store.save`` is a full-document replace
+        # with no CAS, and ``update_prefs`` assigns ``self.prefs`` outside any lock, so
+        # two concurrent writers (e.g. an operator source edit racing the nightly
+        # threshold-tuner's bounded-knob write) can interleave their save/assign and lose
+        # an update — the symptom being a source rename that "did not persist". This lock
+        # makes each write atomic, and ``mutate_prefs`` runs the read-modify-write under
+        # it so a caller's edit is applied against the freshest prefs. Created in __init__
+        # (not _wire) so it is a single stable lock across credential-driven rewires.
+        self._prefs_lock = asyncio.Lock()
         self._wire()
 
     # ------------------------------------------------------------------ #
@@ -1578,8 +1587,36 @@ class AppState:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Refreshing users into AuthService failed (%s)", exc)
             return
+        # A transient store-read glitch degrades to an EMPTY list inside UserStore._load
+        # (it swallows read errors), and an empty view collapses the synced auth snapshot
+        # to the env base layer alone — on an OOBE-only deployment (no env-seeded admin)
+        # that evicts EVERY persisted account and locks all logins out until a restart. An
+        # empty list is therefore AMBIGUOUS: treat it as a failed read (keep the current
+        # view, like the exception branch above) UNLESS the store is AUTHORITATIVELY empty.
+        # ``has_any()`` is the raising probe — a read glitch propagates (→ keep view) and a
+        # genuinely non-empty store is detected (→ keep view); only a clean "zero users"
+        # answer authorises the empty base-only view.
+        allow_empty = False
+        if not users:
+            try:
+                store_has_users = await self.users.has_any()
+            except Exception as exc:  # noqa: BLE001 — an unconfirmable empty is a failed read
+                logger.warning(
+                    "refresh_users: users.list() was empty and the has_any() authoritative "
+                    "probe failed (%s); keeping the current auth view (a transient empty "
+                    "read must never evict accounts)", exc,
+                )
+                return
+            if store_has_users:
+                logger.warning(
+                    "refresh_users: users.list() returned empty but the store reports "
+                    "accounts present — treating as a transient read and keeping the "
+                    "current auth view"
+                )
+                return
+            allow_empty = True  # the store is authoritatively empty → base-only view is valid
         try:
-            self.auth.set_users(users)
+            self.auth.set_users(users, allow_empty=allow_empty)
             # Keep the MFA-enforce role set in sync with current prefs (Wave 2 / F3).
             self.auth.set_mfa_enforce_roles(
                 list(getattr(getattr(self.prefs, "mfa", None), "enforce_for_roles", []) or [])
@@ -2013,6 +2050,36 @@ class AppState:
         return self.prefs
 
     async def update_prefs(self, prefs: Preferences) -> Preferences:
+        """Persist + publish a fully-built ``Preferences`` document atomically.
+
+        Serialized under ``self._prefs_lock`` so a concurrent writer cannot interleave
+        its ``config_store.save`` / ``self.prefs = …`` with this one (last-writer-wins
+        lost update). A caller doing a read-modify-write should prefer
+        :meth:`mutate_prefs`, which performs the read INSIDE the same lock so it builds
+        on the freshest prefs rather than a snapshot that a background writer may already
+        have superseded."""
+        async with self._prefs_lock:
+            return await self._apply_prefs_locked(prefs)
+
+    async def mutate_prefs(
+        self, mutate: Callable[[Preferences], Preferences]
+    ) -> Preferences:
+        """Atomic read-modify-write of ``Preferences`` under the write lock.
+
+        ``mutate`` receives the CURRENT ``self.prefs`` (read inside the lock) and returns
+        the new document to persist. Because the read, the transform, and the save all
+        happen while the lock is held, a caller's edit can no longer be clobbered by a
+        concurrent full-document write that started from a stale snapshot — the fix for a
+        source rename silently not persisting. ``mutate`` must be a pure, non-blocking
+        transform (typically ``prefs.model_copy(update=…)``) and must NOT call back into
+        ``update_prefs``/``mutate_prefs`` (the lock is not reentrant)."""
+        async with self._prefs_lock:
+            new_prefs = mutate(self.prefs)
+            return await self._apply_prefs_locked(new_prefs)
+
+    async def _apply_prefs_locked(self, prefs: Preferences) -> Preferences:
+        """Persist ``prefs`` + refresh the live components that cache it. MUST be called
+        with ``self._prefs_lock`` held (via :meth:`update_prefs` / :meth:`mutate_prefs`)."""
         await self.config_store.save(prefs)
         self.prefs = prefs
         # Keep the long-lived RagService pointed at the latest prefs so a settings
@@ -2064,6 +2131,17 @@ class AppState:
             except Exception as exc:  # noqa: BLE001
                 logger.error("Re-bootstrap after credential change failed: %s", exc)
             self.prefs = await self.config_store.load()
+            # ``_wire()`` rebuilt a FRESH AuthService whose synced view is only the env
+            # base layer — the persisted (store) accounts have been dropped. Without a
+            # refresh, an ES-credential change would silently lock every OOBE/stored
+            # account out until the next user mutation or a restart. Re-fold the store
+            # into the auth view now (guarded: a transient empty read can't evict, and a
+            # genuinely-empty store is honoured). Best-effort — never break a credential
+            # change on a user-store read.
+            try:
+                await self.refresh_users()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Refreshing users after credential change failed (%s)", exc)
             if self.prefs.setup_complete:
                 self.poller.start()
 

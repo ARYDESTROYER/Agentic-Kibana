@@ -161,12 +161,23 @@ class AuthService:
         """Whether authentication enforcement is turned on."""
         return self._enabled
 
-    def set_users(self, store_users: list) -> None:
+    def set_users(self, store_users: list, *, allow_empty: bool = False) -> None:
         """Refresh the synced view from the persistent ``UserStore`` (call after the
         startup load + after every user mutation). ``store_users`` is a list of
         :class:`app.models.User`. The store overlays the env base layer (an
         operator-edited account overrides an env-seeded one). Keeps
-        :meth:`authenticate` synchronous."""
+        :meth:`authenticate` synchronous.
+
+        DEFENSIVE (auth-lockout guard): an EMPTY ``store_users`` collapses the view to
+        the env base layer alone. On an OOBE-only deployment (no env-seeded admin) that
+        base layer is itself empty, so an empty update evicts EVERY persisted account
+        and locks all logins out until the process restarts. A transient store-read
+        glitch degrades to an empty list upstream (``UserStore._load`` swallows read
+        errors), so an empty update is AMBIGUOUS and must NOT silently drop known
+        accounts. Unless ``allow_empty`` is set — the caller has an AUTHORITATIVE
+        empty-store signal (e.g. a raising ``has_any()`` probe that confirmed zero
+        users) — an empty update that would evict previously-known STORED accounts is
+        refused: the current view is kept intact and a warning is logged."""
         view: dict[str, _Record] = dict(self._base)
         for u in store_users or []:
             view[str(u.username).strip().lower()] = _Record(
@@ -177,6 +188,20 @@ class AuthService:
                 groups=list(getattr(u, "groups", []) or []),
                 mfa_enabled=bool(getattr(u, "mfa_enabled", False)),
             )
+        if not (store_users or []) and not allow_empty:
+            # Records in the LIVE view that are not identical to the env base layer are
+            # persisted (store) accounts. An empty update without an authoritative
+            # empty-store signal must never evict them (a read glitch → total lockout).
+            stored = {k: v for k, v in self._records.items() if self._base.get(k) != v}
+            if stored:
+                log.warning(
+                    "AuthService.set_users: refusing to evict %d stored account(s) on an "
+                    "empty update (likely a transient user-store read); keeping the current "
+                    "auth view. Pass allow_empty=True only with an authoritative "
+                    "empty-store signal.",
+                    len(stored),
+                )
+                return
         self._records = view
 
     def set_mfa_enforce_roles(self, roles: list[str] | None) -> None:
