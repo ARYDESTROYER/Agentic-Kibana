@@ -10,6 +10,36 @@ to a legacy ELK stack as a read-only consumer (the archived Kibana plugin additi
 targeted **8.12.2**; it is now frozen and no longer version-stamped going forward).
 History is reconstructed from `git log`.
 
+## [Unreleased] — 2026-07-17 — Auth-lockout hardening
+
+Fixes a total, silent authentication lockout: a transient empty read from the
+`UserStore` (its loader swallows read errors and degrades to `[]`) used to flow through
+`AppState.refresh_users` → `AuthService.set_users([])`, collapsing the in-memory auth
+view to the env base layer alone. On an OOBE-only deployment (no env-seeded admin) that
+evicted every persisted account, so every login returned 401 despite an intact,
+verifiable password hash — until the process restarted. Backend-only; `decide()` (#3)
+untouched.
+
+### Fixed
+
+- `AppState.refresh_users` now treats an empty `users.list()` as a **failed read** and
+  keeps the current auth view, unless the raising `UserStore.has_any()` probe
+  authoritatively confirms zero users. A transient empty read can no longer evict
+  accounts.
+- `AuthService.set_users` gained an `allow_empty` guard: an empty update that would drop
+  previously-known **stored** accounts is refused (warn + keep the view) unless the
+  caller passes an authoritative empty-store signal — a second, independent layer of
+  protection.
+- `AppState.apply_secrets` now re-folds the persisted user store into the auth view
+  after a credential-change `_wire()` rebuild, so an ES-credential change no longer locks
+  stored/OOBE accounts out until the next user mutation or restart.
+- Preference writes are serialized under a new `AppState._prefs_lock`; a new
+  `mutate_prefs(mutate)` performs the read-modify-write **inside** the lock. The source
+  routes (`POST/DELETE /api/sources`, `POST /api/sources/{id}/secrets`) use it, so a
+  source rename reads the freshest prefs and is no longer clobbered by a same-path
+  concurrent write (the observed "rename did not persist"). (Fully closing the
+  cross-writer prefs lost-update still needs config-store CAS — tracked separately.)
+
 ## [Unreleased] — 2026-07-15 — Backend deep-audit hardening
 
 A multi-agent deep audit of the backend (24 subsystem auditors over ~200 files /

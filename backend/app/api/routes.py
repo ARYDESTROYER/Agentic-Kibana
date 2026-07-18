@@ -532,41 +532,49 @@ async def upsert_source(
     else:
         mode = manifest.ingest_modes[0] if manifest.ingest_modes else IngestMode.PULL
 
-    # Preserve managed/immutable metadata across an UPDATE. `SourceUpsert` carries neither
-    # `configured_secrets` (secret NAMES, set only via POST /sources/{id}/secrets) nor
-    # `created_at`, so a bare rebuild would wipe the secret-name list and reset the creation
-    # date on EVERY enable/disable/make-primary/edit — the secret VALUES survive in
-    # `connector_secrets`, but the "N secrets" subline, the delete-confirm warning, and the
-    # Creation Date column would all lie. Carry them forward from the existing source.
-    existing = next((s for s in state.prefs.sources if s.id == body.id), None)
-    instance = SourceInstance(
-        id=body.id,
-        source_type=st,
-        display_name=body.display_name or manifest.display_name,
-        enabled=body.enabled,
-        ingest_mode=mode,
-        # Only a pull/search connector can own the primary query surface. A push
-        # receiver marked primary would otherwise be rebuilt as an Elastic connector
-        # and could query the unrelated global data view.
-        is_primary=(body.is_primary and mode == IngestMode.PULL and not reg.is_receiver(st)),
-        config=body.config,
-        configured_secrets=(list(existing.configured_secrets) if existing else []),
-        **({"created_at": existing.created_at} if existing else {}),
-    )
-    # Wave 6: keep ``config['data_view_pattern']`` synced to the comma-join of the
-    # non-ignore feed patterns, so the legacy single-pattern fallback + any reader of
-    # ``data_view_pattern`` see the live surface MINUS muted ignore feeds. No-op when
-    # no feeds are configured (the operator-set ``data_view_pattern`` is left intact).
-    live_dv = instance.live_data_view()
-    if live_dv:
-        instance.config["data_view_pattern"] = live_dv
-    # Upsert by id; a new primary unsets any previous primary.
-    others = [s for s in state.prefs.sources if s.id != body.id]
-    if instance.is_primary:
-        for s in others:
-            s.is_primary = False
-    prefs = state.prefs.model_copy(update={"sources": others + [instance]})
-    await state.update_prefs(prefs)
+    # Atomic read-modify-write (mutate_prefs): the existing-source read, the upsert, and
+    # the save all happen under the prefs write lock against the FRESHEST prefs, so a
+    # concurrent full-document writer (e.g. the nightly threshold-tuner) can't clobber
+    # this edit with a stale snapshot — the fix for a source rename silently not
+    # persisting. The transform is pure (no I/O), as mutate_prefs requires.
+    def _apply(p: Preferences) -> Preferences:
+        # Preserve managed/immutable metadata across an UPDATE. `SourceUpsert` carries
+        # neither `configured_secrets` (secret NAMES, set only via
+        # POST /sources/{id}/secrets) nor `created_at`, so a bare rebuild would wipe the
+        # secret-name list and reset the creation date on EVERY enable/disable/make-
+        # primary/edit — the secret VALUES survive in `connector_secrets`, but the
+        # "N secrets" subline, the delete-confirm warning, and the Creation Date column
+        # would all lie. Carry them forward from the existing source.
+        existing = next((s for s in p.sources if s.id == body.id), None)
+        instance = SourceInstance(
+            id=body.id,
+            source_type=st,
+            display_name=body.display_name or manifest.display_name,
+            enabled=body.enabled,
+            ingest_mode=mode,
+            # Only a pull/search connector can own the primary query surface. A push
+            # receiver marked primary would otherwise be rebuilt as an Elastic connector
+            # and could query the unrelated global data view.
+            is_primary=(body.is_primary and mode == IngestMode.PULL and not reg.is_receiver(st)),
+            config=body.config,
+            configured_secrets=(list(existing.configured_secrets) if existing else []),
+            **({"created_at": existing.created_at} if existing else {}),
+        )
+        # Wave 6: keep ``config['data_view_pattern']`` synced to the comma-join of the
+        # non-ignore feed patterns, so the legacy single-pattern fallback + any reader of
+        # ``data_view_pattern`` see the live surface MINUS muted ignore feeds. No-op when
+        # no feeds are configured (the operator-set ``data_view_pattern`` is left intact).
+        live_dv = instance.live_data_view()
+        if live_dv:
+            instance.config["data_view_pattern"] = live_dv
+        # Upsert by id; a new primary unsets any previous primary.
+        others = [s for s in p.sources if s.id != body.id]
+        if instance.is_primary:
+            for s in others:
+                s.is_primary = False
+        return p.model_copy(update={"sources": others + [instance]})
+
+    prefs = await state.mutate_prefs(_apply)
     state.rebuild_log_source()
     await state.reconcile_receivers()
     return {"ok": True, "sources": [s.model_dump(mode="json") for s in prefs.sources]}
@@ -578,11 +586,18 @@ async def delete_source(
     state: AppState = Depends(get_state),
     _=Depends(require_permission("sources", "manage")),
 ) -> dict[str, Any]:
-    remaining = [s for s in state.prefs.sources if s.id != source_id]
-    if len(remaining) == len(state.prefs.sources):
-        raise HTTPException(status_code=404, detail="Source not found")
-    prefs = state.prefs.model_copy(update={"sources": remaining})
-    await state.update_prefs(prefs)
+    # Atomic remove under the prefs write lock (mutate_prefs) so a concurrent full-doc
+    # writer can't resurrect the deleted source by saving a stale snapshot. The 404 is
+    # raised from inside the transform (before any save), so nothing is persisted when
+    # the source is absent.
+    def _apply(p: Preferences) -> Preferences:
+        remaining = [s for s in p.sources if s.id != source_id]
+        if len(remaining) == len(p.sources):
+            raise HTTPException(status_code=404, detail="Source not found")
+        return p.model_copy(update={"sources": remaining})
+
+    prefs = await state.mutate_prefs(_apply)
+    remaining = prefs.sources
     state.rebuild_log_source()
     # Revoke now-orphaned in-memory credentials and stop a deleted background
     # receiver before returning success.
@@ -618,17 +633,26 @@ async def set_source_secrets(
     for field, value in body.items():
         state.secrets.set_source_secret(source_id, field, value)
     configured = sorted(state.secrets.source_secrets(source_id).keys())
-    updated = src.model_copy(update={"configured_secrets": configured})
-    others = [s for s in state.prefs.sources if s.id != source_id]
-    await state.update_prefs(state.prefs.model_copy(update={"sources": others + [updated]}))
+
+    # Persist only the configured secret NAMES onto the source, atomically against the
+    # freshest prefs (mutate_prefs) so a concurrent full-doc writer can't drop the update.
+    def _apply(p: Preferences) -> Preferences:
+        cur = next((s for s in p.sources if s.id == source_id), None)
+        if cur is None:  # removed concurrently — nothing to stamp the names onto
+            return p
+        updated = cur.model_copy(update={"configured_secrets": configured})
+        others = [s for s in p.sources if s.id != source_id]
+        return p.model_copy(update={"sources": others + [updated]})
+
+    await state.mutate_prefs(_apply)
     # Pull clients snapshot per-source connection credentials when they are built.
     # Rebuild the primary + fan-out immediately so a first key or key rotation takes
     # effect on the next query/poll rather than after another source edit or restart.
     # Receivers do not use these clients and are reconciled separately below; avoid
     # churning unrelated pull connections when only a webhook/broker token rotates.
     reg = get_registry()
-    if reg.is_pull(updated.source_type) or (
-        updated.ingest_mode == IngestMode.PULL and not reg.is_receiver(updated.source_type)
+    if reg.is_pull(src.source_type) or (
+        src.ingest_mode == IngestMode.PULL and not reg.is_receiver(src.source_type)
     ):
         state.rebuild_log_source()
     await state.reconcile_receivers()
