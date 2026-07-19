@@ -9,7 +9,8 @@ the Kibana plugin is archived). Every item ends with: `pytest -q` green (keep th
 count current), webui tsc+vite + Vitest clean, **#3 `decide()` byte-identical**,
 docs + Journal updated, commit + push.
 
-**Current baseline (branch `Testing`; `3.0.0-alpha.1` candidate, not tagged or pushed):**
+**Current baseline (Version `0.1.0` on `Testing`; promote the accepted source tree to
+the Stable `main` branch, re-run its gates, and tag the resulting commit `v0.1.0`):**
 **Round 10** ("Autopilot & Comprehensive Ingestion + motion.dev" — a **behavior change**:
 `background_scan_enabled` default TRUE + a deterministic risk gate + an `autopilot_profile`
 smart-defaults dial + a default-enabled $10/day budget ceiling + per-source coverage
@@ -25,10 +26,10 @@ overhaul + Noise-Reduction funnel; PR #23), and **Round 6** (a ~500-agent glitch
 findings fixed) before them. On top of all of them, a **backend deep-audit hardening
 pass** (`c5516e5`→`abd0385`, 2026-07-14/15, local/not pushed) fixed **47 verified findings**
 (0 crit / 10 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow —
-one atomic commit per finding, no co-author, each with a regression test. Verified green
-(backend re-verified 2026-07-15): backend **1942 pytest** (0 failures; +55 regression tests
-over 1887), webui **1349 Vitest** (240 files, unchanged — no webui code touched), build
-clean (entry chunk **285.91 kB**, a lazy `motion` chunk **83.85 kB**), eslint **0 errors,
+one atomic commit per finding, no co-author, each with a regression test. The current 0.1
+candidate was re-verified on 2026-07-19: backend **1957 pytest** (0 failures), webui
+**1350 Vitest** across 240 files, build clean (entry chunk **287.45 kB**, a lazy `motion`
+chunk **83.85 kB**), eslint **0 errors,
 0 warnings**, `engine/case_manager.py` `decide()` **byte-identical** (verified clean by the
 audit), and the generated-contract, distribution, version, Compose, and strict-docs gates
 pass. See `CHANGELOG.md` `[Unreleased]` for the audit fixes + the full Round 6–10 narrative,
@@ -529,7 +530,7 @@ where possible, docs + Journal updated, commit + push.
     — **$0, isolated, one-flip reversible**; FP runs the REAL `decide()` against a
     SANDBOXED policy copy, NEEDS_HUMAN stays open. Endpoints `POST /api/demo/{enable,
     incident,reset,disable}`, `GET /api/demo/status` (`demo:manage` for mutations);
-    DemoBanner + `SAMPLE` badges + "(simulated)" cost. The alpha live-demo upgrade
+    DemoBanner + `SAMPLE` badges + "(simulated)" cost. The version 0.1 live-demo upgrade
     adds bounded Splunk/QRadar/Wazuh/syslog adapters and a guaranteed first incident.
   - ☑ **W6 Source multi-feed** — `IndexPattern`→richer per-feed model (wire key kept) +
     new `ignore` role + per-feed query/field-mapping/`message_field`/`severity_floor`/

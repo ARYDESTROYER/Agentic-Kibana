@@ -4,27 +4,31 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "overrides/**"
       - "mkdocs.yml"
+      - "VERSION"
+      - "scripts/check_version.py"
+      - "scripts/check_docs.py"
       - ".github/workflows/docs.yml"
   push:
-    # `Testing` is transitional; keep its docs gate until work moves to `next`.
-    # Only `main` may deploy the public Pages site (see job conditions below).
-    branches: [main, next, Testing, "release/**"]
-    tags: ["v*"]
+    # Testing is the integration gate. Only main publishes Stable documentation.
+    branches: [main, Testing]
     paths:
       - "docs/**"
+      - "overrides/**"
       - "mkdocs.yml"
+      - "VERSION"
+      - "scripts/check_version.py"
+      - "scripts/check_docs.py"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -33,7 +37,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -45,7 +49,16 @@ jobs:
       - name: Install documentation dependencies
         run: python -m pip install --requirement docs/requirements.txt
 
+      - name: Check canonical product and documentation versions
+        run: python scripts/check_version.py
+
+      - name: Check documentation structure and links
+        run: python scripts/check_docs.py
+
       - name: Build documentation
+        env:
+          TLSOC_DOCS_CHANNEL: ${{ github.ref == 'refs/heads/main' && 'Stable' || 'Testing' }}
+          TLSOC_DOCS_EDIT_URI: ${{ github.ref == 'refs/heads/main' && 'edit/main/docs/' || 'edit/Testing/docs/' }}
         run: mkdocs build --strict
 
       - name: Upload documentation preview
@@ -55,24 +68,25 @@ jobs:
           path: site
           retention-days: 90
 
-      - name: Configure GitHub Pages
+      - name: Resolve documentation version
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/configure-pages@v5
+        id: version
+        shell: bash
+        run: |
+          product_version="$(tr -d '[:space:]' < VERSION)"
+          docs_version="$(printf '%s' "$product_version" | cut -d. -f1-2)"
+          echo "docs_version=$docs_version" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Pages artifact
+      - name: Publish Stable versioned documentation
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        env:
+          TLSOC_DOCS_CHANNEL: Stable
+          TLSOC_DOCS_EDIT_URI: edit/main/docs/
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mike deploy --push --update-aliases \
+            "${{ steps.version.outputs.docs_version }}" stable latest \
+            --title "${{ steps.version.outputs.docs_version }} (Stable)"
+          mike set-default --push stable

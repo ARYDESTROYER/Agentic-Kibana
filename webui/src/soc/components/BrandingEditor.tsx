@@ -911,7 +911,7 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
 
   /* ---------------------------------------------------------------- render -- */
 
-  const wordmark = draft.org_name.trim() || 'Agentic SOC';
+  const wordmark = draft.org_name.trim() || 'TLSOC';
   const tagline = draft.product_name.trim() || 'Triage console';
   const a1 = accentValid && accent ? accent : DEFAULT_ACCENT;
   const a2 = accent2Valid && accent2 ? accent2 : DEFAULT_ACCENT2;
@@ -1009,12 +1009,12 @@ export function BrandingEditor({ readOnly = false }: BrandingEditorProps) {
           <Input
             id="brand-org"
             value={draft.org_name}
-            placeholder="Agentic SOC"
+            placeholder="TLSOC"
             disabled={readOnly}
             maxLength={MAX_TEXT_LEN}
             onChange={(e) => set({ org_name: e.target.value })}
           />
-          <p className="text-xs text-muted-foreground">Shown as the wordmark. Blank uses “Agentic SOC”.</p>
+          <p className="text-xs text-muted-foreground">Shown as the wordmark. Blank uses “TLSOC”.</p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="brand-product">Product name</Label>

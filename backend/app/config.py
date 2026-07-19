@@ -1881,7 +1881,7 @@ class MfaConfig(BaseModel):
     MFA is per-user opt-in; this block only tunes issuer/format + optional
     role-level enforcement. NO secrets live here (the per-user TOTP secret lives
     obfuscated on the User record; the obfuscation key is in the SECRET tier).
-    ``issuer`` (blank → branding.org_name → "Agentic SOC") labels the authenticator
+    ``issuer`` (blank → branding.org_name → "TLSOC") labels the authenticator
     entry. ``enforce_for_roles`` lists roles for which a password login is treated as
     requiring MFA even before the user enrolled (they'll be prompted to set it up)."""
 

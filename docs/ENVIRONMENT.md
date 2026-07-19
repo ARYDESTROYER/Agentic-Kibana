@@ -170,6 +170,16 @@ compose blocks read **`TLSOC_`-prefixed** names from `.env` and map them onto th
 unprefixed backend vars, so the suite's `.env` cannot clash with the host stack's
 `ELASTIC_PASSWORD`/`KIBANA_PASSWORD`/etc.
 
+Release identity is the deliberate exception. These non-secret values remain
+prefixed Docker build/runtime metadata rather than `Secrets` fields:
+
+| Build/runtime value | Default | Purpose |
+|---|---|---|
+| `TLSOC_VERSION` | `0.1.0` in Compose | Machine SemVer for images and API identity |
+| `TLSOC_RELEASE_CHANNEL` | `testing` | Independent promotion stamp; use `stable` only for the accepted main/tag build |
+| `TLSOC_BUILD_SHA` | `unknown` | Exact source revision |
+| `TLSOC_BUILD_DATE` | `unknown` | Reproducible-build timestamp supplied by the builder |
+
 | `.env` (compose) | Backend env (`Secrets`) | Purpose |
 |---|---|---|
 | `TLSOC_ES_URL` | `ES_URL` | log cluster URL (pull source) |

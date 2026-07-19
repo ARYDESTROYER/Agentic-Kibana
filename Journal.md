@@ -2249,3 +2249,170 @@
 - Tests: Strict MkDocs build, JavaScript syntax, PostCSS parsing, and `git diff --check` passed; all seven generated pages passed palette-component, unique-ID, dark-first, link, asset, and fragment checks; exact geometry, clean/current/legacy preference migration, toggle-state synchronization, and Journal-content checks passed.
 - Status: done.
 - Next: Treat future documentation Journal entries as durable development records only.
+### 2026-07-19 05:58Z — Codex orchestrator — Version 0.1 documentation program started
+- Context: Build the complete public documentation set, standardize the Testing-to-Stable/main release model, establish application version 0.1, and add maintainable per-version documentation navigation.
+- Did: Began a repository-wide documentation, release nomenclature, version-authority, and MkDocs architecture audit while preserving the approved Shoo-matched design.
+- Tests: Documentation inventory, source-of-truth checks, strict build, version-selection behavior, link validation, and responsive browser QA pending.
+- Status: in-progress.
+- Next: Resolve the canonical version/release model, map every product capability to public documentation, implement the complete information architecture, and verify the generated site end to end.
+
+### 2026-07-19 06:06Z — Codex orchestrator — Version 0.1 authority and docs version provider established
+- Context: Resolve the canonical product identity and maintainable per-version documentation mechanism before authoring the full manual.
+- Did: Standardized package, runtime, OpenAPI, Compose, and changelog metadata on SemVer `0.1.0`; defined the public documentation line as `0.1`; established `Testing` as the acceptance branch and `main` as Stable; pinned Mike 2.2.0 and configured Material's native version provider with the `stable` default alias.
+- Tests: Core metadata consistency and full generated-site validation pending after documentation integration.
+- Status: in-progress.
+- Next: Replace remaining active release terminology, implement the version selector in the custom shell, author the full manual, and run the consistency gates.
+
+### 2026-07-19 05:51Z — Codex documentation IA auditor — Public manual coverage audit started
+- Context: Establish the end-to-end public documentation structure required for TLSOC 0.1.
+- Did: Began a read-only inventory of current public pages, connector concepts, onboarding gaps, product terminology, and custom Material version-selector integration points.
+- Tests: Source and documentation topology inspection in progress.
+- Status: in-progress.
+- Next: Produce a source-grounded page map and identify current-versus-roadmap boundaries.
+
+### 2026-07-19 06:02Z — Codex documentation IA auditor — Public manual coverage audit complete
+- Context: Finish the onboarding, concepts, and source-documentation gap analysis.
+- Did: Defined the canonical TLSOC product/service terms, mapped the required getting-started, concepts, and source pages, separated shipped behavior from roadmap material, and identified the custom header slot required by Material's version selector.
+- Tests: Existing public navigation and product-source coverage reviewed; no files changed.
+- Status: done.
+- Next: Author the mapped pages and integrate them into the versioned navigation.
+
+### 2026-07-19 05:42Z — Codex product-surface auditor — Analyst and automation coverage audit started
+- Context: Map the implemented TLSOC Console and API surface into complete public task documentation.
+- Did: Began a read-only inventory of navigation, case workflows, automation, intelligence, settings, roles, connectors, providers, metrics, and API operations.
+- Tests: UI registry, backend routes, configuration defaults, and provider registries under review.
+- Status: in-progress.
+- Next: Return an authoritative feature inventory and public page plan.
+
+### 2026-07-19 06:03Z — Codex product-surface auditor — Analyst and automation coverage audit complete
+- Context: Finish the feature and API surface map for the TLSOC 0.1 manual.
+- Did: Mapped analyst navigation, case-detail tabs, automation controls, settings sections, roles, connector and enrichment catalogs, dashboard widgets, API coverage, and safety defaults into a source-grounded documentation plan.
+- Tests: Cross-checked active UI registry, route modules, OpenAPI snapshot, configuration models, and role matrix; no files changed.
+- Status: done.
+- Next: Author analyst, automation, and intelligence guides and later validate the integrated manual.
+
+### 2026-07-19 05:48Z — Codex release auditor — Version and publication audit started
+- Context: Replace the prior prerelease vocabulary with a standard Testing-to-main/Stable model and versioned public documentation.
+- Did: Began a read-only audit of version authorities, branch-triggered workflows, release examples, Material/Mike integration, and current documentation chrome.
+- Tests: Package, Compose, workflow, template, and version-consistency sources under review.
+- Status: in-progress.
+- Next: Define the exact metadata, alias, publication, and branch-protection changes.
+
+### 2026-07-19 06:05Z — Codex release auditor — Version and publication audit complete
+- Context: Finish the release-model and versioned-documentation design audit.
+- Did: Identified every canonical version surface, the Testing preview and main/Stable publication gates, Mike's major.minor directory/alias model, stale workflow branches/examples, and the custom-shell selector and outdated-version requirements.
+- Tests: Version files, workflows, release documentation, and Material template behavior reviewed; no files changed.
+- Status: done.
+- Next: Apply SemVer 0.1.0, documentation line 0.1, Stable aliases, and exact-commit promotion guidance.
+
+### 2026-07-19 06:04Z — Codex documentation author — Onboarding, concepts, and source guides started
+- Context: Build the public TLSOC 0.1 documentation batch covering onboarding, core concepts, and source integration.
+- Did: Reviewed the connector, source-feed, OCSF, case-policy, state, health, and ingestion contracts required for accurate user-facing guidance.
+- Tests: Source-grounding and page-contract review in progress.
+- Status: in-progress.
+- Next: Author the requested pages with explicit audience, verification, safety, and version boundaries.
+
+### 2026-07-19 06:14Z — Codex documentation author — Source and safety documentation milestone
+- Context: Complete the substantive onboarding, architecture, decision-safety, and connector documentation.
+- Did: Added the full getting-started and concepts sets plus source guides spanning pull, HTTP, syslog, brokers, object stores, feeds, mappings, and third-party connectors.
+- Tests: Reviewed claims against current connector manifests, OCSF models, source routes, feed contracts, and deterministic case policy.
+- Status: in-progress.
+- Next: Align cross-page links with the integrated information architecture and run lightweight content checks.
+
+### 2026-07-19 06:18Z — Codex documentation author — Public documentation batch complete
+- Context: Finish and validate the assigned TLSOC 0.1 documentation pages.
+- Did: Created 16 version-scoped pages with task prerequisites, shipped behavior, expected results, adjacent limitations, and integrated related-page links.
+- Tests: Front matter, single-H1, version-scope, relative-link, non-empty-file, terminology, and whitespace checks passed; 16 files checked with zero missing relative links.
+- Status: done.
+- Next: Integrate the pages into the final navigation and run the repository-wide strict documentation build.
+
+### 2026-07-19 06:07Z — Codex feature/API documenter — Version 0.1 operational documentation started
+- Context: Author the complete analyst, automation, and intelligence documentation for the public 0.1 manual.
+- Did: Mapped implemented UI routes, permissions, lifecycle states, automation defaults, metrics, enrichment providers, retrieval trust boundaries, and deterministic safety controls into a bounded 14-page documentation plan.
+- Tests: Source-grounding and documentation validation pending.
+- Status: in-progress.
+- Next: Write the operational pages, connect their task flows, and validate links and public-document hygiene.
+
+### 2026-07-19 06:14Z — Codex feature/API documenter — Version 0.1 operational documentation authored
+- Context: Complete the analyst, automation, and intelligence content required for the versioned public manual.
+- Did: Authored 14 task-oriented pages covering dashboards, case lifecycle, investigations, logs, collaboration, campaigns, analytics, autopilot, rules, tuning, baselines, playbooks, approvals, knowledge, memory, enrichment, MITRE ATT&CK, and threat context. Documented permissions, defaults, provenance, cost, fail-open behavior, and the deterministic decision boundary throughout.
+- Tests: Completed source-level accuracy review against the active routes, configuration, enums, metrics engine, provider registry, and web navigation.
+- Status: in-progress.
+- Next: Run structural, link-target, whitespace, and internal-only-content validation.
+
+### 2026-07-19 06:17Z — Codex feature/API documenter — Version 0.1 operational documentation complete
+- Context: Finish and verify the assigned operational documentation batch.
+- Did: Corrected lifecycle, widget, playbook-selection, dwell-time, enrichment-indicator, and protected-corpus wording during final review; preserved public-only product documentation with cross-links into the wider versioned manual.
+- Tests: Validated all 14 expected files, front matter, exactly one H1 per page, relative link targets, trailing whitespace, and prohibited internal-only terms; all checks passed.
+- Status: done.
+- Next: Integrate these pages into the versioned MkDocs navigation and run the complete site build and browser QA.
+
+### 2026-07-19 06:06Z — Codex administration/operations writer — Public 0.1 administration and operations batch started
+- Context: Create the complete public administration, operations, and documentation-version guidance for TLSOC 0.1 within the assigned non-overlapping file set.
+- Did: Reviewed the implemented settings, RBAC, authentication, model-budget, notification, reset, health, state-backend, and secret-handling contracts before authoring.
+- Tests: Source-grounding and endpoint/config inventory completed.
+- Status: in-progress.
+- Next: Write the administration pages, then the deployment, security, recovery, upgrade, troubleshooting, and release-version pages.
+
+### 2026-07-19 06:13Z — Codex administration/operations writer — Public 0.1 administration and operations content completed
+- Context: Complete the source-grounded content for the assigned documentation batch.
+- Did: Added seven administration guides and six operations guides covering durable preferences, users/RBAC, local auth/MFA/OIDC, model routing and spend, notifications, customization, tiered reset, deployment shapes, configuration layers, hardening, health/backup, upgrades, and troubleshooting. Explicitly documented off-by-default authentication, runtime-only UI secrets, spend-gate limits, and migration/availability boundaries.
+- Tests: Manual contract comparison against backend configuration, routes, RBAC policy, and reset service completed.
+- Status: in-progress.
+- Next: Add the 0.1 release and documentation-version policy pages, then validate metadata and links.
+
+### 2026-07-19 06:16Z — Codex administration/operations writer — Public 0.1 administration and operations batch complete
+- Context: Finish and validate the assigned public documentation set.
+- Did: Added 15 complete pages under `docs/administration`, `docs/operations`, and `docs/releases`, standardized on display version 0.1, machine version 0.1.0, and Testing-to-main/Stable promotion. Kept engineering process history and internal test details out of public guidance.
+- Tests: Lightweight validation passed for all 15 pages: front matter and H1 shape valid, every relative Markdown link resolves, obsolete active release nomenclature absent, and `git diff --check` clean.
+- Status: done.
+- Next: Integrate these pages into the concurrent navigation/version-selector work and run the final strict site build and rendered-link validation.
+
+### 2026-07-19 06:21Z — Codex orchestrator — Complete 0.1 manual and release workflow integrated
+- Context: Integrate the parallel documentation batches into one maintainable versioned product manual.
+- Did: Added the full navigation across onboarding, concepts, sources, analyst work, automation, intelligence, administration, operations, reference, development, and releases; replaced active prerelease terminology; implemented the Testing-only review gate and main/Stable Mike publication; added dynamic channel/version chrome, Stable/latest aliases, and an automated public-page/link/nomenclature coverage gate.
+- Tests: Individual author batches passed source, structure, relative-link, terminology, and whitespace checks; repository-wide strict build and rendered/browser validation pending the final reference batch.
+- Status: in-progress.
+- Next: Complete API/developer reference, resolve integrated link/content findings, then exercise version publication and the full responsive site.
+
+### 2026-07-19 06:19Z — Codex nomenclature auditor — Active release terminology audit started
+- Context: Verify active product, documentation, workflow, and release metadata against the TLSOC 0.1 and Testing-to-main/Stable model.
+- Did: Began a read-only repository-wide drift scan covering public documentation, developer surfaces, templates, workflows, scripts, and product metadata.
+- Tests: Audit and link checks in progress.
+- Status: in-progress.
+- Next: Re-check integrated documentation, identify only remaining actionable drift, and verify external Git refs.
+
+### 2026-07-19 06:22Z — Codex reference/development documenter — TLSOC 0.1 reference and developer manual started
+- Context: Complete public API, configuration, permissions, compatibility, security, and development guidance for the versioned 0.1 documentation.
+- Did: Began a read-only contract audit of OpenAPI, configuration tiers, state backends, RBAC, runtimes, extension registries, authentication middleware, release identity, and contract-generation/test tooling.
+- Tests: Source-grounding review in progress; no shared site build run while navigation and content were concurrent.
+- Status: in-progress.
+- Next: Author the ten assigned pages and validate every material claim against current code.
+
+### 2026-07-19 06:35Z — Codex reference/development documenter — Reference and development content authored
+- Context: Complete the public reference and contributor-facing sections of the TLSOC 0.1 manual.
+- Did: Added five reference pages covering the API, configuration authorities, six-role permission matrix, compatibility, and security model, plus five development pages covering repository orientation, backend, Console, extension SPIs, contract generation, testing, and Testing-to-main/Stable promotion.
+- Tests: Runtime source inspection confirmed application 0.1.0, OCSF 1.4.0, 190 paths/223 operations, six roles, 19 connectors, 19 enrichment providers, seven notification channels, seven model-provider identifiers, and current security/configuration defaults.
+- Status: in-progress.
+- Next: Reconcile the independent release-channel contract and run final structural, link, terminology, and whitespace validation.
+
+### 2026-07-19 06:43Z — Codex reference/development documenter — TLSOC 0.1 reference and developer manual complete
+- Context: Finish and verify the ten assigned public documentation pages.
+- Did: Documented the direct release identity variables, including 0.1.0 remaining constant through promotion while `TLSOC_RELEASE_CHANNEL` changes from `testing` to `stable`; corrected exact secret-route parameters and realtime event behavior; completed all cross-links without exposing internal development records.
+- Tests: All ten files passed front-matter parsing, exactly-one-H1 validation, 34 relative-link checks, obsolete-nomenclature scanning, and `git diff --check`; `python3 scripts/check_version.py` passed; final claims were rechecked against current routes, Docker metadata, Compose arguments, RBAC policy, registries, and configuration defaults.
+- Status: done.
+- Next: Run the integrated strict MkDocs build, version-publication exercise, and responsive browser QA.
+
+### 2026-07-19 06:45Z — Codex nomenclature auditor — Active release terminology audit complete
+- Context: Complete the integrated TLSOC 0.1 nomenclature and version-model audit.
+- Did: Audited the 61-page public manual, active engineering documentation, workflows, templates, package/image metadata, release-channel behavior, and remote Git state. Confirmed the canonical product names, application version 0.1.0, documentation line 0.1, and Testing-to-main/Stable terminology are consistently applied apart from the reported residual items.
+- Tests: `python3 scripts/check_version.py` passed; `python3 scripts/check_docs.py` passed for 61 public pages; a 76-file relative-link scan found zero missing targets; scoped `git diff --check` passed.
+- Status: done.
+- Next: Resolve the exact-commit promotion mechanism, retire the remaining roadmap alpha wording, decide the compatibility policy for the Compose project slug, and create/configure the external main branch and v0.1.0 tag only after acceptance.
+
+### 2026-07-19 08:03Z — Codex orchestrator — Version 0.1 documentation program complete
+- Context: Finish the complete public manual, release nomenclature, versioned publication model, and end-to-end quality gates for TLSOC 0.1.
+- Did: Completed 61 public pages for every shipped product surface; standardized the formal product, Console, and API names; set package/image/API SemVer to `0.1.0` and the documentation line to `0.1`; defined feature-to-`Testing` integration and protected `Testing`-to-`main`/Stable promotion; added independent `testing`/`stable` release identity; implemented Mike publication with `stable` and `latest` aliases, a native version selector, channel-aware chrome, and outdated-version guidance. Resolved the final promotion wording, roadmap wording, compatibility-stable Compose slug policy, light-theme contrast, duplicate generated code-line IDs, and a versioned-page URL bootstrap defect found by rendered QA. Kept all public pages free of internal Journal and research material.
+- Tests: `1957` backend tests passed; `1350` Console tests across 240 files passed; Console type drift, lint, production build, and all design gates passed; application/docs version checks, 61-page coverage, workflow YAML, Compose configuration, JavaScript syntax, CSS parsing, and `git diff --check` passed; strict MkDocs builds passed; the isolated Mike publication produced documentation `0.1`, `stable`/`latest` aliases, the Stable default redirect, and 444 search records; 63 generated HTML files and 6,387 links, assets, and fragments validated with no missing targets or duplicate IDs; responsive dark/light, selector, search, navigation drawer, page-outline, desktop, and mobile browser QA passed with no current-page warnings or errors.
+- Status: done. The repository implementation is complete on `Testing`; no remote `main` branch or `v0.1.0` tag exists yet, so Stable publication remains an explicit post-acceptance release action.
+- Next: Protect `Testing` and `main`, promote the accepted source tree through a reviewed pull request, re-run the release gate on the resulting `main` commit, tag that commit `v0.1.0`, and enable GitHub Pages from the generated `gh-pages` branch.

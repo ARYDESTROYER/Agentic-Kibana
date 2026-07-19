@@ -396,16 +396,16 @@ See `docs/ENVIRONMENT.md` for the full detail. Summary:
 ## 7. Build / run / test cheatsheet
 
 ```bash
-# Backend tests (offline; MUST stay green) — currently 1942 tests (see Journal for the exact current count)
+# Backend tests (offline; MUST stay green) — currently 1957 tests (see Journal for the exact current count)
 cd backend && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements-dev.txt
-python -m pytest -q                         # -> 1942 passed (rises each round; see Journal)
+python -m pytest -q                         # -> 1957 passed (rises each round; see Journal)
 
 # Backend run locally (in-memory store, mock LLM if no keys)
 uvicorn app.main:app --port 8088
 
 # Web UI build + tests + lint (PRIMARY surface; Node 22 — /opt/node22 is fine)
-cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~285.91 kB; motion lazy-chunk ~83.85 kB)
-npx vitest run                             # -> 1349 passed / 240 files (see Journal for the current count)
+cd webui && npm install && npm run build   # tsc --noEmit && vite build -> webui/dist/ (entry chunk ~287.45 kB; motion lazy-chunk ~83.85 kB)
+npx vitest run                             # -> 1350 passed / 240 files (see Journal for the current count)
 npm run lint                               # 0 errors, 0 warnings; jsx-a11y at error
 
 # One-command demo (backend :8088 AUTH ENABLED + webui dev :5173; login Admin / Admin@123)
@@ -450,8 +450,8 @@ docker compose -f deploy/docker-compose.agnostic.yml up -d --build   # webui on 
   `/api` proxy forwards arbitrary JSON). Keep `webui/src/lib/types.ts` in sync with
   `models.py`.
 - **Secrets:** env only; UI shows booleans (`configured ✓`) never values.
-- **Tests:** add/keep offline tests; `pytest -q` green (1942) + `npm run build` clean
-  + `vitest run` (1349 / 240 files) + `npm run lint` (0 errors, jsx-a11y at error) before
+- **Tests:** add/keep offline tests; `pytest -q` green (1957) + `npm run build` clean
+  + `vitest run` (1350 / 240 files) + `npm run lint` (0 errors, jsx-a11y at error) before
   every commit. (Counts rise each round — see `Journal.md` for the exact current totals.)
 - **Git:** active branch `Testing`. Commit focused changes; push when asked.
 
@@ -475,8 +475,9 @@ deep-audit hardening pass (2026-07-14/15)** fixed **47 verified findings** (0 cr
 high / 24 med / 13 low) from a 24-auditor + adversarial-verify Workflow — one atomic
 commit per finding on `Testing` (`c5516e5`→`abd0385`), local only, not tagged or pushed.
 See the "Deep-audit hardening" bullet in the round summary and the 2026-07-15 `Journal.md`
-entry. The separately versioned `3.0.0-alpha.1` candidate is prepared on top; it is not
-tagged or pushed. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
+entry. The product is now Version **`0.1.0`**: changes integrate and pass acceptance on
+`Testing`, then the exact accepted commit promotes to the Stable `main` branch and receives
+the immutable `v0.1.0` tag. Use `git log -1`, `VERSION`, and the latest `Journal.md` entry for the
 exact current snapshot rather than an embedded HEAD hash. Round 9c (`559ce88`, PR
 #27) is historical;
 `feature/round7-ui-overhaul` (Rounds 7–8) merged via PR #23/#24, Round 9 via PR #25,
@@ -490,7 +491,7 @@ baseline); webui **1349 Vitest** specs / 240 files (unchanged — the audit pass
 webui code), build clean (`tsc --noEmit && vite build`), entry
 chunk **285.91 kB** (motion lands in a **LAZY ~83.85 kB** chunk, never
 modulepreloaded); eslint **0 errors, 0 warnings**; **zero new webui runtime
-deps except the deliberate lazy `motion`** (12.42.2). The alpha adds only the
+deps except the deliberate lazy `motion`** (12.42.2). Version 0.1 adds only the
 explicitly pinned connector/SQL packaging dependencies required by its advertised
 `full` image; the `core` image remains available. `engine/case_manager.py` `decide()` stays **byte-identical** to
 the pre-Round-5 baseline `27f0983`; `engine/risk.py` / `engine/signatures.py`

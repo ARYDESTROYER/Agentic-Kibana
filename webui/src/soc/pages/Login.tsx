@@ -115,7 +115,7 @@ export default function Login({ onAuthenticated }: LoginProps) {
   // rendered as PLAIN text / mapped to CODE-defined layouts (#6/#9).
   const branding = brandingBase as LoginBranding;
 
-  const wordmark = branding.org_name?.trim() || 'Agentic SOC';
+  const wordmark = branding.org_name?.trim() || 'TLSOC';
   const tagline = branding.product_name?.trim() || 'Triage console';
   const logoUrl = branding.logo_data_url?.trim() || '';
   const loginSubtitle = branding.login_subtitle?.trim() || '';

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 /**
- * Vite config for the standalone Agentic SOC web UI.
+ * Vite config for TLSOC Console.
  *
  * In dev, the SPA is served on :5173 and all `/api/*` calls are proxied to the
  * FastAPI backend on :8088, so the browser talks to the backend DIRECTLY (there

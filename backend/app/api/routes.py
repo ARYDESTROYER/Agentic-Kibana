@@ -145,11 +145,20 @@ async def _state_store_probe(state: AppState) -> tuple[bool, str]:
         return False, store_type
 
 
-def _release_channel(version: str) -> str:
-    if "-" not in version:
-        return "stable"
-    prerelease = version.split("-", 1)[1].split("+", 1)[0].split(".", 1)[0]
-    return prerelease or "prerelease"
+def _release_channel(configured: str | None = None) -> str:
+    """Return the independently stamped promotion channel.
+
+    Branch promotion and SemVer are orthogonal: the same ``0.1.0`` candidate is
+    exercised on Testing before its exact commit reaches main/Stable. Inferring a
+    channel from a prerelease suffix would therefore mislabel Testing builds.
+    """
+    value = (configured or os.getenv("TLSOC_RELEASE_CHANNEL", "testing")).strip().lower()
+    aliases = {"main": "stable", "test": "testing"}
+    value = aliases.get(value, value)
+    if value not in {"testing", "stable"}:
+        logger.warning("Unknown TLSOC_RELEASE_CHANNEL=%r; reporting testing", value)
+        return "testing"
+    return value
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -202,7 +211,7 @@ async def health_build_info(state: AppState = Depends(get_state)) -> BuildInfoRe
     return BuildInfoResponse(
         service="tlsoc-agentic-triage",
         version=__version__,
-        release_channel=_release_channel(__version__),
+        release_channel=_release_channel(),
         commit_sha=os.getenv("TLSOC_BUILD_SHA", "unknown"),
         build_time=os.getenv("TLSOC_BUILD_DATE", "unknown"),
         state_backend=str(state.secrets.state_backend),
@@ -2692,13 +2701,13 @@ async def update_my_avatar(
 # --------------------------------------------------------------------------- #
 def _mfa_issuer(state: AppState) -> str:
     """The authenticator issuer label: Preferences.mfa.issuer → branding.org_name →
-    "Agentic SOC"."""
+    "TLSOC"."""
     mfa = getattr(state.prefs, "mfa", None)
     issuer = (getattr(mfa, "issuer", "") or "").strip()
     if issuer:
         return issuer
     org = (getattr(getattr(state.prefs, "branding", None), "org_name", "") or "").strip()
-    return org or "Agentic SOC"
+    return org or "TLSOC"
 
 
 def _mfa_params(state: AppState) -> tuple[int, int]:

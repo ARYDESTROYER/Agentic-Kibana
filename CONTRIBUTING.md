@@ -1,6 +1,6 @@
 # CONTRIBUTING.md — Developer workflow
 
-How to work on the **Agentic SOC Triage Suite** (vendor-agnostic). Read
+How to work on the **TLSOC Agentic Triage Suite** (vendor-agnostic). Read
 [`AGENTS.md`](AGENTS.md) first — it is the canonical context (architecture, the 12
 non-negotiables, environment, and the Journal mandate). This file is the practical
 workflow that sits on top of it.
@@ -18,10 +18,13 @@ workflow that sits on top of it.
 
 ## 1. Branch, commits, and the Journal mandate
 
-- **Branches:** use `next` for ongoing prerelease development and `main` for stable
-  releases; `Testing` is the legacy working branch during the initial transition.
-  See [`docs/releases/channels.md`](docs/releases/channels.md). Commit focused
-  changes; push only when asked.
+- **Branches:** merge feature work into `Testing`, the protected integration
+  branch. After its full release gate passes, promote that accepted source tree to
+  `main`, the protected **Stable** branch, and re-run the gates on the resulting
+  `main` commit. Do not develop directly on `main`, and
+  do not maintain a parallel prerelease branch under another name. See
+  [`docs/releases/channels.md`](docs/releases/channels.md). Commit focused changes;
+  push only when asked.
 - **The Journal mandate (non-negotiable process rule).** Every agent (and the
   orchestrator) **MUST** append an entry to [`Journal.md`](Journal.md) at the
   start and end of any session, and after any meaningful milestone (a feature
@@ -246,8 +249,11 @@ A new `SourceType` enum value (`constants.py`) and (for receivers) the right
 
 An aggregate **`CI passed`** check depends on both. To enforce it:
 
-> **GitHub → Settings → Branches → Branch protection rule** for `main`: require the
-> status check **`CI passed`** (and "Require branches to be up to date before
-> merging"). PRs then cannot merge until backend tests and the web UI build pass.
+> **GitHub → Settings → Branches → Branch protection rules** for both `Testing`
+> and `main`: require pull requests, the status check **`CI passed`**, and “Require
+> branches to be up to date before merging.” Direct development goes through
+> `Testing`; a promotion PR to `main` must preserve the accepted source tree and
+> re-run the gate on its resulting commit. PRs then cannot
+> merge until the backend, Console, contracts, and documentation gates pass.
 
 Run both locally before pushing — they are the same commands CI runs.

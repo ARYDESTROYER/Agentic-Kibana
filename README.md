@@ -1,4 +1,4 @@
-# Agentic SOC — self-hosted, vendor-agnostic triage
+# TLSOC Agentic Triage Suite
 
 > A source-available, self-hosted **agentic AI SOC triage** system. It ingests
 > alerts/logs from **any** SIEM/EDR/XDR, normalises everything to **OCSF**,
@@ -7,6 +7,10 @@
 > case manager close or escalate — **auto-close is a tunable per-verdict policy, and a
 > case with no clear verdict is never auto-closed**. It is a **read-only consumer**:
 > your upstream pipeline is never modified.
+
+> **Current release line:** application `0.1.0`, documentation `0.1`. Integrated
+> work lands on `Testing`; the accepted source tree promotes through a protected
+> pull request to `main` / **Stable**, whose verified commit receives `v0.1.0`.
 
 > **New here? Start with [`docs/HANDOFF.md`](docs/HANDOFF.md)** — the authoritative
 > onboarding doc (what's built, how to run it, where everything lives).
@@ -18,11 +22,11 @@ stores, plain webhooks, and more — and ships its **own standalone web UI** so 
 no longer depends on Kibana at all. The UI is a self-hosted **Vite + React +
 Tailwind + shadcn** SPA (the old `@elastic/eui` UI has been retired).
 
-**Public docs source:** [`docs/index.md`](docs/index.md) · quickstart →
-[`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md) · source
-support → [`docs/sources/support-matrix.md`](docs/sources/support-matrix.md) · release
-limits → [`docs/releases/known-limitations.md`](docs/releases/known-limitations.md).
-The same site deploys free through GitHub Pages after `main` is established.
+**Public documentation:** start at [`docs/index.md`](docs/index.md). Each release
+line has its own selector entry and URL; version `0.1` describes app `0.1.x`.
+`Testing` builds a strict review artifact, while `main` publishes Stable docs and
+moves the `stable` / `latest` aliases. See
+[`docs/releases/channels.md`](docs/releases/channels.md).
 
 **Engineering docs:** deploy → [`DEPLOY.md`](DEPLOY.md) · use → [`docs/USAGE.md`](docs/USAGE.md)
 · ingestion → [`docs/INGESTION.md`](docs/INGESTION.md) · architecture →

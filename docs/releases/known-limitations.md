@@ -1,15 +1,15 @@
 ---
 title: Known limitations
-description: Release blockers and explicit alpha constraints for TLSOC 3.0.0-alpha.1.
+description: Promotion blockers and explicit operating constraints for TLSOC 0.1.0.
 ---
 
 # Known limitations
 
-This list is part of the product contract for `3.0.0-alpha.1`. It distinguishes
-release blockers from acceptable evaluation constraints so a green unit-test suite
-is never mistaken for production readiness.
+This list is part of the product contract for TLSOC `0.1.0`. It distinguishes
+blockers to Stable promotion from documented version 0.1 constraints so a green
+unit-test suite is never mistaken for production evidence.
 
-## Release blockers
+## Stable-promotion blockers
 
 ### No project license
 
@@ -51,13 +51,14 @@ Consequences:
 **Required change:** durable receipt + idempotency key + outbox, acknowledge only
 after receipt commit, retry workers, and a bounded dead-letter/replay workflow.
 
-### Receiver cursors are not uniformly durable
+### Receiver checkpoints are not uniformly durable
 
 Durable brokers retain acknowledged offsets, and the ES-compatible pull path now has
-a persisted cursor. Several receiver adapters still keep progress only inside their
-process: object-store list markers, local-file byte offsets, Kinesis shard iterators,
-and the default Event Hubs checkpoint path. Restart can therefore replay old objects
-or miss file data written while the receiver was down, depending on start settings.
+a persisted cursor. Kinesis sequences and S3/GCS/Azure object markers now persist
+through the configured StateStore after successful processing. Local-file byte
+offsets and the default Event Hubs checkpoint path remain process-local. Restart can
+therefore replay or miss file data depending on start settings, while Event Hubs
+durability depends on wiring a supported checkpoint store.
 
 **Required change:** persist per-source/partition/object/file checkpoints only after
 durable receipt, or require a native durable consumer/checkpoint store. Test crash and
@@ -102,7 +103,7 @@ new case. Add tests for retries of one incident, distinct rules on the same enti
 NAT/shared IPs, distant/reopened activity, legacy migration, and cross-source
 related-but-not-merged cases.
 
-## Alpha constraints
+## Version 0.1 constraints
 
 ### Single replica only
 
@@ -144,8 +145,8 @@ remaining frontier rows continuing on the next tick. The late-event-time overlap
 five minutes and its exact recent-ID ledger is capped at 100,000 entries; saturation
 disables optional late acceptance rather than risking replay.
 
-The first-class PIT path is the Bleeding Edge target. The offset fallback is safe for
-a quiescent view but is not claimed exactly-once while an index refreshes. Monitor
+The first-class Elasticsearch path uses PIT. The offset fallback is safe for a
+quiescent view but is not claimed exactly-once while an index refreshes. Monitor
 cursor saturation/catch-up lag and retain the source long enough to replay events
 outside the five-minute overlap.
 
@@ -203,10 +204,10 @@ wakes every six hours without enforcing the configured hourly/daily/weekly/manua
 cadence. It upserts campaigns returned by the latest trailing-window pass and does
 not reconcile campaigns that have expired, split, or disappeared from that snapshot.
 
-Treat campaigns as an exploratory related-case view in the alpha. Before stable,
-persist scheduler leases/last-run state, honour `manual`, reconcile active membership
-without erasing history, and test late cases, closed cases, split/merge, restart, and
-concurrent scheduler ownership.
+Treat campaigns as an exploratory related-case view in version 0.1. Dependable
+scheduled operation requires scheduler leases/last-run state, enforcement of
+`manual`, active-membership reconciliation without erased history, and coverage for
+late cases, closed cases, split/merge, restart, and concurrent scheduler ownership.
 
 ### Connector-specific boundaries
 
@@ -233,13 +234,14 @@ rotation, state backup/restore, log retention, monitoring, image scanning, and a
 documented incident/upgrade procedure.
 
 The project has not published a compliance certification or an independent
-production security assessment for this alpha.
+production security assessment for version 0.1.
 
 ## What is safe to evaluate
 
 Use generated or non-sensitive data on one backend replica. Keep the original event
 in a durable source, use least-privilege source credentials, enable authentication,
-rotate default/demo credentials, and expect to reset state between alpha versions.
+rotate default/demo credentials, and rehearse every documented upgrade or reset on a
+backup before applying it to retained state.
 
 Suitable evaluation goals include:
 
@@ -250,5 +252,5 @@ Suitable evaluation goals include:
 - case provenance, audit, collaboration, and notification UX;
 - fault-injection and performance work needed to close the blockers above.
 
-The alpha should not be marketed as lossless, horizontally scalable, production
-ready, or certified until the corresponding evidence is published.
+Version 0.1 should not be marketed as lossless, horizontally scalable, production
+certified, or independently assessed until the corresponding evidence is published.

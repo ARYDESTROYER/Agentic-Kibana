@@ -1,6 +1,6 @@
 ---
 title: Ingestion and investigation
-description: Current alpha flow and the target low-cost, durable architecture for all-event processing, correlation, mapping, and scale.
+description: The TLSOC 0.1 ingestion and investigation flow, its explicit operating boundaries, and the durability and scale roadmap.
 ---
 
 # Ingestion and investigation
@@ -10,11 +10,13 @@ different records. Keeping those boundaries explicit prevents alert duplication,
 keeps source provenance intact, and lets every raw event receive cheap deterministic
 processing without sending every event to a model.
 
-This page deliberately separates the current alpha from the production target.
+This page deliberately separates the **version 0.1 implementation** from later
+durability and horizontal-scale work. Future-state diagrams are design direction,
+not claims about the current release.
 
-## Current alpha
+## Version 0.1 implementation
 
-| Layer | What is implemented | Alpha boundary |
+| Layer | What is implemented | Version 0.1 boundary |
 |---|---|---|
 | Connect | 3 pull connectors and 16 push/queue/object-store receiver adapters; all clients in the default `full` image | Live protocol/vendor certification is not yet published; the opt-in `core` image omits cloud/queue clients |
 | Normalise | ECS and generic mappings into the OCSF 1.4 event model, with unmapped/raw catch-alls | Mapping coverage varies by source; OCSF conformance profiles are not yet published |
@@ -179,14 +181,14 @@ Cost controls, in order:
 7. batch non-urgent work, enforce provider concurrency, and meter every call;
 8. route budget exhaustion to human review instead of dropping or auto-closing.
 
-The alpha defaults to a hard `$10/day` preflight ceiling with an 80% warning. New
+Version 0.1 defaults to a hard `$10/day` preflight ceiling with an 80% warning. New
 provider calls stop at the ceiling and the case fails safe to `NEEDS_HUMAN`. Because
 the check is not an atomic spend reservation, already in-flight calls can complete
 slightly beyond it; provider-side budgets remain the final billing backstop.
 
 The design target is for **less than 1% of raw events** to require any model call.
 That is an exit metric to measure on reference workloads, not a claim about the
-current alpha.
+current release.
 
 ## Learning without uncontrolled self-modification
 
@@ -206,7 +208,7 @@ logs or a single mistaken verdict.
 
 ## Scale-out roadmap
 
-The alpha runs API, receivers, polling, scheduling, correlation, and investigation
+Version 0.1 runs API, receivers, polling, scheduling, correlation, and investigation
 inside one backend process. Do not add replicas until the process-local coordination
 is replaced.
 
@@ -230,7 +232,7 @@ Backpressure starts at the edge: pause broker consumption, slow pull intervals, 
 spool receipts durably before memory fills. Never scale an active pull controller to
 zero, and never let model-provider rate limits block receipt acknowledgement.
 
-## Proposed alpha exit gates
+## Durability maturity targets
 
 These are targets to benchmark and publish on a named reference deployment—not
 current guarantees:

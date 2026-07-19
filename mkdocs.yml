@@ -3,7 +3,7 @@ site_description: Vendor-neutral, self-hosted security alert triage with determi
 site_url: https://arydestroyer.github.io/Agentic-Kibana/
 repo_url: https://github.com/ARYDESTROYER/Agentic-Kibana
 repo_name: ARYDESTROYER/Agentic-Kibana
-edit_uri: edit/main/docs/
+edit_uri: !ENV [TLSOC_DOCS_EDIT_URI, "edit/Testing/docs/"]
 docs_dir: docs
 site_dir: site
 strict: true
@@ -57,8 +57,7 @@ markdown_extensions:
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
-  - pymdownx.highlight:
-      anchor_linenums: true
+  - pymdownx.highlight
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences:
@@ -76,6 +75,17 @@ extra_javascript:
   - javascripts/extra.js
 
 extra:
+  product_version: "0.1.0"
+  docs_version: "0.1"
+  stable_docs_url: !ENV [TLSOC_DOCS_STABLE_URL, "https://arydestroyer.github.io/Agentic-Kibana/stable/"]
+  release:
+    channel: !ENV [TLSOC_DOCS_CHANNEL, "Testing"]
+    stable_branch: main
+    testing_branch: Testing
+  version:
+    provider: mike
+    default: stable
+    alias: true
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/ARYDESTROYER/Agentic-Kibana
@@ -101,9 +111,74 @@ exclude_docs: |
 
 nav:
   - Introduction: index.md
-  - Quickstart: getting-started/quickstart.md
-  - Ingestion and investigation: architecture/ingestion.md
-  - Source support: sources/support-matrix.md
+  - Getting started:
+      - Overview: getting-started/index.md
+      - Quickstart: getting-started/quickstart.md
+      - Install: getting-started/install.md
+      - First-run setup: getting-started/first-run.md
+      - Demo Mode: getting-started/demo.md
+      - Your first case: getting-started/first-case.md
+  - Concepts:
+      - Architecture: concepts/architecture.md
+      - Terminology: concepts/terminology.md
+      - OCSF normalization: concepts/ocsf.md
+      - Deterministic decisions: concepts/deterministic-decisions.md
+      - State, audit, and cost: concepts/state-audit-cost.md
+      - Ingestion and investigation: architecture/ingestion.md
+  - Sources:
+      - Overview: sources/index.md
+      - Support matrix: sources/support-matrix.md
+      - Pull connectors: sources/pull.md
+      - HTTP and syslog: sources/http-syslog.md
+      - Queues and object stores: sources/queues-object-stores.md
+      - Feeds and field mapping: sources/feeds-mapping.md
+      - Custom connectors: sources/custom-connectors.md
+  - Analyst guide:
+      - Overview: analyst/overview.md
+      - Cases: analyst/cases.md
+      - Investigation: analyst/investigation.md
+      - Logs and search: analyst/logs-search.md
+      - Collaboration: analyst/collaboration.md
+      - Campaigns: analyst/campaigns.md
+      - Analytics: analyst/analytics.md
+  - Automation:
+      - Overview: automation/index.md
+      - Detection rules: automation/rules.md
+      - Tuning and baselines: automation/tuning-baselines.md
+      - Playbooks and approvals: automation/playbooks-approvals.md
+  - Intelligence:
+      - Knowledge and memory: intelligence/knowledge-memory.md
+      - Enrichment: intelligence/enrichment.md
+      - MITRE and threat context: intelligence/mitre-threat-context.md
+  - Administration:
+      - Settings: administration/settings.md
+      - Users and RBAC: administration/users-rbac.md
+      - Authentication: administration/authentication.md
+      - Models and spend: administration/models-spend.md
+      - Notifications: administration/notifications.md
+      - Customization: administration/customization.md
+      - Reset controls: administration/reset.md
+  - Operations:
+      - Deployment: operations/deployment.md
+      - Configuration: operations/configuration.md
+      - Security hardening: operations/security.md
+      - Health and backup: operations/health-backup.md
+      - Upgrades: operations/upgrades.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Reference:
+      - API: reference/api.md
+      - Configuration: reference/configuration.md
+      - Permissions: reference/permissions.md
+      - Compatibility: reference/compatibility.md
+      - Security invariants: reference/security.md
+  - Development:
+      - Overview: development/index.md
+      - Backend: development/backend.md
+      - Web console: development/webui.md
+      - Extensions: development/extensions.md
+      - Testing and contracts: development/testing.md
   - Releases:
+      - TLSOC 0.1: releases/0.1.md
       - Channels and versioning: releases/channels.md
+      - Documentation versions: releases/documentation-versions.md
       - Known limitations: releases/known-limitations.md

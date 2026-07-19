@@ -169,7 +169,7 @@ def provisioning_uri(
 
     The label is ``Issuer:account`` (both percent-encoded); ``issuer`` is repeated
     as a query parameter per the Key-URI spec. Algorithm is always SHA1."""
-    issuer = (issuer or "Agentic SOC").strip() or "Agentic SOC"
+    issuer = (issuer or "TLSOC").strip() or "TLSOC"
     account = (account or "user").strip() or "user"
     label = quote(f"{issuer}:{account}", safe="")
     params = (

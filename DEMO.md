@@ -1,6 +1,6 @@
 # DEMO.md — Guided demo walkthrough
 
-A crisp, copy-pasteable script for **presenting** the Agentic SOC Triage Suite.
+A crisp, copy-pasteable script for **presenting** TLSOC Agentic Triage Suite.
 It brings the suite up locally with **auth enabled** (so the redesigned login,
 6-role RBAC, MFA, sessions, and SSO surfaces are all live) and walks a presenter
 through every headline feature in order. Budget ~25-30 minutes for the full tour

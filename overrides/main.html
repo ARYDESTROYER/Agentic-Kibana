@@ -11,20 +11,30 @@
 {% endblock %}
 
 {% block announce %}
+  {% set is_stable = config.extra.release.channel | lower == "stable" %}
   <div
     class="tlsoc-marquee"
     role="status"
-    aria-label="Bleeding Edge evaluation build — use at your own risk"
+    aria-label="{{ 'Stable' if is_stable else 'Testing' }} documentation for TLSOC {{ config.extra.docs_version }}"
   >
     <div class="tlsoc-marquee__track">
       {% for _ in range(12) %}
         <span class="tlsoc-marquee__item"{% if not loop.first %} aria-hidden="true"{% endif %}>
-          BLEEDING EDGE — USE AT YOUR OWN RISK
+          {% if is_stable %}
+            STABLE DOCUMENTATION — TLSOC {{ config.extra.docs_version }}
+          {% else %}
+            TESTING CHANNEL — TLSOC {{ config.extra.docs_version }} — PROMOTES TO STABLE ON MAIN
+          {% endif %}
           <span class="tlsoc-marquee__dot">■</span>
         </span>
       {% endfor %}
     </div>
   </div>
+{% endblock %}
+
+{% block outdated %}
+  You are viewing an older TLSOC documentation version.
+  <a href="{{ config.extra.stable_docs_url }}">Open the Stable documentation.</a>
 {% endblock %}
 
 {% block container %}

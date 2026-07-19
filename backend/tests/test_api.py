@@ -61,12 +61,20 @@ def test_health_live_ready_and_build_info(client, monkeypatch):
     assert build.json() == {
         "service": "tlsoc-agentic-triage",
         "version": __version__,
-        "release_channel": "alpha",
+        "release_channel": "testing",
         "commit_sha": "abc123",
         "build_time": "2026-07-11T00:00:00Z",
         "state_backend": "elasticsearch",
         "ocsf_version": "1.4.0",
     }
+
+    # Channel is stamped independently from SemVer so the same 0.1.0 candidate
+    # reports Testing until its accepted main/tag build is explicitly Stable.
+    monkeypatch.setenv("TLSOC_RELEASE_CHANNEL", "Stable")
+    promoted = client.get("/api/health/build-info")
+    assert promoted.status_code == 200
+    assert promoted.json()["version"] == __version__
+    assert promoted.json()["release_channel"] == "stable"
 
 
 def test_health_readiness_is_truthful_when_state_store_is_down(client, monkeypatch):

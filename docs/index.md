@@ -1,67 +1,104 @@
 ---
-title: Introduction
-description: TLSOC is a source-available, self-hosted security operations console that turns detections and events into auditable cases.
+title: TLSOC documentation
+description: Documentation for TLSOC 0.1, the vendor-neutral agentic security triage suite with deterministic decisions, auditable AI, and bounded model spend.
 ---
 
-# Introduction
+# TLSOC documentation
 
-<p class="tlsoc-page-lede">Security triage that explains every decision</p>
+<p class="tlsoc-page-lede">Turn security signals into explainable, cost-metered cases without handing control to a model.</p>
 
-## What is TLSOC?
+**Documentation 0.1** describes TLSOC Agentic Triage Suite **0.1.0**. Use the
+version selector in the navigation footer when working with another release line;
+the channel badge identifies whether the page came from Testing or Stable.
 
-TLSOC is a vendor-neutral, self-hosted security operations console. It receives
-alerts and events from many source types, normalises them to **OCSF**, correlates
-related activity, and turns the result into a human-reviewable case.
+## Start here
 
-AI can investigate compact, fenced evidence and return a verdict with confidence.
-It never owns the final action: deterministic, operator-configured policy alone
-decides whether a case closes, escalates, or needs a human.
+| Goal | Read this |
+| --- | --- |
+| See the product without external infrastructure or model cost | [Run the deterministic demo](getting-started/demo.md) |
+| Install the complete standalone stack | [Install TLSOC](getting-started/install.md) |
+| Configure an organization for the first time | [First-run setup](getting-started/first-run.md) |
+| Trace one alert through triage | [Work your first case](getting-started/first-case.md) |
+| Connect a SIEM, queue, receiver, or object store | [Source overview](sources/index.md) |
+| Operate or upgrade a deployment | [Operations](operations/deployment.md) |
+| Integrate with the backend | [API reference](reference/api.md) |
 
-## Key ideas
+## What TLSOC does
 
-- **One source-neutral console** — pull from Elasticsearch, OpenSearch, or Wazuh;
-  receive webhooks, HEC, syslog, queues, and object-store exports through one
-  connector contract.
-- **OCSF at the boundary** — native records become a canonical security-event
-  shape before correlation, scoring, investigation, or case management sees them.
-- **Cheap reasoning first** — rules, baselines, deduplication, and correlation keep
-  routine telemetry away from expensive model calls.
-- **AI with a cost boundary** — every model call uses compact, untrusted-data-fenced
-  evidence and passes through one usage and cost ledger.
-- **Code owns the final action** — a pure policy function, never model output, owns
-  close and escalation decisions.
-- **Built for review** — cases preserve provenance, investigation traces, status
-  history, collaboration, and append-only audit records.
+TLSOC is a vendor-neutral, self-hosted security operations console. It pulls or
+receives security records from supported sources, normalizes each record to
+**OCSF 1.4.0**, correlates related activity, computes deterministic risk, and
+creates human-reviewable cases.
 
-## Run locally
+When a case merits model investigation, TLSOC sends compact, explicitly fenced
+evidence through a single model gateway. The model supplies a verdict and
+confidence; deterministic operator policy alone decides whether the case closes,
+escalates, or requires a human.
 
-Start the deterministic four-source demo. It uses generated security stories and a
-mock model, so it costs nothing and never touches a real source.
-
-```bash
-./scripts/run-demo.sh
+```mermaid
+flowchart LR
+  S["SIEM / EDR / queue / object store"] --> C["Connector"]
+  C --> O["OCSF normalization"]
+  O --> R["Rules, correlation, risk"]
+  R --> I["Bounded investigation"]
+  I --> P["Deterministic policy"]
+  P --> K["Case, audit, usage, notification"]
 ```
 
-Open `http://127.0.0.1:5173` and sign in with `Admin` / `Admin@123`.
+## Product guarantees
 
-## Components
+- **Source systems stay read-only.** Pull credentials are scoped to the selected
+  data and TLSOC never writes back to an upstream SIEM.
+- **Models do not own the final action.** The close/escalate function is pure code
+  over verdict, confidence, risk, and operator policy. `NEEDS_HUMAN` can never
+  auto-close.
+- **Every model call is accounted for.** One gateway records usage and cost and
+  enforces the configured daily budget before work begins.
+- **Untrusted telemetry is fenced.** Source-controlled values remain labelled as
+  untrusted in chat, investigation, retrieval, and tool results.
+- **Actions are reviewable.** Cases retain evidence provenance, investigation
+  traces, status history, collaboration, and append-only audit records.
+- **Storage is selectable.** TLSOC bookkeeping can use PostgreSQL, SQLite, or
+  Elasticsearch independently of the upstream log source.
 
-| Component | Role |
-| --- | --- |
-| `tlsoc-backend` | FastAPI, LangGraph, connectors, deterministic policy, state, audit, and the cost ledger |
-| `tlsoc-webui` | Standalone React security operations console and first-run setup |
-| `StateStore` | PostgreSQL, SQLite, or Elasticsearch-backed suite bookkeeping |
-| OCSF pipeline | Canonical event mapping before detection, correlation, and investigation |
+## Documentation by role
 
-## Next steps
+### Analysts
 
-- [Quickstart](getting-started/quickstart.md) — run the demo or evaluation stack
-- [Ingestion and investigation](architecture/ingestion.md) — follow a signal from
-  source receipt to deterministic case action
-- [Source support](sources/support-matrix.md) — see what is implemented, emulated,
-  or still planned
-- [Known limitations](releases/known-limitations.md) — understand the Bleeding Edge
-  evaluation boundary before connecting real data
+Start with the [analyst workflow](analyst/overview.md), then use the guides for
+[cases](analyst/cases.md), [investigation](analyst/investigation.md),
+[logs and search](analyst/logs-search.md), [campaigns](analyst/campaigns.md), and
+[analytics](analyst/analytics.md).
 
-The current planned artifact is **`v3.0.0-alpha.1`**. It is a single-replica
-evaluation build, not a production certification.
+### Detection engineers
+
+Read [automation](automation/index.md), [rules](automation/rules.md),
+[tuning and baselines](automation/tuning-baselines.md), and
+[playbooks and approvals](automation/playbooks-approvals.md). Source mapping and
+custom connector guidance lives under [Sources](sources/index.md).
+
+### Administrators and operators
+
+Use the [settings map](administration/settings.md),
+[users and RBAC](administration/users-rbac.md),
+[authentication](administration/authentication.md), and the complete
+[operations guide](operations/deployment.md). Review [security](operations/security.md)
+and [backup and health](operations/health-backup.md) before exposing a deployment.
+
+### Developers and integrators
+
+The [concepts](concepts/architecture.md) explain the trust and data boundaries.
+Use [API reference](reference/api.md), [configuration reference](reference/configuration.md),
+[permissions](reference/permissions.md), and [development](development/index.md)
+for contract-level detail.
+
+## Release status
+
+TLSOC uses one promotion path: feature branches merge into **Testing**, and the
+accepted source tree promotes through a protected PR to **`main` / Stable**. The
+resulting `main` commit is verified before tagging. Code and images use SemVer
+`0.1.0`; this site uses the major.minor documentation line `0.1`.
+
+Read [release channels and versioning](releases/channels.md),
+[TLSOC 0.1 release notes](releases/0.1.md), and
+[known limitations](releases/known-limitations.md) before deployment.

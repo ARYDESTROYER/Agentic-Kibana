@@ -12,7 +12,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, next, Testing, claude/main, "release/**"]
+    branches: [main, Testing]
     tags: ["v*"]
 
 # Cancel superseded runs on the same ref to save CI minutes.
@@ -48,6 +48,8 @@ jobs:
         run: npm ci --prefix ../webui --ignore-scripts
       - name: Check canonical release version
         run: python ../scripts/check_version.py
+      - name: Check public documentation structure and links
+        run: python ../scripts/check_docs.py
       - name: Validate standalone Compose configuration
         env:
           TLSOC_PG_PASSWORD: ci-compose-password

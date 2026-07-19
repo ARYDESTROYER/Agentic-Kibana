@@ -150,13 +150,13 @@ export function MfaSetupCard({ enabled, onChanged, frameless = false }: MfaSetup
   const downloadCodes = () => {
     if (!enroll) return;
     const blob = new Blob(
-      [`Agentic SOC — two-factor recovery codes\n\n${enroll.recovery_codes.join('\n')}\n`],
+      [`TLSOC — two-factor recovery codes\n\n${enroll.recovery_codes.join('\n')}\n`],
       { type: 'text/plain' },
     );
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'agentic-soc-recovery-codes.txt';
+    a.download = 'tlsoc-recovery-codes.txt';
     a.click();
     URL.revokeObjectURL(url);
   };

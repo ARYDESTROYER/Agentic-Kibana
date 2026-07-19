@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tlsoc-agentic-triage"
-version = "3.0.0-alpha.1"
+version = "0.1.0"
 description = "TLSOC Agentic Triage Suite — backend (FastAPI + LangGraph)"
 requires-python = ">=3.11"
 dynamic = ["dependencies", "optional-dependencies"]

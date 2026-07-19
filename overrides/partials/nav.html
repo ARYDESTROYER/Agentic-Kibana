@@ -12,7 +12,7 @@
         <a class="tlsoc-repo-link" href="{{ config.repo_url }}" target="_blank" rel="noopener">
           {% include ".icons/fontawesome/brands/github.svg" %}
           <span>GitHub</span>
-          <span class="tlsoc-source-badge">ALPHA PREVIEW</span>
+          <span class="tlsoc-source-badge">{{ config.extra.release.channel }} · {{ config.extra.docs_version }}</span>
         </a>
       {% endif %}
     </div>
@@ -36,6 +36,12 @@
 
   {% if config.theme.palette %}
     <div class="tlsoc-sidebar-footer">
+      <div class="md-header__topic tlsoc-version-topic" aria-label="Documentation version">
+        <span class="tlsoc-version-fallback">
+          <span>Docs</span>
+          <strong>{{ config.extra.docs_version }}</strong>
+        </span>
+      </div>
       {% if not config.theme.palette is mapping %}
         {% include "partials/palette.html" %}
       {% endif %}

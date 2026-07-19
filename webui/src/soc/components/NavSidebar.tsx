@@ -666,7 +666,7 @@ export function NavSidebar({
         </span>
         {!collapsed ? (
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            {productName || 'Agentic SOC'}
+            {productName || 'TLSOC'}
           </span>
         ) : null}
         {!collapsed ? toggleSlot : null}

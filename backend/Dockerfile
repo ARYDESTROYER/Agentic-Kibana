@@ -7,13 +7,15 @@
 FROM python:3.11.15-slim-bookworm AS runtime-base
 
 ARG TLSOC_VERSION=unknown
+ARG TLSOC_RELEASE_CHANNEL=testing
 ARG TLSOC_BUILD_SHA=unknown
 ARG TLSOC_BUILD_DATE=unknown
 ARG TLSOC_SOURCE_URL=https://github.com/ARYDESTROYER/Agentic-Kibana
 
-LABEL org.opencontainers.image.title="TLSOC Agentic Triage Backend" \
-      org.opencontainers.image.description="Vendor-agnostic agentic SOC triage backend" \
+LABEL org.opencontainers.image.title="TLSOC API" \
+      org.opencontainers.image.description="Backend API for TLSOC Agentic Triage Suite" \
       org.opencontainers.image.version="${TLSOC_VERSION}" \
+      dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}" \
       org.opencontainers.image.revision="${TLSOC_BUILD_SHA}" \
       org.opencontainers.image.created="${TLSOC_BUILD_DATE}" \
       org.opencontainers.image.source="${TLSOC_SOURCE_URL}"
@@ -22,6 +24,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
+    TLSOC_RELEASE_CHANNEL=${TLSOC_RELEASE_CHANNEL} \
     TLSOC_BUILD_SHA=${TLSOC_BUILD_SHA} \
     TLSOC_BUILD_DATE=${TLSOC_BUILD_DATE}
 

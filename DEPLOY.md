@@ -1,9 +1,15 @@
-# DEPLOY.md — Deploying the Agentic SOC Triage Suite
+# DEPLOY.md — Deploying TLSOC Agentic Triage Suite
 
-This is the deployment guide for the **vendor-agnostic, self-hosted Agentic SOC
-triage suite**. The product is a read-only triage layer that consumes alerts from
+This is the deployment guide for the **vendor-agnostic, self-hosted TLSOC Agentic
+Triage Suite**. The product is a read-only triage layer that consumes alerts from
 **any** SIEM / EDR / XDR and turns raw alert volume into audited, cost-metered,
 human-reviewable cases.
+
+The current artifact version is `0.1.0` (documentation line `0.1`). Source builds
+default to `TLSOC_RELEASE_CHANNEL=testing`; set `stable` only while building the
+exact accepted `main` / `v0.1.0` commit. Version and channel are independent so a
+Testing candidate cannot report itself as Stable merely because it already carries
+the final SemVer.
 
 > **The SIEM is NOT baked into the stack.** You connect your log source(s) from
 > the **first-run wizard** ("add a source") AFTER the stack is up — not in a
@@ -282,7 +288,7 @@ overlay — create `backend/Dockerfile.extra` (or add to your own build) layerin
 on the core image:
 
 ```dockerfile
-FROM tlsoc-agentic-triage-backend:1.0.0
+FROM tlsoc-agentic-triage-backend:0.1.0
 RUN pip install --no-cache-dir confluent-kafka boto3   # only what you need
 ```
 

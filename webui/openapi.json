@@ -4675,9 +4675,9 @@
     }
   },
   "info": {
-    "description": "Agentic SOC triage backend (FastAPI + LangGraph). Read-only consumer of the ELK log surface; owns its cases/audit/usage indices.",
-    "title": "TLSOC Agentic Triage Suite — Backend",
-    "version": "3.0.0-alpha.1"
+    "description": "Vendor-neutral TLSOC Agentic Triage Suite API. It consumes source data read-only and owns only TLSOC application state.",
+    "title": "TLSOC API",
+    "version": "0.1.0"
   },
   "openapi": "3.1.0",
   "paths": {

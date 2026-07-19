@@ -1,9 +1,9 @@
 {
-  "name": "agentic-soc-webui",
+  "name": "tlsoc-console",
   "private": true,
-  "version": "3.0.0-alpha.1",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Standalone, vendor-agnostic web UI for the Agentic SOC triage backend (replaces the Kibana plugin).",
+  "description": "TLSOC Console, the standalone operator interface for TLSOC Agentic Triage Suite.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

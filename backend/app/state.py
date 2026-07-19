@@ -2021,7 +2021,7 @@ class AppState:
     async def reconcile_receivers(self) -> None:
         """Apply the current source/secret configuration to the live receivers.
 
-        Reconciliation is intentionally idempotent and coarse-grained for the alpha:
+        Reconciliation is intentionally idempotent and coarse-grained in version 0.1:
         stop the existing set cleanly, then start exactly the enabled configured set.
         This makes create/edit/delete/secret rotation effective without a process
         restart and prevents deleted file/syslog/queue consumers from lingering.

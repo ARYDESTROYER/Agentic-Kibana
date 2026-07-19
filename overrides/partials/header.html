@@ -10,7 +10,7 @@
       <a class="tlsoc-repo-link tlsoc-repo-link--mobile" href="{{ config.repo_url }}" target="_blank" rel="noopener">
         {% include ".icons/fontawesome/brands/github.svg" %}
         <span>GitHub</span>
-        <span class="tlsoc-source-badge">ALPHA PREVIEW</span>
+        <span class="tlsoc-source-badge">{{ config.extra.release.channel }} · {{ config.extra.docs_version }}</span>
       </a>
     {% endif %}
 

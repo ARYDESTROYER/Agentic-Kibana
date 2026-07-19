@@ -115,9 +115,10 @@ is untouched and no LLM/playbook path can drive close/escalate.
   build` clean, `npm run lint` 0 errors. Working tree clean; **no co-author trailer** on
   any of the 48 commits; **not pushed**.
 
-## [3.0.0-alpha.1] — 2026-07-11 — Bleeding Edge hardening candidate
+## [0.1.0] — 2026-07-19 — Testing release foundation
 
-This prerelease foundation is implemented but **not yet tagged or published**.
+This Version 0.1 foundation is implemented on `Testing` but **not yet tagged or
+promoted to the Stable `main` branch**.
 It establishes one canonical SemVer identity, truthful runtime/readiness checks,
 source-safe ingest/investigation boundaries, a full connector image, CI release
 gates, and a GitHub Pages documentation site. Remaining publication blockers are

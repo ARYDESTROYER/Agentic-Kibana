@@ -111,7 +111,7 @@ function applyDocumentTitle(branding: Branding): void {
   // Default deployment (no org/product configured) → keep the static index.html title
   // instead of clobbering it to a different fallback string, which flickers on load.
   if (!org && !product) return;
-  const title = [org || 'Agentic SOC', product].filter(Boolean).join(' · ');
+  const title = [org || 'TLSOC', product].filter(Boolean).join(' · ');
   if (title) document.title = title;
 }
 

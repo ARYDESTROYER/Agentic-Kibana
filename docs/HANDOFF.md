@@ -6,17 +6,18 @@
 > source of truth for *where we are*, *how to run it*, *what's done*, and *what's next*.
 > Everything in here is verified against the repo as of the date below — not from memory.
 
-- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-15
+- **Repo:** `ARYDESTROYER/Agentic-Kibana`  ·  **Working branch:** `Testing`  ·  **Date:** 2026-07-19
 - **Status:** Round 10 is committed. On top of it, a **backend deep-audit hardening pass
   (2026-07-14/15)** fixed **47 verified findings** (0 crit / 10 high / 24 med / 13 low)
   from a 24-auditor + adversarial-verify Workflow — **one atomic commit per finding, no
   co-author**, on `Testing` (`c5516e5`→`abd0385`), **local only (not tagged or pushed)**.
-  The current work prepares `3.0.0-alpha.1` as an honest Bleeding Edge candidate; `main` +
-  `next` are the recommended permanent release branches; see `docs/releases/channels.md`.
-- **Verification:** green at **1942 backend tests** (0 failures; +55 regression tests over
-  the prior 1887 baseline) and **1349 web tests across 240 files** (unchanged — the audit
-  pass touched no webui code), with production build, lint/design gates, packaging, version,
-  Compose, and strict docs checks passing. Read the latest `Journal.md` entry (2026-07-15)
+  The current product version is **`0.1.0`**. `Testing` is the permanent integration and
+  acceptance branch; the accepted source tree is promoted through a protected pull request
+  to the Stable `main` branch, the resulting commit is re-verified, and that commit is tagged
+  `v0.1.0`; see `docs/releases/channels.md`.
+- **Verification:** green at **1957 backend tests** and **1350 web tests across 240 files**,
+  with production build, lint/design gates, packaging, version, Compose, and strict docs
+  checks passing. Read the latest `Journal.md` entry (2026-07-19)
   and `CHANGELOG.md` `[Unreleased]` for command-level evidence + the finding list. The
   deterministic `decide()` authority was verified clean by the audit and remains untouched;
   the 12 non-negotiables remain mandatory.
@@ -25,7 +26,7 @@
 
 ## 1. What this is (30-second orientation)
 
-The **TLSOC / Agentic SOC Platform** is a vendor-agnostic agentic SOC triage system: it ingests
+**TLSOC Agentic Triage Suite** is a vendor-agnostic agentic SOC triage system: it ingests
 security alerts from pluggable sources, normalises to OCSF, correlates + risk-scores
 deterministically, runs a two-tier LLM investigation, and turns the result into audited,
 cost-metered, human-reviewable **cases** — with a deterministic close/escalate policy that an LLM
@@ -47,15 +48,15 @@ can never override.
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt        # greenlet is pinned, so a fresh install is green
-python -m pytest -q                         # -> 1942 passed (rises each round; see Journal.md)
+python -m pytest -q                         # -> 1957 passed (rises each round; see Journal.md)
 ```
 
 ### WebUI build + tests + lint
 ```bash
 cd webui
 npm install
-npm run build      # tsc --noEmit && vite build -> clean (entry 285.91 kB, gzip 84.44 kB)
-npx vitest run     # -> 1349 passed / 240 files
+npm run build      # tsc --noEmit && vite build -> clean (entry 287.45 kB, gzip 85.00 kB)
+npx vitest run     # -> 1350 passed / 240 files
 npm run lint       # eslint -> 0 errors, 0 warnings; 20 jsx-a11y rules are enforced at error
 ```
 

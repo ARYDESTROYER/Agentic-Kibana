@@ -1,8 +1,8 @@
-# Agentic SOC — standalone web UI (`webui/`)
+# TLSOC Console (`webui/`)
 
 A self-hosted single-page app (Vite + React 18 + TypeScript + Tailwind CSS +
 shadcn-style primitives on Radix UI — **not** `@elastic/eui`) for the
-vendor-agnostic Agentic SOC triage backend. This **is** the primary UI (the
+vendor-agnostic TLSOC API. This **is** the primary UI (the
 legacy Kibana plugin is archived, see [`../archive/README.md`](../archive/README.md)):
 the browser talks to the FastAPI backend **directly**, with no Kibana and no
 in-Kibana proxy in the loop.

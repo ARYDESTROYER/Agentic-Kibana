@@ -1,6 +1,6 @@
 # RUNBOOK.md — Day-2 operations
 
-Operating the **Agentic SOC Triage Suite** after it is deployed. This is the
+Operating **TLSOC Agentic Triage Suite** after it is deployed. This is the
 day-2 companion to [`DEPLOY.md`](../DEPLOY.md) (cold deploy),
 [`docs/USAGE.md`](USAGE.md) (how to use the surfaces),
 [`docs/TROUBLESHOOTING.md`](TROUBLESHOOTING.md) (symptom → fix playbook), and
@@ -22,7 +22,7 @@ below are therefore **backend-conditional** — the section flags which.
 ```bash
 # Direct (the agnostic stack publishes :8088; or exec into the container)
 curl -s localhost:8088/api/health ; echo
-#   -> {"status":"ok","version":"1.0.0","es_connected":...,"store_type":"...","setup_complete":true}
+#   -> {"status":"ok","version":"0.1.0","es_connected":...,"store_type":"...","setup_complete":true}
 
 # THROUGH the web UI's nginx (proves the SPA → backend path end-to-end)
 curl -fsS http://localhost:8080/api/health ; echo
@@ -66,6 +66,11 @@ Switching backends does **not** migrate data — pick one and operate it.
 
 Own-state in PostgreSQL + pgvector. In the agnostic stack the volume is
 `tlsoc-pgdata` on the `tlsoc-postgres` service.
+
+The Compose project slug `tlsoc-agentic-soc` is retained as a compatibility-stable
+machine identifier, so the effective volume name remains
+`tlsoc-agentic-soc_tlsoc-pgdata`. Renaming the project requires an explicit volume
+migration; changing display nomenclature does not rename stored state.
 
 ```bash
 # Backup

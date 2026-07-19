@@ -1,5 +1,5 @@
 /**
- * Typed fetch client for the standalone Agentic SOC web UI.
+ * Typed fetch client for TLSOC Console.
  *
  * Every call hits the FastAPI backend at `/api/...`. In dev, Vite proxies `/api`
  * to the backend (see vite.config.ts); in production the SPA is served from the

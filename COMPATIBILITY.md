@@ -1,6 +1,6 @@
 # COMPATIBILITY.md — what the suite runs on, reads from, and stays compatible with
 
-The Agentic Triage Suite is a **vendor-agnostic agentic SOC** triage system. It
+TLSOC Agentic Triage Suite is a **vendor-agnostic agentic SOC** triage system. It
 was built next to the original TrustLab / IIT Bombay ELK pipeline and still slots
 into it cleanly as a **read-only consumer**, but it is no longer tied to that one
 stack: log sources are pluggable connectors, the canonical internal schema is

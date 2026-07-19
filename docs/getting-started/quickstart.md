@@ -1,29 +1,46 @@
 ---
 title: Quickstart
-description: Run the deterministic local demo or start the self-contained evaluation stack.
+description: Choose a TLSOC 0.1 checkout, run the deterministic demo, or bring up the standalone evaluation stack.
 ---
 
 # Quickstart
 
-Choose the local demo when you want to see the workflow without infrastructure or
-model spend. Choose the Compose stack when you are ready to evaluate a real,
-read-only source.
+Use the deterministic demo to explore the analyst workflow without an external
+source or provider bill. Use the Compose stack when you are ready to evaluate a
+real source with persistent application state.
 
-!!! warning "Use non-production data for this alpha"
+!!! info "Choose the matching channel"
 
-    Version `3.0.0-alpha.1` is a single-replica evaluation build. Dynamic source
-    secrets entered in the UI are memory-only, and push ingestion does not yet have
-    a durable receipt/inbox. Read [known limitations](../releases/known-limitations.md)
-    before connecting a source.
+    `Testing` contains integrated candidates. `main` is Stable, and an immutable
+    `v0.1.0` tag identifies the released app artifact after promotion. Do not treat
+    an untagged Testing checkout as a Stable release.
 
-## Local demo
+## Get the source
 
-The demo preflights ports `8088` and `5173`, binds the backend and Vite web console
-to `127.0.0.1`, waits for readiness, completes local setup, and enables an isolated
-live Demo Mode with a deterministic `$0` mock model. Four protocol-compatible sources
-continuously exercise the real parser → OCSF boundary: Splunk HEC, QRadar
-LEEF/offenses, Wazuh JSON, and RFC syslog. Set `DEMO_MODE=seeded` when a static,
-non-ticking dataset is preferable.
+=== "Testing"
+
+    ```bash
+    git clone --branch Testing --depth 1 \
+      https://github.com/ARYDESTROYER/Agentic-Kibana.git
+    cd Agentic-Kibana
+    ```
+
+=== "Stable 0.1.0"
+
+    ```bash
+    git clone --branch v0.1.0 --depth 1 \
+      https://github.com/ARYDESTROYER/Agentic-Kibana.git
+    cd Agentic-Kibana
+    ```
+
+    The Stable command applies after `v0.1.0` is published from `main`. Check the
+    repository release list rather than creating or moving the tag yourself.
+
+## Option A: deterministic demo
+
+The demo uses generated multi-source security stories and a deterministic `$0`
+mock model. It exercises the real parsing, OCSF, correlation, case, and audit paths
+without contacting a model provider or upstream security system.
 
 ### Requirements
 
@@ -32,62 +49,43 @@ non-ticking dataset is preferable.
 - macOS or Linux with Bash
 
 ```bash
-git clone --branch v3.0.0-alpha.1 --depth 1 \
-  https://github.com/ARYDESTROYER/Agentic-Kibana.git
-cd Agentic-Kibana
 ./scripts/run-demo.sh
 ```
 
-The tag becomes available only after the release blockers close and the alpha is
-published. Contributors evaluating an unreleased checkout should use their existing
-branch instead of inventing or moving this tag.
-
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173) and sign in with the demo-only
-account shown by the script. In the current build the seed is:
-
-```text
-Username: Admin
-Password: Admin@123
-```
-
-Change or remove this account before using any real data. Stop both processes with
+Open `http://127.0.0.1:5173` and sign in with the demo-only account printed by the
+script. In the standard seed it is `Admin` / `Admin@123`. Stop both processes with
 <kbd>Ctrl</kbd>+<kbd>C</kbd>.
 
-!!! tip "No provider key required"
+!!! warning "Demo credentials are not deployment credentials"
 
-    Demo Mode forces its `$0` mock provider even if `ANTHROPIC_API_KEY`,
-    `OPENAI_API_KEY`, or another valid provider key is present. A configured key is
-    used only after you choose **Exit & clear** and deliberately run non-demo triage.
+    Never expose the demo account or reuse its password with real data. Demo Mode
+    isolates triage and forces the mock provider, but organization settings you
+    deliberately change remain real configuration.
 
-Use **Generate incident** in Settings → Organization → Experimental & Demo (or
-`POST /api/demo/incident`) for a cooldown-aware four-source attack on demand. Demo
-mutations require `demo:manage`, granted by default to `super_admin` and
-`soc_manager`. Other organization/admin settings remain live during the demo, so
-leave them unchanged unless you intend to configure the deployment.
+Continue with [Demo Mode](demo.md) for story generation, seeded mode, and reset
+behaviour, or [Your first case](first-case.md) for the analyst walkthrough.
 
-## Evaluation stack
+## Option B: standalone stack
 
-The primary deployment shape contains PostgreSQL + pgvector for application state,
-Redis for enrichment caching, the FastAPI backend, and the standalone nginx-served
-web console. Your SIEM is not bundled and is never modified.
+The standalone deployment contains PostgreSQL + pgvector for TLSOC state, Redis
+for enrichment caching, the FastAPI backend, and the nginx-served TLSOC Console.
+Your SIEM or event source is connected separately and is not modified.
 
 ### Requirements
 
 - Docker Engine or Docker Desktop
 - Docker Compose v2 (`docker compose`)
-- An Anthropic or OpenAI key, or a reachable OpenAI-compatible local model
-- A read-only source credential when using a pull connector
+- an Anthropic/OpenAI key or a reachable OpenAI-compatible model, unless you keep
+  triage in Demo Mode
+- a least-privilege read-only credential for each pull source
 
-### 1. Prepare configuration
+### Configure
 
 ```bash
-git clone --branch v3.0.0-alpha.1 --depth 1 \
-  https://github.com/ARYDESTROYER/Agentic-Kibana.git
-cd Agentic-Kibana
 cp .env.example .env
 ```
 
-Set at least the following values in `.env`:
+Set unique values for the database password, JWT signing secret, and first admin:
 
 ```dotenv
 TLSOC_PG_PASSWORD=<random-database-password>
@@ -96,16 +94,15 @@ TLSOC_AUTH_JWT_SECRET=<stable-random-secret-at-least-32-bytes>
 TLSOC_AUTH_ADMIN_USERNAME=admin
 TLSOC_AUTH_ADMIN_PASSWORD=<unique-admin-password>
 
-# Choose at least one, unless you configure a local compatible model:
+# Configure one provider, or register a compatible local model after setup.
 TLSOC_ANTHROPIC_API_KEY=
 TLSOC_OPENAI_API_KEY=
 ```
 
-You can generate suitable random values locally with `openssl rand -hex 32`. Do
-not commit `.env`. For an HTTPS deployment, also set
-`TLSOC_AUTH_COOKIE_SECURE=true`; the local HTTP evaluation remains `false`.
+Generate random values with `openssl rand -hex 32`. Do not commit `.env`. Set
+`TLSOC_AUTH_COOKIE_SECURE=true` when TLS terminates in front of the console.
 
-### 2. Validate and start
+### Validate and start
 
 ```bash
 docker compose -f deploy/docker-compose.agnostic.yml config --quiet
@@ -113,8 +110,7 @@ docker compose -f deploy/docker-compose.agnostic.yml up --detach --build
 docker compose -f deploy/docker-compose.agnostic.yml ps
 ```
 
-Open [http://localhost:8080](http://localhost:8080). Check the public probes before
-continuing:
+Open `http://localhost:8080`, then verify the public probes:
 
 ```bash
 curl --fail http://localhost:8080/api/health/live
@@ -123,66 +119,54 @@ curl --fail http://localhost:8080/api/health/build-info
 ```
 
 - **Live** confirms the API process is running.
-- **Ready** confirms the selected application-state store is usable and returns
-  HTTP `503` when it is not.
-- **Build info** reports the product version and build metadata without exposing
-  secrets.
+- **Ready** confirms the configured application-state store is usable; an
+  unavailable dependency returns HTTP `503`.
+- **Build info** reports version and build identity without exposing secrets.
 
-### 3. Add one source
+Complete [first-run setup](first-run.md), then follow [Install TLSOC](install.md)
+for topology, production ingress, and provider options.
 
-Start narrowly so provenance and field mapping are easy to verify:
+## Connect one narrow source
 
-1. Open **Settings → Sources → Add source**.
-2. Choose a connector marked available in the [support matrix](../sources/support-matrix.md).
-3. For a pull source, provide a credential restricted to read and metadata access
-   on the intended log indices. Never use a superuser or service-system account.
-4. Configure one alert feed or one small event index pattern.
-5. For a pull source, use **Test connection** before saving. The alpha tests the
-   selected connector with its current draft configuration and secrets without
-   persisting those values. Push/broker receivers do not support a meaningful
-   one-shot probe; save them and use source health plus the end-to-end check.
-6. Save the source.
-7. Send a synthetic test alert and confirm its source, timestamp, rule, entities,
-   severity, and raw provenance in the console before widening the scope.
+1. Open **Sources**, choose **Add source**, and select a connector.
+2. For a pull source, use a credential limited to read and metadata access on one
+   test index or feed. Never use a superuser or service-system account.
+3. Set a narrow data scope and map the source fields. Use **Analyze sample** only
+   with a representative non-sensitive record; the sample is not persisted.
+4. Use **Test connection** where the connector supports it, then save.
+5. Send or expose one synthetic alert and confirm its timestamp, rule, severity,
+   entities, source identity, and raw provenance in **Logs** and **Cases**.
+6. Widen the scope only after the normalized record and resulting case are correct.
 
-For a webhook, select bearer or HMAC authentication and post JSON, NDJSON, CEF,
-LEEF, GELF, or key/value data to:
+HTTP receivers accept supported JSON, NDJSON, CEF, LEEF, GELF, syslog, or key/value
+payloads at:
 
 ```text
 POST /api/ingest/<source-id>
 ```
 
-The sender must retry non-success responses. UI-entered bearer/HMAC secrets must be
-re-entered after a backend restart in this alpha.
+The sender must retry non-success responses. UI-supplied source secrets are a
+runtime secret tier and must be re-entered after a backend restart; environment
+secrets remain the durable deployment tier.
 
-### 4. Observe the pipeline
+## Verify the workflow
 
-Use these checks during the first run:
+- **Sources** shows configuration and health signals.
+- **Logs** shows normalized records and source attribution.
+- **Cases** separates source facts, investigator findings, and policy decisions.
+- **Cost** records each model call through the single gateway.
+- **Audit** records state-changing analyst and agent actions.
 
-- **Sources** shows connection and recent coverage signals.
-- **Unified logs** confirms normalisation and source attribution.
-- **Cases** separates what the source reported, what the investigator found, and
-  what deterministic code decided.
-- **Cost** records every model call through the shared gateway.
-- **Audit** records state-changing agent and analyst actions.
-
-### 5. Stop or reset
+## Stop
 
 ```bash
 docker compose -f deploy/docker-compose.agnostic.yml down
 ```
 
-PostgreSQL state remains in the named volume. To remove the evaluation database as
-well, add `--volumes`; that is destructive and cannot be undone.
+The named PostgreSQL volume remains. Adding `--volumes` deletes that state and is
+not reversible; use the documented [reset controls](../administration/reset.md)
+when you need a scoped, audited reset.
 
-## Before internet exposure
-
-This quickstart is not a production hardening guide. At minimum, wait for the
-[release blockers](../releases/known-limitations.md#release-blockers), terminate TLS
-at a trusted ingress, restrict backend and receiver ports, rotate all seed/default
-credentials, set secure cookies, use least-privilege source identities, back up the
-state store, and establish restore tests.
-
-The full operator reference remains in
-[DEPLOY.md](https://github.com/ARYDESTROYER/Agentic-Kibana/blob/HEAD/DEPLOY.md) while
-the public operations guide is being decomposed for the documentation site.
+Before internet exposure, review [security](../operations/security.md),
+[health and backup](../operations/health-backup.md), and
+[known limitations](../releases/known-limitations.md).

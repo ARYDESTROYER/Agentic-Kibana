@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run-demo.sh — one-command LOCAL demo of the Agentic SOC Triage Suite.
+# run-demo.sh — one-command LOCAL demo of TLSOC Agentic Triage Suite.
 #
 # Brings up the suite in its "headline-features" demo posture WITHOUT Docker:
 #   * the FastAPI + LangGraph backend (app.main:app) on :8088, with API auth
@@ -205,7 +205,7 @@ PIDS+=("$!")
 cat <<BANNER
 
 ==============================================================================
-  Agentic SOC Triage Suite — DEMO is starting up
+  TLSOC Agentic Triage Suite — DEMO is starting up
 ------------------------------------------------------------------------------
   Web UI :   http://${DEMO_BIND_HOST}:${WEBUI_PORT}
   Backend:   http://${DEMO_BIND_HOST}:${BACKEND_PORT}/api/health

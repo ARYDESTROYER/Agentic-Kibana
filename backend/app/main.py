@@ -64,22 +64,22 @@ def discover_feature_routers() -> list[tuple[str, APIRouter]]:
 async def lifespan(app: FastAPI):
     secrets = Secrets()
     configure_logging(secrets.log_level)
-    logger.info("Starting TLSOC Agentic Triage backend")
+    logger.info("Starting TLSOC API")
     state = AppState.create(secrets=secrets)
     app.state.tlsoc = state
     await state.startup()
     try:
         yield
     finally:
-        logger.info("Shutting down TLSOC Agentic Triage backend")
+        logger.info("Shutting down TLSOC API")
         await state.shutdown()
 
 
 app = FastAPI(
-    title="TLSOC Agentic Triage Suite — Backend",
+    title="TLSOC API",
     version=__version__,
-    description="Agentic SOC triage backend (FastAPI + LangGraph). Read-only consumer of the "
-                "ELK log surface; owns its cases/audit/usage indices.",
+    description="Vendor-neutral TLSOC Agentic Triage Suite API. It consumes source data "
+                "read-only and owns only TLSOC application state.",
     lifespan=lifespan,
 )
 

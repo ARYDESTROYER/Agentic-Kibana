@@ -40,6 +40,8 @@ def _python_version(path: Path) -> str | None:
 
 def main() -> int:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    release_core = version.split("+", 1)[0].split("-", 1)[0]
+    docs_version = ".".join(release_core.split(".")[:2])
     failures: list[str] = []
     if not SEMVER.fullmatch(version):
         failures.append(f"VERSION is not valid SemVer: {version!r}")
@@ -92,32 +94,58 @@ def main() -> int:
                 f"{relative}: expected {expected_build_arg_count} version build args, "
                 f"found {actual_build_arg_count}"
             )
+        channel_build_arg = "TLSOC_RELEASE_CHANNEL: ${TLSOC_RELEASE_CHANNEL:-testing}"
+        actual_channel_count = source.count(channel_build_arg)
+        if actual_channel_count < expected_build_arg_count:
+            failures.append(
+                f"{relative}: expected {expected_build_arg_count} release-channel "
+                f"build args, found {actual_channel_count}"
+            )
 
     for relative in ("backend/Dockerfile", "webui/Dockerfile"):
         source = (ROOT / relative).read_text(encoding="utf-8")
         for marker in (
             "ARG TLSOC_VERSION=unknown",
+            "ARG TLSOC_RELEASE_CHANNEL=testing",
             'org.opencontainers.image.version="${TLSOC_VERSION}"',
+            'dev.tlsoc.release.channel="${TLSOC_RELEASE_CHANNEL}"',
             'org.opencontainers.image.revision="${TLSOC_BUILD_SHA}"',
             'org.opencontainers.image.source="${TLSOC_SOURCE_URL}"',
         ):
             if marker not in source:
                 failures.append(f"{relative}: missing release metadata marker {marker!r}")
 
-    # These public pages intentionally display the active prerelease. Keep them in
-    # the same mechanical drift gate as package/image metadata until the docs site
-    # adopts release-time templating/versioned builds.
+    mkdocs_source = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    for marker in (
+        f'product_version: "{version}"',
+        f'docs_version: "{docs_version}"',
+        "provider: mike",
+        "default: stable",
+    ):
+        if marker not in mkdocs_source:
+            failures.append(f"mkdocs.yml: missing documentation-version marker {marker!r}")
+
+    # Release records use the machine-readable SemVer. The documentation selector
+    # intentionally uses the stable major.minor line, so patch releases update the
+    # same documentation version instead of multiplying nearly identical choices.
     for relative in (
         "CHANGELOG.md",
-        "docs/index.md",
-        "docs/getting-started/quickstart.md",
-        "docs/sources/support-matrix.md",
-        "docs/releases/channels.md",
-        "docs/releases/known-limitations.md",
+        f"docs/releases/{docs_version}.md",
     ):
         source = (ROOT / relative).read_text(encoding="utf-8")
         if version not in source:
             failures.append(f"{relative}: does not mention canonical version {version!r}")
+
+    for relative in (
+        "docs/index.md",
+        "docs/releases/channels.md",
+        "docs/releases/documentation-versions.md",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        if docs_version not in source:
+            failures.append(
+                f"{relative}: does not mention documentation version {docs_version!r}"
+            )
 
     if failures:
         print("Version consistency check failed:", file=sys.stderr)
@@ -125,7 +153,7 @@ def main() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print(f"Version metadata is consistent: {version}")
+    print(f"Version metadata is consistent: app {version}; docs {docs_version}")
     return 0
 
 

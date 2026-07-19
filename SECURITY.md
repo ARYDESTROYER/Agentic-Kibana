@@ -1,6 +1,6 @@
 # SECURITY.md — Threat model & security posture
 
-This document describes the security posture of the **Agentic SOC Triage Suite** —
+This document describes the security posture of **TLSOC Agentic Triage Suite** —
 a vendor-agnostic, LLM-driven SOC triage tool that runs **next to** your existing
 security telemetry as a **read-only consumer**. Because the suite reads
 attacker-influenced event data (from any source) and drives Large Language Models

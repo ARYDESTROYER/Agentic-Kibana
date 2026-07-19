@@ -1,3 +1,3 @@
 """TLSOC Agentic Triage Suite — backend package."""
 
-__version__ = "3.0.0-alpha.1"
+__version__ = "0.1.0"

@@ -1,4 +1,4 @@
-# TROUBLESHOOTING.md — Agentic SOC Triage Suite
+# TROUBLESHOOTING.md — TLSOC Agentic Triage Suite
 
 A consolidated symptom → likely cause → fix → confirm playbook spanning deploy,
 runtime, and usage of the **vendor-agnostic** suite. Each entry tells you how to
@@ -14,7 +14,7 @@ Quick triage:
 ```bash
 # Backend health (the agnostic stack publishes :8088; or exec into the container)
 curl -s localhost:8088/api/health ; echo
-#   -> {"status":"ok","version":"1.0.0","es_connected":...,"store_type":"...","setup_complete":...}
+#   -> {"status":"ok","version":"0.1.0","es_connected":...,"store_type":"...","setup_complete":...}
 
 # Same health THROUGH the web UI's nginx proxy (proves the SPA → backend path)
 curl -fsS http://localhost:8080/api/health ; echo
