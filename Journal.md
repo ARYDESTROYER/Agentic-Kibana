@@ -2074,3 +2074,178 @@
 - Tests: backend `pytest` **1957 passed** (1942 baseline + 13 new − none removed; the only 2 non-passes are the sandbox's proxy-injected `AWS_ACCESS_KEY_ID` breaking 2 config tests — identical on a clean tree, cleared → green). `ruff check` clean on all changed files (only the pre-existing `SourceSurface` F401 in the untouched routes.py import block remains). Backend-only diff — no webui files touched, webui build/vitest unaffected.
 - Status: done — committing + pushing to `claude/auth-lockout-empty-store-nfujmc`; PR into `Testing`.
 - Next: consider config-store `_rev`/CAS to fully close the cross-writer prefs lost-update (AUDIT_FINDINGS backlog). `decide()` untouched / not imported (#3 held).
+
+### 2026-07-18 15:07Z — Codex orchestrator — Shoo-inspired documentation redesign started
+- Context: Rework the TLSOC documentation site to match `https://docs.shoo.dev/docs` as the visual source of truth while retaining TLSOC content and routes.
+- Did: Began target-site visual/DOM inspection, repository MkDocs theme inventory, and side-by-side implementation planning.
+- Tests: Pending strict MkDocs build, responsive visual QA, navigation checks, and browser diagnostics.
+- Status: in-progress.
+- Next: Recreate the reference layout and design tokens in the checked-in docs theme, then iterate against rendered desktop and mobile comparisons.
+
+### 2026-07-18 15:08Z — Codex docs mapper — Shoo/MkDocs design mapping started
+- Context: Inspect the existing MkDocs documentation and map the exact Shoo reference design without editing files.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` fully, then began inventorying MkDocs configuration, public content, styling, assets, overrides, and the reference DOM/CSS.
+- Tests: Read-only inspection in progress; no build or source mutation.
+- Status: in-progress.
+- Next: Produce a minimal file-level implementation plan and identify MkDocs Material compatibility pitfalls.
+
+### 2026-07-18 15:09Z — target-css-forensics — Begin Shoo documentation design inspection
+- Context: Reverse-engineer the live Shoo documentation design for an exact MkDocs Material reproduction.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` completely; began live HTML, CSS, font, layout, and asset inspection without editing repository files.
+- Tests: Live target and production stylesheet returned HTTP 200.
+- Status: in-progress.
+- Next: Extract exact tokens, responsive geometry, SVG assets, and MkDocs selector mappings.
+
+### 2026-07-18 15:10Z — target-visual-forensics — Start Shoo docs visual audit
+- Context: Inspect `docs.shoo.dev/docs` as the visual source of truth for the MkDocs redesign.
+- Did: Read `docs/HANDOFF.md` and `AGENTS.md` fully; began read-only production markup, stylesheet, and responsive-render inspection.
+- Tests: N/A — visual research only.
+- Status: in-progress.
+- Next: Measure desktop/mobile geometry, tokens, typography, components, and interactions.
+
+### 2026-07-18 15:17Z — Codex docs mapper — Shoo/MkDocs design mapping complete
+- Context: Complete the read-only implementation map for recreating the Shoo documentation design while preserving TLSOC routes and content.
+- Did: Inventoried the original MkDocs site, confirmed no assets or overrides existed, extracted the reference production layout/tokens/breakpoints, and supplied the required override/CSS/content plan plus Material-specific risks. Observed but did not modify concurrent implementation changes.
+- Tests: Confirmed pinned MkDocs 1.6.1 and Material 9.6.19 toolchain; no build run because this assignment was read-only.
+- Status: done.
+- Next: Finish the layout CSS, keep desktop search mounted, then run strict build and responsive browser comparison.
+
+### 2026-07-18 15:21Z — target-css-forensics — Complete Shoo documentation design forensics
+- Context: Supply source-backed measurements for the Shoo-style documentation rebuild.
+- Did: Identified the framework stack, fonts, complete light/dark palette, breakpoints, layout equations, typography, border/radius/shadow values, motion, and inline SVG assets; mapped each surface to MkDocs Material selectors. No files edited.
+- Tests: Live HTML and immutable CSS returned HTTP 200; recorded HTML SHA-256 `84415488…` and CSS SHA-256 `6268c29c…`.
+- Status: done.
+- Next: Apply the supplied tokens and custom override markup, then visually compare desktop and mobile renders.
+
+### 2026-07-18 15:21Z — target-visual-forensics — Shoo docs design forensics complete
+- Context: Produce implementation-grade visual specifications for an exact MkDocs recreation.
+- Did: Captured 1440px, 1024px, and mobile renders; extracted production HTML/CSS; documented palettes, typography, shell geometry, spacing, components, breakpoints, and interaction states. No repository files edited.
+- Tests: Target returned HTTP 200; desktop/compact/mobile renders visually inspected against production CSS.
+- Status: done.
+- Next: Implement the MkDocs override shell and CSS, then pixel-compare at 1440px, 1024px, and 390px.
+
+### 2026-07-18 15:33Z — Codex orchestrator — Shoo shell implemented; strict build green
+- Context: Complete the first implementation pass of the reference-matched MkDocs theme before visual comparison.
+- Did: Replaced the blue marketing home with a reference-shaped Introduction article; added supported Material overrides for the marquee, mobile header, sidebar, TOC, article shell, and next/previous cards; translated the exact Shoo tokens, fonts, 32/56/40px chrome, 268/286/286px columns, 1200px shell, grid, typography, code, table, search, and responsive behavior into documentation CSS; added functional Cmd/Ctrl-K search.
+- Tests: `backend/.venv/bin/python -m mkdocs build --strict` passed; documentation built in 0.22s with no warnings.
+- Status: in-progress.
+- Next: Render the generated site at 1440px, 1024px, and 390px; compare with the captured reference, fix visual/interaction drift, then rerun strict and link checks.
+
+### 2026-07-18 15:48Z — Codex orchestrator — Responsive shell and controls hardened
+- Context: Resolve the first desktop/tablet/mobile comparison findings in the Shoo-matched documentation theme.
+- Did: Removed inherited Material content offsets, restored the persistent tablet sidebar and closed mobile drawer geometry, suppressed the unintended desktop search surface, aligned the wide article/right-TOC columns, converted search/drawer affordances to real buttons, and added keyboard-aware search, drawer, mobile on-page navigation, active-section, and reading-progress behavior.
+- Tests: Strict MkDocs build passed in 0.23s; JavaScript syntax check, PostCSS parse, and `git diff --check` all passed; generated HTML contains the new button controls.
+- Status: in-progress.
+- Next: Complete final computed and screenshot comparisons at 1440px, 1024px, and 390px, address any residual pixel drift, then rerun route/link/asset checks.
+
+### 2026-07-18 15:34Z — Codex docs validator — Generated documentation validation started
+- Context: Validate the rebuilt Shoo-inspired MkDocs output across every public route without editing files.
+- Did: Began strict-build, route, template-hook, search, palette, navigation, footer, asset, link, fragment, and responsive-structure checks.
+- Tests: Validation in progress against a fresh `site/` build.
+- Status: in-progress.
+- Next: Resolve or report strict-build-compatible structural and interaction defects, then re-run from a clean temporary build.
+
+### 2026-07-18 15:51Z — Codex docs validator — Generated documentation validation complete
+- Context: Complete read-only validation of the rebuilt MkDocs documentation.
+- Did: Validated all six public routes plus the 404 page; checked Material search/palette/drawer/TOC/footer hooks; scanned the complete generated link and asset graph; verified search-index coverage; and DOM-tested search, drawer, mobile TOC, Escape handling, ARIA synchronization, and clean scroll labels. Reported several responsive/interaction defects that were fixed during the pass.
+- Tests: `mkdocs build --strict` passed in 0.21–0.29s; fresh output exactly matched `site/`; all six generated routes plus the 404 artifact validated; 7 HTML files and 71 search records checked; 0 missing links/assets, 0 bad fragments, 0 duplicate IDs; `node --check` passed; DOM integration passed; CSS/JS source-build hashes matched.
+- Status: done.
+- Next: Complete final browser pixel-comparison at desktop/tablet/mobile; optionally point drawer `aria-controls` at the revealed navigation element rather than its checkbox.
+
+### 2026-07-18 15:34Z — target-css-forensics — Begin Shoo implementation audit
+- Context: Validate the checked-in MkDocs implementation against docs.shoo.dev/docs at 1440px, 1024px, and 390px.
+- Did: Began generated-DOM, computed-layout, selector-cascade, keyboard, interaction, and reduced-motion auditing.
+- Tests: Generated HTML and CSS artifacts were ready for measurement.
+- Status: In progress.
+- Next: Measure exact reference/implementation geometry and report prioritized drift without editing files.
+
+### 2026-07-18 16:02Z — target-css-forensics — Complete Shoo implementation audit
+- Context: Read-only implementation audit against the live Shoo reference.
+- Did: Measured reference and implementation layouts at 1440px, 1024px, and 390px; validated Material selector overrides, typography, sidebar/TOC geometry, search/drawer/TOC interactions, keyboard order, focus treatment, and reduced motion. Captured the reference open mobile drawer for comparison.
+- Tests: Main shell and desktop/tablet sidebar geometry pixel-match the target; source/build assets matched during audit; search, drawer, TOC, keyboard, and reduced-motion checks passed.
+- Status: Complete; no files edited.
+- Next: Replace the mobile drawer’s 102px desktop-style head with Shoo’s 58px controls-only header and begin its scroll region at y58.
+
+### 2026-07-18 15:35Z — target-visual-forensics — Shoo parity QA started
+- Context: Compare the rendered MkDocs redesign with https://docs.shoo.dev/docs across desktop, tablet, mobile, and interactive drawer states.
+- Did: Began read-only visual, geometry, responsive, console, and interaction inspection.
+- Tests: Generated site rendered successfully for comparison.
+- Status: in-progress.
+- Next: Capture all viewports, compare exact target geometry, and rank remaining deltas.
+
+### 2026-07-18 16:11Z — target-visual-forensics — Shoo parity QA complete
+- Context: Completed final responsive and drawer comparison after all cosmetic passes.
+- Did: Captured desktop, tablet, mobile, and reference/implementation open-drawer states; measured exact geometry, colors, borders, pseudo-elements, and interactive controls; exercised search, navigation, theme, drawer, and TOC behavior.
+- Tests: Rendered pages produced no console, page, or asset-request errors. Primary responsive geometry, drawer placement, toolbar controls, row height, overlay, and navigation surface matched. No repository files were edited.
+- Status: done.
+- Next: The orchestrator completed the final 60px body-grid selector and 1px drawer-border corrections identified during this pass.
+
+### 2026-07-18 16:12Z — Codex orchestrator — Shoo-matched documentation redesign complete
+- Context: Finish the literal responsive parity pass for the redesigned documentation.
+- Did: Completed the Shoo-shaped dark grid shell, exact desktop/tablet/mobile columns and chrome, reference typography and acid-lime palette, marquee, sidebar/search, right and intermediate TOCs, next/previous navigation, light theme, and the 85vw right-side mobile sheet with matching toolbar, border, blur, row geometry, keyboard behavior, and reading progress. Retained the TLSOC identity, content, routes, and repository links.
+- Tests: Final strict MkDocs build passed in 0.18s; JavaScript syntax, PostCSS parse, and `git diff --check` passed; all six generated public routes and required assets validated; generated link/fragment scan found 0 missing assets, 0 invalid fragments, and 0 duplicate IDs; responsive geometry matched the reference at 1440px, 1024px, and 390px; search, Cmd/Ctrl-K, drawer, theme, accordion, TOC, Escape, keyboard order, and reduced-motion checks passed with no browser console/page/request errors.
+- Status: done.
+- Next: Apply later documentation refinements through the same strict-build and responsive-QA gates.
+
+### 2026-07-18 16:30Z — Codex orchestrator — Documentation theme preferences refinement started
+- Context: Make dark mode the documentation default, replace the theme control with the requested two-icon segmented pill, and keep the Journal focused strictly on development work.
+- Did: Began auditing MkDocs palette initialization, existing theme-control markup/styles, the supplied visual reference, and the documentation-redesign Journal entries that require development-only wording.
+- Tests: Strict build, theme-state, responsive visual, accessibility, and Journal-content checks pending.
+- Status: in-progress.
+- Next: Implement the theme preference/control changes, rewrite the affected development history, then verify both color schemes and generated documentation.
+
+### 2026-07-18 16:44Z — Codex orchestrator — Dark-first theme control implemented
+- Context: Complete the source implementation for the requested documentation theme behavior before responsive verification.
+- Did: Kept `slate` as the explicit first-visit default while preserving saved choices; added a scheme-based palette-index migration for preferences created before the palette order changed; retained Material as the single persistence engine; replaced its visible control with one accessible 54×28 sun/moon button using the reference geometry, Lucide paths, and exact light/dark active colors.
+- Tests: Strict MkDocs build passed in 0.17s; JavaScript syntax, PostCSS parsing, and `git diff --check` passed.
+- Status: in-progress.
+- Next: Verify clean, legacy, and current saved-theme states plus desktop/mobile visual geometry and keyboard behavior.
+
+### 2026-07-18 16:31Z — Codex journal auditor — Documentation journal hygiene audit started
+- Context: Audit the documentation-redesign Journal history for durable, development-only content.
+- Did: Read the canonical handoff and project rules, then scoped the audit to the Codex documentation work beginning at 15:03Z.
+- Tests: Entry-by-entry content scan in progress.
+- Status: in-progress.
+- Next: Identify transient preview-status entries and wording changes needed for retained development records.
+
+### 2026-07-18 16:33Z — Codex journal auditor — Documentation journal hygiene audit complete
+- Context: Complete the development-only audit of the documentation-redesign history.
+- Did: Identified two transient preview-status entries for removal and exact scrubs preserving design, implementation, build, accessibility, and responsive-QA history.
+- Tests: Exhaustive scoped scan confirmed the proposed revision contains only durable development information.
+- Status: done.
+- Next: Apply the scoped Journal revision while preserving all older and unrelated agent entries.
+
+### 2026-07-18 16:31Z — Codex palette auditor — Documentation theme audit started
+- Context: Audit the documentation dark-mode default, saved preference behavior, and requested sun/moon theme control before implementation.
+- Did: Began a read-only review of the MkDocs palette configuration, Material initialization lifecycle, override templates, theme styles, generated markup, and persistence compatibility.
+- Tests: Source and generated-output inspection in progress.
+- Status: in-progress.
+- Next: Establish the minimal persistence-safe implementation and its accessibility and regression checks.
+
+### 2026-07-18 16:43Z — Codex palette auditor — Documentation theme audit complete
+- Context: Complete the implementation audit for the dark-default documentation theme and segmented sun/moon control.
+- Did: Confirmed dark-first behavior for new visitors, identified the legacy palette-index inversion risk, and specified a pre-bundle scheme-based migration plus one accessible 54×28 two-icon toggle backed by Material's existing persistence engine. Documented duplicate-ID, hidden-label, keyboard, target-size, and state-synchronization requirements.
+- Tests: Read-only inspection confirmed the generated body defaults to `slate`, Material restores from scoped palette storage, and the current templates mount exactly one palette component.
+- Status: done.
+- Next: Implement the migration and custom toggle, then verify empty, legacy, and current storage states across both responsive layouts.
+
+### 2026-07-18 16:31Z — Codex theme-control visual auditor — Theme-control parity audit started
+- Context: Measure the supplied theme-switch reference and review the documentation palette surface across desktop and mobile layouts.
+- Did: Read the canonical handoff and project rules, then began read-only pixel, markup, CSS, icon, and responsive-state inspection.
+- Tests: Measurement and generated-source audit in progress.
+- Status: in-progress.
+- Next: Compare exact control geometry, colors, icons, and active treatment with the implementation and report any corrections.
+
+### 2026-07-18 16:48Z — Codex theme-control visual auditor — Theme-control parity audit complete
+- Context: Complete the visual and source audit of the dark-default documentation theme control.
+- Did: Confirmed the implementation matches the requested 54×28 segmented pill, 26×26 choices, 14×14 Lucide icons, exact light/dark colors, active-state placement, responsive positioning, and single-component palette architecture.
+- Tests: Strict MkDocs build, JavaScript syntax, and diff-integrity checks passed; all seven generated documentation artifacts contain exactly one palette component, unique palette IDs, and dark-first markup.
+- Status: done.
+- Next: Complete the separate interaction regression for clean, saved, and legacy preference states.
+
+### 2026-07-18 16:53Z — Codex orchestrator — Documentation theme preferences refinement complete
+- Context: Finish the requested dark-default behavior, reference-matched theme switch, and development-only Journal cleanup.
+- Did: Made dark mode the first-visit documentation default while preserving explicit visitor choices; added a compatibility migration for preferences saved before the palette reorder; replaced the visible palette affordance with one accessible two-icon pill matching the supplied reference; removed transient preview-status records and retained only durable development history for this documentation work.
+- Tests: Strict MkDocs build, JavaScript syntax, PostCSS parsing, and `git diff --check` passed; all seven generated pages passed palette-component, unique-ID, dark-first, link, asset, and fragment checks; exact geometry, clean/current/legacy preference migration, toggle-state synchronization, and Journal-content checks passed.
+- Status: done.
+- Next: Treat future documentation Journal entries as durable development records only.

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {{ super() }}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&amp;family=Unbounded:wght@700;800;900&amp;display=swap"
+  >
+{% endblock %}
+
+{% block announce %}
+  <div
+    class="tlsoc-marquee"
+    role="status"
+    aria-label="Bleeding Edge evaluation build — use at your own risk"
+  >
+    <div class="tlsoc-marquee__track">
+      {% for _ in range(12) %}
+        <span class="tlsoc-marquee__item"{% if not loop.first %} aria-hidden="true"{% endif %}>
+          BLEEDING EDGE — USE AT YOUR OWN RISK
+          <span class="tlsoc-marquee__dot">■</span>
+        </span>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block container %}
+  {% set mobile_toc = page.toc %}
+  {% set mobile_first = mobile_toc | first %}
+  {% if mobile_first and mobile_first.level == 1 and mobile_first.children %}
+    {% set mobile_first = mobile_first.children | first %}
+  {% endif %}
+  <button
+    class="tlsoc-mobile-tocbar"
+    type="button"
+    aria-controls="tlsoc-mobile-toc-popover"
+    aria-expanded="false"
+    data-tlsoc-mobile-toc-toggle
+  >
+    <svg class="tlsoc-progress-ring" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="11"></circle>
+      <circle cx="12" cy="12" r="11"></circle>
+    </svg>
+    <span class="tlsoc-mobile-tocbar__label">
+      {{ mobile_first.title if mobile_first else page.title }}
+    </span>
+    <svg class="tlsoc-mobile-tocbar__chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"></path>
+    </svg>
+  </button>
+  <nav id="tlsoc-mobile-toc-popover" class="tlsoc-mobile-toc-popover" aria-label="On this page" hidden>
+    <ul class="md-nav__list">
+      {% if mobile_first %}
+        {% set mobile_items = mobile_toc %}
+        {% set mobile_root = mobile_toc | first %}
+        {% if mobile_root and mobile_root.level == 1 %}
+          {% set mobile_items = mobile_root.children %}
+        {% endif %}
+        {% for toc_item in mobile_items %}
+          {% include "partials/toc-item.html" %}
+        {% endfor %}
+      {% endif %}
+    </ul>
+  </nav>
+  <div class="md-content" data-md-component="content">
+    <article class="md-content__inner md-typeset">
+      {% block content %}
+        {% include "partials/content.html" %}
+      {% endblock %}
+    </article>
+  </div>
+{% endblock %}

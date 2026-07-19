@@ -1,0 +1,50 @@
+{% import "partials/nav-item.html" as item with context %}
+<nav id="tlsoc-primary-nav" class="md-nav md-nav--primary tlsoc-sidebar-nav" aria-label="{{ lang.t('nav') }}" data-md-level="0">
+  <div class="tlsoc-sidebar-head">
+    <div class="tlsoc-sidebar-brand-row">
+      <a
+        class="tlsoc-sidebar-brand"
+        href="{{ config.extra.homepage | d(nav.homepage.url, true) | url }}"
+        aria-label="{{ config.site_name }}"
+      >tlsoc</a>
+
+      {% if config.repo_url %}
+        <a class="tlsoc-repo-link" href="{{ config.repo_url }}" target="_blank" rel="noopener">
+          {% include ".icons/fontawesome/brands/github.svg" %}
+          <span>GitHub</span>
+          <span class="tlsoc-source-badge">ALPHA PREVIEW</span>
+        </a>
+      {% endif %}
+    </div>
+
+    <button class="tlsoc-search-button" type="button" data-tlsoc-open-search>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.3-4.3"></path>
+      </svg>
+      <span>Search</span>
+      <span class="tlsoc-search-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span>
+    </button>
+  </div>
+
+  <ul class="md-nav__list" data-md-scrollfix>
+    {% for nav_item in nav.items %}
+      {% set path = "__nav_" ~ loop.index %}
+      {{ item.render(nav_item, path, 1) }}
+    {% endfor %}
+  </ul>
+
+  {% if config.theme.palette %}
+    <div class="tlsoc-sidebar-footer">
+      {% if not config.theme.palette is mapping %}
+        {% include "partials/palette.html" %}
+      {% endif %}
+      <button class="tlsoc-drawer-close" type="button" aria-label="Close navigation" data-tlsoc-close-drawer>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect width="18" height="18" x="3" y="3" rx="2"></rect>
+          <path d="M15 3v18"></path>
+        </svg>
+      </button>
+    </div>
+  {% endif %}
+</nav>

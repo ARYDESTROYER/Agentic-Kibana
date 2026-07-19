@@ -1,0 +1,36 @@
+{% if page.previous_page or page.next_page %}
+  <footer class="md-footer tlsoc-page-footer">
+    <nav class="md-footer__inner" aria-label="{{ lang.t('footer') }}">
+      {% if page.previous_page %}
+        <a
+          href="{{ page.previous_page.url | url }}"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--previous"
+          aria-label="{{ lang.t('footer.previous') }}: {{ page.previous_page.title | e }}"
+        >
+          <span class="tlsoc-page-footer__title">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+            {{ page.previous_page.title }}
+          </span>
+          {% if page.previous_page.meta and page.previous_page.meta.description %}
+            <span class="tlsoc-page-footer__description">{{ page.previous_page.meta.description }}</span>
+          {% endif %}
+        </a>
+      {% endif %}
+      {% if page.next_page %}
+        <a
+          href="{{ page.next_page.url | url }}"
+          class="tlsoc-page-footer__link tlsoc-page-footer__link--next"
+          aria-label="{{ lang.t('footer.next') }}: {{ page.next_page.title | e }}"
+        >
+          <span class="tlsoc-page-footer__title">
+            {{ page.next_page.title }}
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+          </span>
+          {% if page.next_page.meta and page.next_page.meta.description %}
+            <span class="tlsoc-page-footer__description">{{ page.next_page.meta.description }}</span>
+          {% endif %}
+        </a>
+      {% endif %}
+    </nav>
+  </footer>
+{% endif %}

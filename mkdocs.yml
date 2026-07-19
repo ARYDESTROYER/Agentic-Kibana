@@ -10,7 +10,9 @@ strict: true
 
 theme:
   name: material
+  custom_dir: overrides
   language: en
+  font: false
   icon:
     repo: fontawesome/brands/github
   features:
@@ -19,27 +21,24 @@ theme:
     - content.tabs.link
     - navigation.footer
     - navigation.indexes
-    - navigation.sections
-    - navigation.tabs
     - navigation.top
     - search.highlight
     - search.suggest
     - toc.follow
   palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: indigo
-      accent: blue
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: indigo
-      accent: light-blue
+    # The first entry is the first-visit default; an explicit visitor choice persists.
+    - scheme: slate
+      primary: black
+      accent: lime
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+    - scheme: default
+      primary: white
+      accent: lime
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
 
 plugins:
   - search
@@ -73,6 +72,9 @@ markdown_extensions:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - javascripts/extra.js
+
 extra:
   social:
     - icon: fontawesome/brands/github
@@ -98,13 +100,10 @@ exclude_docs: |
   research/
 
 nav:
-  - Home: index.md
-  - Get started:
-      - Quickstart: getting-started/quickstart.md
-  - Architecture:
-      - Ingestion and investigation: architecture/ingestion.md
-  - Sources:
-      - Support matrix: sources/support-matrix.md
+  - Introduction: index.md
+  - Quickstart: getting-started/quickstart.md
+  - Ingestion and investigation: architecture/ingestion.md
+  - Source support: sources/support-matrix.md
   - Releases:
       - Channels and versioning: releases/channels.md
       - Known limitations: releases/known-limitations.md

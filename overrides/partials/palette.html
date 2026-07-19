@@ -1,0 +1,47 @@
+{# Material owns palette persistence; the adjacent button owns the visible UI. #}
+<div class="tlsoc-theme-control">
+  <form class="md-header__option tlsoc-palette-engine" data-md-component="palette" aria-hidden="true">
+    {% for option in config.theme.palette %}
+      {% set scheme = option.scheme | d("default", true) %}
+      {% set primary = option.primary | d("indigo", true) %}
+      {% set accent = option.accent | d("indigo", true) %}
+      <input
+        class="md-option"
+        data-md-color-media="{{ option.media }}"
+        data-md-color-scheme="{{ scheme | replace(' ', '-') }}"
+        data-md-color-primary="{{ primary | replace(' ', '-') }}"
+        data-md-color-accent="{{ accent | replace(' ', '-') }}"
+        {% if option.toggle %}aria-label="{{ option.toggle.name }}"{% else %}aria-hidden="true"{% endif %}
+        type="radio"
+        name="__palette"
+        id="__palette_{{ loop.index0 }}"
+        tabindex="-1"
+      >
+      {% if option.toggle %}
+        <label for="__palette_{{ loop.index % loop.length }}" hidden>
+          {{ option.toggle.name }}
+        </label>
+      {% endif %}
+    {% endfor %}
+  </form>
+
+  <button
+    class="tlsoc-theme-switch"
+    type="button"
+    aria-label="Switch to light mode"
+    title="Switch to light mode"
+    data-tlsoc-theme-toggle
+  >
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--light" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"></path>
+      </svg>
+    </span>
+    <span class="tlsoc-theme-switch__choice tlsoc-theme-switch__choice--dark" aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+      </svg>
+    </span>
+  </button>
+</div>
