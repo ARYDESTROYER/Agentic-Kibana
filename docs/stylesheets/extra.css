@@ -1417,7 +1417,9 @@ body[data-md-color-scheme="default"] .tlsoc-theme-switch:hover .tlsoc-theme-swit
 
   .md-sidebar--primary .md-sidebar__scrollwrap {
     width: var(--tlsoc-sidebar-width);
-    height: 100%;
+    /* Material shortens this wrapper inline when the page footer enters view.
+       Our primary sidebar is fixed, so that resize clips the active section. */
+    height: 100% !important;
     margin: 0 0 0 auto;
     overflow: hidden;
   }

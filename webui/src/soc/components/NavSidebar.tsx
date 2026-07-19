@@ -258,7 +258,7 @@ const ChildLink: React.FC<{
           // ring is never clipped when keyboard focus scrolls it into view (§2.4.11).
           'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           active
-            ? 'bg-primary/10 font-medium text-primary'
+            ? 'bg-primary/10 font-medium text-primary dark:bg-accent'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         )}
       >
@@ -311,7 +311,7 @@ const ExpandedItem: React.FC<{
             // scroll-my-1: keep a focused leaf off the scroll edge (§2.4.11).
             'scroll-my-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             selfActive
-              ? 'bg-primary text-primary-foreground shadow-glow'
+              ? 'bg-primary text-primary-foreground shadow-glow dark:bg-accent dark:text-primary dark:shadow-none'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground',
           )}
         >
@@ -327,7 +327,7 @@ const ExpandedItem: React.FC<{
       <div
         className={cn(
           'flex items-center rounded-md transition-colors',
-          trailActive && !open ? 'bg-primary/[0.06]' : '',
+          trailActive && !open ? 'bg-primary/[0.06] dark:bg-accent/70' : '',
         )}
       >
         {/* Primary destination — navigating ALSO opens the group (destinations are
@@ -456,9 +456,9 @@ const CollapsedItem: React.FC<{
         'relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
         selfActive
-          ? 'bg-primary text-primary-foreground shadow-glow'
+          ? 'bg-primary text-primary-foreground shadow-glow dark:bg-accent dark:text-primary dark:shadow-none'
           : trailActive
-            ? 'bg-primary/10 text-primary'
+            ? 'bg-primary/10 text-primary dark:bg-accent'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
       )}
     >
@@ -541,7 +541,7 @@ const CollapsedItem: React.FC<{
                     'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     active
-                      ? 'bg-primary/10 font-medium text-primary'
+                      ? 'bg-primary/10 font-medium text-primary dark:bg-accent'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
@@ -657,7 +657,7 @@ export function NavSidebar({
           collapsed ? 'w-full justify-center px-2' : 'gap-2 px-3',
         )}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-accent">
           {logoUrl ? (
             <img src={logoUrl} alt="" className="h-6 w-6 rounded object-contain" />
           ) : (

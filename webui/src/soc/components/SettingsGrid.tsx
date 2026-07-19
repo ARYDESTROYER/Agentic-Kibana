@@ -28,7 +28,10 @@ export interface SettingsGridProps extends React.HTMLAttributes<HTMLDivElement> 
 }
 
 /**
- * Responsive Settings card grid: 1 col on small, 2 on `lg`, 3 on `xl`. Cards flow
+ * Responsive Settings card grid: 1 col on small, 2 on `lg`, 3 on `2xl`. Settings
+ * has both an app rail and a section rail, so the third column waits until the
+ * content pane itself has enough breathing room; at 1280px an `xl` breakpoint made
+ * action-bearing card headers collapse into one-character text columns. Cards flow
  * in source order; a `SettingsCard` (or any child) can opt into a wide span with
  * `className="lg:col-span-2"` / use the `wide` prop on `SettingsCard`.
  */
@@ -36,7 +39,7 @@ export const SettingsGrid = React.forwardRef<HTMLDivElement, SettingsGridProps>(
   ({ className, children, ...rest }, ref) => (
     <div
       ref={ref}
-      className={cn('grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3', className)}
+      className={cn('grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3', className)}
       {...rest}
     >
       {children}
@@ -78,7 +81,7 @@ export const SettingsCard = React.forwardRef<HTMLDivElement, SettingsCardProps>(
       id={anchor}
       className={cn(
         'flex scroll-mt-24 flex-col overflow-hidden rounded-lg border border-border bg-card',
-        wide === 'full' ? 'lg:col-span-2 xl:col-span-3' : wide ? 'lg:col-span-2' : '',
+        wide === 'full' ? 'lg:col-span-2 2xl:col-span-3' : wide ? 'lg:col-span-2' : '',
         className,
       )}
       {...rest}

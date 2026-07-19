@@ -1,10 +1,10 @@
 /**
- * Overview — Security Command Center integration test (Prisma-Cloud-style rebuild).
+ * Overview — Security Command Center integration test (Stitch-inspired command center).
  *
  * Pins the four command-center signatures:
  *   1. the page is titled "Security Command Center";
- *   2. the Active Risk Index (#1 — the ONE risk instrument) is its OWN card in the hero
- *      row, a SIBLING of the plain header, never nested inside it;
+ *   2. the Active Risk Index (#1 — the ONE risk instrument) is its own flat cell in the
+ *      integrated instrument band, a sibling of the plain header, never nested inside it;
  *   3. the Noise-Reduction funnel renders the six-stage flow ending in "Closed by human"
  *      (fetched via the typeof-guarded `api.noiseReduction`), and its stages drill through;
  *   4. the KPI micro-strip is 5 alert/case tiles (LLM spend is not a hero tile).
@@ -125,15 +125,16 @@ describe('Overview — Security Command Center', () => {
     expect(hero).toHaveTextContent('Security Command Center');
   });
 
-  it('mounts the Active Risk Index (#1) as its own card in the hero row, beside the header', async () => {
+  it('mounts the Active Risk Index (#1) as its own flat cell in the instrument band', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     const hero = await screen.findByTestId('page-hero');
     const heroRow = await screen.findByTestId('hero-row');
     const ari = screen.getByTestId('active-risk-index');
     expect(ari).toBeInTheDocument();
-    // Its own card, inside the hero ROW but NOT nested inside the plain header.
+    // Its own instrument cell, inside the band but NOT nested inside the plain header.
     expect(within(heroRow).getByTestId('active-risk-index')).toBeInTheDocument();
     expect(within(hero).queryByTestId('active-risk-index')).toBeNull();
+    expect(ari).toHaveClass('bg-transparent');
     // It is the ONLY risk instrument on the page.
     expect(screen.getAllByTestId('active-risk-index')).toHaveLength(1);
   });
@@ -146,8 +147,17 @@ describe('Overview — Security Command Center', () => {
     const funnel = screen.getByTestId('noise-funnel');
     // The new terminal stage renders.
     expect(within(funnel).getByText('Closed by human')).toBeInTheDocument();
-    expect(within(funnel).getByText('Auto-cleared')).toBeInTheDocument();
-    expect(within(funnel).getByText(/noise reduced by/i)).toBeInTheDocument();
+    expect(within(funnel).getByText('Auto-cleared by AI')).toBeInTheDocument();
+    expect(within(funnel).getByText(/reduced by/i)).toBeInTheDocument();
+    // The six dashboard rail stages are text-only: no shield/bot phase glyphs.
+    expect(within(funnel).getByRole('button', { name: /^Cases opened:/i }).querySelector('svg')).toBeNull();
+    // At narrow widths the six labels wrap into a readable 2/3-column grid; desktop
+    // restores the single six-column rail shown in the supplied reference.
+    expect(within(funnel).getByTestId('noise-stage-rail')).toHaveClass(
+      'grid-cols-2',
+      'sm:grid-cols-3',
+      'lg:grid-cols-6',
+    );
   });
 
   it('clicking a funnel stage drills into the filtered case list', async () => {
@@ -181,7 +191,7 @@ describe('Overview — Security Command Center', () => {
       'kpi-false-positive-rate',
       'kpi-auto-resolved',
     ]) {
-      expect(within(strip).getByTestId(id)).toBeInTheDocument();
+      expect(within(strip).getByTestId(id)).toHaveClass('bg-transparent');
     }
     expect(within(strip).queryByTestId('kpi-llm-spend')).toBeNull();
   });

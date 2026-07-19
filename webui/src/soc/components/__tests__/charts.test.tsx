@@ -59,6 +59,17 @@ describe('DonutChart — center overlay is bounded to the hole (bug #1)', () => 
     expect(screen.getByText('5')).toBeInTheDocument();
   });
 
+  it('can suppress segment hover tooltips for compact instrument rings', () => {
+    const { container } = render(
+      <DonutChart
+        segments={[{ label: 'a', value: 5 }]}
+        center={<span>5</span>}
+        showTooltip={false}
+      />,
+    );
+    expect(container.querySelector('.recharts-tooltip-wrapper')).toBeNull();
+  });
+
   it('empty state is unaffected (early-return branch, no center overlay)', () => {
     render(<DonutChart segments={[]} center={<span>Z</span>} />);
     expect(screen.getByText('No data')).toBeInTheDocument();

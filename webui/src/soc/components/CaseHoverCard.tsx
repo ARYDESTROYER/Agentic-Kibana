@@ -21,6 +21,11 @@ export interface CaseHoverCardProps {
   /** The trigger element (e.g. the Case ID link / title cell). */
   children: React.ReactNode;
   openDelay?: number;
+  closeDelay?: number;
+  side?: React.ComponentPropsWithoutRef<typeof HoverCardContent>['side'];
+  align?: React.ComponentPropsWithoutRef<typeof HoverCardContent>['align'];
+  sideOffset?: number;
+  collisionPadding?: number;
   className?: string;
 }
 
@@ -29,7 +34,17 @@ export interface CaseHoverCardProps {
  * a case reference (the Cases-table title cell, a Scans card, etc.). All
  * case-derived text is UNTRUSTED and rendered as plain text / InlineCode only.
  */
-export function CaseHoverCard({ case: c, children, openDelay = 280, className }: CaseHoverCardProps) {
+export function CaseHoverCard({
+  case: c,
+  children,
+  openDelay = 280,
+  closeDelay = 180,
+  side,
+  align = 'start',
+  sideOffset,
+  collisionPadding,
+  className,
+}: CaseHoverCardProps) {
   // Make the trigger keyboard-focusable so the preview is reachable on FOCUS, not only
   // on hover (WCAG 1.4.13 / 2.1.1) — Radix HoverCard opens on trigger focus too.
   // Consumers commonly pass a non-focusable <span>/<div>, so default tabIndex=0 unless
@@ -50,9 +65,15 @@ export function CaseHoverCard({ case: c, children, openDelay = 280, className }:
     severityBand(typeof c.risk_score === 'number' ? c.risk_score : null);
 
   return (
-    <HoverCard openDelay={openDelay} closeDelay={120}>
+    <HoverCard openDelay={openDelay} closeDelay={closeDelay}>
       <HoverCardTrigger asChild>{trigger}</HoverCardTrigger>
-      <HoverCardContent align="start" className={cn('w-96', className)}>
+      <HoverCardContent
+        side={side}
+        align={align}
+        sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
+        className={cn('w-96', className)}
+      >
         <div className="flex items-center justify-between gap-2">
           <span className="font-mono text-xs text-muted-foreground">{c.case_id}</span>
           <StatusBadge status={c.status} />
@@ -91,9 +112,11 @@ export function CaseHoverCard({ case: c, children, openDelay = 280, className }:
           <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{c.summary}</p>
         ) : null}
 
-        <div className="mt-3 flex items-center justify-between border-t border-border pt-2 text-[11px] text-muted-foreground">
-          <span>{c.source_name ? c.source_name : 'Case'}</span>
-          <span>Updated {humanizeAge(c.updated_at || c.created_at)}</span>
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-2 text-[11px] text-muted-foreground">
+          <span className="min-w-0 truncate">{c.source_name ? c.source_name : 'Case'}</span>
+          <span className="shrink-0 whitespace-nowrap">
+            Updated {humanizeAge(c.updated_at || c.created_at)}
+          </span>
         </div>
       </HoverCardContent>
     </HoverCard>

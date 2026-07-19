@@ -2416,3 +2416,164 @@
 - Tests: `1957` backend tests passed; `1350` Console tests across 240 files passed; Console type drift, lint, production build, and all design gates passed; application/docs version checks, 61-page coverage, workflow YAML, Compose configuration, JavaScript syntax, CSS parsing, and `git diff --check` passed; strict MkDocs builds passed; the isolated Mike publication produced documentation `0.1`, `stable`/`latest` aliases, the Stable default redirect, and 444 search records; 63 generated HTML files and 6,387 links, assets, and fragments validated with no missing targets or duplicate IDs; responsive dark/light, selector, search, navigation drawer, page-outline, desktop, and mobile browser QA passed with no current-page warnings or errors.
 - Status: done. The repository implementation is complete on `Testing`; no remote `main` branch or `v0.1.0` tag exists yet, so Stable publication remains an explicit post-acceptance release action.
 - Next: Protect `Testing` and `main`, promote the accepted source tree through a reviewed pull request, re-run the release gate on the resulting `main` commit, tag that commit `v0.1.0`, and enable GitHub Pages from the generated `gh-pages` branch.
+
+### 2026-07-19 15:20Z — Codex frontend implementer — Dashboard prototype integration started
+- Context: Inspect the attached Stitch frontend prototype in the in-app browser, fit its dashboard design to the existing TLSOC Console, and deliver a fully working dashboard with thorough verification.
+- Did: Read the repository handoff and agent rules, selected the required in-app browser workflow, and began mapping the prototype against the current dashboard architecture and contracts.
+- Tests: Baseline repository and visual checks pending.
+- Status: in-progress.
+- Next: Inspect the prototype and current dashboard, implement the visual integration, then run focused tests, full Console tests, lint, build, and browser QA.
+
+### 2026-07-19 15:36Z — Codex frontend implementer — Live command-center dashboard integrated
+- Context: Adapt the attached flat, dense Stitch dashboard concept without replacing the Console's real data, RBAC, routing, accessibility, theme, or drill-down behavior.
+- Did: Rebuilt the dashboard composition as a borderless five-cell telemetry strip, integrated Active Risk/resolved-open/latest-case instrument band, and Noise-Reduction/burndown/timing operations band; added reusable strip/flat component variants and aligned the loading skeleton with the new layout. Verified the rendered result against the supplied prototype in the in-app browser using the live demo backend.
+- Tests: Console production build passed (`tsc --noEmit` + Vite, 3,156 modules); initial focused dashboard/component run passed 53/54 assertions, with the sole failure identified as stale copy expecting `Noise reduced by` after the intentional compact `Reduced by` label change. No backend decision logic was touched.
+- Status: in-progress.
+- Next: Re-run focused tests after the expectation update, then complete full tests, lint, design gates, and responsive light/dark interaction QA in a fresh browser tab.
+
+### 2026-07-19 15:45Z — Codex frontend implementer — Stitch-inspired dashboard integration complete
+- Context: Finish the dashboard-only frontend adaptation and verify it more rigorously than the supplied static concept, including live data, responsive behavior, accessibility, interactions, and regression safety.
+- Did: Completed the dense command-center dashboard with working range/refresh controls, KPI and funnel drill-downs, risk and lifecycle instruments, latest-case queue, noise flow, burndown/timing rail, and preserved collapsed deeper analytics. Browser QA exposed a mobile CSS-grid min-content overflow; added explicit `min-w-0` constraints through the telemetry/instrument/operations composition and confirmed 390 px body/main widths exactly match the viewport. Kept all existing Console navigation, RBAC, light/dark theming, demo safety, real API contracts, and deterministic case-manager authority intact. The final live dashboard remains open as the browser deliverable.
+- Tests: Focused dashboard/component/a11y suite `54/54` passed; full Console suite `1,350/1,350` across 240 files passed after the responsive fix; lint passed with zero errors/warnings; API type-drift check passed for 190 paths; all design gates passed (37 tokens, 82 dual-theme contrast axes, grep guards, CVD); production `tsc --noEmit` + Vite build passed with the 287.45 kB entry chunk unchanged; all 1,957 backend tests passed twice (one pre-final and one final exit-0 regression run); `git diff --check` passed and `backend/app/engine/case_manager.py` remained byte-unchanged. In-app browser checks passed in desktop dark/light and mobile dark at 390×844, including time-range reload, open-case drill-down, deeper-analytics expansion, zero horizontal overflow, and zero warnings/errors in a fresh tab.
+- Status: done.
+- Next: Operator visual review of the live dashboard; no further implementation or deployment action is required for this dashboard-only scope.
+
+### 2026-07-19 15:57Z — Codex frontend implementer — Exact dark-console palette and glitch pass started
+- Context: Match the Console's global dark mode to the newly supplied near-black/violet command-center reference and remove dashboard visual glitches shown in the accompanying crop.
+- Did: Re-read the handoff, repository rules, canonical design standard, and in-app browser workflow; preserved the existing uncommitted dashboard integration as the starting point.
+- Tests: Baseline screenshot/token/browser comparison pending.
+- Status: in-progress.
+- Next: Sample and map the reference palette, inspect the live dashboard and shared shell, implement global dark-token changes plus dashboard glitch fixes, then run full visual and automated verification.
+
+### 2026-07-19 16:03Z — Codex orchestrator — Documentation interaction bug investigation started
+- Context: Diagnose and correct the documentation defect demonstrated in the supplied screen recording.
+- Did: Began frame-level recording inspection and source-to-rendered interaction tracing, scoped strictly to the documentation site.
+- Tests: Reproduction, targeted implementation, strict build, and browser regression pending.
+- Status: in-progress.
+- Next: Identify the exact failing state, apply the smallest source fix, and verify it across the affected viewport and themes.
+
+### 2026-07-19 16:09Z — Codex frontend implementer — Dark-console parity and responsive glitch fixes verified live
+- Context: Apply the supplied dark command-center palette across the Console and eliminate the lifecycle and settings layout glitches exposed during visual QA.
+- Did: Sampled the reference image into near-black canvas/card layers plus lavender, red, orange, blue, and lime semantic axes; remapped the dark design tokens and shared navigation states; removed the lifecycle row's oversized hover wash; shortened the resolved donut center label so it no longer clips. Cross-page browser QA then exposed the Settings three-column grid activating before its two fixed rails left enough content width, so the third column/full-span breakpoint now waits until `2xl`.
+- Tests: All design gates passed (37 tokens, 82 dual-theme contrast axes, grep guards, CVD); focused dashboard, shared navigation/theme, settings, and a11y tests passed `114/114`; live browser verification passed on dashboard, Cases, Settings, command-palette overlay, and 390×844 dashboard with exact 390 px document width.
+- Status: in-progress.
+- Next: Run the full Console test/lint/type/build suite, backend regression suite, fresh-tab browser console check, and final diff/journal audit.
+
+### 2026-07-19 16:15Z — Codex frontend implementer — Exact reference dark mode and glitch pass complete
+- Context: Finish the operator-requested visual match to the supplied dark command-center image across the Console without regressing the established light theme or application behavior.
+- Did: Finalized the reference-derived `#050505` canvas, `#0a0a0a` cards, `#121212` popovers, `#1b1c1e` hairlines, `#2d2a36` active surfaces, `#cdbdfa` ultraviolet primary, and sampled semantic red/orange/blue/lime axes. Matched the dashboard strip roles (neutral open, red critical/high, blue escalation, orange false-positive, lime auto-resolved), preserved the old light navigation treatment via dark-only variants, removed the lifecycle hover slab, fixed the clipped resolved donut label, and repaired the Settings action-card collapse at 1280 px. The Browser skill guided live comparison across dashboard, dense Cases table, Settings forms, command overlay, desktop light/dark, and mobile dark.
+- Tests: Full Console suite passed `1,351/1,351` across 240 files; all `1,957` backend tests passed; lint passed with zero errors/warnings; 190-path API type drift passed; all design gates passed (37 tokens, 82 dual-theme contrast axes, grep guards, three CVD simulations); repeated `tsc --noEmit` + Vite production builds passed (3,156 modules, 287.63 kB entry); focused post-final dashboard/a11y tests passed `28/28`; `git diff --check` passed and deterministic `backend/app/engine/case_manager.py` remained unchanged. Browser QA confirmed exact live token values, no desktop/mobile horizontal overflow, preserved light rendering, and no warning/error logs in a fresh dark tab.
+- Status: done. The global dark mode now follows the supplied near-black/violet command-center scheme while the Console remains functional, responsive, AA-gated, and light-theme compatible.
+- Next: Operator visual review of the final live dark dashboard; no deployment or source-control publication was requested.
+
+### 2026-07-19 16:17Z — Codex orchestrator — Documentation page-end navigation defect fixed
+- Context: Correct the documentation sidebar defect demonstrated in the supplied recording.
+- Did: Traced the disappearing active submenu to Material's footer-aware inline resize of the fixed primary sidebar and added a desktop-scoped height override so the navigation viewport and its scroll position remain stable.
+- Tests: Strict MkDocs build, 61-page consistency check, CSS parse, and whitespace validation passed. Browser regression passed at compact and full desktop heights in both themes plus the mobile drawer; the active Administration subtree remained visible through the page-end transition with no console errors.
+- Status: done.
+- Next: None.
+
+### 2026-07-19 16:25Z — Codex frontend implementer — Dashboard micro-layout polish started
+- Context: Apply five operator-specified refinements to the dark command-center dashboard: remove redundant lifecycle/SLA copy, clean up donut geometry, adapt the supplied Latest Cases treatment, and simplify Noise-Reduction stage labels.
+- Did: Re-read the handoff, repository rules, and required in-app browser workflow; preserved the existing dashboard and global dark-mode work as the baseline.
+- Tests: Reference/prototype inspection and focused regression checks pending.
+- Status: in-progress.
+- Next: Inspect the supplied zip and current components, implement the five scoped changes, then run focused/full Console verification and live responsive browser QA.
+
+### 2026-07-19 16:35Z — Codex frontend implementer — Five dashboard refinements implemented and verified live
+- Context: Match the operator's follow-up lifecycle, Latest Cases, and Noise-Reduction references while preserving live data and drill-down behavior.
+- Did: Removed the redundant lifecycle group heading/subtitle and masthead SLA chip; enlarged donut boxes from 88 px to 120 px and thickened their rings while retaining the bounded center hole; adapted the zip's compact Latest Cases rows to real cases with case ID/title, age, semantic status badge, View All, and row navigation; removed the old source/risk/dot/chevron/escalation-footer clutter. Removed shield/bot stage pictograms from Noise Reduction, applied the requested text labels and status color cues, and changed the stage rail to responsive 2/3/6-column layouts after mobile QA exposed collisions.
+- Tests: Focused dashboard/noise/chart/a11y tests passed `39/39`, the post-responsive focused set passed `34/34`, lint passed, design gates passed, and the production build passed (3,156 modules). Live browser checks passed on desktop dark and 390×844 mobile with exact viewport/document width and readable, non-overlapping stage labels.
+- Status: in-progress.
+- Next: Run the full Console/backend regression suites, repeat build/type checks, and complete clean-tab desktop/mobile browser handoff.
+
+### 2026-07-19 16:39Z — Codex frontend implementer — Dashboard micro-layout polish complete
+- Context: Complete and independently verify the five requested dashboard refinements against the supplied screenshots and attached frontend prototype.
+- Did: Finalized the simplified masthead and lifecycle area, cleaner 120 px thick-ring donuts, prototype-derived compact Latest Cases queue, and text-only Noise-Reduction stages. Preserved live API data, case navigation, View All behavior, responsive layouts, light/dark compatibility, RBAC, and all deterministic backend behavior. A fresh desktop dark-mode browser pass confirmed the redundant lifecycle/SLA copy is absent, both donut canvases render at 120 px, the six-stage rail is evenly distributed, the document has no horizontal overflow, and the page emits no warnings or errors.
+- Tests: Full Console suite passed `1,351/1,351` across 240 files; all `1,957` backend tests passed; lint passed with zero errors/warnings; 190-path API type-drift check passed; all design gates passed (37 tokens, 82 dual-theme contrast axes, grep guards, CVD); final `tsc --noEmit` + Vite production build passed (3,156 modules, 287.63 kB entry); focused post-responsive tests passed `34/34`; `git diff --check` passed and `backend/app/engine/case_manager.py` remained unchanged. Browser QA passed at 1280 px desktop and 390×844 mobile with zero horizontal overflow.
+- Status: done.
+- Next: Operator visual review; no deployment or source-control publication was requested.
+
+### 2026-07-19 16:49Z — Codex frontend implementer — Dashboard density and interaction pass started
+- Context: Match the supplied KPI/control references, reduce the risk/lifecycle/latest band only vertically, maximize the risk gauge within its panel, and show exactly four latest cases with richer hover disclosure.
+- Did: Re-read the handoff, project rules, supplied screenshots, and required browser workflow; retained the verified dark-console and dashboard changes as the implementation baseline.
+- Tests: ZIP/code inspection, component changes, automated regressions, and responsive browser QA pending.
+- Status: in-progress.
+- Next: Compare the current implementation with the prototype markup, implement the scoped density/shape/hover changes, then verify desktop and mobile behavior.
+
+### 2026-07-19 17:06Z — Codex frontend implementer — Dashboard density and interactions verified
+- Context: Validate the ZIP-derived KPI strip, compact instrument band, reshaped controls, and four-row Latest Cases queue before final handoff.
+- Did: Matched the KPI strip's 4xl numerals, concise captions, semantic delta chip, and real timestamp-bucket micro-trends; added near-square three-control command chrome with compact `Last 24h` copy; reduced the instrument band to 326 px at 1280 px while expanding the Active Risk gauge to 320 px; reduced lifecycle donuts to clean 100 px/28%-thick rings; sorted all cases by latest activity, capped the queue at four, and wrapped every row in the existing rich accessible CaseHoverCard. Live 390 px QA confirmed the full-width gauge, readable rings, four visible case rows, and zero horizontal overflow.
+- Tests: Focused dashboard/control/gauge/hover/a11y suite passed `62/62`; full Console suite passed `1,352/1,352` across 240 files; lint, all design gates, 190-path type drift, and final production build passed (3,156 modules, 287.68 kB entry); all `1,957` backend tests completed at 100% with the one known TLS warning only. Browser QA passed at 1280 px desktop and 390×844 mobile.
+- Status: in-progress.
+- Next: Reset the temporary mobile viewport, run a clean-tab desktop console/geometry audit, then complete the final diff and journal checks.
+
+### 2026-07-19 17:07Z — Codex frontend implementer — Dashboard density and interaction pass complete
+- Context: Finish the operator-requested ZIP/reference adaptation with production-grade live data and interaction behavior.
+- Did: Completed the compact KPI telemetry strip, three-button squared masthead controls, vertically tightened risk/lifecycle/latest band, full-width Active Risk gauge, and exactly-four Latest Cases queue with rich hover/focus previews. The Browser skill drove a final fresh-tab dark-mode audit after resetting the temporary mobile viewport: 1280 px body/scroll widths match, the instrument band is 326 px tall, the gauge is 320 px wide, both donuts are 100 px high, all four latest rows render, all three controls have transparent 3 px-radius chrome, and the browser console is clean.
+- Tests: Final status remains green at `1,352/1,352` Console tests across 240 files and `1,957/1,957` backend tests; lint, design gates, API type drift, production build, whitespace validation, and the byte-unchanged deterministic case manager all passed.
+- Status: done.
+- Next: Operator visual review; no deployment, staging, commit, or push was requested.
+
+### 2026-07-19 17:13Z — Codex frontend implementer — Lifecycle ring enlargement started
+- Context: Enlarge the Cases Resolved/Open rings again and improve their center-number proportions against the newly supplied reference.
+- Did: Preserved the current dashboard density work as the baseline and scoped the change to SnapshotCard ring geometry and its matching assertions.
+- Tests: Focused component/build and live browser comparison pending.
+- Status: in-progress.
+- Next: Increase the ring canvas/diameter and center typography, then verify desktop/mobile fit and regressions.
+
+### 2026-07-19 17:15Z — Codex frontend implementer — Larger lifecycle rings complete
+- Context: Finish the requested resolved/open donut enlargement while retaining clean center copy and responsive safety.
+- Did: Increased each lifecycle ring from a 100 px canvas/112 px box to a 136 px canvas/144 px box, tuned thickness to 26% for a roughly 95 px visible outer donut and 71 px center hole, promoted ordinary center totals to 3xl, and retained compact 2xl typography for abbreviated four-digit totals. The surrounding column widths and all case drill-down behavior remain unchanged.
+- Tests: Focused Overview/command-center/a11y/chart suite passed `26/26`; lint and the final production build passed (3,156 modules, 287.68 kB entry); `git diff --check` passed and the deterministic case manager remained untouched. Live dark-mode browser QA confirmed both rings at 144×136 px, clean centers, zero warnings/errors, and exact body/scroll widths at both 1280 px desktop and 390×844 mobile.
+- Status: done.
+- Next: Operator visual review; no deployment or source-control action was requested.
+
+### 2026-07-19 17:28Z — Codex frontend implementer — Latest-case escalation copy update started
+- Context: Replace the Latest Cases `TRIAGE` status label with `ESCALATED` for needs-human/escalated cases.
+- Did: Located the single dashboard status-vocabulary mapping; unrelated product and metric uses of “triage” remain intentionally unchanged.
+- Tests: Focused dashboard regression and production type/build checks pending.
+- Status: in-progress.
+- Next: Update the mapping, pin it with a render assertion, and verify the dashboard build.
+
+### 2026-07-19 17:29Z — Codex frontend implementer — Latest-case escalation copy update complete
+- Context: Finish the requested Latest Cases badge wording change without altering status semantics or colors.
+- Did: `needs_human` and `escalated` rows now render `ESCALATED`; the high-severity badge treatment, navigation, hover preview, and backend status values remain unchanged. Added a regression assertion that the queue contains `Escalated` and no `Triage` badge.
+- Tests: Focused Overview/command-center tests passed `21/21`; TypeScript typecheck and lint passed; `git diff --check` passed and the deterministic case manager remained untouched.
+- Status: done.
+- Next: None.
+
+### 2026-07-19 18:42Z — Codex frontend implementer — Dashboard hover and menu polish started
+- Context: Repair the glitchy lifecycle/latest-case hover behavior, square and darken dropdown surfaces, and replace the ambiguous KPI abbreviation `obs.`.
+- Did: Reproduced the three affected interaction surfaces from the supplied screenshots and traced them to the shared donut tooltip, hover-card, popover, select, and dropdown primitives.
+- Tests: Focused component checks, full Console validation, and live in-app Browser QA pending.
+- Status: in-progress.
+- Next: Patch the shared primitives and dashboard copy, add regression coverage, then verify hover/menu geometry in dark mode.
+
+### 2026-07-19 18:51Z — Codex frontend implementer — Hover/menu verification milestone
+- Context: Validate the dashboard interaction fixes across the shared primitives and the live dark-mode console.
+- Did: Disabled segment tooltips only on the lifecycle rings; added a steadier 320 ms open / 220 ms close window and left-side placement for Latest Cases previews; prevented preview footer collisions; changed shared floating surfaces and menu rows to 3 px corners; mapped the dark popover token to the near-black card surface; and replaced `obs.` with plural-aware `critical case(s)` copy.
+- Tests: Focused hover/chart/select/dashboard suite passed `37/37`; the full Console suite passed `1,353/1,353` across 240 files; lint, TypeScript production build (3,156 modules, 287.69 kB entry), design gates, 190-path API type drift, and `git diff --check` passed. In-app Browser QA measured all four dark menus at 3 px / rgb(10,10,10), confirmed lifecycle hover exposes zero visible Recharts tooltips, and confirmed 390 px mobile has 390 px body/scroll width with four Latest Cases rows and an in-bounds picker menu.
+- Status: in-progress.
+- Next: Perform the final clean console-log audit, finalize the Browser session, then close the journal entry.
+
+### 2026-07-19 18:52Z — Codex frontend implementer — Dashboard hover and menu polish complete
+- Context: Complete the requested interaction cleanup and dark squared menu treatment.
+- Did: Finalized the verified implementation with lifecycle overlays removed, Latest Cases hover timing/placement stabilized, floating menus uniformly squared and near-black in dark mode, and the KPI caption rewritten in plain language.
+- Tests: Final in-app Browser console audit reported zero warnings/errors after desktop and mobile interaction passes; all automated checks remain green at `1,353/1,353` Console tests plus lint, design gates, API type drift, build, and whitespace validation.
+- Status: done.
+- Next: Operator visual review; no deployment, staging, commit, or push was requested.
+
+### 2026-07-19 18:59Z — Codex frontend implementer — Lifecycle center-label removal started
+- Context: Remove the `RES` and `OPEN` captions from the resolved/open lifecycle rings and center the totals by themselves.
+- Did: Scoped the change to `SnapshotCard` center content and its dashboard regression assertions.
+- Tests: Focused Overview/chart checks and live Browser geometry audit pending.
+- Status: in-progress.
+- Next: Remove the center-label API/rendering, update assertions, and verify both rings visually.
+
+### 2026-07-19 19:02Z — Codex frontend implementer — Lifecycle center-label removal complete
+- Context: Finish the requested numbers-only resolved/open lifecycle ring centers.
+- Did: Removed the `centerLabel` API and all `RES`/`OPEN` center rendering, including the no-data branch; each ring now contains only its total with an explicit single-line treatment.
+- Tests: Focused Overview/command-center/chart suite passed `26/26`; lint, TypeScript production build (3,156 modules, 287.69 kB entry), and `git diff --check` passed. Live Browser measurement confirmed both desktop and 390 px mobile numerals at exact 0 px X/Y offset from their ring centers, with no horizontal overflow and zero console warnings/errors.
+- Status: done.
+- Next: Operator visual review; no deployment, staging, commit, or push was requested.

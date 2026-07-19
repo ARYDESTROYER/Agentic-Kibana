@@ -32,7 +32,7 @@ export const focusRing =
  * open/close fade+zoom (motion-reduce is handled globally in theme.css).
  */
 export const overlaySurface =
-  'bg-popover text-popover-foreground rounded-lg border border-border shadow-overlay ' +
+  'bg-popover text-popover-foreground rounded-[3px] border border-border shadow-overlay ' +
   'data-[state=open]:animate-in data-[state=closed]:animate-out ' +
   'data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 ' +
   'data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95';
@@ -43,7 +43,7 @@ export const overlaySurface =
  * mouse selection look identical; `data-[disabled]` dims + blocks pointer events.
  */
 export const menuItem =
-  'relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none ' +
+  'relative flex cursor-default select-none items-center gap-2 rounded-[3px] px-2 py-1.5 text-sm outline-none ' +
   'focus:bg-accent focus:text-accent-foreground data-[selected=true]:bg-accent ' +
   'data-[selected=true]:text-accent-foreground ' +
   'data-[disabled]:pointer-events-none data-[disabled]:opacity-50';

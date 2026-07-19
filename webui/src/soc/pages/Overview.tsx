@@ -1,21 +1,16 @@
 /**
  * Overview — the Security Command Center (default landing surface).
  *
- * A classy, Prisma-Cloud-style operational dashboard laid out top → bottom:
+ * A dense command-center dashboard adapted from the operator-provided Stitch concept:
  *
  *   ┌ MASTHEAD ─── a PLAIN, dense <PageHeader> (no card / no glow — the big title sits
  *   │             flush on the page background, like the Sources page) carrying the
- *   │             <TimeRangePicker> + auto-refresh + a manual refresh pulse + a "Last
- *   │             updated" stamp in its `actions` slot, and an optional SLA chip in `meta`.
- *   ├ KPI STRIP ── a flat, un-nested responsive grid of 5 alert/case signal KpiTiles.
- *   ├ ZONE A ───── the HERO ROW (3 equal cards): the Active Risk Index (#1 — the ONE risk
- *   │             instrument), a "Cases resolved" donut snapshot (center count + trend
- *   │             delta + severity legend), and an "Open cases" donut snapshot.
- *   ├ ZONE B ───── the wide Noise-Suppression ribbon (ingested → clustered → cases →
- *   │             auto_cleared → escalated → closed) — the value-prop headline.
- *   ├ ZONE C ───── three columns: a Cases-burndown (opened vs resolved), a Mean-time-to-
- *   │             detect/respond card (MTTD + first-response p50 + a detect/respond trend
- *   │             with an average reference line), and a Top-open-cases work list.
+ *   │             <TimeRangePicker> + auto-refresh + a manual refresh pulse, with the last
+ *   │             poll timestamp kept alongside the title and an optional SLA chip in `meta`.
+ *   ├ KPI STRIP ── five borderless alert/case telemetry cells separated by hairlines.
+ *   ├ INSTRUMENT ── one integrated 12-column band: Active Risk Index (#1 — the ONE risk
+ *   │             instrument), resolved/open donut snapshots, and the latest-case queue.
+ *   ├ OPERATIONS ── the Noise-Reduction flow plus a compact burndown/timing rail.
  *   └ DEEPER ───── a COLLAPSED "Deeper analytics" group folding the secondary bands
  *                  (spend tripwire, full response timing, autonomy split, connectors,
  *                  case-volume, workload, top signatures/entities).
@@ -44,7 +39,6 @@ import {
   Inbox,
   Percent,
   Plug,
-  Radar,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -77,12 +71,13 @@ import {
 import { DashboardGroup } from '@/soc/components/DashboardGroup';
 import { KpiTile, type KpiAccent, type KpiDelta } from '@/soc/components/KpiTile';
 import { ActiveRiskIndex } from '@/soc/components/ActiveRiskIndex';
+import { CaseHoverCard } from '@/soc/components/CaseHoverCard';
 import { NoiseFunnel } from '@/soc/components/NoiseFunnel';
 import { Reveal } from '@/soc/components/Reveal';
 import { CountUp } from '@/soc/components/CountUp';
 import { Stagger } from '@/soc/components/Stagger';
 import { DonutChart, TrendArea, type DonutSegment } from '@/soc/components/charts';
-import { BurnDownChart, MultiSeriesTrend } from '@/soc/components/charts-soc';
+import { BurnDownChart } from '@/soc/components/charts-soc';
 import { token, VERDICT_COLOR } from '@/soc/components/palette';
 import { isAutoClosedByAI, severityBand, severityBandFromNumber } from '@/soc/components/badges';
 import { BarList, type BarListItem } from '@/soc/components/BarList';
@@ -92,6 +87,7 @@ import { AutomationNudge } from './AutomationNudge';
 import { StartDemoButton } from '@/soc/components/StartDemoButton';
 import { usePosture } from '@/soc/hooks/usePosture';
 import { Card, CardContent } from '@/ui/card';
+import { Badge } from '@/ui/badge';
 import { Button } from '@/ui/button';
 import { Skeleton } from '@/ui/skeleton';
 
@@ -133,7 +129,7 @@ const fmtInt = (n: number): string => fmtNumber(n);
 
 /**
  * Format the SnapshotCard donut CENTER number only. The center hole is pinned to
- * ~62px (innerPct=43% of the 136/144px ring) with `overflow-hidden` as a
+ * ~71px (innerPct=52% of the 136px ring) with `overflow-hidden` as a
  * deliberate anti-overlap guardrail — a 4+ digit total in `fmtInt`'s
  * thousands-separated form (e.g. "1,234") is wider than the hole and gets
  * clipped rather than overlapping the ring. Abbreviate >=1000 (e.g. "1.2K") so
@@ -220,6 +216,31 @@ function countDelta(cur: number, prev: number | null): { value: number; label: s
   return { value: rounded, label: `${sign}${rounded}%` };
 }
 
+/**
+ * Six real arrival buckets for a KPI micro-trend. Omit the series when the response
+ * carries no usable timestamps, so the strip never invents a decorative trend.
+ */
+function caseArrivalTrend(
+  rows: Case[],
+  fromMs: number,
+  toMs: number,
+  include: (row: Case) => boolean,
+): number[] | undefined {
+  const bucketCount = 6;
+  const span = Math.max(1, toMs - fromMs);
+  const buckets = Array.from({ length: bucketCount }, () => 0);
+  let observed = 0;
+  for (const row of rows) {
+    if (!include(row)) continue;
+    const ts = Date.parse(row.created_at || row.updated_at || '');
+    if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
+    const index = Math.min(bucketCount - 1, Math.floor(((ts - fromMs) / span) * bucketCount));
+    buckets[index] += 1;
+    observed += 1;
+  }
+  return observed > 0 ? buckets : undefined;
+}
+
 /** One KPI-strip tile descriptor (built in a memo, rendered as a <KpiTile>). */
 interface KpiItem {
   label: string;
@@ -232,6 +253,7 @@ interface KpiItem {
   delta?: KpiDelta;
   countTo?: number;
   format?: (n: number) => string;
+  spark?: number[];
 }
 
 /* ------------------------------------------------------------------------- */
@@ -271,9 +293,9 @@ function TrendChip({
 }
 
 /**
- * A hero DONUT snapshot card: a big center count + a period-over-period trend chip and a
- * per-severity legend beside a refined ring. The section heading is an `<h2>` (the hero
- * cards carry the first headings under the page `<h1>`, so the outline stays valid).
+ * A compact donut snapshot inside the shared resolved/open instrument column. The parent
+ * supplies the panel boundary; this helper intentionally has no card chrome so both states
+ * read as one instrument, matching the supplied command-center prototype.
  */
 function SnapshotCard({
   title,
@@ -284,7 +306,6 @@ function SnapshotCard({
   counts,
   ariaLabel,
   ctaLabel,
-  centerLabel,
   onClick,
 }: {
   title: string;
@@ -295,100 +316,96 @@ function SnapshotCard({
   counts: SevCounts;
   ariaLabel: string;
   ctaLabel: string;
-  /** Short, single-word caption rendered INSIDE the donut hole ("resolved" / "open") —
-   *  intentionally NOT the multi-word card `title` (which sits above), so the center
-   *  label never overflows the ring. */
-  centerLabel: string;
   onClick?: () => void;
 }) {
   const segments = sevSegments(counts);
   const legend = SEV_ORDER.map((s) => ({ key: s, value: counts[s] })).filter((r) => r.value > 0);
+  const content = (
+    <>
+      {segments.length ? (
+        <DonutChart
+          segments={segments}
+          height={136}
+          thickness={0.26}
+          showTooltip={false}
+          className="w-36 shrink-0"
+          ariaLabel={ariaLabel}
+          center={
+            <CountUp
+              value={total}
+              format={fmtSnapshotCenter}
+              className={cn(
+                'font-mono font-semibold tabular-nums text-foreground',
+                total >= 1000 ? 'text-2xl' : 'text-3xl',
+                'leading-none',
+              )}
+            />
+          }
+        />
+      ) : (
+        <div
+          role="img"
+          aria-label={`${ariaLabel} (none)`}
+          className="flex h-[136px] w-36 shrink-0 items-center justify-center"
+        >
+          <span className="font-mono text-2xl font-semibold tabular-nums text-muted-foreground">
+            0
+          </span>
+        </div>
+      )}
+      <ul className="min-w-0 flex-1 space-y-1">
+        {legend.length ? (
+          legend.map((r) => {
+            const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
+            return (
+              <li key={r.key} className="flex items-center gap-2">
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: token(r.key) }}
+                  aria-hidden
+                />
+                <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
+                  {SEV_LABEL[r.key]}
+                </span>
+                <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
+                  {fmtNumber(r.value)}
+                </span>
+                <span className="w-8 text-right font-mono text-2xs tabular-nums text-muted-foreground">
+                  {pct}%
+                </span>
+              </li>
+            );
+          })
+        ) : (
+          <li className="text-xs text-muted-foreground">No cases in this window.</li>
+        )}
+      </ul>
+      {onClick ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
+    </>
+  );
+
   return (
-    <Card className="flex h-full flex-col">
-      <div className="flex items-start justify-between gap-2 px-5 pt-4">
+    <section className="min-w-0 border-b border-border/70 py-3 last:border-b-0">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <h2 className="text-2xs font-semibold uppercase tracking-widest text-foreground">{title}</h2>
           <p className="text-2xs text-muted-foreground">{caption}</p>
         </div>
         <TrendChip delta={delta} goodDirection={goodDirection} />
       </div>
-      <CardContent className="flex flex-1 flex-col items-center gap-4 px-5 py-4 sm:flex-row">
-        {segments.length ? (
-          <DonutChart
-            segments={segments}
-            height={136}
-            // A slightly thinner ring → a larger hole, so an 8-char center caption
-            // ("RESOLVED") sits comfortably inside the CIRCULAR hole instead of crowding it.
-            thickness={0.24}
-            className="w-full shrink-0 sm:w-36"
-            ariaLabel={ariaLabel}
-            center={
-              // A tight number-over-caption stack. The caption is small + `leading-none`
-              // and sits close to the number so its corners clear the CIRCULAR hole (a wider
-              // 8-char caption below the number otherwise grazes the ring — see the donut
-              // hole geometry). `truncate` is a final backstop against an overlong caption.
-              <div className="flex flex-col items-center leading-none">
-                <CountUp
-                  value={total}
-                  format={fmtSnapshotCenter}
-                  className="font-mono text-2xl font-semibold tabular-nums text-foreground"
-                />
-                <span className="mt-0.5 max-w-full truncate text-2xs uppercase tracking-tight text-muted-foreground">
-                  {centerLabel}
-                </span>
-              </div>
-            }
-          />
-        ) : (
-          <div
-            role="img"
-            aria-label={`${ariaLabel} (none)`}
-            className="flex h-[136px] w-full flex-col items-center justify-center gap-0.5 sm:w-36"
-          >
-            <span className="font-mono text-2xl font-semibold tabular-nums text-muted-foreground">
-              0
-            </span>
-            <span className="text-2xs uppercase tracking-wide text-muted-foreground">
-              {centerLabel}
-            </span>
-          </div>
-        )}
-        <ul className="w-full space-y-1.5">
-          {legend.length ? (
-            legend.map((r) => {
-              const pct = total > 0 ? Math.round((r.value / total) * 100) : 0;
-              return (
-                <li key={r.key} className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: token(r.key) }}
-                    aria-hidden
-                  />
-                  <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                    {SEV_LABEL[r.key]}
-                  </span>
-                  <span className="font-mono text-xs font-semibold tabular-nums text-foreground">
-                    {fmtNumber(r.value)}
-                  </span>
-                  <span className="w-8 text-right font-mono text-2xs tabular-nums text-muted-foreground">
-                    {pct}%
-                  </span>
-                </li>
-              );
-            })
-          ) : (
-            <li className="text-xs text-muted-foreground">No cases in this window.</li>
-          )}
-        </ul>
-      </CardContent>
       {onClick ? (
-        <div className="px-5 pb-4">
-          <Button variant="outline" size="sm" className="w-full" onClick={onClick}>
-            {ctaLabel}
-          </Button>
-        </div>
-      ) : null}
-    </Card>
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={ctaLabel}
+          className="mt-1.5 flex w-full min-w-0 items-center gap-3 py-0.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="mt-1.5 flex items-center gap-3 p-0.5">{content}</div>
+      )}
+    </section>
   );
 }
 
@@ -399,12 +416,14 @@ function TimingStat({
   block,
   dotClass,
   help,
+  compact = false,
 }: {
   label: string;
   sub: string;
   block: StatBlock | undefined;
   dotClass: string;
   help?: string;
+  compact?: boolean;
 }) {
   const available = block?.available === true;
   const value = available ? humanizeMins(block!.p50) : DASH;
@@ -412,17 +431,147 @@ function TimingStat({
     ? `p50 · ${fmtNumber(block!.count)} sample${block!.count === 1 ? '' : 's'}`
     : block?.reason || 'not measured (n/a)';
   return (
-    <div className="rounded-md border border-border bg-muted/20 px-3 py-2.5" title={help}>
+    <div
+      className={cn(
+        compact ? 'min-w-0 py-1' : 'rounded-md border border-border bg-muted/20 px-3 py-2.5',
+      )}
+      title={help}
+    >
       <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
         <span className={cn('h-1.5 w-1.5 rounded-full', dotClass)} aria-hidden />
         {label}
       </div>
-      <div className="mt-1 font-mono text-2xl font-semibold leading-none tabular-nums text-foreground">
+      <div
+        className={cn(
+          'mt-1 font-mono font-semibold leading-none tabular-nums text-foreground',
+          compact ? 'text-3xl' : 'text-2xl',
+        )}
+      >
         {value}
       </div>
       <div className="mt-1 text-2xs text-muted-foreground">{sub}</div>
       <div className="text-2xs text-muted-foreground/80">{detail}</div>
     </div>
+  );
+}
+
+type LatestCaseBadgeVariant = NonNullable<React.ComponentProps<typeof Badge>['variant']>;
+
+/** Prototype status vocabulary: compact, operational, and semantically tokenised. */
+function latestCaseStatus(status: string | null | undefined): {
+  label: string;
+  variant: LatestCaseBadgeVariant;
+} {
+  const key = (status || 'open').trim().toLowerCase();
+  if (key === 'open' || key === 'new') return { label: 'Open', variant: 'critical' };
+  if (key === 'needs_human' || key === 'escalated') {
+    return { label: 'Escalated', variant: 'high' };
+  }
+  if (key === 'investigating' || key === 'in_progress') {
+    return { label: 'Investigating', variant: 'low' };
+  }
+  if (key === 'closed' || key === 'resolved') return { label: 'Resolved', variant: 'success' };
+  return { label: humanizeToken(key), variant: 'secondary' };
+}
+
+/** Compact real-time work queue adapted directly from the supplied Stitch prototype. */
+function TopCasesPanel({
+  cases,
+  navigate,
+  navWindow,
+}: {
+  cases: Case[];
+  navigate?: Navigate;
+  navWindow: number;
+}) {
+  return (
+    <section aria-label="Latest cases" className="flex h-full min-w-0 flex-col p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-2xs font-semibold uppercase tracking-widest text-foreground">
+            Latest cases
+          </h2>
+          <p className="mt-0.5 text-2xs text-muted-foreground">Real-time triage queue</p>
+        </div>
+        {navigate ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-sm px-1 py-0.5 text-2xs font-semibold uppercase tracking-widest text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => navigate('cases', { window: navWindow })}
+          >
+            View all
+          </button>
+        ) : null}
+      </div>
+
+      {cases.length ? (
+        <ul className="mt-2 flex min-h-0 flex-1 flex-col gap-1.5">
+          {cases.map((k) => {
+            const displayId = (k.case_number || k.case_id || DASH).trim() || DASH;
+            const displayTitle =
+              (k.title || k.cluster_signature || k.rule_ids?.[0] || '').trim() ||
+              'Untitled case';
+            const age = humanizeAge(k.updated_at || k.created_at);
+            const status = latestCaseStatus(k.status);
+            return (
+              <li key={k.case_id} className="min-w-0">
+                <CaseHoverCard
+                  case={k}
+                  openDelay={320}
+                  closeDelay={220}
+                  side="left"
+                  align="start"
+                  sideOffset={12}
+                  collisionPadding={12}
+                  className="w-80 max-w-[calc(100vw-2rem)]"
+                >
+                  <button
+                    type="button"
+                    onClick={
+                      navigate
+                        ? () => navigate('cases', { caseId: k.case_id, window: navWindow })
+                        : undefined
+                    }
+                    aria-disabled={!navigate}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-3 rounded-sm border border-border/70 bg-card/30 px-2 py-1.5 text-left',
+                      navigate
+                        ? 'transition-colors hover:border-border hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                        : 'cursor-default',
+                    )}
+                    aria-label={navigate ? `Open case ${displayTitle}` : `Preview case ${displayTitle}`}
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex min-w-0 items-center gap-2 font-mono text-xs">
+                        <span className="max-w-28 shrink-0 truncate text-primary" title={displayId}>
+                          {displayId}
+                        </span>
+                        <span className="truncate text-foreground" title={displayTitle}>
+                          {displayTitle}
+                        </span>
+                      </span>
+                      <span className="block font-mono text-2xs text-muted-foreground/70">
+                        {age || 'Just now'}
+                      </span>
+                    </span>
+                    <Badge
+                      variant={status.variant}
+                      className="shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wide"
+                    >
+                      {status.label}
+                    </Badge>
+                  </button>
+                </CaseHoverCard>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="flex flex-1 items-center justify-center py-6">
+          <EmptyState compact icon={Inbox} title="Queue clear" description="No recent cases in this window." />
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -788,7 +937,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
     ];
   }, [posture]);
 
-  // Detect / first-response headline stat blocks (the Zone-C timing card).
+  // Detect / first-response headline stat blocks (the compact operations timing rail).
   // "Respond" = the first HUMAN response, so it reads the ACK clock (mtta_minutes) — NOT
   // dwell_minutes, whose _RESPONSE_STATUSES includes RESOLVED/CLOSED and would count an AI
   // auto-close as a human response (the dashboard must stay honest). The `respond` trend
@@ -796,38 +945,11 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const mttdBlock = posture?.lifecycle?.mttd_minutes;
   const respondBlock = posture?.lifecycle?.mtta_minutes;
 
-  // Detect / respond trend series + the mean-respond reference line.
-  const timingTrend = React.useMemo(
-    () =>
-      (metrics?.timing_trend ?? []).map((p) => ({
-        x: p.date,
-        mttd: p.mttd,
-        respond: p.respond,
-      })),
-    [metrics],
-  );
-  const avgRespond = React.useMemo(() => {
-    const vals = (metrics?.timing_trend ?? [])
-      .map((p) => p.respond)
-      .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-    if (!vals.length) return undefined;
-    return vals.reduce((a, b) => a + b, 0) / vals.length;
-  }, [metrics]);
-
-  // Burn-down (opened vs resolved) series for the Zone-C burndown chart.
+  // Burn-down (opened vs resolved) series for the compact operations rail.
   const burndownData = React.useMemo(
     () => (metrics?.burndown ?? []).map((p) => ({ x: p.date, open: p.opened, closed: p.resolved })),
     [metrics],
   );
-
-  // SLA posture (server-side, advisory). null when the policy is off / unavailable.
-  const slaPosture = React.useMemo(() => {
-    const sla = posture?.sla;
-    if (!sla || !sla.enabled) return null;
-    const atRisk = (sla.response_at_risk ?? 0) + (sla.resolve_at_risk ?? 0);
-    const breached = (sla.response_breached ?? 0) + (sla.resolve_breached ?? 0);
-    return { atRisk, breached, attainment: sla.attainment_pct ?? 0 };
-  }, [posture]);
 
   // ----- Active Risk Index (#1) ------------------------------------------- //
   const activeRisk = React.useMemo<{ score: number | null; count: number }>(() => {
@@ -852,13 +974,16 @@ export default function Overview({ onNavigate }: OverviewProps) {
     };
   }, [metrics, cases, derived.open]);
 
-  // ----- Top OPEN cases by priority (risk desc) — the Zone-C work list ----- //
-  const topCases = React.useMemo(
+  // ----- Exactly four most-recent cases — compact live instrument queue ----- //
+  const latestCases = React.useMemo(
     () =>
-      cases
-        .filter((k) => OPEN_STATUSES.has((k.status || '').toLowerCase()))
-        .sort((a, b) => (b.risk_score ?? 0) - (a.risk_score ?? 0))
-        .slice(0, 5),
+      [...cases]
+        .sort((a, b) => {
+          const bTime = Date.parse(b.updated_at || b.created_at || '') || 0;
+          const aTime = Date.parse(a.updated_at || a.created_at || '') || 0;
+          return bTime - aTime || (b.risk_score ?? 0) - (a.risk_score ?? 0);
+        })
+        .slice(0, 4),
     [cases],
   );
 
@@ -950,6 +1075,21 @@ export default function Overview({ onNavigate }: OverviewProps) {
     const fpRate = posture?.quality?.false_positive_rate;
     const autoResolved = posture?.quality?.auto_closed_cases ?? autonomy.autoClosed;
     const escalated = metrics?.needs_human_cases ?? autonomy.escalated;
+    const { fromMs, toMs } = resolveRange(range);
+    const openTrend = caseArrivalTrend(cases, fromMs, toMs, (row) =>
+      OPEN_STATUSES.has((row.status || '').toLowerCase()),
+    );
+    const criticalTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
+      const band = bandOfCase(row);
+      return band === 'critical' || band === 'high';
+    });
+    const escalatedTrend = caseArrivalTrend(cases, fromMs, toMs, (row) => {
+      const status = (row.status || '').toLowerCase();
+      return status === 'needs_human' || status === 'escalated';
+    });
+    const resolvedTrend = caseArrivalTrend(cases, fromMs, toMs, (row) =>
+      isAutoClosedByAI(row.status, row.decision_by),
+    );
     return [
       {
         label: 'Open Cases',
@@ -958,7 +1098,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
         format: fmtInt,
         sub: `${fmtNumber(cases.length)} cases tracked`,
         icon: Inbox,
-        accent: 'critical',
+        accent: 'primary',
+        spark: openTrend,
         goodDirection: 'down',
         onClick: navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined,
       },
@@ -967,9 +1108,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
         value: fmtNumber(derived.criticalHighAlerts),
         countTo: derived.criticalHighAlerts,
         format: fmtInt,
-        sub: `${fmtNumber(derived.critical)} critical observed`,
+        sub: `${fmtNumber(derived.critical)} critical ${derived.critical === 1 ? 'case' : 'cases'}`,
         icon: ShieldAlert,
-        accent: 'high',
+        accent: 'critical',
+        spark: criticalTrend,
         goodDirection: 'down',
         onClick: navigate
           ? () =>
@@ -984,9 +1126,10 @@ export default function Overview({ onNavigate }: OverviewProps) {
         value: fmtNumber(escalated),
         countTo: escalated,
         format: fmtInt,
-        sub: 'Awaiting analyst review',
+        sub: 'Awaiting review',
         icon: Workflow,
         accent: 'low',
+        spark: escalatedTrend,
         goodDirection: 'down',
         onClick: navigate
           ? () => navigate('cases', { status: 'needs_human', window: navWindow })
@@ -995,7 +1138,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
       {
         label: 'False Positive Rate',
         value: ratioPct(fpRate),
-        sub: 'Cases closed as false positives',
+        sub: 'Closed as false pos.',
         icon: Percent,
         accent: 'medium',
         goodDirection: 'down',
@@ -1007,16 +1150,17 @@ export default function Overview({ onNavigate }: OverviewProps) {
         value: fmtNumber(autoResolved),
         countTo: autoResolved,
         format: fmtInt,
-        sub: 'Closed autonomously by the agent',
+        sub: 'Closed by agent',
         icon: ShieldCheck,
         accent: 'success',
+        spark: resolvedTrend,
         goodDirection: 'up',
         onClick: navigate
           ? () => navigate('cases', { status: 'closed', window: navWindow })
           : undefined,
       },
     ];
-  }, [derived, metrics, cases.length, navWindow, autonomy.escalated, autonomy.autoClosed, posture, navigate]);
+  }, [derived, metrics, cases, range, navWindow, autonomy.escalated, autonomy.autoClosed, posture, navigate]);
 
   // ----- Noise-Reduction funnel drill-through ----------------------------- //
   const onStageClick = React.useCallback(
@@ -1041,19 +1185,14 @@ export default function Overview({ onNavigate }: OverviewProps) {
   const lastUpdated = lastRefreshMs ? humanizeAge(new Date(lastRefreshMs).toISOString()) : null;
   const headerControls = (
     <>
-      {lastUpdated ? (
-        <span className="hidden text-2xs text-muted-foreground sm:inline" data-testid="last-updated">
-          Updated {lastUpdated}
-        </span>
-      ) : null}
       <TimeRangePicker
         value={range}
         onChange={setRange}
         refresh={refresh}
         onRefreshChange={setRefresh}
         onRefreshTick={refreshAll}
-        lastRefreshedMs={lastRefreshMs}
         size="sm"
+        chrome="command"
       />
       <Button
         variant="outline"
@@ -1061,7 +1200,7 @@ export default function Overview({ onNavigate }: OverviewProps) {
         onClick={refreshAll}
         aria-label="Refresh dashboard"
         title="Refresh"
-        className="h-8 w-8"
+        className="h-8 w-8 rounded-[3px] border-border/70 bg-transparent text-muted-foreground shadow-none hover:border-border-strong hover:bg-hover hover:text-foreground"
       >
         <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden />
       </Button>
@@ -1076,22 +1215,35 @@ export default function Overview({ onNavigate }: OverviewProps) {
           <Skeleton className="h-14 w-full rounded-lg" />
           <div
             data-testid="kpi-strip-skeleton"
-            className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
+            className="grid grid-cols-2 border-y border-border md:grid-cols-3 xl:grid-cols-5"
           >
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-[104px] rounded-lg" />
+              <div key={i} className="border-r border-border p-4 last:border-r-0">
+                <Skeleton className="h-20 rounded-md" />
+              </div>
             ))}
           </div>
-          <div data-testid="hero-skeleton-row" className="grid gap-4 lg:grid-cols-3">
+          <div
+            data-testid="hero-skeleton-row"
+            className="grid border-b border-border lg:grid-cols-3 lg:divide-x lg:divide-border"
+          >
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-56 rounded-lg" />
+              <div key={i} className="p-3">
+                <Skeleton className="h-44 rounded-sm" />
+              </div>
             ))}
           </div>
-          <Skeleton data-testid="noise-skeleton-row" className="h-56 w-full rounded-lg" />
-          <div data-testid="zonec-skeleton-row" className="grid gap-4 xl:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-72 rounded-lg" />
-            ))}
+          <div
+            data-testid="operations-skeleton-row"
+            className="grid border-b border-border xl:grid-cols-12"
+          >
+            <div className="p-4 xl:col-span-8 xl:border-r xl:border-border">
+              <Skeleton data-testid="noise-skeleton-row" className="h-52 w-full rounded-md" />
+            </div>
+            <div data-testid="zonec-skeleton-row" className="space-y-4 p-4 xl:col-span-4">
+              <Skeleton className="h-32 rounded-md" />
+              <Skeleton className="h-16 rounded-md" />
+            </div>
           </div>
           <Skeleton data-testid="deeper-analytics-skeleton" className="h-9 w-64 rounded-md" />
         </div>
@@ -1108,25 +1260,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
              its `actions` slot and an optional SLA chip in `meta`. ---- */}
       <PageHeader
         data-testid="page-hero"
-        icon={Radar}
         title={PAGE_TITLE}
-        meta={
-          slaPosture ? (
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium tabular-nums',
-                slaPosture.breached > 0
-                  ? 'border-critical/40 bg-critical/10 text-critical-text'
-                  : slaPosture.atRisk > 0
-                    ? 'border-high/40 bg-high/10 text-high-text'
-                    : 'border-success/40 bg-success/10 text-success-text',
-              )}
-              title="SLA attainment vs the per-priority response/resolve targets"
-            >
-              SLA {ratioPct(slaPosture.attainment / 100)}
-            </span>
-          ) : undefined
-        }
+        description={lastUpdated ? `Last polled ${lastUpdated}` : 'Live operational posture'}
         actions={headerControls}
       />
 
@@ -1171,8 +1306,8 @@ export default function Overview({ onNavigate }: OverviewProps) {
           <div className="space-y-1.5">
             <Stagger
               data-testid="kpi-strip"
-              className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"
-              itemClassName="h-full"
+              className="grid grid-cols-1 border-y border-border/70 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5"
+              itemClassName="h-full min-w-0 border-b border-border/70 sm:border-r xl:border-b-0 xl:last:border-r-0"
             >
               {kpis.map((kpi) => (
                 <KpiTile
@@ -1182,10 +1317,12 @@ export default function Overview({ onNavigate }: OverviewProps) {
                   sub={kpi.sub}
                   icon={kpi.icon}
                   accent={kpi.accent}
+                  variant="strip"
                   goodDirection={kpi.goodDirection}
                   delta={kpi.delta}
                   countTo={kpi.countTo}
                   format={kpi.format}
+                  spark={kpi.spark}
                   onClick={kpi.onClick}
                 />
               ))}
@@ -1197,206 +1334,150 @@ export default function Overview({ onNavigate }: OverviewProps) {
             ) : null}
           </div>
 
-          {/* ---- ZONE A: HERO ROW — Active Risk Index + two donut snapshots ---- */}
+          {/* ---- INSTRUMENT BAND: integrated risk · case state · live queue ---- */}
           <Reveal
             variant="rise"
             delay={40}
             data-testid="hero-row"
-            className="grid items-stretch gap-4 lg:grid-cols-3"
+            className="grid min-w-0 items-stretch border-b border-border/70 lg:grid-cols-12"
           >
-            <ActiveRiskIndex
-              score={activeRisk.score}
-              count={activeRisk.count}
-              className="h-full w-full"
-            />
-            <SnapshotCard
-              title="Cases resolved"
-              caption={`Closed in the last ${windowLabel(hours)}`}
-              total={derived.resolved}
-              delta={countDelta(derived.resolved, prev?.resolved ?? null)}
-              goodDirection="up"
-              counts={derived.resolvedSev}
-              ariaLabel="Resolved cases by severity"
-              ctaLabel="View resolved cases"
-              centerLabel="resolved"
-              onClick={navigate ? () => navigate('cases', { status: 'closed', window: navWindow }) : undefined}
-            />
-            <SnapshotCard
-              title="Open cases"
-              caption={`Still open from the last ${windowLabel(hours)}`}
-              total={derived.open}
-              delta={countDelta(derived.open, prev?.open ?? null)}
-              goodDirection="down"
-              counts={derived.openSev}
-              ariaLabel="Open cases by severity"
-              ctaLabel="View open cases"
-              centerLabel="open"
-              onClick={navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined}
-            />
+            <div className="min-w-0 border-b border-border/70 lg:col-span-4 lg:border-b-0 lg:border-r">
+              <ActiveRiskIndex
+                score={activeRisk.score}
+                count={activeRisk.count}
+                variant="flat"
+                size={280}
+                className="h-full w-full"
+              />
+            </div>
+
+            <section
+              aria-label="Resolved and open cases"
+              className="min-w-0 border-b border-border/70 px-3 lg:col-span-4 lg:border-b-0 lg:border-r"
+            >
+              <SnapshotCard
+                title="Cases resolved"
+                caption={`Closed in the last ${windowLabel(hours)}`}
+                total={derived.resolved}
+                delta={countDelta(derived.resolved, prev?.resolved ?? null)}
+                goodDirection="up"
+                counts={derived.resolvedSev}
+                ariaLabel="Resolved cases by severity"
+                ctaLabel="View resolved cases"
+                onClick={navigate ? () => navigate('cases', { status: 'closed', window: navWindow }) : undefined}
+              />
+              <SnapshotCard
+                title="Open cases"
+                caption={`Still open from the last ${windowLabel(hours)}`}
+                total={derived.open}
+                delta={countDelta(derived.open, prev?.open ?? null)}
+                goodDirection="down"
+                counts={derived.openSev}
+                ariaLabel="Open cases by severity"
+                ctaLabel="View open cases"
+                onClick={navigate ? () => navigate('cases', { status: 'open', window: navWindow }) : undefined}
+              />
+            </section>
+
+            <div className="min-w-0 lg:col-span-4">
+              <TopCasesPanel
+                cases={latestCases}
+                navigate={navigate}
+                navWindow={navWindow}
+              />
+            </div>
           </Reveal>
 
-          {/* ---- ZONE B: Noise-Suppression ribbon — the value-prop headline ---- */}
-          {noise ? (
-            <Reveal variant="rise" delay={70}>
-              <NoiseFunnel
-                data={noise}
-                onStageClick={onStageClick}
-                hidden={noiseHidden}
-                onToggleHidden={toggleNoiseHidden}
-                className="w-full"
-              />
-            </Reveal>
-          ) : null}
+          {/* ---- OPERATIONS BAND: wide noise flow + compact burndown/timing rail ---- */}
+          <Reveal
+            variant="rise"
+            delay={70}
+            className="grid min-w-0 border-b border-border/70 xl:grid-cols-12"
+          >
+            {noise ? (
+              <div className="min-w-0 border-b border-border/70 p-4 xl:col-span-8 xl:border-b-0 xl:border-r">
+                <NoiseFunnel
+                  data={noise}
+                  onStageClick={onStageClick}
+                  hidden={noiseHidden}
+                  onToggleHidden={toggleNoiseHidden}
+                  variant="flat"
+                  className="w-full"
+                />
+              </div>
+            ) : null}
 
-          {/* ---- ZONE C: burndown · detect/respond · top cases ---- */}
-          <Reveal variant="rise" delay={90} className="grid gap-4 xl:grid-cols-3">
-            {/* Cases burndown */}
-            <DashboardGroup title="Cases burndown" description="opened vs resolved over time">
-              <Card>
-                <CardContent className="py-4">
+            <div
+              className={cn(
+                'min-w-0',
+                noise ? 'xl:col-span-4' : 'md:grid md:grid-cols-2 xl:col-span-12',
+              )}
+            >
+              <section aria-label="Cases burndown" className="border-b border-border/70 p-4 md:border-r xl:border-r-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-2xs font-semibold uppercase tracking-widest text-foreground">
+                      Cases burndown
+                    </h2>
+                    <p className="mt-0.5 text-2xs text-muted-foreground">opened vs resolved over time</p>
+                  </div>
+                  <span className="font-mono text-2xs text-muted-foreground">opn vs res</span>
+                </div>
+                <div className="mt-3">
                   <BurnDownChart
                     data={burndownData}
-                    height={224}
+                    height={126}
                     openLabel="Opened"
                     closedLabel="Resolved"
                     format={fmtInt}
                     ariaLabel="Cases opened vs resolved over time"
                   />
-                </CardContent>
-              </Card>
-            </DashboardGroup>
+                </div>
+              </section>
 
-            {/* Mean time to detect / respond */}
-            <DashboardGroup
-              title="Mean time to detect / respond"
-              description="p50 · server-computed"
-              actions={
-                navigate ? (
-                  <Button variant="ghost" size="sm" onClick={() => navigate('metrics', { tab: 'posture' })}>
-                    Detail →
-                  </Button>
-                ) : undefined
-              }
-            >
-              <Card>
-                <CardContent className="space-y-4 py-4">
-                  <div className="grid grid-cols-2 gap-3">
+              <section aria-label="Mean time to detect / respond" className="p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h2 className="text-2xs font-semibold uppercase tracking-widest text-foreground">
+                      MTTD / response
+                    </h2>
+                    <p className="mt-0.5 text-2xs text-muted-foreground">p50 · server-computed</p>
+                  </div>
+                  {navigate ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-2xs"
+                      onClick={() => navigate('metrics', { tab: 'posture' })}
+                    >
+                      Detail →
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid grid-cols-2 divide-x divide-border/70">
+                  <div className="pr-4">
                     <TimingStat
                       label="MTTD"
                       sub="Detect · log arrival → case"
                       block={mttdBlock}
                       dotClass="bg-info"
+                      compact
                       help="Mean time to detect: the cluster's first event → case-open. Shown as an honest n/a when no case carries a first-event instant."
                     />
+                  </div>
+                  <div className="pl-4">
                     <TimingStat
                       label="Respond"
                       sub="First human action e.g. assignment / ack"
                       block={respondBlock}
                       dotClass="bg-success"
+                      compact
                       help="Mean time to respond — the first active human response (investigating / escalated / assignment / ack)."
                     />
                   </div>
-                  <MultiSeriesTrend
-                    data={timingTrend}
-                    series={[
-                      { key: 'mttd', label: 'Detect' },
-                      { key: 'respond', label: 'Respond' },
-                    ]}
-                    height={168}
-                    format={humanizeMins}
-                    referenceY={avgRespond}
-                    referenceLabel={avgRespond != null ? `avg ${humanizeMins(avgRespond)}` : undefined}
-                    ariaLabel="Detect and respond latency over time"
-                  />
-                </CardContent>
-              </Card>
-            </DashboardGroup>
-
-            {/* Top open cases */}
-            <DashboardGroup title="Top open cases" count={topCases.length} description="by risk">
-              <Card>
-                <CardContent className="space-y-3 py-3">
-                  {topCases.length ? (
-                    <ul className="flex flex-col divide-y divide-border">
-                      {topCases.map((k) => {
-                        const band = bandOfCase(k);
-                        const displayTitle =
-                          (k.title || k.cluster_signature || k.case_number || k.case_id || '').trim() ||
-                          'Untitled case';
-                        const src = k.source_name || k.source_id || 'Unknown source';
-                        const age = humanizeAge(k.created_at);
-                        const risk = Math.round(
-                          typeof k.risk_score === 'number' && Number.isFinite(k.risk_score)
-                            ? k.risk_score
-                            : 0,
-                        );
-                        const statusText = humanizeToken(k.status || 'open');
-                        const clickable = !!navigate;
-                        return (
-                          <li key={k.case_id}>
-                            <button
-                              type="button"
-                              disabled={!clickable}
-                              onClick={
-                                clickable
-                                  ? () => navigate('cases', { caseId: k.case_id, window: navWindow })
-                                  : undefined
-                              }
-                              className={cn(
-                                'flex w-full items-center gap-2.5 py-2 text-left',
-                                clickable &&
-                                  '-mx-1 rounded-md px-1 transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                              )}
-                              aria-label={clickable ? `Open case ${displayTitle}` : undefined}
-                            >
-                              <span
-                                className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: token(band) }}
-                                aria-hidden
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-foreground">
-                                  {displayTitle}
-                                </span>
-                                <span className="block truncate text-2xs text-muted-foreground">
-                                  {SEV_LABEL[band]} · {statusText} · {src}
-                                  {age ? ` · ${age}` : ''}
-                                </span>
-                              </span>
-                              <span className="shrink-0 font-mono text-sm font-semibold tabular-nums text-foreground">
-                                {risk}
-                              </span>
-                              {clickable ? (
-                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                              ) : null}
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  ) : (
-                    <EmptyState
-                      compact
-                      icon={Inbox}
-                      title="Queue clear"
-                      description="No open cases in this window."
-                    />
-                  )}
-                  {navigate ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => navigate('cases', { status: 'needs_human', window: navWindow })}
-                    >
-                      {slaPosture && (slaPosture.breached > 0 || slaPosture.atRisk > 0)
-                        ? `Review escalations · ${fmtNumber(slaPosture.breached)} breached · ${fmtNumber(slaPosture.atRisk)} at risk`
-                        : 'Review escalations'}
-                    </Button>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </DashboardGroup>
+                </div>
+              </section>
+            </div>
           </Reveal>
 
           {/* ---- DEEPER ANALYTICS (collapsed by default) ---- */}

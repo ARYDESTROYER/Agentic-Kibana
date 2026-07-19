@@ -78,8 +78,10 @@ export interface KpiTileProps {
    * `'default'` — soft tinted icon chip carrying the accent (KPI strip tiles).
    * `'bar'`     — a slim colored LEFT accent bar (absorbs the former `StatCard`,
    *               used for MTTD/MTTA/MTTR-style timing metrics).
+   * `'strip'`   — borderless command-center telemetry. The parent grid supplies
+   *               the hairline separators; the icon sits inline with the label.
    */
-  variant?: 'default' | 'bar';
+  variant?: 'default' | 'bar' | 'strip';
   /** When provided the tile becomes a keyboard-accessible button. */
   onClick?: () => void;
   /**
@@ -144,6 +146,17 @@ const ACCENT_BAR: Record<KpiAccent, string> = {
   success: 'bg-success',
 };
 
+/** Standalone AA text colors used by the borderless command-center strip. */
+const ACCENT_TEXT: Record<KpiAccent, string> = {
+  primary: 'text-primary',
+  critical: 'text-critical-text',
+  high: 'text-high-text',
+  medium: 'text-medium-text',
+  low: 'text-low-text',
+  info: 'text-info-text',
+  success: 'text-success-text',
+};
+
 /**
  * Resolve the delta into its visual + accessible facts.
  *
@@ -173,6 +186,12 @@ function resolveDelta(delta: KpiDelta, goodDirection: KpiGoodDirection) {
       : improved
         ? 'text-success-text'
         : 'text-critical-text';
+  const chipClass =
+    improved === null
+      ? 'border-border bg-muted/30'
+      : improved
+        ? 'border-success/25 bg-success/10'
+        : 'border-critical/25 bg-critical/10';
 
   const Arrow = rising ? ArrowUpRight : ArrowDownRight;
   const directionWord = rising ? 'up' : 'down';
@@ -180,7 +199,7 @@ function resolveDelta(delta: KpiDelta, goodDirection: KpiGoodDirection) {
   const judgement = improved === null ? '' : improved ? ', improved' : ', worse';
   const ariaLabel = `changed ${directionWord} by ${delta.label ?? Math.abs(delta.value)}${judgement}`;
 
-  return { colorClass, Arrow, ariaLabel };
+  return { colorClass, chipClass, Arrow, ariaLabel };
 }
 
 /**
@@ -215,6 +234,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const clickable = typeof onClick === 'function';
     const kpiTestId = `kpi-${testId ?? slugId(label)}`;
     const bar = variant === 'bar';
+    const strip = variant === 'strip';
 
     const deltaFacts = delta ? resolveDelta(delta, goodDirection) : null;
 
@@ -237,9 +257,14 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     // Sparkline gate: ≥5 real points; decorative + aria-hidden. Lazy (no recharts here).
     const sparkNode =
       spark && spark.length >= 5 ? (
-        <div className="mt-3 -mb-1 h-7" aria-hidden>
+        <div
+          className={cn(
+            strip ? 'absolute bottom-4 right-4 h-4 w-14' : 'mt-3 -mb-1 h-7',
+          )}
+          aria-hidden
+        >
           <React.Suspense fallback={null}>
-            <LazySparkline data={spark} height={28} colorToken={accent} fill />
+            <LazySparkline data={spark} height={strip ? 16 : 28} colorToken={accent} fill={!strip} />
           </React.Suspense>
         </div>
       ) : null;
@@ -264,6 +289,7 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
         className={cn(
           'mb-0.5 inline-flex items-center gap-0.5 text-xs font-semibold tabular-nums',
           deltaFacts.colorClass,
+          strip && `rounded-sm border px-1.5 py-0.5 ${deltaFacts.chipClass}`,
         )}
         aria-label={deltaFacts.ariaLabel}
       >
@@ -275,11 +301,19 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
     const inner = (
       <>
         <div className="flex items-start justify-between gap-3">
-          <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 font-semibold uppercase tracking-wide',
+              strip ? 'text-2xs text-muted-foreground' : 'text-xs text-muted-foreground',
+            )}
+          >
+            {Icon && strip ? (
+              <Icon className={cn('h-3.5 w-3.5 shrink-0', ACCENT_TEXT[accent])} aria-hidden />
+            ) : null}
             {label}
             {helpNode}
           </span>
-          {Icon && !bar ? (
+          {Icon && !bar && !strip ? (
             <span
               className={cn(
                 'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
@@ -292,20 +326,38 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
             <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
           ) : null}
         </div>
-        <div className="mt-3 flex items-end gap-2">
-          <span className="text-3xl font-semibold leading-none tracking-tight tabular-nums text-foreground">
+        <div className={cn('flex items-end gap-2', strip ? 'mt-2' : 'mt-3')}>
+          <span
+            className={cn(
+              'font-semibold leading-none tracking-tight tabular-nums',
+              strip ? 'text-4xl' : 'text-3xl',
+              strip && (accent === 'critical' || accent === 'success')
+                ? ACCENT_TEXT[accent]
+                : 'text-foreground',
+            )}
+          >
             {valueNode}
           </span>
           {deltaNode}
         </div>
         {sparkNode}
-        {sub ? <span className="mt-2 block text-xs text-muted-foreground">{sub}</span> : null}
+        {sub ? (
+          <span
+            className={cn(
+              'block text-muted-foreground',
+              strip ? 'mt-1 truncate pr-16 font-mono text-2xs' : 'mt-2 text-xs',
+            )}
+          >
+            {sub}
+          </span>
+        ) : null}
       </>
     );
 
     const base = cn(
-      'relative h-full overflow-hidden rounded-lg border border-border bg-card p-4 text-left',
-      bar && 'pl-5',
+      'relative h-full min-w-0 overflow-hidden text-left',
+      strip ? 'min-h-28 bg-transparent px-4 py-5' : 'rounded-lg border border-border bg-card p-4',
+      bar && !strip && 'pl-5',
     );
 
     const barEdge = bar ? (
@@ -321,7 +373,8 @@ export const KpiTile = React.forwardRef<HTMLElement, KpiTileProps>(
           data-testid={kpiTestId}
           className={cn(
             base,
-            'block w-full transition-colors hover:border-primary/40 hover:bg-accent/30',
+            'block w-full transition-colors hover:bg-accent/30',
+            !strip && 'hover:border-primary/40',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             className,
           )}

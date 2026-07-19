@@ -113,6 +113,8 @@ export interface DonutChartProps {
   thickness?: number;
   /** Optional value formatter for the tooltip. */
   format?: (v: number) => string;
+  /** Whether hovering a segment opens the chart tooltip (default true). */
+  showTooltip?: boolean;
   /** Accessible chart name. */
   ariaLabel?: string;
   className?: string;
@@ -120,7 +122,19 @@ export interface DonutChartProps {
 
 /** Donut / ring chart with optional centered overlay. */
 export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
-  ({ segments, center, height = 200, thickness = 0.38, format, ariaLabel, className }, ref) => {
+  (
+    {
+      segments,
+      center,
+      height = 200,
+      thickness = 0.38,
+      format,
+      showTooltip = true,
+      ariaLabel,
+      className,
+    },
+    ref,
+  ) => {
     const data = (segments ?? []).filter((s) => (s.value || 0) > 0);
     const total = data.reduce((a, s) => a + (s.value || 0), 0);
     const label =
@@ -179,10 +193,9 @@ export const DonutChart = React.forwardRef<HTMLDivElement, DonutChartProps>(
                 <Cell key={i} fill={s.color ?? categorical(i)} />
               ))}
             </Pie>
-            <Tooltip
-              content={<ChartTooltip format={format} hideLabel />}
-              cursor={false}
-            />
+            {showTooltip ? (
+              <Tooltip content={<ChartTooltip format={format} hideLabel />} cursor={false} />
+            ) : null}
           </PieChart>
         </ResponsiveContainer>
         {center != null ? (

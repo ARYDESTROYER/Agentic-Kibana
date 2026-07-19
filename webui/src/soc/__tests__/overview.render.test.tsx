@@ -1,13 +1,12 @@
 /**
- * Overview (Security Command Center) — render test for the Prisma-Cloud-style rebuild.
+ * Overview (Security Command Center) — render test for the Stitch-inspired command center.
  *
  * Pins the load-bearing dashboard contract:
  *   1. the PLAIN header (page-hero, no hero card chrome, exactly one h1, PAGE_TITLE);
  *   2. the un-nested KPI micro-strip of 5 alert/case tiles (Open / Critical-High /
  *      Escalated / False-Positive-Rate / Auto-Resolved); LLM spend is NOT a hero tile;
- *   3. the hero row = the Active Risk Index (its own card) + a "Cases resolved" donut
- *      snapshot + an "Open cases" donut snapshot;
- *   4. Zone C = Cases-burndown · Mean-time-to-detect/respond · Top-open-cases;
+ *   3. the integrated instrument band = Active Risk + resolved/open snapshots + latest cases;
+ *   4. the operations band = Noise-Reduction flow + compact burndown/timing rail;
  *   5. timing reads the SERVER posture (honest DASH / "not measured" for missing samples);
  *   6. KPI deltas are wired from the server `posture.compare` (unit-matched tiles only);
  *   7. tiles + snapshot CTAs deep-link to the filtered case list carrying the window;
@@ -52,6 +51,7 @@ const CASES: Case[] = [
     status: 'open',
     risk_score: 88, // critical
     source_name: 'Elastic SIEM',
+    title: 'Unauthorized S3 access',
     entity: { type: 'ip', value: '10.0.0.1' },
   },
   {
@@ -59,6 +59,7 @@ const CASES: Case[] = [
     status: 'needs_human',
     risk_score: 65, // high
     source_name: 'Wazuh',
+    title: 'Brute force: Auth-GW',
     entity: { type: 'host', value: 'web-01' },
   },
   {
@@ -166,6 +167,17 @@ describe('Overview — Security Command Center (rebuild)', () => {
     // Exactly one page-level h1 (the title) lives in the header.
     expect(hero.querySelectorAll('h1')).toHaveLength(1);
     expect(hero).toHaveTextContent(PAGE_TITLE);
+    const range = within(hero).getByRole('button', { name: /Time range: Last 24 hours/i });
+    expect(range).toHaveTextContent('Last 24h');
+    expect(range).toHaveClass('rounded-[3px]', 'bg-transparent');
+    expect(within(hero).getByRole('combobox', { name: /Auto-refresh interval: Off/i })).toHaveClass(
+      'rounded-[3px]',
+      'bg-transparent',
+    );
+    expect(within(hero).getByRole('button', { name: 'Refresh dashboard' })).toHaveClass(
+      'rounded-[3px]',
+      'bg-transparent',
+    );
   });
 
   it('renders the KPI micro-strip: 5 alert/case tiles (LLM spend NOT a hero tile)', async () => {
@@ -192,9 +204,14 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(within(screen.getByTestId('kpi-false-positive-rate')).getByText('50%')).toBeInTheDocument();
     // Auto-resolved reads the server quality count (auto_closed_cases = 1).
     expect(within(screen.getByTestId('kpi-auto-resolved')).getByText('1')).toBeInTheDocument();
+    expect(screen.getByTestId('kpi-open-cases')).toHaveClass('min-h-28', 'px-4', 'py-5');
+    expect(within(screen.getByTestId('kpi-critical-high')).getByText('1 critical case')).toBeInTheDocument();
+    expect(within(screen.getByTestId('kpi-escalated-to-human')).getByText('Awaiting review')).toBeInTheDocument();
+    expect(within(screen.getByTestId('kpi-false-positive-rate')).getByText('Closed as false pos.')).toBeInTheDocument();
+    expect(within(screen.getByTestId('kpi-auto-resolved')).getByText('Closed by agent')).toBeInTheDocument();
   });
 
-  it('mounts the hero row: the Active Risk Index (own card) + two donut snapshots', async () => {
+  it('mounts the instrument band: Active Risk + two donut snapshots + latest cases', async () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     const heroRow = await screen.findByTestId('hero-row');
@@ -209,26 +226,79 @@ describe('Overview — Security Command Center (rebuild)', () => {
     const openRing = screen.getByRole('img', { name: /Open cases by severity/i });
     expect(resolvedRing).toBeInTheDocument();
     expect(openRing).toBeInTheDocument();
+    expect(resolvedRing).toHaveClass('w-36');
+    expect(resolvedRing).toHaveStyle({ height: '136px' });
+    expect(openRing).toHaveClass('w-36');
+    expect(openRing).toHaveStyle({ height: '136px' });
+
+    // The parent panel no longer repeats what each snapshot already says.
+    expect(screen.queryByText('Resolved & open cases', { exact: true })).toBeNull();
+    expect(screen.queryByText(/Lifecycle snapshot/i)).toBeNull();
 
     // Bug #1: the donut hole no longer DUPLICATES the card's full <h2> title — each
     // multi-word title appears exactly once (the heading), never a second time in the ring.
     expect(screen.getAllByText('Cases resolved', { exact: true })).toHaveLength(1);
     expect(screen.getAllByText('Open cases', { exact: true })).toHaveLength(1);
 
-    // The short single-word center captions render once each, and are tied to the CORRECT
-    // donut (not a stray "open"/"resolved" match elsewhere on the page).
-    expect(screen.getByText('resolved', { exact: true }).closest('[role="img"]')).toBe(resolvedRing);
-    expect(screen.getByText('open', { exact: true }).closest('[role="img"]')).toBe(openRing);
+    // The ring centers contain numbers only; the headings already identify each lifecycle.
+    expect(within(resolvedRing).queryByText('res', { exact: true })).toBeNull();
+    expect(within(openRing).queryByText('open', { exact: true })).toBeNull();
 
-    // Bug #1: the center count is the calmer text-2xl (matches every sibling donut), not text-3xl.
-    expect(within(resolvedRing).getAllByTestId('count-up')[0]).not.toHaveClass('text-3xl');
-    expect(within(resolvedRing).getAllByTestId('count-up')[0]).toHaveClass('text-2xl');
+    // The larger ring earns a larger, vertically centered numeral for normal totals.
+    const resolvedTotal = within(resolvedRing).getAllByTestId('count-up')[0];
+    expect(resolvedTotal).toHaveClass('text-3xl', 'leading-none');
+    expect(resolvedTotal.parentElement).toHaveClass('items-center', 'justify-center');
+
+    // Latest Cases is the supplied prototype row treatment: ID + title + age + status,
+    // with the old severity dot/source/risk/chevron/footer removed.
+    const latest = screen.getByRole('region', { name: /Latest cases/i });
+    const firstCase = within(latest).getByRole('button', { name: /Open case Unauthorized S3 access/i });
+    expect(within(firstCase).getByText('c1')).toBeInTheDocument();
+    expect(within(firstCase).getByText('Unauthorized S3 access')).toBeInTheDocument();
+    expect(within(firstCase).getByText('Open')).toBeInTheDocument();
+    expect(within(latest).getByText('Escalated')).toBeInTheDocument();
+    expect(within(latest).queryByText('Triage')).toBeNull();
+    expect(within(firstCase).queryByText('Elastic SIEM')).toBeNull();
+    expect(within(firstCase).queryByText('88')).toBeNull();
+    expect(firstCase.querySelector('svg')).toBeNull();
+    expect(within(latest).queryByText('Review escalations')).toBeNull();
+
+    // The page masthead keeps the title clean; SLA posture still exists in Metrics.
+    expect(within(screen.getByTestId('page-hero')).queryByText(/^SLA\s/i)).toBeNull();
   });
 
-  it('abbreviates a 4+ digit SnapshotCard center total so it never clips the ~62px donut hole (#minor)', async () => {
-    // 1,234 closed cases -> `derived.resolved` = 1234. At the pinned 144px donut
-    // (innerPct=43%, overflow-hidden), the raw thousands-separated "1,234" (fmtInt)
-    // is wider than the ~62px hole and gets clipped. The center must instead show
+  it('shows only the four newest cases and reveals richer case context on hover', async () => {
+    const five: Case[] = Array.from({ length: 5 }, (_, i) => ({
+      case_id: `latest-${i + 1}`,
+      case_number: `#CS-${9001 + i}`,
+      title: `Latest case ${i + 1}`,
+      summary: i === 4 ? 'Rich hover-only investigation summary.' : `Summary ${i + 1}`,
+      status: i === 4 ? 'investigating' : 'open',
+      risk_score: 40 + i,
+      created_at: `2026-07-01T0${i + 1}:00:00Z`,
+      updated_at: `2026-07-01T0${i + 1}:30:00Z`,
+      source_name: 'Demo SIEM',
+      entity: { type: 'host', value: `host-${i + 1}` },
+    })) as unknown as Case[];
+    listCasesMock.mockResolvedValue({ cases: five, total: five.length });
+
+    render(<Overview onNavigate={vi.fn()} />);
+    const latest = await screen.findByRole('region', { name: /Latest cases/i });
+    const caseRows = within(latest).getAllByRole('button', { name: /^Open case /i });
+    expect(caseRows).toHaveLength(4);
+    expect(within(latest).getByText('Latest case 5')).toBeInTheDocument();
+    expect(within(latest).queryByText('Latest case 1')).toBeNull();
+
+    await userEvent.hover(caseRows[0]);
+    expect(await screen.findByText('Rich hover-only investigation summary.')).toBeInTheDocument();
+    expect(screen.getByText('host-5')).toBeInTheDocument();
+    expect(screen.getByText('Demo SIEM')).toBeInTheDocument();
+  });
+
+  it('abbreviates a 4+ digit SnapshotCard center total so it never clips the ~71px donut hole (#minor)', async () => {
+    // 1,234 closed cases -> `derived.resolved` = 1234. At the pinned 136px donut
+    // (innerPct=52%, overflow-hidden), the raw thousands-separated "1,234" (fmtInt)
+    // risks crowding the ~71px hole. The center must instead show
     // the compact form ("1.2K"); the legend row beside it keeps the exact count.
     const many: Case[] = Array.from({ length: 1234 }, (_, i) => ({
       case_id: `bulk-${i}`,
@@ -246,6 +316,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     // The center count-up shows the ABBREVIATED form, never the raw grouped digits.
     expect(within(resolvedRing).getByText('1.2K')).toBeInTheDocument();
     expect(within(resolvedRing).queryByText('1,234')).toBeNull();
+    expect(within(resolvedRing).getAllByTestId('count-up')[0]).toHaveClass('text-2xl');
 
     // The legend row keeps the exact, unabbreviated count for the (sole) severity band.
     const legendRow = screen.getByText('Low', { exact: true }).closest('li')!;
@@ -258,7 +329,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     for (const name of [
       /Cases burndown/i,
       /Mean time to detect \/ respond/i,
-      /Top open cases/i,
+      /Latest cases/i,
     ]) {
       expect(screen.getByRole('region', { name })).toBeInTheDocument();
     }
@@ -371,10 +442,10 @@ describe('Overview — Security Command Center (rebuild)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     // 88 + 76 BOTH band Critical → the Critical/High tile shows 3 (2 crit + 1 high) and
-    // its sub reports "2 critical observed". Under the old 80-cut it would be "1 critical".
+    // its sub reports "2 critical cases". Under the old 80-cut it would be "1 critical".
     const tile = await screen.findByTestId('kpi-critical-high');
     await waitFor(() => expect(within(tile).getByText('3')).toBeInTheDocument());
-    expect(within(tile).getByText(/2 critical observed/i)).toBeInTheDocument();
+    expect(within(tile).getByText(/2 critical cases/i)).toBeInTheDocument();
   });
 
   // The Cases severity FILTER prefers the source-asserted `severity_band`; the Overview
@@ -393,10 +464,10 @@ describe('Overview — Security Command Center (rebuild)', () => {
     render(<Overview onNavigate={vi.fn()} />);
     await screen.findByTestId('page-hero');
     // s1 counts Critical (via severity_band, NOT its risk_score 20 which is Low) → the
-    // Critical/High tile shows 2 (s1 crit + s2 high) with "1 critical observed".
+    // Critical/High tile shows 2 (s1 crit + s2 high) with "1 critical case".
     const tile = await screen.findByTestId('kpi-critical-high');
     await waitFor(() => expect(within(tile).getByText('2')).toBeInTheDocument());
-    expect(within(tile).getByText(/1 critical observed/i)).toBeInTheDocument();
+    expect(within(tile).getByText(/1 critical case/i)).toBeInTheDocument();
   });
 
   it('folds the secondary bands (autonomy #3, connectors, volume, full timing) into Deeper analytics', async () => {
@@ -421,7 +492,7 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(screen.getByTestId('kpi-llm-spend-detail')).toBeInTheDocument();
   });
 
-  it('the loading skeleton mirrors the dense layout: KPI · hero · noise · zone-C · fold', () => {
+  it('the loading skeleton mirrors the dense layout: KPI · instruments · operations · fold', () => {
     listCasesMock.mockReturnValue(new Promise(() => {}));
     getMetricsMock.mockReturnValue(new Promise(() => {}));
     usageMock.mockReturnValue(new Promise(() => {}));
@@ -431,8 +502,9 @@ describe('Overview — Security Command Center (rebuild)', () => {
     expect(loading).toBeInTheDocument();
     expect(screen.getByTestId('kpi-strip-skeleton').children).toHaveLength(5);
     expect(screen.getByTestId('hero-skeleton-row').children).toHaveLength(3);
+    expect(screen.getByTestId('operations-skeleton-row')).toBeInTheDocument();
     expect(screen.getByTestId('noise-skeleton-row')).toBeInTheDocument();
-    expect(screen.getByTestId('zonec-skeleton-row').children).toHaveLength(3);
+    expect(screen.getByTestId('zonec-skeleton-row').children).toHaveLength(2);
     expect(screen.getByTestId('deeper-analytics-skeleton')).toBeInTheDocument();
   });
 });

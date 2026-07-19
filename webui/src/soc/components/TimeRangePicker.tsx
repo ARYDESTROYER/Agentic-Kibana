@@ -291,6 +291,8 @@ export interface TimeRangePickerProps {
   lastRefreshedMs?: number | null;
   className?: string;
   size?: 'sm' | 'md';
+  /** Squared, low-contrast command-center chrome used by dense dashboard mastheads. */
+  chrome?: 'default' | 'command';
 }
 
 function formatStamp(ms: number): string {
@@ -309,6 +311,7 @@ export function TimeRangePicker({
   lastRefreshedMs,
   className,
   size = 'md',
+  chrome = 'default',
 }: TimeRangePickerProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -328,6 +331,16 @@ export function TimeRangePicker({
 
   const triggerH = size === 'sm' ? 'h-8' : 'h-9';
   const refreshLabel = REFRESH_OPTIONS.find((option) => option.value === refresh)?.label ?? refresh;
+  const command = chrome === 'command';
+  const rangeLabel = command
+    ? value.label
+        .replace(/ hours?$/i, 'h')
+        .replace(/ days?$/i, 'd')
+        .replace(/ weeks?$/i, 'w')
+    : value.label;
+  const commandChrome = command
+    ? 'rounded-[3px] border-border/70 bg-transparent font-mono text-muted-foreground shadow-none hover:border-border-strong hover:bg-hover hover:text-foreground'
+    : undefined;
 
   return (
     <div className={cn('inline-flex min-w-0 max-w-full items-center gap-2', className)}>
@@ -336,11 +349,11 @@ export function TimeRangePicker({
           <Button
             variant="outline"
             size={size === 'sm' ? 'sm' : 'default'}
-            className="gap-2 font-normal"
+            className={cn('gap-2 font-normal', commandChrome)}
             aria-label={`Time range: ${value.label}`}
           >
             <Clock className="opacity-70" aria-hidden="true" />
-            <span className="tabular-nums">{value.label}</span>
+            <span className="tabular-nums">{rangeLabel}</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 p-3">
@@ -359,7 +372,7 @@ export function TimeRangePicker({
                   aria-current={active || undefined}
                   onClick={() => pick(p.label)}
                   className={cn(
-                    'flex items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                    'flex items-center justify-between rounded-[3px] px-2.5 py-1.5 text-left text-sm transition-colors',
                     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                     active
                       ? 'bg-accent font-medium text-accent-foreground'
@@ -386,6 +399,7 @@ export function TimeRangePicker({
             className={cn(
               'w-14 gap-1 px-2 [&>span]:hidden sm:w-36 sm:gap-1.5 sm:px-3 sm:[&>span]:block',
               triggerH,
+              commandChrome,
             )}
           >
             <RefreshCw

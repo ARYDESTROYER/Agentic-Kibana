@@ -37,7 +37,7 @@
  * beziers. Reduced-motion is honoured globally (theme.css neutralises the keyframes).
  */
 import * as React from 'react';
-import { Bot, ShieldCheck, Eye, EyeOff, type LucideIcon } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 import { cn } from '@/lib/cn';
 import { fmtNumber } from '@/lib/format';
@@ -101,6 +101,18 @@ const STAGE_LABEL: Record<string, string> = {
   true_positive: 'True positive',
 };
 
+/** Operator-requested dashboard copy. The rail is text-only; no phase pictograms. */
+const DASHBOARD_STAGE_LABEL: Record<string, string> = {
+  ingested: 'Alerts ingested',
+  clustered: 'After clustering',
+  candidate: 'Awaiting review',
+  awaiting: 'Awaiting review',
+  cases: 'Cases opened',
+  auto_cleared: 'Auto-cleared by AI',
+  escalated: 'Escalated',
+  closed: 'Closed by human',
+};
+
 /** One-line "what this stage means" copy for the per-stage hover card (plain text). */
 const STAGE_MEANING: Record<string, string> = {
   ingested: 'Every raw alert pulled from your connected sources, before any triage.',
@@ -145,7 +157,7 @@ export interface FunnelRow {
   label: string;
   total: number;
   by_severity: NoiseSeverityBreakdown;
-  /** Deterministic-code stage (ShieldCheck) vs the LLM-influenced `cases` stage (Bot). */
+  /** Deterministic-code stage vs the LLM-influenced `cases` stage. */
   deterministic: boolean;
   /** Bar width as a fraction of `topTotal` (0..1). */
   ratio: number;
@@ -484,25 +496,6 @@ function buildLayout(derived: DerivedFunnel, drops: { suppressed: number; ignore
 /* Presentation helpers.                                                       */
 /* ------------------------------------------------------------------------- */
 
-/** The circular ShieldCheck / Bot phase marker used on each stage chip. */
-function PhaseMarker({ deterministic, size = 'md' }: { deterministic: boolean; size?: 'sm' | 'md' }) {
-  const Icon: LucideIcon = deterministic ? ShieldCheck : Bot;
-  const box = size === 'sm' ? 'h-5 w-5' : 'h-6 w-6';
-  const glyph = size === 'sm' ? 'h-3 w-3' : 'h-3.5 w-3.5';
-  return (
-    <span
-      className={cn(
-        'flex shrink-0 items-center justify-center rounded-full border bg-card',
-        box,
-        deterministic ? 'border-low text-low' : 'border-info text-info',
-      )}
-      aria-hidden
-    >
-      <Icon className={glyph} focusable="false" />
-    </span>
-  );
-}
-
 /** Per-severity (or per-disposition) mini breakdown shown inside a stage hover card. */
 function StageBreakdown({ row }: { row: FunnelRow }) {
   const entries = SEV_ORDER.map(
@@ -556,7 +549,6 @@ function StageHoverContent({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <PhaseMarker deterministic={row.deterministic} size="sm" />
         <span className="text-sm font-semibold text-foreground">{row.label}</span>
         <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           {row.deterministic ? 'Deterministic' : 'AI-assisted'}
@@ -597,13 +589,30 @@ export interface NoiseFunnelProps {
   hidden?: boolean;
   /** Toggle the collapsed state (renders the show/hide control when provided). */
   onToggleHidden?: () => void;
+  /** `flat` removes card chrome and tightens the flow for the command-center canvas. */
+  variant?: 'card' | 'flat';
 }
 
-function Header({ hidden, onToggleHidden }: { hidden?: boolean; onToggleHidden?: () => void }) {
+function Header({
+  hidden,
+  onToggleHidden,
+  flat,
+}: {
+  hidden?: boolean;
+  onToggleHidden?: () => void;
+  flat?: boolean;
+}) {
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="flex items-center gap-1.5">
-        <h3 className="text-sm font-semibold text-foreground">Noise reduction</h3>
+        <h3
+          className={cn(
+            'font-semibold text-foreground',
+            flat ? 'text-2xs uppercase tracking-widest' : 'text-sm',
+          )}
+        >
+          {flat ? 'Noise reduction flow' : 'Noise reduction'}
+        </h3>
         <HelpTip label="What the noise-reduction funnel means" text={NOISE_FUNNEL_HELP_TEXT} />
       </div>
       {onToggleHidden ? (
@@ -654,6 +663,7 @@ export function NoiseFunnel({
   onStageClick,
   hidden,
   onToggleHidden,
+  variant = 'card',
 }: NoiseFunnelProps) {
   const rawUid = React.useId();
   const uid = React.useMemo(() => rawUid.replace(/[^a-zA-Z0-9_-]/g, ''), [rawUid]);
@@ -677,27 +687,44 @@ export function NoiseFunnel({
   const n = derived.rows.length;
   const casesTotal = derived.casesTotal;
   const closedByHuman = derived.rows.find((r) => r.key === 'closed')?.total ?? 0;
+  const flat = variant === 'flat';
 
   const chips = derived.rows.map((row) => {
     const pct = Math.round(row.pctRetained);
     const accessibleLabel = `${row.label}: ${row.total} ${row.total === 1 ? 'event' : 'events'}, ${pct}% ${relativeTo}`;
+    const displayLabel = flat ? DASHBOARD_STAGE_LABEL[row.key] || row.label : row.label;
+    const flatLabelTone =
+      row.key === 'cases'
+        ? 'text-critical-text'
+        : row.key === 'closed'
+          ? 'text-success-text'
+          : 'text-muted-foreground';
 
     const inner = (
       <>
-        <PhaseMarker deterministic={row.deterministic} />
         <span
-          className="max-w-full text-2xs font-medium leading-tight text-foreground"
-          title={row.label}
+          className={cn(
+            'max-w-full text-2xs font-medium leading-tight',
+            flat
+              ? `w-full text-left uppercase tracking-wider ${flatLabelTone}`
+              : 'text-foreground',
+          )}
+          title={displayLabel}
         >
-          {row.label}
+          {displayLabel}
         </span>
-        <span className="flex items-baseline gap-1">
+        <span className={cn('flex items-baseline gap-1', flat && 'w-full justify-start')}>
           <CountUp
             value={row.total}
             duration={animate ? undefined : 0}
-            className="text-sm font-semibold tabular-nums text-foreground"
+            className={cn(
+              'font-semibold tabular-nums text-foreground',
+              flat ? 'font-mono text-xl' : 'text-sm',
+            )}
           />
-          <span className="text-2xs tabular-nums text-muted-foreground">{pct}%</span>
+          <span className={cn('tabular-nums text-muted-foreground', flat ? 'text-xs' : 'text-2xs')}>
+            {pct}%
+          </span>
         </span>
       </>
     );
@@ -708,8 +735,10 @@ export function NoiseFunnel({
         onClick={() => onStageClick(row.key)}
         aria-label={accessibleLabel}
         className={cn(
-          'flex w-full flex-col items-center gap-1 rounded-md px-1 py-1.5 text-center transition-colors',
-          'hover:bg-muted/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'flex w-full flex-col gap-1 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          flat
+            ? 'items-start px-2 py-1 text-left hover:bg-muted/30'
+            : 'items-center px-1 py-1.5 text-center hover:bg-muted/60',
         )}
       >
         {inner}
@@ -718,7 +747,10 @@ export function NoiseFunnel({
       <div
         role="group"
         aria-label={accessibleLabel}
-        className="flex w-full flex-col items-center gap-1 rounded-md px-1 py-1.5 text-center"
+        className={cn(
+          'flex w-full flex-col gap-1 rounded-md',
+          flat ? 'items-start px-2 py-1 text-left' : 'items-center px-1 py-1.5 text-center',
+        )}
       >
         {inner}
       </div>
@@ -734,25 +766,38 @@ export function NoiseFunnel({
     );
   });
 
-  const gridStyle: React.CSSProperties = { gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` };
+  const gridStyle: React.CSSProperties | undefined = flat
+    ? undefined
+    : { gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` };
+  const flatGridColumns =
+    n === 4 ? 'lg:grid-cols-4' : n === 7 ? 'lg:grid-cols-7' : 'lg:grid-cols-6';
   const dropTotal = dropSuppressed + dropIgnored;
 
   return (
     <section
-      className={cn('rounded-lg border border-border bg-card p-4', className)}
+      className={cn(
+        flat ? 'min-w-0 bg-transparent' : 'min-w-0 rounded-lg border border-border bg-card p-4',
+        className,
+      )}
       role="group"
       aria-label={ariaLabel ?? 'Noise reduction funnel'}
       data-testid="noise-funnel"
     >
-      <Header hidden={hidden} onToggleHidden={onToggleHidden} />
+      <Header hidden={hidden} onToggleHidden={onToggleHidden} flat={flat} />
 
       {hidden ? null : (
-        <div className="mt-3 space-y-3">
+        <div className={cn('space-y-3', flat ? 'mt-2' : 'mt-3')}>
           {/* Hero — the value-prop headline + the ingested→human cascade. */}
           {headlinePct != null ? (
             <div>
-              <p className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                Noise reduced by <span className="text-primary tabular-nums">{headlinePct}%</span>
+              <p
+                className={cn(
+                  'font-semibold tracking-tight text-foreground',
+                  flat ? 'text-2xl' : 'text-2xl sm:text-3xl',
+                )}
+              >
+                {flat ? 'Reduced by ' : 'Noise reduced by '}
+                <span className="text-primary tabular-nums">{headlinePct}%</span>
               </p>
               <p className="mt-1 text-xs tabular-nums text-muted-foreground">
                 {fmtNumber(derived.topTotal)}{' '}
@@ -772,7 +817,7 @@ export function NoiseFunnel({
           {/* The decorative flow band — full-width, column-aligned with the rail below
               (preserveAspectRatio='none' fills the width so nodes never letterbox into a
               dead side-gutter). All meaning is carried by the interactive rail. */}
-          <div className="relative mt-1 h-44 w-full sm:h-52">
+          <div className={cn('relative mt-1 w-full', flat ? 'h-32 sm:h-36' : 'h-44 sm:h-52')}>
             <svg
               viewBox={`0 0 ${VB_W} ${VB_H}`}
               preserveAspectRatio="none"
@@ -858,11 +903,30 @@ export function NoiseFunnel({
 
           {/* The interactive + labelled rail: one focusable, hover-detailed stage per column. */}
           {animate ? (
-            <Stagger as="div" step={70} className="grid items-start gap-1" style={gridStyle} itemClassName="min-w-0">
+            <Stagger
+              as="div"
+              step={70}
+              data-testid="noise-stage-rail"
+              className={cn(
+                'grid items-start gap-1',
+                flat && 'grid-cols-2 gap-y-3 sm:grid-cols-3',
+                flat && flatGridColumns,
+              )}
+              style={gridStyle}
+              itemClassName="min-w-0"
+            >
               {chips}
             </Stagger>
           ) : (
-            <div className="grid items-start gap-1" style={gridStyle}>
+            <div
+              data-testid="noise-stage-rail"
+              className={cn(
+                'grid items-start gap-1',
+                flat && 'grid-cols-2 gap-y-3 sm:grid-cols-3',
+                flat && flatGridColumns,
+              )}
+              style={gridStyle}
+            >
               {chips}
             </div>
           )}

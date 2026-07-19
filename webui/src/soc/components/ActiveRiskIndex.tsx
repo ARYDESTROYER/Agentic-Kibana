@@ -29,7 +29,7 @@ import { ACTIVE_RISK_HELP_TEXT } from '@/soc/components/riskCopy';
 
 /** Comfortable instrument-size bounds for the responsive gauge (bug #5). */
 export const MIN_GAUGE_SIZE = 140;
-export const MAX_GAUGE_SIZE = 220;
+export const MAX_GAUGE_SIZE = 320;
 
 export interface ActiveRiskIndexProps {
   /** Mean deterministic risk (0-100) over the open cases; null when unknown/loading. */
@@ -45,6 +45,8 @@ export interface ActiveRiskIndexProps {
    * [MIN_GAUGE_SIZE, MAX_GAUGE_SIZE].
    */
   size?: number;
+  /** `flat` removes card chrome for the integrated command-center instrument band. */
+  variant?: 'card' | 'flat';
   className?: string;
 }
 
@@ -54,9 +56,9 @@ export interface ActiveRiskIndexProps {
  */
 const Caption: React.FC = () => (
   <div className="flex items-center gap-1">
-    <span className="text-2xs font-semibold uppercase tracking-widest text-muted-foreground">
+    <h2 className="text-2xs font-semibold uppercase tracking-widest text-foreground">
       Active Risk Index
-    </span>
+    </h2>
     <HelpTip text={ACTIVE_RISK_HELP_TEXT} label="What the Active Risk Index means" />
   </div>
 );
@@ -66,9 +68,12 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
   count,
   loading,
   size = 180,
+  variant = 'card',
   className,
 }) => {
   const hasOpen = (count ?? 0) > 0 && score != null && Number.isFinite(score);
+  const flat = variant === 'flat';
+  const Root: React.ElementType = flat ? 'section' : Card;
 
   // Bug #5 fix (1/2) — the gauge SCALES TO THE CARD WIDTH instead of a fixed 160/180px.
   // Measure the padded content area via ResizeObserver (identical pattern to
@@ -93,9 +98,14 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
   );
 
   return (
-    <Card
+    <Root
       data-testid="active-risk-index"
-      className={cn('flex flex-col items-center gap-2 p-5', className)}
+      aria-label={flat ? 'Active Risk Index' : undefined}
+      className={cn(
+        'flex min-w-0 flex-col items-center gap-1.5',
+        flat ? 'bg-transparent p-3' : 'p-5',
+        className,
+      )}
     >
       <Caption />
       {/* Bug #5 fix (2/2) — `flex-1` + `justify-center` so any EXTRA height the grid's
@@ -106,7 +116,7 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
       <div
         ref={wrapRef}
         data-testid="active-risk-content"
-        className="flex w-full flex-1 flex-col items-center justify-center gap-2"
+        className="flex w-full flex-1 flex-col items-center justify-center gap-1.5"
       >
         {loading ? (
           <Skeleton
@@ -145,7 +155,7 @@ export const ActiveRiskIndex: React.FC<ActiveRiskIndexProps> = ({
           </div>
         )}
       </div>
-    </Card>
+    </Root>
   );
 };
 

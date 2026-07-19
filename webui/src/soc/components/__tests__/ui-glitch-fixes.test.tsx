@@ -9,6 +9,8 @@
  * 2) SettingsCard's inner text container must carry `flex-1` and its description
  *    `<p>` must carry `break-words`, so a long single-token description wraps
  *    normally instead of one-word-per-line.
+ * 3) The Settings grid must defer its third column until 2xl because the app and
+ *    settings rails leave an xl viewport too narrow for action-bearing cards.
  */
 import * as React from 'react';
 import { describe, it, expect, vi } from 'vitest';
@@ -40,7 +42,7 @@ vi.mock('@radix-ui/react-hover-card', () => {
 });
 
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/ui/hover-card';
-import { SettingsCard } from '@/soc/components/SettingsGrid';
+import { SettingsCard, SettingsGrid } from '@/soc/components/SettingsGrid';
 
 describe('Wave-0 glitch fix — HoverCardContent collisionPadding', () => {
   it('applies a non-zero collisionPadding by default (viewport-edge clipping fix)', () => {
@@ -85,5 +87,25 @@ describe('Wave-0 glitch fix — SettingsCard description wrapping', () => {
     const p = screen.getByText(desc);
     expect(p.tagName.toLowerCase()).toBe('p');
     expect(p.className).toContain('break-words');
+  });
+
+  it('waits until 2xl for three columns and keeps full-width cards aligned', () => {
+    const { container } = render(
+      <SettingsGrid>
+        <SettingsCard title="Full width" wide="full" />
+      </SettingsGrid>,
+    );
+
+    const grid = container.firstElementChild!;
+    const gridClasses = grid.className.split(/\s+/);
+    expect(gridClasses).toContain('lg:grid-cols-2');
+    expect(gridClasses).toContain('2xl:grid-cols-3');
+    expect(gridClasses).not.toContain('xl:grid-cols-3');
+
+    const card = screen.getByText('Full width').closest('section')!;
+    const cardClasses = card.className.split(/\s+/);
+    expect(cardClasses).toContain('lg:col-span-2');
+    expect(cardClasses).toContain('2xl:col-span-3');
+    expect(cardClasses).not.toContain('xl:col-span-3');
   });
 });

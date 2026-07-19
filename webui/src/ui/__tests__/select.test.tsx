@@ -24,5 +24,11 @@ describe('SelectItem — accent hover/selected token', () => {
     expect(tokens).toContain('focus:bg-accent');
     expect(tokens).toContain('focus:text-accent-foreground');
     expect(tokens).not.toContain('focus:bg-muted');
+    expect(tokens).toContain('rounded-[3px]');
+
+    const listbox = getAllByRole('listbox')[0];
+    const surfaceTokens = listbox.className.split(/\s+/).filter(Boolean);
+    expect(surfaceTokens).toContain('rounded-[3px]');
+    expect(surfaceTokens).toContain('bg-popover');
   });
 });

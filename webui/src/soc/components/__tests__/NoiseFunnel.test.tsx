@@ -128,6 +128,9 @@ describe('NoiseFunnel', () => {
     expect(svg!.querySelectorAll('path').length).toBeGreaterThan(4);
     // Each ribbon is painted by a userSpace linear gradient (survival = end opacity).
     expect(svg!.querySelectorAll('defs linearGradient').length).toBeGreaterThan(0);
+
+    // Operator-requested rail treatment: the stage controls carry text/count/share only.
+    expect(screen.getByRole('group', { name: /^Cases opened:/i }).querySelector('svg')).toBeNull();
   });
 
   it('surfaces the terminal `closed` outcome and drops the legacy tail keys', () => {
